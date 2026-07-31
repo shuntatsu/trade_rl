@@ -11,19 +11,19 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_non_empty, require_sha256
-from trade_rl.evaluation._stage_a_zero_shot_contract_values import (
+from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
+    _SPLITS,
     STAGE_A_EVIDENCE_SCHEMA,
     STAGE_A_OBSERVATION_SCHEMA,
-    StageACandidate,
     StageAEvaluationSplit,
-    StageAZeroShotEvaluationPlan,
-    _SPLITS,
     _finite,
     _non_negative_int,
     _unique_digests,
     _unique_ints,
     _unique_strings,
 )
+from trade_rl.evaluation._stage_a_zero_shot_plan import StageAZeroShotEvaluationPlan
+
 
 @dataclass(frozen=True, slots=True)
 class StageAEvaluationObservation:
@@ -204,7 +204,11 @@ class StageAEvaluationEvidence:
                 ("dataset", observation.dataset_identity, plan.dataset_identity),
                 ("feature", observation.feature_identity, plan.feature_identity),
                 ("execution", observation.execution_identity, plan.execution_identity),
-                ("evaluation", observation.evaluation_identity, plan.evaluation_identity),
+                (
+                    "evaluation",
+                    observation.evaluation_identity,
+                    plan.evaluation_identity,
+                ),
             ):
                 if actual != expected:
                     raise ValueError(f"Stage A observation {label} identity mismatch")
@@ -213,11 +217,15 @@ class StageAEvaluationEvidence:
             ):
                 raise ValueError("Stage A observation checkpoint digest mismatch")
 
-    def observations_for(self, candidate_id: str) -> tuple[StageAEvaluationObservation, ...]:
+    def observations_for(
+        self, candidate_id: str
+    ) -> tuple[StageAEvaluationObservation, ...]:
         resolved = require_non_empty(candidate_id, field="stage_a_candidate_id")
         if resolved not in self.candidate_ids:
             raise ValueError("Stage A evidence candidate is not present")
-        return tuple(item for item in self.observations if item.candidate_id == resolved)
+        return tuple(
+            item for item in self.observations if item.candidate_id == resolved
+        )
 
     def digest_payload(self) -> dict[str, object]:
         return {
@@ -235,7 +243,9 @@ class StageAEvaluationEvidence:
         return {"digest": self.digest, **self.digest_payload()}
 
 
-def build_stage_a_zero_shot_evaluation_plan(**kwargs: object) -> StageAZeroShotEvaluationPlan:
+def build_stage_a_zero_shot_evaluation_plan(
+    **kwargs: object,
+) -> StageAZeroShotEvaluationPlan:
     return StageAZeroShotEvaluationPlan(**kwargs)  # type: ignore[arg-type]
 
 
@@ -271,5 +281,3 @@ def write_stage_a_evaluation_evidence(
     path: str | Path, evidence: StageAEvaluationEvidence
 ) -> Path:
     return atomic_write_bytes(path, canonical_json_bytes(evidence.to_json_dict()))
-
-

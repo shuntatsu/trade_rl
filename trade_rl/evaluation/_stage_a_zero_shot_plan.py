@@ -19,6 +19,7 @@ from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
     _unique_ints,
 )
 
+
 @dataclass(frozen=True, slots=True)
 class StageAZeroShotEvaluationPlan:
     """Predeclared identities and statistical thresholds for Stage A evaluation."""
@@ -140,7 +141,9 @@ class StageAZeroShotEvaluationPlan:
         object.__setattr__(
             self, "minimum_validation_triplet_pass_fraction", validation_pass_fraction
         )
-        object.__setattr__(self, "minimum_test_triplet_pass_fraction", test_pass_fraction)
+        object.__setattr__(
+            self, "minimum_test_triplet_pass_fraction", test_pass_fraction
+        )
         expected_digest = content_digest(self.digest_payload())
         if self.digest and self.digest != expected_digest:
             raise ValueError("Stage A evaluation plan digest mismatch")
@@ -164,7 +167,9 @@ class StageAZeroShotEvaluationPlan:
             return self.test_triplet_ids
         raise ValueError("Stage A evaluation split is invalid")
 
-    def gate_thresholds(self, split: StageAEvaluationSplit | str) -> tuple[float, float, float, float]:
+    def gate_thresholds(
+        self, split: StageAEvaluationSplit | str
+    ) -> tuple[float, float, float, float]:
         if split == "validation":
             return (
                 self.minimum_validation_lower_bound,
@@ -218,5 +223,3 @@ class StageAZeroShotEvaluationPlan:
 
     def to_json_dict(self) -> dict[str, object]:
         return {"digest": self.digest, **self.digest_payload()}
-
-

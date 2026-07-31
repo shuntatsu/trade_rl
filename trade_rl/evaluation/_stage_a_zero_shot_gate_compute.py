@@ -23,6 +23,7 @@ from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageAZeroShotEvaluationPlan,
 )
 
+
 def _bootstrap_lower_bound(
     fold_values: tuple[float, ...],
     *,
@@ -189,7 +190,9 @@ def evaluate_stage_a_sealed_test(
         plan=plan, evidence=validation_evidence
     )
     if selection != expected_selection:
-        raise ValueError("Stage A validation selection does not match validation recomputation")
+        raise ValueError(
+            "Stage A validation selection does not match validation recomputation"
+        )
     evidence.validate_plan(plan)
     if evidence.split != "test":
         raise ValueError("Stage A sealed-test gate requires test evidence")
@@ -197,7 +200,9 @@ def evaluate_stage_a_sealed_test(
         raise ValueError("Stage A sealed test requires a passed validation selection")
     expected_candidates = (selection.selected_candidate_id,)
     if evidence.candidate_ids != expected_candidates:
-        raise ValueError("Stage A test evidence must contain exactly the selected candidate")
+        raise ValueError(
+            "Stage A test evidence must contain exactly the selected candidate"
+        )
     summary = summarize_stage_a_candidate(
         plan=plan, evidence=evidence, candidate_id=selection.selected_candidate_id
     )
@@ -227,5 +232,3 @@ def evaluate_stage_a_sealed_test(
         passed=passed,
         reason=reason,
     )
-
-

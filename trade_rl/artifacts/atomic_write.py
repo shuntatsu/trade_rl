@@ -22,9 +22,7 @@ def atomic_write_bytes(path: str | Path, payload: bytes) -> Path:
 
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_name(
-        f".{output.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}"
-    )
+    temporary = output.with_name(f".{output.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")
     try:
         with temporary.open("xb") as handle:
             handle.write(payload)

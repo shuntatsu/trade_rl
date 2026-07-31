@@ -15,6 +15,7 @@ from trade_rl.evaluation._stage_a_zero_shot_gate_values import (
     _summary_meets_gate,
 )
 
+
 @dataclass(frozen=True, slots=True)
 class StageAValidationSelection:
     """Validation-only deterministic candidate selection artifact."""
@@ -87,7 +88,9 @@ class StageAValidationSelection:
         )
         if eligible:
             if not self.passed:
-                raise ValueError("Stage A validation selection cannot fail with an eligible candidate")
+                raise ValueError(
+                    "Stage A validation selection cannot fail with an eligible candidate"
+                )
             expected = min(
                 eligible,
                 key=lambda item: (
@@ -99,12 +102,16 @@ class StageAValidationSelection:
                 ),
             )
             if self.selected_candidate_id != expected.candidate_id:
-                raise ValueError("Stage A validation selection must use the deterministic winner")
+                raise ValueError(
+                    "Stage A validation selection must use the deterministic winner"
+                )
             if reason != "candidate_selected_by_validation_gate":
                 raise ValueError("Stage A validation selection reason mismatch")
         else:
             if self.passed or self.selected_candidate_id is not None:
-                raise ValueError("Stage A validation selection cannot pass without an eligible candidate")
+                raise ValueError(
+                    "Stage A validation selection cannot pass without an eligible candidate"
+                )
             if reason != "no_candidate_met_validation_gate":
                 raise ValueError("Stage A validation selection reason mismatch")
         object.__setattr__(self, "candidate_summaries", summaries)
@@ -127,7 +134,9 @@ class StageAValidationSelection:
 
     def digest_payload(self) -> dict[str, object]:
         return {
-            "candidate_summaries": tuple(item.to_json_dict() for item in self.candidate_summaries),
+            "candidate_summaries": tuple(
+                item.to_json_dict() for item in self.candidate_summaries
+            ),
             "minimum_lower_bound": self.minimum_lower_bound,
             "minimum_triplet_pass_fraction": self.minimum_triplet_pass_fraction,
             "minimum_worst_seed_excess": self.minimum_worst_seed_excess,
@@ -170,7 +179,9 @@ class StageASealedTestDecision:
             self.validation_selection_digest,
             field="stage_a_test.validation_selection_digest",
         )
-        require_sha256(self.test_evidence_digest, field="stage_a_test.test_evidence_digest")
+        require_sha256(
+            self.test_evidence_digest, field="stage_a_test.test_evidence_digest"
+        )
         candidate_id = require_non_empty(
             self.selected_candidate_id, field="stage_a_test.selected_candidate_id"
         )
@@ -243,5 +254,3 @@ class StageASealedTestDecision:
 
     def to_json_dict(self) -> dict[str, object]:
         return {"digest": self.digest, **self.digest_payload()}
-
-

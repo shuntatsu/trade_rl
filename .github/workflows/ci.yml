@@ -1,194 +1,242 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
+      - agent/causal-training-hardening
+      - agent/causal-sequence-feature-encoder
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  format_stage_a_zero_shot_fix:
-    name: Format Stage A repair
-    if: github.head_ref == 'agent/harden-stage-a-zero-shot-evaluation'
+  quality:
+    name: Rebuilt Core
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
-          python-version: '3.12'
+          python-version: "3.12"
           enable-cache: true
-      - name: Install focused test dependencies
-        run: uv sync --extra dev
-      - name: Repair private import boundaries
+
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+
+      - name: Install Studio frontend
+        run: npm ci --prefix studio --no-audit --no-fund
+
+      - name: Verify Studio frontend
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            npm test --prefix studio -- --run
+            npm run typecheck --prefix studio
+            npm run build --prefix studio
+          } 2>&1 | tee studio-frontend.log
+
+      - name: Verify Studio fixed viewport layout
+        env:
+          STUDIO_QA_OUTPUT_DIR: studio/qa-screenshots
+        run: npm run check:layout --prefix studio
+
+      - name: Upload Studio layout diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: studio-layout-diagnostics
+          path: |
+            studio-frontend.log
+            studio/qa-screenshots
+          if-no-files-found: error
+
+      - name: Workflow security
+        run: uv run python .github/check_workflow_security.py .
+
+      - name: Ruff
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check . 2>&1 | tee ruff.log
+
+      - name: Format
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff format --check --diff . 2>&1 | tee format.log
+
+      - name: Mypy
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run mypy . 2>&1 | tee mypy.log
+
+      - name: Upload static diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: static-diagnostics
+          path: |
+            ruff.log
+            format.log
+            mypy.log
+          if-no-files-found: ignore
+
+      - name: Import architecture
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run lint-imports 2>&1 | tee import-linter.log
+
+      - name: Upload architecture diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-diagnostics
+          path: import-linter.log
+          if-no-files-found: error
+
+      - name: Dead-code report
+        run: uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Recovery and structured serving smoke
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
+          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
+
+      - name: Tests and coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee pytest.log
+
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pytest-diagnostics
+          path: |
+            pytest.log
+            coverage.json
+          if-no-files-found: ignore
+
+      - name: Critical branch coverage
+        run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+
+      - name: CLI smoke test
+        run: uv run trade-rl --version
+
+  compatibility:
+    name: Compatibility (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Compatibility tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log
+      - name: Upload compatibility diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compatibility-${{ matrix.os }}
+          path: compatibility.log
+          if-no-files-found: error
+
+  training-image:
+    name: Training image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Build complete training image
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$source_digest" \
+            --build-arg TRADE_RL_LOCKFILE_DIGEST="$lock_digest" \
+            --file Dockerfile.training \
+            --tag trade-rl-training:ci \
+            .
 
-          root = Path('trade_rl/evaluation')
-          (root / '_stage_a_zero_shot_contract_values.py').write_text(
-              '''"""Core public value exports for Stage A zero-shot evaluation contracts."""
-
-          from trade_rl.evaluation._stage_a_zero_shot_candidate import StageACandidate
-          from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
-              MAX_STAGE_A_BOOTSTRAP_RESAMPLES,
-              STAGE_A_CANDIDATE_SCHEMA,
-              STAGE_A_EVALUATION_PLAN_SCHEMA,
-              STAGE_A_EVIDENCE_SCHEMA,
-              STAGE_A_OBSERVATION_SCHEMA,
-              StageAEvaluationSplit,
-          )
-          from trade_rl.evaluation._stage_a_zero_shot_plan import StageAZeroShotEvaluationPlan
-
-          __all__ = [
-              "MAX_STAGE_A_BOOTSTRAP_RESAMPLES",
-              "STAGE_A_CANDIDATE_SCHEMA",
-              "STAGE_A_EVALUATION_PLAN_SCHEMA",
-              "STAGE_A_EVIDENCE_SCHEMA",
-              "STAGE_A_OBSERVATION_SCHEMA",
-              "StageACandidate",
-              "StageAEvaluationSplit",
-              "StageAZeroShotEvaluationPlan",
-          ]
-          ''',
-              encoding='utf-8',
-          )
-
-          path = root / '_stage_a_zero_shot_contract_io.py'
-          text = path.read_text(encoding='utf-8')
-          old = '''from trade_rl.evaluation._stage_a_zero_shot_contract_values import (
-              StageACandidate,
-              StageAEvaluationSplit,
-              StageAZeroShotEvaluationPlan,
-              _integer,
-              _list,
-              _number,
-              _object,
-              _require_fields,
-              _string,
-          )
-          '''
-          new = '''from trade_rl.evaluation._stage_a_zero_shot_candidate import StageACandidate
-          from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
-              StageAEvaluationSplit,
-              _integer,
-              _list,
-              _number,
-              _object,
-              _require_fields,
-              _string,
-          )
-          from trade_rl.evaluation._stage_a_zero_shot_plan import StageAZeroShotEvaluationPlan
-          '''
-          if old not in text:
-              raise SystemExit('contract IO import boundary did not match expected source')
-          path.write_text(text.replace(old, new), encoding='utf-8')
-
-          path = root / '_stage_a_zero_shot_evidence.py'
-          text = path.read_text(encoding='utf-8')
-          old = '''from trade_rl.evaluation._stage_a_zero_shot_contract_values import (
-              STAGE_A_EVIDENCE_SCHEMA,
-              STAGE_A_OBSERVATION_SCHEMA,
-              StageACandidate,
-              StageAEvaluationSplit,
-              StageAZeroShotEvaluationPlan,
-              _SPLITS,
-              _finite,
-              _non_negative_int,
-              _unique_digests,
-              _unique_ints,
-              _unique_strings,
-          )
-          '''
-          new = '''from trade_rl.evaluation._stage_a_zero_shot_candidate import StageACandidate
-          from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
-              STAGE_A_EVIDENCE_SCHEMA,
-              STAGE_A_OBSERVATION_SCHEMA,
-              StageAEvaluationSplit,
-              _SPLITS,
-              _finite,
-              _non_negative_int,
-              _unique_digests,
-              _unique_ints,
-              _unique_strings,
-          )
-          from trade_rl.evaluation._stage_a_zero_shot_plan import StageAZeroShotEvaluationPlan
-          '''
-          if old not in text:
-              raise SystemExit('evidence import boundary did not match expected source')
-          path.write_text(text.replace(old, new), encoding='utf-8')
-
-          path = root / 'stage_a_zero_shot_gate.py'
-          text = path.read_text(encoding='utf-8')
-          old = '''from trade_rl.evaluation._stage_a_zero_shot_gate_values import (
-              STAGE_A_CANDIDATE_SUMMARY_SCHEMA,
-              STAGE_A_SEALED_TEST_DECISION_SCHEMA,
-              STAGE_A_VALIDATION_SELECTION_SCHEMA,
-              StageACandidateSummary,
-          )
-          '''
-          new = '''from trade_rl.evaluation._stage_a_zero_shot_gate_values import (
-              STAGE_A_CANDIDATE_SUMMARY_SCHEMA as STAGE_A_CANDIDATE_SUMMARY_SCHEMA,
-              STAGE_A_SEALED_TEST_DECISION_SCHEMA as STAGE_A_SEALED_TEST_DECISION_SCHEMA,
-              STAGE_A_VALIDATION_SELECTION_SCHEMA as STAGE_A_VALIDATION_SELECTION_SCHEMA,
-              StageACandidateSummary,
-          )
-          '''
-          if old not in text:
-              raise SystemExit('gate public re-export boundary did not match expected source')
-          path.write_text(text.replace(old, new), encoding='utf-8')
-          PY
-      - name: Apply Ruff fixes and verify focused regressions
+      - name: Record training image identity
         shell: bash
         run: |
           set -euo pipefail
-          uv run ruff check . --fix
-          uv run ruff format .
-          uv run ruff check .
-          uv run ruff format --check .
-          uv run pytest -q \
-            tests/evaluation/test_seed_robustness.py \
-            tests/evaluation/test_research_gate.py \
-            tests/evaluation/test_bootstrap_v2.py \
-            tests/evaluation/walk_forward/test_sealed_test.py \
-            tests/evaluation/test_stage_a_zero_shot_contracts.py \
-            tests/evaluation/test_stage_a_zero_shot_gate.py \
-            tests/evaluation/test_stage_a_zero_shot_hardening.py
-          uv run python - <<'PY'
-          import trade_rl.evaluation.stage_a_zero_shot_contracts as contracts
-          import trade_rl.evaluation.stage_a_zero_shot_gate as gate
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          image_id="$(docker image inspect --format '{{.Id}}' trade-rl-training:ci)"
+          repo_digests="$(docker image inspect --format '{{json .RepoDigests}}' trade-rl-training:ci)"
+          {
+            printf 'commit_sha=%s\n' "$commit"
+            printf 'source_tree_digest=%s\n' "$source_digest"
+            printf 'lockfile_digest=%s\n' "$lock_digest"
+            printf 'image_id=%s\n' "$image_id"
+            printf 'repo_digests=%s\n' "$repo_digests"
+          } > training-image-evidence.txt
 
-          for module, names in (
-              (contracts, (
-                  'StageACandidate',
-                  'StageAEvaluationEvidence',
-                  'StageAEvaluationObservation',
-                  'StageAZeroShotEvaluationPlan',
-              )),
-              (gate, (
-                  'STAGE_A_CANDIDATE_SUMMARY_SCHEMA',
-                  'STAGE_A_SEALED_TEST_DECISION_SCHEMA',
-                  'STAGE_A_VALIDATION_SELECTION_SCHEMA',
-                  'StageACandidateSummary',
-              )),
-          ):
-              for name in names:
-                  assert hasattr(module, name), (module.__name__, name)
-          PY
-          git fetch --depth=1 origin main
-          git show FETCH_HEAD:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git diff --cached --quiet && { echo 'No formatting changes to commit'; exit 1; }
-          git commit -m 'Format Stage A zero-shot hardening'
-          git push origin HEAD:agent/harden-stage-a-zero-shot-evaluation
+      - name: Upload training image identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: training-image-evidence
+          path: training-image-evidence.txt
+          if-no-files-found: error
+
+      - name: Probe packaged non-root runtime
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh trade-rl-training:ci -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '

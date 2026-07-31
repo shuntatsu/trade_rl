@@ -11,6 +11,7 @@ from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
     _non_negative_int,
 )
 
+
 @dataclass(frozen=True, slots=True)
 class StageACandidate:
     """One exact trained candidate and its retained per-seed checkpoints."""
@@ -78,7 +79,9 @@ class StageACandidate:
         try:
             return dict(self.checkpoint_digests)[resolved]
         except KeyError as error:
-            raise ValueError("Stage A candidate checkpoint seed is not declared") from error
+            raise ValueError(
+                "Stage A candidate checkpoint seed is not declared"
+            ) from error
 
     def digest_payload(self) -> dict[str, object]:
         return {

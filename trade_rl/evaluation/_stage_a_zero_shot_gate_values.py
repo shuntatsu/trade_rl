@@ -207,7 +207,9 @@ class StageACandidateSummary:
             field="stage_a_summary.triplet_pass_excess_threshold",
         )
         if pass_threshold != _TRIPLET_PASS_EXCESS_THRESHOLD:
-            raise ValueError("Stage A candidate summary triplet pass threshold mismatch")
+            raise ValueError(
+                "Stage A candidate summary triplet pass threshold mismatch"
+            )
         pass_fraction = _fraction(
             self.triplet_pass_fraction, field="stage_a_summary.triplet_pass_fraction"
         )
@@ -283,10 +285,7 @@ def _summary_meets_gate(
 ) -> bool:
     return (
         summary.lower_confidence_bound >= minimum_lower_bound
-        and summary.worst_triplet_excess_log_growth
-        >= minimum_worst_triplet_excess
+        and summary.worst_triplet_excess_log_growth >= minimum_worst_triplet_excess
         and summary.worst_seed_excess_log_growth >= minimum_worst_seed_excess
         and summary.triplet_pass_fraction >= minimum_triplet_pass_fraction
     )
-
-

@@ -115,5 +115,3 @@ def _require_fields(
 ) -> None:
     if set(payload) != expected:
         raise ValueError(f"{label} field closure mismatch")
-
-

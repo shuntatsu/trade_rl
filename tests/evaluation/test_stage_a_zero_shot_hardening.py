@@ -108,8 +108,7 @@ def _observation(
             f"policy-{candidate_id}-{split}-{triplet_id}-{fold}-{seed}"
         ),
         baseline_execution_evidence_digest=(
-            baseline_digest
-            or _digest(f"baseline-{split}-{triplet_id}-{fold}-{seed}")
+            baseline_digest or _digest(f"baseline-{split}-{triplet_id}-{fold}-{seed}")
         ),
         policy_log_growth=policy_growth,
         baseline_log_growth=baseline_growth,
@@ -169,7 +168,9 @@ def test_sealed_test_recomputes_validation_selection_from_validation_evidence() 
     forged_summaries = tuple(
         replace(
             summary,
-            lower_confidence_bound=(0.04 if summary.candidate_id == "candidate-b" else 0.02),
+            lower_confidence_bound=(
+                0.04 if summary.candidate_id == "candidate-b" else 0.02
+            ),
             digest="",
         )
         for summary in actual.candidate_summaries
@@ -224,7 +225,9 @@ def test_evidence_rejects_candidate_dependent_baseline_for_the_same_cell() -> No
                             fold=fold,
                             seed=seed,
                             policy_growth=0.03,
-                            baseline_growth=(0.01 if candidate_id == "candidate-a" else 0.02),
+                            baseline_growth=(
+                                0.01 if candidate_id == "candidate-a" else 0.02
+                            ),
                             baseline_digest=_digest(
                                 f"baseline-{candidate_id}-{triplet_id}-{fold}-{seed}"
                             ),
@@ -258,7 +261,9 @@ def test_evidence_revalidates_feature_execution_and_evaluation_identities() -> N
                             baseline_growth=0.01,
                             execution_identity=(
                                 _digest("wrong-execution")
-                                if candidate_id == "candidate-a" and fold == 0 and seed == 0
+                                if candidate_id == "candidate-a"
+                                and fold == 0
+                                and seed == 0
                                 else plan.execution_identity
                             ),
                         )
@@ -337,10 +342,22 @@ def test_bootstrap_plan_caps_resamples_and_uses_common_draw_seed() -> None:
 @pytest.mark.parametrize(
     "writer,value_factory",
     [
-        (write_stage_a_zero_shot_evaluation_plan, lambda plan, evidence, selection, decision: plan),
-        (write_stage_a_evaluation_evidence, lambda plan, evidence, selection, decision: evidence),
-        (write_stage_a_validation_selection, lambda plan, evidence, selection, decision: selection),
-        (write_stage_a_sealed_test_decision, lambda plan, evidence, selection, decision: decision),
+        (
+            write_stage_a_zero_shot_evaluation_plan,
+            lambda plan, evidence, selection, decision: plan,
+        ),
+        (
+            write_stage_a_evaluation_evidence,
+            lambda plan, evidence, selection, decision: evidence,
+        ),
+        (
+            write_stage_a_validation_selection,
+            lambda plan, evidence, selection, decision: selection,
+        ),
+        (
+            write_stage_a_sealed_test_decision,
+            lambda plan, evidence, selection, decision: decision,
+        ),
     ],
 )
 def test_stage_a_writers_preserve_existing_file_when_atomic_replace_fails(
@@ -388,7 +405,9 @@ def test_stage_a_writers_preserve_existing_file_when_atomic_replace_fails(
     path = tmp_path / "artifact.json"
     path.write_bytes(b"previous")
 
-    def fail_replace(source: os.PathLike[str] | str, destination: os.PathLike[str] | str) -> None:
+    def fail_replace(
+        source: os.PathLike[str] | str, destination: os.PathLike[str] | str
+    ) -> None:
         raise OSError("replace failed")
 
     monkeypatch.setattr(os, "replace", fail_replace)

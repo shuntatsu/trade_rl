@@ -127,12 +127,14 @@ class SymbolTripletStageStatePointer:
             ("cursor_digest", self.cursor_digest),
         ):
             require_sha256(value, field=f"stage_state_pointer.{field}")
-        for field, value in (
+        for optional_field, optional_value in (
             ("completion_digest", self.completion_digest),
             ("previous_pointer_digest", self.previous_pointer_digest),
         ):
-            if value is not None:
-                require_sha256(value, field=f"stage_state_pointer.{field}")
+            if optional_value is not None:
+                require_sha256(
+                    optional_value, field=f"stage_state_pointer.{optional_field}"
+                )
         expected = content_digest(self.digest_payload())
         if self.digest and self.digest != expected:
             raise ValueError("symbol-triplet state pointer digest mismatch")

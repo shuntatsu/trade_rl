@@ -525,14 +525,16 @@ def validate_execution_promotion(
             require_sha256(expected, field=f"expected_{field.replace(' ', '_')}")
             if expected != actual:
                 raise ExecutionPromotionError(f"execution {field} identity mismatch")
-    for expected, actual, field in (
+    for expected_integer, actual_integer, integer_field in (
         (expected_fold, artifact.replay_identity.fold, "fold"),
         (expected_seed, artifact.replay_identity.seed, "seed"),
     ):
-        if expected is not None:
-            _non_negative_integer(expected, field=f"expected_{field}")
-            if expected != actual:
-                raise ExecutionPromotionError(f"execution {field} identity mismatch")
+        if expected_integer is not None:
+            _non_negative_integer(expected_integer, field=f"expected_{integer_field}")
+            if expected_integer != actual_integer:
+                raise ExecutionPromotionError(
+                    f"execution {integer_field} identity mismatch"
+                )
     return ExecutionPromotionDecision(
         promotable=True,
         evidence_digest=evidence.digest,

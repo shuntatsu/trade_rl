@@ -909,7 +909,7 @@ class OrderEvent:
             self.new_status, OrderStatus
         ):
             raise OrderDomainError("event statuses must be OrderStatus values")
-        for name, value in (
+        for numeric_name, numeric_value in (
             ("requested_quantity", self.requested_quantity),
             ("remaining_quantity", self.remaining_quantity),
             ("filled_quantity", self.filled_quantity),
@@ -919,8 +919,8 @@ class OrderEvent:
             ("participation_rate", self.participation_rate),
             ("available_volume_fraction", self.available_volume_fraction),
         ):
-            if not _is_finite(value):
-                raise OrderDomainError(f"{name} must be finite")
+            if not _is_finite(numeric_value):
+                raise OrderDomainError(f"{numeric_name} must be finite")
         if abs(self.requested_quantity) <= _QUANTITY_TOLERANCE:
             raise OrderDomainError("requested_quantity must be non-zero")
         if self.filled_notional < 0.0:

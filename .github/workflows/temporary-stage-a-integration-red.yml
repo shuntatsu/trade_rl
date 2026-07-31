@@ -20,54 +20,40 @@ jobs:
           ref: fix/evidence-stage-transaction-v2
           persist-credentials: true
 
-      - name: Patch merged Stage A tests and add substitution regressions
+      - name: Patch Stage A fixtures for strict execution artifacts
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
-          root = Path('.')
-          files = {
-              'tests/workflows/test_stage_a_execution_replay.py': '''    event = _event(request.dataset_identity, request.execution_identity)
-              event_artifact = build_execution_event_artifact(
-                  dataset_id=request.dataset_identity,
-                  execution_policy_digest=request.execution_identity,
-                  order_events=(event,),
-                  terminal_book=BookState(
-                      quantities=np.array((1.0,), dtype=np.float64),
-                      cash=terminal_equity - 100.0,
-                      mark_prices=np.array((100.0,), dtype=np.float64),
-                      peak_value=max(1_000.0, terminal_equity),
-                  ),
-                  terminal_order_book=OrderBookState.empty(),
-              )''',
-              'tests/workflows/test_stage_a_execution_store.py': '''    event_artifact = build_execution_event_artifact(
-                  dataset_id=request.dataset_identity,
-                  execution_policy_digest=request.execution_identity,
-                  order_events=(_event(request.dataset_identity, request.execution_identity),),
-                  terminal_book=BookState(
-                      quantities=np.array((1.0,), dtype=np.float64),
-                      cash=terminal_equity - 100.0,
-                      mark_prices=np.array((100.0,), dtype=np.float64),
-                      peak_value=max(1_000.0, terminal_equity),
-                  ),
-                  terminal_order_book=OrderBookState.empty(),
-              )''',
-              'tests/workflows/test_stage_a_production_evaluator.py': '''    event_artifact = build_execution_event_artifact(
-                  dataset_id=request.dataset_identity,
-                  execution_policy_digest=request.execution_identity,
-                  order_events=(_event(request),),
-                  terminal_book=BookState(
-                      quantities=np.array((1.0,), dtype=np.float64),
-                      cash=final_equity - 100.0,
-                      mark_prices=np.array((100.0,), dtype=np.float64),
-                      peak_value=max(1_000.0, final_equity),
-                  ),
-                  terminal_order_book=OrderBookState.empty(),
-              )''',
-          }
-          replacements = {
-              'tests/workflows/test_stage_a_execution_replay.py': '''    candidate_config_digest = (
+          def update(path_name: str, pattern: str, replacement: str) -> None:
+              path = Path(path_name)
+              text = path.read_text(encoding="utf-8")
+              if "from tests.evaluation.replay_support import execution_episode\n" not in text:
+                  marker = "import pytest\n\n" if "import pytest\n\n" in text else "import numpy as np\n\n"
+                  text = text.replace(
+                      marker,
+                      marker + "from tests.evaluation.replay_support import execution_episode\n",
+                      1,
+                  )
+              text = text.replace("import numpy as np\n", "")
+              text = text.replace("from trade_rl.simulation.accounting import BookState\n", "")
+              text = text.replace(
+                  "from trade_rl.simulation.orders import OrderBookState, OrderEvent, OrderStatus",
+                  "from trade_rl.simulation.orders import OrderEvent, OrderStatus",
+              )
+              text, count = re.subn(pattern, replacement, text, count=1, flags=re.DOTALL)
+              if count != 1:
+                  raise SystemExit(f"{path_name}: fixture block replacement count={count}")
+              path.write_text(text, encoding="utf-8")
+
+          update(
+              "tests/workflows/test_stage_a_execution_replay.py",
+              r"    event = _event\(request\.dataset_identity, request\.execution_identity\)\n"
+              r"    event_artifact = build_execution_event_artifact\(.*?\n"
+              r"    \)\n    event_path = write_execution_event_artifact",
+              '''    candidate_config_digest = (
                   _digest("candidate-a:config")
                   if request.candidate_id is not None
                   else _digest("baseline:config")
@@ -93,8 +79,14 @@ jobs:
                   order_events=events,
                   terminal_book=terminal_book,
                   terminal_order_book=terminal_order_book,
-              )''',
-              'tests/workflows/test_stage_a_execution_store.py': '''    candidate_config_digest = plan.candidate("candidate-a").candidate_config_digest
+              )
+              event_path = write_execution_event_artifact''',
+          )
+          update(
+              "tests/workflows/test_stage_a_execution_store.py",
+              r"    event_artifact = build_execution_event_artifact\(.*?\n"
+              r"    \)\n    event_path = write_execution_event_artifact",
+              '''    candidate_config_digest = plan.candidate("candidate-a").candidate_config_digest
               observations = (_digest("observation-0"), _digest("observation-1"))
               actions = ((0.4,),)
               equity = (1_000.0, terminal_equity)
@@ -116,8 +108,14 @@ jobs:
                   order_events=events,
                   terminal_book=terminal_book,
                   terminal_order_book=terminal_order_book,
-              )''',
-              'tests/workflows/test_stage_a_production_evaluator.py': '''    observations = (_digest("observation-0"), _digest("observation-1"))
+              )
+              event_path = write_execution_event_artifact''',
+          )
+          update(
+              "tests/workflows/test_stage_a_production_evaluator.py",
+              r"    event_artifact = build_execution_event_artifact\(.*?\n"
+              r"    \)\n    event_path = write_execution_event_artifact",
+              '''    observations = (_digest("observation-0"), _digest("observation-1"))
               actions = ((0.4,),)
               equity = (1_000.0, final_equity)
               events, terminal_book, terminal_order_book = execution_episode(
@@ -138,63 +136,46 @@ jobs:
                   order_events=events,
                   terminal_book=terminal_book,
                   terminal_order_book=terminal_order_book,
-              )''',
-          }
-          for name, old in files.items():
-              path = root / name
-              text = path.read_text(encoding='utf-8')
-              if text.count(old) != 1:
-                  raise SystemExit(f'{name}: expected one old event block, found {text.count(old)}')
-              if 'from tests.evaluation.replay_support import execution_episode\n' not in text:
-                  marker = 'import pytest\n\n'
-                  if marker not in text:
-                      raise SystemExit(f'{name}: pytest import marker missing')
-                  text = text.replace(
-                      marker,
-                      marker + 'from tests.evaluation.replay_support import execution_episode\n',
-                      1,
-                  )
-              text = text.replace(old, replacements[name], 1)
-              path.write_text(text, encoding='utf-8')
+              )
+              event_path = write_execution_event_artifact''',
+          )
 
-          orchestration = root / 'tests/workflows/test_stage_a_production_orchestration.py'
-          text = orchestration.read_text(encoding='utf-8')
-          if 'from tests.evaluation.replay_support import execution_episode\n' not in text:
+          path = Path("tests/workflows/test_stage_a_production_orchestration.py")
+          text = path.read_text(encoding="utf-8")
+          if "from tests.evaluation.replay_support import execution_episode\n" not in text:
               text = text.replace(
-                  'import numpy as np\n\n',
-                  'import numpy as np\n\nfrom tests.evaluation.replay_support import execution_episode\n',
+                  "import numpy as np\n\n",
+                  "from tests.evaluation.replay_support import execution_episode\n\n",
                   1,
               )
-          old_signature = '''def _promotion_sources(
+          text = text.replace("import numpy as np\n", "")
+          text = text.replace("from trade_rl.simulation.accounting import BookState\n", "")
+          text = text.replace(
+              "from trade_rl.simulation.orders import OrderBookState, OrderEvent, OrderStatus",
+              "from trade_rl.simulation.orders import OrderEvent, OrderStatus",
+          )
+          text = text.replace(
+              '''def _promotion_sources(
               root: Path,
               plan: StageAZeroShotEvaluationPlan,
               *,
               terminal_equity: float,
-          ) -> tuple[Path, Path]:'''
-          new_signature = '''def _promotion_sources(
+          ) -> tuple[Path, Path]:''',
+              '''def _promotion_sources(
               root: Path,
               plan: StageAZeroShotEvaluationPlan,
               *,
               request: StageAEvaluationCellRequest,
               candidate_config_digest: str,
               terminal_equity: float,
-          ) -> tuple[Path, Path]:'''
-          if text.count(old_signature) != 1:
-              raise SystemExit('orchestration helper signature mismatch')
-          text = text.replace(old_signature, new_signature, 1)
-          old_block = '''    event_artifact = build_execution_event_artifact(
-              dataset_id=plan.dataset_identity,
-              execution_policy_digest=plan.execution_identity,
-              order_events=(_event(plan),),
-              terminal_book=BookState(
-                  quantities=np.array((1.0,), dtype=np.float64),
-                  cash=terminal_equity - 100.0,
-                  mark_prices=np.array((100.0,), dtype=np.float64),
-                  peak_value=max(1_000.0, terminal_equity),
-              ),
-              terminal_order_book=OrderBookState.empty(),
-          )'''
-          new_block = '''    observations = (
+          ) -> tuple[Path, Path]:''',
+              1,
+          )
+          pattern = (
+              r"    event_artifact = build_execution_event_artifact\(.*?\n"
+              r"    \)\n    event_path = write_execution_event_artifact"
+          )
+          replacement = '''    observations = (
               _digest(f"observation:{request.digest}:0"),
               _digest(f"observation:{request.digest}:1"),
           )
@@ -218,10 +199,11 @@ jobs:
               order_events=events,
               terminal_book=terminal_book,
               terminal_order_book=terminal_order_book,
-          )'''
-          if text.count(old_block) != 1:
-              raise SystemExit('orchestration event block mismatch')
-          text = text.replace(old_block, new_block, 1)
+          )
+          event_path = write_execution_event_artifact'''
+          text, count = re.subn(pattern, replacement, text, count=1, flags=re.DOTALL)
+          if count != 1:
+              raise SystemExit(f"orchestration fixture block replacement count={count}")
           old_call = '''                event_path, evidence_path = _promotion_sources(
                       root / "source" / request.digest,
                       plan,
@@ -235,194 +217,17 @@ jobs:
                       terminal_equity=terminal_equity,
                   )'''
           if text.count(old_call) != 1:
-              raise SystemExit('orchestration helper call mismatch')
+              raise SystemExit("orchestration helper call mismatch")
           text = text.replace(old_call, new_call, 1)
-          orchestration.write_text(text, encoding='utf-8')
-
-          regression = root / 'tests/workflows/test_stage_a_execution_replay_source_binding.py'
-          regression.write_text('''from __future__ import annotations
-
-import hashlib
-from pathlib import Path
-
-import pytest
-
-from tests.evaluation.replay_support import execution_episode
-from trade_rl.artifacts.codec import canonical_json_bytes
-from trade_rl.evaluation.stage_a_zero_shot_contracts import (
-    StageACandidate,
-    build_stage_a_zero_shot_evaluation_plan,
-)
-from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.execution_promotion import execution_evidence_from_cost
-from trade_rl.simulation.execution_replay import (
-    build_execution_event_artifact,
-    write_execution_event_artifact,
-)
-from trade_rl.workflows.stage_a_execution_replay import (
-    build_stage_a_execution_replay_artifact,
-)
-from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
-    StageAEvaluationCellRequest,
-)
-
-
-def _digest(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _request() -> tuple[StageAEvaluationCellRequest, str]:
-    cost = ExecutionCostConfig(path_mode="conservative")
-    candidate_config_digest = _digest("candidate:config")
-    candidate = StageACandidate.create(
-        candidate_id="candidate-a",
-        candidate_config_digest=candidate_config_digest,
-        final_training_completion_digest=_digest("candidate:complete"),
-        policy_identity=_digest("candidate:policy"),
-        checkpoint_digests=((7, _digest("candidate:checkpoint:7")),),
-    )
-    plan = build_stage_a_zero_shot_evaluation_plan(
-        symbol_disjoint_manifest_digest=_digest("symbols"),
-        symbol_disjoint_triplet_manifest_digest=_digest("triplets"),
-        dataset_identity=_digest("dataset"),
-        feature_identity=_digest("features"),
-        execution_identity=cost.execution_policy_digest,
-        evaluation_identity=_digest("evaluation"),
-        candidates=(candidate,),
-        seeds=(7,),
-        folds=(2,),
-        validation_triplet_ids=(_digest("validation-triplet"),),
-        test_triplet_ids=(_digest("test-triplet"),),
-        bootstrap_confidence_level=0.95,
-        bootstrap_resamples=100,
-        bootstrap_seed=11,
-        minimum_validation_lower_bound=0.0,
-        minimum_test_lower_bound=0.0,
-        minimum_validation_worst_triplet_excess=0.0,
-        minimum_test_worst_triplet_excess=0.0,
-        minimum_validation_worst_seed_excess=0.0,
-        minimum_test_worst_seed_excess=0.0,
-        minimum_validation_triplet_pass_fraction=1.0,
-        minimum_test_triplet_pass_fraction=1.0,
-    )
-    request = StageAEvaluationCellRequest(
-        plan_digest=plan.digest,
-        split="validation",
-        triplet_id=plan.validation_triplet_ids[0],
-        fold=2,
-        seed=7,
-        candidate_id="candidate-a",
-        checkpoint_digest=candidate.checkpoint_digest(7),
-        dataset_identity=plan.dataset_identity,
-        feature_identity=plan.feature_identity,
-        execution_identity=plan.execution_identity,
-        evaluation_identity=plan.evaluation_identity,
-    )
-    return request, candidate_config_digest
-
-
-def _source_bytes(
-    tmp_path: Path,
-    *,
-    candidate_config_digest: str,
-    evaluation_run_digest: str,
-    fold: int,
-    seed: int,
-    actions: tuple[tuple[float, ...], ...] = ((0.4,),),
-    observations: tuple[str, ...] = ("1" * 64, "2" * 64),
-    equity: tuple[float, ...] = (1_000.0, 1_100.0),
-) -> tuple[bytes, bytes]:
-    request, _ = _request()
-    events, terminal_book, terminal_order_book = execution_episode(
-        dataset_id=request.dataset_identity,
-        execution_policy_digest=request.execution_identity,
-        cash=1_000.0,
-    )
-    artifact = build_execution_event_artifact(
-        candidate_config_digest=candidate_config_digest,
-        evaluation_run_digest=evaluation_run_digest,
-        fold=fold,
-        seed=seed,
-        dataset_id=request.dataset_identity,
-        execution_policy_digest=request.execution_identity,
-        actions=actions,
-        observation_digests=observations,
-        equity_curve=equity,
-        order_events=events,
-        terminal_book=terminal_book,
-        terminal_order_book=terminal_order_book,
-    )
-    path = write_execution_event_artifact(tmp_path / "events.json", artifact)
-    evidence = execution_evidence_from_cost(
-        dataset_id=request.dataset_identity,
-        cost=ExecutionCostConfig(path_mode="conservative"),
-        sensitivity_path_modes=("conservative",),
-        order_event_artifact_path=path,
-    )
-    return path.read_bytes(), canonical_json_bytes(evidence.to_mapping()) + b"\\n"
-
-
-def _build(
-    tmp_path: Path,
-    *,
-    source_candidate: str | None = None,
-    source_evaluation: str | None = None,
-    source_fold: int | None = None,
-    source_seed: int | None = None,
-    source_actions: tuple[tuple[float, ...], ...] = ((0.4,),),
-    source_observations: tuple[str, ...] = ("1" * 64, "2" * 64),
-    source_equity: tuple[float, ...] = (1_000.0, 1_100.0),
-):
-    request, expected_candidate = _request()
-    event_bytes, evidence_bytes = _source_bytes(
-        tmp_path,
-        candidate_config_digest=source_candidate or expected_candidate,
-        evaluation_run_digest=source_evaluation or request.digest,
-        fold=request.fold if source_fold is None else source_fold,
-        seed=request.seed if source_seed is None else source_seed,
-        actions=source_actions,
-        observations=source_observations,
-        equity=source_equity,
-    )
-    return build_stage_a_execution_replay_artifact(
-        request=request,
-        candidate_config_digest=expected_candidate,
-        actions=((0.4,),),
-        observation_digests=("1" * 64, "2" * 64),
-        equity_curve=(1_000.0, 1_100.0),
-        event_artifact_bytes=event_bytes,
-        execution_evidence_bytes=evidence_bytes,
-    )
-
-
-@pytest.mark.parametrize(
-    ("changes", "message"),
-    (
-        ({"source_candidate": _digest("other-candidate")}, "candidate configuration identity mismatch"),
-        ({"source_evaluation": _digest("other-evaluation-run")}, "evaluation run identity mismatch"),
-        ({"source_fold": 3}, "fold identity mismatch"),
-        ({"source_seed": 8}, "seed identity mismatch"),
-        ({"source_actions": ((0.9,),)}, "action trace mismatch"),
-        ({"source_observations": ("3" * 64, "4" * 64)}, "observation trace mismatch"),
-        ({"source_equity": (900.0, 1_100.0)}, "equity trace mismatch"),
-    ),
-)
-def test_stage_a_replay_rejects_lower_source_substitution(
-    tmp_path: Path,
-    changes: dict[str, object],
-    message: str,
-) -> None:
-    with pytest.raises(ValueError, match=message):
-        _build(tmp_path, **changes)
-''', encoding='utf-8')
+          path.write_text(text, encoding="utf-8")
           PY
 
-      - name: Commit RED tests
+      - name: Commit fixture compatibility
         shell: bash
         run: |
           git diff --check
           git config user.name "trade-rl-automation"
           git config user.email "actions@users.noreply.github.com"
           git add tests/workflows
-          git commit -m "test: bind Stage A replay to lower source identity"
+          git commit -m "test: adapt Stage A fixtures to strict replay artifacts"
           git push origin HEAD:fix/evidence-stage-transaction-v2

@@ -204,6 +204,10 @@ def validate_order_event_stream(
         previous: OrderEvent | None = None
         for event in history:
             if previous is not None:
+                if event.event_type == "submitted":
+                    raise ValueError(
+                        f"order {order_id} has a duplicate submitted event"
+                    )
                 if previous.new_status.terminal:
                     raise ValueError(
                         f"order {order_id} has an event after terminal state"

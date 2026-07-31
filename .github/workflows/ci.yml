@@ -27,12 +27,134 @@ jobs:
           enable-cache: true
       - name: Install focused test dependencies
         run: uv sync --extra dev
+      - name: Repair private import boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path('trade_rl/evaluation')
+          (root / '_stage_a_zero_shot_contract_values.py').write_text(
+              '''"""Core public value exports for Stage A zero-shot evaluation contracts."""
+
+          from trade_rl.evaluation._stage_a_zero_shot_candidate import StageACandidate
+          from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
+              MAX_STAGE_A_BOOTSTRAP_RESAMPLES,
+              STAGE_A_CANDIDATE_SCHEMA,
+              STAGE_A_EVALUATION_PLAN_SCHEMA,
+              STAGE_A_EVIDENCE_SCHEMA,
+              STAGE_A_OBSERVATION_SCHEMA,
+              StageAEvaluationSplit,
+          )
+          from trade_rl.evaluation._stage_a_zero_shot_plan import StageAZeroShotEvaluationPlan
+
+          __all__ = [
+              "MAX_STAGE_A_BOOTSTRAP_RESAMPLES",
+              "STAGE_A_CANDIDATE_SCHEMA",
+              "STAGE_A_EVALUATION_PLAN_SCHEMA",
+              "STAGE_A_EVIDENCE_SCHEMA",
+              "STAGE_A_OBSERVATION_SCHEMA",
+              "StageACandidate",
+              "StageAEvaluationSplit",
+              "StageAZeroShotEvaluationPlan",
+          ]
+          ''',
+              encoding='utf-8',
+          )
+
+          path = root / '_stage_a_zero_shot_contract_io.py'
+          text = path.read_text(encoding='utf-8')
+          old = '''from trade_rl.evaluation._stage_a_zero_shot_contract_values import (
+              StageACandidate,
+              StageAEvaluationSplit,
+              StageAZeroShotEvaluationPlan,
+              _integer,
+              _list,
+              _number,
+              _object,
+              _require_fields,
+              _string,
+          )
+          '''
+          new = '''from trade_rl.evaluation._stage_a_zero_shot_candidate import StageACandidate
+          from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
+              StageAEvaluationSplit,
+              _integer,
+              _list,
+              _number,
+              _object,
+              _require_fields,
+              _string,
+          )
+          from trade_rl.evaluation._stage_a_zero_shot_plan import StageAZeroShotEvaluationPlan
+          '''
+          if old not in text:
+              raise SystemExit('contract IO import boundary did not match expected source')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+
+          path = root / '_stage_a_zero_shot_evidence.py'
+          text = path.read_text(encoding='utf-8')
+          old = '''from trade_rl.evaluation._stage_a_zero_shot_contract_values import (
+              STAGE_A_EVIDENCE_SCHEMA,
+              STAGE_A_OBSERVATION_SCHEMA,
+              StageACandidate,
+              StageAEvaluationSplit,
+              StageAZeroShotEvaluationPlan,
+              _SPLITS,
+              _finite,
+              _non_negative_int,
+              _unique_digests,
+              _unique_ints,
+              _unique_strings,
+          )
+          '''
+          new = '''from trade_rl.evaluation._stage_a_zero_shot_candidate import StageACandidate
+          from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
+              STAGE_A_EVIDENCE_SCHEMA,
+              STAGE_A_OBSERVATION_SCHEMA,
+              StageAEvaluationSplit,
+              _SPLITS,
+              _finite,
+              _non_negative_int,
+              _unique_digests,
+              _unique_ints,
+              _unique_strings,
+          )
+          from trade_rl.evaluation._stage_a_zero_shot_plan import StageAZeroShotEvaluationPlan
+          '''
+          if old not in text:
+              raise SystemExit('evidence import boundary did not match expected source')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+
+          path = root / 'stage_a_zero_shot_gate.py'
+          text = path.read_text(encoding='utf-8')
+          old = '''from trade_rl.evaluation._stage_a_zero_shot_gate_values import (
+              STAGE_A_CANDIDATE_SUMMARY_SCHEMA,
+              STAGE_A_SEALED_TEST_DECISION_SCHEMA,
+              STAGE_A_VALIDATION_SELECTION_SCHEMA,
+              StageACandidateSummary,
+          )
+          '''
+          new = '''from trade_rl.evaluation._stage_a_zero_shot_gate_values import (
+              STAGE_A_CANDIDATE_SUMMARY_SCHEMA as STAGE_A_CANDIDATE_SUMMARY_SCHEMA,
+              STAGE_A_SEALED_TEST_DECISION_SCHEMA as STAGE_A_SEALED_TEST_DECISION_SCHEMA,
+              STAGE_A_VALIDATION_SELECTION_SCHEMA as STAGE_A_VALIDATION_SELECTION_SCHEMA,
+              StageACandidateSummary,
+          )
+          '''
+          if old not in text:
+              raise SystemExit('gate public re-export boundary did not match expected source')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
       - name: Apply Ruff fixes and verify focused regressions
         shell: bash
         run: |
           set -euo pipefail
           uv run ruff check . --fix
           uv run ruff format .
+          uv run ruff check .
+          uv run ruff format --check .
           uv run pytest -q \
             tests/evaluation/test_seed_robustness.py \
             tests/evaluation/test_research_gate.py \
@@ -41,6 +163,27 @@ jobs:
             tests/evaluation/test_stage_a_zero_shot_contracts.py \
             tests/evaluation/test_stage_a_zero_shot_gate.py \
             tests/evaluation/test_stage_a_zero_shot_hardening.py
+          uv run python - <<'PY'
+          import trade_rl.evaluation.stage_a_zero_shot_contracts as contracts
+          import trade_rl.evaluation.stage_a_zero_shot_gate as gate
+
+          for module, names in (
+              (contracts, (
+                  'StageACandidate',
+                  'StageAEvaluationEvidence',
+                  'StageAEvaluationObservation',
+                  'StageAZeroShotEvaluationPlan',
+              )),
+              (gate, (
+                  'STAGE_A_CANDIDATE_SUMMARY_SCHEMA',
+                  'STAGE_A_SEALED_TEST_DECISION_SCHEMA',
+                  'STAGE_A_VALIDATION_SELECTION_SCHEMA',
+                  'StageACandidateSummary',
+              )),
+          ):
+              for name in names:
+                  assert hasattr(module, name), (module.__name__, name)
+          PY
           git fetch --depth=1 origin main
           git show FETCH_HEAD:.github/workflows/ci.yml > .github/workflows/ci.yml
           git config user.name 'github-actions[bot]'

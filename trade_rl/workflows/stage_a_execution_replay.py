@@ -468,6 +468,7 @@ class StageAExecutionReplayArtifact:
 def _validate_promotion_bytes(
     *,
     request: StageAEvaluationCellRequest,
+    candidate_config_digest: str,
     event_artifact_bytes: bytes,
     execution_evidence_bytes: bytes,
 ) -> tuple[ExecutionEvidence, ExecutionEventArtifact]:
@@ -476,6 +477,17 @@ def _validate_promotion_bytes(
         raise ValueError("Stage A execution event dataset identity mismatch")
     if event_artifact.execution_policy_digest != request.execution_identity:
         raise ValueError("Stage A execution event policy identity mismatch")
+    replay_identity = event_artifact.replay_identity
+    if replay_identity.candidate_config_digest != candidate_config_digest:
+        raise ValueError(
+            "Stage A execution candidate configuration identity mismatch"
+        )
+    if replay_identity.evaluation_run_digest != request.digest:
+        raise ValueError("Stage A execution evaluation run identity mismatch")
+    if replay_identity.fold != request.fold:
+        raise ValueError("Stage A execution fold identity mismatch")
+    if replay_identity.seed != request.seed:
+        raise ValueError("Stage A execution seed identity mismatch")
     evidence = _load_execution_evidence_bytes(execution_evidence_bytes)
     if evidence.dataset_id != request.dataset_identity:
         raise ValueError("Stage A execution evidence dataset identity mismatch")
@@ -486,8 +498,24 @@ def _validate_promotion_bytes(
             evidence,
             expected_policy_digest=request.execution_identity,
             event_artifact_path=event_path,
+            expected_candidate_config_digest=candidate_config_digest,
+            expected_evaluation_run_digest=request.digest,
+            expected_fold=request.fold,
+            expected_seed=request.seed,
         )
     return evidence, event_artifact
+
+
+def _validate_embedded_traces(
+    artifact: StageAExecutionReplayArtifact,
+    event_artifact: ExecutionEventArtifact,
+) -> None:
+    if event_artifact.actions != artifact.actions:
+        raise ValueError("Stage A execution action trace mismatch")
+    if event_artifact.observation_digests != artifact.observation_digests:
+        raise ValueError("Stage A execution observation trace mismatch")
+    if event_artifact.equity_curve != artifact.equity_curve:
+        raise ValueError("Stage A execution equity trace mismatch")
 
 
 def build_stage_a_execution_replay_artifact(
@@ -504,6 +532,7 @@ def build_stage_a_execution_replay_artifact(
 
     evidence, event_artifact = _validate_promotion_bytes(
         request=request,
+        candidate_config_digest=candidate_config_digest,
         event_artifact_bytes=event_artifact_bytes,
         execution_evidence_bytes=execution_evidence_bytes,
     )
@@ -530,6 +559,7 @@ def build_stage_a_execution_replay_artifact(
         abs_tol=tolerance,
     ):
         raise ValueError("Stage A execution replay terminal value mismatch")
+    _validate_embedded_traces(artifact, event_artifact)
     return artifact
 
 
@@ -544,6 +574,7 @@ def validate_stage_a_execution_replay_sources(
     request = artifact.cell_identity.to_request()
     evidence, _ = _validate_promotion_bytes(
         request=request,
+        candidate_config_digest=artifact.cell_identity.candidate_config_digest,
         event_artifact_bytes=event_artifact_bytes,
         execution_evidence_bytes=execution_evidence_bytes,
     )

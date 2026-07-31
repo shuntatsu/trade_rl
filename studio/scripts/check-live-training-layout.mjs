@@ -189,7 +189,7 @@ try {
   await page.getByRole('heading', { name: 'Live Training' }).waitFor()
   await page.getByLabel('Live Training Run').waitFor()
   await page.getByRole('button', { name: /対象を変更/ }).waitFor()
-  await page.getByText('101,920').waitFor()
+  await page.getByText('101,920', { exact: true }).waitFor()
   await page.getByText('Step 256').waitFor()
 
   if (await page.locator('.live-connection').count() !== 0) {

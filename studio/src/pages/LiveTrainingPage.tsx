@@ -206,6 +206,15 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
     if (index >= 0) commitCursor(index)
   }
 
+  const changeJob = (nextJobId: string | null) => {
+    setPlaying(false)
+    setFollowLatest(true)
+    setJobId(nextJobId)
+    setCursor(0)
+    setPreviewRecord(null)
+    setChartResetToken((current) => current + 1)
+  }
+
   const changeSource = ({ seed: nextSeed, environmentId: nextEnvironmentId }: ReplaySourceSelection) => {
     setPlaying(false)
     setFollowLatest(true)
@@ -213,6 +222,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
     setEnvironmentId(nextEnvironmentId)
     setCursor(0)
     setPreviewRecord(null)
+    setChartResetToken((current) => current + 1)
   }
 
   const resetView = () => {
@@ -257,7 +267,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
           followLatest={followLatest}
           layers={layers}
           hasRecords={replayRecords.length > 0}
-          onJobChange={setJobId}
+          onJobChange={changeJob}
           onSourceChange={changeSource}
           onTogglePlaying={() => setPlaying((current) => !current)}
           onFirst={() => commitCursor(0)}
@@ -274,7 +284,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
         />
 
         <div className="research-summary-grid" aria-label="研究サマリー">
-          <MetricCard label="RL資産" value={equity === null ? '—' : equity.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} tone="positive" />
+          <MetricCard label="RL資産" value={equity === null ? '—' : equity.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} tone="neutral" />
           <MetricCard label="Baseline差" value={`${signed(baselineDelta)} USDT`} tone={(baselineDelta ?? 0) >= 0 ? 'positive' : 'negative'} />
           <MetricCard label="Drawdown" value={drawdown === null ? '—' : `-${(drawdown * 100).toFixed(2)}%`} tone={drawdown === null ? 'neutral' : 'negative'} />
         </div>

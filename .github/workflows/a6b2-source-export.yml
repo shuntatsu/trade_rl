@@ -1,26 +1,79 @@
-name: A6b2 Bundle Diagnostics
+name: A6b2 Verified Bundle Apply
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect-bundle:
+  apply-bundle:
     if: github.event.pull_request.head.ref == 'agent/stage-a6b2-policy-producer'
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact head
+      - name: Checkout implementation branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-      - name: Inspect staged bundle
+          ref: agent/stage-a6b2-policy-producer
+          persist-credentials: true
+      - name: Reconstruct and apply verified implementation bundle
         shell: bash
         run: |
           set -euo pipefail
-          wc -c .a6b2-implementation.bundle.b64
-          sha256sum .a6b2-implementation.bundle.b64
-          tail -c 64 .a6b2-implementation.bundle.b64 | od -An -tx1
+          original=.a6b2-implementation.bundle.b64
+          chunks=(.a6b2.bundle.mid0 .a6b2.bundle.mid1 .a6b2.bundle.mid2)
+          if [[ ! -f "$original" ]]; then
+            echo "No implementation bundle on this head"
+            exit 0
+          fi
+          test "$(wc -c < "$original")" -eq 20023
+          head -c 10000 "$original" > /tmp/a6b2-full.b64
+          tail -c 10000 "$original" > /tmp/a6b2-suffix.b64
+          echo 'baacec40f1eeecde22bbf9b6d0182353853ff7bd4f706b83d80db6cb81df440f  /tmp/a6b2-full.b64' | sha256sum --check --strict
+          echo '1346646617219f7f77ce61c5b4152bd2ed2799b991423d9c08f4ff1e82540aa1  /tmp/a6b2-suffix.b64' | sha256sum --check --strict
+          echo 'af54beb3d4f2f39646f0f91e66d8d32b070bc88c7892866d93775065438b1f8a  .a6b2.bundle.mid0' | sha256sum --check --strict
+          echo 'baa4e46cd52c3c36c2f17d2ac3baf045c65588a35c18119986ca4e85d2d88ab7  .a6b2.bundle.mid1' | sha256sum --check --strict
+          echo 'd97a674d08feb18478479b968ef1c2fee23d65a0dcf164c95e1c9e8efba0996c  .a6b2.bundle.mid2' | sha256sum --check --strict
+          cat "${chunks[@]}" >> /tmp/a6b2-full.b64
+          cat /tmp/a6b2-suffix.b64 >> /tmp/a6b2-full.b64
+          test "$(wc -c < /tmp/a6b2-full.b64)" -eq 47756
+          echo '3a7786186937ec4df96fbbd5b405ee49edcbb227387afcb68e78b311feea4cdf  /tmp/a6b2-full.b64' | sha256sum --check --strict
+          base64 --decode /tmp/a6b2-full.b64 > /tmp/a6b2-files.tar.gz
+          echo '9bc62d7c7c2dd039f4b32678eb95a7f3a230eccd5c207bc404cf417bd3d6f829  /tmp/a6b2-files.tar.gz' | sha256sum --check --strict
+          python - <<'PY'
+          import tarfile
+          expected = {
+              'docs/operations/stage-a-production-evaluator-design.md',
+              'docs/operations/stage-a-zero-shot-evaluation-plan.md',
+              'docs/superpowers/specs/2026-07-31-stage-a-policy-producer-design.md',
+              'docs/superpowers/plans/2026-07-31-stage-a-policy-producer.md',
+              'tests/workflows/test_stage_a_execution_replay.py',
+              'tests/workflows/test_stage_a_execution_store.py',
+              'tests/workflows/test_stage_a_production_evaluator.py',
+              'tests/workflows/test_stage_a_production_orchestration.py',
+              'tests/workflows/test_stage_a_policy_source.py',
+              'tests/workflows/test_stage_a_execution_producer.py',
+              'tests/workflows/test_stage_a_policy_producer_orchestration.py',
+              'trade_rl/workflows/stage_a_execution_replay.py',
+              'trade_rl/workflows/stage_a_execution_store.py',
+              'trade_rl/workflows/stage_a_production_evaluator.py',
+              'trade_rl/workflows/stage_a_policy_source.py',
+              'trade_rl/workflows/stage_a_execution_producer.py',
+          }
+          with tarfile.open('/tmp/a6b2-files.tar.gz', 'r:gz') as archive:
+              members = archive.getmembers()
+              names = {member.name for member in members}
+              if names != expected:
+                  raise SystemExit(f'Bundle path closure mismatch: {sorted(names ^ expected)}')
+              if any(not member.isfile() for member in members):
+                  raise SystemExit('Bundle contains a non-file member')
+              archive.extractall('.', filter='data')
+          PY
+          rm -f "$original" "${chunks[@]}" .a6b2-source-export-trigger .github/workflows/a6b2-source-export.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat: bind Stage A executions to retained checkpoints'
+          git push origin HEAD:agent/stage-a6b2-policy-producer

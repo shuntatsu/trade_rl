@@ -12,6 +12,7 @@
     "check:layout": "node scripts/check-no-page-scroll.mjs && node scripts/check-live-training-layout.mjs"
   },
   "dependencies": {
+    "lightweight-charts": "5.2.0",
     "lucide-react": "1.25.0",
     "react": "19.2.7",
     "react-dom": "19.2.7"

@@ -228,6 +228,99 @@ class OrderIntent:
             replaced_order_id=replaced_order_id,
         )
 
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> OrderIntent:
+        """Reconstruct and re-derive one canonical order intent identity."""
+
+        required = {
+            "decision_equity",
+            "dataset_id",
+            "eligible_index",
+            "execution_policy_digest",
+            "expiry_index",
+            "limit_price",
+            "order_id",
+            "order_type",
+            "replaced_order_id",
+            "requested_quantity",
+            "stop_price",
+            "submission_reference_price",
+            "submit_index",
+            "symbol_index",
+            "target_identity",
+            "time_in_force",
+        }
+        if set(value) != required:
+            raise OrderDomainError("order intent field closure mismatch")
+
+        def string(field: str) -> str:
+            raw = value[field]
+            if not isinstance(raw, str):
+                raise OrderDomainError(f"{field} must be a string")
+            return raw
+
+        def optional_string(field: str) -> str | None:
+            raw = value[field]
+            if raw is None:
+                return None
+            if not isinstance(raw, str):
+                raise OrderDomainError(f"{field} must be a string or null")
+            return raw
+
+        def integer(field: str) -> int:
+            raw = value[field]
+            if isinstance(raw, bool) or not isinstance(raw, int):
+                raise OrderDomainError(f"{field} must be an integer")
+            return raw
+
+        def optional_integer(field: str) -> int | None:
+            raw = value[field]
+            if raw is None:
+                return None
+            if isinstance(raw, bool) or not isinstance(raw, int):
+                raise OrderDomainError(f"{field} must be an integer or null")
+            return raw
+
+        def number(field: str) -> float:
+            raw = value[field]
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                raise OrderDomainError(f"{field} must be numeric")
+            return float(raw)
+
+        def optional_number(field: str) -> float | None:
+            raw = value[field]
+            if raw is None:
+                return None
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                raise OrderDomainError(f"{field} must be numeric or null")
+            return float(raw)
+
+        try:
+            order_type = OrderType(string("order_type"))
+            time_in_force = TimeInForce(string("time_in_force"))
+        except ValueError as error:
+            raise OrderDomainError("order intent enum value is unsupported") from error
+        restored = cls.create(
+            dataset_id=string("dataset_id"),
+            target_identity=string("target_identity"),
+            execution_policy_digest=string("execution_policy_digest"),
+            symbol_index=integer("symbol_index"),
+            requested_quantity=number("requested_quantity"),
+            order_type=order_type,
+            time_in_force=time_in_force,
+            limit_price=optional_number("limit_price"),
+            stop_price=optional_number("stop_price"),
+            submit_index=integer("submit_index"),
+            eligible_index=integer("eligible_index"),
+            expiry_index=optional_integer("expiry_index"),
+            submission_reference_price=number("submission_reference_price"),
+            decision_equity=number("decision_equity"),
+            replaced_order_id=optional_string("replaced_order_id"),
+        )
+        if restored.order_id != string("order_id"):
+            raise OrderDomainError("order intent identity digest mismatch")
+        return restored
+
 
 @dataclass(frozen=True, slots=True)
 class PendingOrder:
@@ -285,6 +378,69 @@ class PendingOrder:
     @classmethod
     def from_intent(cls, intent: OrderIntent) -> PendingOrder:
         return cls(intent=intent, remaining_quantity=intent.requested_quantity)
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> PendingOrder:
+        """Reconstruct one canonical pending-order state from untrusted JSON."""
+
+        required = {
+            "cumulative_filled_notional",
+            "cumulative_filled_quantity",
+            "evidence_version",
+            "intent",
+            "last_processed_index",
+            "remaining_quantity",
+            "status",
+            "terminal_reason",
+            "trigger_index",
+        }
+        if set(value) != required:
+            raise OrderDomainError("pending order field closure mismatch")
+        raw_intent = value["intent"]
+        if not isinstance(raw_intent, Mapping):
+            raise OrderDomainError("pending order intent must be an object")
+
+        def number(field: str) -> float:
+            raw = value[field]
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                raise OrderDomainError(f"{field} must be numeric")
+            return float(raw)
+
+        def integer(field: str) -> int:
+            raw = value[field]
+            if isinstance(raw, bool) or not isinstance(raw, int):
+                raise OrderDomainError(f"{field} must be an integer")
+            return raw
+
+        def optional_integer(field: str) -> int | None:
+            raw = value[field]
+            if raw is None:
+                return None
+            if isinstance(raw, bool) or not isinstance(raw, int):
+                raise OrderDomainError(f"{field} must be an integer or null")
+            return raw
+
+        raw_reason = value["terminal_reason"]
+        if raw_reason is not None and not isinstance(raw_reason, str):
+            raise OrderDomainError("terminal_reason must be a string or null")
+        raw_status = value["status"]
+        if not isinstance(raw_status, str):
+            raise OrderDomainError("status must be a string")
+        try:
+            status = OrderStatus(raw_status)
+        except ValueError as error:
+            raise OrderDomainError("pending order status is unsupported") from error
+        return cls(
+            intent=OrderIntent.from_mapping(raw_intent),
+            remaining_quantity=number("remaining_quantity"),
+            cumulative_filled_quantity=number("cumulative_filled_quantity"),
+            cumulative_filled_notional=number("cumulative_filled_notional"),
+            status=status,
+            trigger_index=optional_integer("trigger_index"),
+            last_processed_index=optional_integer("last_processed_index"),
+            terminal_reason=raw_reason,
+            evidence_version=integer("evidence_version"),
+        )
 
     @property
     def order_id(self) -> str:
@@ -717,12 +873,42 @@ class OrderEvent:
     def __post_init__(self) -> None:
         if not self.schema_version:
             raise OrderDomainError("schema_version must be non-empty")
-        if self.sequence < 0:
+        if (
+            isinstance(self.sequence, bool)
+            or not isinstance(self.sequence, int)
+            or self.sequence < 0
+        ):
             raise OrderDomainError("event sequence must be non-negative")
+        if not self.dataset_id:
+            raise OrderDomainError("dataset_id must be non-empty")
         _validate_digest("order_id", self.order_id)
         _validate_digest("execution_policy_digest", self.execution_policy_digest)
         if self.replaced_order_id is not None:
             _validate_digest("replaced_order_id", self.replaced_order_id)
+        for name, value in (
+            ("symbol_index", self.symbol_index),
+            ("processing_index", self.processing_index),
+            ("timestamp_ns", self.timestamp_ns),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise OrderDomainError(f"{name} must be a non-negative integer")
+        if self.event_type not in {
+            "submitted",
+            "latency_wait",
+            "eligible",
+            "triggered",
+            "no_fill",
+            "partial_fill",
+            "filled",
+            "rejected",
+            "expired",
+            "cancelled",
+        }:
+            raise OrderDomainError("event_type is unsupported")
+        if not isinstance(self.previous_status, OrderStatus) or not isinstance(
+            self.new_status, OrderStatus
+        ):
+            raise OrderDomainError("event statuses must be OrderStatus values")
         for name, value in (
             ("requested_quantity", self.requested_quantity),
             ("remaining_quantity", self.remaining_quantity),
@@ -735,10 +921,139 @@ class OrderEvent:
         ):
             if not _is_finite(value):
                 raise OrderDomainError(f"{name} must be finite")
+        if abs(self.requested_quantity) <= _QUANTITY_TOLERANCE:
+            raise OrderDomainError("requested_quantity must be non-zero")
+        if self.filled_notional < 0.0:
+            raise OrderDomainError("filled_notional must be non-negative")
+        if self.capacity_before < 0.0 or self.capacity_after < 0.0:
+            raise OrderDomainError("event capacities must be non-negative")
+        if not 0.0 <= self.participation_rate <= 1.0:
+            raise OrderDomainError("participation_rate must be within [0, 1]")
+        if not 0.0 <= self.available_volume_fraction <= 1.0:
+            raise OrderDomainError(
+                "available_volume_fraction must be within [0, 1]"
+            )
         if self.execution_price is not None and not _is_finite(self.execution_price):
             raise OrderDomainError("execution_price must be finite when present")
+        if self.execution_price is not None and self.execution_price <= 0.0:
+            raise OrderDomainError("execution_price must be positive when present")
         if not all(_is_finite(point) for point in self.path_points):
             raise OrderDomainError("path_points must be finite")
+        if self.path_points and (
+            len(self.path_points) != 4 or any(point <= 0.0 for point in self.path_points)
+        ):
+            raise OrderDomainError("path_points must be four positive prices")
+        if self.path_mode not in {"optimistic", "neutral", "conservative"}:
+            raise OrderDomainError("path_mode is unsupported")
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> OrderEvent:
+        """Reconstruct one exact canonical event from an untrusted mapping."""
+
+        required = {
+            "available_volume_fraction",
+            "capacity_after",
+            "capacity_before",
+            "dataset_id",
+            "event_type",
+            "execution_policy_digest",
+            "execution_price",
+            "filled_notional",
+            "filled_quantity",
+            "new_status",
+            "order_id",
+            "participation_rate",
+            "path_mode",
+            "path_points",
+            "previous_status",
+            "processing_index",
+            "reason",
+            "remaining_quantity",
+            "replaced_order_id",
+            "requested_quantity",
+            "schema_version",
+            "sequence",
+            "symbol_index",
+            "timestamp_ns",
+            "trigger_segment",
+        }
+        if set(value) != required:
+            raise OrderDomainError("order event field closure mismatch")
+
+        def string(field: str) -> str:
+            raw = value[field]
+            if not isinstance(raw, str):
+                raise OrderDomainError(f"{field} must be a string")
+            return raw
+
+        def optional_string(field: str) -> str | None:
+            raw = value[field]
+            if raw is None:
+                return None
+            if not isinstance(raw, str):
+                raise OrderDomainError(f"{field} must be a string or null")
+            return raw
+
+        def integer(field: str) -> int:
+            raw = value[field]
+            if isinstance(raw, bool) or not isinstance(raw, int):
+                raise OrderDomainError(f"{field} must be an integer")
+            return raw
+
+        def number(field: str) -> float:
+            raw = value[field]
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                raise OrderDomainError(f"{field} must be numeric")
+            return float(raw)
+
+        raw_execution_price = value["execution_price"]
+        if raw_execution_price is not None and (
+            isinstance(raw_execution_price, bool)
+            or not isinstance(raw_execution_price, (int, float))
+        ):
+            raise OrderDomainError("execution_price must be numeric or null")
+        raw_path_points = value["path_points"]
+        if not isinstance(raw_path_points, list) or any(
+            isinstance(item, bool) or not isinstance(item, (int, float))
+            for item in raw_path_points
+        ):
+            raise OrderDomainError("path_points must be a numeric list")
+        try:
+            previous_status = OrderStatus(string("previous_status"))
+            new_status = OrderStatus(string("new_status"))
+        except ValueError as error:
+            raise OrderDomainError("event status is unsupported") from error
+        return cls(
+            schema_version=string("schema_version"),
+            sequence=integer("sequence"),
+            order_id=string("order_id"),
+            replaced_order_id=optional_string("replaced_order_id"),
+            dataset_id=string("dataset_id"),
+            execution_policy_digest=string("execution_policy_digest"),
+            symbol_index=integer("symbol_index"),
+            event_type=string("event_type"),
+            processing_index=integer("processing_index"),
+            timestamp_ns=integer("timestamp_ns"),
+            previous_status=previous_status,
+            new_status=new_status,
+            requested_quantity=number("requested_quantity"),
+            remaining_quantity=number("remaining_quantity"),
+            filled_quantity=number("filled_quantity"),
+            execution_price=(
+                None
+                if raw_execution_price is None
+                else float(raw_execution_price)
+            ),
+            filled_notional=number("filled_notional"),
+            capacity_before=number("capacity_before"),
+            capacity_after=number("capacity_after"),
+            participation_rate=number("participation_rate"),
+            trigger_segment=optional_string("trigger_segment"),
+            available_volume_fraction=number("available_volume_fraction"),
+            reason=optional_string("reason"),
+            path_mode=string("path_mode"),
+            path_points=tuple(float(item) for item in raw_path_points),
+        )
 
     def canonical_payload(self) -> dict[str, object]:
         payload = asdict(self)

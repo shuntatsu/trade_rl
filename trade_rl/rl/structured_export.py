@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,8 +12,10 @@ import numpy as np
 import torch
 from torch import nn
 
+from trade_rl.artifacts.atomic_pointer import atomic_replace_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import file_digest, open_regular_binary
 from trade_rl.domain.common import require_sha256
 from trade_rl.rl.policy_identity import (
     model_sb3_policy_identity,
@@ -40,22 +40,8 @@ _SUPPORTED_DTYPES: Final = frozenset(
 )
 
 
-def _file_digest(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _atomic_write(path: Path, payload: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    with temporary.open("wb") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    atomic_replace_bytes(path, payload)
 
 
 def canonical_structured_observation_keys() -> tuple[str, ...]:
@@ -174,7 +160,7 @@ class StructuredExportManifest:
         architecture_digest = policy_payload.get("policy_architecture_digest")
         if not isinstance(architecture_digest, str):
             raise ValueError("structured export policy lacks architecture digest")
-        model_digest = _file_digest(model_path)
+        model_digest = file_digest(model_path, field="structured export model")
         model_size_bytes = model_path.stat().st_size
         policy_identity_digest = content_digest(policy_payload)
         payload = {
@@ -480,9 +466,14 @@ def _number(value: object, *, field: str) -> float:
     return float(value)
 
 
-def load_structured_export_manifest(path: Path) -> StructuredExportManifest:
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
-    payload = _mapping(raw, field="structured export manifest")
+def load_structured_export_manifest_bytes(raw: bytes) -> StructuredExportManifest:
+    """Parse one exact canonical structured-export manifest byte sequence."""
+
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("structured export manifest must be valid JSON") from error
+    payload = _mapping(value, field="structured export manifest")
     expected = {
         "action_size",
         "architecture_digest",
@@ -521,7 +512,7 @@ def load_structured_export_manifest(path: Path) -> StructuredExportManifest:
             )
         )
     policy_identity = _mapping(payload["policy_identity"], field="policy_identity")
-    return StructuredExportManifest(
+    manifest = StructuredExportManifest(
         digest=_string(payload["digest"], field="digest"),
         model_path=_string(payload["model_path"], field="model_path"),
         model_digest=_string(payload["model_digest"], field="model_digest"),
@@ -541,6 +532,14 @@ def load_structured_export_manifest(path: Path) -> StructuredExportManifest:
         max_abs_error=_number(payload["max_abs_error"], field="max_abs_error"),
         schema_version=_string(payload["schema_version"], field="schema_version"),
     )
+    if raw != canonical_json_bytes(manifest):
+        raise ValueError("structured export manifest must use canonical encoding")
+    return manifest
+
+
+def load_structured_export_manifest(path: Path) -> StructuredExportManifest:
+    with open_regular_binary(path, field="structured export manifest") as handle:
+        return load_structured_export_manifest_bytes(handle.read())
 
 
 __all__ = [
@@ -552,4 +551,5 @@ __all__ = [
     "canonical_structured_observation_keys",
     "export_structured_policy_actor",
     "load_structured_export_manifest",
+    "load_structured_export_manifest_bytes",
 ]

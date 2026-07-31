@@ -7,11 +7,17 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal, cast
+from typing import TYPE_CHECKING, Final, Literal, cast
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_non_empty, require_sha256
+
+
+if TYPE_CHECKING:
+    from trade_rl.evaluation.execution_promotion_artifacts import (
+        ExecutionPromotionArtifacts,
+    )
 
 STAGE_A_CANDIDATE_SCHEMA: Final = "stage_a_zero_shot_candidate_v1"
 STAGE_A_EVALUATION_PLAN_SCHEMA: Final = "stage_a_zero_shot_evaluation_plan_v1"
@@ -417,6 +423,86 @@ class StageAEvaluationObservation:
             checkpoint_digest=checkpoint_digest,
             dataset_identity=dataset_identity,
             execution_evidence_digest=execution_evidence_digest,
+            policy_log_growth=policy_log_growth,
+            baseline_log_growth=baseline_log_growth,
+        )
+
+    @classmethod
+    def create_from_execution_artifacts(
+        cls,
+        *,
+        plan: StageAZeroShotEvaluationPlan,
+        candidate_id: str,
+        split: str,
+        triplet_id: str,
+        checkpoint_digest: str,
+        artifacts: ExecutionPromotionArtifacts,
+        policy_log_growth: float,
+        baseline_log_growth: float,
+    ) -> StageAEvaluationObservation:
+        """Create one observation from a verified replay/evidence root only."""
+
+        from trade_rl.simulation.execution_promotion import (
+            validate_execution_promotion,
+        )
+
+        candidate = plan.candidate(candidate_id)
+        identity = artifacts.artifact.replay_identity
+        if candidate.candidate_config_digest != identity.candidate_config_digest:
+            raise ValueError(
+                "Stage A execution artifact candidate configuration mismatch"
+            )
+        if plan.dataset_identity != artifacts.artifact.dataset_id:
+            raise ValueError(
+                "Stage A execution artifact dataset identity mismatch"
+            )
+        if plan.execution_identity != artifacts.artifact.execution_policy_digest:
+            raise ValueError(
+                "Stage A execution artifact execution identity mismatch"
+            )
+        if plan.evaluation_identity != identity.evaluation_run_digest:
+            raise ValueError(
+                "Stage A execution artifact evaluation identity mismatch"
+            )
+        if identity.fold not in plan.folds:
+            raise ValueError(
+                "Stage A execution artifact fold is not declared"
+            )
+        if identity.seed not in plan.seeds:
+            raise ValueError(
+                "Stage A execution artifact seed is not declared"
+            )
+        if triplet_id not in plan.triplet_ids_for(cast(StageAEvaluationSplit, split)):
+            raise ValueError(
+                "Stage A execution artifact triplet is not declared for split"
+            )
+        expected_checkpoint = candidate.checkpoint_digest(identity.seed)
+        if checkpoint_digest != expected_checkpoint:
+            raise ValueError(
+                "Stage A execution artifact checkpoint digest mismatch"
+            )
+        if artifacts.evidence.digest != artifacts.evidence_digest:
+            raise ValueError(
+                "Stage A execution artifact evidence identity mismatch"
+            )
+        validate_execution_promotion(
+            artifacts.evidence,
+            expected_policy_digest=plan.execution_identity,
+            event_artifact_path=artifacts.replay_path,
+            expected_candidate_config_digest=candidate.candidate_config_digest,
+            expected_evaluation_run_digest=plan.evaluation_identity,
+            expected_fold=identity.fold,
+            expected_seed=identity.seed,
+        )
+        return cls.create(
+            candidate_id=candidate_id,
+            split=split,
+            triplet_id=triplet_id,
+            fold=identity.fold,
+            seed=identity.seed,
+            checkpoint_digest=checkpoint_digest,
+            dataset_identity=plan.dataset_identity,
+            execution_evidence_digest=artifacts.evidence_digest,
             policy_log_growth=policy_log_growth,
             baseline_log_growth=baseline_log_growth,
         )

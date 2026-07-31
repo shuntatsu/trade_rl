@@ -36,15 +36,18 @@ jobs:
 
           path = Path('trade_rl/evaluation/_stage_a_zero_shot_plan.py')
           text = path.read_text(encoding='utf-8')
-          old = '''        for field, value in normalized_finite.items():
-              object.__setattr__(self, field, value)
-          '''
-          new = '''        for field, numeric_value in normalized_finite.items():
-              object.__setattr__(self, field, numeric_value)
-          '''
-          if old not in text:
-              raise SystemExit('MyPy variable-boundary source did not match expected text')
-          path.write_text(text.replace(old, new), encoding='utf-8')
+          loop_token = 'for field, value in normalized_finite.items():'
+          assignment_token = 'object.__setattr__(self, field, value)'
+          if text.count(loop_token) != 1 or text.count(assignment_token) != 1:
+              raise SystemExit('MyPy variable-boundary tokens did not match exactly once')
+          text = text.replace(
+              loop_token,
+              'for field, numeric_value in normalized_finite.items():',
+          ).replace(
+              assignment_token,
+              'object.__setattr__(self, field, numeric_value)',
+          )
+          path.write_text(text, encoding='utf-8')
           PY
           uv run ruff check .
           uv run ruff format --check .

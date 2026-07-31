@@ -10,11 +10,12 @@ const runtime = vi.hoisted(() => {
     click?: (value: unknown) => void
     range?: () => void
   } = {}
+  const emitRangeAsync = () => queueMicrotask(() => handlers.range?.())
   const pane = { setStretchFactor: vi.fn() }
   const timeScale = {
-    fitContent: vi.fn(),
-    setVisibleRange: vi.fn(),
-    scrollToRealTime: vi.fn(),
+    fitContent: vi.fn(emitRangeAsync),
+    setVisibleRange: vi.fn(emitRangeAsync),
+    scrollToRealTime: vi.fn(emitRangeAsync),
     subscribeVisibleLogicalRangeChange: vi.fn((handler: () => void) => { handlers.range = handler }),
     unsubscribeVisibleLogicalRangeChange: vi.fn(),
   }
@@ -22,7 +23,7 @@ const runtime = vi.hoisted(() => {
   const chart = {
     addSeries: vi.fn((_definition: unknown, _options: unknown, _paneIndex: number) => {
       const next = {
-        setData: vi.fn(() => handlers.range?.()),
+        setData: vi.fn(emitRangeAsync),
         applyOptions: vi.fn(),
       }
       series.push(next)
@@ -116,6 +117,14 @@ function renderWorkspace(overrides: Partial<ResearchChartWorkspaceProps> = {}) {
   return { ...render(<ResearchChartWorkspace {...props} />), props }
 }
 
+async function flushRangeNotifications() {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   runtime.series.length = 0
@@ -146,11 +155,12 @@ describe('ResearchChartWorkspace', () => {
     expect(onCommitRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
   })
 
-  it('does not classify programmatic data updates as manual navigation', async () => {
+  it('does not classify deferred programmatic updates as manual navigation', async () => {
     const onManualNavigation = vi.fn()
     renderWorkspace({ onManualNavigation })
 
     await waitFor(() => expect(runtime.series[0]?.setData).toHaveBeenCalled())
+    await flushRangeNotifications()
     expect(onManualNavigation).not.toHaveBeenCalled()
 
     act(() => runtime.handlers.range?.())
@@ -160,6 +170,7 @@ describe('ResearchChartWorkspace', () => {
   it('does not reset a manual viewport when new records arrive', async () => {
     const view = renderWorkspace({ followLatest: false })
     await waitFor(() => expect(runtime.timeScale.setVisibleRange).toHaveBeenCalled())
+    await flushRangeNotifications()
     vi.clearAllMocks()
 
     view.rerender(
@@ -171,6 +182,7 @@ describe('ResearchChartWorkspace', () => {
     )
 
     await waitFor(() => expect(runtime.series[0]?.setData).toHaveBeenCalled())
+    await flushRangeNotifications()
     expect(runtime.timeScale.setVisibleRange).not.toHaveBeenCalled()
     expect(runtime.timeScale.fitContent).not.toHaveBeenCalled()
     expect(runtime.timeScale.scrollToRealTime).not.toHaveBeenCalled()

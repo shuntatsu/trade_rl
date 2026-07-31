@@ -26,6 +26,7 @@ trade_rl/
   integrations/  Stable-Baselines3などのAdapter
   workflows/     Training、Walk-forward、Publication orchestration
   studio/        Local research read modelとJob control
+  operations/    Maintained GPU・運用検証entry point
   cli/           trade-rlコマンド
 ```
 
@@ -33,6 +34,7 @@ Import Linterの強制順序は次のとおりです:
 
 ```text
 cli
+operations
 studio
 workflows
 integrations
@@ -51,7 +53,7 @@ telemetry
 domain
 ```
 
-上位Layerから下位Layerへの依存だけを許可します。`domain`は標準ライブラリ専用です。`telemetry`は数値計算やModel frameworkへ依存しません。ServingはTraining workflowやStable-Baselines3へ直接依存しません。
+上位Layerから下位Layerへの依存だけを許可します。`operations`は維持対象のGPU・運用検証を所有し、Exampleには薄い互換entry pointだけを残します。`domain`は標準ライブラリ専用です。`telemetry`は数値計算やModel frameworkへ依存しません。ServingはTraining workflowやStable-Baselines3へ直接依存しません。
 
 ## Data flow
 

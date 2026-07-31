@@ -1,7 +1,9 @@
 """Baseline-anchored residual reinforcement-learning core.
 
-Optional Gymnasium, Torch and SB3 dependencies are loaded lazily so data,
-evaluation and serving contracts remain importable in minimal installations.
+Optional Gymnasium dependencies are loaded lazily so data, evaluation and
+serving contracts remain importable in minimal installations. Framework-specific
+adapters are exported from :mod:`trade_rl.integrations` rather than this lower
+architecture layer.
 """
 
 from __future__ import annotations
@@ -51,10 +53,6 @@ _MODULE_EXPORTS = {
         "PolicyTrainingResult",
         "ResidualTrainingConfig",
         "train_residual_ensemble",
-    ),
-    "trade_rl.integrations.sb3_training": (
-        "StableBaselines3Backend",
-        "StableBaselines3PPOBackend",
     ),
 }
 _EXPORTS = {name: module for module, names in _MODULE_EXPORTS.items() for name in names}

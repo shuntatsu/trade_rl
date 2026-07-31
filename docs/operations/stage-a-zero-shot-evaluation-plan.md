@@ -56,14 +56,42 @@ The focused suites cover:
 - strict JSON tamper rejection;
 - atomic replacement failure preserving the prior file.
 
-## Next integration stage
+## Completed A6a orchestration
 
-The next PR should add a Stage A runner that:
+Implemented through:
 
-1. loads retained checkpoints through the canonical serving/training loader;
-2. evaluates each declared fold, seed, triplet, and scenario using the maintained execution model;
-3. verifies the source execution artifact before constructing each v2 observation;
-4. rejects the source artifact before publication when its dataset, feature, execution, evaluation, checkpoint, or evaluation-cell identity differs from the predeclared plan;
-5. writes validation evidence and selection;
-6. consumes the existing one-shot sealed-test ledger only for the selected candidate;
-7. writes the sealed-test evidence and final decision.
+- `trade_rl/workflows/stage_a_zero_shot_runner_contracts.py`;
+- `trade_rl/workflows/stage_a_zero_shot_runner.py`;
+- `trade_rl/workflows/stage_a_zero_shot_artifacts.py`.
+
+The A6a layer now:
+
+1. binds every evaluation request to the exact plan, split, triplet, fold, seed, candidate, checkpoint, dataset, feature, execution, and evaluation identities;
+2. requires each evaluator result to reference the exact request digest and a source execution-evidence digest;
+3. evaluates the complete validation candidate × triplet × fold × seed Cartesian product in deterministic order;
+4. evaluates one shared baseline per triplet/fold/seed cell and reuses it across all candidates;
+5. delegates validation aggregation and selection to the maintained v2 gate;
+6. recomputes the complete validation selection before any sealed-test access;
+7. rejects failed or forged validation output before ledger or test-evaluator calls;
+8. authorizes every declared test fold before the first sealed-test evaluation;
+9. evaluates only the selected candidate and the shared baseline on test;
+10. builds selected-only v2 test evidence and delegates the final decision to the maintained sealed-test gate;
+11. publishes validation and sealed-test outputs as independent immutable directories after all files in the phase are complete;
+12. uses an exclusive phase lock and removes only locks acquired by the current publisher;
+13. removes incomplete staging directories after publication failures.
+
+The orchestrator depends only on the typed `StageAEvaluationCellEvaluator` protocol. It does not import model frameworks, serving loaders, market adapters, or PostgreSQL.
+
+## Next integration stage: A6b production adapter
+
+The remaining A6b work is to:
+
+1. resolve retained checkpoint and serving-bundle paths from maintained artifacts;
+2. recompute file and manifest digests before model loading;
+3. load policies only through the canonical serving/training loader;
+4. construct the declared market, feature, execution, and evaluation cell from maintained sources;
+5. validate the real source execution artifact against the A6a request before returning a result;
+6. reject dataset, feature, execution, evaluation, checkpoint, triplet, fold, seed, or split identity drift;
+7. construct the test schedule from the maintained evaluation source;
+8. provide the PostgreSQL-backed one-shot sealed-test ledger;
+9. add the operational CLI and complete-run artifact wiring.

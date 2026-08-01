@@ -1,0 +1,159 @@
+name: Temporary architecture boundary retry
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-architecture-boundary-retry.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/architecture-boundary-hardening-20260801
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Repair transformation script at root causes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/apply_architecture_boundary_refactor.py")
+          source = path.read_text(encoding="utf-8")
+
+          old_import = "import ast\nimport textwrap\n"
+          new_import = "import ast\nimport re\nimport textwrap\n"
+          if source.count(old_import) != 1:
+              raise SystemExit("unexpected transformation-script import block")
+          source = source.replace(old_import, new_import, 1)
+
+          old_replace = 'source = source.replace("_TIMEFRAMES", "STRUCTURED_TIMEFRAMES")'
+          new_replace = (
+              'source = re.sub(r"\\b_TIMEFRAMES\\b", '
+              '"STRUCTURED_TIMEFRAMES", source)'
+          )
+          if source.count(old_replace) != 1:
+              raise SystemExit("unexpected timeframe replacement expression")
+          source = source.replace(old_replace, new_replace, 1)
+
+          old_config_import = (
+              '+ "    TRAINING_RUN_CONFIG_SCHEMA,\\n"\n'
+              '+ "    TrainingRunConfig,\\n"\n'
+              '+ ")\\n",'
+          )
+          new_config_import = (
+              '+ "    TRAINING_RUN_CONFIG_SCHEMA,\\n"\n'
+              '+ "    TrainingRunConfig,\\n"\n'
+              '+ "    _signal_artifact_digest,\\n"\n'
+              '+ ")\\n",'
+          )
+          if source.count(old_config_import) != 1:
+              raise SystemExit("unexpected training config import construction")
+          source = source.replace(old_config_import, new_config_import, 1)
+
+          path.write_text(source, encoding="utf-8")
+          PY
+
+      - name: Verify RED and apply refactor
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest tests/architecture/test_config_and_export_boundaries.py -q > red.log 2>&1
+          red_status=$?
+          set -e
+          cat red.log
+          if [ "$red_status" -eq 0 ]; then
+            echo "Architecture tests unexpectedly passed before implementation" >&2
+            exit 1
+          fi
+          grep -Eq "training_run_config.py|structured_policy_contract.py|FUTURE_LONG_ONLY_ROLE" red.log
+          uv run python tools/apply_architecture_boundary_refactor.py
+
+      - name: Format and lint
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check --fix . 2>&1 | tee ruff-fix.log
+          uv run ruff format . 2>&1 | tee format-fix.log
+          uv run ruff check . 2>&1 | tee ruff-final.log
+          uv run ruff format --check . 2>&1 | tee format-final.log
+
+      - name: Verify focused behavior and boundaries
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest \
+            tests/architecture/test_config_and_export_boundaries.py \
+            tests/workflows/test_training_run_config.py \
+            tests/workflows/test_training_run_transfer_config.py \
+            tests/rl/test_structured_export.py \
+            tests/serving \
+            tests/studio \
+            -q 2>&1 | tee focused-pytest.log
+          uv run lint-imports 2>&1 | tee import-linter.log
+          uv run mypy trade_rl 2>&1 | tee mypy.log
+
+      - name: Commit and push target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: harden config and export boundaries"
+          git push origin HEAD:agent/architecture-boundary-hardening-20260801
+
+      - name: Record successful focused verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          cat > result.md <<'EOF'
+          ## Focused architecture refactor verification
+
+          The transformation completed after correcting the two diagnosed root causes:
+
+          - token-safe `_TIMEFRAMES` replacement
+          - retained Signal artifact digest helper import for workflow publication
+
+          The same runner completed Ruff, format, focused pytest, Import Linter, and MyPy before pushing the branch. Full exact-head PR CI remains required before review readiness.
+          EOF
+          gh pr comment 347 --body-file result.md
+
+      - name: Remove temporary workflow from main
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow_path=".github/workflows/temporary-architecture-boundary-retry.yml"
+          workflow_sha="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/contents/${workflow_path}?ref=main" \
+            --jq '.sha')"
+          gh api --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/contents/${workflow_path}" \
+            -f message='chore: remove temporary architecture retry' \
+            -f sha="${workflow_sha}" \
+            -f branch='main'

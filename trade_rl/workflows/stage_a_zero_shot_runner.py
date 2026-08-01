@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from typing import cast
 
+from trade_rl.evaluation.stage_a_sealed_test import (
+    StageASealedTestCellSpec,
+    StageASealedTestLedger,
+    StageASealedTestLedgerProtocol,
+    build_stage_a_sealed_test_authorization_batch,
+)
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageAEvaluationObservation,
     StageAEvaluationSplit,
@@ -13,10 +19,6 @@ from trade_rl.evaluation.stage_a_zero_shot_contracts import (
 from trade_rl.evaluation.stage_a_zero_shot_gate import (
     evaluate_stage_a_sealed_test,
     select_stage_a_validation_candidate,
-)
-from trade_rl.evaluation.walk_forward.sealed_test import (
-    SealedTestLedger,
-    SealedTestLedgerProtocol,
 )
 from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
     StageAEvaluationDatasetManifest,
@@ -42,7 +44,7 @@ class StageAZeroShotEvaluationOrchestrator:
         manifest: StageAEvaluationDatasetManifest,
         evaluator: StageAEvaluationCellEvaluator,
         test_schedule: StageATestSchedule | None = None,
-        sealed_test_ledger: SealedTestLedgerProtocol | None = None,
+        sealed_test_ledger: StageASealedTestLedgerProtocol | None = None,
     ) -> None:
         plan.validate_manifest(manifest)
         resolved_schedule = test_schedule or StageATestSchedule.from_manifest(
@@ -54,7 +56,7 @@ class StageAZeroShotEvaluationOrchestrator:
         self.manifest = manifest
         self.evaluator = evaluator
         self.test_schedule = resolved_schedule
-        self._sealed_test_ledger = sealed_test_ledger or SealedTestLedger()
+        self._sealed_test_ledger = sealed_test_ledger or StageASealedTestLedger()
 
     def _request(
         self,
@@ -194,29 +196,40 @@ class StageAZeroShotEvaluationOrchestrator:
             )
         self.test_schedule.validate_manifest(self.plan, self.manifest)
         selected_candidate = self.plan.candidate(selected_id)
-        access_records: list[StageASealedTestAccessRecord] = []
-        for triplet_id in self.plan.test_triplet_ids:
-            dataset_id = self.manifest.dataset_id_for("test", triplet_id)
-            for fold in self.plan.folds:
-                test_range = self.test_schedule.range_for(fold)
-                generic = self._sealed_test_ledger.authorize_once(
-                    experiment_plan_digest=self.plan.digest,
-                    dataset_id=dataset_id,
+        batch = build_stage_a_sealed_test_authorization_batch(
+            experiment_plan_digest=self.plan.digest,
+            evaluation_dataset_manifest_digest=self.manifest.digest,
+            evaluation_identity=self.plan.evaluation_identity,
+            selected_configuration=selected_id,
+            selected_policy_digest=selected_candidate.digest,
+            cells=tuple(
+                StageASealedTestCellSpec(
+                    triplet_id=triplet_id,
+                    dataset_id=self.manifest.dataset_id_for("test", triplet_id),
                     fold_index=fold,
-                    test_range=test_range,
-                    selected_configuration=selected_id,
-                    selected_policy_digest=selected_candidate.digest,
+                    test_range=self.test_schedule.range_for(fold),
                 )
-                access_records.append(
-                    StageASealedTestAccessRecord(
-                        evaluation_dataset_manifest_digest=self.manifest.digest,
-                        triplet_id=triplet_id,
-                        dataset_id=dataset_id,
-                        fold=fold,
-                        test_range=test_range,
-                        ledger_record=generic,
-                    )
-                )
+                for triplet_id in self.plan.test_triplet_ids
+                for fold in self.plan.folds
+            ),
+        )
+        authorized = self._sealed_test_ledger.authorize_once(batch)
+        if authorized != batch:
+            raise ValueError("Stage A sealed-test ledger returned another batch")
+        access_records = tuple(
+            StageASealedTestAccessRecord(
+                authorization_batch_digest=authorized.batch_digest,
+                evaluation_dataset_manifest_digest=(
+                    cell.evaluation_dataset_manifest_digest
+                ),
+                triplet_id=cell.triplet_id,
+                dataset_id=cell.dataset_id,
+                fold=cell.fold_index,
+                test_range=cell.test_range,
+                ledger_record=cell.access_record,
+            )
+            for cell in authorized.cells
+        )
         observations = self._observations_for_split(
             split=cast(StageAEvaluationSplit, "test"),
             candidate_ids=(selected_id,),
@@ -236,7 +249,7 @@ class StageAZeroShotEvaluationOrchestrator:
         )
         return StageASealedTestRun(
             validation_run=validation_run,
-            access_records=tuple(access_records),
+            access_records=access_records,
             evidence=evidence,
             decision=decision,
         )

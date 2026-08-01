@@ -23,7 +23,7 @@ def _database_url() -> str:
 def test_postgres_catalog_migrates_registers_queries_and_links_artifacts() -> None:
     catalog = PostgresArtifactCatalog(_database_url())
     applied = catalog.migrate()
-    assert applied in {(1, 2), (2,), ()}
+    assert applied in {(1, 2, 3), (2, 3), (3,), ()}
 
     parent = ArtifactRegistration(
         artifact_digest="1" * 64,
@@ -75,7 +75,7 @@ def test_postgres_catalog_migrates_registers_queries_and_links_artifacts() -> No
 
     health = catalog.health()
     assert health["status"] == "ok"
-    assert health["migration_version"] == 2
+    assert health["migration_version"] == 3
 
 
 def test_postgres_sealed_test_ledger_rejects_duplicate_across_instances() -> None:

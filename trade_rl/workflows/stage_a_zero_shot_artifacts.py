@@ -23,7 +23,7 @@ from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAValidationRun,
 )
 
-_STAGE_A_ACCESS_RECORDS_SCHEMA = "stage_a_sealed_test_access_records_v2"
+_STAGE_A_ACCESS_RECORDS_SCHEMA = "stage_a_sealed_test_access_records_v3"
 
 
 def _fsync_directory(path: Path) -> None:
@@ -85,9 +85,18 @@ class StageAZeroShotArtifactPublisher:
         def write(staging: Path) -> None:
             write_stage_a_evaluation_evidence(staging / "evidence.json", run.evidence)
             write_stage_a_sealed_test_decision(staging / "decision.json", run.decision)
+            batch_digests = {
+                record.authorization_batch_digest for record in run.access_records
+            }
+            if len(batch_digests) != 1:
+                raise ValueError(
+                    "Stage A sealed-test access records must share one batch"
+                )
+            authorization_batch_digest = next(iter(batch_digests))
             records = tuple(
                 {
                     "access_digest": record.access_digest,
+                    "authorization_batch_digest": (record.authorization_batch_digest),
                     "dataset_id": record.dataset_id,
                     "evaluation_dataset_manifest_digest": (
                         record.evaluation_dataset_manifest_digest
@@ -109,6 +118,7 @@ class StageAZeroShotArtifactPublisher:
                 for record in run.access_records
             )
             body: dict[str, object] = {
+                "authorization_batch_digest": authorization_batch_digest,
                 "records": records,
                 "schema_version": _STAGE_A_ACCESS_RECORDS_SCHEMA,
             }

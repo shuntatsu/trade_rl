@@ -1,0 +1,45 @@
+name: Temporary patch PR 343
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-patch-pr343.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/training-config-v4-explicitness
+          fetch-depth: 0
+      - name: Add explicit reward preroll contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/operations/_gpu_training_smoke_impl.py")
+          text = path.read_text(encoding="utf-8")
+          anchor = '        "structured_sequence_observation": True,\n'
+          replacement = anchor + '        "require_full_reward_preroll": True,\n'
+          if replacement in text:
+              raise SystemExit("reward preroll contract already present")
+          if text.count(anchor) != 1:
+              raise SystemExit("expected exactly one smoke environment anchor")
+          path.write_text(text.replace(anchor, replacement), encoding="utf-8")
+          PY
+          rm -f .github/workflows/temporary-patch-gpu-smoke-v4.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/operations/_gpu_training_smoke_impl.py
+          git add -u .github/workflows/temporary-patch-gpu-smoke-v4.yml || true
+          git commit -m "fix: make gpu smoke reward preroll explicit"
+          git push origin HEAD:agent/training-config-v4-explicitness

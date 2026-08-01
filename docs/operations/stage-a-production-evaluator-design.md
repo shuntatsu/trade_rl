@@ -4,7 +4,7 @@
 
 This specification covers A6b-1: the fail-closed trust boundary between completed conservative execution artifacts and the A6a `StageAEvaluationCellEvaluator` protocol.
 
-It does not load a checkpoint or execute a market episode. Checkpoint loading, dataset materialization, episode execution, CLI wiring, and PostgreSQL construction remain in A6b-2. A6b-1 makes those later producers prove that every published result belongs to the exact Stage A evaluation cell requested by A6a.
+It does not load a checkpoint or execute a market episode. Checkpoint loading, episode execution, CLI wiring, and durable sealed-test ledger persistence remain later A6b-2 lanes. PostgreSQL evaluation-dataset construction and the immutable dataset manifest are now implemented and bind every producer/evaluator request to the real triplet dataset and scored range.
 
 A6b-1 attests the immutable relationship between a completed replay and its A6a request. It does not independently attest that a declared checkpoint exists or that the checkpoint produced the replay; A6b-2 must establish those facts before publishing the replay.
 
@@ -16,8 +16,8 @@ A6a already owns:
 - deterministic validation and selected-only sealed-test iteration;
 - shared baseline reuse per triplet, fold, and seed;
 - validation selection recomputation before test access;
-- one-shot fold authorization;
-- v2 evidence and gate construction.
+- one-shot triplet × fold authorization;
+- v3 evidence and gate construction.
 
 A6b-1 must therefore implement only `StageAEvaluationCellEvaluator.evaluate(request)` and must not duplicate A6a selection or ledger logic.
 
@@ -33,7 +33,7 @@ A wrapper that accepts `policy_log_growth`, `triplet_id`, and `checkpoint_digest
 
 ### Generate executions inside the evaluator
 
-Loading checkpoints and running market episodes inside `evaluate()` would couple the trust boundary to data access, GPU runtime, and serving implementation details. The evaluator consumes immutable completed artifacts. A6b-2 will provide the producer.
+Loading checkpoints and running market episodes inside `evaluate()` would couple the trust boundary to data access, GPU runtime, and serving implementation details. The evaluator consumes immutable completed artifacts. The producer now validates the same manifest before loading policy sources or publishing replay bytes.
 
 ## Architecture
 
@@ -49,7 +49,9 @@ Loading checkpoints and running market episodes inside `evaluate()` would couple
 - `seed`;
 - nullable `candidate_id` and `checkpoint_digest` for baseline requests;
 - `candidate_config_digest`;
-- `dataset_identity`;
+- `evaluation_dataset_manifest_digest`;
+- the real triplet `dataset_id`;
+- the exact scored `evaluation_range`;
 - `feature_identity`;
 - `execution_identity`;
 - `evaluation_identity`.
@@ -77,7 +79,7 @@ The replay loader:
 3. verifies the referenced event and promotion files by size and SHA-256;
 4. loads and validates existing execution evidence;
 5. validates the event artifact against that evidence;
-6. confirms dataset and execution identities match the cell identity;
+6. confirms manifest, dataset, evaluation range, and execution identities match the cell identity;
 7. requires at least two positive finite equity values;
 8. recomputes log growth as `log(last / first)`.
 
@@ -125,7 +127,7 @@ class ArtifactBackedStageAEvaluationCellEvaluator:
     ) -> StageAEvaluationCellResult: ...
 ```
 
-The evaluator receives the immutable Stage A plan directly and depends on the public A6a contracts, not private gate helpers. Policy configuration identity is resolved from the plan; baseline configuration identity is supplied separately and cannot depend on the selected policy candidate.
+The evaluator receives both the immutable Stage A plan and `StageAEvaluationDatasetManifest` and depends on public contracts, not private gate helpers. Policy configuration identity is resolved from the plan; baseline configuration identity is supplied separately and cannot depend on the selected policy candidate.
 
 ## Error handling
 
@@ -137,7 +139,7 @@ The implementation fails closed on:
 - artifact digest or size mismatch;
 - request-index rebinding;
 - event/evidence mismatch;
-- dataset, feature, execution, evaluation, plan, split, triplet, fold, seed, candidate, checkpoint, or request mismatch;
+- manifest, dataset, evaluation range, feature, execution, evaluation, plan, split, triplet, fold, seed, candidate, checkpoint, or request mismatch;
 - candidate-dependent baseline configuration;
 - non-positive or non-finite equity;
 - an equity curve with fewer than two values;
@@ -161,14 +163,18 @@ Tests must prove:
 
 The repository formatter output has been applied to every new Python file. Merge requires one unchanged human-owned head to pass the full CI, compatibility, training-image, and PostgreSQL workflows; results from intermediate transport or formatter heads are not accepted.
 
-## A6b-2 boundary
+## Current boundary
 
-A6b-2 will:
+Completed in this lane:
 
-- resolve retained serving bundles and checkpoints through the canonical policy loader;
-- materialize the exact triplet and fold dataset;
-- run the maintained conservative execution model;
-- publish the event, promotion, and Stage A cell artifacts defined here;
-- build `StageATestSchedule` from the maintained evaluation source;
-- construct the PostgreSQL sealed-test ledger;
-- expose validation and sealed-test CLI commands.
+- immutable evaluation-dataset manifest and PostgreSQL-backed triplet datasets;
+- manifest-derived validation/test ranges and schedules;
+- canonical checkpoint/serving-source binding;
+- conservative execution producer and content-addressed replay publication;
+- artifact-backed evaluation with exact manifest/dataset/range closure.
+
+Remaining separate lanes:
+
+- SB3 environment assembly over the full timeline plus explicit scored range;
+- durable PostgreSQL one-shot sealed-test ledger persistence;
+- validation and sealed-test CLI commands.

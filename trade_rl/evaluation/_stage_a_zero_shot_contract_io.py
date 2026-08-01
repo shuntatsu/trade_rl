@@ -8,6 +8,7 @@ from typing import cast
 
 from trade_rl.evaluation._stage_a_zero_shot_candidate import StageACandidate
 from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
+    StageAEvaluationDatasetManifestProtocol,
     StageAEvaluationSplit,
     _integer,
     _list,
@@ -21,6 +22,7 @@ from trade_rl.evaluation._stage_a_zero_shot_evidence import (
     StageAEvaluationObservation,
 )
 from trade_rl.evaluation._stage_a_zero_shot_plan import StageAZeroShotEvaluationPlan
+from trade_rl.evaluation.walk_forward.folds import IndexRange
 
 
 def _load_candidate(value: object, *, field: str) -> StageACandidate:
@@ -86,8 +88,8 @@ def load_stage_a_zero_shot_evaluation_plan(
             "bootstrap_resamples",
             "bootstrap_seed",
             "candidates",
-            "dataset_identity",
             "digest",
+            "evaluation_dataset_manifest_digest",
             "evaluation_identity",
             "execution_identity",
             "feature_identity",
@@ -124,8 +126,9 @@ def load_stage_a_zero_shot_evaluation_plan(
             payload["symbol_disjoint_triplet_manifest_digest"],
             field="stage_a_plan.symbol_disjoint_triplet_manifest_digest",
         ),
-        dataset_identity=_string(
-            payload["dataset_identity"], field="stage_a_plan.dataset_identity"
+        evaluation_dataset_manifest_digest=_string(
+            payload["evaluation_dataset_manifest_digest"],
+            field="stage_a_plan.evaluation_dataset_manifest_digest",
         ),
         feature_identity=_string(
             payload["feature_identity"], field="stage_a_plan.feature_identity"
@@ -215,6 +218,16 @@ def load_stage_a_zero_shot_evaluation_plan(
     )
 
 
+def _load_range(value: object, *, field: str) -> IndexRange:
+    pair = _list(value, field=field)
+    if len(pair) != 2:
+        raise ValueError(f"{field} must contain two values")
+    return IndexRange(
+        _integer(pair[0], field=f"{field}.start"),
+        _integer(pair[1], field=f"{field}.stop"),
+    )
+
+
 def _load_observation(value: object, *, field: str) -> StageAEvaluationObservation:
     payload = _object(value, field=field)
     _require_fields(
@@ -224,9 +237,11 @@ def _load_observation(value: object, *, field: str) -> StageAEvaluationObservati
             "baseline_log_growth",
             "candidate_id",
             "checkpoint_digest",
-            "dataset_identity",
+            "dataset_id",
             "digest",
+            "evaluation_dataset_manifest_digest",
             "evaluation_identity",
+            "evaluation_range",
             "execution_identity",
             "feature_identity",
             "fold",
@@ -250,8 +265,13 @@ def _load_observation(value: object, *, field: str) -> StageAEvaluationObservati
         checkpoint_digest=_string(
             payload["checkpoint_digest"], field=f"{field}.checkpoint_digest"
         ),
-        dataset_identity=_string(
-            payload["dataset_identity"], field=f"{field}.dataset_identity"
+        evaluation_dataset_manifest_digest=_string(
+            payload["evaluation_dataset_manifest_digest"],
+            field=f"{field}.evaluation_dataset_manifest_digest",
+        ),
+        dataset_id=_string(payload["dataset_id"], field=f"{field}.dataset_id"),
+        evaluation_range=_load_range(
+            payload["evaluation_range"], field=f"{field}.evaluation_range"
         ),
         feature_identity=_string(
             payload["feature_identity"], field=f"{field}.feature_identity"
@@ -284,7 +304,10 @@ def _load_observation(value: object, *, field: str) -> StageAEvaluationObservati
 
 
 def load_stage_a_evaluation_evidence(
-    path: str | Path, *, plan: StageAZeroShotEvaluationPlan
+    path: str | Path,
+    *,
+    plan: StageAZeroShotEvaluationPlan,
+    manifest: StageAEvaluationDatasetManifestProtocol,
 ) -> StageAEvaluationEvidence:
     payload = _object(
         json.loads(Path(path).read_text(encoding="utf-8")), field="stage_a_evidence"
@@ -347,5 +370,5 @@ def load_stage_a_evaluation_evidence(
         ),
         digest=_string(payload["digest"], field="stage_a_evidence.digest"),
     )
-    evidence.validate_plan(plan)
+    evidence.validate_manifest(plan, manifest)
     return evidence

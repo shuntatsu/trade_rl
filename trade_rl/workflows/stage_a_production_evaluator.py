@@ -6,6 +6,9 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageAZeroShotEvaluationPlan,
 )
+from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
+    StageAEvaluationDatasetManifest,
+)
 from trade_rl.workflows.stage_a_execution_replay import (
     StageAExecutionCellIdentity,
 )
@@ -25,6 +28,7 @@ class ArtifactBackedStageAEvaluationCellEvaluator:
         self,
         *,
         plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifest,
         store: StageAExecutionPromotionStore,
         baseline_candidate_config_digest: str,
     ) -> None:
@@ -32,27 +36,14 @@ class ArtifactBackedStageAEvaluationCellEvaluator:
             baseline_candidate_config_digest,
             field="stage_a_baseline_candidate_config_digest",
         )
+        plan.validate_manifest(manifest)
         self.plan = plan
+        self.manifest = manifest
         self.store = store
         self.baseline_candidate_config_digest = baseline_candidate_config_digest
 
     def _expected_candidate_config(self, request: StageAEvaluationCellRequest) -> str:
-        if request.plan_digest != self.plan.digest:
-            raise ValueError("Stage A evaluator plan identity mismatch")
-        if request.dataset_identity != self.plan.dataset_identity:
-            raise ValueError("Stage A evaluator dataset identity mismatch")
-        if request.feature_identity != self.plan.feature_identity:
-            raise ValueError("Stage A evaluator feature identity mismatch")
-        if request.execution_identity != self.plan.execution_identity:
-            raise ValueError("Stage A evaluator execution identity mismatch")
-        if request.evaluation_identity != self.plan.evaluation_identity:
-            raise ValueError("Stage A evaluator evaluation identity mismatch")
-        if request.fold not in self.plan.folds:
-            raise ValueError("Stage A evaluator fold is not declared")
-        if request.seed not in self.plan.seeds:
-            raise ValueError("Stage A evaluator seed is not declared")
-        if request.triplet_id not in self.plan.triplet_ids_for(request.split):
-            raise ValueError("Stage A evaluator triplet is not declared for split")
+        request.validate_manifest(self.plan, self.manifest)
         if request.is_baseline:
             return self.baseline_candidate_config_digest
         candidate_id = request.candidate_id

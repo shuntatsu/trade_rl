@@ -23,7 +23,7 @@ from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAValidationRun,
 )
 
-_STAGE_A_ACCESS_RECORDS_SCHEMA = "stage_a_sealed_test_access_records_v1"
+_STAGE_A_ACCESS_RECORDS_SCHEMA = "stage_a_sealed_test_access_records_v2"
 
 
 def _fsync_directory(path: Path) -> None:
@@ -89,11 +89,22 @@ class StageAZeroShotArtifactPublisher:
                 {
                     "access_digest": record.access_digest,
                     "dataset_id": record.dataset_id,
-                    "experiment_plan_digest": record.experiment_plan_digest,
-                    "fold_index": record.fold_index,
-                    "selected_configuration": record.selected_configuration,
-                    "selected_policy_digest": record.selected_policy_digest,
+                    "evaluation_dataset_manifest_digest": (
+                        record.evaluation_dataset_manifest_digest
+                    ),
+                    "experiment_plan_digest": (
+                        record.ledger_record.experiment_plan_digest
+                    ),
+                    "fold_index": record.fold,
+                    "ledger_access_digest": record.ledger_record.access_digest,
+                    "selected_configuration": (
+                        record.ledger_record.selected_configuration
+                    ),
+                    "selected_policy_digest": (
+                        record.ledger_record.selected_policy_digest
+                    ),
                     "test_range": (record.test_range.start, record.test_range.stop),
+                    "triplet_id": record.triplet_id,
                 }
                 for record in run.access_records
             )

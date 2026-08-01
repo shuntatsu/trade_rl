@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.selection import PolicyMode
@@ -69,7 +70,19 @@ def _checkpoint_digest(seed: int) -> str:
     return content_digest(_checkpoint_payload(seed))
 
 
+def _manifest():
+    return stage_a_test_manifest(
+        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
+        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
+        feature_identity=_digest("features"),
+        validation_triplet_ids=(_digest("validation-triplet"),),
+        test_triplet_ids=(_digest("test-triplet"),),
+        folds=(0, 1),
+    )
+
+
 def _plan() -> StageAZeroShotEvaluationPlan:
+    manifest = _manifest()
     candidate = StageACandidate.create(
         candidate_id="candidate-a",
         candidate_config_digest=_candidate_config_digest(),
@@ -83,7 +96,7 @@ def _plan() -> StageAZeroShotEvaluationPlan:
     return build_stage_a_zero_shot_evaluation_plan(
         symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
         symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-        dataset_identity=_digest("dataset"),
+        evaluation_dataset_manifest_digest=manifest.digest,
         feature_identity=_digest("features"),
         execution_identity=_execution_identity(),
         evaluation_identity=_digest("evaluation"),
@@ -108,15 +121,19 @@ def _plan() -> StageAZeroShotEvaluationPlan:
 
 def _request(plan: StageAZeroShotEvaluationPlan) -> StageAEvaluationCellRequest:
     candidate = plan.candidate("candidate-a")
+    manifest = stage_a_test_manifest_for_plan(plan)
+    triplet_id = plan.validation_triplet_ids[0]
     return StageAEvaluationCellRequest(
         plan_digest=plan.digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
         split="validation",
-        triplet_id=plan.validation_triplet_ids[0],
+        triplet_id=triplet_id,
         fold=0,
         seed=0,
         candidate_id=candidate.candidate_id,
         checkpoint_digest=candidate.checkpoint_digest(0),
-        dataset_identity=plan.dataset_identity,
+        dataset_id=manifest.dataset_id_for("validation", triplet_id),
+        evaluation_range=manifest.range_for("validation", 0),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
         evaluation_identity=plan.evaluation_identity,
@@ -237,6 +254,7 @@ def _publish_with_bundle(
     store = StageAPolicySourceStore(root)
     store.publish(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         request=request,
         checkpoint_manifest_path=checkpoint_path,
         serving_bundle_path=bundle_root,
@@ -250,7 +268,12 @@ def test_publish_and_load_checkpoint_plus_serving_bundle(tmp_path: Path) -> None
     )
 
     binding = store.load(request.digest)
-    validated = binding.validate(root=root, plan=plan, request=request)
+    validated = binding.validate(
+        root=root,
+        plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
+        request=request,
+    )
 
     assert validated.digest == checkpoint.digest
     assert binding.serving_bundle_digest == bundle.bundle_digest
@@ -265,7 +288,12 @@ def test_runtime_loader_returns_policy_with_complete_source_identity(
     fallback = _FlatFallback()
     loader = CanonicalServingBundleStageAPolicyLoader(root, fallback=fallback)
 
-    handle = loader.load(plan=plan, request=request, binding=binding)
+    handle = loader.load(
+        plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
+        request=request,
+        binding=binding,
+    )
 
     assert isinstance(handle, StageAPolicyRuntimeHandle)
     assert handle.policy is fallback.policy
@@ -290,6 +318,7 @@ def test_runtime_loader_rejects_flat_bundle_without_explicit_fallback(
     with pytest.raises(RuntimeError, match="explicit policy loader"):
         CanonicalServingBundleStageAPolicyLoader(root).load(
             plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
             request=request,
             binding=binding,
         )
@@ -309,6 +338,7 @@ def test_publish_rejects_serving_policy_substitution(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="serving policy digest mismatch"):
         StageAPolicySourceStore(root).publish(
             plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
             request=request,
             checkpoint_manifest_path=checkpoint_path,
             serving_bundle_path=bundle_root,
@@ -329,6 +359,7 @@ def test_publish_rejects_serving_environment_substitution(tmp_path: Path) -> Non
     with pytest.raises(ValueError, match="serving environment digest mismatch"):
         StageAPolicySourceStore(root).publish(
             plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
             request=request,
             checkpoint_manifest_path=checkpoint_path,
             serving_bundle_path=bundle_root,
@@ -345,7 +376,12 @@ def test_validate_rejects_serving_bundle_digest_substitution(tmp_path: Path) -> 
     )
 
     with pytest.raises(ValueError, match="serving bundle digest mismatch"):
-        substituted.validate(root=root, plan=plan, request=request)
+        substituted.validate(
+            root=root,
+            plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
+            request=request,
+        )
 
 
 def test_load_rejects_serving_artifact_tampering(tmp_path: Path) -> None:
@@ -379,6 +415,7 @@ def test_checkpoint_only_binding_cannot_be_upgraded_in_place(tmp_path: Path) -> 
     store = StageAPolicySourceStore(root)
     store.publish(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         request=request,
         checkpoint_manifest_path=checkpoint_path,
     )
@@ -386,6 +423,7 @@ def test_checkpoint_only_binding_cannot_be_upgraded_in_place(tmp_path: Path) -> 
     with pytest.raises(ValueError, match="already bound"):
         store.publish(
             plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
             request=request,
             checkpoint_manifest_path=checkpoint_path,
             serving_bundle_path=bundle_root,
@@ -409,6 +447,7 @@ def test_publish_rejects_symlinked_serving_bundle(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="symlink"):
         StageAPolicySourceStore(root).publish(
             plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
             request=request,
             checkpoint_manifest_path=checkpoint_path,
             serving_bundle_path=linked_bundle,

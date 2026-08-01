@@ -5,12 +5,12 @@ from dataclasses import replace
 
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
     build_stage_a_zero_shot_evaluation_plan,
 )
 from trade_rl.evaluation.stage_a_zero_shot_gate import StageAValidationSelection
-from trade_rl.evaluation.walk_forward.folds import IndexRange
 from trade_rl.evaluation.walk_forward.sealed_test import SealedTestLedger
 from trade_rl.workflows.stage_a_zero_shot_runner import (
     StageAZeroShotEvaluationOrchestrator,
@@ -18,8 +18,6 @@ from trade_rl.workflows.stage_a_zero_shot_runner import (
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
     StageAEvaluationCellResult,
-    StageATestFoldRange,
-    StageATestSchedule,
     StageAValidationRun,
 )
 
@@ -28,7 +26,22 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _plan(*, passing_threshold: float = 0.05):
+def _manifest():
+    return stage_a_test_manifest(
+        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
+        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
+        feature_identity=_digest("features"),
+        validation_triplet_ids=(
+            _digest("validation-triplet-a"),
+            _digest("validation-triplet-b"),
+        ),
+        test_triplet_ids=(_digest("test-triplet-a"), _digest("test-triplet-b")),
+        folds=(0, 1),
+    )
+
+
+def _plan(*, manifest=None, passing_threshold: float = 0.05):
+    manifest = manifest or _manifest()
     seeds = (0, 1)
     candidates = tuple(
         StageACandidate.create(
@@ -43,20 +56,17 @@ def _plan(*, passing_threshold: float = 0.05):
         for candidate_id in ("candidate-a", "candidate-b")
     )
     return build_stage_a_zero_shot_evaluation_plan(
-        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
-        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-        dataset_identity=_digest("dataset"),
-        feature_identity=_digest("features"),
+        symbol_disjoint_manifest_digest=manifest.symbol_disjoint_manifest_digest,
+        symbol_disjoint_triplet_manifest_digest=manifest.symbol_disjoint_triplet_manifest_digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        feature_identity=manifest.feature_identity,
         execution_identity=_digest("execution"),
         evaluation_identity=_digest("evaluation"),
         candidates=candidates,
         seeds=seeds,
-        folds=(0, 1),
-        validation_triplet_ids=(
-            _digest("validation-triplet-a"),
-            _digest("validation-triplet-b"),
-        ),
-        test_triplet_ids=(_digest("test-triplet-a"), _digest("test-triplet-b")),
+        folds=manifest.folds_declared,
+        validation_triplet_ids=manifest.triplet_ids_for("validation"),
+        test_triplet_ids=manifest.triplet_ids_for("test"),
         bootstrap_confidence_level=0.95,
         bootstrap_resamples=1_000,
         bootstrap_seed=17,
@@ -68,17 +78,6 @@ def _plan(*, passing_threshold: float = 0.05):
         minimum_test_worst_seed_excess=passing_threshold,
         minimum_validation_triplet_pass_fraction=1.0,
         minimum_test_triplet_pass_fraction=1.0,
-    )
-
-
-def _schedule(plan):
-    return StageATestSchedule(
-        plan_digest=plan.digest,
-        evaluation_identity=plan.evaluation_identity,
-        fold_ranges=tuple(
-            StageATestFoldRange(fold, IndexRange(100 + fold * 20, 120 + fold * 20))
-            for fold in plan.folds
-        ),
     )
 
 
@@ -127,20 +126,21 @@ class RecordingLedger:
         return self.delegate.records
 
     def authorize_once(self, **kwargs):
-        self.events.append(("authorize", kwargs["fold_index"]))
+        self.events.append(("authorize", kwargs["dataset_id"], kwargs["fold_index"]))
         return self.delegate.authorize_once(**kwargs)
 
 
-def _orchestrator(*, plan=None, evaluator=None, events=None):
-    resolved_plan = plan or _plan()
+def _orchestrator(*, plan=None, manifest=None, evaluator=None, events=None):
+    resolved_manifest = manifest or _manifest()
+    resolved_plan = plan or _plan(manifest=resolved_manifest)
     resolved_events = events if events is not None else []
     resolved_evaluator = evaluator or RecordingEvaluator(events=resolved_events)
     ledger = RecordingLedger(resolved_events)
     return (
         StageAZeroShotEvaluationOrchestrator(
             plan=resolved_plan,
+            manifest=resolved_manifest,
             evaluator=resolved_evaluator,
-            test_schedule=_schedule(resolved_plan),
             sealed_test_ledger=ledger,
         ),
         resolved_evaluator,
@@ -197,14 +197,15 @@ def test_validation_rejects_evaluator_result_for_another_request() -> None:
 
 
 def test_failed_validation_never_opens_or_evaluates_sealed_test() -> None:
-    plan = _plan()
+    manifest = _manifest()
+    plan = _plan(manifest=manifest)
     events: list[tuple[object, ...]] = []
     evaluator = RecordingEvaluator(
         growth_by_candidate={None: 0.0, "candidate-a": 0.0, "candidate-b": 0.0},
         events=events,
     )
     orchestrator, _, ledger, _ = _orchestrator(
-        plan=plan, evaluator=evaluator, events=events
+        plan=plan, manifest=manifest, evaluator=evaluator, events=events
     )
     validation_run = orchestrator.evaluate_validation()
     assert not validation_run.selection.passed
@@ -274,14 +275,27 @@ def test_sealed_test_authorizes_every_fold_before_selected_only_evaluation() -> 
         request for request in evaluator.requests if not request.is_baseline
     ]
 
-    assert events[: len(plan.folds)] == [("authorize", fold) for fold in plan.folds]
+    expected_access = [
+        (
+            "authorize",
+            orchestrator.manifest.dataset_id_for("test", triplet_id),
+            fold,
+        )
+        for triplet_id in plan.test_triplet_ids
+        for fold in plan.folds
+    ]
+    assert events[: len(expected_access)] == expected_access
     assert len(baseline_requests) == cells
     assert len(policy_requests) == cells
     assert {request.candidate_id for request in policy_requests} == {"candidate-a"}
     assert sealed_run.evidence.candidate_ids == ("candidate-a",)
-    assert len(sealed_run.access_records) == len(plan.folds)
+    assert len(sealed_run.access_records) == len(plan.test_triplet_ids) * len(
+        plan.folds
+    )
     assert sealed_run.decision.passed
-    assert ledger.records == sealed_run.access_records
+    assert ledger.records == tuple(
+        record.ledger_record for record in sealed_run.access_records
+    )
 
 
 def test_sealed_test_cannot_be_opened_twice() -> None:

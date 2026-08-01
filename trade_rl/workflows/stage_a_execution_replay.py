@@ -15,6 +15,7 @@ from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_non_empty, require_sha256
 from trade_rl.evaluation.stage_a_zero_shot_contracts import StageAEvaluationSplit
+from trade_rl.evaluation.walk_forward.folds import IndexRange
 from trade_rl.simulation.execution_promotion import (
     ExecutionEvidence,
     validate_execution_promotion,
@@ -27,8 +28,8 @@ from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
 )
 
-STAGE_A_EXECUTION_CELL_IDENTITY_SCHEMA = "stage_a_execution_cell_identity_v1"
-STAGE_A_EXECUTION_REPLAY_SCHEMA = "stage_a_execution_replay_v1"
+STAGE_A_EXECUTION_CELL_IDENTITY_SCHEMA = "stage_a_execution_cell_identity_v2"
+STAGE_A_EXECUTION_REPLAY_SCHEMA = "stage_a_execution_replay_v2"
 _SPLITS = frozenset({"validation", "test"})
 
 
@@ -67,6 +68,16 @@ def _optional_string(value: object, *, field: str) -> str | None:
     if value is None:
         return None
     return _string(value, field=field)
+
+
+def _index_range(value: object, *, field: str) -> IndexRange:
+    values = tuple(_sequence(value, field=field))
+    if len(values) != 2:
+        raise ValueError(f"{field} must contain exactly two integers")
+    return IndexRange(
+        _non_negative_int(values[0], field=f"{field}.start"),
+        _non_negative_int(values[1], field=f"{field}.stop"),
+    )
 
 
 def _number(value: object, *, field: str) -> float:
@@ -138,7 +149,9 @@ class StageAExecutionCellIdentity:
     candidate_id: str | None
     checkpoint_digest: str | None
     candidate_config_digest: str
-    dataset_identity: str
+    evaluation_dataset_manifest_digest: str
+    dataset_id: str
+    evaluation_range: IndexRange
     feature_identity: str
     execution_identity: str
     evaluation_identity: str
@@ -155,7 +168,11 @@ class StageAExecutionCellIdentity:
             ("plan_digest", self.plan_digest),
             ("triplet_id", self.triplet_id),
             ("candidate_config_digest", self.candidate_config_digest),
-            ("dataset_identity", self.dataset_identity),
+            (
+                "evaluation_dataset_manifest_digest",
+                self.evaluation_dataset_manifest_digest,
+            ),
+            ("dataset_id", self.dataset_id),
             ("feature_identity", self.feature_identity),
             ("execution_identity", self.execution_identity),
             ("evaluation_identity", self.evaluation_identity),
@@ -163,6 +180,8 @@ class StageAExecutionCellIdentity:
             require_sha256(value, field=f"stage_a_execution_cell.{field_name}")
         fold = _non_negative_int(self.fold, field="stage_a_execution_cell.fold")
         seed = _non_negative_int(self.seed, field="stage_a_execution_cell.seed")
+        if not isinstance(self.evaluation_range, IndexRange):
+            raise ValueError("Stage A execution cell range must be an IndexRange")
         if (self.candidate_id is None) != (self.checkpoint_digest is None):
             raise ValueError(
                 "Stage A execution policy cell requires candidate and checkpoint"
@@ -203,7 +222,11 @@ class StageAExecutionCellIdentity:
             candidate_id=request.candidate_id,
             checkpoint_digest=request.checkpoint_digest,
             candidate_config_digest=candidate_config_digest,
-            dataset_identity=request.dataset_identity,
+            evaluation_dataset_manifest_digest=(
+                request.evaluation_dataset_manifest_digest
+            ),
+            dataset_id=request.dataset_id,
+            evaluation_range=request.evaluation_range,
             feature_identity=request.feature_identity,
             execution_identity=request.execution_identity,
             evaluation_identity=request.evaluation_identity,
@@ -218,7 +241,11 @@ class StageAExecutionCellIdentity:
             seed=self.seed,
             candidate_id=self.candidate_id,
             checkpoint_digest=self.checkpoint_digest,
-            dataset_identity=self.dataset_identity,
+            evaluation_dataset_manifest_digest=(
+                self.evaluation_dataset_manifest_digest
+            ),
+            dataset_id=self.dataset_id,
+            evaluation_range=self.evaluation_range,
             feature_identity=self.feature_identity,
             execution_identity=self.execution_identity,
             evaluation_identity=self.evaluation_identity,
@@ -230,8 +257,15 @@ class StageAExecutionCellIdentity:
             "candidate_config_digest": self.candidate_config_digest,
             "candidate_id": self.candidate_id,
             "checkpoint_digest": self.checkpoint_digest,
-            "dataset_identity": self.dataset_identity,
+            "dataset_id": self.dataset_id,
+            "evaluation_dataset_manifest_digest": (
+                self.evaluation_dataset_manifest_digest
+            ),
             "evaluation_identity": self.evaluation_identity,
+            "evaluation_range": (
+                self.evaluation_range.start,
+                self.evaluation_range.stop,
+            ),
             "execution_identity": self.execution_identity,
             "feature_identity": self.feature_identity,
             "fold": self.fold,
@@ -252,9 +286,11 @@ class StageAExecutionCellIdentity:
             "candidate_config_digest",
             "candidate_id",
             "checkpoint_digest",
-            "dataset_identity",
+            "dataset_id",
             "digest",
+            "evaluation_dataset_manifest_digest",
             "evaluation_identity",
+            "evaluation_range",
             "execution_identity",
             "feature_identity",
             "fold",
@@ -284,8 +320,13 @@ class StageAExecutionCellIdentity:
             candidate_config_digest=_string(
                 value["candidate_config_digest"], field="candidate_config_digest"
             ),
-            dataset_identity=_string(
-                value["dataset_identity"], field="dataset_identity"
+            evaluation_dataset_manifest_digest=_string(
+                value["evaluation_dataset_manifest_digest"],
+                field="evaluation_dataset_manifest_digest",
+            ),
+            dataset_id=_string(value["dataset_id"], field="dataset_id"),
+            evaluation_range=_index_range(
+                value["evaluation_range"], field="evaluation_range"
             ),
             feature_identity=_string(
                 value["feature_identity"], field="feature_identity"
@@ -473,7 +514,7 @@ def _validate_promotion_bytes(
     execution_evidence_bytes: bytes,
 ) -> tuple[ExecutionEvidence, ExecutionEventArtifact]:
     event_artifact = load_execution_event_artifact_bytes(event_artifact_bytes)
-    if event_artifact.dataset_id != request.dataset_identity:
+    if event_artifact.dataset_id != request.dataset_id:
         raise ValueError("Stage A execution event dataset identity mismatch")
     if event_artifact.execution_policy_digest != request.execution_identity:
         raise ValueError("Stage A execution event policy identity mismatch")
@@ -487,7 +528,7 @@ def _validate_promotion_bytes(
     if replay_identity.seed != request.seed:
         raise ValueError("Stage A execution seed identity mismatch")
     evidence = _load_execution_evidence_bytes(execution_evidence_bytes)
-    if evidence.dataset_id != request.dataset_identity:
+    if evidence.dataset_id != request.dataset_id:
         raise ValueError("Stage A execution evidence dataset identity mismatch")
     with tempfile.TemporaryDirectory(prefix="trade-rl-stage-a-promotion-") as temporary:
         event_path = Path(temporary) / "order-events.json"

@@ -92,6 +92,27 @@ class NativeIndicatorArtifactBundle:
             for symbol in self.symbols
         }
 
+    def subset(self, symbols: Sequence[str]) -> NativeIndicatorArtifactBundle:
+        """Return an immutable symbol subset in caller-declared order."""
+
+        requested = _ordered_unique(symbols, field="subset symbols")
+        if not set(requested) <= set(self.symbols):
+            raise ValueError("indicator subset symbols must belong to the bundle")
+        return NativeIndicatorArtifactBundle(
+            cache_id=self.cache_id,
+            market=self.market,
+            symbols=requested,
+            timeframes=self.timeframes,
+            start_time=self.start_time,
+            end_time=self.end_time,
+            feature_config_digest=self.feature_config_digest,
+            artifacts=tuple(
+                self.get(symbol, timeframe)
+                for symbol in requested
+                for timeframe in self.timeframes
+            ),
+        )
+
 
 def _ordered_unique(values: Sequence[str], *, field: str) -> tuple[str, ...]:
     resolved = tuple(str(value) for value in values)

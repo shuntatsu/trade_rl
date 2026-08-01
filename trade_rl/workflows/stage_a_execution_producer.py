@@ -24,6 +24,9 @@ from trade_rl.simulation.execution_replay import (
     write_execution_event_artifact,
 )
 from trade_rl.simulation.orders import OrderBookState, OrderEvent
+from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
+    StageAEvaluationDatasetManifest,
+)
 from trade_rl.workflows.stage_a_execution_store import StoredStageAExecutionReplay
 from trade_rl.workflows.stage_a_policy_source import (
     StageAPolicyRuntimeHandle,
@@ -57,24 +60,10 @@ def _optional_sha256(value: str | None, *, field: str) -> str | None:
 def _candidate_for_request(
     *,
     plan: StageAZeroShotEvaluationPlan,
+    manifest: StageAEvaluationDatasetManifest,
     request: StageAEvaluationCellRequest,
 ) -> StageACandidate | None:
-    if request.plan_digest != plan.digest:
-        raise ValueError("Stage A execution request plan digest mismatch")
-    for field, actual, expected in (
-        ("dataset", request.dataset_identity, plan.dataset_identity),
-        ("feature", request.feature_identity, plan.feature_identity),
-        ("execution", request.execution_identity, plan.execution_identity),
-        ("evaluation", request.evaluation_identity, plan.evaluation_identity),
-    ):
-        if actual != expected:
-            raise ValueError(f"Stage A execution request {field} identity mismatch")
-    if request.seed not in plan.seeds:
-        raise ValueError("Stage A execution request seed is not declared")
-    if request.fold not in plan.folds:
-        raise ValueError("Stage A execution request fold is not declared")
-    if request.triplet_id not in plan.triplet_ids_for(request.split):
-        raise ValueError("Stage A execution request triplet is not declared")
+    request.validate_manifest(plan, manifest)
     if request.is_baseline:
         return None
     candidate_id = request.candidate_id
@@ -222,7 +211,7 @@ class StageAEvaluationEpisodeResult:
             raise ValueError("Stage A episode policy source digest mismatch")
 
         for event in self.order_events:
-            if event.dataset_id != request.dataset_identity:
+            if event.dataset_id != request.dataset_id:
                 raise ValueError("Stage A episode order event dataset mismatch")
             if event.execution_policy_digest != request.execution_identity:
                 raise ValueError("Stage A episode order event execution mismatch")
@@ -311,6 +300,7 @@ class StageAExecutionArtifactProducer:
         self,
         *,
         plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifest,
         policy_source_store: StageAPolicySourceReader,
         policy_runtime_loader: StageAPolicyRuntimeLoader,
         episode_executor: StageAEvaluationEpisodeExecutor,
@@ -322,7 +312,9 @@ class StageAExecutionArtifactProducer:
             baseline_config_digest,
             field="stage_a_baseline_config_digest",
         )
+        plan.validate_manifest(manifest)
         self.plan = plan
+        self.manifest = manifest
         self.policy_source_store = policy_source_store
         self.policy_runtime_loader = policy_runtime_loader
         self.episode_executor = episode_executor
@@ -342,12 +334,14 @@ class StageAExecutionArtifactProducer:
         binding.validate(
             root=self.policy_source_store.root,
             plan=self.plan,
+            manifest=self.manifest,
             request=request,
         )
         if binding.candidate_config_digest != candidate.candidate_config_digest:
             raise ValueError("Stage A policy source config digest mismatch")
         handle = self.policy_runtime_loader.load(
             plan=self.plan,
+            manifest=self.manifest,
             request=request,
             binding=binding,
         )
@@ -360,7 +354,9 @@ class StageAExecutionArtifactProducer:
     ) -> StoredStageAExecutionReplay:
         """Execute, derive canonical evidence, publish, reload, and return one cell."""
 
-        candidate = _candidate_for_request(plan=self.plan, request=request)
+        candidate = _candidate_for_request(
+            plan=self.plan, manifest=self.manifest, request=request
+        )
         cost = self.execution_cost_resolver.resolve(request)
         if cost.execution_policy_digest != request.execution_identity:
             raise ValueError("Stage A execution cost identity mismatch")
@@ -390,7 +386,7 @@ class StageAExecutionArtifactProducer:
                 evaluation_run_digest=request.digest,
                 fold=request.fold,
                 seed=request.seed,
-                dataset_id=request.dataset_identity,
+                dataset_id=request.dataset_id,
                 execution_policy_digest=request.execution_identity,
                 actions=result.actions,
                 observation_digests=result.observation_digests,
@@ -404,7 +400,7 @@ class StageAExecutionArtifactProducer:
                 event_artifact,
             )
             evidence = execution_evidence_from_cost(
-                dataset_id=request.dataset_identity,
+                dataset_id=request.dataset_id,
                 cost=cost,
                 sensitivity_path_modes=("conservative",),
                 order_event_artifact_path=event_path,

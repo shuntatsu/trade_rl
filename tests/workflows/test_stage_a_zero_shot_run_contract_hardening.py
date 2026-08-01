@@ -11,7 +11,7 @@ def test_sealed_test_run_requires_access_for_every_evidence_fold() -> None:
     validation_run = orchestrator.evaluate_validation()
     sealed_run = orchestrator.evaluate_sealed_test(validation_run)
 
-    with pytest.raises(ValueError, match="access fold closure mismatch"):
+    with pytest.raises(ValueError, match="access cell closure mismatch"):
         StageASealedTestRun(
             validation_run=sealed_run.validation_run,
             access_records=sealed_run.access_records[:-1],

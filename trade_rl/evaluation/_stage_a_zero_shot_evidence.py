@@ -15,6 +15,7 @@ from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
     _SPLITS,
     STAGE_A_EVIDENCE_SCHEMA,
     STAGE_A_OBSERVATION_SCHEMA,
+    StageAEvaluationDatasetManifestProtocol,
     StageAEvaluationSplit,
     _finite,
     _non_negative_int,
@@ -23,11 +24,12 @@ from trade_rl.evaluation._stage_a_zero_shot_contract_helpers import (
     _unique_strings,
 )
 from trade_rl.evaluation._stage_a_zero_shot_plan import StageAZeroShotEvaluationPlan
+from trade_rl.evaluation.walk_forward.folds import IndexRange
 
 
 @dataclass(frozen=True, slots=True)
 class StageAEvaluationObservation:
-    """Paired policy/baseline growth for one exact evaluation cell."""
+    """Paired policy/baseline growth for one exact manifest-bound cell."""
 
     candidate_id: str
     split: StageAEvaluationSplit
@@ -35,7 +37,9 @@ class StageAEvaluationObservation:
     fold: int
     seed: int
     checkpoint_digest: str
-    dataset_identity: str
+    evaluation_dataset_manifest_digest: str
+    dataset_id: str
+    evaluation_range: IndexRange
     feature_identity: str
     execution_identity: str
     evaluation_identity: str
@@ -57,7 +61,11 @@ class StageAEvaluationObservation:
         for field, value in (
             ("triplet_id", self.triplet_id),
             ("checkpoint_digest", self.checkpoint_digest),
-            ("dataset_identity", self.dataset_identity),
+            (
+                "evaluation_dataset_manifest_digest",
+                self.evaluation_dataset_manifest_digest,
+            ),
+            ("dataset_id", self.dataset_id),
             ("feature_identity", self.feature_identity),
             ("execution_identity", self.execution_identity),
             ("evaluation_identity", self.evaluation_identity),
@@ -68,6 +76,8 @@ class StageAEvaluationObservation:
             ),
         ):
             require_sha256(value, field=f"stage_a_observation.{field}")
+        if not isinstance(self.evaluation_range, IndexRange):
+            raise ValueError("Stage A observation evaluation range must be IndexRange")
         fold = _non_negative_int(self.fold, field="stage_a_observation.fold")
         seed = _non_negative_int(self.seed, field="stage_a_observation.seed")
         policy_growth = _finite(
@@ -102,7 +112,7 @@ class StageAEvaluationObservation:
     def excess_log_growth(self) -> float:
         return self.policy_log_growth - self.baseline_log_growth
 
-    def digest_payload(self) -> dict[str, object]:
+    def constructor_payload(self) -> dict[str, object]:
         return {
             "baseline_execution_evidence_digest": (
                 self.baseline_execution_evidence_digest
@@ -110,8 +120,12 @@ class StageAEvaluationObservation:
             "baseline_log_growth": self.baseline_log_growth,
             "candidate_id": self.candidate_id,
             "checkpoint_digest": self.checkpoint_digest,
-            "dataset_identity": self.dataset_identity,
+            "dataset_id": self.dataset_id,
+            "evaluation_dataset_manifest_digest": (
+                self.evaluation_dataset_manifest_digest
+            ),
             "evaluation_identity": self.evaluation_identity,
+            "evaluation_range": self.evaluation_range,
             "execution_identity": self.execution_identity,
             "feature_identity": self.feature_identity,
             "fold": self.fold,
@@ -122,6 +136,14 @@ class StageAEvaluationObservation:
             "split": self.split,
             "triplet_id": self.triplet_id,
         }
+
+    def digest_payload(self) -> dict[str, object]:
+        payload = self.constructor_payload()
+        payload["evaluation_range"] = (
+            self.evaluation_range.start,
+            self.evaluation_range.stop,
+        )
+        return payload
 
     def to_json_dict(self) -> dict[str, object]:
         return {"digest": self.digest, **self.digest_payload()}
@@ -168,11 +190,15 @@ class StageAEvaluationEvidence:
             raise ValueError("Stage A evidence observation closure mismatch")
         if any(item.split != self.split for item in observations):
             raise ValueError("Stage A evidence contains a cross-split observation")
-        baseline_by_key: dict[tuple[str, int, int], tuple[str, float]] = {}
+        baseline_by_key: dict[
+            tuple[str, int, int], tuple[str, float, str, IndexRange]
+        ] = {}
         for observation in observations:
             baseline = (
                 observation.baseline_execution_evidence_digest,
                 observation.baseline_log_growth,
+                observation.dataset_id,
+                observation.evaluation_range,
             )
             previous = baseline_by_key.setdefault(observation.baseline_key, baseline)
             if previous != baseline:
@@ -201,7 +227,11 @@ class StageAEvaluationEvidence:
         for observation in self.observations:
             candidate = plan.candidate(observation.candidate_id)
             for label, actual, expected in (
-                ("dataset", observation.dataset_identity, plan.dataset_identity),
+                (
+                    "manifest",
+                    observation.evaluation_dataset_manifest_digest,
+                    plan.evaluation_dataset_manifest_digest,
+                ),
                 ("feature", observation.feature_identity, plan.feature_identity),
                 ("execution", observation.execution_identity, plan.execution_identity),
                 (
@@ -216,6 +246,23 @@ class StageAEvaluationEvidence:
                 observation.seed
             ):
                 raise ValueError("Stage A observation checkpoint digest mismatch")
+
+    def validate_manifest(
+        self,
+        plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifestProtocol,
+    ) -> None:
+        plan.validate_manifest(manifest)
+        self.validate_plan(plan)
+        for observation in self.observations:
+            expected_dataset = manifest.dataset_id_for(
+                observation.split, observation.triplet_id
+            )
+            if observation.dataset_id != expected_dataset:
+                raise ValueError("Stage A observation dataset identity mismatch")
+            expected_range = manifest.range_for(observation.split, observation.fold)
+            if observation.evaluation_range != expected_range:
+                raise ValueError("Stage A observation evaluation range mismatch")
 
     def observations_for(
         self, candidate_id: str
@@ -252,6 +299,7 @@ def build_stage_a_zero_shot_evaluation_plan(
 def build_stage_a_evaluation_evidence(
     *,
     plan: StageAZeroShotEvaluationPlan,
+    manifest: StageAEvaluationDatasetManifestProtocol,
     split: str,
     observations: tuple[StageAEvaluationObservation, ...],
     candidate_ids: tuple[str, ...] | None = None,
@@ -267,7 +315,7 @@ def build_stage_a_evaluation_evidence(
         triplet_ids=plan.triplet_ids_for(resolved_split),
         observations=observations,
     )
-    evidence.validate_plan(plan)
+    evidence.validate_manifest(plan, manifest)
     return evidence
 
 

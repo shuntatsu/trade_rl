@@ -6,6 +6,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 import trade_rl
+from trade_rl.artifacts.provenance import source_tree_digest
 from trade_rl.cli import main as cli_main
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -47,3 +48,19 @@ def test_setup_uv_workflows_resolve_version_from_repository_config() -> None:
         text = path.read_text(encoding="utf-8")
         assert text.index("actions/checkout@") < text.index("astral-sh/setup-uv@"), path
         assert "version: latest" not in text, path
+
+
+def test_uv_toolchain_version_is_bound_to_source_identity(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    (root / "trade_rl").mkdir(parents=True)
+    (root / "examples").mkdir()
+    (root / "pyproject.toml").write_text("[project]\nname='trade-rl'\n")
+    (root / "uv.lock").write_text("lock")
+    (root / "uv.toml").write_text('required-version = "==0.10.0"\n')
+    (root / "trade_rl" / "module.py").write_text("module")
+    (root / "examples" / "runner.py").write_text("runner")
+    before = source_tree_digest(root)
+
+    (root / "uv.toml").write_text('required-version = "==0.10.1"\n')
+
+    assert source_tree_digest(root) != before

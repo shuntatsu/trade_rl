@@ -8,6 +8,10 @@ from typing import Protocol
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_non_empty, require_sha256
+from trade_rl.evaluation.stage_a_sealed_test import (
+    StageASealedTestCellSpec,
+    build_stage_a_sealed_test_authorization_batch,
+)
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageAEvaluationEvidence,
     StageAEvaluationSplit,
@@ -472,6 +476,23 @@ class StageASealedTestRun:
         }
         if set(keys) != expected_keys:
             raise ValueError("Stage A sealed-test access cell closure mismatch")
+        expected_data: dict[tuple[str, int], tuple[str, IndexRange]] = {}
+        evidence_manifest_digests: set[str] = set()
+        evaluation_identities: set[str] = set()
+        for observation in self.evidence.observations:
+            key = (observation.triplet_id, observation.fold)
+            value = (observation.dataset_id, observation.evaluation_range)
+            previous = expected_data.setdefault(key, value)
+            if previous != value:
+                raise ValueError("Stage A sealed-test evidence data identity mismatch")
+            evidence_manifest_digests.add(
+                observation.evaluation_dataset_manifest_digest
+            )
+            evaluation_identities.add(observation.evaluation_identity)
+        access_manifest_digests = {
+            record.evaluation_dataset_manifest_digest for record in self.access_records
+        }
+        selected_policy_digests: set[str] = set()
         for record in self.access_records:
             generic = record.ledger_record
             if (
@@ -480,6 +501,42 @@ class StageASealedTestRun:
                 or generic.selected_policy_digest is None
             ):
                 raise ValueError("Stage A sealed-test access identity mismatch")
+            expected_dataset, expected_range = expected_data[
+                (record.triplet_id, record.fold)
+            ]
+            if (
+                record.dataset_id != expected_dataset
+                or record.test_range != expected_range
+            ):
+                raise ValueError("Stage A sealed-test access data identity mismatch")
+            selected_policy_digests.add(generic.selected_policy_digest)
+        if (
+            len(access_manifest_digests) != 1
+            or access_manifest_digests != evidence_manifest_digests
+            or len(evaluation_identities) != 1
+            or len(selected_policy_digests) != 1
+        ):
+            raise ValueError(
+                "Stage A sealed-test authorization identity closure mismatch"
+            )
+        reconstructed_batch = build_stage_a_sealed_test_authorization_batch(
+            experiment_plan_digest=self.evidence.plan_digest,
+            evaluation_dataset_manifest_digest=next(iter(access_manifest_digests)),
+            evaluation_identity=next(iter(evaluation_identities)),
+            selected_configuration=selected_id,
+            selected_policy_digest=next(iter(selected_policy_digests)),
+            cells=tuple(
+                StageASealedTestCellSpec(
+                    triplet_id=record.triplet_id,
+                    dataset_id=record.dataset_id,
+                    fold_index=record.fold,
+                    test_range=record.test_range,
+                )
+                for record in self.access_records
+            ),
+        )
+        if reconstructed_batch.batch_digest != self.authorization_batch_digest:
+            raise ValueError("Stage A sealed-test authorization batch digest mismatch")
         expected = content_digest(self.digest_payload())
         if self.digest and self.digest != expected:
             raise ValueError("Stage A sealed-test run digest mismatch")

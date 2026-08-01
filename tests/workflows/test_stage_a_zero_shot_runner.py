@@ -21,6 +21,7 @@ from trade_rl.workflows.stage_a_zero_shot_runner import (
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
     StageAEvaluationCellResult,
+    StageASealedTestRun,
     StageAValidationRun,
 )
 
@@ -356,6 +357,29 @@ def test_sealed_authorization_failure_performs_zero_test_evaluations() -> None:
     assert evaluator.requests == []
     assert events == []
     assert ledger.records == ()
+
+
+def test_sealed_test_run_recomputes_authorization_batch_digest() -> None:
+    orchestrator, _, _, _ = _orchestrator()
+    validation_run = orchestrator.evaluate_validation()
+    sealed_run = orchestrator.evaluate_sealed_test(validation_run)
+    forged_digest = _digest("forged-authorization-batch")
+    forged_records = tuple(
+        replace(
+            record,
+            authorization_batch_digest=forged_digest,
+            digest="",
+        )
+        for record in sealed_run.access_records
+    )
+
+    with pytest.raises(ValueError, match="batch digest mismatch"):
+        StageASealedTestRun(
+            validation_run=sealed_run.validation_run,
+            access_records=forged_records,
+            evidence=sealed_run.evidence,
+            decision=sealed_run.decision,
+        )
 
 
 def test_sealed_test_cannot_be_opened_twice() -> None:

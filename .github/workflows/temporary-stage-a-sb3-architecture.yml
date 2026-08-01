@@ -95,6 +95,7 @@ jobs:
           }
           for old, new in replacements.items():
               plan_text = plan_text.replace(old, new)
+          plan_text = "\n".join(line.rstrip() for line in plan_text.splitlines()) + "\n"
           plan_path.write_text(plan_text, encoding="utf-8")
           PY
           uv run ruff check --fix \

@@ -12,6 +12,10 @@ import pytest
 from tests.stage_a_helpers import stage_a_test_manifest
 from trade_rl.cli import build_parser, main
 from trade_rl.cli import stage_a as stage_a_cli
+from trade_rl.evaluation.stage_a_sealed_test import (
+    StageASealedTestAuthorizationBatch,
+    StageASealedTestLedger,
+)
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
     build_stage_a_zero_shot_evaluation_plan,
@@ -129,6 +133,22 @@ class RecordingEvaluator:
         )
 
 
+class RecordingLedger:
+    def __init__(self, database_url: str) -> None:
+        self.database_url = database_url
+        self.delegate = StageASealedTestLedger()
+
+    @property
+    def records(self) -> tuple[StageASealedTestAuthorizationBatch, ...]:
+        return self.delegate.records
+
+    def authorize_once(
+        self,
+        batch: StageASealedTestAuthorizationBatch,
+    ) -> StageASealedTestAuthorizationBatch:
+        return self.delegate.authorize_once(batch)
+
+
 def _write_inputs(
     root: Path,
     *,
@@ -141,6 +161,26 @@ def _write_inputs(
         root / "manifest.json", manifest
     )
     return plan, manifest, plan_path, manifest_path
+
+
+def _command_args(
+    *,
+    plan_path: Path,
+    manifest_path: Path,
+    root: Path,
+) -> list[str]:
+    return [
+        "--plan",
+        str(plan_path),
+        "--manifest",
+        str(manifest_path),
+        "--execution-store",
+        str(root / "execution-store"),
+        "--baseline-config-digest",
+        _digest("baseline-config"),
+        "--output-root",
+        str(root / "result"),
+    ]
 
 
 def test_parser_exposes_stage_a_commands() -> None:
@@ -203,37 +243,17 @@ def test_validation_command_publishes_complete_package(
 ) -> None:
     plan, manifest, plan_path, manifest_path = _write_inputs(tmp_path)
     evaluator = RecordingEvaluator()
-    monkeypatch.setattr(
-        stage_a_cli,
-        "_build_evaluator",
-        lambda **_: evaluator,
-        raising=False,
+    monkeypatch.setattr(stage_a_cli, "_build_evaluator", lambda **_: evaluator)
+    command_args = _command_args(
+        plan_path=plan_path,
+        manifest_path=manifest_path,
+        root=tmp_path,
     )
-    output_root = tmp_path / "result"
     stdout = StringIO()
 
-    assert (
-        main(
-            [
-                "stage-a",
-                "validation",
-                "--plan",
-                str(plan_path),
-                "--manifest",
-                str(manifest_path),
-                "--execution-store",
-                str(tmp_path / "execution-store"),
-                "--baseline-config-digest",
-                _digest("baseline-config"),
-                "--output-root",
-                str(output_root),
-            ],
-            stdout=stdout,
-        )
-        == 0
-    )
+    assert main(["stage-a", "validation", *command_args], stdout=stdout) == 0
 
-    package = output_root / "validation"
+    package = tmp_path / "result" / "validation"
     assert (package / "evidence.json").is_file()
     assert (package / "selection.json").is_file()
     payload = json.loads(stdout.getvalue())
@@ -249,11 +269,14 @@ def test_validation_command_publishes_complete_package(
         "validation_run_digest": payload["validation_run_digest"],
         "validation_selection_digest": payload["validation_selection_digest"],
     }
-    assert all(len(payload[key]) == 64 for key in (
-        "validation_evidence_digest",
-        "validation_run_digest",
-        "validation_selection_digest",
-    ))
+    assert all(
+        len(payload[key]) == 64
+        for key in (
+            "validation_evidence_digest",
+            "validation_run_digest",
+            "validation_selection_digest",
+        )
+    )
     expected_cells = (
         len(plan.validation_triplet_ids) * len(plan.folds) * len(plan.seeds)
     )
@@ -263,3 +286,205 @@ def test_validation_command_publishes_complete_package(
     assert len([request for request in evaluator.requests if not request.is_baseline]) == (
         expected_cells * len(plan.candidate_ids)
     )
+
+
+def test_sealed_test_command_loads_validation_and_uses_explicit_database_url(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manifest, plan_path, manifest_path = _write_inputs(tmp_path)
+    evaluator = RecordingEvaluator()
+    monkeypatch.setattr(stage_a_cli, "_build_evaluator", lambda **_: evaluator)
+    command_args = _command_args(
+        plan_path=plan_path,
+        manifest_path=manifest_path,
+        root=tmp_path,
+    )
+    assert main(["stage-a", "validation", *command_args], stdout=StringIO()) == 0
+    evaluator.requests.clear()
+
+    database_url = "postgresql://stage-a-explicit"
+    ledger = RecordingLedger(database_url)
+    database_urls: list[str] = []
+
+    def build_ledger(value: str) -> RecordingLedger:
+        database_urls.append(value)
+        return ledger
+
+    monkeypatch.setattr(stage_a_cli, "_build_ledger", build_ledger, raising=False)
+    stdout = StringIO()
+    assert (
+        main(
+            [
+                "stage-a",
+                "sealed-test",
+                *command_args,
+                "--validation-package",
+                str(tmp_path / "result" / "validation"),
+                "--database-url",
+                database_url,
+            ],
+            stdout=stdout,
+        )
+        == 0
+    )
+
+    package = tmp_path / "result" / "sealed-test"
+    assert (package / "evidence.json").is_file()
+    assert (package / "decision.json").is_file()
+    assert (package / "access-records.json").is_file()
+    assert database_urls == [database_url]
+    assert len(ledger.records) == 1
+    payload = json.loads(stdout.getvalue())
+    assert payload["schema"] == "stage_a_sealed_test_cli_result_v1"
+    assert payload["plan_digest"] == plan.digest
+    assert payload["evaluation_dataset_manifest_digest"] == manifest.digest
+    assert payload["package_path"] == str(package)
+    assert payload["passed"] is True
+    assert payload["selected_candidate_id"] == "candidate-a"
+    assert payload["authorization_batch_digest"] == ledger.records[0].batch_digest
+    assert database_url not in stdout.getvalue()
+    expected_cells = len(plan.test_triplet_ids) * len(plan.folds) * len(plan.seeds)
+    assert len([request for request in evaluator.requests if request.is_baseline]) == (
+        expected_cells
+    )
+    assert len([request for request in evaluator.requests if not request.is_baseline]) == (
+        expected_cells
+    )
+
+
+def test_sealed_test_rejects_tampered_validation_before_ledger(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, plan_path, manifest_path = _write_inputs(tmp_path)
+    evaluator = RecordingEvaluator()
+    monkeypatch.setattr(stage_a_cli, "_build_evaluator", lambda **_: evaluator)
+    command_args = _command_args(
+        plan_path=plan_path,
+        manifest_path=manifest_path,
+        root=tmp_path,
+    )
+    assert main(["stage-a", "validation", *command_args], stdout=StringIO()) == 0
+    selection_path = tmp_path / "result" / "validation" / "selection.json"
+    payload = json.loads(selection_path.read_text(encoding="utf-8"))
+    payload["selected_candidate_id"] = "candidate-b"
+    selection_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    ledger_calls: list[str] = []
+    monkeypatch.setattr(
+        stage_a_cli,
+        "_build_ledger",
+        lambda value: ledger_calls.append(value),
+        raising=False,
+    )
+    with pytest.raises(ValueError):
+        main(
+            [
+                "stage-a",
+                "sealed-test",
+                *command_args,
+                "--validation-package",
+                str(tmp_path / "result" / "validation"),
+                "--database-url",
+                "postgresql://must-not-open",
+            ],
+            stdout=StringIO(),
+        )
+    assert ledger_calls == []
+
+
+def test_complete_run_does_not_resolve_database_after_failed_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, _, plan_path, manifest_path = _write_inputs(tmp_path)
+    evaluator = RecordingEvaluator(
+        growth_by_candidate={None: 0.0, "candidate-a": 0.0, "candidate-b": 0.0}
+    )
+    monkeypatch.setattr(stage_a_cli, "_build_evaluator", lambda **_: evaluator)
+    monkeypatch.delenv("TRADE_RL_DATABASE_URL", raising=False)
+    ledger_calls: list[str] = []
+    monkeypatch.setattr(
+        stage_a_cli,
+        "_build_ledger",
+        lambda value: ledger_calls.append(value),
+        raising=False,
+    )
+    stdout = StringIO()
+
+    assert (
+        main(
+            [
+                "stage-a",
+                "run",
+                *_command_args(
+                    plan_path=plan_path,
+                    manifest_path=manifest_path,
+                    root=tmp_path,
+                ),
+            ],
+            stdout=stdout,
+        )
+        == 0
+    )
+
+    payload = json.loads(stdout.getvalue())
+    assert payload["schema"] == "stage_a_complete_run_cli_result_v1"
+    assert payload["validation"]["passed"] is False
+    assert payload["sealed_test"] is None
+    assert (tmp_path / "result" / "validation").is_dir()
+    assert not (tmp_path / "result" / "sealed-test").exists()
+    assert ledger_calls == []
+    assert all(request.split == "validation" for request in evaluator.requests)
+
+
+def test_complete_run_uses_environment_database_url_only_after_validation_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, manifest, plan_path, manifest_path = _write_inputs(tmp_path)
+    evaluator = RecordingEvaluator()
+    monkeypatch.setattr(stage_a_cli, "_build_evaluator", lambda **_: evaluator)
+    database_url = "postgresql://stage-a-from-environment"
+    monkeypatch.setenv("TRADE_RL_DATABASE_URL", database_url)
+    ledgers: list[RecordingLedger] = []
+
+    def build_ledger(value: str) -> RecordingLedger:
+        ledger = RecordingLedger(value)
+        ledgers.append(ledger)
+        return ledger
+
+    monkeypatch.setattr(stage_a_cli, "_build_ledger", build_ledger, raising=False)
+    stdout = StringIO()
+    assert (
+        main(
+            [
+                "stage-a",
+                "run",
+                *_command_args(
+                    plan_path=plan_path,
+                    manifest_path=manifest_path,
+                    root=tmp_path,
+                ),
+            ],
+            stdout=stdout,
+        )
+        == 0
+    )
+
+    assert len(ledgers) == 1
+    assert ledgers[0].database_url == database_url
+    assert len(ledgers[0].records) == 1
+    assert (tmp_path / "result" / "validation").is_dir()
+    assert (tmp_path / "result" / "sealed-test").is_dir()
+    payload = json.loads(stdout.getvalue())
+    assert payload["schema"] == "stage_a_complete_run_cli_result_v1"
+    assert payload["plan_digest"] == plan.digest
+    assert payload["evaluation_dataset_manifest_digest"] == manifest.digest
+    assert payload["validation"]["passed"] is True
+    assert payload["sealed_test"]["passed"] is True
+    assert payload["sealed_test"]["authorization_batch_digest"] == (
+        ledgers[0].records[0].batch_digest
+    )
+    assert database_url not in stdout.getvalue()

@@ -117,7 +117,7 @@ def test_operator_runbooks_use_current_training_schema() -> None:
         ROOT / "docs" / "operations" / "docker-gpu-full-training.md",
     ):
         text = _text(path)
-        assert "training_run_config_v3" in text
+        assert "training_run_config_v4" in text
         assert "training_run_config_v2" not in text
 
 

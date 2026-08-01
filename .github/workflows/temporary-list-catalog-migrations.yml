@@ -1,4 +1,4 @@
-name: Temporary Stage A Sealed Ledger RED
+name: Temporary Stage A Sealed Ledger GREEN
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  red:
+  green:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
@@ -26,14 +26,9 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev
-      - name: Verify expected RED failure
-        shell: bash
+      - name: Verify batch contract
         run: |
-          set -euo pipefail
-          set +e
-          PYTHONPATH=. uv run pytest -q tests/evaluation/test_stage_a_sealed_test.py > red.log 2>&1
-          status=$?
-          set -e
-          cat red.log
-          test "$status" -ne 0
-          grep -q "No module named 'trade_rl.evaluation.stage_a_sealed_test'" red.log
+          PYTHONPATH=. uv run pytest -q tests/evaluation/test_stage_a_sealed_test.py
+          uv run ruff check trade_rl/evaluation/stage_a_sealed_test.py tests/evaluation/test_stage_a_sealed_test.py
+          uv run ruff format --check trade_rl/evaluation/stage_a_sealed_test.py tests/evaluation/test_stage_a_sealed_test.py
+          uv run mypy trade_rl/evaluation/stage_a_sealed_test.py

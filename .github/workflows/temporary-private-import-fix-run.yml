@@ -1,0 +1,91 @@
+name: Temporary private import fix run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-private-import-fix-run.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout review branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/architecture-boundary-hardening-20260801
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Confirm architecture test RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest tests/architecture/test_config_and_export_boundaries.py -q
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Expected the private-import architecture test to fail before the fix" >&2
+            exit 1
+          fi
+
+      - name: Apply review fix
+        run: uv run python tools/apply_private_import_review_fix.py
+
+      - name: Verify focused GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix .
+          uv run ruff format .
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest \
+            tests/architecture/test_config_and_export_boundaries.py \
+            tests/workflows/test_training_run_config.py \
+            tests/workflows/test_training_run_transfer_config.py \
+            tests/rl/test_structured_export.py \
+            tests/serving \
+            tests/studio \
+            -q
+          uv run lint-imports
+          uv run mypy trade_rl
+          git diff --check
+
+      - name: Commit review fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: remove private config import coupling"
+          git push origin HEAD:agent/architecture-boundary-hardening-20260801
+
+      - name: Remove temporary workflow
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          path=".github/workflows/temporary-private-import-fix-run.yml"
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=main" --jq '.sha')"
+          gh api --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/contents/${path}" \
+            -f message='chore: remove temporary private import fix run' \
+            -f sha="${sha}" \
+            -f branch='main'

@@ -5,6 +5,7 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
+from trade_rl.rl.actions import ActionMode, ActionSpec
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
@@ -72,6 +73,50 @@ def test_zero_action_preserves_exact_shadow_book_and_zero_excess() -> None:
     _, _, _, _, info = env.step(np.zeros(env.action_spec.size))
     np.testing.assert_allclose(env.hybrid.quantities, env.shadow.quantities)
     assert info["excess_log_return"] == pytest.approx(0.0)
+
+
+def test_baseline_action_reproduces_shadow_in_residual_mode() -> None:
+    env = environment()
+    env.reset(seed=3, options={"start_idx": 24})
+
+    action = env.baseline_action()
+
+    assert action.shape == env.action_space.shape
+    assert action.dtype == np.float32
+    assert np.isfinite(action).all()
+    env.step(action)
+    np.testing.assert_allclose(env.hybrid.quantities, env.shadow.quantities)
+
+
+def test_baseline_action_reproduces_shadow_in_target_weight_mode() -> None:
+    market = dataset()
+    env = ResidualMarketEnv(
+        market,
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        action_spec=ActionSpec(
+            mode=ActionMode.TARGET_WEIGHT,
+            risk_tilt_enabled=False,
+            target_weight_count=market.n_symbols,
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=24,
+            decision_every=4,
+            initial_capital=1_000.0,
+            execution_cost=ExecutionCostConfig.zero(),
+        ),
+    )
+    env.reset(seed=3, options={"start_idx": 24})
+    expected = env.trend_strategy.targets(market, env.current_index).base.astype(
+        np.float32
+    )
+
+    action = env.baseline_action()
+
+    np.testing.assert_allclose(action, expected)
+    env.step(action)
+    np.testing.assert_allclose(env.hybrid.quantities, env.shadow.quantities)
 
 
 def test_episode_random_seed_changes_across_resets_but_is_reproducible() -> None:

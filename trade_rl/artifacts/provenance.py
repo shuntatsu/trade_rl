@@ -79,6 +79,35 @@ def _git(root: Path, *args: str) -> str | None:
     return completed.stdout.strip()
 
 
+def _resolve_git_identity(
+    repository: Path,
+    *,
+    declared_commit: str | None,
+    declared_dirty: bool | None,
+) -> tuple[str, bool]:
+    observed_commit = _git(repository, "rev-parse", "HEAD")
+    observed_status = _git(repository, "status", "--porcelain")
+    if observed_commit is not None or observed_status is not None:
+        if observed_commit is None or observed_status is None:
+            raise ValueError("git checkout identity could not be determined completely")
+        resolved_commit = observed_commit.lower()
+        if not _GIT_SHA_RE.fullmatch(resolved_commit):
+            raise ValueError("git checkout returned an invalid commit")
+        resolved_dirty = bool(observed_status)
+        if declared_commit is not None and declared_commit.lower() != resolved_commit:
+            raise ValueError("declared git commit does not match checkout")
+        if declared_dirty is not None and declared_dirty != resolved_dirty:
+            raise ValueError("declared git dirty state does not match checkout")
+        return resolved_commit, resolved_dirty
+
+    resolved_commit = (declared_commit or "").lower()
+    if not _GIT_SHA_RE.fullmatch(resolved_commit):
+        raise ValueError("a valid git commit is required for runtime provenance")
+    if declared_dirty is None:
+        raise ValueError("git dirty state could not be determined")
+    return resolved_commit, declared_dirty
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeProvenance:
     digest: str
@@ -160,17 +189,11 @@ def capture_runtime_provenance(
     """Capture and verify source, dependency, image, and runtime provenance."""
 
     repository = Path(root)
-    resolved_commit = (
-        git_commit or _git(repository, "rev-parse", "HEAD") or ""
-    ).lower()
-    if not _GIT_SHA_RE.fullmatch(resolved_commit):
-        raise ValueError("a valid git commit is required for runtime provenance")
-    resolved_dirty = git_dirty
-    if resolved_dirty is None:
-        status = _git(repository, "status", "--porcelain")
-        if status is None:
-            raise ValueError("git dirty state could not be determined")
-        resolved_dirty = bool(status)
+    resolved_commit, resolved_dirty = _resolve_git_identity(
+        repository,
+        declared_commit=git_commit,
+        declared_dirty=git_dirty,
+    )
 
     lock_path = repository / "uv.lock"
     lock_digest = _sha256_file(lock_path) if lock_path.is_file() else None

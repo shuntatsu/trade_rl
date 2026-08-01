@@ -103,15 +103,65 @@ The A6b-1 layer now:
 9. resolves policy candidate configuration from the plan and baseline configuration from a separate immutable identity;
 10. returns the complete cell-bound replay digest to A6a, rather than the lower-level promotion digest that lacks triplet/fold/seed identity.
 
-## Next integration stage: A6b-2 execution producer and operations
+## Completed A6b-2 production execution and operations
 
-The remaining A6b-2 work is to:
+The A6b-2 layer now includes:
 
-1. resolve retained checkpoint and serving-bundle paths from maintained artifacts;
-2. recompute file and manifest digests before model loading;
-3. load policies only through the canonical serving/training loader;
-4. materialize the declared triplet, fold, seed, feature, and market inputs;
-5. run the maintained conservative execution model and publish the A6b-1 replay package;
-6. construct the test schedule from the maintained evaluation source;
-7. provide the PostgreSQL-backed one-shot sealed-test ledger;
-8. add validation and sealed-test CLI commands plus complete-run artifact wiring.
+1. PostgreSQL-backed manifest range resolution that binds each Stage A triplet, fold, split, dataset, and feature identity;
+2. framework-independent Stage A evaluation execution over the maintained environment, policy, baseline, observation, and order-event contracts;
+3. retained-checkpoint and serving-bundle verification before policy use;
+4. an atomic PostgreSQL one-shot sealed-test ledger at catalog migration version `3`;
+5. one authorization batch covering the complete selected-policy test triplet × fold closure;
+6. rollback of the batch, every cell, and every generic sealed-test reservation when any insert, conflict, or read-back check fails;
+7. validation, sealed-test, and complete-run CLI commands;
+8. immutable validation and sealed-test publication with content identities in machine-readable JSON output.
+
+### Operational prerequisites
+
+Before running the CLI:
+
+- the immutable Stage A plan and evaluation-dataset manifest must already exist;
+- the execution promotion store must already contain every baseline and policy replay requested by validation and, when opened, the selected-policy test cells;
+- the baseline configuration digest must identify the exact baseline execution configuration used to produce those replay artifacts;
+- `sealed-test` and passing `run` operations require a PostgreSQL catalog migrated through schema version `3`;
+- the output root must not already contain the phase package being published because Stage A packages are immutable and are never overwritten.
+
+Validation does not require PostgreSQL and cannot access the sealed-test ledger:
+
+```bash
+trade-rl stage-a validation \
+  --plan stage-a-plan.json \
+  --manifest stage-a-evaluation-dataset.json \
+  --execution-store stage-a-execution-store \
+  --baseline-config-digest <sha256> \
+  --output-root stage-a-result
+```
+
+A separately reviewed validation package can be used to open the test exactly once:
+
+```bash
+trade-rl stage-a sealed-test \
+  --plan stage-a-plan.json \
+  --manifest stage-a-evaluation-dataset.json \
+  --execution-store stage-a-execution-store \
+  --baseline-config-digest <sha256> \
+  --output-root stage-a-result \
+  --validation-package stage-a-result/validation \
+  --database-url postgresql://user:password@host:5432/trade_rl
+```
+
+The complete command publishes validation first and resolves PostgreSQL only after validation passes:
+
+```bash
+TRADE_RL_DATABASE_URL=postgresql://user:password@host:5432/trade_rl \
+trade-rl stage-a run \
+  --plan stage-a-plan.json \
+  --manifest stage-a-evaluation-dataset.json \
+  --execution-store stage-a-execution-store \
+  --baseline-config-digest <sha256> \
+  --output-root stage-a-result
+```
+
+If validation fails, `stage-a run` returns a completed scientific result with `sealed_test: null`. It does not resolve the database URL, construct a ledger, evaluate any test cell, or create a sealed-test package. If validation passes, the command strictly reconstructs the validation run, authorizes the complete test batch once, evaluates only the selected candidate and shared baseline, and atomically publishes the sealed-test package.
+
+The command output contains digests, decisions, and package paths only. PostgreSQL credentials are never written to the JSON result.

@@ -1,9 +1,9 @@
 name: Temp Stage A CLI
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/stage-a6b2-cli-wiring
+      - main
 
 permissions:
   contents: read

@@ -146,8 +146,17 @@ jobs:
       - name: Critical branch coverage
         run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
 
-      - name: CLI smoke test
-        run: uv run trade-rl --version
+      - name: Package and uv identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          cli="$(uv run trade-rl --version)"
+          uv_version="$(python -c 'import tomllib; print(tomllib.load(open("uv.toml", "rb"))["required-version"].removeprefix("=="))')"
+          test "$module" = "$expected"
+          test "$cli" = "trade-rl $expected"
+          test "$(uv --version)" = "uv $uv_version"
 
   compatibility:
     name: Compatibility (${{ matrix.os }})

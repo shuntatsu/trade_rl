@@ -37,12 +37,12 @@ from trade_rl.release.attestation import (
 )
 from trade_rl.release.offline_approval import create_release_attestation
 from trade_rl.release.offline_signing import public_key_bytes
-from trade_rl.serving.package import package_selected_training_run
 from trade_rl.serving.runtime import RuntimeIdentityContract, ServingRuntime
 from trade_rl.workflows.execution_promotion_artifacts import (
     write_execution_promotion_artifacts,
 )
 from trade_rl.workflows.offline_selection_approval import create_selection_authorization
+from trade_rl.workflows.release_packaging import package_selected_training_run
 from trade_rl.workflows.selection_authorization import (
     SelectionProposal,
     write_selection_authorization,
@@ -401,6 +401,7 @@ def test_research_training_to_attested_runtime_prediction(tmp_path: Path) -> Non
             environment_digest=manifest.environment_digest,
             action_names=manifest.action_names,
             action_spec_digest=manifest.action_spec_digest,
+            action_mode=manifest.action_mode,
             normalizer_digest=manifest.normalizer_digest,
         ),
     )

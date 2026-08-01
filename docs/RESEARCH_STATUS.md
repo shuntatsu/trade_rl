@@ -90,7 +90,7 @@ TensorBoardには最適化ScalarとSequence attention/gate/gradient診断を表�
 
 ## Paper Serving and release
 
-`serving_bundle_v5`は、Selected-final run、Dataset、Environment、Normalizer、Execution policy、Evaluation evidence、Policy loaderを結合します。
+`serving_bundle_v6`は、Selected-final run、Dataset、Environment、Normalizer、Execution policy、Evaluation evidence、Policy loaderを結合します。`policy_mode`と`action_mode`を分離し、学習済みTarget-weight PolicyがResidualとして誤表示されることを防ぎます。
 
 外部`ReleaseAttestation`はBundle digest、Source、Selection、Fresh confirmation、Paper reconciliation、Approver、Expiryを署名します。Private keyはOfflineに保持します。
 

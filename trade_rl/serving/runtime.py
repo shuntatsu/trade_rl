@@ -15,7 +15,7 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.release.asymmetric import PublicVerificationKey
 from trade_rl.release.attestation import ReleaseAttestation
-from trade_rl.rl.actions import ACTION_SCHEMA
+from trade_rl.rl.actions import ACTION_SCHEMA, ActionMode
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import OBSERVATION_SCHEMA, PolicyObservationSnapshot
 from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
@@ -50,6 +50,7 @@ class RuntimeIdentityContract:
     action_names: tuple[str, ...]
     action_spec_digest: str
     normalizer_digest: str | None
+    action_mode: ActionMode = ActionMode.RESIDUAL
     alpha_artifact_digest: str | None = None
     factor_artifact_digest: str | None = None
     execution_policy_digest: str | None = None
@@ -58,6 +59,11 @@ class RuntimeIdentityContract:
     def __post_init__(self) -> None:
         require_sha256(self.environment_digest, field="environment_digest")
         require_sha256(self.action_spec_digest, field="action_spec_digest")
+        try:
+            action_mode = ActionMode(self.action_mode)
+        except ValueError as error:
+            raise ValueError("runtime action_mode is unsupported") from error
+        object.__setattr__(self, "action_mode", action_mode)
         if not self.action_names or any(not name for name in self.action_names):
             raise ValueError("action_names must be non-empty")
         if len(set(self.action_names)) != len(self.action_names):
@@ -78,6 +84,7 @@ class RuntimeSnapshot:
     bundle_digest: str
     dataset_id: str
     action_schema: str
+    action_mode: ActionMode
     action_size: int
     action_names: tuple[str, ...]
     action_spec_digest: str | None
@@ -117,6 +124,7 @@ class ServingRuntime:
         expected_environment_digest: str | None = None,
         expected_action_names: tuple[str, ...] | None = None,
         expected_action_spec_digest: str | None = None,
+        expected_action_mode: ActionMode | None = None,
         expected_normalizer_digest: str | None = None,
         expected_alpha_artifact_digest: str | None = None,
         expected_factor_artifact_digest: str | None = None,
@@ -128,6 +136,7 @@ class ServingRuntime:
             expected_environment_digest,
             expected_action_names,
             expected_action_spec_digest,
+            expected_action_mode,
             expected_normalizer_digest,
             expected_alpha_artifact_digest,
             expected_factor_artifact_digest,
@@ -154,6 +163,7 @@ class ServingRuntime:
                 environment_digest=expected_environment_digest,
                 action_names=expected_action_names,
                 action_spec_digest=expected_action_spec_digest,
+                action_mode=(expected_action_mode or ActionMode.RESIDUAL),
                 normalizer_digest=expected_normalizer_digest,
                 alpha_artifact_digest=expected_alpha_artifact_digest,
                 factor_artifact_digest=expected_factor_artifact_digest,
@@ -185,6 +195,7 @@ class ServingRuntime:
             bundle_digest=manifest.bundle_digest,
             dataset_id=manifest.dataset_id,
             action_schema=manifest.action_schema,
+            action_mode=manifest.action_mode,
             action_size=manifest.action_size,
             action_names=manifest.action_names,
             action_spec_digest=manifest.action_spec_digest,
@@ -221,6 +232,11 @@ class ServingRuntime:
                 getattr(manifest, "environment_digest"),
                 contract.environment_digest,
                 "environment identity",
+            ),
+            (
+                getattr(manifest, "action_mode"),
+                contract.action_mode,
+                "action mode",
             ),
             (
                 getattr(manifest, "action_names"),
@@ -292,9 +308,9 @@ class ServingRuntime:
             raw_action.shape != (snapshot.action_size,)
             or not np.isfinite(raw_action).all()
         ):
-            raise ValueError("policy output violates the residual action schema")
+            raise ValueError("policy output violates the active action schema")
         if np.any(raw_action < -1.0) or np.any(raw_action > 1.0):
-            raise ValueError("policy output violates the residual action schema bounds")
+            raise ValueError("policy output violates the active action schema bounds")
         return raw_action.copy()
 
     def activate(self, root: Path) -> RuntimeSnapshot:
@@ -345,7 +361,7 @@ class ServingRuntime:
                 )
             load = getattr(loader, "load", None)
             if not callable(load):
-                raise TypeError("residual policy loader must provide load(bundle)")
+                raise TypeError("learned policy loader must provide load(bundle)")
             candidate_policy = load(bundle)
 
         candidate_snapshot = self._snapshot_for(bundle)
@@ -454,7 +470,7 @@ class ServingRuntime:
             or np.any(raw < -1.0)
             or np.any(raw > 1.0)
         ):
-            raise ValueError("policy output violates the residual action schema")
+            raise ValueError("policy output violates the active action schema")
         return raw.copy()
 
     def predict_from_observation_snapshot(
@@ -527,5 +543,5 @@ class ServingRuntime:
             or np.any(action < -1.0)
             or np.any(action > 1.0)
         ):
-            raise ValueError("policy output violates the residual action schema")
+            raise ValueError("policy output violates the active action schema")
         return action.copy()

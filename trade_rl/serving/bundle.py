@@ -24,13 +24,14 @@ from trade_rl.release.attestation import (
     default_attestation_path,
     load_release_attestation,
 )
+from trade_rl.rl.actions import ActionMode
 from trade_rl.serving.normalizer import (
     NORMALIZER_ARTIFACT_NAME,
     load_observation_normalizer,
 )
 
 BUNDLE_MANIFEST_NAME = "bundle.json"
-SERVING_BUNDLE_SCHEMA = "serving_bundle_v5"
+SERVING_BUNDLE_SCHEMA = "serving_bundle_v6"
 _SELECTED_FINAL = "research_selected_final"
 _BASELINE_RELEASE = "baseline_release"
 
@@ -95,6 +96,7 @@ class ServingBundleManifest:
     confirmation_evidence_digest: str | None
     files: tuple[BundleFile, ...]
     created_at: datetime
+    action_mode: ActionMode = ActionMode.RESIDUAL
     action_size: int = 2
     action_names: tuple[str, ...] = ()
     action_spec_digest: str | None = None
@@ -107,6 +109,11 @@ class ServingBundleManifest:
     def __post_init__(self) -> None:
         if self.schema_version != SERVING_BUNDLE_SCHEMA:
             raise ValueError("unsupported serving bundle schema_version")
+        try:
+            action_mode = ActionMode(self.action_mode)
+        except ValueError as error:
+            raise ValueError("serving bundle action_mode is unsupported") from error
+        object.__setattr__(self, "action_mode", action_mode)
         require_sha256(self.bundle_digest, field="bundle_digest")
         require_sha256(self.dataset_id, field="dataset_id")
         require_non_empty(self.action_schema, field="action_schema")
@@ -171,11 +178,11 @@ class ServingBundleManifest:
                 raise ValueError("baseline release cannot contain training evidence")
         else:
             if self.policy_digest is None:
-                raise ValueError("residual policy bundle requires a policy digest")
+                raise ValueError("learned policy bundle requires a policy digest")
             require_sha256(self.policy_digest, field="policy_digest")
             if self.run_kind != _SELECTED_FINAL:
                 raise ValueError(
-                    "residual policy bundle requires selected-final run_kind"
+                    "learned policy bundle requires selected-final run_kind"
                 )
             if any(
                 value is None
@@ -189,7 +196,7 @@ class ServingBundleManifest:
                 )
             ):
                 raise ValueError(
-                    "residual policy bundle requires the complete authorization chain"
+                    "learned policy bundle requires the complete authorization chain"
                 )
         if not self.files:
             raise ValueError("serving bundle must contain artifact files")
@@ -202,6 +209,7 @@ class ServingBundleManifest:
 
     def digest_payload(self) -> dict[str, object]:
         return {
+            "action_mode": self.action_mode,
             "action_names": self.action_names,
             "action_schema": self.action_schema,
             "action_size": self.action_size,
@@ -248,6 +256,7 @@ class ServingBundleManifest:
         selection_digest: str,
         artifact_paths: tuple[str, ...],
         created_at: datetime,
+        action_mode: ActionMode = ActionMode.RESIDUAL,
         action_size: int = 2,
         action_names: tuple[str, ...] = (),
         action_spec_digest: str | None = None,
@@ -268,6 +277,7 @@ class ServingBundleManifest:
             raise ValueError(
                 "release attestations are external to serving bundle identity"
             )
+        resolved_action_mode = ActionMode(action_mode)
         resolved_run_kind = run_kind or (
             _BASELINE_RELEASE
             if policy_mode is PolicyMode.BASELINE_ONLY
@@ -288,6 +298,7 @@ class ServingBundleManifest:
             )
         ordered = tuple(sorted(files, key=lambda item: item.path))
         payload = {
+            "action_mode": resolved_action_mode,
             "action_names": action_names,
             "action_schema": action_schema,
             "action_size": action_size,
@@ -337,6 +348,7 @@ class ServingBundleManifest:
             confirmation_evidence_digest=confirmation_evidence_digest,
             files=ordered,
             created_at=created_at,
+            action_mode=resolved_action_mode,
             action_size=action_size,
             action_names=action_names,
             action_spec_digest=action_spec_digest,
@@ -403,6 +415,7 @@ def _number(value: object, *, field: str) -> float:
 
 def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
     expected_fields = {
+        "action_mode",
         "action_names",
         "action_schema",
         "action_size",
@@ -503,6 +516,9 @@ def _parse_manifest(payload: Mapping[str, object]) -> ServingBundleManifest:
         ),
         files=tuple(files),
         created_at=created_at,
+        action_mode=ActionMode(
+            _string(payload.get("action_mode"), field="action_mode")
+        ),
         action_size=_integer(payload.get("action_size"), field="action_size"),
         action_names=_string_tuple(payload.get("action_names"), field="action_names"),
         action_spec_digest=_optional_string(

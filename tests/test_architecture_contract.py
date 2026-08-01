@@ -61,15 +61,15 @@ def test_maintained_docs_reference_reward_schema_v4() -> None:
         assert "reward schema v4" in text
 
 
-def test_maintained_docs_reference_serving_bundle_v5() -> None:
+def test_maintained_docs_reference_serving_bundle_v6() -> None:
     for path in (
         ROOT / "README.md",
         ROOT / "docs/ARCHITECTURE.md",
         ROOT / "docs/RESEARCH_STATUS.md",
     ):
         text = path.read_text(encoding="utf-8").lower()
-        assert "bundle v4" not in text, path
-        assert "serving_bundle_v5" in text, path
+        assert "serving_bundle_v5" not in text, path
+        assert "serving_bundle_v6" in text, path
 
 
 def test_quickstart_installs_training_dependencies_before_training() -> None:

@@ -80,7 +80,9 @@ def execute_market_walk_forward(**kwargs: Any) -> Any:
 def package_selected_training_run(**kwargs: Any) -> Any:
     """Lazy adapter retained as a monkeypatchable CLI boundary."""
 
-    from trade_rl.serving.package import package_selected_training_run as implementation
+    from trade_rl.workflows.release_packaging import (
+        package_selected_training_run as implementation,
+    )
 
     return implementation(**kwargs)
 

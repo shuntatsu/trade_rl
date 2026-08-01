@@ -1,4 +1,4 @@
-"""Package a verified selected-final training run into a serving bundle."""
+"""Publish a verified selected-final training run as a serving bundle."""
 
 from __future__ import annotations
 
@@ -22,11 +22,15 @@ from trade_rl.evaluation.paper_reconciliation import (
     load_paper_reconciliation_evidence,
 )
 from trade_rl.release.asymmetric import PublicVerificationKey
+from trade_rl.rl.actions import ActionMode
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
     write_serving_bundle_manifest,
 )
-from trade_rl.serving.training_environment import load_training_execution_cost
+from trade_rl.serving.training_environment import (
+    load_training_action_spec,
+    load_training_execution_cost,
+)
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import (
     EXECUTION_EVIDENCE_FILE_NAME,
@@ -81,7 +85,7 @@ def package_selected_training_run(
     trusted_now: datetime,
     paper_reconciliation_path: Path | None = None,
 ) -> ServingBundleManifest:
-    """Validate and copy a selected-final run into an immutable bundle directory."""
+    """Validate and publish one selected-final run atomically."""
 
     require_sha256(signal_digest, field="signal_digest")
     require_sha256(selection_digest, field="selection_digest")
@@ -104,6 +108,7 @@ def package_selected_training_run(
     if metadata_promotion.dataset_id != manifest.dataset_id:
         raise ValueError("metadata promotion dataset identity mismatch")
     metadata_promotion.require_promotable()
+    action_spec = load_training_action_spec(training_root / "environment.json")
     execution_cost = _execution_cost(training_root)
     execution_evidence = load_execution_evidence(
         training_root / EXECUTION_EVIDENCE_FILE_NAME
@@ -212,6 +217,18 @@ def package_selected_training_run(
             not isinstance(item, str) for item in action_names_raw
         ):
             raise ValueError("ensemble.action_names must be a list of strings")
+        action_names = tuple(action_names_raw)
+        if action_names != action_spec.names:
+            raise ValueError(
+                "ensemble action names differ from training action contract"
+            )
+        if (
+            _integer(ensemble_raw.get("action_size"), field="ensemble.action_size")
+            != action_spec.size
+        ):
+            raise ValueError(
+                "ensemble action size differs from training action contract"
+            )
         created_at_raw = _string(
             ensemble_raw.get("created_at"), field="ensemble.created_at"
         )
@@ -249,6 +266,7 @@ def package_selected_training_run(
             action_schema=_string(
                 ensemble_raw.get("action_schema"), field="ensemble.action_schema"
             ),
+            action_mode=ActionMode(action_spec.mode),
             observation_schema=observation_schema,
             observation_size=_integer(
                 ensemble_raw.get("observation_size"), field="ensemble.observation_size"
@@ -264,10 +282,8 @@ def package_selected_training_run(
             selection_digest=selection_digest,
             artifact_paths=tuple(sorted(artifact_paths)),
             created_at=datetime.fromisoformat(created_at_raw.replace("Z", "+00:00")),
-            action_size=_integer(
-                ensemble_raw.get("action_size"), field="ensemble.action_size"
-            ),
-            action_names=tuple(action_names_raw),
+            action_size=action_spec.size,
+            action_names=action_names,
             action_spec_digest=_string(
                 ensemble_raw.get("action_spec_digest"),
                 field="ensemble.action_spec_digest",

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.serving import package as serving_package
 from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.workflows import release_packaging as serving_package
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -130,7 +130,7 @@ def test_execution_cost_rejects_malformed_mappings(
         serving_package._execution_cost(root)
 
 
-def test_serving_package_delegates_execution_artifact_decoding() -> None:
+def test_release_packaging_delegates_execution_artifact_decoding() -> None:
     source = inspect.getsource(serving_package)
 
     assert "load_training_execution_cost(" in source
@@ -138,8 +138,8 @@ def test_serving_package_delegates_execution_artifact_decoding() -> None:
     assert "defaults = ExecutionCostConfig()" not in source
 
 
-def test_serving_packaging_has_per_file_critical_branch_ratchets() -> None:
+def test_release_packaging_has_per_file_critical_branch_ratchets() -> None:
     configuration = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-    assert '"trade_rl/serving/package.py" = 90.0' in configuration
+    assert '"trade_rl/workflows/release_packaging.py" = 90.0' in configuration
     assert '"trade_rl/serving/training_environment.py" = 100.0' in configuration

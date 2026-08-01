@@ -28,6 +28,7 @@ jobs:
         run: uv sync --extra dev
       - name: Verify batch contract
         run: |
+          # Verify the corrected identity-order expectation and shared contract.
           PYTHONPATH=. uv run pytest -q tests/evaluation/test_stage_a_sealed_test.py
           uv run ruff check trade_rl/evaluation/stage_a_sealed_test.py tests/evaluation/test_stage_a_sealed_test.py
           uv run ruff format --check trade_rl/evaluation/stage_a_sealed_test.py tests/evaluation/test_stage_a_sealed_test.py

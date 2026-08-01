@@ -94,10 +94,7 @@ def _resolve_git_identity(
         if not _GIT_SHA_RE.fullmatch(resolved_commit):
             raise ValueError("git checkout returned an invalid commit")
         resolved_dirty = bool(observed_status)
-        if (
-            declared_commit is not None
-            and declared_commit.lower() != resolved_commit
-        ):
+        if declared_commit is not None and declared_commit.lower() != resolved_commit:
             raise ValueError("declared git commit does not match checkout")
         if declared_dirty is not None and declared_dirty != resolved_dirty:
             raise ValueError("declared git dirty state does not match checkout")

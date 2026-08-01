@@ -25,7 +25,13 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - name: Apply schema migration
-        run: python .github/scripts/apply_training_config_v4.py
+        run: |
+          python .github/scripts/apply_training_config_v4.py
+          mkdir -p test_support
+          printf '%s\n' '"""Repository-local helpers shared by test modules."""' > test_support/__init__.py
+          mv tests/training_config_support.py test_support/training_config.py
+          grep -rl 'from tests.training_config_support import' tests \
+            | xargs sed -i 's/from tests\.training_config_support import/from test_support.training_config import/'
       - name: Install targeted test environment
         run: uv sync --extra dev --extra train-sb3
       - name: Format and lint migrated tree

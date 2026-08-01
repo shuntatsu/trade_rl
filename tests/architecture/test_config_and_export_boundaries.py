@@ -17,7 +17,9 @@ def test_training_run_config_contract_lives_below_workflows() -> None:
 
     assert "class TrainingRunConfig" in contract_source
     assert "from trade_rl.rl.training_run_config import" in workflow_source
-    assert "from trade_rl.rl.training_run_config import TrainingRunConfig" in studio_source
+    assert (
+        "from trade_rl.rl.training_run_config import TrainingRunConfig" in studio_source
+    )
     assert "trade_rl.workflows.training_run" not in studio_source
 
 
@@ -51,7 +53,9 @@ def test_structured_policy_contract_is_neutral_and_serving_owned() -> None:
     assert "import torch" not in contract_source
     assert "from torch" not in contract_source
     assert "trade_rl.rl" not in contract_source
-    assert "from trade_rl.artifacts.structured_policy_contract import" in exporter_source
+    assert (
+        "from trade_rl.artifacts.structured_policy_contract import" in exporter_source
+    )
 
     for path in serving_paths:
         source = path.read_text(encoding="utf-8")

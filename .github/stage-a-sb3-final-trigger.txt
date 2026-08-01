@@ -1,1 +1,0 @@
-Trigger trusted exact-head verification for PR #327.

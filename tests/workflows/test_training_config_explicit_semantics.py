@@ -8,6 +8,7 @@ from test_support.training_config import complete_execution_config
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 
+# Literal by design: changing the public execution fields requires a new schema version.
 _V4_EXECUTION_FIELDS = frozenset(
     {
         "allow_short",

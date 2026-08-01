@@ -26,7 +26,9 @@ def _import_targets(path: Path, *, module_name: str) -> frozenset[str]:
 
 
 def _imports_prefix(targets: frozenset[str], prefix: str) -> bool:
-    return any(target == prefix or target.startswith(f"{prefix}.") for target in targets)
+    return any(
+        target == prefix or target.startswith(f"{prefix}.") for target in targets
+    )
 
 
 def test_training_run_config_contract_lives_below_workflows() -> None:
@@ -47,7 +49,10 @@ def test_training_run_config_contract_lives_below_workflows() -> None:
     )
 
     assert "trade_rl.rl.training_run_config.TrainingRunConfig" in workflow_targets
-    assert "trade_rl.rl.training_run_config._signal_artifact_digest" not in workflow_targets
+    assert (
+        "trade_rl.rl.training_run_config._signal_artifact_digest"
+        not in workflow_targets
+    )
     assert "trade_rl.rl.training_run_config.TrainingRunConfig" in studio_targets
     assert not _imports_prefix(studio_targets, "trade_rl.workflows")
 

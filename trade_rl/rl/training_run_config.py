@@ -393,6 +393,18 @@ class TrainingRunConfig:
             git_dirty=git_dirty,
         )
 
+    @property
+    def alpha_artifact_digest(self) -> str | None:
+        """Return the validated alpha artifact digest, when configured."""
+
+        return _signal_artifact_digest(self.alpha_artifact, kind="alpha")
+
+    @property
+    def factor_artifact_digest(self) -> str | None:
+        """Return the validated factor artifact digest, when configured."""
+
+        return _signal_artifact_digest(self.factor_artifact, kind="factor")
+
     def resolve_artifact_paths(self, base: Path) -> TrainingRunConfig:
         """Resolve relative signal artifacts against the owning config directory."""
 
@@ -428,13 +440,9 @@ class TrainingRunConfig:
         payload: dict[str, object] = {
             "action": asdict(self.action),
             "alpha_contract": asdict(self.alpha_contract),
-            "alpha_artifact_digest": _signal_artifact_digest(
-                self.alpha_artifact, kind="alpha"
-            ),
+            "alpha_artifact_digest": self.alpha_artifact_digest,
             "environment": asdict(self.environment),
-            "factor_artifact_digest": _signal_artifact_digest(
-                self.factor_artifact, kind="factor"
-            ),
+            "factor_artifact_digest": self.factor_artifact_digest,
             "export_onnx": self.export_onnx,
             "export_structured_torchscript": self.export_structured_torchscript,
             "export_tolerance": self.export_tolerance,

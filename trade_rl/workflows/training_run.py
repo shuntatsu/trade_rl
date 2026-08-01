@@ -53,10 +53,7 @@ from trade_rl.rl.sequence_observations import (
     SequenceWindowSpec,
 )
 from trade_rl.rl.training import train_residual_ensemble
-from trade_rl.rl.training_run_config import (
-    TrainingRunConfig,
-    _signal_artifact_digest,
-)
+from trade_rl.rl.training_run_config import TrainingRunConfig
 from trade_rl.simulation.execution_promotion import (
     EXECUTION_EVIDENCE_FILE_NAME,
     ExecutionPromotionError,
@@ -688,13 +685,9 @@ def execute_training_run(
             {
                 "action": asdict(config.action),
                 "alpha_contract": asdict(config.alpha_contract),
-                "alpha_artifact_digest": _signal_artifact_digest(
-                    config.alpha_artifact, kind="alpha"
-                ),
+                "alpha_artifact_digest": config.alpha_artifact_digest,
                 "environment": asdict(config.environment),
-                "factor_artifact_digest": _signal_artifact_digest(
-                    config.factor_artifact, kind="factor"
-                ),
+                "factor_artifact_digest": config.factor_artifact_digest,
                 "risk": asdict(config.risk),
                 "reward": asdict(config.reward),
                 "schema_version": "training_environment_v2",

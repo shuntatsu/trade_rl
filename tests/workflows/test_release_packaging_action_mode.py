@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
+from tests.serving.conftest import _rebuild_v3_training_run
 from tests.serving.test_package import (
     PUBLIC_KEY,
     _confirmation,
@@ -17,7 +18,8 @@ def test_release_packaging_preserves_target_weight_action_mode(
     tmp_path: Path,
 ) -> None:
     training_root = tmp_path / "training"
-    training = _training_run(
+    training = _rebuild_v3_training_run(
+        _training_run,
         training_root,
         run_kind="research_selected_final",
         action_spec=ActionSpec(

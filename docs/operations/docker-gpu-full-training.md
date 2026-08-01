@@ -30,7 +30,7 @@ Containerは次をFail closedで確認します。
 - CUDA deviceとPyTorch CUDA
 - Source/lock provenance
 - DatasetとMetadata evidence
-- `training_run_config_v2`
+- `training_run_config_v3`
 - ParameterとRollout buffer上限
 - BC、PPO-family、Checkpoint、Resume
 - Evaluation、Execution sensitivity、Research gate

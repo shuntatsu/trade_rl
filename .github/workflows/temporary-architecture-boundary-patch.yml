@@ -1,0 +1,93 @@
+name: Temporary architecture boundary patch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-architecture-boundary-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/architecture-boundary-hardening-20260801
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Verify RED architecture tests
+        shell: bash
+        run: |
+          set +e
+          uv run pytest tests/architecture/test_config_and_export_boundaries.py -q > red.log 2>&1
+          status=$?
+          cat red.log
+          if [ "$status" -eq 0 ]; then
+            echo "Expected architecture boundary tests to fail before implementation" >&2
+            exit 1
+          fi
+          grep -Eq "training_run_config.py|structured_policy_contract.py|FUTURE_LONG_ONLY_ROLE" red.log
+
+      - name: Apply boundary refactor
+        run: uv run python tools/apply_architecture_boundary_refactor.py
+
+      - name: Format and repair imports
+        shell: bash
+        run: |
+          uv run ruff check --fix .
+          uv run ruff format .
+
+      - name: Verify focused GREEN checks
+        shell: bash
+        run: |
+          uv run pytest \
+            tests/architecture/test_config_and_export_boundaries.py \
+            tests/workflows/test_training_run_config.py \
+            tests/rl/test_structured_export.py \
+            tests/serving \
+            tests/studio \
+            -q
+          uv run lint-imports
+          uv run mypy trade_rl
+
+      - name: Commit and push target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: harden config and export boundaries"
+          git push origin HEAD:agent/architecture-boundary-hardening-20260801
+
+      - name: Remove temporary workflow from main
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow_path=".github/workflows/temporary-architecture-boundary-patch.yml"
+          workflow_sha="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/contents/${workflow_path}?ref=main" \
+            --jq '.sha')"
+          gh api --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/contents/${workflow_path}" \
+            -f message='chore: remove temporary architecture workflow' \
+            -f sha="${workflow_sha}" \
+            -f branch='main'

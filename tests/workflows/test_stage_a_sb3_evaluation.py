@@ -14,13 +14,13 @@ from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageAZeroShotEvaluationPlan,
     build_stage_a_zero_shot_evaluation_plan,
 )
-from trade_rl.integrations.stage_a_sb3_evaluation import (
-    StageAEvaluationEnvironmentHandle,
-    StageASB3EvaluationEpisodeExecutor,
-)
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.orders import OrderBookState, OrderEvent, OrderStatus
+from trade_rl.workflows.stage_a_sb3_evaluation import (
+    StageAEvaluationEnvironmentHandle,
+    StageASB3EvaluationEpisodeExecutor,
+)
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
 )

@@ -4,13 +4,13 @@
 
 **Goal:** Execute one manifest-bound Stage A validation or sealed-test cell through the maintained `ResidualMarketEnv`, using the complete PostgreSQL-backed triplet dataset for causal observation history while scoring only the exact request range.
 
-**Architecture:** Add a framework adapter in `trade_rl.integrations` that resolves the exact dataset, builds an identity-bound `ResidualMarketEnv`, resets it at `evaluation_range.start`, and advances it until `evaluation_range.stop`. The adapter accepts either the canonical loaded policy or a baseline request; policy observations are passed directly to `predict()`, while baseline requests use an environment-owned action that reproduces the shadow baseline. Every action, observation digest, equity value, order event, dataset identity, execution identity, and processing index is validated before returning `StageAEvaluationEpisodeResult`.
+**Architecture:** Add a framework-independent bounded executor in `trade_rl.workflows` that resolves the exact dataset, builds an identity-bound `ResidualMarketEnv`, resets it at `evaluation_range.start`, and advances it until `evaluation_range.stop`. The adapter accepts either the canonical loaded policy or a baseline request; policy observations are passed directly to `predict()`, while baseline requests use an environment-owned action that reproduces the shadow baseline. Every action, observation digest, equity value, order event, dataset identity, execution identity, and processing index is validated before returning `StageAEvaluationEpisodeResult`.
 
 **Tech Stack:** Python 3.12, NumPy, Gymnasium, maintained `ResidualMarketEnv`, canonical serving-policy interfaces, pytest, Ruff, Mypy, Import Linter.
 
 ## Global Constraints
 
-- Keep Stable-Baselines3 and framework-specific assembly under `trade_rl.integrations`; `trade_rl.workflows` must remain framework independent.
+- Keep Stable-Baselines3 and framework-specific assembly outside this executor; `trade_rl.workflows` remains framework independent and receives the maintained environment through a Protocol.
 - Never materialize or truncate a `MarketDataset` at the evaluation boundary.
 - Reset portfolio, reward, execution, and order state exactly at `evaluation_range.start`.
 - The environment may read pre-range bars only for causal feature and sequence observation construction.
@@ -26,12 +26,11 @@
 
 ## File Structure
 
-- Create `trade_rl/integrations/stage_a_sb3_evaluation.py`: concrete dataset resolver, environment handle/factory protocols, observation hashing, deterministic policy dispatch, and `StageASB3EvaluationEpisodeExecutor`.
+- Create `trade_rl/workflows/stage_a_sb3_evaluation.py`: concrete dataset resolver, environment handle/factory protocols, observation hashing, deterministic policy dispatch, and `StageASB3EvaluationEpisodeExecutor`.
 - Modify `trade_rl/rl/environment.py`: expose one deterministic `baseline_action()` method that encodes the current shadow baseline under both residual and direct target-weight action modes.
-- Create `tests/integrations/test_stage_a_sb3_evaluation.py`: focused adapter tests for range reset, deterministic action dispatch, observation/equity/event collection, and fail-closed identity checks.
+- Create `tests/workflows/test_stage_a_sb3_evaluation.py`: focused adapter tests for range reset, deterministic action dispatch, observation/equity/event collection, and fail-closed identity checks.
 - Modify `tests/rl/test_environment_timing.py`: prove `baseline_action()` keeps hybrid and shadow execution identical for residual and target-weight modes.
-- Modify `trade_rl/integrations/__init__.py`: add a lazy export for the concrete executor without importing optional frameworks at package import time.
-
+-
 ### Task 1: Environment-Owned Baseline Action
 
 **Files:**
@@ -80,8 +79,8 @@ Expected: all pass.
 ### Task 2: Manifest-Bound Executor Contract
 
 **Files:**
-- Create: `trade_rl/integrations/stage_a_sb3_evaluation.py`
-- Create: `tests/integrations/test_stage_a_sb3_evaluation.py`
+- Create: `trade_rl/workflows/stage_a_sb3_evaluation.py`
+- Create: `tests/workflows/test_stage_a_sb3_evaluation.py`
 
 **Interfaces:**
 - Consumes: `StageAEvaluationCellRequest`, `StageAEvaluationEpisodeResult`, `MarketDataset`, `ResidualMarketEnv`.
@@ -107,7 +106,7 @@ Assert no dataset view or sliced dataset is supplied.
 
 - [ ] **Step 2: Verify RED**
 
-Run: `uv run pytest -q tests/integrations/test_stage_a_sb3_evaluation.py::test_executor_uses_full_dataset_and_exact_request_range`
+Run: `uv run pytest -q tests/workflows/test_stage_a_sb3_evaluation.py::test_executor_uses_full_dataset_and_exact_request_range`
 
 Expected: import failure because the integration module does not exist.
 
@@ -132,8 +131,8 @@ Run the focused test and confirm GREEN.
 ### Task 3: Deterministic Policy and Baseline Rollout
 
 **Files:**
-- Modify: `trade_rl/integrations/stage_a_sb3_evaluation.py`
-- Modify: `tests/integrations/test_stage_a_sb3_evaluation.py`
+- Modify: `trade_rl/workflows/stage_a_sb3_evaluation.py`
+- Modify: `tests/workflows/test_stage_a_sb3_evaluation.py`
 
 **Interfaces:**
 - Consumes: policy objects with `predict(observation) -> np.ndarray`, environment `baseline_action()`.
@@ -182,15 +181,15 @@ At each decision:
 
 - [ ] **Step 5: Run focused rollout tests**
 
-Run: `uv run pytest -q tests/integrations/test_stage_a_sb3_evaluation.py -k 'rollout or baseline or policy'`
+Run: `uv run pytest -q tests/workflows/test_stage_a_sb3_evaluation.py -k 'rollout or baseline or policy'`
 
 Expected: all pass.
 
 ### Task 4: Evidence and Range Hardening
 
 **Files:**
-- Modify: `trade_rl/integrations/stage_a_sb3_evaluation.py`
-- Modify: `tests/integrations/test_stage_a_sb3_evaluation.py`
+- Modify: `trade_rl/workflows/stage_a_sb3_evaluation.py`
+- Modify: `tests/workflows/test_stage_a_sb3_evaluation.py`
 
 **Interfaces:**
 - Consumes: collected `OrderEvent` values and dataset timestamps.
@@ -221,22 +220,21 @@ Build `StageAEvaluationEpisodeResult` from the normalized values, then call `val
 
 - [ ] **Step 5: Run complete adapter tests**
 
-Run: `uv run pytest -q tests/integrations/test_stage_a_sb3_evaluation.py tests/workflows/test_stage_a_execution_producer.py`
+Run: `uv run pytest -q tests/workflows/test_stage_a_sb3_evaluation.py tests/workflows/test_stage_a_execution_producer.py`
 
 Expected: all pass.
 
-### Task 5: Lazy Export, Architecture, and Full Verification
+### Task 5: Architecture and Full Verification
 
 **Files:**
-- Modify: `trade_rl/integrations/__init__.py`
 - Modify: `docs/operations/stage-a-sb3-evaluation-environment-implementation-plan.md`
 
 **Interfaces:**
 - Produces: lazy `StageASB3EvaluationEpisodeExecutor` export.
 
-- [ ] **Step 1: Add lazy export and import smoke test**
+- [ ] **Step 1: Verify the workflow boundary**
 
-Ensure importing `trade_rl.integrations` does not import Stable-Baselines3 or Gymnasium eagerly beyond existing package contracts.
+Ensure the bounded executor imports no Stable-Baselines3 or Gymnasium modules and passes the repository responsibility-layer contract.
 
 - [ ] **Step 2: Run focused verification**
 
@@ -244,13 +242,13 @@ Run:
 
 ```bash
 uv run pytest -q \
-  tests/integrations/test_stage_a_sb3_evaluation.py \
+  tests/workflows/test_stage_a_sb3_evaluation.py \
   tests/workflows/test_stage_a_execution_producer.py \
   tests/rl/test_environment_timing.py \
   tests/rl/test_target_weight_action.py
-uv run ruff check trade_rl/integrations/stage_a_sb3_evaluation.py tests/integrations/test_stage_a_sb3_evaluation.py trade_rl/rl/environment.py tests/rl/test_environment_timing.py
-uv run ruff format --check trade_rl/integrations/stage_a_sb3_evaluation.py tests/integrations/test_stage_a_sb3_evaluation.py trade_rl/rl/environment.py tests/rl/test_environment_timing.py
-uv run mypy trade_rl/integrations/stage_a_sb3_evaluation.py trade_rl/rl/environment.py
+uv run ruff check trade_rl/workflows/stage_a_sb3_evaluation.py tests/workflows/test_stage_a_sb3_evaluation.py trade_rl/rl/environment.py tests/rl/test_environment_timing.py
+uv run ruff format --check trade_rl/workflows/stage_a_sb3_evaluation.py tests/workflows/test_stage_a_sb3_evaluation.py trade_rl/rl/environment.py tests/rl/test_environment_timing.py
+uv run mypy trade_rl/workflows/stage_a_sb3_evaluation.py trade_rl/rl/environment.py
 uv run lint-imports
 ```
 

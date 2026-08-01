@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -9,7 +10,8 @@ from trade_rl.workflows import release_packaging
 
 
 def test_release_packaging_rejects_selected_final_without_authorization_chain(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manifest = SimpleNamespace(
         run_kind="research_selected_final",

@@ -1,0 +1,123 @@
+name: Temporary Stage A SB3 Architecture
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-stage-a-sb3-architecture.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Move executor behind the workflow boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git mv \
+            trade_rl/integrations/stage_a_sb3_evaluation.py \
+            trade_rl/workflows/stage_a_sb3_evaluation.py
+          git mv \
+            tests/integrations/test_stage_a_sb3_evaluation.py \
+            tests/workflows/test_stage_a_sb3_evaluation.py
+          python - <<'PY'
+          from pathlib import Path
+
+          test_path = Path("tests/workflows/test_stage_a_sb3_evaluation.py")
+          test_text = test_path.read_text(encoding="utf-8").replace(
+              "from trade_rl.integrations.stage_a_sb3_evaluation import (",
+              "from trade_rl.workflows.stage_a_sb3_evaluation import (",
+          )
+          test_path.write_text(test_text, encoding="utf-8")
+
+          init_path = Path("trade_rl/integrations/__init__.py")
+          init_text = init_path.read_text(encoding="utf-8")
+          export = '''    "StageASB3EvaluationEpisodeExecutor": (\n        "trade_rl.integrations.stage_a_sb3_evaluation",\n        "StageASB3EvaluationEpisodeExecutor",\n    ),\n'''
+          if export not in init_text:
+              raise SystemExit("Stage A integration export marker missing")
+          init_path.write_text(init_text.replace(export, "", 1), encoding="utf-8")
+
+          plan_path = Path(
+              "docs/operations/stage-a-sb3-evaluation-environment-implementation-plan.md"
+          )
+          plan_text = plan_path.read_text(encoding="utf-8")
+          replacements = {
+              "Add a framework adapter in `trade_rl.integrations`": (
+                  "Add a framework-independent bounded executor in `trade_rl.workflows`"
+              ),
+              "Keep Stable-Baselines3 and framework-specific assembly under `trade_rl.integrations`; `trade_rl.workflows` must remain framework independent.": (
+                  "Keep Stable-Baselines3 and framework-specific assembly outside this executor; `trade_rl.workflows` remains framework independent and receives the maintained environment through a Protocol."
+              ),
+              "Create `trade_rl/integrations/stage_a_sb3_evaluation.py`": (
+                  "Create `trade_rl/workflows/stage_a_sb3_evaluation.py`"
+              ),
+              "Create `tests/integrations/test_stage_a_sb3_evaluation.py`": (
+                  "Create `tests/workflows/test_stage_a_sb3_evaluation.py`"
+              ),
+              "Modify `trade_rl/integrations/__init__.py`: add a lazy export for the concrete executor without importing optional frameworks at package import time.\n": "",
+              "- Create: `trade_rl/integrations/stage_a_sb3_evaluation.py`": (
+                  "- Create: `trade_rl/workflows/stage_a_sb3_evaluation.py`"
+              ),
+              "- Create: `tests/integrations/test_stage_a_sb3_evaluation.py`": (
+                  "- Create: `tests/workflows/test_stage_a_sb3_evaluation.py`"
+              ),
+              "tests/integrations/test_stage_a_sb3_evaluation.py": (
+                  "tests/workflows/test_stage_a_sb3_evaluation.py"
+              ),
+              "trade_rl/integrations/stage_a_sb3_evaluation.py": (
+                  "trade_rl/workflows/stage_a_sb3_evaluation.py"
+              ),
+              "### Task 5: Lazy Export, Architecture, and Full Verification": (
+                  "### Task 5: Architecture and Full Verification"
+              ),
+              "- Modify: `trade_rl/integrations/__init__.py`\n": "",
+              "- [ ] **Step 1: Add lazy export and import smoke test**\n\nEnsure importing `trade_rl.integrations` does not import Stable-Baselines3 or Gymnasium eagerly beyond existing package contracts.\n\n": (
+                  "- [ ] **Step 1: Verify the workflow boundary**\n\nEnsure the bounded executor imports no Stable-Baselines3 or Gymnasium modules and passes the repository responsibility-layer contract.\n\n"
+              ),
+          }
+          for old, new in replacements.items():
+              plan_text = plan_text.replace(old, new)
+          plan_path.write_text(plan_text, encoding="utf-8")
+          PY
+          uv run ruff format \
+            trade_rl/workflows/stage_a_sb3_evaluation.py \
+            trade_rl/integrations/__init__.py \
+            tests/workflows/test_stage_a_sb3_evaluation.py
+          PYTHONPATH=. uv run pytest -q \
+            tests/workflows/test_stage_a_sb3_evaluation.py \
+            tests/workflows/test_stage_a_execution_producer.py \
+            tests/rl/test_environment_timing.py \
+            tests/rl/test_target_weight_action.py
+          uv run ruff check \
+            trade_rl/workflows/stage_a_sb3_evaluation.py \
+            trade_rl/integrations/__init__.py \
+            tests/workflows/test_stage_a_sb3_evaluation.py
+          uv run mypy \
+            trade_rl/workflows/stage_a_sb3_evaluation.py \
+            trade_rl/rl/environment.py
+          uv run lint-imports
+          rm -f .github/workflows/temporary-stage-a-sb3-architecture.yml
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "refactor: keep Stage A executor framework independent"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

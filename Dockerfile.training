@@ -26,9 +26,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_PROJECT_ENVIRONMENT=/opt/trade-rl-venv \
     PATH="/opt/trade-rl-venv/bin:${PATH}"
 
+COPY uv.toml /tmp/trade-rl-uv.toml
 RUN groupadd --system trainer \
     && useradd --system --gid trainer --create-home trainer \
-    && pip install --no-cache-dir uv==0.10.0
+    && UV_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("/tmp/trade-rl-uv.toml", "rb"))["required-version"].removeprefix("=="))')" \
+    && pip install --no-cache-dir "uv==${UV_VERSION}" \
+    && test "$(uv --version)" = "uv ${UV_VERSION}" \
+    && rm /tmp/trade-rl-uv.toml
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -36,7 +40,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get install -y --no-install-recommends build-essential
 
 WORKDIR /workspace
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock uv.toml README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --extra train-sb3 --extra postgres --no-dev --no-install-project \
     && mkdir -p \

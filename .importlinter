@@ -92,6 +92,22 @@ forbidden_modules =
     trade_rl.integrations
     stable_baselines3
 
+[importlinter:contract:studio-workflows]
+name = Studio cannot import workflow implementations
+type = forbidden
+source_modules =
+    trade_rl.studio
+forbidden_modules =
+    trade_rl.workflows
+
+[importlinter:contract:serving-export-implementation]
+name = Serving cannot import the RL structured export implementation
+type = forbidden
+source_modules =
+    trade_rl.serving
+forbidden_modules =
+    trade_rl.rl.structured_export
+
 [importlinter:contract:release]
 name = Release remains verification-only and below serving
 type = forbidden
@@ -164,7 +180,6 @@ forbidden_modules =
     trade_rl.release.offline_approval
     trade_rl.evaluation.offline_confirmation
     trade_rl.workflows.offline_selection_approval
-
 
 [importlinter:contract:catalog-contracts]
 name = Catalog contracts remain framework and adapter independent

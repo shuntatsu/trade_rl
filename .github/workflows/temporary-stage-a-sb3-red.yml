@@ -31,9 +31,9 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          uv run pytest -q tests/rl/test_environment_timing.py -k baseline_action > baseline.log 2>&1
+          PYTHONPATH=. uv run pytest -q tests/rl/test_environment_timing.py -k baseline_action > baseline.log 2>&1
           baseline_status=$?
-          uv run pytest -q tests/integrations/test_stage_a_sb3_evaluation.py > executor.log 2>&1
+          PYTHONPATH=. uv run pytest -q tests/integrations/test_stage_a_sb3_evaluation.py > executor.log 2>&1
           executor_status=$?
           set -e
           cat baseline.log
@@ -41,4 +41,4 @@ jobs:
           test "$baseline_status" -ne 0
           test "$executor_status" -ne 0
           grep -q "has no attribute 'baseline_action'" baseline.log
-          grep -Eq "No module named 'trade_rl.integrations.stage_a_sb3_evaluation'|ModuleNotFoundError" executor.log
+          grep -q "No module named 'trade_rl.integrations.stage_a_sb3_evaluation'" executor.log

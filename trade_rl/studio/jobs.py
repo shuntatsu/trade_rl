@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
 import sys
 import uuid
@@ -11,7 +12,7 @@ from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Final, Protocol, cast
 
 from trade_rl.artifacts.run_manifest import validate_training_run_directory
 from trade_rl.studio.contracts import JobSummary, TrainingJobRequest
@@ -25,6 +26,12 @@ from trade_rl.studio.settings import StudioSettings
 
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _TERMINAL_STATES = {"succeeded", "failed", "cancelled"}
+_WINDOWS_NEW_PROCESS_GROUP: Final = getattr(
+    subprocess,
+    "CREATE_NEW_PROCESS_GROUP",
+    0x00000200,
+)
+_PROCESS_STOP_TIMEOUT_SECONDS: Final = 5.0
 
 
 class ProcessHandle(Protocol):
@@ -52,19 +59,37 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _process_group_options(platform_name: str) -> dict[str, object]:
+    """Return the subprocess options that isolate one complete worker tree."""
+
+    if platform_name == "nt":
+        return {"creationflags": _WINDOWS_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 def _default_process_factory(
     command: tuple[str, ...], *, cwd: Path, log_path: Path
 ) -> ProcessHandle:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("ab", buffering=0) as log_handle:
-        process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            stdin=subprocess.DEVNULL,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=os.name != "nt",
-        )
+        if os.name == "nt":
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                creationflags=_WINDOWS_NEW_PROCESS_GROUP,
+            )
+        else:
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
     return cast(ProcessHandle, process)
 
 
@@ -90,12 +115,64 @@ def _pid_alive(pid: int | None) -> bool:
 
 
 def _pid_matches(pid: int | None, token: str | None) -> bool:
-    if not _pid_alive(pid):
+    if not _pid_alive(pid) or pid is None or token is None:
         return False
-    if pid is None or token is None:
-        return True
     current = _pid_start_token(pid)
     return current is not None and current == token
+
+
+def _wait_or_none(process: ProcessHandle) -> int | None:
+    try:
+        return process.wait(timeout=_PROCESS_STOP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def _terminate_posix_process_tree(process: ProcessHandle) -> int:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        process.terminate()
+    exit_code = _wait_or_none(process)
+    if exit_code is not None:
+        return exit_code
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        process.kill()
+    return process.wait(timeout=_PROCESS_STOP_TIMEOUT_SECONDS)
+
+
+def _run_taskkill(pid: int, *, force: bool) -> None:
+    command = ["taskkill", "/PID", str(pid), "/T"]
+    if force:
+        command.append("/F")
+    completed = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "failed to terminate Studio worker process tree: "
+            f"{completed.stderr.strip() or completed.stdout.strip()}"
+        )
+
+
+def _terminate_windows_process_tree(process: ProcessHandle) -> int:
+    _run_taskkill(process.pid, force=False)
+    exit_code = _wait_or_none(process)
+    if exit_code is not None:
+        return exit_code
+    _run_taskkill(process.pid, force=True)
+    return process.wait(timeout=_PROCESS_STOP_TIMEOUT_SECONDS)
+
+
+def _terminate_process_tree(process: ProcessHandle) -> int:
+    if os.name == "nt":
+        return _terminate_windows_process_tree(process)
+    return _terminate_posix_process_tree(process)
 
 
 class JobSupervisor:
@@ -362,12 +439,7 @@ class JobSupervisor:
             expected={"queued", "running"},
             updates={"status": "cancelling", "cancellable": False},
         )
-        process.terminate()
-        try:
-            exit_code = process.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            exit_code = process.wait(timeout=5.0)
+        exit_code = _terminate_process_tree(process)
         self._processes.pop(job_id, None)
         return self._finish(
             cancelling,

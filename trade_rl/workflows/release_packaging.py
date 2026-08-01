@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -9,7 +10,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 
-from trade_rl.artifacts.run_manifest import validate_training_run_directory
+from trade_rl.artifacts.run_manifest import RunFile, validate_training_run_directory
 from trade_rl.data.metadata_promotion import (
     METADATA_PROMOTION_FILE_NAME,
     load_metadata_promotion_evidence,
@@ -72,6 +73,61 @@ def _number(value: object, *, field: str) -> float:
 
 def _execution_cost(training_root: Path) -> ExecutionCostConfig:
     return load_training_execution_cost(training_root / "environment.json")
+
+
+def _file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _copy_verified_run_file(
+    *,
+    training_root: Path,
+    stage: Path,
+    item: RunFile,
+) -> str:
+    resolved_root = training_root.resolve()
+    source = training_root / item.path
+    if source.is_symlink():
+        raise ValueError(f"source artifact identity changed: {item.path}")
+    resolved_source = source.resolve()
+    if resolved_root != resolved_source and resolved_root not in resolved_source.parents:
+        raise ValueError("source artifact path escapes training root")
+    if not source.is_file():
+        raise ValueError(f"source artifact identity changed: {item.path}")
+
+    destination = stage / item.path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.tmp")
+    temporary.unlink(missing_ok=True)
+    digest = hashlib.sha256()
+    copied_size = 0
+    try:
+        with source.open("rb") as source_handle, temporary.open("xb") as output_handle:
+            if os.fstat(source_handle.fileno()).st_size != item.size_bytes:
+                raise ValueError(f"source artifact identity changed: {item.path}")
+            for chunk in iter(lambda: source_handle.read(1024 * 1024), b""):
+                copied_size += len(chunk)
+                digest.update(chunk)
+                output_handle.write(chunk)
+            output_handle.flush()
+            os.fsync(output_handle.fileno())
+        if copied_size != item.size_bytes or digest.hexdigest() != item.digest:
+            raise ValueError(f"source artifact identity changed: {item.path}")
+        destination_identity_matches = (
+            temporary.stat().st_size == item.size_bytes
+            and _file_digest(temporary) == item.digest
+        )
+        if not destination_identity_matches:
+            raise ValueError(f"destination artifact identity mismatch: {item.path}")
+        os.replace(temporary, destination)
+        return item.path
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def package_selected_training_run(
@@ -195,13 +251,14 @@ def package_selected_training_run(
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
     try:
-        artifact_paths: list[str] = []
-        for item in manifest.files:
-            source = training_root / item.path
-            destination = stage / item.path
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-            artifact_paths.append(item.path)
+        artifact_paths = [
+            _copy_verified_run_file(
+                training_root=training_root,
+                stage=stage,
+                item=item,
+            )
+            for item in manifest.files
+        ]
         shutil.copy2(training_root / "run.json", stage / "training-run.json")
         artifact_paths.append("training-run.json")
         shutil.copy2(confirmation_path, stage / "confirmation-evidence.json")
@@ -248,18 +305,27 @@ def package_selected_training_run(
                 load_structured_policy_loader_manifest,
             )
 
-            structured_loader_path = stage / STRUCTURED_POLICY_LOADER_NAME
-            if structured_loader_path.is_file():
-                structured_loader = load_structured_policy_loader_manifest(
-                    structured_loader_path
+            manifest_paths = {item.path for item in manifest.files}
+            if STRUCTURED_POLICY_LOADER_NAME not in manifest_paths:
+                raise ValueError(
+                    "structured policy loader is missing from training manifest"
                 )
-                raw_architecture_digest = structured_loader.get("architecture_digest")
-                if not isinstance(raw_architecture_digest, str):
-                    raise ValueError("structured loader architecture digest is missing")
-                if architecture_digest != raw_architecture_digest:
-                    raise ValueError(
-                        "structured loader architecture differs from ensemble"
-                    )
+            structured_loader_path = stage / STRUCTURED_POLICY_LOADER_NAME
+            if not structured_loader_path.is_file():
+                raise ValueError("structured policy loader is missing from staged bundle")
+            structured_loader = load_structured_policy_loader_manifest(
+                structured_loader_path
+            )
+            raw_architecture_digest = structured_loader.get("architecture_digest")
+            if not isinstance(raw_architecture_digest, str):
+                raise ValueError("structured loader architecture digest is missing")
+            if architecture_digest != raw_architecture_digest:
+                raise ValueError("structured loader architecture differs from ensemble")
+            raw_action_size = structured_loader.get("action_size")
+            if raw_action_size is not None and raw_action_size != action_spec.size:
+                raise ValueError(
+                    "structured loader action size differs from training action contract"
+                )
         bundle_manifest = ServingBundleManifest.build(
             root=stage,
             dataset_id=manifest.dataset_id,

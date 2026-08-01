@@ -13,7 +13,7 @@
 - Stage B implementation is out of scope.
 - Future Stage B market roles are Spot long-only and USDⓈ-M futures short-only.
 - No reward, action, execution, training algorithm, evaluation, or serving behavior changes.
-- Existing public import paths remain compatible.
+- Existing maintained public import paths remain compatible.
 - All new dependency rules fail closed in CI.
 
 ---
@@ -28,22 +28,17 @@
 - Consumes: current source tree and Import Linter layer names.
 - Produces: regression tests forbidding Studio-to-workflow and Serving-to-RL-export coupling.
 
-- [ ] **Step 1: Write tests asserting the intended module ownership**
+- [x] **Step 1: Write tests asserting the intended module ownership**
 
-The tests must assert that `trade_rl/rl/training_run_config.py` and `trade_rl/artifacts/structured_policy_contract.py` exist, Studio config discovery imports the former, Serving does not import `trade_rl.rl.structured_export`, and compatibility imports remain in place.
+The tests assert that `trade_rl/rl/training_run_config.py` and `trade_rl/artifacts/structured_policy_contract.py` exist, Studio config discovery imports the former, Serving does not import `trade_rl.rl.structured_export`, and compatibility imports remain in place.
 
-- [ ] **Step 2: Run the focused tests and confirm RED**
+- [x] **Step 2: Run the focused tests and confirm RED**
 
 Run: `uv run pytest tests/architecture/test_config_and_export_boundaries.py -q`
 
-Expected: failure because the new modules and dependency boundaries do not yet exist.
+Observed before implementation: four expected failures for the missing lower-level modules and future market-role documentation.
 
-- [ ] **Step 3: Commit the RED tests**
-
-```bash
-git add tests/architecture/test_config_and_export_boundaries.py .importlinter
-git commit -m "test: require neutral config and export boundaries"
-```
+- [x] **Step 3: Commit the RED tests**
 
 ### Task 2: Move generic field validation below workflows
 
@@ -56,18 +51,10 @@ git commit -m "test: require neutral config and export boundaries"
 - Produces: `require_exact_fields(...)` and `require_dataclass_fields(...)` in `trade_rl.domain.config_fields`.
 - Compatibility: `trade_rl.workflows.config_fields` re-exports both names.
 
-- [ ] **Step 1: Implement the domain helper module by relocating the existing standard-library implementation**
-- [ ] **Step 2: Replace the workflow helper with a compatibility re-export**
-- [ ] **Step 3: Run focused helper and architecture tests**
-
-Run: `uv run pytest tests/architecture/test_config_and_export_boundaries.py tests/workflows/test_training_run_config.py -q`
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add trade_rl/domain/config_fields.py trade_rl/workflows/config_fields.py tests/architecture/test_config_and_export_boundaries.py
-git commit -m "refactor: lower configuration field validation"
-```
+- [x] **Step 1: Implement the domain helper module by relocating the existing standard-library implementation**
+- [x] **Step 2: Replace the workflow helper with a compatibility re-export**
+- [x] **Step 3: Run focused helper and architecture tests**
+- [x] **Step 4: Commit**
 
 ### Task 3: Separate TrainingRunConfig from orchestration
 
@@ -79,21 +66,13 @@ git commit -m "refactor: lower configuration field validation"
 
 **Interfaces:**
 - Produces: `TRAINING_RUN_CONFIG_SCHEMA` and `TrainingRunConfig` from `trade_rl.rl.training_run_config`.
-- Compatibility: `trade_rl.workflows.training_run` imports and exposes both names.
+- Compatibility: `trade_rl.workflows.training_run` continues to expose `TrainingRunConfig` while orchestration imports the lower contract.
 
-- [ ] **Step 1: Move only parsing, validation, path resolution, and digest identity logic into the new module**
-- [ ] **Step 2: Import and re-export the contract from the workflow module**
-- [ ] **Step 3: Change Studio config discovery to import the lower contract module**
-- [ ] **Step 4: Run focused tests**
-
-Run: `uv run pytest tests/workflows/test_training_run_config.py tests/workflows/test_training_run_transfer_config.py tests/studio -q`
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add trade_rl/rl/training_run_config.py trade_rl/workflows/training_run.py trade_rl/studio/config_catalog.py
-git commit -m "refactor: separate training config from workflow orchestration"
-```
+- [x] **Step 1: Move only parsing, validation, path resolution, and digest identity logic into the new module**
+- [x] **Step 2: Import and re-export the maintained config class from the workflow module**
+- [x] **Step 3: Change Studio config discovery to import the lower contract module**
+- [x] **Step 4: Run focused tests**
+- [x] **Step 5: Commit**
 
 ### Task 4: Separate structured export contract from Torch implementation
 
@@ -108,41 +87,25 @@ git commit -m "refactor: separate training config from workflow orchestration"
 - Produces neutral schema constants, `StructuredInputSpec`, `StructuredExportManifest`, and manifest loaders.
 - The RL module continues to export those names for compatibility while retaining Torch export functions.
 
-- [ ] **Step 1: Move contract-only definitions and decoding into the artifact module**
-- [ ] **Step 2: Import the contract into the RL exporter**
-- [ ] **Step 3: Point Serving loaders directly at the artifact contract**
-- [ ] **Step 4: Run focused tests**
-
-Run: `uv run pytest tests/rl/test_structured_export.py tests/serving/test_structured_policy.py tests/serving/test_structured_ensemble_loader.py -q`
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add trade_rl/artifacts/structured_policy_contract.py trade_rl/rl/structured_export.py trade_rl/serving/structured_policy.py trade_rl/serving/policy_loader.py
-git commit -m "refactor: neutralize structured export contracts"
-```
+- [x] **Step 1: Move contract-only definitions and decoding into the artifact module**
+- [x] **Step 2: Import the contract into the RL exporter**
+- [x] **Step 3: Point Serving loaders directly at the artifact contract**
+- [x] **Step 4: Run focused tests**
+- [x] **Step 5: Commit**
 
 ### Task 5: Document future market-role boundary
 
 **Files:**
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `docs/RESEARCH_STATUS.md`
-- Test: documentation contract tests.
+- Test: documentation and architecture contract tests.
 
 **Interfaces:**
 - Produces an explicit non-implemented Stage B boundary: Spot long-side book and USDⓈ-M futures short-side book.
 
-- [ ] **Step 1: Add the future market-role statement without claiming implementation**
-- [ ] **Step 2: Run documentation tests**
-
-Run: `uv run pytest tests/test_current_documentation_contract.py -q`
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add docs/ARCHITECTURE.md docs/RESEARCH_STATUS.md
-git commit -m "docs: define future asymmetric market roles"
-```
+- [x] **Step 1: Add the future market-role statement without claiming implementation**
+- [x] **Step 2: Run focused documentation and architecture tests**
+- [x] **Step 3: Commit**
 
 ### Task 6: Full verification and PR
 
@@ -152,10 +115,17 @@ git commit -m "docs: define future asymmetric market roles"
 **Interfaces:**
 - Produces a draft PR with exact-head evidence.
 
-- [ ] **Step 1: Run Ruff and format checks**
-- [ ] **Step 2: Run MyPy and Import Linter**
-- [ ] **Step 3: Run full pytest with branch coverage**
-- [ ] **Step 4: Run Studio typecheck and build through maintained CI**
-- [ ] **Step 5: Open a draft PR and record RED/GREEN evidence**
+- [x] **Step 1: Run focused Ruff and format checks**
+- [x] **Step 2: Run focused MyPy and Import Linter**
+- [ ] **Step 3: Run full pytest with branch coverage on the final PR head**
+- [ ] **Step 4: Run Studio typecheck and build through maintained CI on the final PR head**
+- [x] **Step 5: Open a draft PR and record RED/focused-GREEN evidence**
 
-The PR must not be merged automatically.
+Focused verification before the final connector-authored head:
+
+- focused pytest: 229 passed
+- Import Linter: 12 contracts kept, 0 broken
+- MyPy: no issues in 330 source files
+- Ruff and format: passed
+
+The PR must not be merged automatically. Full exact-head CI remains the final gate.

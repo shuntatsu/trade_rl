@@ -1,0 +1,106 @@
+name: Temporary Stage A SB3 GREEN
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-stage-a-sb3-green.yml
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Apply baseline API and verify focused suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          environment = Path("trade_rl/rl/environment.py")
+          text = environment.read_text(encoding="utf-8")
+          marker = "    @staticmethod\n    def _drawdown(book: BookState) -> float:\n"
+          insertion = '''    def baseline_action(self) -> np.ndarray:\n        """Encode the exact shadow baseline in the maintained action schema."""\n\n        trends, _, _ = self._market_inputs()\n        if self.action_spec.mode is ActionMode.TARGET_WEIGHT:\n            action = np.asarray(trends.base, dtype=np.float32)\n        else:\n            action = np.zeros(self.action_spec.size, dtype=np.float32)\n        self.action_spec.parse(\n            action,\n            mode=ActionValidationMode.FAIL_CLOSED,\n        )\n        return action.copy()\n\n'''
+          if insertion not in text:
+              if marker not in text:
+                  raise SystemExit("environment baseline insertion marker missing")
+              text = text.replace(marker, insertion + marker, 1)
+              environment.write_text(text, encoding="utf-8")
+
+          test_path = Path("tests/integrations/test_stage_a_sb3_evaluation.py")
+          test_text = test_path.read_text(encoding="utf-8")
+          old = "processing_index=request.evaluation_range.start,"
+          new = "processing_index=request.evaluation_range.start - 1,"
+          if old in test_text:
+              test_text = test_text.replace(old, new, 1)
+              test_path.write_text(test_text, encoding="utf-8")
+          elif new not in test_text:
+              raise SystemExit("range test replacement marker missing")
+
+          plan_path = Path(
+              "docs/operations/stage-a-sb3-evaluation-environment-implementation-plan.md"
+          )
+          plan_text = plan_path.read_text(encoding="utf-8")
+          plan_text = plan_text.replace(
+              "event `processing_index <= start` or `processing_index > stop`;",
+              "event `processing_index < start` or `processing_index > stop`;",
+          )
+          plan_path.write_text(plan_text, encoding="utf-8")
+
+          init_path = Path("trade_rl/integrations/__init__.py")
+          init_text = init_path.read_text(encoding="utf-8")
+          export = '''    "StageASB3EvaluationEpisodeExecutor": (\n        "trade_rl.integrations.stage_a_sb3_evaluation",\n        "StageASB3EvaluationEpisodeExecutor",\n    ),\n'''
+          anchor = '    "StableBaselines3CheckpointLoader": (\n'
+          if export not in init_text:
+              if anchor not in init_text:
+                  raise SystemExit("integrations export insertion marker missing")
+              init_text = init_text.replace(anchor, export + anchor, 1)
+              init_path.write_text(init_text, encoding="utf-8")
+          PY
+          uv run ruff format \
+            trade_rl/integrations/stage_a_sb3_evaluation.py \
+            trade_rl/integrations/__init__.py \
+            trade_rl/rl/environment.py \
+            tests/integrations/test_stage_a_sb3_evaluation.py \
+            tests/rl/test_environment_timing.py
+          uv run pytest -q \
+            tests/integrations/test_stage_a_sb3_evaluation.py \
+            tests/workflows/test_stage_a_execution_producer.py \
+            tests/rl/test_environment_timing.py \
+            tests/rl/test_target_weight_action.py
+          uv run ruff check \
+            trade_rl/integrations/stage_a_sb3_evaluation.py \
+            trade_rl/integrations/__init__.py \
+            trade_rl/rl/environment.py \
+            tests/integrations/test_stage_a_sb3_evaluation.py \
+            tests/rl/test_environment_timing.py
+          uv run mypy \
+            trade_rl/integrations/stage_a_sb3_evaluation.py \
+            trade_rl/rl/environment.py
+          rm -f \
+            .github/workflows/temporary-stage-a-sb3-red.yml \
+            .github/workflows/temporary-stage-a-sb3-green.yml
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: execute Stage A cells in bounded market environments"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

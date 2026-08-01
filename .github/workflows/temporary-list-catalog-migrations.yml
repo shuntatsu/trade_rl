@@ -1,4 +1,4 @@
-name: Temporary List Catalog Migrations
+name: Temporary Stage A Sealed Ledger RED
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  list:
+  red:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
@@ -19,5 +19,21 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - name: List catalog migrations
-        run: find trade_rl/catalog/sql -maxdepth 1 -type f -printf '%f\n' | sort
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Verify expected RED failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          PYTHONPATH=. uv run pytest -q tests/evaluation/test_stage_a_sealed_test.py > red.log 2>&1
+          status=$?
+          set -e
+          cat red.log
+          test "$status" -ne 0
+          grep -q "No module named 'trade_rl.evaluation.stage_a_sealed_test'" red.log

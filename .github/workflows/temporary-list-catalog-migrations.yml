@@ -1,0 +1,23 @@
+name: Temporary List Catalog Migrations
+
+on:
+  push:
+    branches:
+      - agent/stage-a6b2-postgres-sealed-ledger
+    paths:
+      - .github/workflows/temporary-list-catalog-migrations.yml
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: List catalog migrations
+        run: find trade_rl/catalog/sql -maxdepth 1 -type f -printf '%f\n' | sort

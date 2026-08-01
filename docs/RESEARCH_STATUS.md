@@ -1,10 +1,13 @@
 # Research Status
 
-## Current status — 2026-07-28
+## Current status
 
 ```text
 RepositoryIntegrity: VERIFIED_BY_MAIN_CI
 ResearchWorkflows: AVAILABLE
+StageAZeroShotSoftware: IMPLEMENTED_AND_CI_VERIFIED
+StageAEmpiricalEvaluation: NOT_COMPLETED
+StageBSpotFuturesGeneralization: NOT_IMPLEMENTED
 HierarchicalSequenceV2: IMPLEMENTED_AND_CPU_VERIFIED
 StatefulOHLCExecution: AVAILABLE_WITH_OHLCV_LIMITATIONS
 TradeRLStudio: AVAILABLE_FOR_DIAGNOSTIC_REPLAY_WITH_EPISODE_ISOLATION
@@ -15,6 +18,8 @@ ProfitabilityClaim: NONE
 ```
 
 この表は能力境界です。実装済み、CI検証済み、研究上有効、収益性あり、Production認可済みは別の状態です。
+
+Stage Aのソフトウェア契約とCLIは実装・CI検証済みですが、維持対象の実データ、複数Seed・Fold、対象GPUによる実証評価は完了していません。Stage BのSpotとUSDⓈ-M先物を横断する一般化は未実装です。
 
 ## 現在のModel契約
 

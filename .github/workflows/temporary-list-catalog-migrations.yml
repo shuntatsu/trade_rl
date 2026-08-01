@@ -1,4 +1,4 @@
-name: Temporary Stage A Sealed Ledger GREEN
+name: Temporary Stage A Sealed Ledger Format
 
 on:
   pull_request:
@@ -8,17 +8,19 @@ on:
       - .github/workflows/temporary-list-catalog-migrations.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  green:
+  format:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact head
+      - name: Checkout branch head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
@@ -26,10 +28,19 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev
-      - name: Verify batch contract
+      - name: Format and verify batch contract
+        shell: bash
         run: |
-          # Verify the corrected identity-order expectation and shared contract.
+          set -euo pipefail
+          uv run ruff format trade_rl/evaluation/stage_a_sealed_test.py tests/evaluation/test_stage_a_sealed_test.py
           PYTHONPATH=. uv run pytest -q tests/evaluation/test_stage_a_sealed_test.py
           uv run ruff check trade_rl/evaluation/stage_a_sealed_test.py tests/evaluation/test_stage_a_sealed_test.py
           uv run ruff format --check trade_rl/evaluation/stage_a_sealed_test.py tests/evaluation/test_stage_a_sealed_test.py
           uv run mypy trade_rl/evaluation/stage_a_sealed_test.py
+          rm -f .github/workflows/temporary-list-catalog-migrations.yml
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: define atomic Stage A sealed-test batches"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

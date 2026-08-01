@@ -17,9 +17,7 @@ def _source_tree(root: Path, *, marker: str = "same") -> None:
         "[project]\nname='trade-rl'\n", encoding="utf-8"
     )
     (root / "uv.lock").write_text("same-lock", encoding="utf-8")
-    (root / "uv.toml").write_text(
-        'required-version = "==0.10.0"\n', encoding="utf-8"
-    )
+    (root / "uv.toml").write_text('required-version = "==0.10.0"\n', encoding="utf-8")
     (root / "trade_rl" / "module.py").write_text(marker, encoding="utf-8")
     (root / "examples" / "runner.py").write_text("runner", encoding="utf-8")
 

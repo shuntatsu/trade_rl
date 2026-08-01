@@ -97,6 +97,10 @@ jobs:
               plan_text = plan_text.replace(old, new)
           plan_path.write_text(plan_text, encoding="utf-8")
           PY
+          uv run ruff check --fix \
+            trade_rl/workflows/stage_a_sb3_evaluation.py \
+            trade_rl/integrations/__init__.py \
+            tests/workflows/test_stage_a_sb3_evaluation.py
           uv run ruff format \
             trade_rl/workflows/stage_a_sb3_evaluation.py \
             trade_rl/integrations/__init__.py \

@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from typing import cast
 
+from trade_rl.evaluation.stage_a_sealed_test import (
+    StageASealedTestCellSpec,
+    StageASealedTestLedger,
+    StageASealedTestLedgerProtocol,
+    build_stage_a_sealed_test_authorization_batch,
+)
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageAEvaluationObservation,
     StageAEvaluationSplit,
@@ -14,14 +20,14 @@ from trade_rl.evaluation.stage_a_zero_shot_gate import (
     evaluate_stage_a_sealed_test,
     select_stage_a_validation_candidate,
 )
-from trade_rl.evaluation.walk_forward.sealed_test import (
-    SealedTestLedger,
-    SealedTestLedgerProtocol,
+from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
+    StageAEvaluationDatasetManifest,
 )
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellEvaluator,
     StageAEvaluationCellRequest,
     StageAEvaluationCellResult,
+    StageASealedTestAccessRecord,
     StageASealedTestRun,
     StageATestSchedule,
     StageAValidationRun,
@@ -35,15 +41,22 @@ class StageAZeroShotEvaluationOrchestrator:
         self,
         *,
         plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifest,
         evaluator: StageAEvaluationCellEvaluator,
-        test_schedule: StageATestSchedule,
-        sealed_test_ledger: SealedTestLedgerProtocol | None = None,
+        test_schedule: StageATestSchedule | None = None,
+        sealed_test_ledger: StageASealedTestLedgerProtocol | None = None,
     ) -> None:
-        test_schedule.validate_plan(plan)
+        plan.validate_manifest(manifest)
+        resolved_schedule = test_schedule or StageATestSchedule.from_manifest(
+            plan=plan,
+            manifest=manifest,
+        )
+        resolved_schedule.validate_manifest(plan, manifest)
         self.plan = plan
+        self.manifest = manifest
         self.evaluator = evaluator
-        self.test_schedule = test_schedule
-        self._sealed_test_ledger = sealed_test_ledger or SealedTestLedger()
+        self.test_schedule = resolved_schedule
+        self._sealed_test_ledger = sealed_test_ledger or StageASealedTestLedger()
 
     def _request(
         self,
@@ -61,13 +74,15 @@ class StageAZeroShotEvaluationOrchestrator:
         )
         return StageAEvaluationCellRequest(
             plan_digest=self.plan.digest,
+            evaluation_dataset_manifest_digest=self.manifest.digest,
             split=split,
             triplet_id=triplet_id,
             fold=fold,
             seed=seed,
             candidate_id=candidate_id,
             checkpoint_digest=checkpoint_digest,
-            dataset_identity=self.plan.dataset_identity,
+            dataset_id=self.manifest.dataset_id_for(split, triplet_id),
+            evaluation_range=self.manifest.range_for(split, fold),
             feature_identity=self.plan.feature_identity,
             execution_identity=self.plan.execution_identity,
             evaluation_identity=self.plan.evaluation_identity,
@@ -108,16 +123,30 @@ class StageAZeroShotEvaluationOrchestrator:
                             seed=seed,
                             candidate_id=candidate_id,
                         )
+                        if (
+                            policy_request.evaluation_dataset_manifest_digest
+                            != baseline_request.evaluation_dataset_manifest_digest
+                            or policy_request.dataset_id != baseline_request.dataset_id
+                            or policy_request.evaluation_range
+                            != baseline_request.evaluation_range
+                        ):
+                            raise ValueError(
+                                "Stage A policy and baseline request data identity mismatch"
+                            )
                         policy = self._evaluate(policy_request)
                         observations.append(
-                            StageAEvaluationObservation(
+                            StageAEvaluationObservation.create(
                                 candidate_id=candidate_id,
                                 split=split,
                                 triplet_id=triplet_id,
                                 fold=fold,
                                 seed=seed,
                                 checkpoint_digest=candidate.checkpoint_digest(seed),
-                                dataset_identity=self.plan.dataset_identity,
+                                evaluation_dataset_manifest_digest=(
+                                    policy_request.evaluation_dataset_manifest_digest
+                                ),
+                                dataset_id=policy_request.dataset_id,
+                                evaluation_range=policy_request.evaluation_range,
                                 feature_identity=self.plan.feature_identity,
                                 execution_identity=self.plan.execution_identity,
                                 evaluation_identity=self.plan.evaluation_identity,
@@ -140,6 +169,7 @@ class StageAZeroShotEvaluationOrchestrator:
         )
         evidence = build_stage_a_evaluation_evidence(
             plan=self.plan,
+            manifest=self.manifest,
             split="validation",
             observations=observations,
         )
@@ -164,18 +194,41 @@ class StageAZeroShotEvaluationOrchestrator:
             raise ValueError(
                 "Stage A sealed test requires a passed validation selection"
             )
-        self.test_schedule.validate_plan(self.plan)
+        self.test_schedule.validate_manifest(self.plan, self.manifest)
         selected_candidate = self.plan.candidate(selected_id)
+        batch = build_stage_a_sealed_test_authorization_batch(
+            experiment_plan_digest=self.plan.digest,
+            evaluation_dataset_manifest_digest=self.manifest.digest,
+            evaluation_identity=self.plan.evaluation_identity,
+            selected_configuration=selected_id,
+            selected_policy_digest=selected_candidate.digest,
+            cells=tuple(
+                StageASealedTestCellSpec(
+                    triplet_id=triplet_id,
+                    dataset_id=self.manifest.dataset_id_for("test", triplet_id),
+                    fold_index=fold,
+                    test_range=self.test_schedule.range_for(fold),
+                )
+                for triplet_id in self.plan.test_triplet_ids
+                for fold in self.plan.folds
+            ),
+        )
+        authorized = self._sealed_test_ledger.authorize_once(batch)
+        if authorized != batch:
+            raise ValueError("Stage A sealed-test ledger returned another batch")
         access_records = tuple(
-            self._sealed_test_ledger.authorize_once(
-                experiment_plan_digest=self.plan.digest,
-                dataset_id=self.plan.dataset_identity,
-                fold_index=fold,
-                test_range=self.test_schedule.range_for(fold),
-                selected_configuration=selected_id,
-                selected_policy_digest=selected_candidate.digest,
+            StageASealedTestAccessRecord(
+                authorization_batch_digest=authorized.batch_digest,
+                evaluation_dataset_manifest_digest=(
+                    cell.evaluation_dataset_manifest_digest
+                ),
+                triplet_id=cell.triplet_id,
+                dataset_id=cell.dataset_id,
+                fold=cell.fold_index,
+                test_range=cell.test_range,
+                ledger_record=cell.access_record,
             )
-            for fold in self.plan.folds
+            for cell in authorized.cells
         )
         observations = self._observations_for_split(
             split=cast(StageAEvaluationSplit, "test"),
@@ -183,6 +236,7 @@ class StageAZeroShotEvaluationOrchestrator:
         )
         evidence = build_stage_a_evaluation_evidence(
             plan=self.plan,
+            manifest=self.manifest,
             split="test",
             observations=observations,
             candidate_ids=(selected_id,),

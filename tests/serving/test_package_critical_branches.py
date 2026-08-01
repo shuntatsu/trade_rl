@@ -24,12 +24,12 @@ from trade_rl.data.metadata_promotion import (
 from trade_rl.evaluation.confirmation import write_confirmation_evidence
 from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
 from trade_rl.release.offline_signing import public_key_bytes
-from trade_rl.serving import package as serving_package
-from trade_rl.serving.package import package_selected_training_run
 from trade_rl.simulation.execution_promotion import (
     ExecutionEvidence,
     write_execution_evidence,
 )
+from trade_rl.workflows import release_packaging as serving_package
+from trade_rl.workflows.release_packaging import package_selected_training_run
 
 
 def _rebuild_manifest(

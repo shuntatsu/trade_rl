@@ -6,13 +6,13 @@ import hashlib
 import json
 import math
 import os
-import stat
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.domain.common import require_sha256
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_replay import (
@@ -21,7 +21,7 @@ from trade_rl.simulation.execution_replay import (
 )
 
 EXECUTION_EVIDENCE_FILE_NAME = "execution-evidence.json"
-EXECUTION_EVIDENCE_SCHEMA = "execution_promotion_evidence_v3"
+EXECUTION_EVIDENCE_SCHEMA = "execution_promotion_evidence_v4"
 _DEFAULT_TRIGGER_VOLUME_FRACTIONS = (1.0, 0.5, 0.25, 0.0)
 _PATH_MODES = frozenset({"optimistic", "neutral", "conservative"})
 
@@ -54,6 +54,12 @@ def _non_negative_integer(value: object, *, field: str) -> int:
     return value
 
 
+def _optional_non_negative_integer(value: object, *, field: str) -> int | None:
+    if value is None:
+        return None
+    return _non_negative_integer(value, field=field)
+
+
 def _path_modes(value: object) -> tuple[str, ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         raise ValueError("sensitivity_path_modes must be a sequence")
@@ -82,40 +88,27 @@ def _trigger_fractions(value: object) -> tuple[float, float, float, float]:
 
 def _regular_artifact_bytes(path: Path) -> bytes:
     try:
-        before = path.lstat()
-    except OSError as error:
-        raise ExecutionPromotionError("execution event artifact is missing") from error
-    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
-        raise ExecutionPromotionError(
-            "execution event artifact must be a regular non-symlink file"
-        )
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
-    no_follow = getattr(os, "O_NOFOLLOW", 0)
-    if no_follow:
-        flags |= no_follow
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as error:
-        raise ExecutionPromotionError(
-            "execution event artifact could not be opened safely"
-        ) from error
-    try:
-        opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode):
-            raise ExecutionPromotionError(
-                "execution event artifact must be a regular non-symlink file"
-            )
-        with os.fdopen(descriptor, "rb", closefd=True) as handle:
-            descriptor = -1
+        with open_regular_binary(path, field="execution event artifact") as handle:
             return handle.read()
+    except (FileNotFoundError, OSError, ValueError) as error:
+        raise ExecutionPromotionError(
+            "execution event artifact must be a readable regular non-symlink file"
+        ) from error
+
+
+def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
     finally:
-        if descriptor >= 0:
-            os.close(descriptor)
+        os.close(descriptor)
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionEvidence:
-    """Dataset-, policy-, and event-artifact-bound promotion evidence."""
+    """Dataset-, policy-, replay-, and event-artifact-bound promotion evidence."""
 
     dataset_id: str
     execution_policy_digest: str
@@ -131,6 +124,12 @@ class ExecutionEvidence:
     order_event_schema: str | None = None
     terminal_book_digest: str | None = None
     terminal_order_book_digest: str | None = None
+    candidate_config_digest: str | None = None
+    evaluation_run_digest: str | None = None
+    fold: int | None = None
+    seed: int | None = None
+    replay_identity_digest: str | None = None
+    replay_evidence_digest: str | None = None
     schema_version: str = EXECUTION_EVIDENCE_SCHEMA
 
     def __post_init__(self) -> None:
@@ -162,27 +161,36 @@ class ExecutionEvidence:
             self.order_event_artifact_size_bytes,
             field="order_event_artifact_size_bytes",
         )
+        fold = _optional_non_negative_integer(self.fold, field="fold")
+        seed = _optional_non_negative_integer(self.seed, field="seed")
+        object.__setattr__(self, "fold", fold)
+        object.__setattr__(self, "seed", seed)
         artifact_fields = (
             self.order_event_artifact_digest,
             self.order_event_schema,
             self.terminal_book_digest,
             self.terminal_order_book_digest,
+            self.candidate_config_digest,
+            self.evaluation_run_digest,
+            fold,
+            seed,
+            self.replay_identity_digest,
+            self.replay_evidence_digest,
         )
         if any(value is not None for value in artifact_fields) or size > 0:
             if any(value is None for value in artifact_fields) or size <= 0:
-                raise ValueError("execution event artifact identity is incomplete")
-            assert self.order_event_artifact_digest is not None
-            assert self.terminal_book_digest is not None
-            assert self.terminal_order_book_digest is not None
-            require_sha256(
-                self.order_event_artifact_digest,
-                field="order_event_artifact_digest",
-            )
-            require_sha256(self.terminal_book_digest, field="terminal_book_digest")
-            require_sha256(
-                self.terminal_order_book_digest,
-                field="terminal_order_book_digest",
-            )
+                raise ValueError("execution replay artifact identity is incomplete")
+            for field, digest in (
+                ("order_event_artifact_digest", self.order_event_artifact_digest),
+                ("terminal_book_digest", self.terminal_book_digest),
+                ("terminal_order_book_digest", self.terminal_order_book_digest),
+                ("candidate_config_digest", self.candidate_config_digest),
+                ("evaluation_run_digest", self.evaluation_run_digest),
+                ("replay_identity_digest", self.replay_identity_digest),
+                ("replay_evidence_digest", self.replay_evidence_digest),
+            ):
+                assert digest is not None
+                require_sha256(digest, field=field)
             if not self.order_event_schema:
                 raise ValueError("order_event_schema must be non-empty")
         if self.schema_version != EXECUTION_EVIDENCE_SCHEMA:
@@ -194,9 +202,12 @@ class ExecutionEvidence:
 
     def to_mapping(self) -> dict[str, object]:
         return {
+            "candidate_config_digest": self.candidate_config_digest,
             "complete_order_evidence": self.complete_order_evidence,
             "dataset_id": self.dataset_id,
+            "evaluation_run_digest": self.evaluation_run_digest,
             "execution_policy_digest": self.execution_policy_digest,
+            "fold": self.fold,
             "order_event_artifact_digest": self.order_event_artifact_digest,
             "order_event_artifact_size_bytes": self.order_event_artifact_size_bytes,
             "order_event_count": self.order_event_count,
@@ -204,7 +215,10 @@ class ExecutionEvidence:
             "partial_fill_carry": self.partial_fill_carry,
             "path_mode": self.path_mode,
             "processing_bar_volume_capacity": self.processing_bar_volume_capacity,
+            "replay_evidence_digest": self.replay_evidence_digest,
+            "replay_identity_digest": self.replay_identity_digest,
             "schema_version": self.schema_version,
+            "seed": self.seed,
             "sensitivity_path_modes": self.sensitivity_path_modes,
             "terminal_book_digest": self.terminal_book_digest,
             "terminal_order_book_digest": self.terminal_order_book_digest,
@@ -214,9 +228,12 @@ class ExecutionEvidence:
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> ExecutionEvidence:
         required = {
+            "candidate_config_digest",
             "complete_order_evidence",
             "dataset_id",
+            "evaluation_run_digest",
             "execution_policy_digest",
+            "fold",
             "order_event_artifact_digest",
             "order_event_artifact_size_bytes",
             "order_event_count",
@@ -224,7 +241,10 @@ class ExecutionEvidence:
             "partial_fill_carry",
             "path_mode",
             "processing_bar_volume_capacity",
+            "replay_evidence_digest",
+            "replay_identity_digest",
             "schema_version",
+            "seed",
             "sensitivity_path_modes",
             "terminal_book_digest",
             "terminal_order_book_digest",
@@ -268,16 +288,31 @@ class ExecutionEvidence:
                 field="order_event_artifact_size_bytes",
             ),
             order_event_schema=_optional_string(
-                value.get("order_event_schema"),
-                field="order_event_schema",
+                value.get("order_event_schema"), field="order_event_schema"
             ),
             terminal_book_digest=_optional_string(
-                value.get("terminal_book_digest"),
-                field="terminal_book_digest",
+                value.get("terminal_book_digest"), field="terminal_book_digest"
             ),
             terminal_order_book_digest=_optional_string(
                 value.get("terminal_order_book_digest"),
                 field="terminal_order_book_digest",
+            ),
+            candidate_config_digest=_optional_string(
+                value.get("candidate_config_digest"),
+                field="candidate_config_digest",
+            ),
+            evaluation_run_digest=_optional_string(
+                value.get("evaluation_run_digest"), field="evaluation_run_digest"
+            ),
+            fold=_optional_non_negative_integer(value.get("fold"), field="fold"),
+            seed=_optional_non_negative_integer(value.get("seed"), field="seed"),
+            replay_identity_digest=_optional_string(
+                value.get("replay_identity_digest"),
+                field="replay_identity_digest",
+            ),
+            replay_evidence_digest=_optional_string(
+                value.get("replay_evidence_digest"),
+                field="replay_evidence_digest",
             ),
             schema_version=_string(value.get("schema_version"), field="schema_version"),
         )
@@ -304,6 +339,12 @@ def execution_evidence_from_cost(
     order_event_schema: str | None = None
     terminal_book_digest: str | None = None
     terminal_order_book_digest: str | None = None
+    candidate_config_digest: str | None = None
+    evaluation_run_digest: str | None = None
+    fold: int | None = None
+    seed: int | None = None
+    replay_identity_digest: str | None = None
+    replay_evidence_digest: str | None = None
     if order_event_artifact_path is not None:
         if order_event_count != 0 or complete_order_evidence:
             raise ValueError(
@@ -322,6 +363,12 @@ def execution_evidence_from_cost(
         order_event_schema = artifact.order_event_schema
         terminal_book_digest = artifact.terminal_book_digest
         terminal_order_book_digest = artifact.terminal_order_book_digest
+        candidate_config_digest = artifact.replay_identity.candidate_config_digest
+        evaluation_run_digest = artifact.replay_identity.evaluation_run_digest
+        fold = artifact.replay_identity.fold
+        seed = artifact.replay_identity.seed
+        replay_identity_digest = artifact.replay_identity.digest
+        replay_evidence_digest = artifact.replay_evidence.digest
     return ExecutionEvidence(
         dataset_id=dataset_id,
         execution_policy_digest=cost.execution_policy_digest,
@@ -337,6 +384,12 @@ def execution_evidence_from_cost(
         order_event_schema=order_event_schema,
         terminal_book_digest=terminal_book_digest,
         terminal_order_book_digest=terminal_order_book_digest,
+        candidate_config_digest=candidate_config_digest,
+        evaluation_run_digest=evaluation_run_digest,
+        fold=fold,
+        seed=seed,
+        replay_identity_digest=replay_identity_digest,
+        replay_evidence_digest=replay_evidence_digest,
     )
 
 
@@ -344,17 +397,25 @@ def validate_execution_event_artifact(
     evidence: ExecutionEvidence,
     event_path: Path,
 ) -> ExecutionEventArtifact:
-    """Verify one exact canonical event artifact against signed evidence fields."""
+    """Verify one exact canonical replay artifact against signed evidence fields."""
 
-    if (
-        evidence.order_event_artifact_digest is None
-        or evidence.order_event_artifact_size_bytes <= 0
-        or evidence.order_event_schema is None
-        or evidence.terminal_book_digest is None
-        or evidence.terminal_order_book_digest is None
+    required = (
+        evidence.order_event_artifact_digest,
+        evidence.order_event_schema,
+        evidence.terminal_book_digest,
+        evidence.terminal_order_book_digest,
+        evidence.candidate_config_digest,
+        evidence.evaluation_run_digest,
+        evidence.fold,
+        evidence.seed,
+        evidence.replay_identity_digest,
+        evidence.replay_evidence_digest,
+    )
+    if any(value is None for value in required) or (
+        evidence.order_event_artifact_size_bytes <= 0
     ):
         raise ExecutionPromotionError(
-            "execution promotion requires complete event artifact identity"
+            "execution promotion requires complete replay artifact identity"
         )
     raw = _regular_artifact_bytes(event_path)
     if len(raw) != evidence.order_event_artifact_size_bytes:
@@ -377,6 +438,21 @@ def validate_execution_event_artifact(
         raise ExecutionPromotionError("execution terminal book digest mismatch")
     if artifact.terminal_order_book_digest != evidence.terminal_order_book_digest:
         raise ExecutionPromotionError("execution terminal order book digest mismatch")
+    if (
+        artifact.replay_identity.candidate_config_digest
+        != evidence.candidate_config_digest
+    ):
+        raise ExecutionPromotionError("execution candidate identity mismatch")
+    if artifact.replay_identity.evaluation_run_digest != evidence.evaluation_run_digest:
+        raise ExecutionPromotionError("execution evaluation run identity mismatch")
+    if artifact.replay_identity.fold != evidence.fold:
+        raise ExecutionPromotionError("execution fold identity mismatch")
+    if artifact.replay_identity.seed != evidence.seed:
+        raise ExecutionPromotionError("execution seed identity mismatch")
+    if artifact.replay_identity.digest != evidence.replay_identity_digest:
+        raise ExecutionPromotionError("execution replay identity digest mismatch")
+    if artifact.replay_evidence.digest != evidence.replay_evidence_digest:
+        raise ExecutionPromotionError("execution replay evidence digest mismatch")
     return artifact
 
 
@@ -385,6 +461,10 @@ def validate_execution_promotion(
     *,
     expected_policy_digest: str,
     event_artifact_path: Path | None = None,
+    expected_candidate_config_digest: str | None = None,
+    expected_evaluation_run_digest: str | None = None,
+    expected_fold: int | None = None,
+    expected_seed: int | None = None,
 ) -> ExecutionPromotionDecision:
     require_sha256(expected_policy_digest, field="expected_policy_digest")
     if evidence.execution_policy_digest != expected_policy_digest:
@@ -428,7 +508,33 @@ def validate_execution_promotion(
         raise ExecutionPromotionError(
             "execution promotion requires the bound event artifact"
         )
-    validate_execution_event_artifact(evidence, event_artifact_path)
+    artifact = validate_execution_event_artifact(evidence, event_artifact_path)
+    for expected, actual, field in (
+        (
+            expected_candidate_config_digest,
+            artifact.replay_identity.candidate_config_digest,
+            "candidate",
+        ),
+        (
+            expected_evaluation_run_digest,
+            artifact.replay_identity.evaluation_run_digest,
+            "evaluation run",
+        ),
+    ):
+        if expected is not None:
+            require_sha256(expected, field=f"expected_{field.replace(' ', '_')}")
+            if expected != actual:
+                raise ExecutionPromotionError(f"execution {field} identity mismatch")
+    for expected_integer, actual_integer, integer_field in (
+        (expected_fold, artifact.replay_identity.fold, "fold"),
+        (expected_seed, artifact.replay_identity.seed, "seed"),
+    ):
+        if expected_integer is not None:
+            _non_negative_integer(expected_integer, field=f"expected_{integer_field}")
+            if expected_integer != actual_integer:
+                raise ExecutionPromotionError(
+                    f"execution {integer_field} identity mismatch"
+                )
     return ExecutionPromotionDecision(
         promotable=True,
         evidence_digest=evidence.digest,
@@ -437,19 +543,34 @@ def validate_execution_promotion(
 
 
 def write_execution_evidence(path: Path, evidence: ExecutionEvidence) -> None:
-    if path.exists():
-        raise FileExistsError("execution evidence already exists")
+    payload = canonical_json_bytes(evidence.to_mapping()) + b"\n"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(canonical_json_bytes(evidence.to_mapping()) + b"\n")
+    try:
+        with path.open("xb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except FileExistsError:
+        raise FileExistsError("execution evidence already exists") from None
+    _fsync_directory(path.parent)
 
 
 def load_execution_evidence(path: Path) -> ExecutionEvidence:
-    if not path.is_file():
-        raise FileNotFoundError("execution evidence is missing")
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        with open_regular_binary(path, field="execution evidence") as handle:
+            raw_bytes = handle.read()
+    except (FileNotFoundError, OSError, ValueError) as error:
+        raise FileNotFoundError("execution evidence is missing or unsafe") from error
+    try:
+        raw = json.loads(raw_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("execution evidence must be valid JSON") from error
     if not isinstance(raw, Mapping):
         raise ValueError("execution evidence must be a mapping")
-    return ExecutionEvidence.from_mapping(raw)
+    evidence = ExecutionEvidence.from_mapping(raw)
+    if raw_bytes != canonical_json_bytes(evidence.to_mapping()) + b"\n":
+        raise ValueError("execution evidence must use canonical encoding")
+    return evidence
 
 
 __all__ = [

@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-import numpy as np
 import pytest
 
-from trade_rl.simulation.accounting import BookState
+from tests.evaluation.replay_support import (
+    execution_artifact,
+)
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import (
     ExecutionEvidence,
@@ -15,68 +16,15 @@ from trade_rl.simulation.execution_promotion import (
     validate_execution_event_artifact,
     validate_execution_promotion,
 )
-from trade_rl.simulation.execution_replay import (
-    build_execution_event_artifact,
-    write_execution_event_artifact,
-)
-from trade_rl.simulation.orders import (
-    OrderBookState,
-    OrderEvent,
-    OrderStatus,
-)
+from trade_rl.simulation.execution_replay import write_execution_event_artifact
 
 _DATASET_ID = "d" * 64
 _COST = ExecutionCostConfig(path_mode="conservative")
 _POLICY_DIGEST = _COST.execution_policy_digest
 
 
-def _event(*, reason: str | None = None) -> OrderEvent:
-    return OrderEvent(
-        schema_version="order_event_v1",
-        sequence=0,
-        order_id="a" * 64,
-        replaced_order_id=None,
-        dataset_id=_DATASET_ID,
-        execution_policy_digest=_POLICY_DIGEST,
-        symbol_index=0,
-        event_type="filled",
-        processing_index=1,
-        timestamp_ns=1,
-        previous_status=OrderStatus.ELIGIBLE,
-        new_status=OrderStatus.FILLED,
-        requested_quantity=1.0,
-        remaining_quantity=0.0,
-        filled_quantity=1.0,
-        execution_price=100.0,
-        filled_notional=100.0,
-        capacity_before=10.0,
-        capacity_after=9.0,
-        participation_rate=0.1,
-        trigger_segment=None,
-        available_volume_fraction=1.0,
-        reason=reason,
-        path_mode="conservative",
-        path_points=(100.0, 101.0, 99.0, 100.5),
-    )
-
-
-def _terminal_book(*, cash: float = 900.0) -> BookState:
-    return BookState(
-        quantities=np.array((1.0,), dtype=np.float64),
-        cash=cash,
-        mark_prices=np.array((100.0,), dtype=np.float64),
-        peak_value=1_000.0,
-    )
-
-
 def _evidence(tmp_path: Path) -> tuple[ExecutionEvidence, Path]:
-    artifact = build_execution_event_artifact(
-        dataset_id=_DATASET_ID,
-        execution_policy_digest=_POLICY_DIGEST,
-        order_events=(_event(),),
-        terminal_book=_terminal_book(),
-        terminal_order_book=OrderBookState.empty(),
-    )
+    artifact = execution_artifact()
     path = write_execution_event_artifact(tmp_path / "order-events.json", artifact)
     evidence = execution_evidence_from_cost(
         dataset_id=_DATASET_ID,
@@ -132,13 +80,7 @@ def test_event_artifact_rejects_forged_count_and_terminal_digests(
 
 def test_event_artifact_substitution_is_rejected(tmp_path: Path) -> None:
     evidence, path = _evidence(tmp_path)
-    replacement_artifact = build_execution_event_artifact(
-        dataset_id=_DATASET_ID,
-        execution_policy_digest=_POLICY_DIGEST,
-        order_events=(_event(reason="substituted"),),
-        terminal_book=_terminal_book(cash=899.0),
-        terminal_order_book=OrderBookState.empty(),
-    )
+    replacement_artifact = execution_artifact(reason="substituted", cash=899.0)
     path.unlink()
     write_execution_event_artifact(path, replacement_artifact)
 

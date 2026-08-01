@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trade-rl"
-version = "0.3.0"
+dynamic = ["version"]
 description = "Baseline-anchored residual reinforcement learning for portfolio research"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -53,6 +53,9 @@ export = [
 
 [project.scripts]
 trade-rl = "trade_rl.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "trade_rl._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -119,6 +122,7 @@ branch = true
 show_missing = true
 skip_covered = true
 fail_under = 80
+
 [tool.trade_rl.critical_coverage]
 metric = "branch"
 target = 90.0
@@ -141,7 +145,7 @@ target = 90.0
 "trade_rl/rl/environment_policy_schedule_contract.py" = 100.0
 "trade_rl/rl/environment_initial_state.py" = 100.0
 "trade_rl/rl/environment_reward_execution_resources.py" = 100.0
-"trade_rl/serving/package.py" = 90.0
+"trade_rl/workflows/release_packaging.py" = 90.0
 "trade_rl/serving/training_environment.py" = 100.0
 
 [tool.trade_rl.critical_coverage.groups.artifacts]

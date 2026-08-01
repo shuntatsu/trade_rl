@@ -1,0 +1,182 @@
+name: Reusable GPU Training Verification
+
+on:
+  workflow_call:
+    inputs:
+      timesteps:
+        required: true
+        type: number
+      runtime_profile:
+        required: true
+        type: string
+      use_docker:
+        required: true
+        type: boolean
+      artifact_name:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: >-
+      github.actor == github.repository_owner &&
+      github.ref == 'refs/heads/main'
+    environment: gpu-full-training
+    runs-on: [self-hosted, linux, x64, gpu, nvidia]
+    timeout-minutes: 180
+    env:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      REQUESTED_TIMESTEPS: ${{ inputs.timesteps }}
+      RUNTIME_PROFILE: ${{ inputs.runtime_profile }}
+      TRADE_RL_GIT_COMMIT: ${{ github.sha }}
+      TRADE_RL_GIT_DIRTY: "false"
+      WORK_ROOT: var/gpu-training-verification
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify immutable source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          tested_commit="$(git rev-parse HEAD)"
+          test "$tested_commit" = "$GITHUB_SHA"
+          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          {
+            printf 'TESTED_COMMIT=%s\n' "$tested_commit"
+            printf 'TESTED_SOURCE_DIGEST=%s\n' "$source_digest"
+            printf 'TESTED_LOCK_DIGEST=%s\n' "$lock_digest"
+          } >> "$GITHUB_ENV"
+
+      - name: Capture GPU evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$WORK_ROOT"
+          mkdir -p "$WORK_ROOT/output"
+          chmod 0777 "$WORK_ROOT/output"
+          nvidia-smi | tee "$WORK_ROOT/nvidia-smi.txt"
+          nvidia-smi \
+            --query-gpu=name,driver_version,memory.total,compute_cap \
+            --format=csv,noheader \
+            | tee "$WORK_ROOT/gpu-device.csv"
+
+      - name: Set up uv
+        if: inputs.use_docker == false
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install host training dependencies
+        if: inputs.use_docker == false
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Run host CUDA smoke
+        if: inputs.use_docker == false
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m trade_rl.operations.gpu_training_smoke \
+            --work-root "$WORK_ROOT/output" \
+            --timesteps "$REQUESTED_TIMESTEPS" \
+            --runtime-profile "$RUNTIME_PROFILE" \
+            2>&1 | tee "$WORK_ROOT/host-cuda-smoke.log"
+
+      - name: Validate host CUDA evidence
+        if: inputs.use_docker == false
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import os
+          from pathlib import Path
+
+          from trade_rl.operations.gpu_training_smoke import (
+              validate_gpu_training_smoke_file,
+          )
+
+          validate_gpu_training_smoke_file(
+              Path(os.environ["WORK_ROOT"]) / "output" / "gpu-training-smoke.json",
+              expected_commit=os.environ["TESTED_COMMIT"],
+              expected_runtime_profile=os.environ["RUNTIME_PROFILE"],
+              minimum_timesteps=int(os.environ["REQUESTED_TIMESTEPS"]),
+          )
+          PY
+
+      - name: Build production training image
+        if: inputs.use_docker == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$TESTED_COMMIT" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$TESTED_SOURCE_DIGEST" \
+            --build-arg TRADE_RL_LOCKFILE_DIGEST="$TESTED_LOCK_DIGEST" \
+            --file Dockerfile.training \
+            --tag trade-rl-training:gpu-verification \
+            . 2>&1 | tee "$WORK_ROOT/docker-build.log"
+          docker image inspect trade-rl-training:gpu-verification \
+            > "$WORK_ROOT/docker-image-inspect.json"
+
+      - name: Run Docker CUDA smoke
+        if: inputs.use_docker == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --gpus all \
+            --volume "$PWD/$WORK_ROOT/output:/workspace/var/gpu-training-output" \
+            --entrypoint python \
+            trade-rl-training:gpu-verification \
+            -m trade_rl.operations.gpu_training_smoke \
+            --work-root /workspace/var/gpu-training-output \
+            --timesteps "$REQUESTED_TIMESTEPS" \
+            --runtime-profile "$RUNTIME_PROFILE" \
+            2>&1 | tee "$WORK_ROOT/docker-cuda-smoke.log"
+
+      - name: Validate Docker CUDA evidence
+        if: inputs.use_docker == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -i \
+            --volume "$PWD/$WORK_ROOT/output:/workspace/var/gpu-training-output:ro" \
+            --env TESTED_COMMIT \
+            --env REQUESTED_TIMESTEPS \
+            --env RUNTIME_PROFILE \
+            --entrypoint python \
+            trade-rl-training:gpu-verification - <<'PY'
+          import os
+          from pathlib import Path
+
+          from trade_rl.operations.gpu_training_smoke import (
+              validate_gpu_training_smoke_file,
+          )
+
+          validate_gpu_training_smoke_file(
+              Path("/workspace/var/gpu-training-output/gpu-training-smoke.json"),
+              expected_commit=os.environ["TESTED_COMMIT"],
+              expected_runtime_profile=os.environ["RUNTIME_PROFILE"],
+              minimum_timesteps=int(os.environ["REQUESTED_TIMESTEPS"]),
+          )
+          PY
+
+      - name: Upload immutable GPU evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ inputs.artifact_name }}-${{ github.run_id }}
+          path: ${{ env.WORK_ROOT }}
+          if-no-files-found: error
+          retention-days: 30

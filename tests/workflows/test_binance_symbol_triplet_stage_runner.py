@@ -154,6 +154,9 @@ def test_runner_builds_current_postgres_stage_and_calls_training_once(
     assert executor_call["dataset_binding_path"] == stage_root / "dataset-binding.json"
     assert executor_call["stage_config_path"] == stage_root / "training-config.json"
     assert executor_call["completion_path"] == stage_root / "completion.json"
+    assert executor_call["stage_state_root"] == (
+        module.binance_symbol_triplet_stage_state_root(kwargs["work_root"])
+    )
     assert executor_call["previous_completion_path"] is None
     assert executor_call["run_id"].startswith("binance-triplet-stage-0000-")
 
@@ -230,6 +233,11 @@ def test_runner_returns_none_for_completed_plan_without_touching_database(
         last_completion_digest="c" * 64,
     )
     write_symbol_triplet_training_cursor(kwargs["cursor_path"], complete)
+    monkeypatch.setattr(
+        module,
+        "load_or_migrate_symbol_triplet_stage_state",
+        lambda **_: (None, complete, object()),
+    )
     monkeypatch.setattr(
         module,
         "_training_seeds",

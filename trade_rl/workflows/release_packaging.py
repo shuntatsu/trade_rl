@@ -1,7 +1,8 @@
-"""Package a verified selected-final training run into a serving bundle."""
+"""Publish a verified selected-final training run as a serving bundle."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -9,7 +10,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 
-from trade_rl.artifacts.run_manifest import validate_training_run_directory
+from trade_rl.artifacts.run_manifest import RunFile, validate_training_run_directory
 from trade_rl.data.metadata_promotion import (
     METADATA_PROMOTION_FILE_NAME,
     load_metadata_promotion_evidence,
@@ -22,11 +23,15 @@ from trade_rl.evaluation.paper_reconciliation import (
     load_paper_reconciliation_evidence,
 )
 from trade_rl.release.asymmetric import PublicVerificationKey
+from trade_rl.rl.actions import ActionMode
 from trade_rl.serving.bundle import (
     ServingBundleManifest,
     write_serving_bundle_manifest,
 )
-from trade_rl.serving.training_environment import load_training_execution_cost
+from trade_rl.serving.training_environment import (
+    load_training_action_spec,
+    load_training_execution_cost,
+)
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import (
     EXECUTION_EVIDENCE_FILE_NAME,
@@ -70,6 +75,64 @@ def _execution_cost(training_root: Path) -> ExecutionCostConfig:
     return load_training_execution_cost(training_root / "environment.json")
 
 
+def _file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _copy_verified_run_file(
+    *,
+    training_root: Path,
+    stage: Path,
+    item: RunFile,
+) -> str:
+    resolved_root = training_root.resolve()
+    source = training_root / item.path
+    if source.is_symlink():
+        raise ValueError(f"source artifact identity changed: {item.path}")
+    resolved_source = source.resolve()
+    if (
+        resolved_root != resolved_source
+        and resolved_root not in resolved_source.parents
+    ):
+        raise ValueError("source artifact path escapes training root")
+    if not source.is_file():
+        raise ValueError(f"source artifact identity changed: {item.path}")
+
+    destination = stage / item.path
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.tmp")
+    temporary.unlink(missing_ok=True)
+    digest = hashlib.sha256()
+    copied_size = 0
+    try:
+        with source.open("rb") as source_handle, temporary.open("xb") as output_handle:
+            if os.fstat(source_handle.fileno()).st_size != item.size_bytes:
+                raise ValueError(f"source artifact identity changed: {item.path}")
+            for chunk in iter(lambda: source_handle.read(1024 * 1024), b""):
+                copied_size += len(chunk)
+                digest.update(chunk)
+                output_handle.write(chunk)
+            output_handle.flush()
+            os.fsync(output_handle.fileno())
+        if copied_size != item.size_bytes or digest.hexdigest() != item.digest:
+            raise ValueError(f"source artifact identity changed: {item.path}")
+        destination_identity_matches = (
+            temporary.stat().st_size == item.size_bytes
+            and _file_digest(temporary) == item.digest
+        )
+        if not destination_identity_matches:
+            raise ValueError(f"destination artifact identity mismatch: {item.path}")
+        os.replace(temporary, destination)
+        return item.path
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def package_selected_training_run(
     *,
     training_root: Path,
@@ -81,7 +144,7 @@ def package_selected_training_run(
     trusted_now: datetime,
     paper_reconciliation_path: Path | None = None,
 ) -> ServingBundleManifest:
-    """Validate and copy a selected-final run into an immutable bundle directory."""
+    """Validate and publish one selected-final run atomically."""
 
     require_sha256(signal_digest, field="signal_digest")
     require_sha256(selection_digest, field="selection_digest")
@@ -104,6 +167,7 @@ def package_selected_training_run(
     if metadata_promotion.dataset_id != manifest.dataset_id:
         raise ValueError("metadata promotion dataset identity mismatch")
     metadata_promotion.require_promotable()
+    action_spec = load_training_action_spec(training_root / "environment.json")
     execution_cost = _execution_cost(training_root)
     execution_evidence = load_execution_evidence(
         training_root / EXECUTION_EVIDENCE_FILE_NAME
@@ -190,13 +254,14 @@ def package_selected_training_run(
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
     try:
-        artifact_paths: list[str] = []
-        for item in manifest.files:
-            source = training_root / item.path
-            destination = stage / item.path
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-            artifact_paths.append(item.path)
+        artifact_paths = [
+            _copy_verified_run_file(
+                training_root=training_root,
+                stage=stage,
+                item=item,
+            )
+            for item in manifest.files
+        ]
         shutil.copy2(training_root / "run.json", stage / "training-run.json")
         artifact_paths.append("training-run.json")
         shutil.copy2(confirmation_path, stage / "confirmation-evidence.json")
@@ -212,6 +277,18 @@ def package_selected_training_run(
             not isinstance(item, str) for item in action_names_raw
         ):
             raise ValueError("ensemble.action_names must be a list of strings")
+        action_names = tuple(action_names_raw)
+        if action_names != action_spec.names:
+            raise ValueError(
+                "ensemble action names differ from training action contract"
+            )
+        if (
+            _integer(ensemble_raw.get("action_size"), field="ensemble.action_size")
+            != action_spec.size
+        ):
+            raise ValueError(
+                "ensemble action size differs from training action contract"
+            )
         created_at_raw = _string(
             ensemble_raw.get("created_at"), field="ensemble.created_at"
         )
@@ -231,24 +308,36 @@ def package_selected_training_run(
                 load_structured_policy_loader_manifest,
             )
 
-            structured_loader_path = stage / STRUCTURED_POLICY_LOADER_NAME
-            if structured_loader_path.is_file():
-                structured_loader = load_structured_policy_loader_manifest(
-                    structured_loader_path
+            manifest_paths = {item.path for item in manifest.files}
+            if STRUCTURED_POLICY_LOADER_NAME not in manifest_paths:
+                raise ValueError(
+                    "structured policy loader is missing from training manifest"
                 )
-                raw_architecture_digest = structured_loader.get("architecture_digest")
-                if not isinstance(raw_architecture_digest, str):
-                    raise ValueError("structured loader architecture digest is missing")
-                if architecture_digest != raw_architecture_digest:
-                    raise ValueError(
-                        "structured loader architecture differs from ensemble"
-                    )
+            structured_loader_path = stage / STRUCTURED_POLICY_LOADER_NAME
+            if not structured_loader_path.is_file():
+                raise ValueError(
+                    "structured policy loader is missing from staged bundle"
+                )
+            structured_loader = load_structured_policy_loader_manifest(
+                structured_loader_path
+            )
+            raw_architecture_digest = structured_loader.get("architecture_digest")
+            if not isinstance(raw_architecture_digest, str):
+                raise ValueError("structured loader architecture digest is missing")
+            if architecture_digest != raw_architecture_digest:
+                raise ValueError("structured loader architecture differs from ensemble")
+            raw_action_size = structured_loader.get("action_size")
+            if raw_action_size is not None and raw_action_size != action_spec.size:
+                raise ValueError(
+                    "structured loader action size differs from training action contract"
+                )
         bundle_manifest = ServingBundleManifest.build(
             root=stage,
             dataset_id=manifest.dataset_id,
             action_schema=_string(
                 ensemble_raw.get("action_schema"), field="ensemble.action_schema"
             ),
+            action_mode=ActionMode(action_spec.mode),
             observation_schema=observation_schema,
             observation_size=_integer(
                 ensemble_raw.get("observation_size"), field="ensemble.observation_size"
@@ -264,10 +353,8 @@ def package_selected_training_run(
             selection_digest=selection_digest,
             artifact_paths=tuple(sorted(artifact_paths)),
             created_at=datetime.fromisoformat(created_at_raw.replace("Z", "+00:00")),
-            action_size=_integer(
-                ensemble_raw.get("action_size"), field="ensemble.action_size"
-            ),
-            action_names=tuple(action_names_raw),
+            action_size=action_spec.size,
+            action_names=action_names,
             action_spec_digest=_string(
                 ensemble_raw.get("action_spec_digest"),
                 field="ensemble.action_spec_digest",

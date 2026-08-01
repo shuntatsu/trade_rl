@@ -10,6 +10,9 @@ from trade_rl.catalog.contracts import (
     cache_key_digest,
 )
 from trade_rl.catalog.postgres_sealed_test import PostgresSealedTestReservationStore
+from trade_rl.catalog.postgres_stage_a_sealed_test import (
+    PostgresStageASealedTestLedger,
+)
 
 __all__ = [
     "ArtifactCatalog",
@@ -19,5 +22,6 @@ __all__ = [
     "ArtifactRegistration",
     "ArtifactStatus",
     "PostgresSealedTestReservationStore",
+    "PostgresStageASealedTestLedger",
     "cache_key_digest",
 ]

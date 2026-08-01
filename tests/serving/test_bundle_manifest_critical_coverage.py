@@ -47,7 +47,7 @@ def test_bundle_manifest_rejects_invalid_identity_and_shape_contracts(
         ({"policy_digest": "e" * 64}, "baseline_only"),
         (
             {"policy_mode": PolicyMode.RESIDUAL_POLICY, "policy_digest": None},
-            "residual policy",
+            "learned policy",
         ),
         ({"normalizer_digest": "bad"}, "normalizer_digest"),
         ({"files": ()}, "artifact files"),

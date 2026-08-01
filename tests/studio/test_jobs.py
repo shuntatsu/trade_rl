@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import trade_rl.studio.jobs as studio_jobs
 from trade_rl.studio.contracts import ConfigSummary, DatasetSummary, TrainingJobRequest
 from trade_rl.studio.errors import IdentityConflict, JobOwnershipLost, ResourceNotFound
 from trade_rl.studio.jobs import JobSupervisor
@@ -215,3 +217,58 @@ def test_cancel_owned_process_persists_cancelled_state(tmp_path: Path) -> None:
     assert factory.process.terminated is True
     assert cancelled.status == "cancelled"
     assert cancelled.completed_at is not None
+
+
+def test_pid_identity_fails_closed_without_start_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(studio_jobs, "_pid_alive", lambda pid: True)
+
+    assert studio_jobs._pid_matches(1234, None) is False
+
+
+def test_process_group_options_isolate_workers_on_supported_platforms() -> None:
+    assert studio_jobs._process_group_options("posix") == {"start_new_session": True}
+    assert studio_jobs._process_group_options("nt") == {
+        "creationflags": studio_jobs._WINDOWS_NEW_PROCESS_GROUP
+    }
+
+
+def test_cancel_uses_process_tree_terminator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = FakeCatalog(tmp_path)
+    factory = FakeFactory()
+    supervisor = JobSupervisor(
+        settings(tmp_path), catalog=catalog, process_factory=factory
+    )
+    job = supervisor.submit_training(request(catalog))
+    calls: list[int] = []
+
+    def terminate_tree(process: FakeProcess) -> int:
+        calls.append(process.pid)
+        process.exit_code = -15
+        return -15
+
+    monkeypatch.setattr(
+        studio_jobs,
+        "_terminate_process_tree",
+        terminate_tree,
+        raising=False,
+    )
+
+    cancelled = supervisor.cancel(job.id)
+
+    assert calls == [factory.process.pid]
+    assert factory.process.terminated is False
+    assert cancelled.status == "cancelled"
+    assert cancelled.exit_code == -15
+
+
+def test_process_group_options_match_current_platform() -> None:
+    options = studio_jobs._process_group_options(os.name)
+    if os.name == "nt":
+        assert options == {"creationflags": studio_jobs._WINDOWS_NEW_PROCESS_GROUP}
+    else:
+        assert options == {"start_new_session": True}

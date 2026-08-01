@@ -17,6 +17,7 @@ from trade_rl.simulation.orders import (
     OrderType,
     TimeInForce,
 )
+from trade_rl.simulation.target_execution import execute_target_statefully
 
 
 def _market(**overrides: object) -> MarketDataset:
@@ -401,3 +402,38 @@ def test_open_gap_refreshes_peak_before_projected_book_clone() -> None:
     )
 
     assert result.book.peak_value >= result.book.portfolio_value
+
+
+def test_cancel_and_replace_emits_cancellation_before_replacement_submission() -> None:
+    dataset = _market(volume=np.zeros((6, 1), dtype=np.float64))
+    executor = _executor(dataset, max_participation_rate=1.0)
+
+    first = execute_target_statefully(
+        executor,
+        _zero_book(dataset),
+        OrderBookState.empty(),
+        np.array((0.5,), dtype=np.float64),
+        start_index=0,
+        bars=1,
+        target_identity="target-a",
+    )
+    replaced_order = first.order_book.active_orders[0]
+
+    second = execute_target_statefully(
+        executor,
+        first.book,
+        first.order_book,
+        np.array((0.2,), dtype=np.float64),
+        start_index=1,
+        bars=1,
+        target_identity="target-b",
+    )
+
+    assert second.order_events[0].event_type == "cancelled"
+    assert second.order_events[0].order_id == replaced_order.order_id
+    assert second.order_events[0].new_status is OrderStatus.CANCELLED
+    assert second.order_events[1].event_type == "submitted"
+    assert second.order_events[1].replaced_order_id == replaced_order.order_id
+    assert tuple(event.sequence for event in second.order_events) == tuple(
+        range(len(second.order_events))
+    )

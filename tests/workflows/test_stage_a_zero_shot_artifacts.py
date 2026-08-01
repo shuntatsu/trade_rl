@@ -15,6 +15,9 @@ from trade_rl.workflows import stage_a_zero_shot_artifacts as artifacts_module
 from trade_rl.workflows.stage_a_zero_shot_artifacts import (
     StageAZeroShotArtifactPublisher,
 )
+from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
+    StageASealedTestAccessRecord,
+)
 
 
 def _digest(value: str) -> str:
@@ -72,10 +75,20 @@ def test_sealed_test_publication_includes_canonical_access_records(
         selected_configuration="candidate-a",
         selected_policy_digest=_digest("candidate"),
     )
+    batch_digest = _digest("authorization-batch")
+    stage_a_record = StageASealedTestAccessRecord(
+        authorization_batch_digest=batch_digest,
+        evaluation_dataset_manifest_digest=_digest("manifest"),
+        triplet_id=_digest("triplet"),
+        dataset_id=record.dataset_id,
+        fold=record.fold_index,
+        test_range=record.test_range,
+        ledger_record=record,
+    )
     run = SimpleNamespace(
         evidence=object(),
         decision=object(),
-        access_records=(record,),
+        access_records=(stage_a_record,),
     )
 
     final = StageAZeroShotArtifactPublisher(tmp_path).publish_sealed_test(run)
@@ -86,8 +99,12 @@ def test_sealed_test_publication_includes_canonical_access_records(
         "evidence.json",
     ]
     payload = json.loads((final / "access-records.json").read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "stage_a_sealed_test_access_records_v1"
-    assert payload["records"][0]["access_digest"] == record.access_digest
+    assert payload["schema_version"] == "stage_a_sealed_test_access_records_v3"
+    assert payload["authorization_batch_digest"] == batch_digest
+    assert payload["records"][0]["authorization_batch_digest"] == batch_digest
+    assert payload["records"][0]["access_digest"] == stage_a_record.access_digest
+    assert payload["records"][0]["ledger_access_digest"] == record.access_digest
+    assert payload["records"][0]["triplet_id"] == stage_a_record.triplet_id
     assert payload["records"][0]["test_range"] == [100, 120]
 
 

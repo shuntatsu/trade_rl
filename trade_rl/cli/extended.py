@@ -80,7 +80,9 @@ def execute_market_walk_forward(**kwargs: Any) -> Any:
 def package_selected_training_run(**kwargs: Any) -> Any:
     """Lazy adapter retained as a monkeypatchable CLI boundary."""
 
-    from trade_rl.serving.package import package_selected_training_run as implementation
+    from trade_rl.workflows.release_packaging import (
+        package_selected_training_run as implementation,
+    )
 
     return implementation(**kwargs)
 
@@ -107,6 +109,8 @@ def _training_run_parser() -> argparse.ArgumentParser:
     parser.add_argument("--require-selection-authorization", action="store_true")
     parser.add_argument("--execution-evidence", type=Path)
     parser.add_argument("--execution-event-artifact", type=Path)
+    parser.add_argument("--execution-promotion-root", type=Path)
+    parser.add_argument("--execution-replay-digest")
     return parser
 
 
@@ -624,6 +628,8 @@ def _run_training(
             require_selection_authorization=args.require_selection_authorization,
             execution_evidence_path=args.execution_evidence,
             execution_event_artifact_path=args.execution_event_artifact,
+            execution_promotion_root=args.execution_promotion_root,
+            execution_replay_digest=args.execution_replay_digest,
         )
     except Exception as error:
         return _error(stderr, error, schema="training_run_error_v1")

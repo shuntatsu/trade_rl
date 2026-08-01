@@ -58,7 +58,7 @@ uv run trade-rl train run \
   -> Read-only Paper Serving
 ```
 
-Flat observationの正本は`baseline_residual_observation_v5`、Serving bundleの正本は`serving_bundle_v5`です。市場Dataset、学習Run、Checkpoint、評価Evidence、Serving bundleは、内容Digestと宣言済みFile closureで結合されます。途中失敗したRunは隔離され、正常な`latest.json`を上書きしません。
+Flat observationの正本は`baseline_residual_observation_v5`、Serving bundleの正本は`serving_bundle_v6`です。市場Dataset、学習Run、Checkpoint、評価Evidence、Serving bundleは、内容Digestと宣言済みFile closureで結合されます。途中失敗したRunは隔離され、正常な`latest.json`を上書きしません。
 
 ## Observation encoder
 
@@ -116,7 +116,7 @@ TensorBoard診断では、損失やKLに加えて、時間足Attention比率、A
 
 Flat policyのExportと、構造化系列PolicyのExportは別契約です。`hierarchical_sequence_v2`は`structured_policy_export_v2`を使い、Canonical input順、Shape、Dtype、Parity corpus、Policy identity、Architecture digestをManifestへ固定します。
 
-Serving bundleの正本は`serving_bundle_v5`です。構造化Loaderは、Bundle、Export manifest、Model digest、Observation schema、Architecture digestが一致しない場合、Policy実行前にFail closedします。
+Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学習済みPolicyか」を表す`policy_mode`と、「ResidualかTarget-weightか」を表す`action_mode`を別々に固定します。構造化Loaderは、Bundle、Export manifest、Model digest、Observation schema、Architecture digestが一致しない場合、Policy実行前にFail closedします。
 
 ## 主要ドキュメント
 
@@ -156,6 +156,6 @@ npm run check:layout --prefix studio
 
 ## 維持対象の契約バージョン
 
-維持対象の学習設定は`training_run_config_v3`、構造化Policy exportは`structured_policy_export_v2`、Serving bundleは`serving_bundle_v5`です。QuickstartはPipeline確認用ですが、Reward dataclassの既定値変更で意味が静かに変わらないよう、hybrid reward値をJSONへ明示しています。
+維持対象の学習設定は`training_run_config_v3`、構造化Policy exportは`structured_policy_export_v2`、Serving bundleは`serving_bundle_v6`です。QuickstartはPipeline確認用ですが、Reward dataclassの既定値変更で意味が静かに変わらないよう、hybrid reward値をJSONへ明示しています。
 
 データの因果性はFeature契約だけでなく、Raw Barのavailability、MarketDatasetのeconomic arrays、SequenceObservationのstalenessまで多層で検証します。constraint costは報酬と分離されていますが、hard safetyとLagrangian soft budgetは同義ではありません。

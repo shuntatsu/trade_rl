@@ -82,16 +82,86 @@ The A6a layer now:
 
 The orchestrator depends only on the typed `StageAEvaluationCellEvaluator` protocol. It does not import model frameworks, serving loaders, market adapters, or PostgreSQL.
 
-## Next integration stage: A6b production adapter
+## Completed A6b-1 verified execution adapter
 
-The remaining A6b work is to:
+Implemented through:
 
-1. resolve retained checkpoint and serving-bundle paths from maintained artifacts;
-2. recompute file and manifest digests before model loading;
-3. load policies only through the canonical serving/training loader;
-4. construct the declared market, feature, execution, and evaluation cell from maintained sources;
-5. validate the real source execution artifact against the A6a request before returning a result;
-6. reject dataset, feature, execution, evaluation, checkpoint, triplet, fold, seed, or split identity drift;
-7. construct the test schedule from the maintained evaluation source;
-8. provide the PostgreSQL-backed one-shot sealed-test ledger;
-9. add the operational CLI and complete-run artifact wiring.
+- `trade_rl/workflows/stage_a_execution_replay.py`;
+- `trade_rl/workflows/stage_a_execution_store.py`;
+- `trade_rl/workflows/stage_a_production_evaluator.py`.
+
+The A6b-1 layer now:
+
+1. binds each completed replay to the exact A6a request, plan, split, triplet, fold, seed, candidate, checkpoint, candidate configuration, dataset, feature, execution, and evaluation identities;
+2. validates canonical execution-promotion evidence and its exact order-event artifact before publication;
+3. requires positive finite equity and exact agreement between reported terminal equity and the event artifact's terminal portfolio value;
+4. derives log growth only from the verified replay equity curve;
+5. publishes event, evidence, replay, and request-index files under content-addressed canonical paths;
+6. permits identical retries but permanently rejects rebinding one request digest to different execution bytes;
+7. rejects non-canonical JSON, unsafe relative paths, symlinks, missing files, and event, evidence, replay, or index tampering;
+8. validates every request against the immutable Stage A plan before accessing the store;
+9. resolves policy candidate configuration from the plan and baseline configuration from a separate immutable identity;
+10. returns the complete cell-bound replay digest to A6a, rather than the lower-level promotion digest that lacks triplet/fold/seed identity.
+
+## Completed A6b-2 production execution and operations
+
+The A6b-2 layer now includes:
+
+1. PostgreSQL-backed manifest range resolution that binds each Stage A triplet, fold, split, dataset, and feature identity;
+2. framework-independent Stage A evaluation execution over the maintained environment, policy, baseline, observation, and order-event contracts;
+3. retained-checkpoint and serving-bundle verification before policy use;
+4. an atomic PostgreSQL one-shot sealed-test ledger at catalog migration version `3`;
+5. one authorization batch covering the complete selected-policy test triplet × fold closure;
+6. rollback of the batch, every cell, and every generic sealed-test reservation when any insert, conflict, or read-back check fails;
+7. validation, sealed-test, and complete-run CLI commands;
+8. immutable validation and sealed-test publication with content identities in machine-readable JSON output.
+
+### Operational prerequisites
+
+Before running the CLI:
+
+- the immutable Stage A plan and evaluation-dataset manifest must already exist;
+- the execution promotion store must already contain every baseline and policy replay requested by validation and, when opened, the selected-policy test cells;
+- the baseline configuration digest must identify the exact baseline execution configuration used to produce those replay artifacts;
+- `sealed-test` and passing `run` operations require a PostgreSQL catalog migrated through schema version `3`;
+- the output root must not already contain the phase package being published because Stage A packages are immutable and are never overwritten.
+
+Validation does not require PostgreSQL and cannot access the sealed-test ledger:
+
+```bash
+trade-rl stage-a validation \
+  --plan stage-a-plan.json \
+  --manifest stage-a-evaluation-dataset.json \
+  --execution-store stage-a-execution-store \
+  --baseline-config-digest <sha256> \
+  --output-root stage-a-result
+```
+
+A separately reviewed validation package can be used to open the test exactly once:
+
+```bash
+trade-rl stage-a sealed-test \
+  --plan stage-a-plan.json \
+  --manifest stage-a-evaluation-dataset.json \
+  --execution-store stage-a-execution-store \
+  --baseline-config-digest <sha256> \
+  --output-root stage-a-result \
+  --validation-package stage-a-result/validation \
+  --database-url postgresql://user:password@host:5432/trade_rl
+```
+
+The complete command publishes validation first and resolves PostgreSQL only after validation passes:
+
+```bash
+TRADE_RL_DATABASE_URL=postgresql://user:password@host:5432/trade_rl \
+trade-rl stage-a run \
+  --plan stage-a-plan.json \
+  --manifest stage-a-evaluation-dataset.json \
+  --execution-store stage-a-execution-store \
+  --baseline-config-digest <sha256> \
+  --output-root stage-a-result
+```
+
+If validation fails, `stage-a run` returns a completed scientific result with `sealed_test: null`. It does not resolve the database URL, construct a ledger, evaluate any test cell, or create a sealed-test package. If validation passes, the command strictly reconstructs the validation run, authorizes the complete test batch once, evaluates only the selected candidate and shared baseline, and atomically publishes the sealed-test package.
+
+The command output contains digests, decisions, and package paths only. PostgreSQL credentials are never written to the JSON result.

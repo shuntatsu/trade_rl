@@ -117,6 +117,7 @@ def _provenance(tmp_path: Path):
         "[project]\nname='trade-rl'\n", encoding="utf-8"
     )
     (root / "uv.lock").write_text("test-lock", encoding="utf-8")
+    (root / "uv.toml").write_text('required-version = "==0.10.0"\n', encoding="utf-8")
     (root / "trade_rl" / "module.py").write_text("test", encoding="utf-8")
     (root / "examples" / "runner.py").write_text("test", encoding="utf-8")
     return capture_runtime_provenance(

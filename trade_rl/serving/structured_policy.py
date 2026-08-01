@@ -9,14 +9,18 @@ from typing import Any
 import numpy as np
 import torch
 
-from trade_rl.artifacts.verified_file import file_digest, verified_private_copy
+from trade_rl.artifacts.verified_file import (
+    file_digest,
+    read_verified_bytes,
+    verified_private_copy,
+)
 from trade_rl.domain.common import require_sha256
 from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.rl.structured_export import (
     STRUCTURED_EXPORT_MANIFEST_NAME,
     StructuredExportManifest,
     StructuredInputSpec,
-    load_structured_export_manifest,
+    load_structured_export_manifest_bytes,
 )
 from trade_rl.serving.bundle import ServingBundle
 
@@ -132,14 +136,13 @@ class CanonicalStructuredPolicyLoader:
             raise ValueError(
                 "structured export manifest is not bound to serving bundle"
             )
-        if manifest_path.stat().st_size != manifest_file.size_bytes:
-            raise ValueError("structured export manifest size mismatch")
-        if (
-            file_digest(manifest_path, field="structured export manifest")
-            != manifest_file.digest
-        ):
-            raise ValueError("structured export manifest digest mismatch")
-        manifest = load_structured_export_manifest(manifest_path)
+        manifest_bytes = read_verified_bytes(
+            manifest_path,
+            expected_digest=manifest_file.digest,
+            expected_size_bytes=manifest_file.size_bytes,
+            field="structured export manifest",
+        )
+        manifest = load_structured_export_manifest_bytes(manifest_bytes)
         if manifest.architecture_digest != self.expected_architecture_digest:
             raise ValueError(
                 "structured policy architecture does not match serving runtime"

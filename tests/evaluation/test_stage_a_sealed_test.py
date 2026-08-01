@@ -48,12 +48,19 @@ def _batch():
 
 def test_batch_sorts_cells_and_binds_generic_access_records() -> None:
     batch = _batch()
-
-    assert tuple((cell.triplet_id, cell.fold_index) for cell in batch.cells) == (
-        (_digest("triplet-a"), 0),
-        (_digest("triplet-a"), 1),
-        (_digest("triplet-b"), 1),
+    expected_keys = tuple(
+        sorted(
+            (
+                (_digest("triplet-b"), 1),
+                (_digest("triplet-a"), 1),
+                (_digest("triplet-a"), 0),
+            )
+        )
     )
+
+    assert tuple(
+        (cell.triplet_id, cell.fold_index) for cell in batch.cells
+    ) == expected_keys
     assert batch.cell_count == 3
     assert batch.batch_digest == batch.digest
     assert len(batch.records) == 3

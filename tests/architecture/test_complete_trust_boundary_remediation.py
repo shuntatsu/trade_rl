@@ -318,7 +318,7 @@ def test_privileged_workflows_checkout_the_event_sha() -> None:
     root = Path(__file__).resolve().parents[2]
     for relative in (
         ".github/workflows/launch-binance-frozen-226.yml",
-        ".github/workflows/gpu-nightly.yml",
+        ".github/workflows/reusable-gpu-training-verification.yml",
         ".github/workflows/multitimeframe-live-full.yml",
     ):
         content = (root / relative).read_text(encoding="utf-8")

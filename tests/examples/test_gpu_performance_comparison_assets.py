@@ -25,9 +25,9 @@ def test_gpu_comparison_workflow_uses_exact_refs_and_repeated_samples() -> None:
 
 
 def test_gpu_smoke_schema_records_runtime_identity() -> None:
-    facade = (
-        ROOT / "trade_rl" / "operations" / "gpu_training_smoke.py"
-    ).read_text(encoding="utf-8")
+    facade = (ROOT / "trade_rl" / "operations" / "gpu_training_smoke.py").read_text(
+        encoding="utf-8"
+    )
     implementation = (
         ROOT / "trade_rl" / "operations" / "_gpu_training_smoke_impl.py"
     ).read_text(encoding="utf-8")

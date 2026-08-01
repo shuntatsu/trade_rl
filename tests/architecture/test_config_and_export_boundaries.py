@@ -1,8 +1,32 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
+from tests.architecture.import_references import scan_import_references
+
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _defined_names(path: Path) -> frozenset[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return frozenset(
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+    )
+
+
+def _import_targets(path: Path, *, module_name: str) -> frozenset[str]:
+    return frozenset(
+        reference.target
+        for reference in scan_import_references(path, module_name=module_name)
+        if reference.target is not None
+    )
+
+
+def _imports_prefix(targets: frozenset[str], prefix: str) -> bool:
+    return any(target == prefix or target.startswith(f"{prefix}.") for target in targets)
 
 
 def test_training_run_config_contract_lives_below_workflows() -> None:
@@ -11,16 +35,21 @@ def test_training_run_config_contract_lives_below_workflows() -> None:
     studio = ROOT / "trade_rl/studio/config_catalog.py"
 
     assert contract.is_file()
-    contract_source = contract.read_text(encoding="utf-8")
-    workflow_source = workflow.read_text(encoding="utf-8")
-    studio_source = studio.read_text(encoding="utf-8")
+    assert "TrainingRunConfig" in _defined_names(contract)
 
-    assert "class TrainingRunConfig" in contract_source
-    assert "from trade_rl.rl.training_run_config import" in workflow_source
-    assert (
-        "from trade_rl.rl.training_run_config import TrainingRunConfig" in studio_source
+    workflow_targets = _import_targets(
+        workflow,
+        module_name="trade_rl.workflows.training_run",
     )
-    assert "trade_rl.workflows.training_run" not in studio_source
+    studio_targets = _import_targets(
+        studio,
+        module_name="trade_rl.studio.config_catalog",
+    )
+
+    assert "trade_rl.rl.training_run_config.TrainingRunConfig" in workflow_targets
+    assert "trade_rl.rl.training_run_config._signal_artifact_digest" not in workflow_targets
+    assert "trade_rl.rl.training_run_config.TrainingRunConfig" in studio_targets
+    assert not _imports_prefix(studio_targets, "trade_rl.workflows")
 
 
 def test_generic_config_field_validation_lives_in_domain() -> None:
@@ -28,39 +57,64 @@ def test_generic_config_field_validation_lives_in_domain() -> None:
     compatibility = ROOT / "trade_rl/workflows/config_fields.py"
 
     assert domain_helper.is_file()
-    domain_source = domain_helper.read_text(encoding="utf-8")
-    compatibility_source = compatibility.read_text(encoding="utf-8")
+    assert {
+        "require_dataclass_fields",
+        "require_exact_fields",
+    } <= _defined_names(domain_helper)
 
-    assert "def require_exact_fields(" in domain_source
-    assert "def require_dataclass_fields(" in domain_source
-    assert "from trade_rl.domain.config_fields import" in compatibility_source
+    compatibility_targets = _import_targets(
+        compatibility,
+        module_name="trade_rl.workflows.config_fields",
+    )
+    assert {
+        "trade_rl.domain.config_fields.require_dataclass_fields",
+        "trade_rl.domain.config_fields.require_exact_fields",
+    } <= compatibility_targets
 
 
 def test_structured_policy_contract_is_neutral_and_serving_owned() -> None:
     contract = ROOT / "trade_rl/artifacts/structured_policy_contract.py"
     exporter = ROOT / "trade_rl/rl/structured_export.py"
     serving_paths = (
-        ROOT / "trade_rl/serving/policy_loader.py",
-        ROOT / "trade_rl/serving/structured_policy.py",
+        (
+            ROOT / "trade_rl/serving/policy_loader.py",
+            "trade_rl.serving.policy_loader",
+        ),
+        (
+            ROOT / "trade_rl/serving/structured_policy.py",
+            "trade_rl.serving.structured_policy",
+        ),
     )
 
     assert contract.is_file()
-    contract_source = contract.read_text(encoding="utf-8")
-    exporter_source = exporter.read_text(encoding="utf-8")
+    assert {
+        "StructuredExportManifest",
+        "StructuredInputSpec",
+    } <= _defined_names(contract)
 
-    assert "class StructuredInputSpec" in contract_source
-    assert "class StructuredExportManifest" in contract_source
-    assert "import torch" not in contract_source
-    assert "from torch" not in contract_source
-    assert "trade_rl.rl" not in contract_source
-    assert (
-        "from trade_rl.artifacts.structured_policy_contract import" in exporter_source
+    contract_targets = _import_targets(
+        contract,
+        module_name="trade_rl.artifacts.structured_policy_contract",
+    )
+    assert not _imports_prefix(contract_targets, "torch")
+    assert not _imports_prefix(contract_targets, "trade_rl.rl")
+
+    exporter_targets = _import_targets(
+        exporter,
+        module_name="trade_rl.rl.structured_export",
+    )
+    assert _imports_prefix(
+        exporter_targets,
+        "trade_rl.artifacts.structured_policy_contract",
     )
 
-    for path in serving_paths:
-        source = path.read_text(encoding="utf-8")
-        assert "from trade_rl.artifacts.structured_policy_contract import" in source
-        assert "trade_rl.rl.structured_export" not in source
+    for path, module_name in serving_paths:
+        targets = _import_targets(path, module_name=module_name)
+        assert _imports_prefix(
+            targets,
+            "trade_rl.artifacts.structured_policy_contract",
+        )
+        assert not _imports_prefix(targets, "trade_rl.rl.structured_export")
 
 
 def test_future_stage_b_market_roles_are_explicit_but_not_claimed_complete() -> None:

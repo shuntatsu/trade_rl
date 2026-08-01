@@ -238,14 +238,11 @@ def test_gpu_nightly_contract_measures_vram_throughput_and_resume() -> None:
         encoding="utf-8"
     )
     reusable = (
-        ROOT
-        / ".github"
-        / "workflows"
-        / "reusable-gpu-training-verification.yml"
+        ROOT / ".github" / "workflows" / "reusable-gpu-training-verification.yml"
     ).read_text(encoding="utf-8")
-    facade = (
-        ROOT / "trade_rl" / "operations" / "gpu_training_smoke.py"
-    ).read_text(encoding="utf-8")
+    facade = (ROOT / "trade_rl" / "operations" / "gpu_training_smoke.py").read_text(
+        encoding="utf-8"
+    )
     implementation = (
         ROOT / "trade_rl" / "operations" / "_gpu_training_smoke_impl.py"
     ).read_text(encoding="utf-8")

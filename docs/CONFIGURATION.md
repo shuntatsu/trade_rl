@@ -1,15 +1,43 @@
-# Training Configuration v3
+# Training Configuration v4
 
-維持対象のTop-level Schemaは`training_run_config_v3`です。設定は`trade-rl train run`と`trade-rl walk-forward run`で使用します。
+維持対象のTop-level Schemaは`training_run_config_v4`です。設定は`trade-rl train run`と`trade-rl walk-forward run`で使用します。
 
 ```json
 {
-  "schema_version": "training_run_config_v3",
+  "schema_version": "training_run_config_v4",
   "training": {},
-  "environment": {},
+  "environment": {"require_full_reward_preroll": true},
   "action": {},
   "risk": {},
-  "execution": {},
+  "execution": {
+  "fee_rate": 0.0005,
+  "maker_fee_rate": 0.0,
+  "taker_fee_rate": 0.0,
+  "spread_rate": 0.0002,
+  "impact_rate": 0.0001,
+  "multiplier": 1.0,
+  "max_participation_rate": 0.05,
+  "slippage_std": 0.0,
+  "tail_slippage_probability": 0.0,
+  "tail_slippage_multiplier": 5.0,
+  "random_seed": 0,
+  "minimum_notional": 0.0,
+  "lot_size": 0.0,
+  "tick_size": 0.0,
+  "allow_short": true,
+  "borrow_rate_multiplier": 1.0,
+  "max_leverage": 1.0,
+  "maintenance_margin_rate": 0.25,
+  "collateral_haircut": 1.0,
+  "margin_mode": "cross",
+  "order_latency_bars": 0,
+  "order_type": "market",
+  "limit_offset_rate": 0.0005,
+  "path_mode": "conservative",
+  "processing_bar_volume_capacity": true,
+  "partial_fill_carry": true,
+  "trigger_volume_fractions": [1.0, 0.5, 0.25, 0.0]
+},
   "reward": {},
   "trend": {},
   "exports": {}
@@ -24,7 +52,7 @@
 
 ## Legacy設定
 
-`training_run_config_v1`は自動変換しません。明示的に拒否します。
+`training_run_config_v1`、`training_run_config_v2`、`training_run_config_v3`は自動変換しません。明示的に拒否します。v4ではTop-level `execution`、Executionの全Field、`environment.require_full_reward_preroll: true`が必須です。
 
 次の旧Booleanと曖昧な共通Attention設定も廃止済みです。
 

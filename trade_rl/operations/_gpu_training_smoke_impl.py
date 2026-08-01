@@ -122,6 +122,7 @@ def _smoke_config_payload(
         "finite_horizon_observation": True,
         "initial_state_modes": ["cash"],
         "structured_sequence_observation": True,
+        "require_full_reward_preroll": True,
         "sequence_windows": [["15m", 96], ["1h", 168], ["4h", 120], ["1d", 60]],
     }
     payload["trend"] = {

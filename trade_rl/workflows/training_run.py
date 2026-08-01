@@ -7,6 +7,7 @@ import json
 import math
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
+from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -115,8 +116,8 @@ def _boolean(value: object, *, field: str, default: bool) -> bool:
     return value
 
 
-TRAINING_RUN_CONFIG_SCHEMA = "training_run_config_v3"
-_REQUIRED_V3_TRAINING_FIELDS = frozenset(
+TRAINING_RUN_CONFIG_SCHEMA = "training_run_config_v4"
+_REQUIRED_V4_TRAINING_FIELDS = frozenset(
     {
         "policy_actor_head",
         "hierarchical_gate_temperature",
@@ -136,13 +137,19 @@ _REQUIRED_V3_TRAINING_FIELDS = frozenset(
         "behavior_cloning_causal_holdout_confidence_level",
     }
 )
+_REQUIRED_V4_EXECUTION_FIELDS = frozenset(
+    item.name for item in dataclass_fields(ExecutionCostConfig) if item.init
+)
+_LEGACY_TRAINING_RUN_CONFIG_SCHEMAS = frozenset(
+    {"training_run_config_v1", "training_run_config_v2", "training_run_config_v3"}
+)
 
 
-def _require_v3_training_fields(payload: dict[str, Any]) -> None:
-    missing = sorted(_REQUIRED_V3_TRAINING_FIELDS - set(payload))
+def _require_v4_training_fields(payload: dict[str, Any]) -> None:
+    missing = sorted(_REQUIRED_V4_TRAINING_FIELDS - set(payload))
     if missing:
         raise ValueError(
-            "training_run_config_v3 training is missing required field(s): "
+            "training_run_config_v4 training is missing required field(s): "
             + ", ".join(missing)
         )
 
@@ -229,7 +236,7 @@ class TrainingRunConfig:
             raise ValueError("git_commit must be non-empty when provided")
         if self.git_dirty is not None and not isinstance(self.git_dirty, bool):
             raise ValueError("git_dirty must be a boolean or null")
-        if self.schema_version in {"training_run_config_v1", "training_run_config_v2"}:
+        if self.schema_version in _LEGACY_TRAINING_RUN_CONFIG_SCHEMAS:
             raise ValueError(
                 f"migrate {self.schema_version} to {TRAINING_RUN_CONFIG_SCHEMA}"
             )
@@ -251,9 +258,9 @@ class TrainingRunConfig:
                 "reward",
                 "trend",
                 "action",
+                "execution",
             },
             optional={
-                "execution",
                 "portfolio_risk",
                 "alpha_contract",
                 "alpha_artifact",
@@ -269,7 +276,7 @@ class TrainingRunConfig:
         schema_version = payload["schema_version"]
         if not isinstance(schema_version, str):
             raise ValueError("schema_version must be a string")
-        if schema_version in {"training_run_config_v1", "training_run_config_v2"}:
+        if schema_version in _LEGACY_TRAINING_RUN_CONFIG_SCHEMAS:
             raise ValueError(
                 f"migrate {schema_version} to {TRAINING_RUN_CONFIG_SCHEMA}"
             )
@@ -280,7 +287,7 @@ class TrainingRunConfig:
             )
 
         training_mapping = _mapping(payload["training"], field="training")
-        _require_v3_training_fields(training_mapping)
+        _require_v4_training_fields(training_mapping)
         training_data = _tuple_fields(
             require_dataclass_fields(
                 training_mapping,
@@ -307,10 +314,14 @@ class TrainingRunConfig:
             field="reward",
         )
         reward = RewardConfig(**reward_data)
-        execution_data = require_dataclass_fields(
-            _mapping(payload.get("execution"), field="execution"),
-            ExecutionCostConfig,
-            field="execution",
+        execution_data = _tuple_fields(
+            require_exact_fields(
+                _mapping(payload["execution"], field="execution"),
+                required=_REQUIRED_V4_EXECUTION_FIELDS,
+                optional=set(),
+                field="execution",
+            ),
+            "trigger_volume_fractions",
         )
         execution = ExecutionCostConfig(**execution_data)
         environment_mapping = _mapping(payload["environment"], field="environment")
@@ -326,7 +337,9 @@ class TrainingRunConfig:
             "sequence_windows",
         )
         if "require_full_reward_preroll" not in environment_mapping:
-            environment_data["require_full_reward_preroll"] = True
+            raise ValueError(
+                "environment has missing required fields: require_full_reward_preroll"
+            )
         emergency_risk_data = require_dataclass_fields(
             _mapping(
                 environment_data.pop("emergency_risk", {}),

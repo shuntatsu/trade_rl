@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from test_support.training_config import complete_execution_config
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.signals import write_signal_artifact
 from trade_rl.workflows.market_walk_forward import (
@@ -18,7 +19,7 @@ from trade_rl.workflows.walk_forward_evaluation import resolve_signal_digest
 def _run(alpha_path: object) -> TrainingRunConfig:
     return TrainingRunConfig.from_mapping(
         {
-            "schema_version": "training_run_config_v3",
+            "schema_version": "training_run_config_v4",
             "training": {
                 "timesteps": 8,
                 "gamma": 0.99,
@@ -46,7 +47,9 @@ def _run(alpha_path: object) -> TrainingRunConfig:
                 "episode_bars": 4,
                 "decision_every": 1,
                 "initial_capital": 1_000.0,
+                "require_full_reward_preroll": True,
             },
+            "execution": complete_execution_config(),
             "risk": {},
             "reward": {},
             "trend": {"fast_lookback": 1, "base_lookback": 2, "slow_lookback": 3},

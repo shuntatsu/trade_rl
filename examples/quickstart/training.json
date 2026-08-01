@@ -16,17 +16,42 @@
     "initial_capital": 100000.0,
     "initial_state_modes": [
       "cash"
-    ]
+    ],
+    "require_full_reward_preroll": true
   },
   "execution": {
-    "allow_short": true,
     "fee_rate": 0.0005,
+    "maker_fee_rate": 0.0,
+    "taker_fee_rate": 0.0,
+    "spread_rate": 0.0002,
     "impact_rate": 0.0001,
-    "margin_mode": "cross",
-    "max_leverage": 1.0,
+    "multiplier": 1.0,
     "max_participation_rate": 0.05,
+    "slippage_std": 0.0,
+    "tail_slippage_probability": 0.0,
+    "tail_slippage_multiplier": 5.0,
+    "random_seed": 0,
+    "minimum_notional": 0.0,
+    "lot_size": 0.0,
+    "tick_size": 0.0,
+    "allow_short": true,
+    "borrow_rate_multiplier": 1.0,
+    "max_leverage": 1.0,
+    "maintenance_margin_rate": 0.25,
+    "collateral_haircut": 1.0,
+    "margin_mode": "cross",
+    "order_latency_bars": 0,
     "order_type": "market",
-    "spread_rate": 0.0002
+    "limit_offset_rate": 0.0005,
+    "path_mode": "conservative",
+    "processing_bar_volume_capacity": true,
+    "partial_fill_carry": true,
+    "trigger_volume_fractions": [
+      1.0,
+      0.5,
+      0.25,
+      0.0
+    ]
   },
   "exports": {
     "onnx": false,
@@ -47,7 +72,7 @@
     "max_gross": 1.0,
     "max_turnover": 1.0
   },
-  "schema_version": "training_run_config_v3",
+  "schema_version": "training_run_config_v4",
   "training": {
     "algorithm": "ppo",
     "asset_embedding_dim": 32,

@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from test_support.training_config import complete_execution_config
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.execution_promotion import load_execution_evidence
@@ -42,7 +43,7 @@ def _config(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "schema_version": "training_run_config_v3",
+                "schema_version": "training_run_config_v4",
                 "training": {
                     "timesteps": 8,
                     "gamma": 0.99,
@@ -76,7 +77,9 @@ def _config(path: Path) -> None:
                     "decision_every": 1,
                     "initial_capital": 1_000.0,
                     "initial_state_modes": ["cash"],
+                    "require_full_reward_preroll": True,
                 },
+                "execution": complete_execution_config(),
                 "risk": {
                     "max_gross": 1.0,
                     "max_abs_weight": 1.0,
@@ -184,11 +187,11 @@ def test_v2_training_config_is_rejected_with_migration_message(tmp_path: Path) -
     payload = json.loads(config_path.read_text(encoding="utf-8"))
     payload["schema_version"] = "training_run_config_v2"
 
-    with pytest.raises(ValueError, match="training_run_config_v3"):
+    with pytest.raises(ValueError, match="training_run_config_v4"):
         TrainingRunConfig.from_mapping(payload)
 
 
-def test_v3_requires_explicit_actor_head(tmp_path: Path) -> None:
+def test_v4_requires_explicit_actor_head(tmp_path: Path) -> None:
     config_path = tmp_path / "missing-actor.json"
     _config(config_path)
     payload = json.loads(config_path.read_text(encoding="utf-8"))

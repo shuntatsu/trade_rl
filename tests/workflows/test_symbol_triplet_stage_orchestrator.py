@@ -6,6 +6,7 @@ from threading import Barrier, Thread
 
 import pytest
 
+from test_support.training_config import complete_execution_config
 from trade_rl.rl.checkpointing import (
     CHECKPOINT_MANIFEST_NAME,
     load_checkpoint_manifest,
@@ -71,7 +72,7 @@ def _plan(*, seed: int = 31):
 def _training_config() -> TrainingRunConfig:
     return TrainingRunConfig.from_mapping(
         {
-            "schema_version": "training_run_config_v3",
+            "schema_version": "training_run_config_v4",
             "training": {
                 "timesteps": 8,
                 "gamma": 0.99,
@@ -99,7 +100,9 @@ def _training_config() -> TrainingRunConfig:
                 "episode_bars": 4,
                 "decision_every": 1,
                 "initial_capital": 1_000.0,
+                "require_full_reward_preroll": True,
             },
+            "execution": complete_execution_config(),
             "risk": {},
             "reward": {},
             "trend": {

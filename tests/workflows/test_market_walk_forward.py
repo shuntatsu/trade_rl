@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from test_support.training_config import complete_execution_config
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
 from trade_rl.workflows.market_walk_forward import (
@@ -47,7 +48,7 @@ def _dataset() -> MarketDataset:
 
 def _candidate_run() -> dict[str, object]:
     return {
-        "schema_version": "training_run_config_v3",
+        "schema_version": "training_run_config_v4",
         "training": {
             "policy_actor_head": "standard_continuous_v1",
             "hierarchical_gate_temperature": 1.0,
@@ -81,7 +82,9 @@ def _candidate_run() -> dict[str, object]:
             "decision_every": 1,
             "initial_capital": 1_000.0,
             "initial_state_modes": ["cash"],
+            "require_full_reward_preroll": True,
         },
+        "execution": complete_execution_config(),
         "risk": {
             "max_gross": 1.0,
             "max_abs_weight": 1.0,
@@ -279,7 +282,7 @@ def _sequence_candidate_config():
 
     return TrainingRunConfig.from_mapping(
         {
-            "schema_version": "training_run_config_v3",
+            "schema_version": "training_run_config_v4",
             "training": {
                 "policy_actor_head": "hierarchical_gate_target_v1",
                 "hierarchical_gate_temperature": 1.0,
@@ -321,7 +324,9 @@ def _sequence_candidate_config():
                     ["4h", 2],
                     ["1d", 2],
                 ],
+                "require_full_reward_preroll": True,
             },
+            "execution": complete_execution_config(),
             "risk": {
                 "max_gross": 1.0,
                 "max_abs_weight": 1.0,

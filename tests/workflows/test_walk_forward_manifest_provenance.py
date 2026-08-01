@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from test_support.training_config import complete_execution_config
 from trade_rl.artifacts.provenance import capture_runtime_provenance
 from trade_rl.artifacts.run_manifest import (
     WALK_FORWARD_RUN_MANIFEST_SCHEMA,
@@ -48,7 +49,7 @@ def _dataset() -> MarketDataset:
 
 def _candidate_run() -> dict[str, object]:
     return {
-        "schema_version": "training_run_config_v3",
+        "schema_version": "training_run_config_v4",
         "git_commit": "b" * 40,
         "git_dirty": False,
         "training": {
@@ -84,7 +85,9 @@ def _candidate_run() -> dict[str, object]:
             "decision_every": 1,
             "initial_capital": 1_000.0,
             "initial_state_modes": ["cash"],
+            "require_full_reward_preroll": True,
         },
+        "execution": complete_execution_config(),
         "risk": {
             "max_gross": 1.0,
             "max_abs_weight": 1.0,

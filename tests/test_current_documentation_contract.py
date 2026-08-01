@@ -94,7 +94,7 @@ def test_current_schema_contracts_are_documented() -> None:
         assert value in readme
         assert value in architecture
     for value in (
-        "training_run_config_v3",
+        "training_run_config_v4",
         "flat_mlp",
         "asset_set",
         "hierarchical_sequence_v2",
@@ -117,8 +117,13 @@ def test_operator_runbooks_use_current_training_schema() -> None:
         ROOT / "docs" / "operations" / "docker-gpu-full-training.md",
     ):
         text = _text(path)
-        assert "training_run_config_v3" in text
-        assert "training_run_config_v2" not in text
+        assert "training_run_config_v4" in text
+        for legacy in (
+            "training_run_config_v1",
+            "training_run_config_v2",
+            "training_run_config_v3",
+        ):
+            assert legacy not in text
 
 
 def test_research_status_has_timeless_heading_and_explicit_stage_boundaries() -> None:

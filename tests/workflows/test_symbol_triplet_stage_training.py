@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from test_support.training_config import complete_execution_config
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
@@ -102,7 +103,7 @@ def _write_config(path: Path) -> Path:
     path.write_text(
         json.dumps(
             {
-                "schema_version": "training_run_config_v3",
+                "schema_version": "training_run_config_v4",
                 "training": {
                     "timesteps": 8,
                     "gamma": 0.99,
@@ -136,7 +137,9 @@ def _write_config(path: Path) -> Path:
                     "decision_every": 1,
                     "initial_capital": 1_000.0,
                     "initial_state_modes": ["cash"],
+                    "require_full_reward_preroll": True,
                 },
+                "execution": complete_execution_config(),
                 "risk": {
                     "max_gross": 1.0,
                     "max_abs_weight": 1.0,

@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 pytest.importorskip("stable_baselines3")
 
+from test_support.training_config import complete_execution_config
 from tests.evaluation.replay_support import execution_episode
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
@@ -108,7 +109,7 @@ def _config(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "schema_version": "training_run_config_v3",
+                "schema_version": "training_run_config_v4",
                 "training": {
                     "timesteps": 8,
                     "gamma": 0.99,
@@ -142,7 +143,9 @@ def _config(path: Path) -> None:
                     "decision_every": 1,
                     "initial_capital": 1_000.0,
                     "initial_state_modes": ["cash"],
+                    "require_full_reward_preroll": True,
                 },
+                "execution": complete_execution_config(),
                 "risk": {
                     "max_gross": 1.0,
                     "max_abs_weight": 1.0,

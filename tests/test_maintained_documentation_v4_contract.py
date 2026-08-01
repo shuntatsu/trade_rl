@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from test_support.training_config import complete_execution_config
+
 
 def test_docs_match_maintained_schemas_and_boundaries() -> None:
     root = Path(__file__).resolve().parents[1]
@@ -10,13 +12,13 @@ def test_docs_match_maintained_schemas_and_boundaries() -> None:
     architecture = (root / "docs/ARCHITECTURE.md").read_text()
     configuration = (root / "docs/CONFIGURATION.md").read_text()
     binance = (root / "docs/BINANCE.md").read_text()
-    assert "training_run_config_v3" in readme
-    assert "training_run_config_v2" not in readme
+    assert "training_run_config_v4" in readme
+    assert "training_run_config_v3" not in readme
     assert "structured_policy_export_v1" not in readme
-    assert "training_run_config_v3" in architecture
+    assert "training_run_config_v4" in architecture
     assert "structured_policy_export_v2" in architecture
-    assert "# Training Configuration v3" in configuration
-    assert '"schema_version": "training_run_config_v3"' in configuration
+    assert "# Training Configuration v4" in configuration
+    assert '"schema_version": "training_run_config_v4"' in configuration
     assert "structured_policy_export_v2" in configuration
     assert "change intensity" in architecture.lower()
     assert "constraint cost" in architecture.lower()
@@ -24,6 +26,19 @@ def test_docs_match_maintained_schemas_and_boundaries() -> None:
     assert "offline_signing" in architecture
     assert "PR #193" in architecture
     assert "binance_vision_raw_cache_v1" in binance
+
+
+def test_configuration_example_is_valid_explicit_v4_json() -> None:
+    root = Path(__file__).resolve().parents[1]
+    configuration = (root / "docs/CONFIGURATION.md").read_text()
+    start = configuration.index("```json\n") + len("```json\n")
+    end = configuration.index("\n```", start)
+
+    payload = json.loads(configuration[start:end])
+
+    assert payload["schema_version"] == "training_run_config_v4"
+    assert payload["environment"]["require_full_reward_preroll"] is True
+    assert set(payload["execution"]) == set(complete_execution_config())
 
 
 def test_quickstart_pins_hybrid_reward() -> None:

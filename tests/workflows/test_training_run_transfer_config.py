@@ -5,13 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from test_support.training_config import complete_execution_config
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.workflows.training_run import TrainingRunConfig, _training_backend
 
 
 def _mapping() -> dict[str, object]:
     return {
-        "schema_version": "training_run_config_v3",
+        "schema_version": "training_run_config_v4",
         "training": {
             "timesteps": 8,
             "gamma": 0.99,
@@ -39,7 +40,9 @@ def _mapping() -> dict[str, object]:
             "episode_bars": 4,
             "decision_every": 1,
             "initial_capital": 1_000.0,
+            "require_full_reward_preroll": True,
         },
+        "execution": complete_execution_config(),
         "risk": {},
         "reward": {},
         "trend": {"fast_lookback": 1, "base_lookback": 2, "slow_lookback": 3},

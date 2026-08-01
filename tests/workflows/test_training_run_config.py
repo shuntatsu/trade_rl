@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import pytest
 
+from test_support.training_config import complete_execution_config
 from trade_rl.workflows.training_run import TrainingRunConfig
 
 
 def _mapping() -> dict[str, object]:
     return {
-        "schema_version": "training_run_config_v3",
+        "schema_version": "training_run_config_v4",
         "training": {
             "timesteps": 8,
             "gamma": 0.99,
@@ -35,7 +36,9 @@ def _mapping() -> dict[str, object]:
             "episode_bars": 4,
             "decision_every": 1,
             "initial_capital": 1_000.0,
+            "require_full_reward_preroll": True,
         },
+        "execution": complete_execution_config(),
         "risk": {},
         "reward": {},
         "trend": {"fast_lookback": 1, "base_lookback": 2, "slow_lookback": 3},
@@ -296,7 +299,7 @@ def test_training_dataset_reference_declares_unshifted_ichimoku_alignment() -> N
     }
 
 
-def test_training_config_requires_explicit_v2_schema() -> None:
+def test_training_config_requires_explicit_schema_version() -> None:
     raw = _mapping()
     raw.pop("schema_version")
     with pytest.raises(ValueError, match="missing required fields.*schema_version"):
@@ -306,7 +309,7 @@ def test_training_config_requires_explicit_v2_schema() -> None:
 def test_training_config_rejects_unknown_top_level_field() -> None:
     raw = _mapping()
     raw["action"] = {"alpha_enabled": False, "n_factors": 0}
-    raw["schema_verison"] = "training_run_config_v3"
+    raw["schema_verison"] = "training_run_config_v4"
     with pytest.raises(ValueError, match="unknown fields.*schema_verison"):
         TrainingRunConfig.from_mapping(raw)
 

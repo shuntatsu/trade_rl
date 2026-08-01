@@ -23,6 +23,16 @@ def test_cli_version_matches_installed_package_metadata() -> None:
     assert output.getvalue() == f"trade-rl {version('trade-rl')}\n"
 
 
+def test_package_metadata_uses_canonical_version_module() -> None:
+    payload = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    project = payload["project"]
+    assert "version" not in project
+    assert "version" in project["dynamic"]
+    assert payload["tool"]["setuptools"]["dynamic"]["version"] == {
+        "attr": "trade_rl._version.__version__"
+    }
+
+
 def test_uv_toolchain_has_one_required_version_source() -> None:
     uv_config = _ROOT / "uv.toml"
     assert uv_config.is_file()

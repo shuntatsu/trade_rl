@@ -128,4 +128,13 @@ Focused verification before the final connector-authored head:
 - MyPy: no issues in 330 source files
 - Ruff and format: passed
 
+### Review follow-up
+
+Two review findings were resolved before final CI:
+
+- `trade_rl.workflows.training_run` no longer imports the private `_signal_artifact_digest` helper. The helper remains internal to `trade_rl.rl.training_run_config`, while `TrainingRunConfig.alpha_artifact_digest` and `TrainingRunConfig.factor_artifact_digest` provide the maintained public boundary.
+- Architecture tests now use `tests.architecture.import_references.scan_import_references` for real static import references instead of raw source-string import matching.
+
+The private-import assertion was observed failing before the implementation change. After the fix, the same focused verification set passed, including 229 pytest cases, all 12 Import Linter contracts, Ruff, format, and MyPy.
+
 The PR must not be merged automatically. Full exact-head CI remains the final gate.

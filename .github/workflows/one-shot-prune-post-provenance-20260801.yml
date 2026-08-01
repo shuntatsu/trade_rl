@@ -1,0 +1,42 @@
+name: One-shot prune post-provenance branches 20260801
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prune:
+    if: github.event.pull_request.head.ref == 'maintenance/prune-post-provenance-20260801'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete all non-main branches and close this PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          api = "https://api.github.com"
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          event = json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))
+          cleanup = event["pull_request"]["head"]["ref"]
+          number = event["pull_request"]["number"]
+          headers = {"Accept":"application/vnd.github+json","Authorization":f"Bearer {token}","X-GitHub-Api-Version":"2022-11-28","User-Agent":"trade-rl-pruner"}
+          def call(method, path, payload=None):
+              data = None if payload is None else json.dumps(payload).encode()
+              with urllib.request.urlopen(urllib.request.Request(api + path, data=data, headers=headers, method=method)) as response:
+                  return json.loads(response.read()) if response.length else None
+          branches = call("GET", f"/repos/{repo}/branches?per_page=100")
+          for item in branches:
+              name = item["name"]
+              if name not in {"main", cleanup}:
+                  call("DELETE", f"/repos/{repo}/git/refs/heads/{urllib.parse.quote(name, safe='')}")
+                  print(f"deleted: {name}")
+          call("PATCH", f"/repos/{repo}/pulls/{number}", {"state":"closed"})
+          call("DELETE", f"/repos/{repo}/git/refs/heads/{urllib.parse.quote(cleanup, safe='')}")
+          PY

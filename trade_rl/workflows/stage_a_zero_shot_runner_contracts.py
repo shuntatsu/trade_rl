@@ -25,9 +25,9 @@ from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
 
 _STAGE_A_CELL_REQUEST_SCHEMA = "stage_a_evaluation_cell_request_v2"
 _STAGE_A_TEST_SCHEDULE_SCHEMA = "stage_a_test_schedule_v2"
-_STAGE_A_ACCESS_RECORD_SCHEMA = "stage_a_sealed_test_access_record_v1"
+_STAGE_A_ACCESS_RECORD_SCHEMA = "stage_a_sealed_test_access_record_v2"
 _STAGE_A_VALIDATION_RUN_SCHEMA = "stage_a_validation_run_v2"
-_STAGE_A_SEALED_TEST_RUN_SCHEMA = "stage_a_sealed_test_run_v2"
+_STAGE_A_SEALED_TEST_RUN_SCHEMA = "stage_a_sealed_test_run_v3"
 _SPLITS = {"validation", "test"}
 
 
@@ -339,6 +339,7 @@ class StageATestSchedule:
 class StageASealedTestAccessRecord:
     """Stage A-specific access identity around the generic one-shot ledger record."""
 
+    authorization_batch_digest: str
     evaluation_dataset_manifest_digest: str
     triplet_id: str
     dataset_id: str
@@ -352,6 +353,7 @@ class StageASealedTestAccessRecord:
         if self.schema_version != _STAGE_A_ACCESS_RECORD_SCHEMA:
             raise ValueError("unsupported Stage A sealed-test access schema")
         for field, value in (
+            ("authorization_batch_digest", self.authorization_batch_digest),
             (
                 "evaluation_dataset_manifest_digest",
                 self.evaluation_dataset_manifest_digest,
@@ -381,6 +383,7 @@ class StageASealedTestAccessRecord:
 
     def digest_payload(self) -> dict[str, object]:
         return {
+            "authorization_batch_digest": self.authorization_batch_digest,
             "dataset_id": self.dataset_id,
             "evaluation_dataset_manifest_digest": (
                 self.evaluation_dataset_manifest_digest
@@ -454,6 +457,11 @@ class StageASealedTestRun:
             raise ValueError("Stage A sealed-test run selected candidate mismatch")
         if not self.access_records:
             raise ValueError("Stage A sealed-test run requires access records")
+        batch_digests = {
+            record.authorization_batch_digest for record in self.access_records
+        }
+        if len(batch_digests) != 1:
+            raise ValueError("Stage A sealed-test access records must share one batch")
         keys = tuple((record.triplet_id, record.fold) for record in self.access_records)
         if len(set(keys)) != len(keys):
             raise ValueError("Stage A sealed-test access cells must be unique")
@@ -477,11 +485,16 @@ class StageASealedTestRun:
             raise ValueError("Stage A sealed-test run digest mismatch")
         object.__setattr__(self, "digest", expected)
 
+    @property
+    def authorization_batch_digest(self) -> str:
+        return self.access_records[0].authorization_batch_digest
+
     def digest_payload(self) -> dict[str, object]:
         return {
             "access_digests": tuple(
                 record.access_digest for record in self.access_records
             ),
+            "authorization_batch_digest": (self.authorization_batch_digest),
             "decision_digest": self.decision.digest,
             "evidence_digest": self.evidence.digest,
             "schema_version": self.schema_version,

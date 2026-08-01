@@ -131,9 +131,7 @@ class RecordingLedger:
     def authorize_once(
         self, batch: StageASealedTestAuthorizationBatch
     ) -> StageASealedTestAuthorizationBatch:
-        self.events.append(
-            ("authorize_batch", batch.batch_digest, batch.cell_count)
-        )
+        self.events.append(("authorize_batch", batch.batch_digest, batch.cell_count))
         return self.delegate.authorize_once(batch)
 
 

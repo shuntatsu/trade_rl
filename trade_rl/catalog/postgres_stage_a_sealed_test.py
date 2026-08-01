@@ -97,9 +97,7 @@ class PostgresStageASealedTestLedger:
             )
             generic_row = cursor.fetchone()
             if generic_row is None:
-                raise ValueError(
-                    "sealed outer test was already opened for this plan"
-                )
+                raise ValueError("sealed outer test was already opened for this plan")
             if str(generic_row[0]) != record.access_digest:
                 raise RuntimeError(
                     "Stage A generic sealed-test insert returned wrong digest"

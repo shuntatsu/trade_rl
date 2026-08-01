@@ -96,9 +96,7 @@ class StageAZeroShotArtifactPublisher:
             records = tuple(
                 {
                     "access_digest": record.access_digest,
-                    "authorization_batch_digest": (
-                        record.authorization_batch_digest
-                    ),
+                    "authorization_batch_digest": (record.authorization_batch_digest),
                     "dataset_id": record.dataset_id,
                     "evaluation_dataset_manifest_digest": (
                         record.evaluation_dataset_manifest_digest

@@ -6,12 +6,15 @@ from dataclasses import replace
 import pytest
 
 from tests.stage_a_helpers import stage_a_test_manifest
+from trade_rl.evaluation.stage_a_sealed_test import (
+    StageASealedTestAuthorizationBatch,
+    StageASealedTestLedger,
+)
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
     build_stage_a_zero_shot_evaluation_plan,
 )
 from trade_rl.evaluation.stage_a_zero_shot_gate import StageAValidationSelection
-from trade_rl.evaluation.walk_forward.sealed_test import SealedTestLedger
 from trade_rl.workflows.stage_a_zero_shot_runner import (
     StageAZeroShotEvaluationOrchestrator,
 )
@@ -119,23 +122,46 @@ class RecordingEvaluator:
 class RecordingLedger:
     def __init__(self, events: list[tuple[object, ...]]) -> None:
         self.events = events
-        self.delegate = SealedTestLedger()
+        self.delegate = StageASealedTestLedger()
 
     @property
-    def records(self):
+    def records(self) -> tuple[StageASealedTestAuthorizationBatch, ...]:
         return self.delegate.records
 
-    def authorize_once(self, **kwargs):
-        self.events.append(("authorize", kwargs["dataset_id"], kwargs["fold_index"]))
-        return self.delegate.authorize_once(**kwargs)
+    def authorize_once(
+        self, batch: StageASealedTestAuthorizationBatch
+    ) -> StageASealedTestAuthorizationBatch:
+        self.events.append(
+            ("authorize_batch", batch.batch_digest, batch.cell_count)
+        )
+        return self.delegate.authorize_once(batch)
 
 
-def _orchestrator(*, plan=None, manifest=None, evaluator=None, events=None):
+class RejectingLedger:
+    @property
+    def records(self) -> tuple[StageASealedTestAuthorizationBatch, ...]:
+        return ()
+
+    def authorize_once(
+        self, batch: StageASealedTestAuthorizationBatch
+    ) -> StageASealedTestAuthorizationBatch:
+        del batch
+        raise ValueError("Stage A sealed test was already opened for this plan")
+
+
+def _orchestrator(
+    *,
+    plan=None,
+    manifest=None,
+    evaluator=None,
+    events=None,
+    sealed_test_ledger=None,
+):
     resolved_manifest = manifest or _manifest()
     resolved_plan = plan or _plan(manifest=resolved_manifest)
     resolved_events = events if events is not None else []
     resolved_evaluator = evaluator or RecordingEvaluator(events=resolved_events)
-    ledger = RecordingLedger(resolved_events)
+    ledger = sealed_test_ledger or RecordingLedger(resolved_events)
     return (
         StageAZeroShotEvaluationOrchestrator(
             plan=resolved_plan,
@@ -259,7 +285,9 @@ def test_forged_validation_run_is_rejected_before_sealed_access() -> None:
     assert events == []
 
 
-def test_sealed_test_authorizes_every_fold_before_selected_only_evaluation() -> None:
+def test_sealed_test_authorizes_complete_batch_before_selected_only_evaluation() -> (
+    None
+):
     orchestrator, evaluator, ledger, events = _orchestrator()
     validation_run = orchestrator.evaluate_validation()
     evaluator.requests.clear()
@@ -275,27 +303,61 @@ def test_sealed_test_authorizes_every_fold_before_selected_only_evaluation() -> 
         request for request in evaluator.requests if not request.is_baseline
     ]
 
-    expected_access = [
+    assert len(ledger.records) == 1
+    batch = ledger.records[0]
+    assert events[0] == ("authorize_batch", batch.batch_digest, batch.cell_count)
+    assert all(event[0] == "evaluate" for event in events[1:])
+    assert batch.cell_count == len(plan.test_triplet_ids) * len(plan.folds)
+    assert batch.experiment_plan_digest == plan.digest
+    assert batch.evaluation_dataset_manifest_digest == orchestrator.manifest.digest
+    assert batch.evaluation_identity == plan.evaluation_identity
+    assert batch.selected_configuration == "candidate-a"
+    assert batch.selected_policy_digest == plan.candidate("candidate-a").digest
+    assert {
+        (cell.triplet_id, cell.dataset_id, cell.fold_index, cell.test_range)
+        for cell in batch.cells
+    } == {
         (
-            "authorize",
+            triplet_id,
             orchestrator.manifest.dataset_id_for("test", triplet_id),
             fold,
+            orchestrator.manifest.range_for("test", fold),
         )
         for triplet_id in plan.test_triplet_ids
         for fold in plan.folds
-    ]
-    assert events[: len(expected_access)] == expected_access
+    }
     assert len(baseline_requests) == cells
     assert len(policy_requests) == cells
     assert {request.candidate_id for request in policy_requests} == {"candidate-a"}
     assert sealed_run.evidence.candidate_ids == ("candidate-a",)
-    assert len(sealed_run.access_records) == len(plan.test_triplet_ids) * len(
-        plan.folds
-    )
+    assert len(sealed_run.access_records) == batch.cell_count
+    assert {
+        record.authorization_batch_digest for record in sealed_run.access_records
+    } == {batch.batch_digest}
     assert sealed_run.decision.passed
-    assert ledger.records == tuple(
-        record.ledger_record for record in sealed_run.access_records
+    assert tuple(record.ledger_record for record in sealed_run.access_records) == (
+        batch.records
     )
+
+
+def test_sealed_authorization_failure_performs_zero_test_evaluations() -> None:
+    events: list[tuple[object, ...]] = []
+    evaluator = RecordingEvaluator(events=events)
+    orchestrator, _, ledger, _ = _orchestrator(
+        evaluator=evaluator,
+        events=events,
+        sealed_test_ledger=RejectingLedger(),
+    )
+    validation_run = orchestrator.evaluate_validation()
+    evaluator.requests.clear()
+    events.clear()
+
+    with pytest.raises(ValueError, match="already opened"):
+        orchestrator.evaluate_sealed_test(validation_run)
+
+    assert evaluator.requests == []
+    assert events == []
+    assert ledger.records == ()
 
 
 def test_sealed_test_cannot_be_opened_twice() -> None:

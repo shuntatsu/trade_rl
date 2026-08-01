@@ -1,4 +1,4 @@
-name: Dev source snapshot
+name: One-shot training config v4 migration
 
 on:
   pull_request:
@@ -6,23 +6,84 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  snapshot:
+  migrate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact head
+      - name: Checkout PR branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-      - name: Archive source
-        run: git archive --format=zip --output=trade-rl-source.zip HEAD
-      - name: Upload source snapshot
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
-          name: trade-rl-source-${{ github.event.pull_request.head.sha }}
-          path: trade-rl-source.zip
-          if-no-files-found: error
-          retention-days: 1
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply schema migration
+        run: python .github/scripts/apply_training_config_v4.py
+      - name: Install targeted test environment
+        run: uv sync --extra dev --extra train-sb3
+      - name: Format and lint migrated tree
+        run: |
+          uv run ruff check --fix .
+          uv run ruff format .
+          uv run ruff check .
+          git diff --check
+      - name: Verify migrated contracts
+        run: |
+          uv run pytest -q \
+            tests/workflows/test_training_config_explicit_semantics.py \
+            tests/workflows/test_training_run_config.py \
+            tests/workflows/test_training_preroll_contract.py \
+            tests/workflows/test_training_run.py \
+            tests/workflows/test_market_walk_forward.py \
+            tests/test_current_documentation_contract.py \
+            tests/test_maintained_documentation_v4_contract.py
+      - name: Verify maintained JSON configs
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          required = {
+              "fee_rate", "maker_fee_rate", "taker_fee_rate", "spread_rate",
+              "impact_rate", "multiplier", "max_participation_rate",
+              "slippage_std", "tail_slippage_probability",
+              "tail_slippage_multiplier", "random_seed", "minimum_notional",
+              "lot_size", "tick_size", "allow_short", "borrow_rate_multiplier",
+              "max_leverage", "maintenance_margin_rate", "collateral_haircut",
+              "margin_mode", "order_latency_bars", "order_type",
+              "limit_offset_rate", "path_mode", "processing_bar_volume_capacity",
+              "partial_fill_carry", "trigger_volume_fractions",
+          }
+          seen = 0
+
+          def visit(value, path):
+              global seen
+              if isinstance(value, dict):
+                  if value.get("schema_version") == "training_run_config_v4":
+                      assert set(value["execution"]) == required, path
+                      assert value["environment"]["require_full_reward_preroll"] is True, path
+                      seen += 1
+                  for child in value.values():
+                      visit(child, path)
+              elif isinstance(value, list):
+                  for child in value:
+                      visit(child, path)
+
+          for path in Path("examples").rglob("*.json"):
+              visit(json.loads(path.read_text()), path)
+          assert seen == 20, seen
+          PY
+      - name: Commit migrated tree
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: require explicit training execution semantics"
+          git push origin HEAD:${{ github.head_ref }}

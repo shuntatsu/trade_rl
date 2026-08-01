@@ -207,7 +207,7 @@ Reject:
 - evaluation ranges ending at or beyond `dataset.n_bars`;
 - early environment termination before the range stop;
 - environment advancement beyond the range stop;
-- event `processing_index <= start` or `processing_index > stop`;
+- event `processing_index < start` or `processing_index > stop`;
 - event timestamp unequal to the dataset timestamp at its processing index;
 - duplicate or non-contiguous global event sequence after combining decisions.
 

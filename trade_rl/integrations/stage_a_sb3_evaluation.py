@@ -337,7 +337,9 @@ class StageASB3EvaluationEpisodeExecutor:
         if environment.execution_policy_digest != request.execution_identity:
             raise ValueError("Stage A environment execution identity mismatch")
         if environment.minimum_start_index > request.evaluation_range.start:
-            raise ValueError("Stage A evaluation range lacks causal environment history")
+            raise ValueError(
+                "Stage A evaluation range lacks causal environment history"
+            )
 
     @staticmethod
     def _validate_policy_inputs(
@@ -436,7 +438,9 @@ class StageASB3EvaluationEpisodeExecutor:
                 if environment.current_index <= previous_index:
                     raise ValueError("Stage A environment did not advance")
                 if environment.current_index > stop:
-                    raise ValueError("Stage A environment advanced beyond authorized stop")
+                    raise ValueError(
+                        "Stage A environment advanced beyond authorized stop"
+                    )
                 events.extend(_events_from_info(info))
                 observations.append(stage_a_observation_digest(observation))
                 equity.append(

@@ -30,9 +30,7 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _plan_and_manifest() -> tuple[
-    StageAZeroShotEvaluationPlan, object
-]:
+def _plan_and_manifest() -> tuple[StageAZeroShotEvaluationPlan, object]:
     source_manifest = stage_a_test_manifest(
         symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
         symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
@@ -159,7 +157,11 @@ def _events(
     processing_index: int | None = None,
     timestamp_ns: int | None = None,
 ) -> tuple[OrderEvent, ...]:
-    index = request.evaluation_range.start + 1 if processing_index is None else processing_index
+    index = (
+        request.evaluation_range.start + 1
+        if processing_index is None
+        else processing_index
+    )
     timestamp = (
         int(dataset.timestamps[index].astype(np.int64))
         if timestamp_ns is None
@@ -276,7 +278,9 @@ class _FakeEnvironment:
         self, action: np.ndarray
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
         self.step_actions.append(np.asarray(action, dtype=np.float32).copy())
-        self.current_index = self.end_index if self.final_index is None else self.final_index
+        self.current_index = (
+            self.end_index if self.final_index is None else self.final_index
+        )
         self.hybrid = _book(1_010.0)
         return (
             np.array([3.0, 4.0], dtype=np.float32),
@@ -347,9 +351,9 @@ def test_executor_uses_full_dataset_and_exact_request_range() -> None:
         request=request, dataset=dataset, environment=environment
     )
     policy = _Policy()
-    candidate_digest = _plan_and_manifest()[0].candidate(
-        "candidate-a"
-    ).candidate_config_digest
+    candidate_digest = (
+        _plan_and_manifest()[0].candidate("candidate-a").candidate_config_digest
+    )
 
     result = executor.execute(
         request,
@@ -362,8 +366,7 @@ def test_executor_uses_full_dataset_and_exact_request_range() -> None:
     assert factory.calls == [(request, dataset, candidate_digest)]
     assert environment.reset_options == {
         "start_idx": request.evaluation_range.start,
-        "episode_bars": request.evaluation_range.stop
-        - request.evaluation_range.start,
+        "episode_bars": request.evaluation_range.stop - request.evaluation_range.start,
         "initial_state_mode": "cash",
     }
     assert len(policy.observations) == 1
@@ -408,9 +411,7 @@ def test_executor_rejects_dataset_identity_substitution() -> None:
             policy=_Policy(),
             policy_source_digest=_digest("policy-source"),
             candidate_config_digest=(
-                _plan_and_manifest()[0]
-                .candidate("candidate-a")
-                .candidate_config_digest
+                _plan_and_manifest()[0].candidate("candidate-a").candidate_config_digest
             ),
         )
 
@@ -433,9 +434,7 @@ def test_executor_rejects_environment_that_stops_before_authorized_range() -> No
             policy=_Policy(),
             policy_source_digest=_digest("policy-source"),
             candidate_config_digest=(
-                _plan_and_manifest()[0]
-                .candidate("candidate-a")
-                .candidate_config_digest
+                _plan_and_manifest()[0].candidate("candidate-a").candidate_config_digest
             ),
         )
 
@@ -449,7 +448,7 @@ def test_executor_rejects_order_event_outside_authorized_range() -> None:
         events=_events(
             request,
             dataset,
-            processing_index=request.evaluation_range.start,
+            processing_index=request.evaluation_range.start - 1,
         ),
     )
     executor, _, _ = _executor(
@@ -462,9 +461,7 @@ def test_executor_rejects_order_event_outside_authorized_range() -> None:
             policy=_Policy(),
             policy_source_digest=_digest("policy-source"),
             candidate_config_digest=(
-                _plan_and_manifest()[0]
-                .candidate("candidate-a")
-                .candidate_config_digest
+                _plan_and_manifest()[0].candidate("candidate-a").candidate_config_digest
             ),
         )
 
@@ -487,8 +484,6 @@ def test_executor_rejects_order_event_timestamp_substitution() -> None:
             policy=_Policy(),
             policy_source_digest=_digest("policy-source"),
             candidate_config_digest=(
-                _plan_and_manifest()[0]
-                .candidate("candidate-a")
-                .candidate_config_digest
+                _plan_and_manifest()[0].candidate("candidate-a").candidate_config_digest
             ),
         )

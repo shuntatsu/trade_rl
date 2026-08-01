@@ -27,6 +27,10 @@ _EXPORTS = {
         "trade_rl.integrations.signal_artifacts",
         "load_factor_artifact",
     ),
+    "StageASB3EvaluationEpisodeExecutor": (
+        "trade_rl.integrations.stage_a_sb3_evaluation",
+        "StageASB3EvaluationEpisodeExecutor",
+    ),
     "StableBaselines3CheckpointLoader": (
         "trade_rl.integrations.checkpoints",
         "StableBaselines3CheckpointLoader",

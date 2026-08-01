@@ -435,6 +435,20 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             }
         )
 
+    def baseline_action(self) -> np.ndarray:
+        """Encode the exact shadow baseline in the maintained action schema."""
+
+        trends, _, _ = self._market_inputs()
+        if self.action_spec.mode is ActionMode.TARGET_WEIGHT:
+            action = np.asarray(trends.base, dtype=np.float32)
+        else:
+            action = np.zeros(self.action_spec.size, dtype=np.float32)
+        self.action_spec.parse(
+            action,
+            mode=ActionValidationMode.FAIL_CLOSED,
+        )
+        return action.copy()
+
     @staticmethod
     def _drawdown(book: BookState) -> float:
         value = max(book.portfolio_value, 0.0)

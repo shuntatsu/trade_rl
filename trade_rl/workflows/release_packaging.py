@@ -94,7 +94,10 @@ def _copy_verified_run_file(
     if source.is_symlink():
         raise ValueError(f"source artifact identity changed: {item.path}")
     resolved_source = source.resolve()
-    if resolved_root != resolved_source and resolved_root not in resolved_source.parents:
+    if (
+        resolved_root != resolved_source
+        and resolved_root not in resolved_source.parents
+    ):
         raise ValueError("source artifact path escapes training root")
     if not source.is_file():
         raise ValueError(f"source artifact identity changed: {item.path}")
@@ -312,7 +315,9 @@ def package_selected_training_run(
                 )
             structured_loader_path = stage / STRUCTURED_POLICY_LOADER_NAME
             if not structured_loader_path.is_file():
-                raise ValueError("structured policy loader is missing from staged bundle")
+                raise ValueError(
+                    "structured policy loader is missing from staged bundle"
+                )
             structured_loader = load_structured_policy_loader_manifest(
                 structured_loader_path
             )

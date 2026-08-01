@@ -20,13 +20,13 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
       - run: uv run ruff check --fix trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py
       - run: uv run ruff format trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py
       - run: PYTHONPATH=. uv run pytest -q tests/cli/test_stage_a_cli.py
       - run: uv run ruff check trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py
       - run: uv run ruff format --check trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py
-      - run: uv run mypy trade_rl/cli/stage_a.py trade_rl/cli/__init__.py
+      - run: uv run mypy .
       - run: uv run lint-imports
       - name: Commit canonical formatting
         run: |

@@ -30,7 +30,6 @@ from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellResult,
 )
 
-
 _COMMON_ARGS = [
     "--plan",
     "plan.json",
@@ -214,7 +213,9 @@ def test_parser_exposes_stage_a_commands() -> None:
     assert complete.stage_a_command == "run"
 
 
-def test_top_level_cli_routes_stage_a_without_importing_application(monkeypatch) -> None:
+def test_top_level_cli_routes_stage_a_without_importing_application(
+    monkeypatch,
+) -> None:
     calls: list[tuple[list[str], object, object]] = []
     fake = ModuleType("trade_rl.cli.stage_a")
 
@@ -283,9 +284,9 @@ def test_validation_command_publishes_complete_package(
     assert len([request for request in evaluator.requests if request.is_baseline]) == (
         expected_cells
     )
-    assert len([request for request in evaluator.requests if not request.is_baseline]) == (
-        expected_cells * len(plan.candidate_ids)
-    )
+    assert len(
+        [request for request in evaluator.requests if not request.is_baseline]
+    ) == (expected_cells * len(plan.candidate_ids))
 
 
 def test_sealed_test_command_loads_validation_and_uses_explicit_database_url(
@@ -348,9 +349,9 @@ def test_sealed_test_command_loads_validation_and_uses_explicit_database_url(
     assert len([request for request in evaluator.requests if request.is_baseline]) == (
         expected_cells
     )
-    assert len([request for request in evaluator.requests if not request.is_baseline]) == (
-        expected_cells
-    )
+    assert len(
+        [request for request in evaluator.requests if not request.is_baseline]
+    ) == (expected_cells)
 
 
 def test_sealed_test_rejects_tampered_validation_before_ledger(

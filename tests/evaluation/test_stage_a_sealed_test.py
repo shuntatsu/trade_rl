@@ -58,9 +58,10 @@ def test_batch_sorts_cells_and_binds_generic_access_records() -> None:
         )
     )
 
-    assert tuple(
-        (cell.triplet_id, cell.fold_index) for cell in batch.cells
-    ) == expected_keys
+    assert (
+        tuple((cell.triplet_id, cell.fold_index) for cell in batch.cells)
+        == expected_keys
+    )
     assert batch.cell_count == 3
     assert batch.batch_digest == batch.digest
     assert len(batch.records) == 3
@@ -78,9 +79,7 @@ def test_batch_digest_is_deterministic_across_caller_cell_order() -> None:
     first = _batch()
     second = build_stage_a_sealed_test_authorization_batch(
         experiment_plan_digest=first.experiment_plan_digest,
-        evaluation_dataset_manifest_digest=(
-            first.evaluation_dataset_manifest_digest
-        ),
+        evaluation_dataset_manifest_digest=(first.evaluation_dataset_manifest_digest),
         evaluation_identity=first.evaluation_identity,
         selected_configuration=first.selected_configuration,
         selected_policy_digest=first.selected_policy_digest,
@@ -136,9 +135,7 @@ def test_in_memory_batch_ledger_rejects_rebinding_same_plan() -> None:
     ledger.authorize_once(first)
     rebound = build_stage_a_sealed_test_authorization_batch(
         experiment_plan_digest=first.experiment_plan_digest,
-        evaluation_dataset_manifest_digest=(
-            first.evaluation_dataset_manifest_digest
-        ),
+        evaluation_dataset_manifest_digest=(first.evaluation_dataset_manifest_digest),
         evaluation_identity=first.evaluation_identity,
         selected_configuration="candidate-b",
         selected_policy_digest=_digest("candidate-b:policy"),

@@ -139,7 +139,9 @@ class StageASealedTestAuthorizationBatch:
         )
         if not self.cells:
             raise ValueError("Stage A sealed-test batch must contain cells")
-        cells = tuple(sorted(self.cells, key=lambda item: (item.triplet_id, item.fold_index)))
+        cells = tuple(
+            sorted(self.cells, key=lambda item: (item.triplet_id, item.fold_index))
+        )
         keys = tuple((cell.triplet_id, cell.fold_index) for cell in cells)
         if len(set(keys)) != len(keys):
             raise ValueError("Stage A sealed-test batch cells must be unique")
@@ -217,9 +219,7 @@ def build_stage_a_sealed_test_authorization_batch(
         raise ValueError("Stage A sealed-test batch cells must be unique")
     authorized = tuple(
         StageASealedTestCellAuthorization(
-            evaluation_dataset_manifest_digest=(
-                evaluation_dataset_manifest_digest
-            ),
+            evaluation_dataset_manifest_digest=(evaluation_dataset_manifest_digest),
             triplet_id=cell.triplet_id,
             dataset_id=cell.dataset_id,
             fold_index=cell.fold_index,

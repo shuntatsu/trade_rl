@@ -9,6 +9,7 @@ from typing import Callable
 import numpy as np
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.selection import PolicyMode
@@ -33,6 +34,9 @@ from trade_rl.simulation.orders import (
     OrderType,
     PendingOrder,
     TimeInForce,
+)
+from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
+    StageAEvaluationDatasetManifest,
 )
 from trade_rl.workflows.stage_a_execution_producer import (
     StageAEvaluationEpisodeResult,
@@ -75,7 +79,19 @@ def _checkpoint_payload() -> dict[str, object]:
     }
 
 
+def _manifest() -> StageAEvaluationDatasetManifest:
+    return stage_a_test_manifest(
+        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
+        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
+        feature_identity=_digest("features"),
+        validation_triplet_ids=(_digest("validation-triplet"),),
+        test_triplet_ids=(_digest("test-triplet"),),
+        folds=(0, 1),
+    )
+
+
 def _plan() -> StageAZeroShotEvaluationPlan:
+    manifest = _manifest()
     candidate = StageACandidate.create(
         candidate_id="candidate-a",
         candidate_config_digest=_candidate_config_digest(),
@@ -89,7 +105,7 @@ def _plan() -> StageAZeroShotEvaluationPlan:
     return build_stage_a_zero_shot_evaluation_plan(
         symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
         symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-        dataset_identity=_digest("dataset"),
+        evaluation_dataset_manifest_digest=manifest.digest,
         feature_identity=_digest("features"),
         execution_identity=_COST.execution_policy_digest,
         evaluation_identity=_digest("evaluation"),
@@ -119,15 +135,19 @@ def _request(
     checkpoint_digest = (
         plan.candidate("candidate-a").checkpoint_digest(0) if policy else None
     )
+    manifest = stage_a_test_manifest_for_plan(plan)
+    triplet_id = plan.validation_triplet_ids[0]
     return StageAEvaluationCellRequest(
         plan_digest=plan.digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
         split="validation",
-        triplet_id=plan.validation_triplet_ids[0],
+        triplet_id=triplet_id,
         fold=0,
         seed=0,
         candidate_id=candidate_id,
         checkpoint_digest=checkpoint_digest,
-        dataset_identity=plan.dataset_identity,
+        dataset_id=manifest.dataset_id_for("validation", triplet_id),
+        evaluation_range=manifest.range_for("validation", 0),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
         evaluation_identity=plan.evaluation_identity,
@@ -207,6 +227,7 @@ def _write_policy_source(
     store = StageAPolicySourceStore(root)
     binding = store.publish(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         request=request,
         checkpoint_manifest_path=checkpoint_path,
         serving_bundle_path=bundle_root,
@@ -218,7 +239,7 @@ def _execution_trace(
     request: StageAEvaluationCellRequest, *, price: float = 100.0
 ) -> tuple[tuple[OrderEvent, ...], OrderBookState]:
     intent = OrderIntent.create(
-        dataset_id=request.dataset_identity,
+        dataset_id=request.dataset_id,
         target_identity=request.digest,
         execution_policy_digest=request.execution_identity,
         symbol_index=0,
@@ -256,7 +277,7 @@ def _execution_trace(
             sequence=sequence,
             order_id=intent.order_id,
             replaced_order_id=None,
-            dataset_id=request.dataset_identity,
+            dataset_id=request.dataset_id,
             execution_policy_digest=request.execution_identity,
             symbol_index=0,
             event_type=event_type,
@@ -381,10 +402,11 @@ class _RuntimeLoader:
         self,
         *,
         plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifest,
         request: StageAEvaluationCellRequest,
         binding: StageAPolicySourceBinding,
     ) -> StageAPolicyRuntimeHandle:
-        del plan, request, binding
+        del plan, manifest, request, binding
         self.calls += 1
         return self.handle
 
@@ -441,10 +463,11 @@ class _BombRuntimeLoader:
         self,
         *,
         plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifest,
         request: StageAEvaluationCellRequest,
         binding: StageAPolicySourceBinding,
     ) -> StageAPolicyRuntimeHandle:
-        del plan, request, binding
+        del plan, manifest, request, binding
         raise AssertionError("baseline must not load a policy")
 
 
@@ -491,6 +514,7 @@ def _policy_producer(
     executor = _Executor(result_transform)
     producer = StageAExecutionArtifactProducer(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         policy_source_store=source_store,
         policy_runtime_loader=runtime,
         episode_executor=executor,
@@ -601,6 +625,7 @@ def test_policy_request_fails_when_source_is_missing(tmp_path: Path) -> None:
     request = _request(plan, policy=True)
     producer = StageAExecutionArtifactProducer(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         policy_source_store=StageAPolicySourceStore(tmp_path / "missing-sources"),
         policy_runtime_loader=_BombRuntimeLoader(),
         episode_executor=_Executor(),
@@ -619,6 +644,7 @@ def test_baseline_production_bypasses_policy_source_and_runtime(tmp_path: Path) 
     executor = _Executor()
     producer = StageAExecutionArtifactProducer(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         policy_source_store=_BombSourceStore(),
         policy_runtime_loader=_BombRuntimeLoader(),
         episode_executor=executor,
@@ -642,6 +668,7 @@ def test_produce_rejects_execution_cost_identity_substitution(tmp_path: Path) ->
     request = _request(plan, policy=False)
     producer = StageAExecutionArtifactProducer(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         policy_source_store=_BombSourceStore(),
         policy_runtime_loader=_BombRuntimeLoader(),
         episode_executor=_Executor(),

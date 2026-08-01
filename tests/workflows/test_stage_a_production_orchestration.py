@@ -4,13 +4,13 @@ import hashlib
 from pathlib import Path
 
 from tests.evaluation.replay_support import execution_episode
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
     StageAZeroShotEvaluationPlan,
     build_stage_a_zero_shot_evaluation_plan,
 )
-from trade_rl.evaluation.walk_forward.folds import IndexRange
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.execution_promotion import execution_evidence_from_cost
 from trade_rl.simulation.execution_replay import (
@@ -26,8 +26,6 @@ from trade_rl.workflows.stage_a_zero_shot_runner import (
 )
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
-    StageATestFoldRange,
-    StageATestSchedule,
 )
 
 
@@ -38,7 +36,19 @@ def _digest(value: str) -> str:
 _BASELINE_CONFIG = _digest("baseline:config")
 
 
+def _manifest():
+    return stage_a_test_manifest(
+        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
+        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
+        feature_identity=_digest("features"),
+        validation_triplet_ids=(_digest("validation-triplet"),),
+        test_triplet_ids=(_digest("test-triplet"),),
+        folds=(0, 1),
+    )
+
+
 def _plan() -> StageAZeroShotEvaluationPlan:
+    manifest = _manifest()
     seeds = (0, 1)
     candidates = tuple(
         StageACandidate.create(
@@ -56,7 +66,7 @@ def _plan() -> StageAZeroShotEvaluationPlan:
     return build_stage_a_zero_shot_evaluation_plan(
         symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
         symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-        dataset_identity=_digest("dataset"),
+        evaluation_dataset_manifest_digest=manifest.digest,
         feature_identity=_digest("features"),
         execution_identity=cost.execution_policy_digest,
         evaluation_identity=_digest("evaluation"),
@@ -95,7 +105,7 @@ def _promotion_sources(
     )
     equity = (1_000.0, terminal_equity)
     events, terminal_book, terminal_order_book = execution_episode(
-        dataset_id=plan.dataset_identity,
+        dataset_id=request.dataset_id,
         execution_policy_digest=plan.execution_identity,
         cash=terminal_equity - 100.0,
     )
@@ -104,7 +114,7 @@ def _promotion_sources(
         evaluation_run_digest=request.digest,
         fold=request.fold,
         seed=request.seed,
-        dataset_id=plan.dataset_identity,
+        dataset_id=request.dataset_id,
         execution_policy_digest=plan.execution_identity,
         actions=actions,
         observation_digests=observations,
@@ -115,7 +125,7 @@ def _promotion_sources(
     )
     event_path = write_execution_event_artifact(root / "events.json", event_artifact)
     evidence = execution_evidence_from_cost(
-        dataset_id=plan.dataset_identity,
+        dataset_id=request.dataset_id,
         cost=ExecutionCostConfig(path_mode="conservative"),
         sensitivity_path_modes=("conservative",),
         order_event_artifact_path=event_path,
@@ -132,10 +142,13 @@ def _request(
     seed: int,
     candidate_id: str | None,
 ) -> StageAEvaluationCellRequest:
+    manifest = stage_a_test_manifest_for_plan(plan)
+    triplet_id = plan.validation_triplet_ids[0]
     return StageAEvaluationCellRequest(
         plan_digest=plan.digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
         split="validation",
-        triplet_id=plan.validation_triplet_ids[0],
+        triplet_id=triplet_id,
         fold=fold,
         seed=seed,
         candidate_id=candidate_id,
@@ -144,7 +157,8 @@ def _request(
             if candidate_id is None
             else plan.candidate(candidate_id).checkpoint_digest(seed)
         ),
-        dataset_identity=plan.dataset_identity,
+        dataset_id=manifest.dataset_id_for("validation", triplet_id),
+        evaluation_range=manifest.range_for("validation", fold),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
         evaluation_identity=plan.evaluation_identity,
@@ -200,26 +214,17 @@ def test_a6a_validation_consumes_verified_cells_with_shared_baseline(
     plan = _plan()
     store = StageAExecutionPromotionStore(tmp_path / "store")
     _publish_validation_cells(root=tmp_path, plan=plan, store=store)
+    manifest = stage_a_test_manifest_for_plan(plan)
     evaluator = ArtifactBackedStageAEvaluationCellEvaluator(
         plan=plan,
+        manifest=manifest,
         store=store,
         baseline_candidate_config_digest=_BASELINE_CONFIG,
     )
-    schedule = StageATestSchedule(
-        plan_digest=plan.digest,
-        evaluation_identity=plan.evaluation_identity,
-        fold_ranges=tuple(
-            StageATestFoldRange(
-                fold=fold,
-                test_range=IndexRange(100 + fold * 20, 120 + fold * 20),
-            )
-            for fold in plan.folds
-        ),
-    )
     orchestrator = StageAZeroShotEvaluationOrchestrator(
         plan=plan,
+        manifest=manifest,
         evaluator=evaluator,
-        test_schedule=schedule,
     )
 
     run = orchestrator.evaluate_validation()

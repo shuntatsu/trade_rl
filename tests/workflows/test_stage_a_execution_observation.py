@@ -13,6 +13,7 @@ from tests.evaluation.replay_support import (
     SEED,
     execution_episode,
 )
+from tests.stage_a_helpers import stage_a_test_manifest
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
@@ -45,20 +46,31 @@ def _plan():
             (SEED + 1, _checkpoint(SEED + 1)),
         ),
     )
+    symbol_manifest = content_digest({"manifest": "symbols"})
+    triplet_manifest = content_digest({"manifest": "triplets"})
+    feature_identity = content_digest({"feature": "stage-a"})
+    test_triplet_id = content_digest({"triplet": "test"})
+    manifest = stage_a_test_manifest(
+        symbol_disjoint_manifest_digest=symbol_manifest,
+        symbol_disjoint_triplet_manifest_digest=triplet_manifest,
+        feature_identity=feature_identity,
+        validation_triplet_ids=(_TRIPLET_ID,),
+        test_triplet_ids=(test_triplet_id,),
+        folds=(FOLD, FOLD + 1),
+        dataset_ids_by_triplet={_TRIPLET_ID: DATASET_ID},
+    )
     plan = build_stage_a_zero_shot_evaluation_plan(
-        symbol_disjoint_manifest_digest=content_digest({"manifest": "symbols"}),
-        symbol_disjoint_triplet_manifest_digest=content_digest(
-            {"manifest": "triplets"}
-        ),
-        dataset_identity=DATASET_ID,
-        feature_identity=content_digest({"feature": "stage-a"}),
+        symbol_disjoint_manifest_digest=symbol_manifest,
+        symbol_disjoint_triplet_manifest_digest=triplet_manifest,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        feature_identity=feature_identity,
         execution_identity=COST.execution_policy_digest,
         evaluation_identity=EVALUATION_RUN_DIGEST,
         candidates=(candidate,),
         seeds=(SEED, SEED + 1),
         folds=(FOLD, FOLD + 1),
         validation_triplet_ids=(_TRIPLET_ID,),
-        test_triplet_ids=(content_digest({"triplet": "test"}),),
+        test_triplet_ids=(test_triplet_id,),
         bootstrap_confidence_level=0.95,
         bootstrap_resamples=2_000,
         bootstrap_seed=31,
@@ -71,7 +83,7 @@ def _plan():
         minimum_validation_triplet_pass_fraction=1.0,
         minimum_test_triplet_pass_fraction=1.0,
     )
-    return plan, candidate
+    return plan, candidate, manifest
 
 
 def _artifacts(
@@ -97,12 +109,13 @@ def _artifacts(
 
 
 def test_builds_observation_from_two_verified_promotion_roots(tmp_path: Path) -> None:
-    plan, candidate = _plan()
+    plan, candidate, manifest = _plan()
     policy = _artifacts(tmp_path / "policy", CANDIDATE_CONFIG_DIGEST)
     baseline = _artifacts(tmp_path / "baseline", _BASELINE_CONFIG_DIGEST)
 
     observation = build_stage_a_observation_from_execution_artifacts(
         plan=plan,
+        manifest=manifest,
         candidate_id=candidate.candidate_id,
         split="validation",
         triplet_id=_TRIPLET_ID,
@@ -120,7 +133,7 @@ def test_builds_observation_from_two_verified_promotion_roots(tmp_path: Path) ->
 
 
 def test_rejects_policy_baseline_cell_mismatch(tmp_path: Path) -> None:
-    plan, candidate = _plan()
+    plan, candidate, manifest = _plan()
     policy = _artifacts(tmp_path / "policy", CANDIDATE_CONFIG_DIGEST)
     baseline = _artifacts(
         tmp_path / "baseline",
@@ -131,6 +144,7 @@ def test_rejects_policy_baseline_cell_mismatch(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="cell mismatch"):
         build_stage_a_observation_from_execution_artifacts(
             plan=plan,
+            manifest=manifest,
             candidate_id=candidate.candidate_id,
             split="validation",
             triplet_id=_TRIPLET_ID,

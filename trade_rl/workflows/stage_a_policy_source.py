@@ -20,6 +20,9 @@ from trade_rl.evaluation.stage_a_zero_shot_contracts import (
 from trade_rl.rl.checkpointing import CheckpointManifest, load_checkpoint_manifest
 from trade_rl.serving.bundle import ServingBundle, load_serving_bundle
 from trade_rl.serving.policy_loader import canonical_policy_loader
+from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
+    StageAEvaluationDatasetManifest,
+)
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
 )
@@ -134,26 +137,12 @@ def _reject_symlink_components(
 def _validate_request_against_plan(
     *,
     plan: StageAZeroShotEvaluationPlan,
+    manifest: StageAEvaluationDatasetManifest,
     request: StageAEvaluationCellRequest,
 ) -> StageACandidate:
     if request.is_baseline:
         raise ValueError("Stage A baseline requests do not have policy sources")
-    if request.plan_digest != plan.digest:
-        raise ValueError("Stage A policy source plan digest mismatch")
-    for field, actual, expected in (
-        ("dataset", request.dataset_identity, plan.dataset_identity),
-        ("feature", request.feature_identity, plan.feature_identity),
-        ("execution", request.execution_identity, plan.execution_identity),
-        ("evaluation", request.evaluation_identity, plan.evaluation_identity),
-    ):
-        if actual != expected:
-            raise ValueError(f"Stage A policy source {field} identity mismatch")
-    if request.seed not in plan.seeds:
-        raise ValueError("Stage A policy source seed is not declared")
-    if request.fold not in plan.folds:
-        raise ValueError("Stage A policy source fold is not declared")
-    if request.triplet_id not in plan.triplet_ids_for(request.split):
-        raise ValueError("Stage A policy source triplet is not declared")
+    request.validate_manifest(plan, manifest)
     candidate_id = request.candidate_id
     if candidate_id is None:
         raise ValueError("Stage A policy source candidate identity is missing")
@@ -359,10 +348,13 @@ class StageAPolicySourceBinding:
         *,
         root: str | Path,
         plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifest,
         request: StageAEvaluationCellRequest,
     ) -> CheckpointManifest:
         resolved_root = Path(root)
-        candidate = _validate_request_against_plan(plan=plan, request=request)
+        candidate = _validate_request_against_plan(
+            plan=plan, manifest=manifest, request=request
+        )
         if self.plan_digest != plan.digest:
             raise ValueError("Stage A policy source binding plan mismatch")
         if self.request_digest != request.digest:
@@ -417,11 +409,14 @@ class StageAPolicySourceStore:
         self,
         *,
         plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifest,
         request: StageAEvaluationCellRequest,
         checkpoint_manifest_path: str | Path,
         serving_bundle_path: str | Path | None = None,
     ) -> StageAPolicySourceBinding:
-        candidate = _validate_request_against_plan(plan=plan, request=request)
+        candidate = _validate_request_against_plan(
+            plan=plan, manifest=manifest, request=request
+        )
         checkpoint_relative = _path_relative_to_root(
             self.root,
             Path(checkpoint_manifest_path),
@@ -476,7 +471,7 @@ class StageAPolicySourceStore:
                 None if serving_relative is None else serving_relative.as_posix()
             ),
         )
-        binding.validate(root=self.root, plan=plan, request=request)
+        binding.validate(root=self.root, plan=plan, manifest=manifest, request=request)
         binding_path, index_path = self._paths(binding)
         binding_relative = _path_relative_to_root(
             self.root,
@@ -651,6 +646,7 @@ class StageAPolicyRuntimeLoader(Protocol):
         self,
         *,
         plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifest,
         request: StageAEvaluationCellRequest,
         binding: StageAPolicySourceBinding,
     ) -> StageAPolicyRuntimeHandle: ...
@@ -671,10 +667,13 @@ class CanonicalServingBundleStageAPolicyLoader:
         self,
         *,
         plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifest,
         request: StageAEvaluationCellRequest,
         binding: StageAPolicySourceBinding,
     ) -> StageAPolicyRuntimeHandle:
-        checkpoint = binding.validate(root=self.root, plan=plan, request=request)
+        checkpoint = binding.validate(
+            root=self.root, plan=plan, manifest=manifest, request=request
+        )
         bundle = binding._load_serving_bundle(
             root=self.root,
             checkpoint=checkpoint,

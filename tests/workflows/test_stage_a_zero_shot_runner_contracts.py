@@ -4,6 +4,7 @@ import hashlib
 
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
     build_stage_a_zero_shot_evaluation_plan,
@@ -21,7 +22,19 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _plan():
+def _manifest():
+    return stage_a_test_manifest(
+        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
+        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
+        feature_identity=_digest("features"),
+        validation_triplet_ids=(_digest("validation-triplet"),),
+        test_triplet_ids=(_digest("test-triplet"),),
+        folds=(0, 1),
+    )
+
+
+def _plan(manifest=None):
+    manifest = manifest or _manifest()
     seeds = (0, 1)
     candidates = tuple(
         StageACandidate.create(
@@ -36,17 +49,17 @@ def _plan():
         for candidate_id in ("candidate-a", "candidate-b")
     )
     return build_stage_a_zero_shot_evaluation_plan(
-        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
-        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-        dataset_identity=_digest("dataset"),
-        feature_identity=_digest("features"),
+        symbol_disjoint_manifest_digest=manifest.symbol_disjoint_manifest_digest,
+        symbol_disjoint_triplet_manifest_digest=manifest.symbol_disjoint_triplet_manifest_digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        feature_identity=manifest.feature_identity,
         execution_identity=_digest("execution"),
         evaluation_identity=_digest("evaluation"),
         candidates=candidates,
         seeds=seeds,
-        folds=(0, 1),
-        validation_triplet_ids=(_digest("validation-triplet"),),
-        test_triplet_ids=(_digest("test-triplet"),),
+        folds=manifest.folds_declared,
+        validation_triplet_ids=manifest.triplet_ids_for("validation"),
+        test_triplet_ids=manifest.triplet_ids_for("test"),
         bootstrap_confidence_level=0.95,
         bootstrap_resamples=1_000,
         bootstrap_seed=17,
@@ -62,7 +75,8 @@ def _plan():
 
 
 def _request(*, candidate: bool = False) -> StageAEvaluationCellRequest:
-    plan = _plan()
+    manifest = _manifest()
+    plan = _plan(manifest)
     candidate_id = "candidate-a" if candidate else None
     checkpoint = (
         plan.candidate(candidate_id).checkpoint_digest(0) if candidate_id else None
@@ -75,7 +89,11 @@ def _request(*, candidate: bool = False) -> StageAEvaluationCellRequest:
         seed=0,
         candidate_id=candidate_id,
         checkpoint_digest=checkpoint,
-        dataset_identity=plan.dataset_identity,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        dataset_id=manifest.dataset_id_for(
+            "validation", plan.validation_triplet_ids[0]
+        ),
+        evaluation_range=manifest.range_for("validation", 0),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
         evaluation_identity=plan.evaluation_identity,
@@ -93,7 +111,9 @@ def test_policy_request_requires_candidate_and_checkpoint_together() -> None:
             seed=request.seed,
             candidate_id="candidate-a",
             checkpoint_digest=None,
-            dataset_identity=request.dataset_identity,
+            evaluation_dataset_manifest_digest=request.evaluation_dataset_manifest_digest,
+            dataset_id=request.dataset_id,
+            evaluation_range=request.evaluation_range,
             feature_identity=request.feature_identity,
             execution_identity=request.execution_identity,
             evaluation_identity=request.evaluation_identity,
@@ -118,10 +138,12 @@ def test_cell_result_rejects_non_finite_growth() -> None:
 
 
 def test_test_schedule_requires_unique_folds() -> None:
-    plan = _plan()
+    manifest = _manifest()
+    plan = _plan(manifest)
     with pytest.raises(ValueError, match="folds must be unique"):
         StageATestSchedule(
             plan_digest=plan.digest,
+            evaluation_dataset_manifest_digest=manifest.digest,
             evaluation_identity=plan.evaluation_identity,
             fold_ranges=(
                 StageATestFoldRange(0, IndexRange(100, 120)),
@@ -131,22 +153,53 @@ def test_test_schedule_requires_unique_folds() -> None:
 
 
 def test_test_schedule_validates_exact_plan_fold_closure() -> None:
-    plan = _plan()
+    manifest = _manifest()
+    plan = _plan(manifest)
     schedule = StageATestSchedule(
         plan_digest=plan.digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
         evaluation_identity=plan.evaluation_identity,
-        fold_ranges=(
-            StageATestFoldRange(0, IndexRange(100, 120)),
-            StageATestFoldRange(1, IndexRange(120, 140)),
+        fold_ranges=tuple(
+            StageATestFoldRange(fold, manifest.range_for("test", fold))
+            for fold in plan.folds
         ),
     )
-    schedule.validate_plan(plan)
-    assert schedule.range_for(1) == IndexRange(120, 140)
+    schedule.validate_manifest(plan, manifest)
+    assert schedule.range_for(1) == manifest.range_for("test", 1)
 
     incomplete = StageATestSchedule(
         plan_digest=plan.digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
         evaluation_identity=plan.evaluation_identity,
-        fold_ranges=(StageATestFoldRange(0, IndexRange(100, 120)),),
+        fold_ranges=(StageATestFoldRange(0, manifest.range_for("test", 0)),),
     )
     with pytest.raises(ValueError, match="fold closure mismatch"):
-        incomplete.validate_plan(plan)
+        incomplete.validate_manifest(plan, manifest)
+
+
+def test_cell_request_validates_exact_manifest_dataset_and_range() -> None:
+    manifest = _manifest()
+    plan = _plan(manifest)
+    request = _request(candidate=True)
+    request.validate_manifest(plan, manifest)
+
+    forged_dataset = StageAEvaluationCellRequest(
+        **{
+            **request.constructor_payload(),
+            "dataset_id": _digest("forged-dataset"),
+        }
+    )
+    with pytest.raises(ValueError, match="dataset identity mismatch"):
+        forged_dataset.validate_manifest(plan, manifest)
+
+    forged_range = StageAEvaluationCellRequest(
+        **{
+            **request.constructor_payload(),
+            "evaluation_range": IndexRange(
+                request.evaluation_range.start + 1,
+                request.evaluation_range.stop,
+            ),
+        }
+    )
+    with pytest.raises(ValueError, match="evaluation range mismatch"):
+        forged_range.validate_manifest(plan, manifest)

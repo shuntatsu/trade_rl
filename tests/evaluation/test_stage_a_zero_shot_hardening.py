@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
@@ -50,11 +51,21 @@ def _candidate(candidate_id: str) -> StageACandidate:
 
 
 def _plan(**overrides: object):
+    manifest = stage_a_test_manifest(
+        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
+        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
+        feature_identity=_digest("feature"),
+        validation_triplet_ids=_VALIDATION_TRIPLETS,
+        test_triplet_ids=_TEST_TRIPLETS,
+        folds=_FOLDS,
+    )
     values: dict[str, object] = {
-        "symbol_disjoint_manifest_digest": _digest("symbol-manifest"),
-        "symbol_disjoint_triplet_manifest_digest": _digest("triplet-manifest"),
-        "dataset_identity": _digest("dataset"),
-        "feature_identity": _digest("feature"),
+        "symbol_disjoint_manifest_digest": manifest.symbol_disjoint_manifest_digest,
+        "symbol_disjoint_triplet_manifest_digest": (
+            manifest.symbol_disjoint_triplet_manifest_digest
+        ),
+        "evaluation_dataset_manifest_digest": manifest.digest,
+        "feature_identity": manifest.feature_identity,
         "execution_identity": _digest("execution"),
         "evaluation_identity": _digest("evaluation"),
         "candidates": (_candidate("candidate-a"), _candidate("candidate-b")),
@@ -93,6 +104,7 @@ def _observation(
     execution_identity: str | None = None,
     evaluation_identity: str | None = None,
 ) -> StageAEvaluationObservation:
+    manifest = stage_a_test_manifest_for_plan(plan)
     return StageAEvaluationObservation.create(
         candidate_id=candidate_id,
         split=split,
@@ -100,7 +112,9 @@ def _observation(
         fold=fold,
         seed=seed,
         checkpoint_digest=plan.candidate(candidate_id).checkpoint_digest(seed),
-        dataset_identity=plan.dataset_identity,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        dataset_id=manifest.dataset_id_for(split, triplet_id),
+        evaluation_range=manifest.range_for(split, fold),
         feature_identity=feature_identity or plan.feature_identity,
         execution_identity=execution_identity or plan.execution_identity,
         evaluation_identity=evaluation_identity or plan.evaluation_identity,
@@ -141,6 +155,7 @@ def _evidence(
     )
     return build_stage_a_evaluation_evidence(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         split=split,
         candidate_ids=candidate_ids,
         observations=observations,
@@ -237,6 +252,7 @@ def test_evidence_rejects_candidate_dependent_baseline_for_the_same_cell() -> No
     with pytest.raises(ValueError, match="shared baseline"):
         build_stage_a_evaluation_evidence(
             plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
             split="validation",
             observations=tuple(observations),
         )
@@ -272,6 +288,7 @@ def test_evidence_revalidates_feature_execution_and_evaluation_identities() -> N
     with pytest.raises(ValueError, match="execution identity mismatch"):
         build_stage_a_evaluation_evidence(
             plan=plan,
+            manifest=stage_a_test_manifest_for_plan(plan),
             split="validation",
             observations=tuple(observations),
         )

@@ -63,11 +63,13 @@ class StageAExecutionCellIdentity:
     candidate_id: str | None
     checkpoint_digest: str | None
     candidate_config_digest: str
-    dataset_identity: str
+    evaluation_dataset_manifest_digest: str
+    dataset_id: str
+    evaluation_range: IndexRange
     feature_identity: str
     execution_identity: str
     evaluation_identity: str
-    schema_version: str = "stage_a_execution_cell_identity_v1"
+    schema_version: str = "stage_a_execution_cell_identity_v2"
     digest: str = ""
 ```
 
@@ -230,7 +232,7 @@ Expected: all pass.
 
 - [ ] **Step 3: Update operations documentation**
 
-Record A6b-1 completion and leave checkpoint execution, canonical loader, CLI, schedule source, and PostgreSQL construction explicitly assigned to A6b-2.
+Record manifest-backed dataset construction, canonical source loading, and producer/evaluator completion; leave SB3 environment assembly, durable sealed-test ledger persistence, and CLI wiring as separate lanes.
 
 - [ ] **Step 4: Run full verification**
 

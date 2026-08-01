@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
@@ -48,12 +49,24 @@ def _candidate(candidate_id: str) -> StageACandidate:
     )
 
 
-def _plan(*, validation_threshold: float = 0.005, test_threshold: float = 0.01):
-    return build_stage_a_zero_shot_evaluation_plan(
+def _manifest():
+    return stage_a_test_manifest(
         symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
         symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-        dataset_identity=_digest("dataset"),
         feature_identity=_digest("feature"),
+        validation_triplet_ids=_VALIDATION_TRIPLETS,
+        test_triplet_ids=_TEST_TRIPLETS,
+        folds=_FOLDS,
+    )
+
+
+def _plan(*, validation_threshold: float = 0.005, test_threshold: float = 0.01):
+    manifest = _manifest()
+    return build_stage_a_zero_shot_evaluation_plan(
+        symbol_disjoint_manifest_digest=manifest.symbol_disjoint_manifest_digest,
+        symbol_disjoint_triplet_manifest_digest=manifest.symbol_disjoint_triplet_manifest_digest,
+        evaluation_dataset_manifest_digest=manifest.digest,
+        feature_identity=manifest.feature_identity,
         execution_identity=_digest("execution"),
         evaluation_identity=_digest("evaluation"),
         candidates=(_candidate("candidate-a"), _candidate("candidate-b")),
@@ -82,6 +95,7 @@ def _evidence(
     candidate_ids: tuple[str, ...] = ("candidate-a", "candidate-b"),
 ):
     plan = _plan()
+    manifest = stage_a_test_manifest_for_plan(plan)
     triplets = (
         plan.validation_triplet_ids if split == "validation" else plan.test_triplet_ids
     )
@@ -101,7 +115,9 @@ def _evidence(
                             fold=fold,
                             seed=seed,
                             checkpoint_digest=checkpoints[seed],
-                            dataset_identity=plan.dataset_identity,
+                            evaluation_dataset_manifest_digest=manifest.digest,
+                            dataset_id=manifest.dataset_id_for(split, triplet_id),
+                            evaluation_range=manifest.range_for(split, fold),
                             feature_identity=plan.feature_identity,
                             execution_identity=plan.execution_identity,
                             evaluation_identity=plan.evaluation_identity,
@@ -119,6 +135,7 @@ def _evidence(
                     )
     return plan, build_stage_a_evaluation_evidence(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         split=split,
         candidate_ids=candidate_ids,
         observations=tuple(observations),
@@ -172,6 +189,7 @@ def test_validation_selection_fails_when_no_candidate_reaches_threshold() -> Non
     )
     evidence = build_stage_a_evaluation_evidence(
         plan=plan,
+        manifest=stage_a_test_manifest_for_plan(plan),
         split="validation",
         observations=raw_evidence.observations,
     )

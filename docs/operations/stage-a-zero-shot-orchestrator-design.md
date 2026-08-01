@@ -2,81 +2,50 @@
 
 ## Scope
 
-This specification covers A6a only: a deterministic orchestration layer over the existing Stage A v2 plan, evidence, selection, and sealed-test gate contracts. It does not load real retained checkpoints, construct market datasets, or run the production execution model. Those responsibilities remain in A6b behind a typed evaluator protocol.
+The orchestrator is the deterministic control plane for Stage A validation and selected-only sealed-test evaluation. It consumes a Stage A evaluation plan, an immutable `StageAEvaluationDatasetManifest`, a cell evaluator, and an optional sealed-test ledger. Dataset selection and fold slicing are no longer caller-owned inputs.
 
-## Goals
+Checkpoint loading, SB3 environment assembly, durable PostgreSQL sealed-test ledger persistence, and CLI wiring remain separate A6b-2 lanes.
 
-The orchestrator must:
+## Identity model
 
-- evaluate every validation candidate over the exact candidate × triplet × fold × seed Cartesian product;
-- evaluate one shared baseline per triplet × fold × seed cell;
-- verify every evaluator result against the exact request before constructing a v2 observation;
-- select a validation candidate through `select_stage_a_validation_candidate`;
-- recompute validation selection before any sealed-test access;
-- reserve sealed-test access once per declared fold before evaluating that fold;
-- evaluate only the selected candidate and the shared baseline on the test split;
-- construct test evidence through the existing v2 contract and decide through `evaluate_stage_a_sealed_test`;
-- publish validation and sealed-test packages atomically per phase;
-- leave no visible incomplete package when evaluation or publication fails.
+`StageAZeroShotEvaluationPlan` v3 binds the symbol-disjoint manifests, the evaluation-dataset manifest digest, feature identity, execution identity, evaluation identity, candidates, folds, seeds, triplet IDs, and statistical thresholds. It does not carry a synthetic global dataset identity.
 
-## Non-goals
+`StageAEvaluationDatasetManifest` binds:
 
-A6a does not resolve checkpoint paths or serving bundles, invoke `canonical_policy_loader`, materialize market or feature datasets, validate a real source execution artifact beyond typed request/result identity closure, or add a CLI or PostgreSQL schema.
+- source closure and metadata evidence;
+- one real PostgreSQL-backed `MarketDataset.dataset_id` per validation/test triplet;
+- the exact three symbols and slot order for each triplet;
+- a common full timeline used for causal feature and sequence warm-up;
+- each fold's `configuration_selection` and `test` half-open `IndexRange`.
 
-## Architecture
+`StageAEvaluationCellRequest` v2 contains the manifest digest, real triplet dataset ID, exact scored range, and the remaining plan/candidate/checkpoint identities. `validate_manifest()` rejects any relabeling of split, triplet, fold, seed, dataset, range, feature, execution, evaluation, candidate, or checkpoint identity.
 
-### Evaluation cell contracts
+## Validation phase
 
-`StageAEvaluationCellRequest` is the complete immutable instruction for one policy or baseline evaluation. It contains the plan digest, split, triplet, fold, seed, candidate identity, checkpoint identity, and all dataset/feature/execution/evaluation identities. Baseline requests use `candidate_id=None` and `checkpoint_digest=None`; policy requests require both.
+`evaluate_validation()` iterates in deterministic triplet, fold, and seed order. For each cell it evaluates one shared baseline, then every candidate. Baseline and policy requests are created from the same manifest lookup and therefore share the same dataset and `configuration_selection` range.
 
-`StageAEvaluationCellResult` contains the originating request digest, the execution-evidence digest, and finite log growth. The orchestrator rejects any result whose request digest differs from the request. A6b must create results only after validating the real source artifact.
+The orchestrator constructs complete Stage A evidence v3 and passes it to `select_stage_a_validation_candidate`. No sealed-test ledger method is called during validation.
 
-`StageAEvaluationCellEvaluator` is the only execution dependency:
+## Sealed-test phase
 
-```python
-class StageAEvaluationCellEvaluator(Protocol):
-    def evaluate(
-        self, request: StageAEvaluationCellRequest
-    ) -> StageAEvaluationCellResult: ...
-```
+`evaluate_sealed_test(validation_run)` recomputes validation selection before any test authorization. A failed or forged validation result stops immediately.
 
-### Test schedule
+Authorization is performed once for every declared test triplet × fold cell, not merely once per fold. `StageASealedTestAccessRecord` binds the plan, manifest, triplet, dataset, test range, selected candidate, and underlying ledger-record digest. Test requests are then created only for the selected candidate and shared baseline, using the manifest's `test` range.
 
-`StageATestSchedule` binds the plan digest and evaluation identity to one `IndexRange` per declared fold. Its fold set must equal `plan.folds`. The range is used only for the existing `SealedTestLedgerProtocol`; A6b is responsible for proving that the schedule came from the maintained evaluation source represented by `plan.evaluation_identity`.
+## Schedule and access records
 
-### Validation phase
+`StageATestSchedule` v2 is derived from the evaluation-dataset manifest. Its plan digest, manifest digest, evaluation identity, fold set, and test ranges must exactly match the plan and manifest. Caller-defined test ranges are rejected.
 
-`StageAZeroShotEvaluationOrchestrator.evaluate_validation()` iterates in deterministic triplet, fold, seed order. It evaluates the baseline once, then candidates in `plan.candidate_ids` order. The baseline result is reused for every candidate observation in the cell. The method constructs complete v2 validation evidence, then calls `select_stage_a_validation_candidate`. No sealed-test ledger method is called.
+The current generic in-memory ledger is wrapped by Stage A-specific access records. Durable PostgreSQL one-shot persistence remains a later lane, but it must persist the same triplet/fold/dataset/range closure.
 
-### Sealed-test phase
+## Artifact publication
 
-`evaluate_sealed_test(validation_run)` first recomputes the expected validation selection and rejects any supplied mismatch. A failed validation selection raises before ledger or evaluator access.
-
-Before any test evaluation, the orchestrator authorizes every declared fold through `SealedTestLedgerProtocol.authorize_once`, using the exact scheduled range, selected candidate ID, and selected candidate digest. It then evaluates every test triplet × fold × seed cell with one baseline and one selected-candidate result, builds selected-only test evidence, and calls `evaluate_stage_a_sealed_test`.
-
-### Phase outputs
-
-`StageAValidationRun` contains validation evidence and selection. `StageASealedTestRun` contains the validation run, sealed-test access records, test evidence, and final decision. Both runs have content digests and validate their internal identity closure.
-
-### Atomic publication
-
-`StageAZeroShotArtifactPublisher` publishes two independent immutable directories:
-
-- `validation/` containing `evidence.json` and `selection.json`;
-- `sealed-test/` containing `evidence.json`, `decision.json`, and `access-records.json`.
-
-Each package is written to a unique sibling staging directory. Files are flushed through maintained atomic writers, then the completed staging directory is renamed to the final directory. Existing final directories are rejected. On any exception, the staging directory is recursively removed.
-
-A completed validation package remains valid if sealed-test evaluation later fails. An incomplete validation or sealed-test package is never visible.
+`StageAZeroShotArtifactPublisher` publishes independent immutable validation and sealed-test packages through sibling staging directories and atomic rename. Sealed-test access artifacts include manifest, triplet, dataset, range, and ledger identities. Existing destination directories and incomplete packages are rejected.
 
 ## Error handling
 
-The orchestrator fails closed on undeclared cell identities, result/request digest mismatch, non-finite growth, incomplete evidence closure, forged validation output, validation gate failure, schedule mismatch, repeated ledger authorization, or publication over an existing package. It performs no internal retries.
+The system fails closed on schema downgrade, plan/manifest mismatch, undeclared triplet or fold, dataset or range drift, evaluator-result request substitution, incomplete evidence, forged validation output, premature test access, repeated authorization, and artifact rebinding. There is no compatibility adapter for pre-v3 Stage A contracts.
 
 ## Testing strategy
 
-Tests use an in-memory recording evaluator and the existing in-memory sealed-test ledger. They prove exact call counts and order, one shared baseline per cell, complete v2 evidence, request/result rejection, no test access after validation failure, forged-selection rejection, authorization before test evaluation, selected-only test execution, repeated-run rejection, and atomic publication cleanup.
-
-## A6b boundary
-
-A6b will implement `StageAEvaluationCellEvaluator` by loading retained checkpoints through the canonical loader and validating the real execution source before returning `StageAEvaluationCellResult`. It will construct `StageATestSchedule` from maintained evaluation artifacts and provide the PostgreSQL-backed sealed-test ledger.
+Tests cover exact Cartesian closure, shared baselines, manifest-derived requests and schedules, validation-before-test ordering, triplet × fold authorization, selected-only test execution, legacy-schema rejection, request/result substitution, immutable publication, and cleanup on failure.

@@ -18,10 +18,14 @@ from trade_rl.evaluation.walk_forward.sealed_test import (
     SealedTestLedger,
     SealedTestLedgerProtocol,
 )
+from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
+    StageAEvaluationDatasetManifest,
+)
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellEvaluator,
     StageAEvaluationCellRequest,
     StageAEvaluationCellResult,
+    StageASealedTestAccessRecord,
     StageASealedTestRun,
     StageATestSchedule,
     StageAValidationRun,
@@ -35,14 +39,21 @@ class StageAZeroShotEvaluationOrchestrator:
         self,
         *,
         plan: StageAZeroShotEvaluationPlan,
+        manifest: StageAEvaluationDatasetManifest,
         evaluator: StageAEvaluationCellEvaluator,
-        test_schedule: StageATestSchedule,
+        test_schedule: StageATestSchedule | None = None,
         sealed_test_ledger: SealedTestLedgerProtocol | None = None,
     ) -> None:
-        test_schedule.validate_plan(plan)
+        plan.validate_manifest(manifest)
+        resolved_schedule = test_schedule or StageATestSchedule.from_manifest(
+            plan=plan,
+            manifest=manifest,
+        )
+        resolved_schedule.validate_manifest(plan, manifest)
         self.plan = plan
+        self.manifest = manifest
         self.evaluator = evaluator
-        self.test_schedule = test_schedule
+        self.test_schedule = resolved_schedule
         self._sealed_test_ledger = sealed_test_ledger or SealedTestLedger()
 
     def _request(
@@ -61,13 +72,15 @@ class StageAZeroShotEvaluationOrchestrator:
         )
         return StageAEvaluationCellRequest(
             plan_digest=self.plan.digest,
+            evaluation_dataset_manifest_digest=self.manifest.digest,
             split=split,
             triplet_id=triplet_id,
             fold=fold,
             seed=seed,
             candidate_id=candidate_id,
             checkpoint_digest=checkpoint_digest,
-            dataset_identity=self.plan.dataset_identity,
+            dataset_id=self.manifest.dataset_id_for(split, triplet_id),
+            evaluation_range=self.manifest.range_for(split, fold),
             feature_identity=self.plan.feature_identity,
             execution_identity=self.plan.execution_identity,
             evaluation_identity=self.plan.evaluation_identity,
@@ -108,16 +121,30 @@ class StageAZeroShotEvaluationOrchestrator:
                             seed=seed,
                             candidate_id=candidate_id,
                         )
+                        if (
+                            policy_request.evaluation_dataset_manifest_digest
+                            != baseline_request.evaluation_dataset_manifest_digest
+                            or policy_request.dataset_id != baseline_request.dataset_id
+                            or policy_request.evaluation_range
+                            != baseline_request.evaluation_range
+                        ):
+                            raise ValueError(
+                                "Stage A policy and baseline request data identity mismatch"
+                            )
                         policy = self._evaluate(policy_request)
                         observations.append(
-                            StageAEvaluationObservation(
+                            StageAEvaluationObservation.create(
                                 candidate_id=candidate_id,
                                 split=split,
                                 triplet_id=triplet_id,
                                 fold=fold,
                                 seed=seed,
                                 checkpoint_digest=candidate.checkpoint_digest(seed),
-                                dataset_identity=self.plan.dataset_identity,
+                                evaluation_dataset_manifest_digest=(
+                                    policy_request.evaluation_dataset_manifest_digest
+                                ),
+                                dataset_id=policy_request.dataset_id,
+                                evaluation_range=policy_request.evaluation_range,
                                 feature_identity=self.plan.feature_identity,
                                 execution_identity=self.plan.execution_identity,
                                 evaluation_identity=self.plan.evaluation_identity,
@@ -140,6 +167,7 @@ class StageAZeroShotEvaluationOrchestrator:
         )
         evidence = build_stage_a_evaluation_evidence(
             plan=self.plan,
+            manifest=self.manifest,
             split="validation",
             observations=observations,
         )
@@ -164,25 +192,38 @@ class StageAZeroShotEvaluationOrchestrator:
             raise ValueError(
                 "Stage A sealed test requires a passed validation selection"
             )
-        self.test_schedule.validate_plan(self.plan)
+        self.test_schedule.validate_manifest(self.plan, self.manifest)
         selected_candidate = self.plan.candidate(selected_id)
-        access_records = tuple(
-            self._sealed_test_ledger.authorize_once(
-                experiment_plan_digest=self.plan.digest,
-                dataset_id=self.plan.dataset_identity,
-                fold_index=fold,
-                test_range=self.test_schedule.range_for(fold),
-                selected_configuration=selected_id,
-                selected_policy_digest=selected_candidate.digest,
-            )
-            for fold in self.plan.folds
-        )
+        access_records: list[StageASealedTestAccessRecord] = []
+        for triplet_id in self.plan.test_triplet_ids:
+            dataset_id = self.manifest.dataset_id_for("test", triplet_id)
+            for fold in self.plan.folds:
+                test_range = self.test_schedule.range_for(fold)
+                generic = self._sealed_test_ledger.authorize_once(
+                    experiment_plan_digest=self.plan.digest,
+                    dataset_id=dataset_id,
+                    fold_index=fold,
+                    test_range=test_range,
+                    selected_configuration=selected_id,
+                    selected_policy_digest=selected_candidate.digest,
+                )
+                access_records.append(
+                    StageASealedTestAccessRecord(
+                        evaluation_dataset_manifest_digest=self.manifest.digest,
+                        triplet_id=triplet_id,
+                        dataset_id=dataset_id,
+                        fold=fold,
+                        test_range=test_range,
+                        ledger_record=generic,
+                    )
+                )
         observations = self._observations_for_split(
             split=cast(StageAEvaluationSplit, "test"),
             candidate_ids=(selected_id,),
         )
         evidence = build_stage_a_evaluation_evidence(
             plan=self.plan,
+            manifest=self.manifest,
             split="test",
             observations=observations,
             candidate_ids=(selected_id,),
@@ -195,7 +236,7 @@ class StageAZeroShotEvaluationOrchestrator:
         )
         return StageASealedTestRun(
             validation_run=validation_run,
-            access_records=access_records,
+            access_records=tuple(access_records),
             evidence=evidence,
             decision=decision,
         )

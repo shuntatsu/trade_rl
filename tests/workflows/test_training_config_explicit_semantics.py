@@ -8,6 +8,38 @@ from test_support.training_config import complete_execution_config
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 
+_V4_EXECUTION_FIELDS = frozenset(
+    {
+        "allow_short",
+        "borrow_rate_multiplier",
+        "collateral_haircut",
+        "fee_rate",
+        "impact_rate",
+        "limit_offset_rate",
+        "lot_size",
+        "maintenance_margin_rate",
+        "maker_fee_rate",
+        "margin_mode",
+        "max_leverage",
+        "max_participation_rate",
+        "minimum_notional",
+        "multiplier",
+        "order_latency_bars",
+        "order_type",
+        "partial_fill_carry",
+        "path_mode",
+        "processing_bar_volume_capacity",
+        "random_seed",
+        "slippage_std",
+        "spread_rate",
+        "tail_slippage_multiplier",
+        "tail_slippage_probability",
+        "taker_fee_rate",
+        "tick_size",
+        "trigger_volume_fractions",
+    }
+)
+
 
 def _mapping() -> dict[str, object]:
     return {
@@ -47,9 +79,12 @@ def _mapping() -> dict[str, object]:
     }
 
 
-def test_complete_execution_fixture_tracks_public_execution_fields() -> None:
-    expected = {item.name for item in fields(ExecutionCostConfig) if item.init}
-    assert set(complete_execution_config()) == expected
+def test_v4_execution_schema_matches_public_execution_fields() -> None:
+    dataclass_field_names = {
+        item.name for item in fields(ExecutionCostConfig) if item.init
+    }
+    assert dataclass_field_names == _V4_EXECUTION_FIELDS
+    assert set(complete_execution_config()) == _V4_EXECUTION_FIELDS
 
 
 def test_training_config_rejects_v3_with_migration_message() -> None:

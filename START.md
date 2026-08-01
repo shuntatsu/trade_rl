@@ -92,7 +92,7 @@ var/quickstart/artifacts/
 ```
 
 - `run.json`: 宣言済みFile、Size、SHA-256を束ねる最終Manifest
-- `training-config.json`: 解決済み`training_run_config_v2`
+- `training-config.json`: 解決済み`training_run_config_v3`
 - `environment.json`: Action、Observation、Reward、Risk、Execution identity
 - `policy.zip`: Stable-Baselines3のRecovery形式
 - `training-telemetry.jsonl`: Studio用の診断Stream
@@ -118,17 +118,17 @@ npm run dev --prefix studio
 
 `http://127.0.0.1:5173`を開きます。Live TrainingのBUY／SELL表示はWeight変化であり、取引所注文ではありません。
 
-## 6. `training_run_config_v2`を使う
+## 6. `training_run_config_v3`を使う
 
 Top-levelの`schema_version`は必ず次の値です。
 
 ```json
 {
-  "schema_version": "training_run_config_v2"
+  "schema_version": "training_run_config_v3"
 }
 ```
 
-旧`training_run_config_v1`は自動移行されず、明示的に拒否されます。
+旧Schemaは自動移行されず、明示的に拒否されます。
 
 ### Encoderを選ぶ
 
@@ -234,9 +234,9 @@ uv sync --extra dev --extra train-sb3
 
 新しい`--run-id`を指定してください。Published runは上書きしません。
 
-### `migrate training_run_config_v1`
+### Training config schemaの移行が必要
 
-設定の`schema_version`をv2へ変更し、旧Encoder Booleanを`observation_encoder`へ置き換えてください。
+設定の`schema_version`を`training_run_config_v3`へ変更し、旧Encoder Booleanを`observation_encoder`へ置き換えてください。必要なv3 Fieldは[設定リファレンス](docs/CONFIGURATION.md)で確認してください。
 
 ### `dataset digest mismatch`
 

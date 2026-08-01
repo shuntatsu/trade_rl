@@ -81,7 +81,7 @@ jobs:
             trade_rl/rl/environment.py \
             tests/integrations/test_stage_a_sb3_evaluation.py \
             tests/rl/test_environment_timing.py
-          uv run pytest -q \
+          PYTHONPATH=. uv run pytest -q \
             tests/integrations/test_stage_a_sb3_evaluation.py \
             tests/workflows/test_stage_a_execution_producer.py \
             tests/rl/test_environment_timing.py \

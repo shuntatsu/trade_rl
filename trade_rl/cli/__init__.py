@@ -21,8 +21,16 @@ def build_parser() -> argparse.ArgumentParser:
     """Load the full research CLI parser only when it is requested."""
 
     from trade_rl.cli.app import build_parser as _build_parser
+    from trade_rl.cli.stage_a import add_stage_a_parser
 
-    return _build_parser()
+    parser = _build_parser()
+    subparsers = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
+    add_stage_a_parser(subparsers)
+    return parser
 
 
 def main(
@@ -40,6 +48,10 @@ def main(
         from trade_rl.studio.cli import main as studio_main
 
         return studio_main(arguments[1:])
+    if arguments[:1] == ["stage-a"]:
+        from trade_rl.cli.stage_a import main as stage_a_main
+
+        return stage_a_main(arguments[1:], stdout=output, stderr=errors)
     if arguments[:2] == ["causal-scenario", "evaluate"]:
         from trade_rl.cli.causal_scenario import run_evaluate
 

@@ -17,7 +17,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
 
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-_SOURCE_ROOTS = ("pyproject.toml", "uv.lock", "trade_rl", "examples")
+_SOURCE_ROOTS = ("pyproject.toml", "uv.lock", "uv.toml", "trade_rl", "examples")
 
 
 def _sha256_file(path: Path) -> str:

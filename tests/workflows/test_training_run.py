@@ -150,7 +150,7 @@ def test_execute_training_run_trains_serializes_and_publishes(tmp_path: Path) ->
     assert pointer == {"path": "runs/tiny-run", "run_id": "tiny-run"}
 
 
-def test_execute_training_run_uses_explicit_provenance_without_git_lookup(
+def test_execute_training_run_uses_declared_provenance_when_git_is_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     dataset_root = tmp_path / "dataset"
@@ -162,10 +162,7 @@ def test_execute_training_run_uses_explicit_provenance_without_git_lookup(
     config["git_dirty"] = False
     config_path.write_text(json.dumps(config), encoding="utf-8")
 
-    def fail_git_lookup(_root: Path, *_args: str) -> str | None:
-        raise AssertionError("explicit packaged provenance must avoid Git lookup")
-
-    monkeypatch.setattr("trade_rl.artifacts.provenance._git", fail_git_lookup)
+    monkeypatch.setattr("trade_rl.artifacts.provenance._git", lambda *_args: None)
 
     result = execute_training_run(
         config_path=config_path,

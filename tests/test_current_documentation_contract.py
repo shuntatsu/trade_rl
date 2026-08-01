@@ -111,6 +111,28 @@ def test_current_schema_contracts_are_documented() -> None:
     assert "Gated Cross-Asset Attention" in architecture
 
 
+def test_operator_runbooks_use_current_training_schema() -> None:
+    for path in (
+        ROOT / "START.md",
+        ROOT / "docs" / "operations" / "docker-gpu-full-training.md",
+    ):
+        text = _text(path)
+        assert "training_run_config_v3" in text
+        assert "training_run_config_v2" not in text
+
+
+def test_research_status_has_timeless_heading_and_explicit_stage_boundaries() -> None:
+    research_status = _text(ROOT / "docs" / "RESEARCH_STATUS.md")
+    assert "## Current status\n" in research_status
+    assert "## Current status —" not in research_status
+    for boundary in (
+        "StageAZeroShotSoftware: IMPLEMENTED_AND_CI_VERIFIED",
+        "StageAEmpiricalEvaluation: NOT_COMPLETED",
+        "StageBSpotFuturesGeneralization: NOT_IMPLEMENTED",
+    ):
+        assert boundary in research_status
+
+
 def test_legacy_settings_are_only_documented_as_rejected_inputs() -> None:
     configuration = _text(ROOT / "docs" / "CONFIGURATION.md")
     for legacy in (

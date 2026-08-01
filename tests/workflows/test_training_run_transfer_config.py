@@ -92,13 +92,13 @@ def test_transfer_checkpoint_does_not_change_candidate_recipe_identity() -> None
 def test_transfer_checkpoint_digest_is_bound_into_run_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import trade_rl.workflows.training_run as training_run_module
+    import trade_rl.rl.training_run_config as training_run_config_module
 
     raw = _mapping()
     raw["transfer_checkpoints"] = {"0": "transfer/stage-000"}
     config = TrainingRunConfig.from_mapping(raw)
     monkeypatch.setattr(
-        training_run_module,
+        training_run_config_module,
         "load_checkpoint_manifest",
         lambda _: SimpleNamespace(digest="a" * 64),
     )

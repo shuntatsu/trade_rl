@@ -1,0 +1,55 @@
+name: Temporary delete merged branches
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-delete-merged-branches.yml
+
+permissions:
+  contents: write
+
+jobs:
+  delete-merged-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify containment and delete refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git merge-base --is-ancestor 407971727f4527db8432528ffb327f6455df5755 HEAD
+          git merge-base --is-ancestor 8fe94e7ead85fb2e637d08cf44c6c356c1bbbf0a HEAD
+
+          gh api --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/git/refs/heads/agent/training-config-v4-explicitness"
+          gh api --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/git/refs/heads/fix/current-documentation-contract-20260801"
+
+      - name: Remove this temporary workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          workflow_path=".github/workflows/temporary-delete-merged-branches.yml"
+          workflow_sha="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/contents/${workflow_path}?ref=main" \
+            --jq '.sha')"
+
+          gh api --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/contents/${workflow_path}" \
+            -f message='chore: remove temporary branch cleanup workflow' \
+            -f sha="${workflow_sha}" \
+            -f branch='main'

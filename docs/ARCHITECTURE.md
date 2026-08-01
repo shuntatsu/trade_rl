@@ -83,7 +83,7 @@ Reward schema v4は絶対対数資産成長を主目的にします。Baseline-r
 
 ## Observation encoder architecture
 
-`training_run_config_v3`は`observation_encoder`と階層Actor契約を明示します。
+`training_run_config_v4`は`observation_encoder`と階層Actor契約に加え、Executionの全Fieldと完全なReward prerollを明示します。
 
 - `flat_mlp`: Flat observationをMLPへ入力
 - `asset_set`: 銘柄別構造を使う非系列Encoder

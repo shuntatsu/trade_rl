@@ -10,13 +10,13 @@ def test_docs_match_maintained_schemas_and_boundaries() -> None:
     architecture = (root / "docs/ARCHITECTURE.md").read_text()
     configuration = (root / "docs/CONFIGURATION.md").read_text()
     binance = (root / "docs/BINANCE.md").read_text()
-    assert "training_run_config_v3" in readme
-    assert "training_run_config_v2" not in readme
+    assert "training_run_config_v4" in readme
+    assert "training_run_config_v3" not in readme
     assert "structured_policy_export_v1" not in readme
-    assert "training_run_config_v3" in architecture
+    assert "training_run_config_v4" in architecture
     assert "structured_policy_export_v2" in architecture
-    assert "# Training Configuration v3" in configuration
-    assert '"schema_version": "training_run_config_v3"' in configuration
+    assert "# Training Configuration v4" in configuration
+    assert '"schema_version": "training_run_config_v4"' in configuration
     assert "structured_policy_export_v2" in configuration
     assert "change intensity" in architecture.lower()
     assert "constraint cost" in architecture.lower()

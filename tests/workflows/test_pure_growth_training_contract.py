@@ -4,12 +4,13 @@ from copy import deepcopy
 
 import pytest
 
+from test_support.training_config import complete_execution_config
 from trade_rl.workflows.training_run import TrainingRunConfig
 
 
 def _pure_growth_mapping() -> dict[str, object]:
     return {
-        "schema_version": "training_run_config_v3",
+        "schema_version": "training_run_config_v4",
         "training": {
             "algorithm": "ppo",
             "timesteps": 8,
@@ -39,7 +40,9 @@ def _pure_growth_mapping() -> dict[str, object]:
             "decision_every": 1,
             "initial_capital": 1_000.0,
             "liquidate_on_end": False,
+            "require_full_reward_preroll": True,
         },
+        "execution": complete_execution_config(),
         "risk": {},
         "reward": {
             "scale": 100.0,

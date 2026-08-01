@@ -970,7 +970,7 @@ def test_hierarchical_teacher_labels_fail_closed_without_v3_threshold() -> None:
         teacher_config_digest="4" * 64,
     )
 
-    with pytest.raises(ValueError, match="training_run_config_v3"):
+    with pytest.raises(ValueError, match="training_run_config_v4"):
         _hierarchical_teacher_labels(
             policy=HierarchicalPolicy(),
             teacher_dataset=dataset,

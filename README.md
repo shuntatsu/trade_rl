@@ -62,7 +62,7 @@ Flat observationの正本は`baseline_residual_observation_v5`、Serving bundle�
 
 ## Observation encoder
 
-`training_run_config_v3`では、`observation_encoder`を1つだけ選びます。
+`training_run_config_v4`では、`observation_encoder`を1つだけ選びます。
 
 | 値 | 用途 |
 |---|---|
@@ -156,6 +156,6 @@ npm run check:layout --prefix studio
 
 ## 維持対象の契約バージョン
 
-維持対象の学習設定は`training_run_config_v3`、構造化Policy exportは`structured_policy_export_v2`、Serving bundleは`serving_bundle_v6`です。QuickstartはPipeline確認用ですが、Reward dataclassの既定値変更で意味が静かに変わらないよう、hybrid reward値をJSONへ明示しています。
+維持対象の学習設定は`training_run_config_v4`、構造化Policy exportは`structured_policy_export_v2`、Serving bundleは`serving_bundle_v6`です。Quickstartを含む維持対象設定は、Executionの全Fieldと`require_full_reward_preroll: true`を明示し、dataclass既定値の変更で学習意味が静かに変わることを防ぎます。
 
 データの因果性はFeature契約だけでなく、Raw Barのavailability、MarketDatasetのeconomic arrays、SequenceObservationのstalenessまで多層で検証します。constraint costは報酬と分離されていますが、hard safetyとLagrangian soft budgetは同義ではありません。

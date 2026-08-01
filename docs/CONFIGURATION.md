@@ -1,15 +1,15 @@
-# Training Configuration v3
+# Training Configuration v4
 
-維持対象のTop-level Schemaは`training_run_config_v3`です。設定は`trade-rl train run`と`trade-rl walk-forward run`で使用します。
+維持対象のTop-level Schemaは`training_run_config_v4`です。設定は`trade-rl train run`と`trade-rl walk-forward run`で使用します。
 
 ```json
 {
-  "schema_version": "training_run_config_v3",
+  "schema_version": "training_run_config_v4",
   "training": {},
-  "environment": {},
+  "environment": {"require_full_reward_preroll": true},
   "action": {},
   "risk": {},
-  "execution": {},
+  "execution": {"all_ExecutionCostConfig_fields": "required"},
   "reward": {},
   "trend": {},
   "exports": {}
@@ -24,7 +24,7 @@
 
 ## Legacy設定
 
-`training_run_config_v1`は自動変換しません。明示的に拒否します。
+`training_run_config_v1`、`training_run_config_v2`、`training_run_config_v3`は自動変換しません。明示的に拒否します。v4ではTop-level `execution`、Executionの全Field、`environment.require_full_reward_preroll: true`が必須です。
 
 次の旧Booleanと曖昧な共通Attention設定も廃止済みです。
 

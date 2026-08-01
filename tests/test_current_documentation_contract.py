@@ -94,7 +94,7 @@ def test_current_schema_contracts_are_documented() -> None:
         assert value in readme
         assert value in architecture
     for value in (
-        "training_run_config_v3",
+        "training_run_config_v4",
         "flat_mlp",
         "asset_set",
         "hierarchical_sequence_v2",

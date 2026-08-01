@@ -307,15 +307,15 @@ def _required_hierarchical_config(config: object, name: str) -> int | float:
     value = getattr(config, name, None)
     if value is None:
         raise ValueError(
-            f"hierarchical BC requires explicit training_run_config_v3 field {name}"
+            f"hierarchical BC requires explicit training_run_config_v4 field {name}"
         )
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(
-            f"hierarchical BC training_run_config_v3 field {name} must be numeric"
+            f"hierarchical BC training_run_config_v4 field {name} must be numeric"
         )
     if not np.isfinite(float(value)):
         raise ValueError(
-            f"hierarchical BC training_run_config_v3 field {name} must be finite"
+            f"hierarchical BC training_run_config_v4 field {name} must be finite"
         )
     return value
 

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import pytest
 
+from test_support.training_config import complete_execution_config
 from trade_rl.workflows.training_run import TrainingRunConfig
 
 
 def _mapping() -> dict[str, object]:
     return {
-        "schema_version": "training_run_config_v3",
+        "schema_version": "training_run_config_v4",
         "training": {
             "timesteps": 8,
             "gamma": 0.99,
@@ -37,6 +38,7 @@ def _mapping() -> dict[str, object]:
             "initial_capital": 1_000.0,
             "require_full_reward_preroll": False,
         },
+        "execution": complete_execution_config(),
         "risk": {},
         "reward": {},
         "trend": {"fast_lookback": 1, "base_lookback": 2, "slow_lookback": 3},
@@ -45,7 +47,7 @@ def _mapping() -> dict[str, object]:
 
 
 def test_training_config_rejects_disabled_full_reward_preroll() -> None:
-    """Explicit opt-out is rejected while omission resolves to the maintained mode."""
+    """Training refuses an explicitly disabled full-preroll contract."""
 
     with pytest.raises(ValueError, match="require_full_reward_preroll"):
         TrainingRunConfig.from_mapping(_mapping())

@@ -32,6 +32,21 @@ jobs:
           mv tests/training_config_support.py test_support/training_config.py
           grep -rl 'from tests.training_config_support import' tests \
             | xargs sed -i 's/from tests\.training_config_support import/from test_support.training_config import/'
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("pyproject.toml")
+          text = path.read_text()
+          marker = '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n'
+          replacement = (
+              '[tool.pytest.ini_options]\n'
+              'testpaths = ["tests"]\n'
+              'pythonpath = ["."]\n'
+          )
+          if marker not in text:
+              raise SystemExit("pytest configuration marker not found")
+          path.write_text(text.replace(marker, replacement, 1))
+          PY
       - name: Install targeted test environment
         run: uv sync --extra dev --extra train-sb3
       - name: Format and lint migrated tree

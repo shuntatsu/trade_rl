@@ -13,10 +13,15 @@ on:
       - trade_rl/catalog/**
       - trade_rl/data/artifact.py
       - trade_rl/evaluation/walk_forward/**
+      - trade_rl/integrations/postgres_indicator_artifacts.py
+      - trade_rl/integrations/postgres_market_dataset.py
       - trade_rl/workflows/**
       - trade_rl/cli/**
       - tests/catalog/**
       - tests/evaluation/**
+      - tests/integrations/test_postgres_indicator_artifacts.py
+      - tests/integrations/test_postgres_market_dataset.py
+      - tests/integrations/test_postgres_market_dataset_live.py
       - tests/workflows/**
       - tests/ops/test_postgres_compose_contract.py
       - .github/workflows/postgres-catalog.yml
@@ -67,6 +72,9 @@ jobs:
           tests/ops/test_postgres_compose_contract.py
           tests/data/test_market_artifact_catalog.py
           tests/cli/test_catalog_commands.py
+          tests/integrations/test_postgres_indicator_artifacts.py
+          tests/integrations/test_postgres_market_dataset.py
+          tests/integrations/test_postgres_market_dataset_live.py
           -q
       - name: Stop PostgreSQL
         if: always()

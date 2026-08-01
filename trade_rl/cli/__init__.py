@@ -44,6 +44,12 @@ def main(
     arguments = list(sys.argv[1:] if argv is None else argv)
     output = stdout or sys.stdout
     errors = stderr or sys.stderr
+    if not arguments:
+        build_parser().print_help(file=output)
+        return 2
+    if arguments in (["-h"], ["--help"]):
+        build_parser().print_help(file=output)
+        return 0
     if arguments[:1] == ["studio"]:
         from trade_rl.studio.cli import main as studio_main
 

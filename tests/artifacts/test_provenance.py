@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,25 @@ def _source_tree(root: Path, *, marker: str = "same") -> None:
     (root / "uv.toml").write_text('required-version = "==0.10.0"\n', encoding="utf-8")
     (root / "trade_rl" / "module.py").write_text(marker, encoding="utf-8")
     (root / "examples" / "runner.py").write_text("runner", encoding="utf-8")
+
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ("git", "-C", str(root), *args),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _committed_source_tree(root: Path) -> str:
+    _source_tree(root)
+    _git(root, "init")
+    _git(root, "config", "user.email", "provenance@example.invalid")
+    _git(root, "config", "user.name", "Provenance Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "initial source")
+    return _git(root, "rev-parse", "HEAD")
 
 
 def _capture(root: Path, **overrides: object):
@@ -99,3 +119,38 @@ def test_runtime_provenance_binds_container_image_digest(tmp_path: Path) -> None
 
     assert first.image_digest == "1" * 64
     assert first.digest != second.digest
+
+
+def test_runtime_provenance_rejects_declared_commit_that_differs_from_checkout(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    observed_commit = _committed_source_tree(root)
+    declared_commit = "b" * 40
+    assert observed_commit != declared_commit
+
+    with pytest.raises(ValueError, match="git commit does not match checkout"):
+        _capture(root, git_commit=declared_commit, git_dirty=False)
+
+
+def test_runtime_provenance_rejects_declared_clean_state_for_dirty_checkout(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    observed_commit = _committed_source_tree(root)
+    (root / "trade_rl" / "module.py").write_text("dirty", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="git dirty state does not match checkout"):
+        _capture(root, git_commit=observed_commit, git_dirty=False)
+
+
+def test_runtime_provenance_accepts_declared_identity_matching_checkout(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    observed_commit = _committed_source_tree(root)
+
+    provenance = _capture(root, git_commit=observed_commit, git_dirty=False)
+
+    assert provenance.git_commit == observed_commit
+    assert provenance.git_dirty is False

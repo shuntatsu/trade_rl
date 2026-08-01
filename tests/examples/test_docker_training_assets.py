@@ -234,22 +234,34 @@ def test_ci_builds_and_probes_the_complete_training_image() -> None:
 
 
 def test_gpu_nightly_contract_measures_vram_throughput_and_resume() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "gpu-nightly.yml").read_text(
+    caller = (ROOT / ".github" / "workflows" / "gpu-nightly.yml").read_text(
         encoding="utf-8"
     )
-    smoke = (
-        ROOT / "examples" / "binance-multitimeframe" / "run_gpu_training_smoke.py"
+    reusable = (
+        ROOT
+        / ".github"
+        / "workflows"
+        / "reusable-gpu-training-verification.yml"
+    ).read_text(encoding="utf-8")
+    facade = (
+        ROOT / "trade_rl" / "operations" / "gpu_training_smoke.py"
+    ).read_text(encoding="utf-8")
+    implementation = (
+        ROOT / "trade_rl" / "operations" / "_gpu_training_smoke_impl.py"
     ).read_text(encoding="utf-8")
 
-    assert "workflow_dispatch:" in workflow
-    assert "self-hosted" in workflow
-    assert "nvidia" in workflow.lower()
-    assert "run_gpu_training_smoke.py" in workflow
-    assert "gpu-training-smoke.json" in workflow
-    assert "peak_gpu_memory_mib" in smoke
-    assert "throughput_steps_per_second" in smoke
-    assert "resume_checkpoint" in smoke
-    assert "gpu_sequence_target_oracle_bc_training_smoke_v8" in smoke
+    assert "workflow_dispatch:" in caller
+    assert "uses: ./.github/workflows/reusable-gpu-training-verification.yml" in caller
+    assert "runs-on: [self-hosted, linux, x64, gpu, nvidia]" in reusable
+    assert "trade_rl.operations.gpu_training_smoke" in reusable
+    assert "gpu-training-smoke.json" in reusable
+    assert "peak_gpu_memory_mib" in facade
+    assert "throughput_steps_per_second" in facade
+    assert "resume_checkpoint" in implementation
+    assert (
+        'GPU_TRAINING_SMOKE_SCHEMA = "gpu_sequence_target_oracle_bc_training_smoke_v8"'
+        in facade
+    )
 
 
 def test_ci_explicitly_runs_recovery_and_structured_serving_smokes() -> None:

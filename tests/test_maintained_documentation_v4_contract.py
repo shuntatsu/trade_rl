@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from test_support.training_config import complete_execution_config
+
 
 def test_docs_match_maintained_schemas_and_boundaries() -> None:
     root = Path(__file__).resolve().parents[1]
@@ -24,6 +26,19 @@ def test_docs_match_maintained_schemas_and_boundaries() -> None:
     assert "offline_signing" in architecture
     assert "PR #193" in architecture
     assert "binance_vision_raw_cache_v1" in binance
+
+
+def test_configuration_example_is_valid_explicit_v4_json() -> None:
+    root = Path(__file__).resolve().parents[1]
+    configuration = (root / "docs/CONFIGURATION.md").read_text()
+    start = configuration.index("```json\n") + len("```json\n")
+    end = configuration.index("\n```", start)
+
+    payload = json.loads(configuration[start:end])
+
+    assert payload["schema_version"] == "training_run_config_v4"
+    assert payload["environment"]["require_full_reward_preroll"] is True
+    assert set(payload["execution"]) == set(complete_execution_config())
 
 
 def test_quickstart_pins_hybrid_reward() -> None:

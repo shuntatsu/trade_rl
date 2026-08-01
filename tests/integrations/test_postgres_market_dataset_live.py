@@ -42,9 +42,7 @@ def _indicator_bundle(
     for symbol_index, symbol in enumerate(symbols):
         for timeframe in NATIVE_TIMEFRAMES:
             feature_names = tuple(
-                spec.name
-                for spec in specs
-                if spec.name.startswith(f"{timeframe}__")
+                spec.name for spec in specs if spec.name.startswith(f"{timeframe}__")
             )
             values = np.full(
                 (4, len(feature_names)),
@@ -128,12 +126,8 @@ def test_build_postgres_market_dataset_against_live_postgres() -> None:
                     )
                 """
             )
-            cursor.execute(
-                "TRUNCATE market_raw.binance_usds_m_klines_202101_202606"
-            )
-            cursor.execute(
-                "TRUNCATE market_raw.binance_usds_m_funding_202101_202606"
-            )
+            cursor.execute("TRUNCATE market_raw.binance_usds_m_klines_202101_202606")
+            cursor.execute("TRUNCATE market_raw.binance_usds_m_funding_202101_202606")
 
             for symbol_index, symbol in enumerate(symbols):
                 base = Decimal("10") + Decimal(symbol_index)
@@ -187,7 +181,9 @@ def test_build_postgres_market_dataset_against_live_postgres() -> None:
         )
         np.testing.assert_allclose(dataset.open[:, 0], [10.0, 11.0, 12.0, 13.0])
         np.testing.assert_allclose(dataset.close[:, 2], [12.5, 13.5, 14.5, 15.5])
-        np.testing.assert_allclose(dataset.volume[:, 1], [1000.0, 1001.0, 1002.0, 1003.0])
+        np.testing.assert_allclose(
+            dataset.volume[:, 1], [1000.0, 1001.0, 1002.0, 1003.0]
+        )
         np.testing.assert_array_equal(dataset.funding_event_count[:, 0], [0, 1, 0, 0])
         np.testing.assert_allclose(dataset.funding_rate[:, 0], [0.0, 0.0001, 0.0, 0.0])
         assert np.isfinite(dataset.open).all()

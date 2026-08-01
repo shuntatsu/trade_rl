@@ -21,13 +21,14 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
-      - run: uv run ruff check --fix trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py
-      - run: uv run ruff format trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py
-      - run: PYTHONPATH=. uv run pytest -q tests/cli/test_stage_a_cli.py
-      - run: uv run ruff check trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py
-      - run: uv run ruff format --check trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py
+      - run: uv run ruff check --fix trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py tests/cli/test_stage_a_cli_help.py
+      - run: uv run ruff format trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py tests/cli/test_stage_a_cli_help.py
+      - run: PYTHONPATH=. uv run pytest -q tests/cli/test_stage_a_cli.py tests/cli/test_stage_a_cli_help.py
+      - run: uv run ruff check trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py tests/cli/test_stage_a_cli_help.py
+      - run: uv run ruff format --check trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py tests/cli/test_stage_a_cli_help.py
       - run: uv run mypy .
       - run: uv run lint-imports
+      - run: git diff --check
       - name: Commit canonical formatting
         run: |
           if git diff --quiet; then
@@ -35,6 +36,6 @@ jobs:
           fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py
+          git add trade_rl/cli/stage_a.py trade_rl/cli/__init__.py tests/cli/test_stage_a_cli.py tests/cli/test_stage_a_cli_help.py
           git commit -m "style: format Stage A CLI"
           git push origin HEAD:agent/stage-a6b2-cli-wiring

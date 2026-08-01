@@ -1,0 +1,172 @@
+name: Temporary training config public boundary
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temporary-training-config-public-boundary.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout architecture branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/architecture-boundary-hardening-20260801
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Remove private cross-module helper dependency
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          config_path = Path("trade_rl/rl/training_run_config.py")
+          config = config_path.read_text(encoding="utf-8")
+
+          identity_old = '''            "alpha_artifact_digest": _signal_artifact_digest(
+              self.alpha_artifact, kind="alpha"
+          ),
+          "environment": asdict(self.environment),
+          "factor_artifact_digest": _signal_artifact_digest(
+              self.factor_artifact, kind="factor"
+          ),
+'''
+          identity_new = '''            "alpha_artifact_digest": self.alpha_artifact_digest,
+          "environment": asdict(self.environment),
+          "factor_artifact_digest": self.factor_artifact_digest,
+'''
+          if config.count(identity_old) != 1:
+              raise SystemExit("training config identity helper block is not unique")
+          config = config.replace(identity_old, identity_new, 1)
+
+          property_marker = '''    def resolve_artifact_paths(self, base: Path) -> TrainingRunConfig:
+'''
+          properties = '''    @property
+  def alpha_artifact_digest(self) -> str | None:
+      """Return the validated alpha artifact identity, when configured."""
+
+      return _signal_artifact_digest(self.alpha_artifact, kind="alpha")
+
+  @property
+  def factor_artifact_digest(self) -> str | None:
+      """Return the validated factor artifact identity, when configured."""
+
+      return _signal_artifact_digest(self.factor_artifact, kind="factor")
+
+'''
+          if config.count(property_marker) != 1:
+              raise SystemExit("training config property insertion marker is not unique")
+          config = config.replace(property_marker, properties + property_marker, 1)
+          config_path.write_text(config, encoding="utf-8")
+
+          workflow_path = Path("trade_rl/workflows/training_run.py")
+          workflow = workflow_path.read_text(encoding="utf-8")
+          import_old = '''from trade_rl.rl.training_run_config import (
+  TrainingRunConfig,
+  _signal_artifact_digest,
+)
+'''
+          import_new = '''from trade_rl.rl.training_run_config import (
+  TRAINING_RUN_CONFIG_SCHEMA as TRAINING_RUN_CONFIG_SCHEMA,
+)
+from trade_rl.rl.training_run_config import TrainingRunConfig
+'''
+          if workflow.count(import_old) != 1:
+              raise SystemExit("training workflow config import block is not unique")
+          workflow = workflow.replace(import_old, import_new, 1)
+
+          environment_old = '''            "alpha_artifact_digest": _signal_artifact_digest(
+              config.alpha_artifact, kind="alpha"
+          ),
+          "environment": asdict(config.environment),
+          "factor_artifact_digest": _signal_artifact_digest(
+              config.factor_artifact, kind="factor"
+          ),
+'''
+          environment_new = '''            "alpha_artifact_digest": config.alpha_artifact_digest,
+          "environment": asdict(config.environment),
+          "factor_artifact_digest": config.factor_artifact_digest,
+'''
+          if workflow.count(environment_old) != 1:
+              raise SystemExit("training environment helper block is not unique")
+          workflow = workflow.replace(environment_old, environment_new, 1)
+          workflow_path.write_text(workflow, encoding="utf-8")
+
+          test_path = Path("tests/architecture/test_config_and_export_boundaries.py")
+          test = test_path.read_text(encoding="utf-8")
+          assertion_marker = '''    assert "from trade_rl.rl.training_run_config import" in workflow_source
+'''
+          assertions = assertion_marker + '''    assert (
+      "TRAINING_RUN_CONFIG_SCHEMA as TRAINING_RUN_CONFIG_SCHEMA"
+      in workflow_source
+  )
+  assert "_signal_artifact_digest" not in workflow_source
+'''
+          if test.count(assertion_marker) != 1:
+              raise SystemExit("architecture test assertion marker is not unique")
+          test = test.replace(assertion_marker, assertions, 1)
+          test_path.write_text(test, encoding="utf-8")
+          PY
+
+      - name: Format and verify focused boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix .
+          uv run ruff format .
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest \
+            tests/architecture/test_config_and_export_boundaries.py \
+            tests/workflows/test_training_run_config.py \
+            tests/workflows/test_training_run_transfer_config.py \
+            tests/rl/test_structured_export.py \
+            tests/serving \
+            tests/studio \
+            -q
+          uv run lint-imports
+          uv run mypy trade_rl
+          git diff --check
+
+      - name: Commit verified cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: expose training config identities cleanly"
+          git push origin HEAD:agent/architecture-boundary-hardening-20260801
+
+      - name: Remove temporary workflow
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          path=".github/workflows/temporary-training-config-public-boundary.yml"
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=main" --jq '.sha')"
+          gh api --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/contents/${path}" \
+            -f message='chore: remove temporary config boundary workflow' \
+            -f sha="${sha}" \
+            -f branch='main'

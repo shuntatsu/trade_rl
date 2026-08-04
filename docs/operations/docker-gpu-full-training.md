@@ -62,24 +62,23 @@ tensorboard diagnostics: enabled
 
 ## Oracle Bellman solver
 
-Oracle teacher生成の既定backendは`numpy`です。CUDAは明示選択でのみ使用し、backend、float64契約、tape digest、batch/block設定、fallback理由、OOM再試行、実行時間、peak memory、GPU情報をartifact provenanceへ保存します。
+Oracle teacher生成の既定backendは`numpy`です。CUDAは明示選択でのみ使用します。Teacher artifactとcache identityは、数値契約・market tape・実際のtarget/scoreだけで決まり、実行時間、peak memory、GPU名、fallback、OOM再試行などのruntime evidenceでは変化しません。runtime evidenceはmanifestとcatalog metadataへ別に保存します。
 
 ```text
 TRADE_RL_ORACLE_SOLVER=numpy|cuda|cuda_or_numpy
 TRADE_RL_ORACLE_EPISODE_BATCH_SIZE=8
 TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE=
 TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION=0.65
-TRADE_RL_ORACLE_COMPILE_MODE=disabled|reduce_overhead
-TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE=8|16|32|64
+TRADE_RL_ORACLE_COMPILE_MODE=disabled
 TRADE_RL_TEACHER_WORKERS=1
 ```
 
 - `numpy`: 維持対象の既定経路です。
 - `cuda`: CUDA unavailable、OOM再試行失敗、backend errorをそのままFail closedします。
-- `cuda_or_numpy`: CUDA solve全体がartifact promotion前に失敗した場合だけ、部分結果を破棄してNumPyで全episodeを最初から再実行します。fallback理由はprovenanceとcache identityへ記録されます。
+- `cuda_or_numpy`: CUDA solve全体がartifact promotion前に失敗した場合だけ、部分結果を破棄してNumPyで全episodeを最初から再実行します。fallback理由はruntime provenanceとcatalog metadataへ記録されますが、数値artifact identityには含めません。
 - CUDA選択時は`TRADE_RL_TEACHER_WORKERS=1`が必須です。並列性は複数GPU-owner processではなく`TRADE_RL_ORACLE_EPISODE_BATCH_SIZE`で管理します。
 - `TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE`を空にすると、backendがmemory予算からblock sizeを決定します。
-- `reduce_overhead`は固定chunk `8,16,32,64`だけを受け付けます。compile開始前の失敗は同じCUDA backendのeager経路へ戻り、CUDA solve失敗とは区別して記録します。
+- compiled Oracle executionは未検証のため使用できません。固定長chunkを実際にcompileする実装、NumPy parity、維持対象GPU上の同期benchmark evidenceが揃うまで`disabled`固定です。
 
 CUDAを既定へ変更する判断は、同期済みcorrectness corpusと維持対象GPUのbenchmark evidenceを別途満たした後に行います。
 

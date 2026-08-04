@@ -31,6 +31,11 @@ def solve_torch_cuda_oracle_batch(
 ) -> OracleSolveResult:
     """Load the optional Torch integration only when CUDA execution is requested."""
 
+    if (
+        isinstance(solver_config, OracleSolverConfig)
+        and solver_config.compile_mode != "disabled"
+    ):
+        raise OracleBackendFailure("torch_cuda", "compile_mode_unvalidated")
     try:
         from trade_rl.integrations.oracle_bellman_torch import (
             solve_torch_cuda_oracle_batch as implementation,

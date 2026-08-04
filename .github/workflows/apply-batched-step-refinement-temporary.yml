@@ -29,47 +29,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .github/oracle-transition.part00 .github/oracle-transition.part01 \
-            | base64 --decode | gzip --decompress \
-            > trade_rl/learning/oracle_transition_numpy.py
-          cat .github/oracle-transition-test.part00 \
-            | base64 --decode | gzip --decompress \
-            > tests/learning/test_oracle_transition_numpy.py
+          cat .github/oracle-refine/tr* > /tmp/transition.b64
+          cat .github/oracle-refine/te* > /tmp/test.b64
+          test "$(sha256sum /tmp/transition.b64 | cut -d' ' -f1)" = "d07e61fd5d855bfdf9bf7eac456fd10c0dac24739350ce408a3bfb634b3b5b9c"
+          test "$(sha256sum /tmp/test.b64 | cut -d' ' -f1)" = "fba100a94e1a77e2f93d537d849b9f6e156d06e2d9855fe4cff730cf01dc4ba6"
+          base64 --decode /tmp/transition.b64 | gzip --decompress > trade_rl/learning/oracle_transition_numpy.py
+          base64 --decode /tmp/test.b64 | gzip --decompress > tests/learning/test_oracle_transition_numpy.py
+          test "$(sha256sum trade_rl/learning/oracle_transition_numpy.py | cut -d' ' -f1)" = "09b926cb84162fb2e2fc094dffe9a22e75bc543527fd3ea4c91cf3d172df0f08"
+          test "$(sha256sum tests/learning/test_oracle_transition_numpy.py | cut -d' ' -f1)" = "09e910073410d0eb559c1bde98a08f13e5e48d3cdc635a8bf434a43c29c7404b"
       - name: Install, normalize, and verify
         shell: bash
         run: |
           set -euo pipefail
           uv sync --extra dev --extra train-sb3
-          uv run ruff check --fix \
-            trade_rl/learning/oracle_transition_numpy.py \
-            tests/learning/test_oracle_transition_numpy.py
-          uv run ruff format \
-            trade_rl/learning/oracle_transition_numpy.py \
-            tests/learning/test_oracle_transition_numpy.py
-          uv run pytest -q \
-            tests/learning/test_oracle_transition_numpy.py \
-            tests/learning/test_oracle_teacher.py \
-            tests/learning/test_oracle_market_tape.py
-          uv run ruff check \
-            trade_rl/learning/oracle_transition_numpy.py \
-            tests/learning/test_oracle_transition_numpy.py
-          uv run ruff format --check --diff \
-            trade_rl/learning/oracle_transition_numpy.py \
-            tests/learning/test_oracle_transition_numpy.py
+          uv run ruff check --fix trade_rl/learning/oracle_transition_numpy.py tests/learning/test_oracle_transition_numpy.py
+          uv run ruff format trade_rl/learning/oracle_transition_numpy.py tests/learning/test_oracle_transition_numpy.py
+          uv run pytest -q tests/learning/test_oracle_transition_numpy.py tests/learning/test_oracle_teacher.py tests/learning/test_oracle_market_tape.py
+          uv run ruff check trade_rl/learning/oracle_transition_numpy.py tests/learning/test_oracle_transition_numpy.py
+          uv run ruff format --check --diff trade_rl/learning/oracle_transition_numpy.py tests/learning/test_oracle_transition_numpy.py
           uv run mypy trade_rl/learning/oracle_transition_numpy.py
       - name: Commit verified refinement and remove temporary payloads
         shell: bash
         run: |
           set -euo pipefail
-          rm .github/oracle-transition.part00
-          rm .github/oracle-transition.part01
-          rm .github/oracle-transition-test.part00
+          rm -rf .github/oracle-refine
+          rm .github/oracle-transition.part00 .github/oracle-transition.part01 .github/oracle-transition-test.part00
           rm .github/workflows/apply-batched-step-refinement-temporary.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            trade_rl/learning/oracle_transition_numpy.py \
-            tests/learning/test_oracle_transition_numpy.py \
-            .github
+          git add trade_rl/learning/oracle_transition_numpy.py tests/learning/test_oracle_transition_numpy.py .github
           git commit -m "feat: batch Oracle transitions across episode timelines"
           git push origin HEAD:agent/oracle-bellman-batched-solver

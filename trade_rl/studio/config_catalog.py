@@ -23,7 +23,7 @@ class ResolvedConfig:
 
 
 def _load_training_config(path: Path) -> object:
-    from trade_rl.workflows.training_run import TrainingRunConfig
+    from trade_rl.rl.training_run_config import TrainingRunConfig
 
     return TrainingRunConfig.from_json(path)
 

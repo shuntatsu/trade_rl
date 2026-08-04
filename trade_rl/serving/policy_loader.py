@@ -12,13 +12,13 @@ import numpy as np
 from trade_rl.artifacts.atomic_pointer import atomic_replace_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.domain.common import require_sha256
-from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
-from trade_rl.rl.structured_export import (
+from trade_rl.artifacts.structured_policy_contract import (
     STRUCTURED_EXPORT_MANIFEST_NAME,
     STRUCTURED_EXPORT_MODEL_NAME,
     load_structured_export_manifest,
 )
+from trade_rl.domain.common import require_sha256
+from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import ServingBundle, ServingBundleManifest
 
 STRUCTURED_POLICY_LOADER_NAME: Final = "structured-policy-loader.json"

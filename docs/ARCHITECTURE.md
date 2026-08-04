@@ -184,6 +184,18 @@ Serving bundleの正本は`serving_bundle_v6`です。`policy_mode`はBaseline�
 
 Release approvalはBundle外のEd25519 Attestationとして保持します。RuntimeへPrivate keyを渡しません。
 
+## Future asymmetric cross-market boundary
+
+Stage Bは現在未実装です。将来の市場役割は次の非対称Contractに固定します。
+
+```text
+SpotLongBook: FUTURE_LONG_ONLY_ROLE
+USDSMShortBook: FUTURE_SHORT_ONLY_ROLE
+StageBSpotFuturesGeneralization: NOT_IMPLEMENTED
+```
+
+Binance SpotはLong側Book、USDⓈ-M先物はShort側Bookとして扱います。将来のPortfolio coordinatorは両Bookを段階的に構成できますが、SpotをShort可能な市場として扱ったり、USDⓈ-M先物を無制約なLong/Short市場として扱ったりしません。
+
 ## Artifact store and PostgreSQL
 
 Filesystem artifactが数値データの正本です。Runは`.staging/<run-id>`で作成し、検証後に`runs/<run-id>`へAtomic publishします。

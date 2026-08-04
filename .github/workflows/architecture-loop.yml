@@ -1,0 +1,56 @@
+name: Architecture loop
+
+on:
+  pull_request:
+    branches:
+      - agent/architecture-15-loop-base
+
+permissions:
+  contents: read
+
+concurrency:
+  group: architecture-loop-${{ github.event.pull_request.number }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra postgres
+
+      - name: Architecture loop tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/architecture/test_architecture_15_loop.py 2>&1 | tee architecture-loop.log
+
+      - name: Static checks for touched packages
+        if: success()
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check trade_rl tests/architecture/test_architecture_15_loop.py
+          uv run mypy trade_rl
+          uv run lint-imports
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-loop-diagnostics
+          path: architecture-loop.log
+          if-no-files-found: ignore

@@ -1,0 +1,313 @@
+name: Integrate and verify Task 4
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/integrate-task4-temporary.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  integrate-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/oracle-bellman-batched-solver
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Centralize transition equations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          tape_path = Path("trade_rl/learning/oracle_market_tape.py")
+          tape = tape_path.read_text(encoding="utf-8")
+          helper = dedent(
+              '''
+              def oracle_open_market_factors(
+                  dataset: MarketDataset,
+                  close_index: int | np.ndarray,
+              ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+                  """Return raw/equity position factors and active masks for next-open gaps."""
+
+                  raw_indices = np.asarray(close_index)
+                  if raw_indices.ndim > 1 or not np.issubdtype(
+                      raw_indices.dtype, np.integer
+                  ):
+                      raise ValueError("close_index must contain integer indices")
+                  indices = np.asarray(raw_indices, dtype=np.int64)
+                  if np.any(indices < 0) or np.any(indices >= dataset.n_bars - 1):
+                      raise ValueError("close_index is outside the dataset")
+                  execution_indices = indices + 1
+                  previous_mark = dataset.resolved_array("mark_price")[indices]
+                  split = dataset.resolved_array("split_factor")[execution_indices]
+                  raw_position_factor = (
+                      dataset.open[execution_indices] * split / previous_mark
+                  )
+                  active = dataset.resolved_array("asset_active")[execution_indices]
+                  recovery = dataset.resolved_array("delisting_recovery")[execution_indices]
+                  equity_position_factor = np.where(
+                      active,
+                      raw_position_factor,
+                      raw_position_factor * recovery,
+                  )
+                  return raw_position_factor, equity_position_factor, active
+              '''
+          ).strip()
+          insert_marker = "def _market_notional_matrix("
+          if "def oracle_open_market_factors(" not in tape:
+              index = tape.index(insert_marker)
+              tape = tape[:index] + helper + "\n\n\n" + tape[index:]
+          builder_start = tape.index("def build_oracle_market_tape(")
+          direct_start = tape.index("    previous_mark =", builder_start)
+          direct_end = tape.index("    market_notional =", direct_start)
+          replacement = dedent(
+              '''
+                  raw_position_factor, equity_position_factor, active = (
+                      oracle_open_market_factors(dataset, close_indices)
+                  )
+                  execution_open = dataset.open[execution_indices]
+              '''
+          ).lstrip("\n")
+          tape = tape[:direct_start] + replacement + tape[direct_end:]
+          tape = tape.replace(
+              '    "build_oracle_market_tape",\n]',
+              '    "build_oracle_market_tape",\n    "oracle_open_market_factors",\n]',
+          )
+          tape_path.write_text(tape, encoding="utf-8")
+
+          teacher_path = Path("trade_rl/learning/oracle_teacher.py")
+          teacher = teacher_path.read_text(encoding="utf-8")
+          import_anchor = (
+              "from trade_rl.learning.oracle_bellman_contracts import "
+              "OracleBellmanParameters\n"
+          )
+          import_block = import_anchor + dedent(
+              '''
+              from trade_rl.learning.oracle_market_tape import (
+                  build_oracle_market_tape,
+                  oracle_open_market_factors,
+              )
+              from trade_rl.learning.oracle_transition_numpy import (
+                  numpy_effective_target_matrix,
+                  numpy_execute_transition_step,
+                  numpy_open_state_step,
+                  project_portfolio_targets_numpy,
+              )
+              '''
+          )
+          if "from trade_rl.learning.oracle_transition_numpy import" not in teacher:
+              teacher = teacher.replace(import_anchor, import_block)
+
+          def replace_function(
+              text: str,
+              start_marker: str,
+              next_marker: str,
+              replacement_text: str,
+          ) -> str:
+              start = text.index(start_marker)
+              end = text.index(next_marker, start)
+              return (
+                  text[:start]
+                  + replacement_text.strip()
+                  + "\n\n\n"
+                  + text[end:]
+              )
+
+          effective = dedent(
+              '''
+              def _effective_target_matrix(
+                  config: OracleTeacherConfig,
+                  current_weights: np.ndarray,
+                  targets: np.ndarray,
+              ) -> np.ndarray:
+                  """Compatibility wrapper over maintained batched NumPy controls."""
+
+                  current = np.asarray(current_weights, dtype=np.float64)
+                  if current.ndim != 2:
+                      raise ValueError("current_weights must be two-dimensional")
+                  return numpy_effective_target_matrix(
+                      config.bellman_parameters,
+                      current[None, :, :],
+                      targets,
+                  )[0]
+              '''
+          )
+          open_state = dedent(
+              '''
+              def _open_state_matrix(
+                  dataset: MarketDataset,
+                  *,
+                  close_index: int,
+                  prior_close_weights: np.ndarray,
+                  prior_scores: np.ndarray,
+                  reference_portfolio_value: float,
+              ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+                  """Compatibility wrapper over the batched next-open kernel."""
+
+                  raw_factor, equity_factor, active = oracle_open_market_factors(
+                      dataset, close_index
+                  )
+                  result = numpy_open_state_step(
+                      raw_position_factor=raw_factor,
+                      equity_position_factor=equity_factor,
+                      active=active,
+                      prior_scores=np.asarray(prior_scores, dtype=np.float64)[None, :],
+                      prior_close_weights=np.asarray(
+                          prior_close_weights, dtype=np.float64
+                      )[None, :, :],
+                      reference_portfolio_value=reference_portfolio_value,
+                  )
+                  return (
+                      result.gap_factor[0],
+                      result.open_weights[0],
+                      result.open_equity[0],
+                      result.valid_prior[0],
+                  )
+              '''
+          )
+          projection = dedent(
+              '''
+              def project_portfolio_targets(
+                  targets: np.ndarray,
+                  *,
+                  portfolio_value: np.ndarray,
+                  market_notional: np.ndarray,
+                  config: PortfolioRiskConfig,
+              ) -> np.ndarray:
+                  """Compatibility wrapper over the batched risk projection."""
+
+                  weights = np.asarray(targets, dtype=np.float64)
+                  values = np.asarray(portfolio_value, dtype=np.float64).reshape(-1)
+                  if weights.ndim != 3 or weights.shape[0] != values.size:
+                      raise ValueError(
+                          "oracle portfolio target batch does not match portfolio values"
+                      )
+                  return project_portfolio_targets_numpy(
+                      weights[None, :, :, :],
+                      portfolio_value=values[None, :],
+                      market_notional=market_notional,
+                      config=config,
+                  )[0]
+              '''
+          )
+          transition = dedent(
+              '''
+              def _transition_matrices(
+                  dataset: MarketDataset,
+                  config: OracleTeacherConfig,
+                  *,
+                  close_index: int,
+                  current_weights: np.ndarray,
+                  open_equity: np.ndarray,
+                  targets: np.ndarray,
+              ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+                  """Compatibility wrapper over the batched execution kernel."""
+
+                  tape = build_oracle_market_tape(
+                      dataset,
+                      (close_index, close_index + 2),
+                      config.bellman_parameters,
+                  )
+                  result = numpy_execute_transition_step(
+                      tape=tape,
+                      step=0,
+                      current_weights=np.asarray(
+                          current_weights, dtype=np.float64
+                      )[None, :, :],
+                      open_equity=np.asarray(
+                          open_equity, dtype=np.float64
+                      )[None, :],
+                      targets=targets,
+                      parameters=config.bellman_parameters,
+                  )
+                  return (
+                      result.valid[0],
+                      result.close_factor[0],
+                      result.close_weights[0],
+                      result.effective_targets[0],
+                  )
+              '''
+          )
+          teacher = replace_function(
+              teacher,
+              "def _effective_target_matrix(",
+              "def _open_state_matrix(",
+              effective,
+          )
+          teacher = replace_function(
+              teacher,
+              "def _open_state_matrix(",
+              "def project_portfolio_targets(",
+              open_state,
+          )
+          teacher = replace_function(
+              teacher,
+              "def project_portfolio_targets(",
+              "def _transition_matrices(",
+              projection,
+          )
+          teacher = replace_function(
+              teacher,
+              "def _transition_matrices(",
+              "def oracle_target_path(",
+              transition,
+          )
+          teacher_path.write_text(teacher, encoding="utf-8")
+          PY
+      - name: Install, format, and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run ruff format \
+            trade_rl/learning/oracle_market_tape.py \
+            trade_rl/learning/oracle_transition_numpy.py \
+            trade_rl/learning/oracle_teacher.py \
+            tests/learning/test_oracle_transition_numpy.py
+          uv run pytest -q \
+            tests/learning/test_oracle_transition_numpy.py \
+            tests/learning/test_oracle_teacher.py \
+            tests/learning/test_oracle_market_tape.py
+          uv run ruff check \
+            trade_rl/learning/oracle_market_tape.py \
+            trade_rl/learning/oracle_transition_numpy.py \
+            trade_rl/learning/oracle_teacher.py \
+            tests/learning/test_oracle_transition_numpy.py
+          uv run ruff format --check --diff \
+            trade_rl/learning/oracle_market_tape.py \
+            trade_rl/learning/oracle_transition_numpy.py \
+            trade_rl/learning/oracle_teacher.py \
+            tests/learning/test_oracle_transition_numpy.py
+          uv run mypy \
+            trade_rl/learning/oracle_market_tape.py \
+            trade_rl/learning/oracle_transition_numpy.py \
+            trade_rl/learning/oracle_teacher.py
+      - name: Commit verified integration and remove workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/integrate-task4-temporary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/learning/oracle_market_tape.py \
+            trade_rl/learning/oracle_transition_numpy.py \
+            trade_rl/learning/oracle_teacher.py \
+            tests/learning/test_oracle_transition_numpy.py \
+            .github/workflows
+          git commit -m "refactor: centralize Oracle NumPy transitions"
+          git push origin HEAD:agent/oracle-bellman-batched-solver

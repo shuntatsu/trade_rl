@@ -270,7 +270,7 @@ class OracleEpisodeInputs:
 
 @dataclass(frozen=True, slots=True)
 class OracleSolverProvenance:
-    """Truthful numerical and runtime identity for an Oracle solve."""
+    """Numerical identity plus separately serialized runtime evidence."""
 
     backend: SolverBackend
     solver_config_digest: str
@@ -361,7 +361,19 @@ class OracleSolverProvenance:
         object.__setattr__(self, "digest", expected)
 
     def identity_payload(self) -> dict[str, object]:
-        """Return the complete canonical provenance payload excluding its digest."""
+        """Return only values that can change the numerical solve semantics."""
+
+        return {
+            "market_tape_digest": self.market_tape_digest,
+            "numeric_dtype": self.numeric_dtype,
+            "schema_version": self.schema_version,
+            "solver_contract": self.solver_contract,
+            "tie_break_contract": self.tie_break_contract,
+            "tie_tolerance": self.tie_tolerance,
+        }
+
+    def runtime_payload(self) -> dict[str, object]:
+        """Return execution-policy and runtime evidence excluded from identity."""
 
         return {
             "backend": self.backend,
@@ -372,25 +384,23 @@ class OracleSolverProvenance:
             "device_name": self.device_name,
             "episode_batch_size": self.episode_batch_size,
             "fallback_reason": self.fallback_reason,
-            "market_tape_digest": self.market_tape_digest,
-            "numeric_dtype": self.numeric_dtype,
             "oom_retry_performed": self.oom_retry_performed,
             "peak_device_memory_bytes": self.peak_device_memory_bytes,
             "peak_host_memory_bytes": self.peak_host_memory_bytes,
-            "schema_version": self.schema_version,
             "solver_config_digest": self.solver_config_digest,
-            "solver_contract": self.solver_contract,
             "solver_wall_time_seconds": self.solver_wall_time_seconds,
             "target_state_block_size": self.target_state_block_size,
-            "tie_break_contract": self.tie_break_contract,
-            "tie_tolerance": self.tie_tolerance,
             "torch_version": self.torch_version,
         }
 
     def serialized_payload(self) -> dict[str, object]:
-        """Return artifact-safe provenance including its verified digest."""
+        """Return complete provenance while keeping a stable numerical digest."""
 
-        return {**self.identity_payload(), "digest": self.digest}
+        return {
+            **self.identity_payload(),
+            **self.runtime_payload(),
+            "digest": self.digest,
+        }
 
     @classmethod
     def from_payload(cls, value: Mapping[str, object]) -> OracleSolverProvenance:

@@ -191,7 +191,10 @@ def _teacher_worker_count(
 ) -> int:
     raw = os.environ.get("TRADE_RL_TEACHER_WORKERS", "").strip()
     try:
-        configured = n_envs if not raw else int(raw)
+        if raw:
+            configured = int(raw)
+        else:
+            configured = n_envs if solver_config is None else 1
     except ValueError as error:
         raise ValueError("TRADE_RL_TEACHER_WORKERS must be an integer") from error
     if configured <= 0:

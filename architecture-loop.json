@@ -1,0 +1,28 @@
+{
+  "operations": [
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/training_run_config.py",
+      "old": "    def _identity_payload(\n        self,\n        *,\n        resume_checkpoint_digests: dict[str, str],\n        transfer_checkpoint_digests: dict[str, str],\n    ) -> dict[str, object]:\n",
+      "new": "    def _recipe_identity_payload(\n        self,\n        *,\n        resume_checkpoint_digests: dict[str, str],\n        transfer_checkpoint_digests: dict[str, str],\n    ) -> dict[str, object]:\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/training_run_config.py",
+      "old": "            \"factor_artifact_digest\": self.factor_artifact_digest,\n            \"export_onnx\": self.export_onnx,\n            \"export_structured_torchscript\": self.export_structured_torchscript,\n            \"export_tolerance\": self.export_tolerance,\n            \"export_torchscript\": self.export_torchscript,\n            \"git_commit\": self.git_commit,\n",
+      "new": "            \"factor_artifact_digest\": self.factor_artifact_digest,\n            \"git_commit\": self.git_commit,\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/training_run_config.py",
+      "old": "        return self._identity_payload(\n            resume_checkpoint_digests={},\n            transfer_checkpoint_digests={},\n        )\n",
+      "new": "        return self._recipe_identity_payload(\n            resume_checkpoint_digests={},\n            transfer_checkpoint_digests={},\n        )\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/training_run_config.py",
+      "old": "        return self._identity_payload(\n            resume_checkpoint_digests={\n",
+      "new": "        return self._recipe_identity_payload(\n            resume_checkpoint_digests={\n"
+    }
+  ]
+}

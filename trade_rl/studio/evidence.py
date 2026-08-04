@@ -11,11 +11,11 @@ from trade_rl.artifacts.run_manifest import (
     TrainingRunManifest,
     validate_training_run_directory,
 )
-from trade_rl.studio.contracts import EvidenceNode, EvidenceReport, FileIntegritySummary
-from trade_rl.workflows.selection_authorization import (
+from trade_rl.release.selection_authorization import (
     load_selection_authorization,
     load_selection_proposal,
 )
+from trade_rl.studio.contracts import EvidenceNode, EvidenceReport, FileIntegritySummary
 
 
 def _mapping(value: object) -> Mapping[str, Any] | None:

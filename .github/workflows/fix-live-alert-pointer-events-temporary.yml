@@ -26,16 +26,20 @@ jobs:
           cache: npm
           cache-dependency-path: studio/package-lock.json
 
-      - name: Install Studio dependencies
-        run: npm ci --prefix studio --no-audit --no-fund
+      - name: Install and build Studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix studio --no-audit --no-fund
+          npm run build --prefix studio
 
       - name: Prove blocked selector RED
         shell: bash
         run: |
           set -euo pipefail
           set +e
-          STUDIO_QA_OUTPUT_DIR=/tmp/studio-layout-red npm run check:layout --prefix studio > /tmp/layout-red.log 2>&1
-          status=$?
+          STUDIO_QA_OUTPUT_DIR=/tmp/studio-layout-red npm run check:layout --prefix studio 2>&1 | tee /tmp/layout-red.log
+          status=${PIPESTATUS[0]}
           set -e
           test "$status" -ne 0
           grep -F "intercepts pointer events" /tmp/layout-red.log

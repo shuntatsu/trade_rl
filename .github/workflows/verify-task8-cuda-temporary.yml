@@ -1,0 +1,75 @@
+name: Verify Task 8 CUDA backend
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/verify-task8-cuda-temporary.yml
+
+permissions:
+  contents: write
+
+env:
+  OMP_NUM_THREADS: "2"
+  MKL_NUM_THREADS: "2"
+
+jobs:
+  verify-cuda:
+    if: github.actor == github.repository_owner
+    environment: gpu-full-training
+    runs-on: [self-hosted, linux, x64, gpu, nvidia]
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/oracle-bellman-batched-solver
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Verify tested commit and GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          tested_commit="$(git rev-parse HEAD)"
+          test "$tested_commit" = "${{ github.event.pull_request.head.sha }}"
+          echo "TESTED_COMMIT=$tested_commit" >> "$GITHUB_ENV"
+          nvidia-smi
+          nvidia-smi \
+            --query-gpu=name,driver_version,memory.total,compute_cap \
+            --format=csv,noheader
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install test dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Require CUDA and run parity tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import torch
+
+          assert torch.cuda.is_available(), "maintained runner must expose CUDA"
+          print(f"torch={torch.__version__}")
+          print(f"cuda={torch.version.cuda}")
+          print(f"device={torch.cuda.get_device_name(0)}")
+          print(f"capability={torch.cuda.get_device_capability(0)}")
+          PY
+          uv run pytest -q -vv \
+            tests/learning/test_oracle_bellman_torch.py \
+            -k cuda_solver_matches_numpy_reference
+          uv run pytest -q \
+            tests/learning/test_oracle_bellman_torch.py \
+            tests/learning/test_oracle_solver.py
+      - name: Remove temporary GPU workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"
+          rm .github/workflows/verify-task8-cuda-temporary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/verify-task8-cuda-temporary.yml
+          git commit -m "test: verify Task 8 CUDA backend"
+          git push origin HEAD:agent/oracle-bellman-batched-solver

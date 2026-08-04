@@ -17,7 +17,7 @@ from trade_rl.learning.oracle_bellman_contracts import (
     OracleSolverConfig,
     OracleSolverProvenance,
 )
-from trade_rl.learning.oracle_solver import solve_oracle_episodes
+from trade_rl.learning.oracle_solver import OracleBatchBackend, solve_oracle_episodes
 from trade_rl.learning.oracle_teacher import (
     OracleTeacherConfig,
     _portfolio_states,
@@ -86,6 +86,7 @@ def episode_oracle_target_path(
     *,
     initial_weights: np.ndarray,
     solver_config: OracleSolverConfig | None = None,
+    accelerator_backend: OracleBatchBackend | None = None,
 ) -> np.ndarray:
     """Return an Oracle path seeded from one explicit episode initial state."""
 
@@ -104,6 +105,7 @@ def episode_oracle_target_path(
         ),
         parameters=config.bellman_parameters,
         solver_config=solver_config or OracleSolverConfig(),
+        accelerator_backend=accelerator_backend,
     )
     return result.targets[0]
 
@@ -363,6 +365,7 @@ def build_episode_oracle_batch(
     initial_weight_provider: InitialWeightProvider | None = None,
     max_workers: int = 1,
     solver_config: OracleSolverConfig | None = None,
+    accelerator_backend: OracleBatchBackend | None = None,
 ) -> EpisodeOracleBatch:
     """Build bounded Oracle targets for independently sampled PPO-like episodes."""
 
@@ -395,6 +398,7 @@ def build_episode_oracle_batch(
         ),
         parameters=teacher_config.bellman_parameters,
         solver_config=solver_config or OracleSolverConfig(),
+        accelerator_backend=accelerator_backend,
     )
     return EpisodeOracleBatch(
         dataset_id=dataset.dataset_id,

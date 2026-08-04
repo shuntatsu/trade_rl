@@ -1,0 +1,48 @@
+name: Export Task 9 source
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/export-task9-source-temporary.yml
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/oracle-bellman-batched-solver
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Package Task 9 source
+        run: |
+          set -euo pipefail
+          tar -czf /tmp/trade-rl-task9-source.tar.gz \
+            trade_rl/integrations/sb3_training.py \
+            trade_rl/learning/oracle_solver.py \
+            tests/integrations/test_sb3_training.py \
+            tests/learning/test_oracle_solver.py \
+            tests/test_training_compose_contract.py \
+            compose.training.yaml \
+            docs/operations/docker-gpu-full-training.md \
+            pyproject.toml uv.lock .importlinter
+      - name: Upload Task 9 source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: trade-rl-task9-source-${{ github.sha }}
+          path: /tmp/trade-rl-task9-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+      - name: Remove temporary workflow
+        run: |
+          set -euo pipefail
+          rm .github/workflows/export-task9-source-temporary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/export-task9-source-temporary.yml
+          git commit -m "chore: remove Task 9 source export workflow"
+          git push origin HEAD:agent/oracle-bellman-batched-solver

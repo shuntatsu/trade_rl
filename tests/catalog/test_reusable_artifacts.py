@@ -145,7 +145,7 @@ def test_rejects_catalog_location_outside_durable_root(tmp_path: Path) -> None:
         index.resolve(ArtifactKind.ORACLE_TEACHER, {"identity": "teacher-1"})
 
 
-def test_cache_identity_v2_separates_actual_backends() -> None:
+def test_cache_identity_v2_shares_numerically_equivalent_backends() -> None:
     from trade_rl.learning.oracle_bellman_contracts import (
         OracleSolverConfig,
         OracleSolverProvenance,
@@ -179,10 +179,9 @@ def test_cache_identity_v2_separates_actual_backends() -> None:
     numpy_key = teacher_cache_identity_v2(**base, solver_provenance=numpy_provenance)
     cuda_key = teacher_cache_identity_v2(**base, solver_provenance=cuda_provenance)
 
-    assert numpy_key != cuda_key
+    assert numpy_key == cuda_key
     assert numpy_key["schema_version"] == "teacher_cache_identity_v2"
-    assert numpy_key["solver_backend"] == "numpy"
-    assert cuda_key["solver_backend"] == "torch_cuda"
+    assert "solver_backend" not in numpy_key
 
 
 class _CanonicalCatalog:
@@ -278,7 +277,9 @@ def test_v1_backfill_remains_legacy_without_cuda_claim(tmp_path: Path) -> None:
     assert "solver_provenance" not in registration.metadata
 
 
-def test_v2_backfill_records_truthful_solver_identity(tmp_path: Path) -> None:
+def test_v2_backfill_records_runtime_evidence_outside_cache_identity(
+    tmp_path: Path,
+) -> None:
     from trade_rl.learning.episode_teacher_artifact import (
         write_episode_teacher_artifact,
     )
@@ -298,11 +299,11 @@ def test_v2_backfill_records_truthful_solver_identity(tmp_path: Path) -> None:
 
     registration = catalog.registrations[-1]
     assert registration.cache_key["schema_version"] == "teacher_cache_identity_v2"
-    assert registration.cache_key["solver_backend"] == "numpy"
+    assert "solver_backend" not in registration.cache_key
     assert registration.metadata["solver_provenance"]["backend"] == "numpy"
 
 
-def test_v2_identity_ignores_runtime_metrics_but_not_backend() -> None:
+def test_v2_identity_ignores_runtime_metrics_and_backend() -> None:
     from dataclasses import replace
 
     from trade_rl.learning.oracle_bellman_contracts import (
@@ -335,4 +336,47 @@ def test_v2_identity_ignores_runtime_metrics_but_not_backend() -> None:
     cuda_key = teacher_cache_identity_v2(**base, solver_provenance=cuda)
 
     assert slower_key == normal_key
-    assert cuda_key != normal_key
+    assert cuda_key == normal_key
+
+
+def test_v2_artifact_digest_ignores_runtime_evidence(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from trade_rl.learning.episode_teacher_artifact import (
+        EpisodeSupervisedPolicyDataset,
+        load_episode_teacher_artifact,
+        write_episode_teacher_artifact,
+    )
+
+    base_dataset = _episode_dataset_with_provenance(with_provenance=True)
+    assert base_dataset.solver_provenance is not None
+    runtime_provenance = replace(
+        base_dataset.solver_provenance,
+        backend="torch_cuda",
+        solver_wall_time_seconds=12.0,
+        peak_device_memory_bytes=4096,
+        device_name="GPU",
+        digest="",
+    )
+    runtime_dataset = EpisodeSupervisedPolicyDataset(
+        observations=base_dataset.observations,
+        actions=base_dataset.actions,
+        dataset_id=base_dataset.dataset_id,
+        train_start=base_dataset.train_start,
+        train_stop=base_dataset.train_stop,
+        environment_digest=base_dataset.environment_digest,
+        action_spec_digest=base_dataset.action_spec_digest,
+        teacher_config_digest=base_dataset.teacher_config_digest,
+        decision_indices=base_dataset.decision_indices,
+        episode_ids=base_dataset.episode_ids,
+        solver_provenance=runtime_provenance,
+    )
+
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_digest = write_episode_teacher_artifact(first_root, base_dataset)
+    second_digest = write_episode_teacher_artifact(second_root, runtime_dataset)
+    second_manifest, _ = load_episode_teacher_artifact(second_root)
+
+    assert second_digest == first_digest
+    assert second_manifest.solver_provenance == runtime_provenance

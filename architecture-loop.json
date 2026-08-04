@@ -1,0 +1,34 @@
+{
+  "operations": [
+    {
+      "kind": "replace",
+      "path": "trade_rl/integrations/sb3_training.py",
+      "old": "                    teacher_identity = _environment_identity(teacher_environment)\n",
+      "new": "                    teacher_identity = training_environment_identity(\n                        teacher_environment\n                    )\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/operations/oracle_teacher_benchmark.py",
+      "old": "            \"state_count\": int(_portfolio_states(dataset, teacher_config).shape[0]),\n",
+      "new": "            \"state_count\": int(portfolio_states(dataset, teacher_config).shape[0]),\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/operations/oracle_teacher_benchmark.py",
+      "old": "        state_count=int(_portfolio_states(dataset, teacher).shape[0]),\n",
+      "new": "        state_count=int(portfolio_states(dataset, teacher).shape[0]),\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/environment_info.py",
+      "old": "from trade_rl.simulation.performance import (\n    PerformanceMetrics,\n    ReturnKind,\n    ReturnSeries,\n    evaluate_performance,\n)\nfrom trade_rl.rl.environment_constraints import (\n",
+      "new": "from trade_rl.rl.environment_constraints import (\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/environment_info.py",
+      "old": "from trade_rl.rl.rewards import RewardBreakdown, RewardConfig, RewardContext\nfrom trade_rl.simulation.accounting import BookState\n",
+      "new": "from trade_rl.rl.rewards import RewardBreakdown, RewardConfig, RewardContext\nfrom trade_rl.simulation.accounting import BookState\nfrom trade_rl.simulation.performance import (\n    PerformanceMetrics,\n    ReturnKind,\n    ReturnSeries,\n    evaluate_performance,\n)\n"
+    }
+  ]
+}

@@ -97,11 +97,10 @@ from trade_rl.rl.replay import (
 from trade_rl.rl.tensorboard_logging import (
     build_tensorboard_metrics_callback,
 )
-from trade_rl.rl.training import (
-    PolicyTrainingResult,
-    ResidualTrainingConfig,
-    _environment_identity,
-    _validate_training_environment,
+from trade_rl.rl.training import PolicyTrainingResult, ResidualTrainingConfig
+from trade_rl.rl.training_environment_contract import (
+    training_environment_identity,
+    validate_training_environment,
 )
 from trade_rl.rl.training_modes import CudaRuntimeMode
 from trade_rl.rl.training_performance import (
@@ -1155,8 +1154,8 @@ class StableBaselines3Backend:
             # its own environment, otherwise the 15.5 GiB training cgroup can
             # contain two full environments at once and be OOM killed.
             probe = self.environment_factory()
-            identity = _environment_identity(probe)
-            _validate_training_environment(identity, config)
+            identity = training_environment_identity(probe)
+            validate_training_environment(identity, config)
             resume_root = self.resume_checkpoint_artifacts.get(seed)
             transfer_root = self.transfer_checkpoint_artifacts.get(seed)
             fresh_behavior_cloning = (

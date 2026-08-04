@@ -16,7 +16,6 @@ from trade_rl.catalog.contracts import (
     thaw_json,
 )
 from trade_rl.catalog.migrations import apply_migrations
-from trade_rl.evaluation.walk_forward.sealed_test import SealedTestAccessRecord
 
 _ARTIFACT_COLUMNS = """
 artifact_digest, artifact_kind, schema_version, dataset_id, cache_key_digest,
@@ -253,16 +252,6 @@ class PostgresArtifactCatalog:
                 )
                 rows = cursor.fetchall()
         return tuple(_record_from_row(row) for row in rows)
-
-    def reserve_sealed_test_access(self, record: SealedTestAccessRecord) -> None:
-        from trade_rl.catalog.postgres_sealed_test import (
-            PostgresSealedTestReservationStore,
-        )
-
-        PostgresSealedTestReservationStore(
-            self._database_url,
-            connection_factory=self._connection_factory,
-        ).reserve_sealed_test_access(record)
 
     def add_dependency(self, parent_digest: str, child_digest: str, role: str) -> None:
         ArtifactRegistration(

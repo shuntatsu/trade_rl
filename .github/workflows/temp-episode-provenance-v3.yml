@@ -1,0 +1,103 @@
+name: Temporary Episode Provenance V3
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temp-episode-provenance-v3.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Apply provenance v3 patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/learning/episode_teacher_artifact.py")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  'EPISODE_TEACHER_ARTIFACT_SCHEMA_V1: Final = "episode_supervised_teacher_artifact_v1"\nEPISODE_TEACHER_ARTIFACT_SCHEMA: Final = "episode_supervised_teacher_artifact_v2"',
+                  'EPISODE_TEACHER_ARTIFACT_SCHEMA_V1: Final = "episode_supervised_teacher_artifact_v1"\nEPISODE_TEACHER_ARTIFACT_SCHEMA_V2: Final = "episode_supervised_teacher_artifact_v2"\nEPISODE_TEACHER_ARTIFACT_SCHEMA: Final = "episode_supervised_teacher_artifact_v3"',
+              ),
+              (
+                  '    action_shape: tuple[int, int]\n    solver_provenance: OracleSolverProvenance | None = None',
+                  '    action_shape: tuple[int, int]\n    solver_provenance_digest: str | None = None\n    solver_provenance: OracleSolverProvenance | None = None',
+              ),
+              (
+                  '''        if self.schema_version not in {\n            EPISODE_TEACHER_ARTIFACT_SCHEMA_V1,\n            EPISODE_TEACHER_ARTIFACT_SCHEMA,\n        }:\n            raise ValueError("unsupported episode teacher artifact schema")\n        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V1:\n            if self.solver_provenance is not None:\n                raise ValueError(\n                    "legacy episode teacher artifacts cannot claim provenance"\n                )\n        elif not isinstance(self.solver_provenance, OracleSolverProvenance):\n            raise ValueError("v2 episode teacher artifacts require solver provenance")''',
+                  '''        if self.schema_version not in {\n            EPISODE_TEACHER_ARTIFACT_SCHEMA_V1,\n            EPISODE_TEACHER_ARTIFACT_SCHEMA_V2,\n            EPISODE_TEACHER_ARTIFACT_SCHEMA,\n        }:\n            raise ValueError("unsupported episode teacher artifact schema")\n        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V1:\n            if (\n                self.solver_provenance is not None\n                or self.solver_provenance_digest is not None\n            ):\n                raise ValueError(\n                    "legacy episode teacher artifacts cannot claim provenance"\n                )\n        elif not isinstance(self.solver_provenance, OracleSolverProvenance):\n            raise ValueError("episode teacher artifacts require solver provenance")\n        elif self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V2:\n            if self.solver_provenance_digest is not None:\n                raise ValueError("v2 episode teacher artifacts cannot claim v3 integrity")\n        else:\n            if self.solver_provenance_digest is None:\n                raise ValueError("v3 episode teacher artifacts require provenance digest")\n            require_sha256(\n                self.solver_provenance_digest,\n                field="solver_provenance_digest",\n            )\n            expected_provenance_digest = content_digest(\n                self.solver_provenance.serialized_payload()\n            )\n            if self.solver_provenance_digest != expected_provenance_digest:\n                raise ValueError("episode teacher manifest provenance digest mismatch")''',
+              ),
+              (
+                  '        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA:\n            if self.solver_provenance is None:  # pragma: no cover - guarded above\n                raise RuntimeError("solver provenance disappeared")\n            payload["solver_identity"] = {',
+                  '        if self.schema_version in {\n            EPISODE_TEACHER_ARTIFACT_SCHEMA_V2,\n            EPISODE_TEACHER_ARTIFACT_SCHEMA,\n        }:\n            if self.solver_provenance is None:  # pragma: no cover - guarded above\n                raise RuntimeError("solver provenance disappeared")\n            payload["solver_identity"] = {',
+              ),
+              (
+                  '''        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA:\n            if self.solver_provenance is None:  # pragma: no cover - guarded above\n                raise RuntimeError("solver provenance disappeared")\n            payload["solver_provenance"] = self.solver_provenance.serialized_payload()\n        return {**payload, "artifact_digest": self.artifact_digest}''',
+                  '''        if self.schema_version in {\n            EPISODE_TEACHER_ARTIFACT_SCHEMA_V2,\n            EPISODE_TEACHER_ARTIFACT_SCHEMA,\n        }:\n            if self.solver_provenance is None:  # pragma: no cover - guarded above\n                raise RuntimeError("solver provenance disappeared")\n            payload["solver_provenance"] = self.solver_provenance.serialized_payload()\n        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA:\n            payload["solver_provenance_digest"] = self.solver_provenance_digest\n        return {**payload, "artifact_digest": self.artifact_digest}''',
+              ),
+              (
+                  '''    schema_version = (\n        EPISODE_TEACHER_ARTIFACT_SCHEMA_V1\n        if dataset.solver_provenance is None\n        else EPISODE_TEACHER_ARTIFACT_SCHEMA\n    )\n    base: dict[str, object] = {''',
+                  '''    schema_version = (\n        EPISODE_TEACHER_ARTIFACT_SCHEMA_V1\n        if dataset.solver_provenance is None\n        else EPISODE_TEACHER_ARTIFACT_SCHEMA\n    )\n    solver_provenance_digest = (\n        None\n        if dataset.solver_provenance is None\n        else content_digest(dataset.solver_provenance.serialized_payload())\n    )\n    base: dict[str, object] = {''',
+              ),
+              (
+                  '        action_shape=(dataset.actions.shape[0], dataset.actions.shape[1]),\n        solver_provenance=dataset.solver_provenance,',
+                  '        action_shape=(dataset.actions.shape[0], dataset.actions.shape[1]),\n        solver_provenance_digest=solver_provenance_digest,\n        solver_provenance=dataset.solver_provenance,',
+              ),
+              (
+                  '''        solver_provenance = (\n            None\n            if schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V1\n            else OracleSolverProvenance.from_payload(raw["solver_provenance"])\n        )\n        manifest = EpisodeTeacherArtifactManifest(''',
+                  '''        solver_provenance = (\n            None\n            if schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V1\n            else OracleSolverProvenance.from_payload(raw["solver_provenance"])\n        )\n        solver_provenance_digest = (\n            str(raw["solver_provenance_digest"])\n            if schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA\n            else None\n        )\n        manifest = EpisodeTeacherArtifactManifest(''',
+              ),
+              (
+                  '            action_shape=tuple(int(value) for value in raw["action_shape"]),  # type: ignore[arg-type]\n            solver_provenance=solver_provenance,',
+                  '            action_shape=tuple(int(value) for value in raw["action_shape"]),  # type: ignore[arg-type]\n            solver_provenance_digest=solver_provenance_digest,\n            solver_provenance=solver_provenance,',
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"patch anchor count {count}: {old[:80]!r}")
+              text = text.replace(old, new)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Format patched files
+        run: |
+          uv run ruff format trade_rl/learning/episode_teacher_artifact.py tests/learning/test_episode_teacher_provenance.py
+          uv run ruff check --fix trade_rl/learning/episode_teacher_artifact.py tests/learning/test_episode_teacher_provenance.py
+      - name: Verify provenance contracts
+        run: |
+          uv run pytest -q \
+            tests/learning/test_episode_teacher_provenance.py \
+            tests/learning/test_episode_teacher_artifact.py \
+            tests/learning/test_oracle_bellman_contracts.py \
+            tests/learning/test_teacher_cache.py
+          uv run ruff check trade_rl/learning/episode_teacher_artifact.py tests/learning/test_episode_teacher_provenance.py
+          uv run ruff format --check trade_rl/learning/episode_teacher_artifact.py tests/learning/test_episode_teacher_provenance.py
+          uv run mypy trade_rl/learning/episode_teacher_artifact.py
+      - name: Upload verified files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: episode-provenance-v3-files
+          path: |
+            trade_rl/learning/episode_teacher_artifact.py
+            tests/learning/test_episode_teacher_provenance.py
+          if-no-files-found: error

@@ -1,0 +1,28 @@
+{
+  "operations": [
+    {
+      "kind": "replace",
+      "path": "trade_rl/integrations/__init__.py",
+      "old": "should import adapters from their concrete modules; attribute access remains as\nan explicit lazy compatibility shim. The Oracle CUDA adapter registered here is\na lazy callable and does not import Torch until an explicit CUDA solve occurs.\n",
+      "new": "should import adapters from their concrete modules; attribute access remains as\nan explicit lazy compatibility shim. Oracle CUDA registration is explicit, and\nthe lazy adapter does not import Torch until an explicit CUDA solve occurs.\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/integrations/__init__.py",
+      "old": "from trade_rl.integrations.oracle_solver import solve_torch_cuda_oracle_batch\nfrom trade_rl.learning.oracle_solver import register_oracle_accelerator_backend\n\nregister_oracle_accelerator_backend(\"cuda\", solve_torch_cuda_oracle_batch)\n\n_EXPORTS = {\n",
+      "new": "from trade_rl.integrations.oracle_solver import solve_torch_cuda_oracle_batch\nfrom trade_rl.learning.oracle_solver import register_oracle_accelerator_backend\n\n\ndef register_default_oracle_accelerators() -> None:\n    \"\"\"Register maintained optional Oracle accelerators idempotently.\"\"\"\n\n    register_oracle_accelerator_backend(\"cuda\", solve_torch_cuda_oracle_batch)\n\n\n_EXPORTS = {\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/integrations/__init__.py",
+      "old": "__all__ = tuple(_EXPORTS)\n",
+      "new": "__all__ = (*tuple(_EXPORTS), \"register_default_oracle_accelerators\")\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/integrations/sb3_training.py",
+      "old": "    if raw_selection not in {\"numpy\", \"cuda\", \"cuda_or_numpy\"}:\n        raise ValueError(\n            f\"{selection_name} must be one of numpy, cuda, or cuda_or_numpy\"\n        )\n\n    def positive_integer(name: str, default: int) -> int:\n",
+      "new": "    if raw_selection not in {\"numpy\", \"cuda\", \"cuda_or_numpy\"}:\n        raise ValueError(\n            f\"{selection_name} must be one of numpy, cuda, or cuda_or_numpy\"\n        )\n    if raw_selection != \"numpy\":\n        from trade_rl.integrations import register_default_oracle_accelerators\n\n        register_default_oracle_accelerators()\n\n    def positive_integer(name: str, default: int) -> int:\n"
+    }
+  ]
+}

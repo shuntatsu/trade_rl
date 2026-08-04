@@ -91,8 +91,9 @@ services:
       TRADE_RL_ORACLE_EPISODE_BATCH_SIZE: ${TRADE_RL_ORACLE_EPISODE_BATCH_SIZE:-8}
       TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE: ${TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE:-}
       TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION: ${TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION:-0.65}
-      TRADE_RL_ORACLE_COMPILE_MODE: ${TRADE_RL_ORACLE_COMPILE_MODE:-disabled}
-      TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE: ${TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE:-16}
+      # Compiled Oracle execution remains unavailable until fixed-chunk CUDA
+      # parity and performance evidence pass on maintained hardware.
+      TRADE_RL_ORACLE_COMPILE_MODE: "disabled"
       OMP_NUM_THREADS: "8"
       MKL_NUM_THREADS: "8"
       # Bound the persistent Inductor subprocess pool on memory-constrained hosts.

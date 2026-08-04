@@ -34,44 +34,34 @@ jobs:
 
           path = Path("trade_rl/learning/oracle_market_tape.py")
           text = path.read_text(encoding="utf-8")
-          old = '''    if boolean:
-              if not np.issubdtype(raw.dtype, np.bool_):
-                  raise ValueError(f"{field} must contain booleans")
-              array = np.asarray(raw, dtype=np.bool_).copy(order="C")
-          else:
-              if not np.issubdtype(raw.dtype, np.number) or np.issubdtype(
-                  raw.dtype, np.bool_
-              ):
-                  raise ValueError(f"{field} must contain numeric values")
-              array = np.asarray(raw, dtype=np.float64).copy(order="C")
-              if not np.isfinite(array).all():
-                  raise ValueError(f"{field} must contain finite values")
-              if field in _NONNEGATIVE_FIELDS and np.any(array < 0.0):
-                  raise ValueError(f"{field} must be non-negative")
-          array.setflags(write=False)
-          return array
-          '''
-          new = '''    if boolean:
-              if not np.issubdtype(raw.dtype, np.bool_):
-                  raise ValueError(f"{field} must contain booleans")
-              boolean_array = np.asarray(raw, dtype=np.bool_).copy(order="C")
-              boolean_array.setflags(write=False)
-              return boolean_array
-          if not np.issubdtype(raw.dtype, np.number) or np.issubdtype(
-              raw.dtype, np.bool_
-          ):
-              raise ValueError(f"{field} must contain numeric values")
-          numeric_array = np.asarray(raw, dtype=np.float64).copy(order="C")
-          if not np.isfinite(numeric_array).all():
-              raise ValueError(f"{field} must contain finite values")
-          if field in _NONNEGATIVE_FIELDS and np.any(numeric_array < 0.0):
-              raise ValueError(f"{field} must be non-negative")
-          numeric_array.setflags(write=False)
-          return numeric_array
-          '''
-          if old not in text:
-              raise SystemExit("expected _readonly_array block was not found")
-          path.write_text(text.replace(old, new), encoding="utf-8")
+          function_start = text.index("def _readonly_array(")
+          block_start = text.index("    if boolean:\n", function_start)
+          block_end = text.index("\n\n\n@dataclass", block_start)
+          replacement = "\n".join(
+              [
+                  "    if boolean:",
+                  "        if not np.issubdtype(raw.dtype, np.bool_):",
+                  "            raise ValueError(f\"{field} must contain booleans\")",
+                  "        boolean_array = np.asarray(raw, dtype=np.bool_).copy(order=\"C\")",
+                  "        boolean_array.setflags(write=False)",
+                  "        return boolean_array",
+                  "    if not np.issubdtype(raw.dtype, np.number) or np.issubdtype(",
+                  "        raw.dtype, np.bool_",
+                  "    ):",
+                  "        raise ValueError(f\"{field} must contain numeric values\")",
+                  "    numeric_array = np.asarray(raw, dtype=np.float64).copy(order=\"C\")",
+                  "    if not np.isfinite(numeric_array).all():",
+                  "        raise ValueError(f\"{field} must contain finite values\")",
+                  "    if field in _NONNEGATIVE_FIELDS and np.any(numeric_array < 0.0):",
+                  "        raise ValueError(f\"{field} must be non-negative\")",
+                  "    numeric_array.setflags(write=False)",
+                  "    return numeric_array",
+              ]
+          )
+          path.write_text(
+              text[:block_start] + replacement + text[block_end:],
+              encoding="utf-8",
+          )
           PY
       - name: Install and verify
         shell: bash

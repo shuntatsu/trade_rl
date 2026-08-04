@@ -82,6 +82,54 @@ TRADE_RL_TEACHER_WORKERS=1
 
 CUDAを既定へ変更する判断は、同期済みcorrectness corpusと維持対象GPUのbenchmark evidenceを別途満たした後に行います。
 
+## 3-update CUDA smoke
+
+本学習を開始する前に、非常に小さいfloat64ネットワークでoptimizer更新を正確に3回だけ実行します。このスモークは、CUDA認識、forward/backward、勾配、optimizer update、device/dtype不一致、NaN/Inf、非同期CUDAエラー、peak allocated/reserved memoryを短時間で検査します。
+
+PowerShell:
+
+```powershell
+$env:CUDA_LAUNCH_BLOCKING = "1"
+uv run python -m trade_rl.operations.cuda_training_smoke `
+  --device cuda:0 `
+  --output artifacts/cuda-smoke/tiny-training.json
+```
+
+Bash:
+
+```bash
+CUDA_LAUNCH_BLOCKING=1 uv run python -m trade_rl.operations.cuda_training_smoke \
+  --device cuda:0 \
+  --output artifacts/cuda-smoke/tiny-training.json
+```
+
+成功条件:
+
+- Exit code `0`
+- `schema_version == "tiny_cuda_training_smoke_v1"`
+- `updates == 3`
+- lossとgradient normがすべてfinite
+- `parameter_delta_l2 > 0`
+- `device_type == "cuda"`
+- GPU名、compute capability、CUDA version、peak memoryが記録される
+
+CPUでコマンド構造だけを確認するときは`--device cpu --allow-cpu`を指定できます。ただし、その結果はGPU実機証拠として扱いません。
+
+続いて、PRのOracle CUDA経路そのものを疑似市場・1 episode・3 barsでNumPyと照合します。
+
+```powershell
+uv run python -m trade_rl.operations.oracle_teacher_benchmark `
+  --backend all `
+  --episode-count 1 `
+  --episode-bars 3 `
+  --repetitions 1 `
+  --episode-batch-size 1 `
+  --target-state-block-size 2 `
+  --output artifacts/cuda-smoke/oracle-parity.json
+```
+
+この2段階は役割が異なります。3-update smokeの成功はPyTorch/CUDA学習ループの基本動作を示しますが、Oracle transition、Bellman backpointer、NumPy parity、OOM retry、provenance契約の代替にはなりません。Oracle benchmarkも成功して初めてPR固有の極小CUDAスモークが成立します。
+
 ## Shared market archive
 
 Raw Binance archive cacheと学習Artifact volumeを分離します。学習開始時にCacheを検証し、不足期間だけを取得します。

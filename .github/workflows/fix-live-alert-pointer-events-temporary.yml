@@ -1,0 +1,81 @@
+name: Fix Live Training alert interaction
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/fix-live-alert-pointer-events-temporary.yml
+
+permissions:
+  contents: write
+
+jobs:
+  red-green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/oracle-bellman-batched-solver
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+
+      - name: Install Studio dependencies
+        run: npm ci --prefix studio --no-audit --no-fund
+
+      - name: Prove blocked selector RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          STUDIO_QA_OUTPUT_DIR=/tmp/studio-layout-red npm run check:layout --prefix studio > /tmp/layout-red.log 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -F "intercepts pointer events" /tmp/layout-red.log
+
+      - name: Apply minimal passive-alert fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("studio/src/liveTraining.css")
+          text = path.read_text(encoding="utf-8")
+          old = ".live-alert { display: flex; align-items: center; gap: 8px; position: absolute; right: 22px; top: 76px; z-index: 3; padding: 8px 12px; border: 1px solid #7f3b31; border-radius: 7px; color: #ffb1a7; background: #2a1718; font-size: 11px; }"
+          new = ".live-alert { display: flex; align-items: center; gap: 8px; position: absolute; right: 22px; top: 76px; z-index: 3; padding: 8px 12px; border: 1px solid #7f3b31; border-radius: 7px; color: #ffb1a7; background: #2a1718; font-size: 11px; pointer-events: none; }"
+          if text.count(old) != 1:
+              raise SystemExit("live alert CSS contract changed")
+          path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+
+      - name: Verify rendered interaction and frontend
+        shell: bash
+        env:
+          STUDIO_QA_OUTPUT_DIR: /tmp/studio-layout-green
+        run: |
+          set -euo pipefail
+          npm test --prefix studio -- --run
+          npm run typecheck --prefix studio
+          npm run build --prefix studio
+          npm run check:layout --prefix studio
+          test -s /tmp/studio-layout-green/trade-rl-studio-live-training-diagnostics.png
+
+      - name: Commit verified fix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix-live-alert-pointer-events-temporary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add studio/src/liveTraining.css .github/workflows/fix-live-alert-pointer-events-temporary.yml
+          git diff --cached --check
+          git commit -m "fix: keep Live Training alerts from blocking controls"
+          git push origin HEAD:agent/oracle-bellman-batched-solver

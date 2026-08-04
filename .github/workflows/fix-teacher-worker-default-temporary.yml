@@ -1,0 +1,77 @@
+name: Fix teacher worker default
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/fix-teacher-worker-default-temporary.yml
+
+permissions:
+  contents: write
+
+jobs:
+  red-green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/oracle-bellman-batched-solver
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install test dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Prove solver compatibility default RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q \
+            tests/integrations/test_sb3_training.py \
+            -k numpy_oracle_solver_defaults_to_one_compatibility_worker \
+            2>&1 | tee /tmp/worker-red.log
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          grep -F "assert 8 == 1" /tmp/worker-red.log
+
+      - name: Apply backend-aware default
+        run: python .github/fix_teacher_worker_default.py
+
+      - name: Verify both worker contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(trade_rl/integrations/sb3_training.py)
+          uv run ruff check --fix "${files[@]}"
+          uv run ruff format "${files[@]}"
+          uv run pytest -q \
+            tests/integrations/test_sb3_training.py \
+            tests/integrations/test_sb3_lagrangian_backend.py \
+            -k 'teacher_worker or teacher_workers'
+          uv run ruff check "${files[@]}"
+          uv run ruff format --check --diff "${files[@]}"
+          uv run mypy trade_rl/integrations/sb3_training.py
+          uv run lint-imports
+          git diff --check
+
+      - name: Commit verified fix and remove temporary files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/fix_teacher_worker_default.py \
+            .github/workflows/fix-teacher-worker-default-temporary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/integrations/sb3_training.py .github
+          git diff --cached --check
+          git commit -m "fix: separate Oracle and legacy teacher worker defaults"
+          git push origin HEAD:agent/oracle-bellman-batched-solver

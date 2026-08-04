@@ -1,0 +1,52 @@
+{
+  "operations": [
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/policy_identity.py",
+      "old": "from trade_rl.artifacts.hashing import content_digest\nfrom trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE\n",
+      "new": "from trade_rl.artifacts.hashing import content_digest\nfrom trade_rl.domain.policy_contracts import (\n    HIERARCHICAL_SEQUENCE_ENCODER,\n    SB3_POLICY_IDENTITY_SCHEMA,\n)\nfrom trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/policy_identity.py",
+      "old": "SB3_POLICY_IDENTITY_ATTRIBUTE: Final = \"_trade_rl_policy_identity\"\nSB3_POLICY_IDENTITY_SCHEMA: Final = \"sb3_policy_identity_v4\"\n",
+      "new": "SB3_POLICY_IDENTITY_ATTRIBUTE: Final = \"_trade_rl_policy_identity\"\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/policy_identity.py",
+      "old": "        \"observation_encoder\": \"hierarchical_sequence_v2\",\n",
+      "new": "        \"observation_encoder\": HIERARCHICAL_SEQUENCE_ENCODER,\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/policy_identity.py",
+      "old": "    if encoder not in {\"flat_mlp\", \"asset_set\", \"hierarchical_sequence_v2\"}:\n        raise ValueError(\"SB3 policy identity observation encoder is invalid\")\n    if encoder == \"hierarchical_sequence_v2\":\n",
+      "new": "    if encoder not in {\"flat_mlp\", \"asset_set\", HIERARCHICAL_SEQUENCE_ENCODER}:\n        raise ValueError(\"SB3 policy identity observation encoder is invalid\")\n    if encoder == HIERARCHICAL_SEQUENCE_ENCODER:\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/policy_identity.py",
+      "old": "    if encoder not in {\"flat_mlp\", \"asset_set\", \"hierarchical_sequence_v2\"}:\n        raise ValueError(\"SB3 assembly observation encoder is invalid\")\n",
+      "new": "    if encoder not in {\"flat_mlp\", \"asset_set\", HIERARCHICAL_SEQUENCE_ENCODER}:\n        raise ValueError(\"SB3 assembly observation encoder is invalid\")\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/policy_identity.py",
+      "old": "    if encoder == \"hierarchical_sequence_v2\":\n        symbols = _string_tuple(\n",
+      "new": "    if encoder == HIERARCHICAL_SEQUENCE_ENCODER:\n        symbols = _string_tuple(\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/sequence_observations.py",
+      "old": "from trade_rl.data.market import MarketDataset\nfrom trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE, ObservationLayout\n",
+      "new": "from trade_rl.data.market import MarketDataset\nfrom trade_rl.domain.policy_contracts import STRUCTURED_TIMEFRAMES\nfrom trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE, ObservationLayout\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/rl/sequence_observations.py",
+      "old": "DEFAULT_SEQUENCE_WINDOWS = (\n    SequenceWindowSpec(\"15m\", 96),\n    SequenceWindowSpec(\"1h\", 168),\n    SequenceWindowSpec(\"4h\", 120),\n    SequenceWindowSpec(\"1d\", 60),\n)\n",
+      "new": "_DEFAULT_SEQUENCE_LENGTHS = {\n    \"15m\": 96,\n    \"1h\": 168,\n    \"4h\": 120,\n    \"1d\": 60,\n}\nDEFAULT_SEQUENCE_WINDOWS = tuple(\n    SequenceWindowSpec(timeframe, _DEFAULT_SEQUENCE_LENGTHS[timeframe])\n    for timeframe in STRUCTURED_TIMEFRAMES\n)\n"
+    }
+  ]
+}

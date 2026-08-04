@@ -124,4 +124,8 @@
 
 **Fix:** Updated docs to `sb3_policy_identity_v4`, removed obsolete PR branch filters, and added architecture tests to Linux/Windows compatibility jobs.
 
-**Review:** No runtime behavior changes. The final focused gate now verifies all fifteen contracts plus Ruff, MyPy, and Import Linter.
+**Review:** No runtime behavior changes. The final focused gate verifies all fifteen contracts plus Ruff, MyPy, and Import Linter.
+
+## Final verification checkpoint
+
+This entry fixes the exact branch head used for post-loop focused, static, PostgreSQL, and full main-PR verification. Results are recorded only after the corresponding workflow completes on this exact head.

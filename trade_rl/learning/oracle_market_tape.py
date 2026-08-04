@@ -66,19 +66,18 @@ def _readonly_array(
     if boolean:
         if not np.issubdtype(raw.dtype, np.bool_):
             raise ValueError(f"{field} must contain booleans")
-        array = np.asarray(raw, dtype=np.bool_).copy(order="C")
-    else:
-        if not np.issubdtype(raw.dtype, np.number) or np.issubdtype(
-            raw.dtype, np.bool_
-        ):
-            raise ValueError(f"{field} must contain numeric values")
-        array = np.asarray(raw, dtype=np.float64).copy(order="C")
-        if not np.isfinite(array).all():
-            raise ValueError(f"{field} must contain finite values")
-        if field in _NONNEGATIVE_FIELDS and np.any(array < 0.0):
-            raise ValueError(f"{field} must be non-negative")
-    array.setflags(write=False)
-    return array
+        boolean_array = np.asarray(raw, dtype=np.bool_).copy(order="C")
+        boolean_array.setflags(write=False)
+        return boolean_array
+    if not np.issubdtype(raw.dtype, np.number) or np.issubdtype(raw.dtype, np.bool_):
+        raise ValueError(f"{field} must contain numeric values")
+    numeric_array = np.asarray(raw, dtype=np.float64).copy(order="C")
+    if not np.isfinite(numeric_array).all():
+        raise ValueError(f"{field} must contain finite values")
+    if field in _NONNEGATIVE_FIELDS and np.any(numeric_array < 0.0):
+        raise ValueError(f"{field} must be non-negative")
+    numeric_array.setflags(write=False)
+    return numeric_array
 
 
 @dataclass(frozen=True, slots=True)

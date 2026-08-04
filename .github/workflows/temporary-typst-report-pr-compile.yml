@@ -36,6 +36,11 @@ jobs:
             -e 's/out_1/"out"_1/g' \
             -e 's/out_2/"out"_2/g' \
             -e 's/out_3/"out"_3/g' \
+            -e 's/@state-transitionに照合して/#ref(<state-transition>)に照合して/g' \
+            -e 's/@encoding-stepsに示す/#ref(<encoding-steps>)に示す/g' \
+            -e 's/@state-transitionに基づく/#ref(<state-transition>)に基づく/g' \
+            -e 's/@viterbi-metricsより/#ref(<viterbi-metrics>)より/g' \
+            -e 's/@rsa-squaresに示す/#ref(<rsa-squares>)に示す/g' \
             report/information_network_report_final.typ
 
       - name: Show Typst version

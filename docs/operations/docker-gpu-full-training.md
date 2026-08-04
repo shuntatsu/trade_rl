@@ -118,7 +118,7 @@ CPUでコマンド構造だけを確認するときは`--device cpu --allow-cpu`
 続いて、PRのOracle CUDA経路そのものを疑似市場・1 episode・3 barsでNumPyと照合します。
 
 ```powershell
-uv run python -m trade_rl.operations.oracle_teacher_benchmark `
+uv run python -m trade_rl.operations.oracle_cuda_smoke `
   --backend all `
   --episode-count 1 `
   --episode-bars 3 `

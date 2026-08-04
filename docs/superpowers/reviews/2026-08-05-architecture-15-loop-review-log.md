@@ -20,4 +20,12 @@
 
 **Fix:** Replaced both imports and call sites with `training_environment_identity()` and `validate_training_environment()` from the public contract.
 
-**Review:** Framework adapter behavior is unchanged; the dependency is now explicit and versionable. Focused verification follows on this commit.
+**Review:** Framework adapter behavior is unchanged; the dependency is now explicit and versionable. Focused result: 2 passed, 13 failed.
+
+## Loop 3: Repository-wide private-import boundary
+
+**Check:** The generic AST guard found one remaining cross-package private dependency: the Oracle benchmark imported `_portfolio_states`.
+
+**Fix:** Published `portfolio_states()`, retained `_portfolio_states` as an internal compatibility alias, and moved the Operations consumer to the public name.
+
+**Review:** The state enumeration algorithm is byte-for-byte equivalent in behavior; only API visibility changed. Focused verification follows on this commit.

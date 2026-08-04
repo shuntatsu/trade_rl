@@ -76,4 +76,12 @@
 
 **Fix:** Redirected schema, encoder, and timeframe validation to `domain.policy_contracts` and removed local duplicates.
 
-**Review:** Structured export schema and manifest values remain unchanged. The reviewed change set is staged for focused verification.
+**Review:** Structured export schema and manifest values remain unchanged. Focused result: 9 passed, 6 failed.
+
+## Loop 10: RL consumes neutral policy identifiers
+
+**Check:** `rl.policy_identity` and sequence-window construction still carried duplicated schema, encoder, and timeframe ordering values.
+
+**Fix:** Redirected both modules to `domain.policy_contracts` while preserving the exact schema string and window lengths.
+
+**Review:** Policy digests and sequence tensor ordering are intended to remain byte-identical. The reviewed change set is staged for focused verification.

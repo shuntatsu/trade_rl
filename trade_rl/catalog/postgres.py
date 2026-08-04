@@ -92,6 +92,18 @@ class PostgresArtifactCatalog:
         self._database_url = database_url
         self._connection_factory = connection_factory or default_connection_factory
 
+    @property
+    def database_url(self) -> str:
+        """Return the configured connection URL for explicit adapter composition."""
+
+        return self._database_url
+
+    @property
+    def connection_factory(self) -> Callable[[str], Any]:
+        """Return the configured connection constructor for sibling adapters."""
+
+        return self._connection_factory
+
     def _connect(self) -> Any:
         return self._connection_factory(self._database_url)
 

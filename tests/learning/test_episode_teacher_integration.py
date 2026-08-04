@@ -424,3 +424,41 @@ def test_episode_oracle_batch_explicit_numpy_solver_ignores_legacy_worker_count(
     )
 
     assert compatibility.digest == serial.digest
+
+
+def test_generated_episode_batch_provenance_reaches_v2_artifact(tmp_path: Path) -> None:
+    environment = _environment()
+    teacher = OracleTeacherConfig(
+        execution_cost=ExecutionCostConfig.zero(),
+        reference_portfolio_value=environment.initial_capital,
+    )
+    sampling = OracleEpisodeSamplingConfig(
+        episode_bars=4,
+        episode_count=2,
+        initial_state_modes=("cash",),
+        seed=23,
+    )
+    batch = build_episode_oracle_batch(
+        environment.dataset,
+        minimum_start_index=environment.minimum_start_index,
+        sampling_config=sampling,
+        teacher_config=teacher,
+        solver_config=OracleSolverConfig(
+            selection="numpy",
+            episode_batch_size=2,
+            target_state_block_size=1,
+        ),
+    )
+
+    supervised = collect_episode_teacher_rollout(
+        environment,
+        batch,
+        teacher_config_digest=teacher.digest,
+    )
+    write_episode_teacher_artifact(tmp_path, supervised)
+    manifest, loaded = load_episode_teacher_artifact(tmp_path)
+
+    assert batch.solver_provenance is not None
+    assert supervised.solver_provenance == batch.solver_provenance
+    assert manifest.solver_provenance == batch.solver_provenance
+    assert loaded.solver_provenance == batch.solver_provenance

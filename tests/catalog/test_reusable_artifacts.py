@@ -18,7 +18,9 @@ class _Catalog:
         self.records: dict[tuple[ArtifactKind, str], ArtifactRecord] = {}
         self.registered: ArtifactRegistration | None = None
 
-    def find(self, artifact_kind: ArtifactKind, cache_key: object) -> ArtifactRecord | None:
+    def find(
+        self, artifact_kind: ArtifactKind, cache_key: object
+    ) -> ArtifactRecord | None:
         assert isinstance(cache_key, dict)
         return self.records.get((artifact_kind, str(cache_key["identity"])))
 
@@ -30,7 +32,9 @@ class _Catalog:
             created_at=now,
             last_seen_at=now,
         )
-        self.records[(registration.artifact_kind, str(registration.cache_key["identity"]))] = record
+        self.records[
+            (registration.artifact_kind, str(registration.cache_key["identity"]))
+        ] = record
         return record
 
 
@@ -49,7 +53,9 @@ def _record(path: Path) -> ArtifactRecord:
     return ArtifactRecord(registration=registration, created_at=now, last_seen_at=now)
 
 
-def test_resolves_ready_directory_and_registers_file_backed_artifact(tmp_path: Path) -> None:
+def test_resolves_ready_directory_and_registers_file_backed_artifact(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "cache"
     artifact = root / "teacher"
     artifact.mkdir(parents=True)
@@ -58,7 +64,10 @@ def test_resolves_ready_directory_and_registers_file_backed_artifact(tmp_path: P
     catalog.records[(ArtifactKind.ORACLE_TEACHER, "teacher-1")] = _record(artifact)
     index = ReusableArtifactIndex(catalog, storage_root=root)  # type: ignore[arg-type]
 
-    assert index.resolve(ArtifactKind.ORACLE_TEACHER, {"identity": "teacher-1"}) == artifact
+    assert (
+        index.resolve(ArtifactKind.ORACLE_TEACHER, {"identity": "teacher-1"})
+        == artifact
+    )
     index.register_directory(
         artifact_digest="a" * 64,
         artifact_kind=ArtifactKind.ORACLE_TEACHER,
@@ -98,7 +107,9 @@ def test_new_registration_namespaces_payload_digest_by_cache_identity(
     assert catalog.registered.metadata["payload_digest"] == "a" * 64
 
 
-def test_refreshes_legacy_registration_without_mutating_metadata(tmp_path: Path) -> None:
+def test_refreshes_legacy_registration_without_mutating_metadata(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "cache"
     artifact = root / "teacher"
     artifact.mkdir(parents=True)
@@ -132,3 +143,196 @@ def test_rejects_catalog_location_outside_durable_root(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="escapes storage root"):
         index.resolve(ArtifactKind.ORACLE_TEACHER, {"identity": "teacher-1"})
+
+
+def test_cache_identity_v2_separates_actual_backends() -> None:
+    from trade_rl.catalog.reusable_artifacts import teacher_cache_identity_v2
+    from trade_rl.learning.oracle_bellman_contracts import (
+        OracleSolverConfig,
+        OracleSolverProvenance,
+    )
+
+    config = OracleSolverConfig(selection="numpy")
+    numpy_provenance = OracleSolverProvenance.numpy_reference(
+        config=config,
+        market_tape_digest="c" * 64,
+    )
+    cuda_provenance = OracleSolverProvenance(
+        backend="torch_cuda",
+        solver_config_digest=config.digest,
+        market_tape_digest="c" * 64,
+        numeric_dtype="float64",
+        tie_tolerance=config.tie_tolerance,
+        episode_batch_size=config.episode_batch_size,
+        target_state_block_size=config.target_state_block_size,
+        compile_mode=config.compile_mode,
+        compile_chunk_size=config.compile_chunk_size,
+    )
+    base = {
+        "dataset_id": "a" * 64,
+        "train_range": (1, 9),
+        "environment_digest": "b" * 64,
+        "action_spec_digest": "d" * 64,
+        "teacher_config_digest": "e" * 64,
+    }
+
+    numpy_key = teacher_cache_identity_v2(**base, solver_provenance=numpy_provenance)
+    cuda_key = teacher_cache_identity_v2(**base, solver_provenance=cuda_provenance)
+
+    assert numpy_key != cuda_key
+    assert numpy_key["schema_version"] == "teacher_cache_identity_v2"
+    assert numpy_key["solver_backend"] == "numpy"
+    assert cuda_key["solver_backend"] == "torch_cuda"
+
+
+class _CanonicalCatalog:
+    def __init__(self) -> None:
+        self.records: dict[tuple[ArtifactKind, str], ArtifactRecord] = {}
+        self.registrations: list[ArtifactRegistration] = []
+
+    @staticmethod
+    def _key(
+        artifact_kind: ArtifactKind, cache_key: object
+    ) -> tuple[ArtifactKind, str]:
+        from collections.abc import Mapping
+
+        from trade_rl.artifacts.hashing import content_digest
+
+        assert isinstance(cache_key, Mapping)
+        return artifact_kind, content_digest(cache_key)
+
+    def find(
+        self, artifact_kind: ArtifactKind, cache_key: object
+    ) -> ArtifactRecord | None:
+        return self.records.get(self._key(artifact_kind, cache_key))
+
+    def register(self, registration: ArtifactRegistration) -> ArtifactRecord:
+        self.registrations.append(registration)
+        now = datetime.now(UTC)
+        record = ArtifactRecord(
+            registration=registration,
+            created_at=now,
+            last_seen_at=now,
+        )
+        self.records[self._key(registration.artifact_kind, registration.cache_key)] = (
+            record
+        )
+        return record
+
+
+def _episode_dataset_with_provenance(*, with_provenance: bool):
+    import numpy as np
+
+    from trade_rl.learning.episode_teacher_artifact import (
+        EpisodeSupervisedPolicyDataset,
+    )
+    from trade_rl.learning.oracle_bellman_contracts import (
+        OracleSolverConfig,
+        OracleSolverProvenance,
+    )
+
+    provenance = (
+        OracleSolverProvenance.numpy_reference(
+            config=OracleSolverConfig(),
+            market_tape_digest="f" * 64,
+        )
+        if with_provenance
+        else None
+    )
+    return EpisodeSupervisedPolicyDataset(
+        observations=np.zeros((2, 1), dtype=np.float32),
+        actions=np.zeros((2, 1), dtype=np.float32),
+        dataset_id="a" * 64,
+        train_start=1,
+        train_stop=4,
+        environment_digest="b" * 64,
+        action_spec_digest="c" * 64,
+        teacher_config_digest="d" * 64,
+        decision_indices=np.array([1, 2], dtype=np.int64),
+        episode_ids=np.array([0, 0], dtype=np.int64),
+        solver_provenance=provenance,
+    )
+
+
+def test_v1_backfill_remains_legacy_without_cuda_claim(tmp_path: Path) -> None:
+    from trade_rl.catalog.reusable_artifacts import backfill_teacher_cache
+    from trade_rl.learning.episode_teacher_artifact import (
+        write_episode_teacher_artifact,
+    )
+
+    root = tmp_path / "cache"
+    artifact = root / "legacy"
+    artifact.mkdir(parents=True)
+    write_episode_teacher_artifact(
+        artifact,
+        _episode_dataset_with_provenance(with_provenance=False),
+    )
+    catalog = _CanonicalCatalog()
+    index = ReusableArtifactIndex(catalog, storage_root=root)  # type: ignore[arg-type]
+
+    assert backfill_teacher_cache(index) == 1
+
+    registration = catalog.registrations[-1]
+    assert registration.cache_key["schema_version"] == "teacher_cache_identity_v1"
+    assert "solver_backend" not in registration.cache_key
+    assert "solver_provenance" not in registration.metadata
+
+
+def test_v2_backfill_records_truthful_solver_identity(tmp_path: Path) -> None:
+    from trade_rl.catalog.reusable_artifacts import backfill_teacher_cache
+    from trade_rl.learning.episode_teacher_artifact import (
+        write_episode_teacher_artifact,
+    )
+
+    root = tmp_path / "cache"
+    artifact = root / "current"
+    artifact.mkdir(parents=True)
+    write_episode_teacher_artifact(
+        artifact,
+        _episode_dataset_with_provenance(with_provenance=True),
+    )
+    catalog = _CanonicalCatalog()
+    index = ReusableArtifactIndex(catalog, storage_root=root)  # type: ignore[arg-type]
+
+    assert backfill_teacher_cache(index) == 1
+
+    registration = catalog.registrations[-1]
+    assert registration.cache_key["schema_version"] == "teacher_cache_identity_v2"
+    assert registration.cache_key["solver_backend"] == "numpy"
+    assert registration.metadata["solver_provenance"]["backend"] == "numpy"
+
+
+def test_v2_identity_ignores_runtime_metrics_but_not_backend() -> None:
+    from dataclasses import replace
+
+    from trade_rl.catalog.reusable_artifacts import teacher_cache_identity_v2
+    from trade_rl.learning.oracle_bellman_contracts import (
+        OracleSolverConfig,
+        OracleSolverProvenance,
+    )
+
+    base_provenance = OracleSolverProvenance.numpy_reference(
+        config=OracleSolverConfig(),
+        market_tape_digest="f" * 64,
+    )
+    slower = replace(
+        base_provenance,
+        solver_wall_time_seconds=99.0,
+        peak_host_memory_bytes=999,
+        digest="",
+    )
+    cuda = replace(base_provenance, backend="torch_cuda", digest="")
+    base = {
+        "dataset_id": "a" * 64,
+        "train_range": (1, 4),
+        "environment_digest": "b" * 64,
+        "action_spec_digest": "c" * 64,
+        "teacher_config_digest": "d" * 64,
+    }
+
+    normal_key = teacher_cache_identity_v2(**base, solver_provenance=base_provenance)
+    slower_key = teacher_cache_identity_v2(**base, solver_provenance=slower)
+    cuda_key = teacher_cache_identity_v2(**base, solver_provenance=cuda)
+
+    assert slower_key == normal_key
+    assert cuda_key != normal_key

@@ -15,6 +15,7 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.learning.oracle_bellman_contracts import (
     OracleEpisodeInputs,
     OracleSolverConfig,
+    OracleSolverProvenance,
 )
 from trade_rl.learning.oracle_solver import solve_oracle_episodes
 from trade_rl.learning.oracle_teacher import (
@@ -215,6 +216,7 @@ class EpisodeOracleBatch:
     sampling_config_digest: str
     contracts: tuple[OracleEpisodeContract, ...]
     targets: tuple[np.ndarray, ...]
+    solver_provenance: OracleSolverProvenance | None = None
     digest: str = ""
     schema_version: str = EPISODE_ORACLE_BATCH_SCHEMA
 
@@ -250,6 +252,10 @@ class EpisodeOracleBatch:
             resolved_targets.append(target)
         if self.schema_version != EPISODE_ORACLE_BATCH_SCHEMA:
             raise ValueError("unsupported episode Oracle batch schema")
+        if self.solver_provenance is not None and not isinstance(
+            self.solver_provenance, OracleSolverProvenance
+        ):
+            raise ValueError("solver_provenance must be OracleSolverProvenance")
         targets = tuple(resolved_targets)
         expected = content_digest(
             {
@@ -257,6 +263,11 @@ class EpisodeOracleBatch:
                 "dataset_id": dataset_id,
                 "sampling_config_digest": sampling_digest,
                 "schema_version": self.schema_version,
+                "solver_provenance_digest": (
+                    None
+                    if self.solver_provenance is None
+                    else self.solver_provenance.digest
+                ),
                 "targets": tuple(_array_identity(target) for target in targets),
                 "teacher_config_digest": teacher_digest,
             }
@@ -374,13 +385,9 @@ def build_episode_oracle_batch(
                 dtype=np.int64,
             ),
             starts=np.asarray(
-                [contract.start for contract in contracts],
-                dtype=np.int64,
+                [contract.start for contract in contracts], dtype=np.int64
             ),
-            stops=np.asarray(
-                [contract.stop for contract in contracts],
-                dtype=np.int64,
-            ),
+            stops=np.asarray([contract.stop for contract in contracts], dtype=np.int64),
             initial_weights=np.stack(
                 [contract.initial_weights for contract in contracts],
                 axis=0,
@@ -395,6 +402,7 @@ def build_episode_oracle_batch(
         sampling_config_digest=sampling_config.digest,
         contracts=contracts,
         targets=result.targets,
+        solver_provenance=result.provenance,
     )
 
 

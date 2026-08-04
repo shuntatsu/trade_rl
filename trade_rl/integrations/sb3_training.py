@@ -22,6 +22,7 @@ from trade_rl.catalog.contracts import ArtifactKind
 from trade_rl.catalog.reusable_artifacts import (
     ReusableArtifactIndex,
     teacher_cache_identity,
+    teacher_cache_identity_v2,
 )
 from trade_rl.integrations.behavior_cloning import pretrain_policy
 from trade_rl.integrations.sb3_checkpoint_assembly import (
@@ -67,6 +68,7 @@ from trade_rl.learning.episode_oracle_teacher import (
 )
 from trade_rl.learning.episode_teacher_artifact import (
     EPISODE_TEACHER_ARTIFACT_SCHEMA,
+    EPISODE_TEACHER_ARTIFACT_SCHEMA_V1,
     EpisodeSupervisedPolicyDataset,
     collect_episode_teacher_rollout,
     collect_episode_teacher_rollout_parallel,
@@ -721,10 +723,15 @@ class StableBaselines3Backend:
             raise ValueError(
                 "episode teacher environment must expose action_spec_digest"
             )
+        artifact_schema = (
+            EPISODE_TEACHER_ARTIFACT_SCHEMA_V1
+            if batch.solver_provenance is None
+            else EPISODE_TEACHER_ARTIFACT_SCHEMA
+        )
         teacher_identity = content_digest(
             {
                 "episode_batch_digest": batch.digest,
-                "schema_version": EPISODE_TEACHER_ARTIFACT_SCHEMA,
+                "schema_version": artifact_schema,
                 "teacher_config_digest": teacher_config.digest,
             }
         )
@@ -742,12 +749,23 @@ class StableBaselines3Backend:
         cache_path: Path | None = None
         shard_root: Path | None = None
         if self.teacher_cache_root is not None:
-            cache_identity = teacher_cache_identity(
-                dataset_id=batch.dataset_id,
-                train_range=(start, stop),
-                environment_digest=environment_digest,
-                action_spec_digest=action_spec_digest,
-                teacher_config_digest=teacher_identity,
+            cache_identity = (
+                teacher_cache_identity(
+                    dataset_id=batch.dataset_id,
+                    train_range=(start, stop),
+                    environment_digest=environment_digest,
+                    action_spec_digest=action_spec_digest,
+                    teacher_config_digest=teacher_identity,
+                )
+                if batch.solver_provenance is None
+                else teacher_cache_identity_v2(
+                    dataset_id=batch.dataset_id,
+                    train_range=(start, stop),
+                    environment_digest=environment_digest,
+                    action_spec_digest=action_spec_digest,
+                    teacher_config_digest=teacher_identity,
+                    solver_provenance=batch.solver_provenance,
+                )
             )
             cache_path = self.teacher_cache_root / _teacher_cache_key(
                 dataset_id=batch.dataset_id,
@@ -783,6 +801,13 @@ class StableBaselines3Backend:
                         metadata={
                             "episode_count": manifest.episode_count,
                             "sample_count": manifest.sample_count,
+                            **(
+                                {}
+                                if manifest.solver_provenance is None
+                                else {
+                                    "solver_provenance": manifest.solver_provenance.serialized_payload()
+                                }
+                            ),
                         },
                         location=cache_path,
                     )

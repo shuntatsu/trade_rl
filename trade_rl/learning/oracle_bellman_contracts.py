@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Final, Literal, cast
 
 import numpy as np
 from numpy.typing import DTypeLike
@@ -32,6 +33,45 @@ def _positive_integer(value: object, *, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{field} must be a positive integer")
     return value
+
+
+def _payload_string(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
+    return value
+
+
+def _payload_optional_string(value: object, *, field: str) -> str | None:
+    if value is None:
+        return None
+    return _payload_string(value, field=field)
+
+
+def _payload_integer(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field} must be an integer")
+    return value
+
+
+def _payload_optional_integer(value: object, *, field: str) -> int | None:
+    if value is None:
+        return None
+    return _payload_integer(value, field=field)
+
+
+def _payload_float(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be numeric")
+    resolved = float(value)
+    if not math.isfinite(resolved):
+        raise ValueError(f"{field} must be finite")
+    return resolved
+
+
+def _payload_optional_float(value: object, *, field: str) -> float | None:
+    if value is None:
+        return None
+    return _payload_float(value, field=field)
 
 
 def _readonly_array(
@@ -243,6 +283,13 @@ class OracleSolverProvenance:
     compile_chunk_size: int
     fallback_reason: str | None = None
     oom_retry_performed: bool = False
+    solver_wall_time_seconds: float | None = None
+    peak_host_memory_bytes: int | None = None
+    peak_device_memory_bytes: int | None = None
+    torch_version: str | None = None
+    cuda_version: str | None = None
+    device_name: str | None = None
+    compute_capability: str | None = None
     solver_contract: str = SOLVER_CONTRACT
     tie_break_contract: str = TIE_BREAK_CONTRACT
     digest: str = ""
@@ -278,31 +325,169 @@ class OracleSolverProvenance:
             raise ValueError("unsupported tie-break contract")
         if not isinstance(self.oom_retry_performed, bool):
             raise ValueError("oom_retry_performed must be a boolean")
+        if self.solver_wall_time_seconds is not None and (
+            not math.isfinite(self.solver_wall_time_seconds)
+            or self.solver_wall_time_seconds < 0.0
+        ):
+            raise ValueError("solver_wall_time_seconds must be finite and non-negative")
+        for field, memory_value in (
+            ("peak_host_memory_bytes", self.peak_host_memory_bytes),
+            ("peak_device_memory_bytes", self.peak_device_memory_bytes),
+        ):
+            if memory_value is not None and (
+                isinstance(memory_value, bool)
+                or not isinstance(memory_value, int)
+                or memory_value < 0
+            ):
+                raise ValueError(f"{field} must be a non-negative integer")
+        for field, text_value in (
+            ("fallback_reason", self.fallback_reason),
+            ("torch_version", self.torch_version),
+            ("cuda_version", self.cuda_version),
+            ("device_name", self.device_name),
+            ("compute_capability", self.compute_capability),
+        ):
+            if text_value is not None and (
+                not isinstance(text_value, str) or not text_value.strip()
+            ):
+                raise ValueError(f"{field} must be a non-empty string when present")
         if self.schema_version != ORACLE_SOLVER_PROVENANCE_SCHEMA:
             raise ValueError("unsupported Oracle solver provenance schema")
-        expected = content_digest(
-            {
-                "backend": self.backend,
-                "compile_chunk_size": self.compile_chunk_size,
-                "compile_mode": self.compile_mode,
-                "episode_batch_size": self.episode_batch_size,
-                "fallback_reason": self.fallback_reason,
-                "market_tape_digest": tape_digest,
-                "numeric_dtype": self.numeric_dtype,
-                "oom_retry_performed": self.oom_retry_performed,
-                "schema_version": self.schema_version,
-                "solver_config_digest": config_digest,
-                "solver_contract": self.solver_contract,
-                "target_state_block_size": self.target_state_block_size,
-                "tie_break_contract": self.tie_break_contract,
-                "tie_tolerance": self.tie_tolerance,
-            }
-        )
+        expected = content_digest(self.identity_payload())
         if self.digest and self.digest != expected:
             raise ValueError("Oracle solver provenance digest mismatch")
         object.__setattr__(self, "solver_config_digest", config_digest)
         object.__setattr__(self, "market_tape_digest", tape_digest)
         object.__setattr__(self, "digest", expected)
+
+    def identity_payload(self) -> dict[str, object]:
+        """Return the complete canonical provenance payload excluding its digest."""
+
+        return {
+            "backend": self.backend,
+            "compile_chunk_size": self.compile_chunk_size,
+            "compile_mode": self.compile_mode,
+            "compute_capability": self.compute_capability,
+            "cuda_version": self.cuda_version,
+            "device_name": self.device_name,
+            "episode_batch_size": self.episode_batch_size,
+            "fallback_reason": self.fallback_reason,
+            "market_tape_digest": self.market_tape_digest,
+            "numeric_dtype": self.numeric_dtype,
+            "oom_retry_performed": self.oom_retry_performed,
+            "peak_device_memory_bytes": self.peak_device_memory_bytes,
+            "peak_host_memory_bytes": self.peak_host_memory_bytes,
+            "schema_version": self.schema_version,
+            "solver_config_digest": self.solver_config_digest,
+            "solver_contract": self.solver_contract,
+            "solver_wall_time_seconds": self.solver_wall_time_seconds,
+            "target_state_block_size": self.target_state_block_size,
+            "tie_break_contract": self.tie_break_contract,
+            "tie_tolerance": self.tie_tolerance,
+            "torch_version": self.torch_version,
+        }
+
+    def serialized_payload(self) -> dict[str, object]:
+        """Return artifact-safe provenance including its verified digest."""
+
+        return {**self.identity_payload(), "digest": self.digest}
+
+    @classmethod
+    def from_payload(cls, value: Mapping[str, object]) -> OracleSolverProvenance:
+        """Parse fail-closed serialized provenance from an artifact manifest."""
+
+        try:
+            raw_retry = value["oom_retry_performed"]
+            if not isinstance(raw_retry, bool):
+                raise ValueError("oom_retry_performed must be a boolean")
+            backend = cast(
+                SolverBackend,
+                _payload_string(value["backend"], field="backend"),
+            )
+            compile_mode = cast(
+                CompileMode,
+                _payload_string(value["compile_mode"], field="compile_mode"),
+            )
+            return cls(
+                backend=backend,
+                solver_config_digest=_payload_string(
+                    value["solver_config_digest"],
+                    field="solver_config_digest",
+                ),
+                market_tape_digest=_payload_string(
+                    value["market_tape_digest"],
+                    field="market_tape_digest",
+                ),
+                numeric_dtype=_payload_string(
+                    value["numeric_dtype"],
+                    field="numeric_dtype",
+                ),
+                tie_tolerance=_payload_float(
+                    value["tie_tolerance"],
+                    field="tie_tolerance",
+                ),
+                episode_batch_size=_payload_integer(
+                    value["episode_batch_size"],
+                    field="episode_batch_size",
+                ),
+                target_state_block_size=_payload_optional_integer(
+                    value.get("target_state_block_size"),
+                    field="target_state_block_size",
+                ),
+                compile_mode=compile_mode,
+                compile_chunk_size=_payload_integer(
+                    value["compile_chunk_size"],
+                    field="compile_chunk_size",
+                ),
+                fallback_reason=_payload_optional_string(
+                    value.get("fallback_reason"),
+                    field="fallback_reason",
+                ),
+                oom_retry_performed=raw_retry,
+                solver_wall_time_seconds=_payload_optional_float(
+                    value.get("solver_wall_time_seconds"),
+                    field="solver_wall_time_seconds",
+                ),
+                peak_host_memory_bytes=_payload_optional_integer(
+                    value.get("peak_host_memory_bytes"),
+                    field="peak_host_memory_bytes",
+                ),
+                peak_device_memory_bytes=_payload_optional_integer(
+                    value.get("peak_device_memory_bytes"),
+                    field="peak_device_memory_bytes",
+                ),
+                torch_version=_payload_optional_string(
+                    value.get("torch_version"),
+                    field="torch_version",
+                ),
+                cuda_version=_payload_optional_string(
+                    value.get("cuda_version"),
+                    field="cuda_version",
+                ),
+                device_name=_payload_optional_string(
+                    value.get("device_name"),
+                    field="device_name",
+                ),
+                compute_capability=_payload_optional_string(
+                    value.get("compute_capability"),
+                    field="compute_capability",
+                ),
+                solver_contract=_payload_string(
+                    value["solver_contract"],
+                    field="solver_contract",
+                ),
+                tie_break_contract=_payload_string(
+                    value["tie_break_contract"],
+                    field="tie_break_contract",
+                ),
+                digest=_payload_string(value["digest"], field="digest"),
+                schema_version=_payload_string(
+                    value["schema_version"],
+                    field="schema_version",
+                ),
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("Oracle solver provenance payload is invalid") from error
 
     @classmethod
     def numpy_reference(

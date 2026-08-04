@@ -18,7 +18,10 @@ from trade_rl.learning.oracle_bellman_contracts import (
 from trade_rl.learning.oracle_bellman_numpy import solve_numpy_oracle_batch
 from trade_rl.learning.oracle_market_tape import build_oracle_market_tape
 
-OracleBatchBackend = Callable[..., OracleSolveResult]
+OracleBatchBackend = Callable[
+    ...,
+    OracleSolveResult,
+]
 _ACCELERATOR_BACKENDS: dict[str, OracleBatchBackend] = {}
 
 

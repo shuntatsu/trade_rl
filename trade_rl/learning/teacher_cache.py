@@ -43,29 +43,21 @@ def teacher_cache_identity_v2(
     teacher_config_digest: str,
     solver_provenance: OracleSolverProvenance,
 ) -> dict[str, object]:
-    """Return stable solver-aware cache identity for newly generated teachers."""
+    """Return stable numerical identity independent of runtime execution details."""
 
     if not isinstance(solver_provenance, OracleSolverProvenance):
         raise ValueError("solver_provenance must be OracleSolverProvenance")
     return {
         "action_spec_digest": action_spec_digest,
-        "compile_chunk_size": solver_provenance.compile_chunk_size,
-        "compile_mode": solver_provenance.compile_mode,
         "dataset_id": dataset_id,
         "environment_digest": environment_digest,
-        "episode_batch_size": solver_provenance.episode_batch_size,
-        "fallback_reason": solver_provenance.fallback_reason,
-        "market_tape_digest": solver_provenance.market_tape_digest,
         "market_tape_schema": ORACLE_MARKET_TAPE_SCHEMA,
-        "numeric_dtype": solver_provenance.numeric_dtype,
-        "oom_retry_performed": solver_provenance.oom_retry_performed,
         "schema_version": "teacher_cache_identity_v2",
-        "solver_backend": solver_provenance.backend,
-        "solver_contract": solver_provenance.solver_contract,
-        "target_state_block_size": solver_provenance.target_state_block_size,
+        "solver_identity": {
+            **solver_provenance.identity_payload(),
+            "digest": solver_provenance.digest,
+        },
         "teacher_config_digest": teacher_config_digest,
-        "tie_break_contract": solver_provenance.tie_break_contract,
-        "tie_tolerance": solver_provenance.tie_tolerance,
         "train_range": train_range,
     }
 

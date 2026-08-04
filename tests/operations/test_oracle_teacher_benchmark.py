@@ -118,7 +118,8 @@ def test_serial_and_batched_numpy_return_equal_output_digests() -> None:
     assert np.isfinite(serial.steady_seconds).all()
 
 
-def test_removed_legacy_label_is_rejected() -> None:
+@pytest.mark.parametrize("backend", ["legacy_numpy", "torch_cuda_compiled"])
+def test_removed_or_unvalidated_backend_labels_are_rejected(backend: str) -> None:
     market = _market(10)
     teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
 
@@ -127,7 +128,7 @@ def test_removed_legacy_label_is_rejected() -> None:
             market,
             (_contract(market, 0),),
             teacher,
-            backend="legacy_numpy",
+            backend=backend,
             repetitions=1,
         )
 

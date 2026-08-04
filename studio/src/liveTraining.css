@@ -81,7 +81,7 @@
 }
 .live-buffer { display: flex; align-items: center; gap: 5px; height: 34px; color: var(--live-cyan); font-size: 11px; white-space: nowrap; }
 
-.live-alert { display: flex; align-items: center; gap: 8px; position: absolute; right: 22px; top: 76px; z-index: 3; padding: 8px 12px; border: 1px solid #7f3b31; border-radius: 7px; color: #ffb1a7; background: #2a1718; font-size: 11px; }
+.live-alert { display: flex; align-items: center; gap: 8px; position: absolute; right: 22px; top: 76px; z-index: 3; padding: 8px 12px; border: 1px solid #7f3b31; border-radius: 7px; color: #ffb1a7; background: #2a1718; font-size: 11px; pointer-events: none; }
 
 .live-primary-grid { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 282px; gap: 10px; }
 .live-market-panel, .live-agent-panel, .live-metric-card, .live-events-panel {

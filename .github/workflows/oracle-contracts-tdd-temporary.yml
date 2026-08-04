@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - ".github/workflows/oracle-contracts-tdd-temporary.yml"
+      - "trade_rl/learning/oracle_bellman_contracts.py"
+      - "trade_rl/learning/oracle_teacher.py"
+      - "tests/learning/test_oracle_bellman_contracts.py"
 
 permissions:
   contents: read

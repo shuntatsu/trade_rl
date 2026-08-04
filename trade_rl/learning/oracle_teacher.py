@@ -11,11 +11,16 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
-from trade_rl.learning.oracle_bellman_contracts import OracleBellmanParameters
+from trade_rl.learning.oracle_bellman_contracts import (
+    OracleBellmanParameters,
+    OracleEpisodeInputs,
+    OracleSolverConfig,
+)
 from trade_rl.learning.oracle_market_tape import (
     build_oracle_market_tape,
     oracle_open_market_factors,
 )
+from trade_rl.learning.oracle_solver import solve_oracle_episodes
 from trade_rl.learning.oracle_transition_numpy import (
     numpy_effective_target_matrix,
     numpy_execute_transition_step,
@@ -300,150 +305,27 @@ def oracle_target_path(
     dataset: MarketDataset,
     train_range: tuple[int, int],
     config: OracleTeacherConfig,
+    *,
+    solver_config: OracleSolverConfig | None = None,
 ) -> np.ndarray:
     """Return bounded approximate submitted target labels inside train range."""
 
     if config.execution_cost.margin_mode != "cross":
         raise ValueError("oracle currently supports cross margin only")
     start, stop = _validate_train_range(dataset, train_range)
-    states = _portfolio_states(dataset, config)
-    steps = stop - start - 1
-    state_count = len(states)
-    scores = np.full((steps, state_count), -np.inf, dtype=np.float64)
-    pointers = np.full((steps, state_count), -1, dtype=np.int64)
-    close_weights = np.zeros((steps, state_count, dataset.n_symbols), dtype=np.float64)
-    cash_index = int(np.flatnonzero(np.all(np.isclose(states, 0.0), axis=1))[0])
-
-    for step in range(steps):
-        close_index = start + step
-        if step == 0:
-            prior_scores = np.full(state_count, -np.inf, dtype=np.float64)
-            prior_scores[cash_index] = 0.0
-            prior_close_weights = np.zeros_like(close_weights[0])
-        else:
-            prior_scores = scores[step - 1]
-            prior_close_weights = close_weights[step - 1]
-        gap_factor, open_weights, open_equity, valid_prior = _open_state_matrix(
-            dataset,
-            close_index=close_index,
-            prior_close_weights=prior_close_weights,
-            prior_scores=prior_scores,
-            reference_portfolio_value=config.reference_portfolio_value,
-        )
-        if config.signal_delay_decisions == 0:
-            (
-                transition_valid,
-                close_factor,
-                candidate_close_weights,
-                candidate_effective_targets,
-            ) = _transition_matrices(
-                dataset,
-                config,
-                close_index=close_index,
-                current_weights=open_weights,
-                open_equity=open_equity,
-                targets=states,
-            )
-            transition_valid &= valid_prior[:, None]
-            candidate_scores = (
-                prior_scores[:, None]
-                + np.log(np.where(valid_prior, gap_factor, 1.0))[:, None]
-                + np.log(np.where(transition_valid, close_factor, 1.0))
-            )
-            control_projection = np.abs(
-                states[None, :, :] - candidate_effective_targets
-            ).sum(axis=2)
-            candidate_scores -= config.control_tie_break_penalty * control_projection
-            candidate_scores = np.where(transition_valid, candidate_scores, -np.inf)
-            best_prior = np.argmax(candidate_scores, axis=0)
-            best_scores = candidate_scores[best_prior, np.arange(state_count)]
-            scores[step] = best_scores
-            pointers[step] = np.where(np.isfinite(best_scores), best_prior, -1)
-            close_weights[step] = candidate_close_weights[
-                best_prior, np.arange(state_count)
-            ]
-        elif step == 0:
-            hold = states[cash_index : cash_index + 1]
-            transition_valid, close_factor, candidate_close_weights, _ = (
-                _transition_matrices(
-                    dataset,
-                    config,
-                    close_index=close_index,
-                    current_weights=open_weights,
-                    open_equity=open_equity,
-                    targets=hold,
-                )
-            )
-            transition_valid &= valid_prior[:, None]
-            candidate_scores = (
-                prior_scores[:, None]
-                + np.log(np.where(valid_prior, gap_factor, 1.0))[:, None]
-                + np.log(np.where(transition_valid, close_factor, 1.0))
-            )
-            candidate_scores = np.where(transition_valid, candidate_scores, -np.inf)
-            best_prior = int(np.argmax(candidate_scores[:, 0]))
-            best_score = float(candidate_scores[best_prior, 0])
-            scores[step] = best_score
-            pointers[step] = best_prior
-            close_weights[step] = candidate_close_weights[best_prior, 0]
-        else:
-            transition_valid, close_factor, candidate_close_weights, _ = (
-                _transition_matrices(
-                    dataset,
-                    config,
-                    close_index=close_index,
-                    current_weights=open_weights,
-                    open_equity=open_equity,
-                    targets=states,
-                )
-            )
-            diagonal = np.arange(state_count)
-            diagonal_valid = transition_valid[diagonal, diagonal] & valid_prior
-            diagonal_scores = (
-                prior_scores
-                + np.log(np.where(valid_prior, gap_factor, 1.0))
-                + np.log(
-                    np.where(
-                        diagonal_valid,
-                        close_factor[diagonal, diagonal],
-                        1.0,
-                    )
-                )
-            )
-            diagonal_scores = np.where(diagonal_valid, diagonal_scores, -np.inf)
-            best_prior = int(np.argmax(diagonal_scores))
-            best_score = float(diagonal_scores[best_prior])
-            scores[step] = best_score
-            pointers[step] = best_prior
-            close_weights[step] = candidate_close_weights[best_prior, best_prior]
-
-        invalid = ~np.isfinite(scores[step])
-        close_weights[step, invalid] = 0.0
-
-    final_state = (
-        cash_index if config.signal_delay_decisions == 1 else int(np.argmax(scores[-1]))
+    result = solve_oracle_episodes(
+        dataset,
+        states=_portfolio_states(dataset, config),
+        episode_inputs=OracleEpisodeInputs(
+            episode_indices=np.array([0], dtype=np.int64),
+            starts=np.array([start], dtype=np.int64),
+            stops=np.array([stop], dtype=np.int64),
+            initial_weights=np.zeros((1, dataset.n_symbols), dtype=np.float64),
+        ),
+        parameters=config.bellman_parameters,
+        solver_config=solver_config or OracleSolverConfig(),
     )
-    if not math.isfinite(float(scores[-1, final_state])):
-        raise RuntimeError("oracle found no executable portfolio path")
-    state_path = np.zeros(steps, dtype=np.int64)
-    state_path[-1] = final_state
-    for step in range(steps - 1, 0, -1):
-        prior = int(pointers[step, state_path[step]])
-        if prior < 0:
-            raise RuntimeError("oracle portfolio backpointer is missing")
-        state_path[step - 1] = prior
-    # Labels are bounded submitted targets. Realized partial/no-fill weights
-    # remain in the DP transition state and may drift outside the target grid.
-    targets = states[state_path]
-    if not np.isfinite(targets).all():
-        raise RuntimeError("oracle target path contains non-finite values")
-    if np.any(np.abs(targets) > config.max_abs_weight + _EPSILON):
-        raise RuntimeError("oracle target path exceeds max_abs_weight")
-    if np.any(np.abs(targets).sum(axis=1) > config.max_gross + _EPSILON):
-        raise RuntimeError("oracle target path exceeds max_gross")
-    result = np.asarray(targets, dtype=np.float32)
-    result.setflags(write=False)
-    return result
+    return result.targets[0]
 
 
 __all__ = [

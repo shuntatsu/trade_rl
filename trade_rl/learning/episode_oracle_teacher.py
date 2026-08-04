@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import math
-import multiprocessing as mp
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Final, TypeAlias
 
@@ -15,13 +12,15 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.common import require_sha256
+from trade_rl.learning.oracle_bellman_contracts import (
+    OracleEpisodeInputs,
+    OracleSolverConfig,
+)
+from trade_rl.learning.oracle_solver import solve_oracle_episodes
 from trade_rl.learning.oracle_teacher import (
     OracleTeacherConfig,
-    _open_state_matrix,
     _portfolio_states,
-    _transition_matrices,
     _validate_train_range,
-    oracle_target_path,
 )
 
 EPISODE_ORACLE_TEACHER_SCHEMA: Final = "episode_aligned_oracle_teacher_v1"
@@ -31,9 +30,6 @@ _ALLOWED_INITIAL_STATE_MODES: Final = frozenset({"cash", "baseline"})
 _EPSILON: Final = 1e-12
 
 InitialWeightProvider: TypeAlias = Callable[[str, int], np.ndarray]
-
-_FORK_ORACLE_CONFIG: OracleTeacherConfig | None = None
-_FORK_ORACLE_DATASET: MarketDataset | None = None
 
 
 def _array_identity(value: np.ndarray) -> dict[str, object]:
@@ -88,6 +84,7 @@ def episode_oracle_target_path(
     config: OracleTeacherConfig,
     *,
     initial_weights: np.ndarray,
+    solver_config: OracleSolverConfig | None = None,
 ) -> np.ndarray:
     """Return an Oracle path seeded from one explicit episode initial state."""
 
@@ -95,159 +92,19 @@ def episode_oracle_target_path(
         raise ValueError("oracle currently supports cross margin only")
     start, stop = _validate_train_range(dataset, train_range)
     initial = _validated_oracle_initial_weights(dataset, config, initial_weights)
-    if np.all(np.abs(initial) <= _EPSILON):
-        return oracle_target_path(dataset, (start, stop), config)
-
-    states = _portfolio_states(dataset, config)
-    steps = stop - start - 1
-    state_count = len(states)
-    scores = np.full((steps, state_count), -np.inf, dtype=np.float64)
-    pointers = np.full((steps, state_count), -1, dtype=np.int64)
-    close_weights = np.zeros(
-        (steps, state_count, dataset.n_symbols),
-        dtype=np.float64,
+    result = solve_oracle_episodes(
+        dataset,
+        states=_portfolio_states(dataset, config),
+        episode_inputs=OracleEpisodeInputs(
+            episode_indices=np.array([0], dtype=np.int64),
+            starts=np.array([start], dtype=np.int64),
+            stops=np.array([stop], dtype=np.int64),
+            initial_weights=initial[None, :],
+        ),
+        parameters=config.bellman_parameters,
+        solver_config=solver_config or OracleSolverConfig(),
     )
-    cash_index = int(np.flatnonzero(np.all(np.isclose(states, 0.0), axis=1))[0])
-
-    for step in range(steps):
-        close_index = start + step
-        if step == 0:
-            prior_scores = np.zeros(1, dtype=np.float64)
-            prior_close_weights = initial[None, :]
-        else:
-            prior_scores = scores[step - 1]
-            prior_close_weights = close_weights[step - 1]
-        gap_factor, open_weights, open_equity, valid_prior = _open_state_matrix(
-            dataset,
-            close_index=close_index,
-            prior_close_weights=prior_close_weights,
-            prior_scores=prior_scores,
-            reference_portfolio_value=config.reference_portfolio_value,
-        )
-        if config.signal_delay_decisions == 0:
-            (
-                transition_valid,
-                close_factor,
-                candidate_close_weights,
-                candidate_effective_targets,
-            ) = _transition_matrices(
-                dataset,
-                config,
-                close_index=close_index,
-                current_weights=open_weights,
-                open_equity=open_equity,
-                targets=states,
-            )
-            transition_valid &= valid_prior[:, None]
-            candidate_scores = (
-                prior_scores[:, None]
-                + np.log(np.where(valid_prior, gap_factor, 1.0))[:, None]
-                + np.log(np.where(transition_valid, close_factor, 1.0))
-            )
-            control_projection = np.abs(
-                states[None, :, :] - candidate_effective_targets
-            ).sum(axis=2)
-            candidate_scores -= config.control_tie_break_penalty * control_projection
-            candidate_scores = np.where(transition_valid, candidate_scores, -np.inf)
-            best_prior = np.argmax(candidate_scores, axis=0)
-            best_scores = candidate_scores[best_prior, np.arange(state_count)]
-            scores[step] = best_scores
-            pointers[step] = np.where(np.isfinite(best_scores), best_prior, -1)
-            close_weights[step] = candidate_close_weights[
-                best_prior,
-                np.arange(state_count),
-            ]
-        elif step == 0:
-            hold = initial[None, :]
-            transition_valid, close_factor, candidate_close_weights, _ = (
-                _transition_matrices(
-                    dataset,
-                    config,
-                    close_index=close_index,
-                    current_weights=open_weights,
-                    open_equity=open_equity,
-                    targets=hold,
-                )
-            )
-            transition_valid &= valid_prior[:, None]
-            candidate_scores = (
-                prior_scores[:, None]
-                + np.log(np.where(valid_prior, gap_factor, 1.0))[:, None]
-                + np.log(np.where(transition_valid, close_factor, 1.0))
-            )
-            candidate_scores = np.where(transition_valid, candidate_scores, -np.inf)
-            best_prior = int(np.argmax(candidate_scores[:, 0]))
-            best_score = float(candidate_scores[best_prior, 0])
-            scores[step] = best_score
-            pointers[step] = best_prior
-            close_weights[step] = candidate_close_weights[best_prior, 0]
-        else:
-            transition_valid, close_factor, candidate_close_weights, _ = (
-                _transition_matrices(
-                    dataset,
-                    config,
-                    close_index=close_index,
-                    current_weights=open_weights,
-                    open_equity=open_equity,
-                    targets=states,
-                )
-            )
-            diagonal = np.arange(state_count)
-            diagonal_valid = transition_valid[diagonal, diagonal] & valid_prior
-            diagonal_scores = (
-                prior_scores
-                + np.log(np.where(valid_prior, gap_factor, 1.0))
-                + np.log(
-                    np.where(
-                        diagonal_valid,
-                        close_factor[diagonal, diagonal],
-                        1.0,
-                    )
-                )
-            )
-            diagonal_scores = np.where(diagonal_valid, diagonal_scores, -np.inf)
-            best_prior = int(np.argmax(diagonal_scores))
-            best_score = float(diagonal_scores[best_prior])
-            scores[step] = best_score
-            pointers[step] = best_prior
-            close_weights[step] = candidate_close_weights[best_prior, best_prior]
-
-        invalid = ~np.isfinite(scores[step])
-        close_weights[step, invalid] = 0.0
-
-    final_state = (
-        cash_index if config.signal_delay_decisions == 1 else int(np.argmax(scores[-1]))
-    )
-    if not math.isfinite(float(scores[-1, final_state])):
-        raise RuntimeError("oracle found no executable portfolio path")
-    state_path = np.zeros(steps, dtype=np.int64)
-    state_path[-1] = final_state
-    for step in range(steps - 1, 0, -1):
-        prior = int(pointers[step, state_path[step]])
-        if prior < 0:
-            raise RuntimeError("oracle portfolio backpointer is missing")
-        state_path[step - 1] = prior
-    targets = states[state_path]
-    if not np.isfinite(targets).all():
-        raise RuntimeError("oracle target path contains non-finite values")
-    if np.any(np.abs(targets) > config.max_abs_weight + _EPSILON):
-        raise RuntimeError("oracle target path exceeds max_abs_weight")
-    if np.any(np.abs(targets).sum(axis=1) > config.max_gross + _EPSILON):
-        raise RuntimeError("oracle target path exceeds max_gross")
-    result = np.asarray(targets, dtype=np.float32)
-    result.setflags(write=False)
-    return result
-
-
-def _forked_episode_oracle_target(contract: OracleEpisodeContract) -> np.ndarray:
-    if _FORK_ORACLE_DATASET is None or _FORK_ORACLE_CONFIG is None:
-        raise RuntimeError("forked episode Oracle worker is not initialized")
-    return episode_oracle_target_path(
-        _FORK_ORACLE_DATASET,
-        (contract.start, contract.stop),
-        _FORK_ORACLE_CONFIG,
-        initial_weights=contract.initial_weights,
-    )
+    return result.targets[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -494,6 +351,7 @@ def build_episode_oracle_batch(
     teacher_config: OracleTeacherConfig,
     initial_weight_provider: InitialWeightProvider | None = None,
     max_workers: int = 1,
+    solver_config: OracleSolverConfig | None = None,
 ) -> EpisodeOracleBatch:
     """Build bounded Oracle targets for independently sampled PPO-like episodes."""
 
@@ -501,59 +359,42 @@ def build_episode_oracle_batch(
         raise ValueError("Oracle episode worker count must be an integer")
     if max_workers <= 0:
         raise ValueError("Oracle episode worker count must be positive")
-
     contracts = sample_oracle_episode_contracts(
         dataset,
         minimum_start_index=minimum_start_index,
         config=sampling_config,
         initial_weight_provider=initial_weight_provider,
     )
-    def build_target(contract: OracleEpisodeContract) -> np.ndarray:
-        return episode_oracle_target_path(
-            dataset,
-            (contract.start, contract.stop),
-            teacher_config,
-            initial_weights=contract.initial_weights,
-        )
-
-    if max_workers == 1 or len(contracts) == 1:
-        targets = tuple(build_target(contract) for contract in contracts)
-    elif "fork" in mp.get_all_start_methods():
-        global _FORK_ORACLE_CONFIG, _FORK_ORACLE_DATASET
-        _FORK_ORACLE_DATASET = dataset
-        _FORK_ORACLE_CONFIG = teacher_config
-        worker_count = min(max_workers, len(contracts))
-        try:
-            context = mp.get_context("fork")
-            # Each bounded episode runs in a fresh child.  The multi-GiB market
-            # dataset remains read-only and copy-on-write shared, while temporary
-            # dynamic-programming matrices are returned to the OS after every
-            # episode instead of accumulating in a persistent worker allocator.
-            with context.Pool(
-                processes=worker_count,
-                maxtasksperchild=1,
-            ) as pool:
-                targets = tuple(
-                    pool.map(_forked_episode_oracle_target, contracts, chunksize=1)
-                )
-        finally:
-            _FORK_ORACLE_DATASET = None
-            _FORK_ORACLE_CONFIG = None
-    else:
-        worker_count = min(max_workers, len(contracts))
-        with ThreadPoolExecutor(
-            max_workers=worker_count,
-            thread_name_prefix="oracle-teacher",
-        ) as executor:
-            # executor.map preserves contract order, which keeps the artifact digest
-            # identical to serial generation.
-            targets = tuple(executor.map(build_target, contracts))
+    result = solve_oracle_episodes(
+        dataset,
+        states=_portfolio_states(dataset, teacher_config),
+        episode_inputs=OracleEpisodeInputs(
+            episode_indices=np.asarray(
+                [contract.episode_index for contract in contracts],
+                dtype=np.int64,
+            ),
+            starts=np.asarray(
+                [contract.start for contract in contracts],
+                dtype=np.int64,
+            ),
+            stops=np.asarray(
+                [contract.stop for contract in contracts],
+                dtype=np.int64,
+            ),
+            initial_weights=np.stack(
+                [contract.initial_weights for contract in contracts],
+                axis=0,
+            ),
+        ),
+        parameters=teacher_config.bellman_parameters,
+        solver_config=solver_config or OracleSolverConfig(),
+    )
     return EpisodeOracleBatch(
         dataset_id=dataset.dataset_id,
         teacher_config_digest=teacher_config.digest,
         sampling_config_digest=sampling_config.digest,
         contracts=contracts,
-        targets=targets,
+        targets=result.targets,
     )
 
 

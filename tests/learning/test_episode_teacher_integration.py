@@ -18,6 +18,8 @@ from trade_rl.learning.episode_oracle_bc import evaluate_episode_action_path
 from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
     OracleEpisodeContract,
+    OracleEpisodeSamplingConfig,
+    build_episode_oracle_batch,
     episode_oracle_target_path,
 )
 from trade_rl.learning.episode_teacher_artifact import (
@@ -27,6 +29,7 @@ from trade_rl.learning.episode_teacher_artifact import (
     load_episode_teacher_artifact,
     write_episode_teacher_artifact,
 )
+from trade_rl.learning.oracle_bellman_contracts import OracleSolverConfig
 from trade_rl.learning.oracle_teacher import OracleTeacherConfig
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.rl.actions import ActionSpec
@@ -376,3 +379,48 @@ def test_backend_caches_episode_oracle_batch_by_sampling_identity(
     assert calls == 1
     assert first is expected
     assert second is expected
+
+
+def test_episode_oracle_batch_explicit_numpy_solver_ignores_legacy_worker_count() -> (
+    None
+):
+    market = _market(64)
+    sampling = OracleEpisodeSamplingConfig(
+        episode_bars=6,
+        episode_count=4,
+        initial_state_modes=("cash", "baseline"),
+        seed=17,
+    )
+    teacher = OracleTeacherConfig(
+        execution_cost=ExecutionCostConfig.zero(),
+        reference_portfolio_value=100_000.0,
+    )
+    solver = OracleSolverConfig(
+        selection="numpy",
+        episode_batch_size=2,
+        target_state_block_size=1,
+    )
+
+    def provider(mode: str, start: int) -> np.ndarray:
+        return np.array([0.25], dtype=np.float64)
+
+    serial = build_episode_oracle_batch(
+        market,
+        minimum_start_index=4,
+        sampling_config=sampling,
+        teacher_config=teacher,
+        initial_weight_provider=provider,
+        max_workers=1,
+        solver_config=solver,
+    )
+    compatibility = build_episode_oracle_batch(
+        market,
+        minimum_start_index=4,
+        sampling_config=sampling,
+        teacher_config=teacher,
+        initial_weight_provider=provider,
+        max_workers=4,
+        solver_config=solver,
+    )
+
+    assert compatibility.digest == serial.digest

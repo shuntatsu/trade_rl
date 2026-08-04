@@ -9,8 +9,8 @@ from trade_rl.learning.oracle_bellman_contracts import (
     OracleBackendFailure,
     OracleBellmanParameters,
     OracleEpisodeInputs,
-    OracleSolveResult,
     OracleSolverConfig,
+    OracleSolveResult,
 )
 from trade_rl.learning.oracle_bellman_numpy import solve_numpy_oracle_batch
 from trade_rl.learning.oracle_market_tape import build_oracle_market_tape
@@ -60,7 +60,9 @@ def solve_oracle_episodes(
     horizons = episode_inputs.stops - episode_inputs.starts - 1
     for horizon in sorted(set(horizons.tolist())):
         horizon_positions = np.flatnonzero(horizons == horizon)
-        for offset in range(0, horizon_positions.size, solver_config.episode_batch_size):
+        for offset in range(
+            0, horizon_positions.size, solver_config.episode_batch_size
+        ):
             positions = horizon_positions[
                 offset : offset + solver_config.episode_batch_size
             ]

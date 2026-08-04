@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
@@ -87,7 +88,7 @@ def test_serial_and_batched_numpy_return_equal_output_digests() -> None:
         market,
         contracts,
         teacher,
-        backend="legacy_numpy",
+        backend="serial_numpy",
         repetitions=1,
     )
     batched = run_oracle_teacher_benchmark(
@@ -100,7 +101,10 @@ def test_serial_and_batched_numpy_return_equal_output_digests() -> None:
 
     assert isinstance(serial, OracleBenchmarkResult)
     assert serial.output_digest == batched.output_digest
-    assert serial.metadata["compatibility_note"] is not None
+    assert serial.metadata["baseline_note"] == (
+        "maintained NumPy solver invoked one episode at a time; "
+        "not the removed pre-refactor implementation"
+    )
     assert batched.metadata["actual_backend"] == "numpy"
     assert batched.metadata["requested_compile_mode"] == "disabled"
     assert batched.metadata["actual_compile_mode"] == "disabled"
@@ -112,6 +116,20 @@ def test_serial_and_batched_numpy_return_equal_output_digests() -> None:
     assert serial.peak_device_reserved_bytes is None
     assert len(serial.steady_solver_seconds) == 1
     assert np.isfinite(serial.steady_seconds).all()
+
+
+def test_removed_legacy_label_is_rejected() -> None:
+    market = _market(10)
+    teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+
+    with pytest.raises(ValueError, match="unsupported"):
+        run_oracle_teacher_benchmark(
+            market,
+            (_contract(market, 0),),
+            teacher,
+            backend="legacy_numpy",
+            repetitions=1,
+        )
 
 
 def test_cli_writes_canonical_json(tmp_path: Path) -> None:

@@ -116,4 +116,12 @@
 
 **Fix:** Added explicit idempotent `register_default_oracle_accelerators()` and invoke it only when CUDA or CUDA-fallback Oracle solving is requested.
 
-**Review:** NumPy imports remain side-effect free; Torch remains lazily imported by the CUDA adapter. The reviewed change set is staged for focused verification.
+**Review:** NumPy imports remain side-effect free; Torch remains lazily imported by the CUDA adapter. Focused result: 14 passed, 1 failed.
+
+## Loop 15: Documentation and CI contracts match maintained architecture
+
+**Check:** Architecture docs named policy identity v1, CI retained obsolete branch targets, and compatibility jobs did not include architecture contracts.
+
+**Fix:** Updated docs to `sb3_policy_identity_v4`, removed obsolete PR branch filters, and added architecture tests to Linux/Windows compatibility jobs.
+
+**Review:** No runtime behavior changes. The final focused gate now verifies all fifteen contracts plus Ruff, MyPy, and Import Linter.

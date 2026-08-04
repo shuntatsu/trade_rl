@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from trade_rl.catalog.postgres import PostgresArtifactCatalog
+from trade_rl.catalog.postgres_sealed_test import PostgresSealedTestReservationStore
 from trade_rl.evaluation.walk_forward.folds import IndexRange
 from trade_rl.evaluation.walk_forward.sealed_test import (
     SealedTestAccessRecord,
@@ -20,8 +22,18 @@ class SealedTestReservationStore(Protocol):
 class PostgresSealedTestLedger:
     """Reserve each plan/dataset/fold key atomically across processes."""
 
-    store: SealedTestReservationStore
+    store: SealedTestReservationStore | PostgresArtifactCatalog
     _records: list[SealedTestAccessRecord] = field(default_factory=list, init=False)
+    _reservation_store: SealedTestReservationStore = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.store, PostgresArtifactCatalog):
+            self._reservation_store = PostgresSealedTestReservationStore(
+                self.store.database_url,
+                connection_factory=self.store.connection_factory,
+            )
+        else:
+            self._reservation_store = self.store
 
     @property
     def records(self) -> tuple[SealedTestAccessRecord, ...]:
@@ -45,7 +57,7 @@ class PostgresSealedTestLedger:
             selected_configuration=selected_configuration,
             selected_policy_digest=selected_policy_digest,
         )
-        self.store.reserve_sealed_test_access(record)
+        self._reservation_store.reserve_sealed_test_access(record)
         self._records.append(record)
         return record
 

@@ -431,13 +431,8 @@ class TrainingRunConfig:
         config = cls.from_mapping(json.loads(path.read_text(encoding="utf-8")))
         return config.resolve_artifact_paths(path.parent)
 
-    def _recipe_identity_payload(
-        self,
-        *,
-        resume_checkpoint_digests: dict[str, str],
-        transfer_checkpoint_digests: dict[str, str],
-    ) -> dict[str, object]:
-        payload: dict[str, object] = {
+    def _recipe_identity_payload(self) -> dict[str, object]:
+        return {
             "action": asdict(self.action),
             "alpha_contract": asdict(self.alpha_contract),
             "alpha_artifact_digest": self.alpha_artifact_digest,
@@ -446,25 +441,38 @@ class TrainingRunConfig:
             "portfolio_risk": asdict(self.portfolio_risk),
             "risk": asdict(self.risk),
             "reward": asdict(self.reward),
-            "resume_checkpoint_digests": resume_checkpoint_digests,
             "schema_version": self.schema_version,
             "training": self.training.digest_payload(),
             "trend": asdict(self.trend),
+        }
+
+    def _run_identity_payload(
+        self,
+        *,
+        resume_checkpoint_digests: dict[str, str],
+        transfer_checkpoint_digests: dict[str, str],
+    ) -> dict[str, object]:
+        payload = {
+            **self._recipe_identity_payload(),
+            "export_onnx": self.export_onnx,
+            "export_structured_torchscript": self.export_structured_torchscript,
+            "export_tolerance": self.export_tolerance,
+            "export_torchscript": self.export_torchscript,
+            "git_commit": self.git_commit,
+            "git_dirty": self.git_dirty,
+            "resume_checkpoint_digests": resume_checkpoint_digests,
         }
         if transfer_checkpoint_digests:
             payload["transfer_checkpoint_digests"] = transfer_checkpoint_digests
         return payload
 
     def candidate_digest_payload(self) -> dict[str, object]:
-        """Return the stable learning recipe identity, excluding checkpoint transport."""
+        """Return the stable learning recipe identity, excluding run transport."""
 
-        return self._recipe_identity_payload(
-            resume_checkpoint_digests={},
-            transfer_checkpoint_digests={},
-        )
+        return self._recipe_identity_payload()
 
     def digest_payload(self) -> dict[str, object]:
-        return self._recipe_identity_payload(
+        return self._run_identity_payload(
             resume_checkpoint_digests={
                 str(seed): load_checkpoint_manifest(
                     path / "checkpoint.json" if path.is_dir() else path

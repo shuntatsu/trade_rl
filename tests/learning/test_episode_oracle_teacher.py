@@ -185,6 +185,8 @@ def test_episode_oracle_batch_preserves_episode_boundaries_and_initial_state() -
     assert batch.decision_count == sampling.episode_count * sampling.episode_bars
     assert len(batch.contracts) == len(batch.targets) == sampling.episode_count
     assert batch.digest
+    assert batch.solver_provenance is not None
+    assert batch.solver_provenance.backend == "numpy"
     for contract, targets in zip(batch.contracts, batch.targets, strict=True):
         assert contract.stop - contract.start - 1 == sampling.episode_bars
         assert targets.shape == (sampling.episode_bars, market.n_symbols)
@@ -201,6 +203,7 @@ def test_parallel_episode_oracle_batch_matches_serial_digest() -> None:
         seed=19,
     )
     teacher = _costly_oracle()
+
     def provider(mode: str, start: int) -> np.ndarray:
         return np.array([0.35])
 

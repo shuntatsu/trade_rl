@@ -241,9 +241,9 @@ def test_sequence_assembly_binds_hierarchical_actor_identity() -> None:
         0.49
     )
     assert policy_kwargs["shared_actor_entry_threshold"] == pytest.approx(0.1)
-    assert policy_kwargs[
-        "shared_actor_minimum_deterministic_change"
-    ] == pytest.approx(0.05)
+    assert policy_kwargs["shared_actor_minimum_deterministic_change"] == pytest.approx(
+        0.05
+    )
 
 
 def test_hierarchical_actor_fields_are_digest_bound() -> None:

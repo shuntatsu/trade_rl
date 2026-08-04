@@ -23,6 +23,7 @@ from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
     OracleEpisodeContract,
 )
+from trade_rl.learning.oracle_bellman_contracts import OracleSolverProvenance
 from trade_rl.learning.teacher_artifact import (
     TEACHER_ARRAYS_NAME,
     TEACHER_MANIFEST_NAME,
@@ -38,7 +39,9 @@ from trade_rl.learning.teacher_artifact import (
     _sha256,
 )
 
-EPISODE_TEACHER_ARTIFACT_SCHEMA: Final = "episode_supervised_teacher_artifact_v1"
+EPISODE_TEACHER_ARTIFACT_SCHEMA_V1: Final = "episode_supervised_teacher_artifact_v1"
+EPISODE_TEACHER_ARTIFACT_SCHEMA_V2: Final = "episode_supervised_teacher_artifact_v2"
+EPISODE_TEACHER_ARTIFACT_SCHEMA: Final = "episode_supervised_teacher_artifact_v3"
 _ALLOWED_FILES = frozenset({TEACHER_MANIFEST_NAME, TEACHER_ARRAYS_NAME})
 _COMPACT_KEYS = (
     "active",
@@ -68,6 +71,7 @@ class EpisodeSupervisedPolicyDataset(SupervisedPolicyDataset):
 
     decision_indices: np.ndarray
     episode_ids: np.ndarray
+    solver_provenance: OracleSolverProvenance | None = None
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -140,6 +144,10 @@ class EpisodeSupervisedPolicyDataset(SupervisedPolicyDataset):
                 raise ValueError(
                     "compact observation decision indices mismatch provenance"
                 )
+        if self.solver_provenance is not None and not isinstance(
+            self.solver_provenance, OracleSolverProvenance
+        ):
+            raise ValueError("solver_provenance must be OracleSolverProvenance")
         actions.setflags(write=False)
         object.__setattr__(self, "observations", observations)
         object.__setattr__(self, "actions", actions)
@@ -179,6 +187,8 @@ class EpisodeTeacherArtifactManifest:
     observation_shapes: dict[str, tuple[int, ...]]
     observation_dtypes: dict[str, str]
     action_shape: tuple[int, int]
+    solver_provenance_digest: str | None = None
+    solver_provenance: OracleSolverProvenance | None = None
     schema_version: str = EPISODE_TEACHER_ARTIFACT_SCHEMA
 
     def __post_init__(self) -> None:
@@ -211,11 +221,46 @@ class EpisodeTeacherArtifactManifest:
             raise ValueError("episode teacher observation count mismatch")
         if self.action_shape[0] != self.sample_count:
             raise ValueError("episode teacher action count mismatch")
-        if self.schema_version != EPISODE_TEACHER_ARTIFACT_SCHEMA:
+        if self.schema_version not in {
+            EPISODE_TEACHER_ARTIFACT_SCHEMA_V1,
+            EPISODE_TEACHER_ARTIFACT_SCHEMA_V2,
+            EPISODE_TEACHER_ARTIFACT_SCHEMA,
+        }:
             raise ValueError("unsupported episode teacher artifact schema")
+        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V1:
+            if (
+                self.solver_provenance is not None
+                or self.solver_provenance_digest is not None
+            ):
+                raise ValueError(
+                    "legacy episode teacher artifacts cannot claim provenance"
+                )
+        elif not isinstance(self.solver_provenance, OracleSolverProvenance):
+            raise ValueError("episode teacher artifacts require solver provenance")
+        elif self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V2:
+            if self.solver_provenance_digest is not None:
+                raise ValueError(
+                    "v2 episode teacher artifacts cannot claim v3 integrity"
+                )
+        else:
+            if self.solver_provenance_digest is None:
+                raise ValueError(
+                    "v3 episode teacher artifacts require provenance digest"
+                )
+            require_sha256(
+                self.solver_provenance_digest,
+                field="solver_provenance_digest",
+            )
+            expected_provenance_digest = content_digest(
+                self.solver_provenance.serialized_payload()
+            )
+            if self.solver_provenance_digest != expected_provenance_digest:
+                raise ValueError("episode teacher manifest provenance digest mismatch")
 
     def digest_payload(self) -> dict[str, object]:
-        return {
+        """Return numerical artifact identity without volatile runtime evidence."""
+
+        payload: dict[str, object] = {
             "action_digest": self.action_digest,
             "action_shape": self.action_shape,
             "action_spec_digest": self.action_spec_digest,
@@ -236,6 +281,32 @@ class EpisodeTeacherArtifactManifest:
             "train_start": self.train_start,
             "train_stop": self.train_stop,
         }
+        if self.schema_version in {
+            EPISODE_TEACHER_ARTIFACT_SCHEMA_V2,
+            EPISODE_TEACHER_ARTIFACT_SCHEMA,
+        }:
+            if self.solver_provenance is None:  # pragma: no cover - guarded above
+                raise RuntimeError("solver provenance disappeared")
+            payload["solver_identity"] = {
+                **self.solver_provenance.identity_payload(),
+                "digest": self.solver_provenance.digest,
+            }
+        return payload
+
+    def serialized_payload(self) -> dict[str, object]:
+        """Return complete manifest with runtime evidence outside artifact identity."""
+
+        payload = self.digest_payload()
+        if self.schema_version in {
+            EPISODE_TEACHER_ARTIFACT_SCHEMA_V2,
+            EPISODE_TEACHER_ARTIFACT_SCHEMA,
+        }:
+            if self.solver_provenance is None:  # pragma: no cover - guarded above
+                raise RuntimeError("solver provenance disappeared")
+            payload["solver_provenance"] = self.solver_provenance.serialized_payload()
+        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA:
+            payload["solver_provenance_digest"] = self.solver_provenance_digest
+        return {**payload, "artifact_digest": self.artifact_digest}
 
 
 def write_episode_teacher_artifact(
@@ -255,7 +326,17 @@ def write_episode_teacher_artifact(
         arrays[f"observation__{key}"] = value
     arrays_payload = _deterministic_npz(arrays)
     arrays_digest = _sha256(arrays_payload)
-    base = {
+    schema_version = (
+        EPISODE_TEACHER_ARTIFACT_SCHEMA_V1
+        if dataset.solver_provenance is None
+        else EPISODE_TEACHER_ARTIFACT_SCHEMA
+    )
+    solver_provenance_digest = (
+        None
+        if dataset.solver_provenance is None
+        else content_digest(dataset.solver_provenance.serialized_payload())
+    )
+    base: dict[str, object] = {
         "action_digest": dataset.action_digest,
         "action_shape": dataset.actions.shape,
         "action_spec_digest": dataset.action_spec_digest,
@@ -271,11 +352,16 @@ def write_episode_teacher_artifact(
         "observation_keys": dataset.observation_keys,
         "observation_shapes": dataset.observation_shapes,
         "sample_count": dataset.sample_count,
-        "schema_version": EPISODE_TEACHER_ARTIFACT_SCHEMA,
+        "schema_version": schema_version,
         "teacher_config_digest": dataset.teacher_config_digest,
         "train_start": dataset.train_start,
         "train_stop": dataset.train_stop,
     }
+    if dataset.solver_provenance is not None:
+        base["solver_identity"] = {
+            **dataset.solver_provenance.identity_payload(),
+            "digest": dataset.solver_provenance.digest,
+        }
     manifest = EpisodeTeacherArtifactManifest(
         artifact_digest=content_digest(base),
         arrays_digest=arrays_digest,
@@ -295,9 +381,15 @@ def write_episode_teacher_artifact(
         observation_shapes=dataset.observation_shapes,
         observation_dtypes=dataset.observation_dtypes,
         action_shape=(dataset.actions.shape[0], dataset.actions.shape[1]),
+        solver_provenance_digest=solver_provenance_digest,
+        solver_provenance=dataset.solver_provenance,
+        schema_version=schema_version,
     )
     _atomic_write(output / TEACHER_ARRAYS_NAME, arrays_payload)
-    _atomic_write(output / TEACHER_MANIFEST_NAME, canonical_json_bytes(manifest))
+    _atomic_write(
+        output / TEACHER_MANIFEST_NAME,
+        canonical_json_bytes(manifest.serialized_payload()),
+    )
     return manifest.artifact_digest
 
 
@@ -321,6 +413,17 @@ def load_episode_teacher_artifact(
     if not isinstance(raw, dict):
         raise ValueError("episode teacher manifest must be a mapping")
     try:
+        schema_version = str(raw["schema_version"])
+        solver_provenance = (
+            None
+            if schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V1
+            else OracleSolverProvenance.from_payload(raw["solver_provenance"])
+        )
+        solver_provenance_digest = (
+            str(raw["solver_provenance_digest"])
+            if schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA
+            else None
+        )
         manifest = EpisodeTeacherArtifactManifest(
             artifact_digest=str(raw["artifact_digest"]),
             arrays_digest=str(raw["arrays_digest"]),
@@ -345,7 +448,9 @@ def load_episode_teacher_artifact(
                 str(key): str(value) for key, value in raw["observation_dtypes"].items()
             },
             action_shape=tuple(int(value) for value in raw["action_shape"]),  # type: ignore[arg-type]
-            schema_version=str(raw["schema_version"]),
+            solver_provenance_digest=solver_provenance_digest,
+            solver_provenance=solver_provenance,
+            schema_version=schema_version,
         )
     except (AttributeError, KeyError, TypeError, ValueError) as error:
         raise ValueError("episode teacher artifact manifest is invalid") from error
@@ -385,6 +490,7 @@ def load_episode_teacher_artifact(
         teacher_config_digest=manifest.teacher_config_digest,
         decision_indices=decision_indices,
         episode_ids=episode_ids,
+        solver_provenance=manifest.solver_provenance,
     )
     if (
         dataset.observation_digest != manifest.observation_digest
@@ -412,11 +518,7 @@ def load_episode_teacher_artifact(
         raise ValueError("episode teacher action specification identity mismatch")
     if (
         expected_train_range is not None
-        and (
-            dataset.train_start,
-            dataset.train_stop,
-        )
-        != expected_train_range
+        and (dataset.train_start, dataset.train_stop) != expected_train_range
     ):
         raise ValueError("episode teacher training envelope mismatch")
     return manifest, dataset
@@ -539,6 +641,7 @@ def collect_episode_teacher_rollout(
         teacher_config_digest=teacher_config_digest,
         decision_indices=np.asarray(decision_indices, dtype=np.int64),
         episode_ids=np.asarray(episode_ids, dtype=np.int64),
+        solver_provenance=batch.solver_provenance,
     )
 
 
@@ -563,6 +666,7 @@ def _collect_isolated_episode(
         sampling_config_digest=batch.sampling_config_digest,
         contracts=(isolated_contract,),
         targets=(targets,),
+        solver_provenance=batch.solver_provenance,
     )
     environment = environment_factory()
     try:
@@ -621,9 +725,7 @@ def collect_episode_teacher_rollout_parallel(
     worker_count = min(max_workers, batch.episode_count)
     items = tuple(zip(batch.contracts, batch.targets, strict=True))
     resolved_shard_root = None if shard_root is None else Path(shard_root)
-    collected_by_id: dict[
-        int, tuple[EpisodeSupervisedPolicyDataset, int]
-    ] = {}
+    collected_by_id: dict[int, tuple[EpisodeSupervisedPolicyDataset, int]] = {}
     pending_items: list[tuple[OracleEpisodeContract, np.ndarray]] = []
     for item in items:
         contract, _ = item
@@ -699,6 +801,7 @@ def collect_episode_teacher_rollout_parallel(
             _FORK_EPISODE_ENVIRONMENT_FACTORY = None
             _FORK_EPISODE_TEACHER_DIGEST = None
     elif pending_items:
+
         def collect_one(
             item: tuple[OracleEpisodeContract, np.ndarray],
         ) -> tuple[EpisodeSupervisedPolicyDataset, int]:
@@ -726,6 +829,12 @@ def collect_episode_teacher_rollout_parallel(
         or episode.environment_digest != first.environment_digest
         or episode.action_spec_digest != first.action_spec_digest
         or episode.teacher_config_digest != first.teacher_config_digest
+        or (
+            None
+            if episode.solver_provenance is None
+            else episode.solver_provenance.digest
+        )
+        != (None if first.solver_provenance is None else first.solver_provenance.digest)
         or isinstance(episode.observations, Mapping)
         != isinstance(first.observations, Mapping)
         for episode in episodes[1:]
@@ -764,11 +873,13 @@ def collect_episode_teacher_rollout_parallel(
                 for episode, episode_id in collected
             ]
         ),
+        solver_provenance=first.solver_provenance,
     )
 
 
 __all__ = [
     "EPISODE_TEACHER_ARTIFACT_SCHEMA",
+    "EPISODE_TEACHER_ARTIFACT_SCHEMA_V1",
     "EpisodeSupervisedPolicyDataset",
     "EpisodeTeacherArtifactManifest",
     "collect_episode_teacher_rollout",

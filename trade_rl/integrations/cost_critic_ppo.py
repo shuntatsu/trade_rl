@@ -163,7 +163,8 @@ class CostCriticPPO(PPO):
         """Resolve implicit CUDA devices to the process-local device index."""
 
         resolved = torch.device(device)
-        if resolved.type == "cuda" and resolved.index is None:
+        resolved_index = getattr(resolved, "index", None)
+        if resolved.type == "cuda" and resolved_index is None:
             return torch.device("cuda", torch.cuda.current_device())
         return resolved
 

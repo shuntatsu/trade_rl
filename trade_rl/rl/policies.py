@@ -409,6 +409,7 @@ class SharedPerAssetGateTargetHead(nn.Module):
     """Apply one shared trunk with Gate and Target heads to every asset."""
 
     _ATANH_EPSILON = 1e-6
+
     def __init__(
         self,
         *,
@@ -445,9 +446,7 @@ class SharedPerAssetGateTargetHead(nn.Module):
             not math.isfinite(float(minimum_deterministic_change))
             or not 0.0 <= float(minimum_deterministic_change) <= 2.0
         ):
-            raise ValueError(
-                "minimum deterministic change must be within [0, 2]"
-            )
+            raise ValueError("minimum deterministic change must be within [0, 2]")
         self.n_symbols = n_symbols
         self.token_dim = token_dim
         self.context_dim = context_dim
@@ -497,9 +496,7 @@ class SharedPerAssetGateTargetHead(nn.Module):
             effective_gate = gate_probabilities
             effective_delta = target_delta
         else:
-            effective_gate = (
-                gate_probabilities >= self.gate_prediction_threshold
-            ).to(
+            effective_gate = (gate_probabilities >= self.gate_prediction_threshold).to(
                 gate_probabilities.dtype
             )
             # A hard change from a flat position must cross the same entry
@@ -518,9 +515,7 @@ class SharedPerAssetGateTargetHead(nn.Module):
                 target_actions,
             )
             target_delta = operational_targets - current_weights
-            minimum = torch.full_like(
-                target_delta, self.minimum_deterministic_change
-            )
+            minimum = torch.full_like(target_delta, self.minimum_deterministic_change)
             effective_delta = torch.where(
                 (target_delta.abs() > 0.0)
                 & (target_delta.abs() < self.minimum_deterministic_change),
@@ -685,9 +680,7 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
                 context_dim=context_dim,
                 hidden_dims=self.shared_actor_net_arch,
                 temperature=self.shared_actor_gate_temperature,
-                gate_prediction_threshold=(
-                    self.shared_actor_gate_prediction_threshold
-                ),
+                gate_prediction_threshold=(self.shared_actor_gate_prediction_threshold),
                 entry_threshold=self.shared_actor_entry_threshold,
                 minimum_deterministic_change=(
                     self.shared_actor_minimum_deterministic_change

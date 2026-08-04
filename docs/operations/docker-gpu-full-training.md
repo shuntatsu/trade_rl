@@ -60,6 +60,76 @@ tensorboard diagnostics: enabled
 
 このPresetは維持対象候補であり、最適値を意味しません。
 
+## Oracle Bellman solver
+
+Oracle teacher生成の既定backendは`numpy`です。CUDAは明示選択でのみ使用します。Teacher artifactとcache identityは、数値契約・market tape・実際のtarget/scoreだけで決まり、実行時間、peak memory、GPU名、fallback、OOM再試行などのruntime evidenceでは変化しません。runtime evidenceはmanifestとcatalog metadataへ別に保存します。
+
+```text
+TRADE_RL_ORACLE_SOLVER=numpy|cuda|cuda_or_numpy
+TRADE_RL_ORACLE_EPISODE_BATCH_SIZE=8
+TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE=
+TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION=0.65
+TRADE_RL_ORACLE_COMPILE_MODE=disabled
+TRADE_RL_TEACHER_WORKERS=1
+```
+
+- `numpy`: 維持対象の既定経路です。
+- `cuda`: CUDA unavailable、OOM再試行失敗、backend errorをそのままFail closedします。
+- `cuda_or_numpy`: CUDA solve全体がartifact promotion前に失敗した場合だけ、部分結果を破棄してNumPyで全episodeを最初から再実行します。fallback理由はruntime provenanceとcatalog metadataへ記録されますが、数値artifact identityには含めません。
+- CUDA選択時は`TRADE_RL_TEACHER_WORKERS=1`が必須です。並列性は複数GPU-owner processではなく`TRADE_RL_ORACLE_EPISODE_BATCH_SIZE`で管理します。
+- `TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE`を空にすると、backendがmemory予算からblock sizeを決定します。
+- compiled Oracle executionは未検証のため使用できません。固定長chunkを実際にcompileする実装、NumPy parity、維持対象GPU上の同期benchmark evidenceが揃うまで`disabled`固定です。
+
+CUDAを既定へ変更する判断は、同期済みcorrectness corpusと維持対象GPUのbenchmark evidenceを別途満たした後に行います。
+
+## 3-update CUDA smoke
+
+本学習を開始する前に、非常に小さいfloat64ネットワークでoptimizer更新を正確に3回だけ実行します。このスモークは、CUDA認識、forward/backward、勾配、optimizer update、device/dtype不一致、NaN/Inf、非同期CUDAエラー、peak allocated/reserved memoryを短時間で検査します。
+
+PowerShell:
+
+```powershell
+$env:CUDA_LAUNCH_BLOCKING = "1"
+uv run python -m trade_rl.operations.cuda_training_smoke `
+  --device cuda:0 `
+  --output artifacts/cuda-smoke/tiny-training.json
+```
+
+Bash:
+
+```bash
+CUDA_LAUNCH_BLOCKING=1 uv run python -m trade_rl.operations.cuda_training_smoke \
+  --device cuda:0 \
+  --output artifacts/cuda-smoke/tiny-training.json
+```
+
+成功条件:
+
+- Exit code `0`
+- `schema_version == "tiny_cuda_training_smoke_v1"`
+- `updates == 3`
+- lossとgradient normがすべてfinite
+- `parameter_delta_l2 > 0`
+- `device_type == "cuda"`
+- GPU名、compute capability、CUDA version、peak memoryが記録される
+
+CPUでコマンド構造だけを確認するときは`--device cpu --allow-cpu`を指定できます。ただし、その結果はGPU実機証拠として扱いません。
+
+続いて、PRのOracle CUDA経路そのものを疑似市場・1 episode・3 barsでNumPyと照合します。
+
+```powershell
+uv run python -m trade_rl.operations.oracle_cuda_smoke `
+  --backend all `
+  --episode-count 1 `
+  --episode-bars 3 `
+  --repetitions 1 `
+  --episode-batch-size 1 `
+  --target-state-block-size 2 `
+  --output artifacts/cuda-smoke/oracle-parity.json
+```
+
+この2段階は役割が異なります。3-update smokeの成功はPyTorch/CUDA学習ループの基本動作を示しますが、Oracle transition、Bellman backpointer、NumPy parity、OOM retry、provenance契約の代替にはなりません。Oracle benchmarkも成功して初めてPR固有の極小CUDAスモークが成立します。
+
 ## Shared market archive
 
 Raw Binance archive cacheと学習Artifact volumeを分離します。学習開始時にCacheを検証し、不足期間だけを取得します。

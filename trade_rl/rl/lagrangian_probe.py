@@ -376,7 +376,7 @@ def _probe_episode_results(
 ) -> tuple[_ProbeEpisodeResult, ...]:
     episode_indices = tuple(range(episode_count))
     worker_count = min(max_workers, episode_count)
-    if "fork" not in mp.get_all_start_methods():
+    if worker_count == 1 or "fork" not in mp.get_all_start_methods():
         return tuple(
             _run_probe_episode(
                 environment_factory,
@@ -393,10 +393,10 @@ def _probe_episode_results(
     _FORK_MAXIMUM_STEPS = maximum_steps
     try:
         context = mp.get_context("fork")
-        # A full-market environment dirties enough inherited Python/NumPy pages
-        # that running episodes in the parent or reusing a child steadily grows
-        # RSS. Even with one worker, isolate and recycle every episode so its
-        # allocator/COW state is returned to the OS.
+        # Parallel full-market probes use one task per child so inherited
+        # Python/NumPy allocator and COW state is returned to the OS after each
+        # episode. A single worker stays in-process to preserve deterministic
+        # environment lifecycle and instrumentation semantics.
         with context.Pool(processes=worker_count, maxtasksperchild=1) as pool:
             # map preserves episode/seed order, keeping floating-point aggregation
             # and the evidence digest identical to the serial implementation.

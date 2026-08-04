@@ -90,13 +90,16 @@ def create_app(
     def all_jobs() -> tuple[JobSummary, ...]:
         internal = resolved_supervisor.list_jobs()
         known = {job.id for job in internal}
-        return internal + tuple(job for job in supervised_jobs.list() if job.id not in known)
+        return internal + tuple(
+            job for job in supervised_jobs.list() if job.id not in known
+        )
 
     def resolve_job(job_id: str) -> JobSummary:
         try:
             return resolved_supervisor.get_job(job_id)
         except ResourceNotFound:
             return supervised_jobs.get(job_id)
+
     app = FastAPI(
         title="Trade RL Studio API",
         version="0.3.0",

@@ -10,11 +10,19 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from trade_rl.studio.contracts import SystemMetric, SystemSummary
 
 _CPU_LOCK = threading.Lock()
 _CPU_SAMPLE: tuple[int, int] | None = None
+
+
+def _windows_kernel32() -> Any | None:
+    """Return kernel32 without assuming Windows-only ctypes attributes exist."""
+
+    windll = getattr(ctypes, "windll", None)
+    return None if windll is None else windll.kernel32
 
 
 class _MemoryStatus(ctypes.Structure):
@@ -34,10 +42,13 @@ class _MemoryStatus(ctypes.Structure):
 def _windows_cpu_percent() -> float | None:
     if platform.system() != "Windows":
         return None
+    kernel32 = _windows_kernel32()
+    if kernel32 is None:
+        return None
     idle = ctypes.c_ulonglong()
     kernel = ctypes.c_ulonglong()
     user = ctypes.c_ulonglong()
-    if not ctypes.windll.kernel32.GetSystemTimes(
+    if not kernel32.GetSystemTimes(
         ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)
     ):
         return None
@@ -74,16 +85,16 @@ def _cpu_metric() -> SystemMetric:
 
 def _memory_metric() -> SystemMetric:
     if platform.system() == "Windows":
+        kernel32 = _windows_kernel32()
         status = _MemoryStatus()
         status.length = ctypes.sizeof(status)
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        if kernel32 is not None and kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
             used = status.total_physical - status.available_physical
             return SystemMetric(
                 label="メモリ",
                 value=float(status.memory_load),
                 detail=(
-                    f"{used / 1024**3:.1f} / "
-                    f"{status.total_physical / 1024**3:.1f} GB"
+                    f"{used / 1024**3:.1f} / {status.total_physical / 1024**3:.1f} GB"
                 ),
             )
     path = Path("/proc/meminfo")

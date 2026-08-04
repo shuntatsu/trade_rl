@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -15,24 +14,6 @@ from trade_rl.catalog.contracts import (
     ArtifactStatus,
 )
 from trade_rl.catalog.postgres import PostgresArtifactCatalog
-
-
-def teacher_cache_identity(
-    *,
-    dataset_id: str,
-    train_range: tuple[int, int],
-    environment_digest: str,
-    action_spec_digest: str,
-    teacher_config_digest: str,
-) -> dict[str, object]:
-    return {
-        "action_spec_digest": action_spec_digest,
-        "dataset_id": dataset_id,
-        "environment_digest": environment_digest,
-        "schema_version": "teacher_cache_identity_v1",
-        "teacher_config_digest": teacher_config_digest,
-        "train_range": train_range,
-    }
 
 
 class ReusableArtifactIndex:
@@ -61,7 +42,9 @@ class ReusableArtifactIndex:
         try:
             path.relative_to(self.storage_root)
         except ValueError as error:
-            raise ValueError("catalog artifact location escapes storage root") from error
+            raise ValueError(
+                "catalog artifact location escapes storage root"
+            ) from error
         return path
 
     def resolve(
@@ -89,7 +72,9 @@ class ReusableArtifactIndex:
         path = self._trusted_path(str(location))
         if not path.is_dir():
             raise FileNotFoundError(f"reusable artifact directory is absent: {path}")
-        size_bytes = sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+        size_bytes = sum(
+            item.stat().st_size for item in path.rglob("*") if item.is_file()
+        )
         existing = self.catalog.find(artifact_kind, cache_key)
         if existing is not None:
             registration = existing.registration
@@ -145,59 +130,4 @@ class ReusableArtifactIndex:
         )
 
 
-def backfill_teacher_cache(index: ReusableArtifactIndex) -> int:
-    """Validate and index completed Teacher directories already on the volume."""
-
-    from trade_rl.learning.episode_teacher_artifact import (
-        EPISODE_TEACHER_ARTIFACT_SCHEMA,
-        load_episode_teacher_artifact,
-    )
-    from trade_rl.learning.teacher_artifact import load_teacher_artifact
-
-    registered = 0
-    for path in sorted(index.storage_root.iterdir()):
-        manifest_path = path / "manifest.json"
-        if (
-            not path.is_dir()
-            or path.name.startswith(".")
-            or not manifest_path.is_file()
-        ):
-            continue
-        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
-            raise ValueError("teacher cache manifest must be an object")
-        schema_version = str(raw.get("schema_version", ""))
-        if schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA:
-            manifest, _ = load_episode_teacher_artifact(path)
-            metadata = {
-                "episode_count": manifest.episode_count,
-                "sample_count": manifest.sample_count,
-            }
-        else:
-            manifest, _ = load_teacher_artifact(path)
-            metadata = {"sample_count": manifest.sample_count}
-        cache_key = teacher_cache_identity(
-            dataset_id=manifest.dataset_id,
-            train_range=(manifest.train_start, manifest.train_stop),
-            environment_digest=manifest.environment_digest,
-            action_spec_digest=manifest.action_spec_digest,
-            teacher_config_digest=manifest.teacher_config_digest,
-        )
-        index.register_directory(
-            artifact_digest=manifest.artifact_digest,
-            artifact_kind=ArtifactKind.ORACLE_TEACHER,
-            schema_version=manifest.schema_version,
-            dataset_id=manifest.dataset_id,
-            cache_key=cache_key,
-            metadata=metadata,
-            location=path,
-        )
-        registered += 1
-    return registered
-
-
-__all__ = [
-    "ReusableArtifactIndex",
-    "backfill_teacher_cache",
-    "teacher_cache_identity",
-]
+__all__ = ["ReusableArtifactIndex"]

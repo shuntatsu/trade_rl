@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
@@ -19,10 +19,7 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.catalog.contracts import ArtifactKind
-from trade_rl.catalog.reusable_artifacts import (
-    ReusableArtifactIndex,
-    teacher_cache_identity,
-)
+from trade_rl.catalog.reusable_artifacts import ReusableArtifactIndex
 from trade_rl.integrations.behavior_cloning import pretrain_policy
 from trade_rl.integrations.sb3_checkpoint_assembly import (
     load_sb3_checkpoint_model,
@@ -67,6 +64,7 @@ from trade_rl.learning.episode_oracle_teacher import (
 )
 from trade_rl.learning.episode_teacher_artifact import (
     EPISODE_TEACHER_ARTIFACT_SCHEMA,
+    EPISODE_TEACHER_ARTIFACT_SCHEMA_V1,
     EpisodeSupervisedPolicyDataset,
     collect_episode_teacher_rollout,
     collect_episode_teacher_rollout_parallel,
@@ -76,6 +74,15 @@ from trade_rl.learning.episode_teacher_artifact import (
 from trade_rl.learning.hierarchical_teacher_labels import (
     HierarchicalTeacherLabels,
     build_hierarchical_teacher_labels,
+)
+from trade_rl.learning.oracle_bellman_contracts import (
+    CompileMode,
+    OracleSolverConfig,
+    SolverSelection,
+)
+from trade_rl.learning.teacher_cache import (
+    teacher_cache_identity,
+    teacher_cache_identity_v2,
 )
 from trade_rl.rl.algorithm_configs import (
     CostCriticPPOConfig,
@@ -117,14 +124,84 @@ def _lagrangian_probe_worker_count(n_envs: int) -> int:
     return min(n_envs, configured)
 
 
-def _teacher_worker_count(n_envs: int) -> int:
-    raw = os.environ.get("TRADE_RL_TEACHER_WORKERS", str(n_envs)).strip()
+def _oracle_solver_config() -> OracleSolverConfig:
+    """Parse the explicit Oracle backend/resource contract before generation."""
+
+    selection_name = "TRADE_RL_ORACLE_SOLVER"
+    raw_selection = os.environ.get(selection_name, "numpy").strip()
+    if raw_selection not in {"numpy", "cuda", "cuda_or_numpy"}:
+        raise ValueError(
+            f"{selection_name} must be one of numpy, cuda, or cuda_or_numpy"
+        )
+
+    def positive_integer(name: str, default: int) -> int:
+        raw = os.environ.get(name, str(default)).strip()
+        try:
+            value = int(raw)
+        except ValueError as error:
+            raise ValueError(f"{name} must be an integer") from error
+        if value <= 0:
+            raise ValueError(f"{name} must be positive")
+        return value
+
+    batch_size = positive_integer("TRADE_RL_ORACLE_EPISODE_BATCH_SIZE", 8)
+    block_name = "TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE"
+    raw_block = os.environ.get(block_name, "").strip()
+    block_size: int | None = None
+    if raw_block:
+        try:
+            block_size = int(raw_block)
+        except ValueError as error:
+            raise ValueError(f"{block_name} must be an integer when set") from error
+        if block_size <= 0:
+            raise ValueError(f"{block_name} must be positive when set")
+
+    memory_name = "TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION"
+    raw_memory = os.environ.get(memory_name, "0.65").strip()
     try:
-        configured = int(raw)
+        memory_fraction = float(raw_memory)
+    except ValueError as error:
+        raise ValueError(f"{memory_name} must be numeric") from error
+    if not np.isfinite(memory_fraction) or not 0.0 < memory_fraction <= 1.0:
+        raise ValueError(f"{memory_name} must be within (0, 1]")
+
+    compile_name = "TRADE_RL_ORACLE_COMPILE_MODE"
+    raw_compile = os.environ.get(compile_name, "disabled").strip()
+    if raw_compile not in {"disabled", "reduce_overhead"}:
+        raise ValueError(f"{compile_name} must be disabled or reduce_overhead")
+    chunk_name = "TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE"
+    compile_chunk_size = positive_integer(chunk_name, 16)
+    if compile_chunk_size not in {8, 16, 32, 64}:
+        raise ValueError(f"{chunk_name} must be one of 8, 16, 32, or 64")
+
+    return OracleSolverConfig(
+        selection=cast(SolverSelection, raw_selection),
+        episode_batch_size=batch_size,
+        target_state_block_size=block_size,
+        cuda_memory_fraction=memory_fraction,
+        compile_mode=cast(CompileMode, raw_compile),
+        compile_chunk_size=compile_chunk_size,
+    )
+
+
+def _teacher_worker_count(
+    n_envs: int,
+    *,
+    solver_config: OracleSolverConfig | None = None,
+) -> int:
+    raw = os.environ.get("TRADE_RL_TEACHER_WORKERS", "").strip()
+    try:
+        if raw:
+            configured = int(raw)
+        else:
+            configured = n_envs if solver_config is None else 1
     except ValueError as error:
         raise ValueError("TRADE_RL_TEACHER_WORKERS must be an integer") from error
     if configured <= 0:
         raise ValueError("TRADE_RL_TEACHER_WORKERS must be positive")
+    if solver_config is not None and solver_config.selection != "numpy":
+        if configured != 1:
+            raise ValueError("CUDA Oracle solving requires TRADE_RL_TEACHER_WORKERS=1")
     return min(n_envs, configured)
 
 
@@ -653,7 +730,7 @@ class StableBaselines3Backend:
         )
         self._oracle_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
         self._oracle_episode_batch_cache: dict[
-            tuple[str, int, int, str, str], EpisodeOracleBatch
+            tuple[str, int, int, str, str, str], EpisodeOracleBatch
         ] = {}
         self._trend_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
         self._teacher_dataset_cache: dict[
@@ -670,7 +747,9 @@ class StableBaselines3Backend:
         teacher_config: OracleTeacherConfig,
         sampling_config: OracleEpisodeSamplingConfig,
         max_workers: int = 1,
+        solver_config: OracleSolverConfig | None = None,
     ) -> EpisodeOracleBatch:
+        resolved_solver_config = solver_config or OracleSolverConfig()
         dataset = environment.dataset
         dataset_id = getattr(dataset, "dataset_id", None)
         if not isinstance(dataset_id, str):
@@ -682,6 +761,7 @@ class StableBaselines3Backend:
             int(stop),
             teacher_config.digest,
             sampling_config.digest,
+            resolved_solver_config.digest,
         )
         cached = self._oracle_episode_batch_cache.get(key)
         if cached is not None:
@@ -697,6 +777,7 @@ class StableBaselines3Backend:
                 index,
             ),
             max_workers=max_workers,
+            solver_config=resolved_solver_config,
         )
         self._oracle_episode_batch_cache[key] = batch
         return batch
@@ -721,10 +802,15 @@ class StableBaselines3Backend:
             raise ValueError(
                 "episode teacher environment must expose action_spec_digest"
             )
+        artifact_schema = (
+            EPISODE_TEACHER_ARTIFACT_SCHEMA_V1
+            if batch.solver_provenance is None
+            else EPISODE_TEACHER_ARTIFACT_SCHEMA
+        )
         teacher_identity = content_digest(
             {
                 "episode_batch_digest": batch.digest,
-                "schema_version": EPISODE_TEACHER_ARTIFACT_SCHEMA,
+                "schema_version": artifact_schema,
                 "teacher_config_digest": teacher_config.digest,
             }
         )
@@ -742,12 +828,23 @@ class StableBaselines3Backend:
         cache_path: Path | None = None
         shard_root: Path | None = None
         if self.teacher_cache_root is not None:
-            cache_identity = teacher_cache_identity(
-                dataset_id=batch.dataset_id,
-                train_range=(start, stop),
-                environment_digest=environment_digest,
-                action_spec_digest=action_spec_digest,
-                teacher_config_digest=teacher_identity,
+            cache_identity = (
+                teacher_cache_identity(
+                    dataset_id=batch.dataset_id,
+                    train_range=(start, stop),
+                    environment_digest=environment_digest,
+                    action_spec_digest=action_spec_digest,
+                    teacher_config_digest=teacher_identity,
+                )
+                if batch.solver_provenance is None
+                else teacher_cache_identity_v2(
+                    dataset_id=batch.dataset_id,
+                    train_range=(start, stop),
+                    environment_digest=environment_digest,
+                    action_spec_digest=action_spec_digest,
+                    teacher_config_digest=teacher_identity,
+                    solver_provenance=batch.solver_provenance,
+                )
             )
             cache_path = self.teacher_cache_root / _teacher_cache_key(
                 dataset_id=batch.dataset_id,
@@ -783,6 +880,13 @@ class StableBaselines3Backend:
                         metadata={
                             "episode_count": manifest.episode_count,
                             "sample_count": manifest.sample_count,
+                            **(
+                                {}
+                                if manifest.solver_provenance is None
+                                else {
+                                    "solver_provenance": manifest.solver_provenance.serialized_payload()
+                                }
+                            ),
                         },
                         location=cache_path,
                     )
@@ -1096,13 +1200,18 @@ class StableBaselines3Backend:
                     train_range=probe_train_range,
                     seed=seed,
                 )
-                teacher_workers = _teacher_worker_count(config.n_envs)
+                oracle_solver_config = _oracle_solver_config()
+                teacher_workers = _teacher_worker_count(
+                    config.n_envs,
+                    solver_config=oracle_solver_config,
+                )
                 prefetched_episode_batch = self._oracle_episode_batch(
                     unwrapped_probe,
                     probe_train_range,
                     prefetched_oracle_config,
                     sampling_config,
                     max_workers=teacher_workers,
+                    solver_config=oracle_solver_config,
                 )
                 prefetched_episode_teacher = self._episode_teacher_dataset(
                     probe,

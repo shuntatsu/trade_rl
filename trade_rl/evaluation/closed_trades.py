@@ -144,9 +144,10 @@ class ClosedTradeTracker:
             or resolved_prices.shape != self._quantities.shape
         ):
             raise ValueError("seeded positions do not match the tracker universe")
-        if not np.isfinite(resolved_quantities).all() or not np.isfinite(
-            resolved_prices
-        ).all():
+        if (
+            not np.isfinite(resolved_quantities).all()
+            or not np.isfinite(resolved_prices).all()
+        ):
             raise ValueError("seeded positions must be finite")
         open_mask = np.abs(resolved_quantities) > _TOLERANCE
         if np.any(resolved_prices[open_mask] <= 0.0):

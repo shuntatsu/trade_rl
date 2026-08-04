@@ -61,7 +61,9 @@ def test_catalog_lists_validated_datasets_and_reports_invalid_artifacts(
     assert invalid_record.validation_error
 
 
-def test_dataset_display_identity_exposes_physical_triplet_and_feature_timeframes() -> None:
+def test_dataset_display_identity_exposes_physical_triplet_and_feature_timeframes() -> (
+    None
+):
     dataset = SimpleNamespace(
         symbols=("SLOT0", "SLOT1", "SLOT2"),
         feature_names=("15m__return", "1h__return", "4h__return", "1d__return"),
@@ -125,9 +127,7 @@ def test_run_catalog_discovers_supervised_generation_artifacts(tmp_path: Path) -
 
     records = StudioCatalog(settings(tmp_path)).list_runs()
 
-    assert [item.run_id for item in records if item.status == "VALID"] == [
-        "nested-run"
-    ]
+    assert [item.run_id for item in records if item.status == "VALID"] == ["nested-run"]
 
 
 def test_duplicate_human_run_ids_resolve_by_unique_resource_id(tmp_path: Path) -> None:

@@ -199,7 +199,9 @@ class OverviewService:
         )
         known_ids = {item.id for item in active}
         active += tuple(
-            item for item in _supervised_active_jobs(self.runs) if item.id not in known_ids
+            item
+            for item in _supervised_active_jobs(self.runs)
+            if item.id not in known_ids
         )
         alerts: list[StudioAlert] = []
         if not valid_datasets:
@@ -210,34 +212,32 @@ class OverviewService:
                     age="現在",
                 )
             )
-        for item in datasets:
-            if item.status != "INVALID":
+        for dataset in datasets:
+            if dataset.status != "INVALID":
                 continue
             alerts.append(
                 StudioAlert(
                     level="warning",
-                    message=f"データセット {item.name} が無効です",
-                    age=_relative_age(item.updated, now=now),
+                    message=f"データセット {dataset.name} が無効です",
+                    age=_relative_age(dataset.updated, now=now),
                 )
             )
         if not valid_runs:
             alerts.append(
                 StudioAlert(level="info", message="公開済みrunがありません", age="現在")
             )
-        for item in runs:
-            if item.status != "INVALID":
+        for run in runs:
+            if run.status != "INVALID":
                 continue
             alerts.append(
                 StudioAlert(
                     level="warning",
-                    message=f"run {item.run_id} が無効です",
-                    age=_relative_age(item.completed_at or item.created_at, now=now),
+                    message=f"run {run.run_id} が無効です",
+                    age=_relative_age(run.completed_at or run.created_at, now=now),
                 )
             )
         active_jobs = tuple(
-            job
-            for job in jobs
-            if job.status in {"queued", "running", "cancelling"}
+            job for job in jobs if job.status in {"queued", "running", "cancelling"}
         )
         for job in active_jobs:
             alerts.append(

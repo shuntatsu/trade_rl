@@ -1,0 +1,55 @@
+name: Temporary Typst Report PR Compile
+
+on:
+  pull_request:
+    branches:
+      - temp/typst-report-base-20260804
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    if: github.head_ref == 'temp/typst-report-compile-20260804'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct Typst source
+        shell: bash
+        run: |
+          mkdir -p report
+          sed -n "/cat > report\/source.typ.gz.b64 <<'B64'/,/^[[:space:]]*B64$/p" \
+            .github/workflows/temporary-typst-report-compile.yml \
+            | sed '1d;$d;s/^[[:space:]]*//' \
+            > report/source.typ.gz.b64
+          base64 --decode report/source.typ.gz.b64 | gzip --decompress > report/information_network_report_final.typ
+          test "$(wc -c < report/information_network_report_final.typ)" -eq 27543
+
+      - name: Show Typst version
+        run: docker run --rm ghcr.io/typst/typst:latest --version
+
+      - name: Compile report
+        run: |
+          docker run --rm \
+            -v "$PWD/report:/work" \
+            -w /work \
+            ghcr.io/typst/typst:latest \
+            compile information_network_report_final.typ information_network_report_final.pdf
+
+      - name: Inspect output
+        run: |
+          test -s report/information_network_report_final.pdf
+          file report/information_network_report_final.pdf
+          ls -lh report/information_network_report_final.typ report/information_network_report_final.pdf
+
+      - name: Upload report artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: information-network-report-typst
+          path: |
+            report/information_network_report_final.typ
+            report/information_network_report_final.pdf
+          if-no-files-found: error
+          retention-days: 1

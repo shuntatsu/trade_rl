@@ -74,14 +74,12 @@ jobs:
           builder_start = tape.index("def build_oracle_market_tape(")
           direct_start = tape.index("    previous_mark =", builder_start)
           direct_end = tape.index("    market_notional =", direct_start)
-          replacement = dedent(
-              '''
-                  raw_position_factor, equity_position_factor, active = (
-                      oracle_open_market_factors(dataset, close_indices)
-                  )
-                  execution_open = dataset.open[execution_indices]
-              '''
-          ).lstrip("\n")
+          replacement = (
+              "    raw_position_factor, equity_position_factor, active = (\n"
+              "        oracle_open_market_factors(dataset, close_indices)\n"
+              "    )\n"
+              "    execution_open = dataset.open[execution_indices]\n"
+          )
           tape = tape[:direct_start] + replacement + tape[direct_end:]
           tape = tape.replace(
               '    "build_oracle_market_tape",\n]',

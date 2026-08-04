@@ -107,18 +107,13 @@ def test_runtime_evidence_changes_integrity_digest_not_artifact_identity(
         second_root,
         _dataset(provenance=second_provenance),
     )
-    first_raw = json.loads(
-        (first_root / "manifest.json").read_text(encoding="utf-8")
-    )
-    second_raw = json.loads(
-        (second_root / "manifest.json").read_text(encoding="utf-8")
-    )
+    first_raw = json.loads((first_root / "manifest.json").read_text(encoding="utf-8"))
+    second_raw = json.loads((second_root / "manifest.json").read_text(encoding="utf-8"))
 
     assert first_provenance.digest == second_provenance.digest
     assert first_digest == second_digest
     assert (
-        first_raw["solver_provenance_digest"]
-        != second_raw["solver_provenance_digest"]
+        first_raw["solver_provenance_digest"] != second_raw["solver_provenance_digest"]
     )
 
 

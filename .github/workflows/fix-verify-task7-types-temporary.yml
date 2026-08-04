@@ -1,0 +1,390 @@
+name: Fix and verify Task 7 provenance types
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-verify-task7-types-temporary.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: task7-provenance-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  fix-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/oracle-bellman-batched-solver
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Apply Task 7 sources and strict payload typing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/task7_a.py
+          python .github/task7_b.py
+          python .github/task7_c.py
+          python .github/task7_d.py
+          python .github/task7_e.py
+          python .github/task7_f.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/learning/oracle_bellman_contracts.py")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace(
+              "from typing import Final, Literal\n",
+              "from typing import Final, Literal, cast\n",
+          )
+          anchor = '''def _positive_integer(value: object, *, field: str) -> int:
+              if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                  raise ValueError(f"{field} must be a positive integer")
+              return value
+
+
+          '''
+          helpers = '''def _positive_integer(value: object, *, field: str) -> int:
+              if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                  raise ValueError(f"{field} must be a positive integer")
+              return value
+
+
+          def _payload_string(value: object, *, field: str) -> str:
+              if not isinstance(value, str) or not value.strip():
+                  raise ValueError(f"{field} must be a non-empty string")
+              return value
+
+
+          def _payload_optional_string(value: object, *, field: str) -> str | None:
+              if value is None:
+                  return None
+              return _payload_string(value, field=field)
+
+
+          def _payload_integer(value: object, *, field: str) -> int:
+              if isinstance(value, bool) or not isinstance(value, int):
+                  raise ValueError(f"{field} must be an integer")
+              return value
+
+
+          def _payload_optional_integer(value: object, *, field: str) -> int | None:
+              if value is None:
+                  return None
+              return _payload_integer(value, field=field)
+
+
+          def _payload_float(value: object, *, field: str) -> float:
+              if isinstance(value, bool) or not isinstance(value, (int, float)):
+                  raise ValueError(f"{field} must be numeric")
+              resolved = float(value)
+              if not math.isfinite(resolved):
+                  raise ValueError(f"{field} must be finite")
+              return resolved
+
+
+          def _payload_optional_float(value: object, *, field: str) -> float | None:
+              if value is None:
+                  return None
+              return _payload_float(value, field=field)
+
+
+          '''
+          if text.count(anchor) != 1:
+              raise SystemExit("Oracle payload helper anchor changed")
+          text = text.replace(anchor, helpers)
+          old_validation = '''        for field, value in (
+                      ("peak_host_memory_bytes", self.peak_host_memory_bytes),
+                      ("peak_device_memory_bytes", self.peak_device_memory_bytes),
+                  ):
+                      if value is not None and (
+                          isinstance(value, bool) or not isinstance(value, int) or value < 0
+                      ):
+                          raise ValueError(f"{field} must be a non-negative integer")
+                  for field, value in (
+                      ("fallback_reason", self.fallback_reason),
+                      ("torch_version", self.torch_version),
+                      ("cuda_version", self.cuda_version),
+                      ("device_name", self.device_name),
+                      ("compute_capability", self.compute_capability),
+                  ):
+                      if value is not None and (not isinstance(value, str) or not value.strip()):
+                          raise ValueError(f"{field} must be a non-empty string when present")
+          '''
+          new_validation = '''        for field, memory_value in (
+                      ("peak_host_memory_bytes", self.peak_host_memory_bytes),
+                      ("peak_device_memory_bytes", self.peak_device_memory_bytes),
+                  ):
+                      if memory_value is not None and (
+                          isinstance(memory_value, bool)
+                          or not isinstance(memory_value, int)
+                          or memory_value < 0
+                      ):
+                          raise ValueError(f"{field} must be a non-negative integer")
+                  for field, text_value in (
+                      ("fallback_reason", self.fallback_reason),
+                      ("torch_version", self.torch_version),
+                      ("cuda_version", self.cuda_version),
+                      ("device_name", self.device_name),
+                      ("compute_capability", self.compute_capability),
+                  ):
+                      if text_value is not None and (
+                          not isinstance(text_value, str) or not text_value.strip()
+                      ):
+                          raise ValueError(f"{field} must be a non-empty string when present")
+          '''
+          if text.count(old_validation) != 1:
+              raise SystemExit("Oracle provenance validation anchor changed")
+          text = text.replace(old_validation, new_validation)
+          start = text.index(
+              "    @classmethod\n    def from_payload(",
+              text.index("class OracleSolverProvenance"),
+          )
+          end = text.index("    @classmethod\n    def numpy_reference(", start)
+          parser = '''    @classmethod
+              def from_payload(cls, value: Mapping[str, object]) -> OracleSolverProvenance:
+                  """Parse fail-closed serialized provenance from an artifact manifest."""
+
+                  try:
+                      raw_retry = value["oom_retry_performed"]
+                      if not isinstance(raw_retry, bool):
+                          raise ValueError("oom_retry_performed must be a boolean")
+                      backend = cast(
+                          SolverBackend,
+                          _payload_string(value["backend"], field="backend"),
+                      )
+                      compile_mode = cast(
+                          CompileMode,
+                          _payload_string(value["compile_mode"], field="compile_mode"),
+                      )
+                      return cls(
+                          backend=backend,
+                          solver_config_digest=_payload_string(
+                              value["solver_config_digest"], field="solver_config_digest"
+                          ),
+                          market_tape_digest=_payload_string(
+                              value["market_tape_digest"], field="market_tape_digest"
+                          ),
+                          numeric_dtype=_payload_string(
+                              value["numeric_dtype"], field="numeric_dtype"
+                          ),
+                          tie_tolerance=_payload_float(
+                              value["tie_tolerance"], field="tie_tolerance"
+                          ),
+                          episode_batch_size=_payload_integer(
+                              value["episode_batch_size"], field="episode_batch_size"
+                          ),
+                          target_state_block_size=_payload_optional_integer(
+                              value.get("target_state_block_size"),
+                              field="target_state_block_size",
+                          ),
+                          compile_mode=compile_mode,
+                          compile_chunk_size=_payload_integer(
+                              value["compile_chunk_size"], field="compile_chunk_size"
+                          ),
+                          fallback_reason=_payload_optional_string(
+                              value.get("fallback_reason"), field="fallback_reason"
+                          ),
+                          oom_retry_performed=raw_retry,
+                          solver_wall_time_seconds=_payload_optional_float(
+                              value.get("solver_wall_time_seconds"),
+                              field="solver_wall_time_seconds",
+                          ),
+                          peak_host_memory_bytes=_payload_optional_integer(
+                              value.get("peak_host_memory_bytes"),
+                              field="peak_host_memory_bytes",
+                          ),
+                          peak_device_memory_bytes=_payload_optional_integer(
+                              value.get("peak_device_memory_bytes"),
+                              field="peak_device_memory_bytes",
+                          ),
+                          torch_version=_payload_optional_string(
+                              value.get("torch_version"), field="torch_version"
+                          ),
+                          cuda_version=_payload_optional_string(
+                              value.get("cuda_version"), field="cuda_version"
+                          ),
+                          device_name=_payload_optional_string(
+                              value.get("device_name"), field="device_name"
+                          ),
+                          compute_capability=_payload_optional_string(
+                              value.get("compute_capability"), field="compute_capability"
+                          ),
+                          solver_contract=_payload_string(
+                              value["solver_contract"], field="solver_contract"
+                          ),
+                          tie_break_contract=_payload_string(
+                              value["tie_break_contract"], field="tie_break_contract"
+                          ),
+                          digest=_payload_string(value["digest"], field="digest"),
+                          schema_version=_payload_string(
+                              value["schema_version"], field="schema_version"
+                          ),
+                      )
+                  except (KeyError, TypeError, ValueError) as error:
+                      raise ValueError("Oracle solver provenance payload is invalid") from error
+
+          '''
+          text = text[:start] + parser + text[end:]
+          path.write_text(text, encoding="utf-8")
+
+          path = Path("trade_rl/catalog/reusable_artifacts.py")
+          text = path.read_text(encoding="utf-8")
+          start = text.index(
+              "        if schema_version in {",
+              text.index("def backfill_teacher_cache"),
+          )
+          end = text.index("        index.register_directory(", start)
+          replacement = '''        if schema_version in {
+                      EPISODE_TEACHER_ARTIFACT_SCHEMA_V1,
+                      EPISODE_TEACHER_ARTIFACT_SCHEMA,
+                  }:
+                      episode_manifest, _ = load_episode_teacher_artifact(path)
+                      artifact_digest = episode_manifest.artifact_digest
+                      manifest_schema = episode_manifest.schema_version
+                      dataset_id = episode_manifest.dataset_id
+                      train_range = (episode_manifest.train_start, episode_manifest.train_stop)
+                      environment_digest = episode_manifest.environment_digest
+                      action_spec_digest = episode_manifest.action_spec_digest
+                      teacher_config_digest = episode_manifest.teacher_config_digest
+                      solver_provenance = episode_manifest.solver_provenance
+                      metadata: dict[str, object] = {
+                          "episode_count": episode_manifest.episode_count,
+                          "sample_count": episode_manifest.sample_count,
+                      }
+                      if solver_provenance is not None:
+                          metadata["solver_provenance"] = solver_provenance.serialized_payload()
+                  else:
+                      teacher_manifest, _ = load_teacher_artifact(path)
+                      artifact_digest = teacher_manifest.artifact_digest
+                      manifest_schema = teacher_manifest.schema_version
+                      dataset_id = teacher_manifest.dataset_id
+                      train_range = (teacher_manifest.train_start, teacher_manifest.train_stop)
+                      environment_digest = teacher_manifest.environment_digest
+                      action_spec_digest = teacher_manifest.action_spec_digest
+                      teacher_config_digest = teacher_manifest.teacher_config_digest
+                      solver_provenance = None
+                      metadata = {"sample_count": teacher_manifest.sample_count}
+                  cache_key = (
+                      teacher_cache_identity(
+                          dataset_id=dataset_id,
+                          train_range=train_range,
+                          environment_digest=environment_digest,
+                          action_spec_digest=action_spec_digest,
+                          teacher_config_digest=teacher_config_digest,
+                      )
+                      if solver_provenance is None
+                      else teacher_cache_identity_v2(
+                          dataset_id=dataset_id,
+                          train_range=train_range,
+                          environment_digest=environment_digest,
+                          action_spec_digest=action_spec_digest,
+                          teacher_config_digest=teacher_config_digest,
+                          solver_provenance=solver_provenance,
+                      )
+                  )
+          '''
+          text = text[:start] + replacement + text[end:]
+          text = text.replace(
+              '''            artifact_digest=manifest.artifact_digest,
+                      artifact_kind=ArtifactKind.ORACLE_TEACHER,
+                      schema_version=manifest.schema_version,
+                      dataset_id=manifest.dataset_id,
+          ''',
+              '''            artifact_digest=artifact_digest,
+                      artifact_kind=ArtifactKind.ORACLE_TEACHER,
+                      schema_version=manifest_schema,
+                      dataset_id=dataset_id,
+          ''',
+          )
+          path.write_text(text, encoding="utf-8")
+          PY
+          sha256sum -c <<'EOF'
+          080ee094deea19ef4b8dc2f5b7c81560db19f0b39a779d91d3a9398f39a18d89  trade_rl/learning/oracle_bellman_contracts.py
+          1976705270329b38699dd86069330f09feed02e2af108a5c2d605445fc6429ee  trade_rl/learning/episode_oracle_teacher.py
+          53ed0f7c33d9a8de1ca9a43d297d9f203d00a7c003297b2daaf8abd20a775b87  trade_rl/catalog/reusable_artifacts.py
+          d9e8de9ecd67291c4929f5314eeaa82bfbc0e7590313c1162349b32c02da9d25  trade_rl/learning/episode_teacher_artifact.py
+          e0d2d1682f89695cf90a037f08822e78997927342cc83d7df6f3fe0443ff8066  trade_rl/integrations/sb3_training.py
+          bf6db4bbb51eeb8b98a6e34ebed92966216b5cf0d41daaf0946f7b7f120f9866  tests/catalog/test_reusable_artifacts.py
+          0ff4ff4691a60d135c0cb71f1c6905a83e3c4546d7fb966aaca65a2a3388edba  tests/learning/test_episode_teacher_provenance.py
+          c36241ada8466a9e32045019e91869f429976d55befb41fa1788ecfab21b293e  tests/learning/test_oracle_bellman_contracts.py
+          05358511839821040bc520318aa5eb24a4277a8cbd6231332e41b947073b37bb  tests/learning/test_episode_oracle_teacher.py
+          2569a02742f249bb74928c6735b23e1abfa422a32371a5891bbdd01241bf7a21  tests/learning/test_episode_teacher_integration.py
+          EOF
+      - name: Normalize and verify Task 7
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          files=(
+            trade_rl/learning/oracle_bellman_contracts.py
+            trade_rl/learning/episode_oracle_teacher.py
+            trade_rl/learning/episode_teacher_artifact.py
+            trade_rl/catalog/reusable_artifacts.py
+            trade_rl/integrations/sb3_training.py
+            tests/catalog/test_reusable_artifacts.py
+            tests/learning/test_episode_teacher_provenance.py
+            tests/learning/test_oracle_bellman_contracts.py
+            tests/learning/test_episode_oracle_teacher.py
+            tests/learning/test_episode_teacher_integration.py
+          )
+          uv run ruff check --fix "${files[@]}"
+          uv run ruff format "${files[@]}"
+          uv run pytest -q \
+            tests/learning/test_oracle_bellman_contracts.py \
+            tests/learning/test_episode_oracle_teacher.py \
+            tests/learning/test_episode_teacher_api_contract.py \
+            tests/learning/test_episode_teacher_provenance.py \
+            tests/learning/test_episode_teacher_integration.py \
+            tests/catalog/test_reusable_artifacts.py \
+            tests/integrations/test_sb3_training.py
+          uv run ruff check "${files[@]}"
+          uv run ruff format --check --diff "${files[@]}"
+          uv run mypy \
+            trade_rl/learning/oracle_bellman_contracts.py \
+            trade_rl/learning/episode_oracle_teacher.py \
+            trade_rl/learning/episode_teacher_artifact.py \
+            trade_rl/catalog/reusable_artifacts.py
+          uv run mypy --follow-imports=skip trade_rl/integrations/sb3_training.py
+      - name: Commit verified Task 7 and remove temporary files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm \
+            .github/task7_a.py \
+            .github/task7_b.py \
+            .github/task7_c.py \
+            .github/task7_d.py \
+            .github/task7_e.py \
+            .github/task7_f.py \
+            .github/task7_note.txt \
+            .github/workflows/task7-red-temporary.yml \
+            .github/workflows/apply-verify-task7-temporary.yml \
+            .github/workflows/fix-verify-task7-types-temporary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/learning/oracle_bellman_contracts.py \
+            trade_rl/learning/episode_oracle_teacher.py \
+            trade_rl/learning/episode_teacher_artifact.py \
+            trade_rl/catalog/reusable_artifacts.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/catalog/test_reusable_artifacts.py \
+            tests/learning/test_episode_teacher_provenance.py \
+            tests/learning/test_oracle_bellman_contracts.py \
+            tests/learning/test_episode_oracle_teacher.py \
+            tests/learning/test_episode_teacher_integration.py \
+            .github
+          git commit -m "feat: version Oracle solver provenance and cache identity"
+          git push origin HEAD:agent/oracle-bellman-batched-solver

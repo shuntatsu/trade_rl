@@ -83,6 +83,8 @@ jobs:
           )
           uv run ruff check --fix "${files[@]}"
           uv run ruff format "${files[@]}"
+          uv run ruff check --fix .github/fix_final_test_failures.py
+          uv run ruff format .github/fix_final_test_failures.py
           uv run pytest -q \
             tests/rl/test_lagrangian_probe.py \
             tests/rl/test_lagrangian_probe_fail_closed.py \

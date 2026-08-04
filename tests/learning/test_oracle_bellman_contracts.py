@@ -101,14 +101,71 @@ def test_backend_failure_preserves_backend_and_reason() -> None:
     assert "torch_cuda" in str(error)
 
 
-def test_solver_provenance_digest_changes_with_backend() -> None:
-    config = OracleSolverConfig()
-    numpy_provenance = OracleSolverProvenance.numpy_reference(
-        config=config,
+def test_solver_provenance_identity_changes_with_numerical_contract() -> None:
+    first = OracleSolverProvenance.numpy_reference(
+        config=OracleSolverConfig(tie_tolerance=1e-12),
         market_tape_digest="a" * 64,
     )
-    cuda_provenance = replace(numpy_provenance, backend="torch_cuda", digest="")
-    assert numpy_provenance.digest != cuda_provenance.digest
+    second = OracleSolverProvenance.numpy_reference(
+        config=OracleSolverConfig(tie_tolerance=1e-11),
+        market_tape_digest="a" * 64,
+    )
+    assert first.digest != second.digest
+
+
+def test_solver_provenance_identity_ignores_runtime_evidence() -> None:
+    base = OracleSolverProvenance.numpy_reference(
+        config=OracleSolverConfig(),
+        market_tape_digest="a" * 64,
+    )
+    runtime_variant = replace(
+        base,
+        backend="torch_cuda",
+        compile_mode="reduce_overhead",
+        fallback_reason="compile_failed:Unsupported",
+        oom_retry_performed=True,
+        solver_wall_time_seconds=7.5,
+        peak_host_memory_bytes=1024,
+        peak_device_memory_bytes=2048,
+        torch_version="2.4.1",
+        cuda_version="12.4",
+        device_name="GPU",
+        compute_capability="8.9",
+        digest="",
+    )
+
+    assert runtime_variant.digest == base.digest
+    assert runtime_variant.identity_payload() == base.identity_payload()
+    assert runtime_variant.runtime_payload() != base.runtime_payload()
+
+
+def test_solve_result_identity_ignores_runtime_evidence() -> None:
+    base = OracleSolverProvenance.numpy_reference(
+        config=OracleSolverConfig(),
+        market_tape_digest="b" * 64,
+    )
+    runtime_variant = replace(
+        base,
+        solver_wall_time_seconds=0.5,
+        peak_host_memory_bytes=1024,
+        fallback_reason="torch_cuda:cuda_unavailable",
+        digest="",
+    )
+    targets = (np.zeros((2, 1), dtype=np.float32),)
+    scores = np.zeros(1, dtype=np.float64)
+
+    first = OracleSolveResult(
+        targets=targets,
+        final_scores=scores,
+        provenance=base,
+    )
+    second = OracleSolveResult(
+        targets=targets,
+        final_scores=scores,
+        provenance=runtime_variant,
+    )
+
+    assert second.digest == first.digest
 
 
 def test_solver_provenance_serialization_preserves_runtime_metadata() -> None:

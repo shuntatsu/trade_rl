@@ -189,7 +189,9 @@ def test_market_tape_does_not_read_at_or_after_stop() -> None:
     market = _market(10)
     config = _config()
     start, stop = 1, 8
-    original = build_oracle_market_tape(market, (start, stop), config.bellman_parameters)
+    original = build_oracle_market_tape(
+        market, (start, stop), config.bellman_parameters
+    )
 
     fee = market.resolved_array("fee_rate").copy()
     funding = market.funding_rate.copy()
@@ -198,7 +200,9 @@ def test_market_tape_does_not_read_at_or_after_stop() -> None:
     funding[stop:] += 1.0
     volume[stop:] *= 1000.0
     changed = replace(market, fee_rate=fee, funding_rate=funding, volume=volume)
-    rebuilt = build_oracle_market_tape(changed, (start, stop), config.bellman_parameters)
+    rebuilt = build_oracle_market_tape(
+        changed, (start, stop), config.bellman_parameters
+    )
 
     assert rebuilt.digest == original.digest
     for name, value in original.arrays.items():

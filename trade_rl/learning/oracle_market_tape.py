@@ -124,9 +124,7 @@ class OracleMarketTape:
         steps = self.stop - self.start - 1
         raw_position = np.asarray(self.raw_position_factor)
         if raw_position.ndim != 2 or raw_position.shape[0] != steps:
-            raise ValueError(
-                "raw_position_factor shape does not match the market tape"
-            )
+            raise ValueError("raw_position_factor shape does not match the market tape")
         symbol_count = raw_position.shape[1]
         if symbol_count <= 0:
             raise ValueError("market tape must contain at least one symbol")
@@ -210,9 +208,7 @@ def _market_notional_matrix(
         if unit is VolumeUnit.QUOTE_NOTIONAL:
             result[:, symbol_index] = volume[:, symbol_index]
         elif unit is VolumeUnit.BASE_ASSET:
-            result[:, symbol_index] = (
-                volume[:, symbol_index] * prices[:, symbol_index]
-            )
+            result[:, symbol_index] = volume[:, symbol_index] * prices[:, symbol_index]
         else:
             result[:, symbol_index] = (
                 volume[:, symbol_index]
@@ -298,7 +294,9 @@ def build_oracle_market_tape(
         base_unit_cost=base_unit_cost,
         funding_due_rate=(
             dataset.funding_rate[execution_indices]
-            * dataset.resolved_array("funding_due")[execution_indices].astype(np.float64)
+            * dataset.resolved_array("funding_due")[execution_indices].astype(
+                np.float64
+            )
         ),
         borrow_rate=dataset.resolved_array("borrow_rate")[execution_indices],
         dividend_open_ratio=(

@@ -31,7 +31,7 @@ jobs:
           python .github/task8_type_fix.py
           sha256sum -c <<'EOF'
           c53efb8a9267afc4f53db4da718cceaf38aac52ce70251b39426c8b0a7b4af71  trade_rl/learning/oracle_transition_torch.py
-          b2d713d0f4d95863064722a7b0c2de42806eb06a0bf44d1e661b6d5b80d3c453  trade_rl/learning/oracle_bellman_torch.py
+          09c8ea78b482c44cadc76e5f923275fdf0939e9cf430cd8d8af507c3b4b5bd7c  trade_rl/learning/oracle_bellman_torch.py
           1477b91fc669ea167739f9beb33816a9abfccba395a08d59e48731fb2305fda5  trade_rl/learning/oracle_solver.py
           a85a52f2c8e7dcdcbb8b650532cb5a25412045fc5b8bbb0e15f9eb7e8ed8fa9f  tests/learning/test_oracle_bellman_torch.py
           2af9a044296993b19ddbbc2d1a427a77f75ff9937e43bcfa25bd9c86b4e184ee  tests/learning/test_oracle_solver.py

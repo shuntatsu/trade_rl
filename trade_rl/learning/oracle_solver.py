@@ -29,10 +29,10 @@ def solve_torch_cuda_oracle_batch(
     parameters: OracleBellmanParameters,
     solver_config: OracleSolverConfig,
 ) -> OracleSolveResult:
-    """Load the optional Torch backend only when CUDA execution is requested."""
+    """Load the optional Torch integration only when CUDA execution is requested."""
 
     try:
-        from trade_rl.learning.oracle_bellman_torch import (
+        from trade_rl.integrations.oracle_bellman_torch import (
             solve_torch_cuda_oracle_batch as implementation,
         )
     except ModuleNotFoundError as error:

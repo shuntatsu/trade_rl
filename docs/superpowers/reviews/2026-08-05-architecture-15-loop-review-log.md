@@ -36,4 +36,12 @@
 
 **Fix:** Removed the evaluation import and sealed-test method from the generic Artifact Catalog. The dedicated sealed-test stores remain intact.
 
-**Review:** Generic catalog behavior is unchanged; sealed reservation ownership is no longer duplicated. Focused verification follows on this commit.
+**Review:** Generic catalog behavior is unchanged; sealed reservation ownership is no longer duplicated. Focused result: 4 passed, 11 failed.
+
+## Loop 5: Public PostgreSQL connection construction
+
+**Check:** The sealed-test adapter imported `_default_connection_factory` from the generic catalog implementation.
+
+**Fix:** Added `catalog.postgres_connection` and moved optional psycopg loading plus default connection construction there. Both adapters now consume the public utility.
+
+**Review:** Connection behavior and optional-dependency errors are preserved. Focused and PostgreSQL verification follow on this commit.

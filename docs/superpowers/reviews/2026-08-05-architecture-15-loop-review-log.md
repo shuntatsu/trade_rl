@@ -60,4 +60,4 @@
 
 **Fix:** Replaced `evaluation.series` and `evaluation.metrics` with compatibility facades that re-export the Simulation-owned contracts.
 
-**Review:** Existing import paths remain valid and the formulas now have one implementation owner. Focused verification follows after the reviewed change set is applied.
+**Review:** Existing import paths remain valid and the formulas now have one implementation owner. The reviewed change set is applied; focused verification runs on this commit.

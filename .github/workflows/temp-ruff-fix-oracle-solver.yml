@@ -1,4 +1,4 @@
-name: Temporary Tiny CUDA Smoke TDD
+name: Temporary Tiny CUDA Smoke Format
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  green:
+  format:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout exact head
@@ -22,13 +22,13 @@ jobs:
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
-      - name: Install test dependencies
-        run: uv sync --extra dev --extra train-sb3
-      - name: Confirm tiny CUDA smoke contract is green
-        run: uv run pytest -q tests/operations/test_cuda_training_smoke.py
-      - name: Verify targeted lint and format
-        run: |
-          uv run ruff check trade_rl/operations/cuda_training_smoke.py tests/operations/test_cuda_training_smoke.py
-          uv run ruff format --check trade_rl/operations/cuda_training_smoke.py tests/operations/test_cuda_training_smoke.py
-      - name: Verify targeted types
-        run: uv run mypy trade_rl/operations/cuda_training_smoke.py
+      - name: Install lint dependencies
+        run: uv sync --extra dev
+      - name: Apply formatter
+        run: uv run ruff format trade_rl/operations/cuda_training_smoke.py
+      - name: Upload formatted source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: formatted-cuda-training-smoke
+          path: trade_rl/operations/cuda_training_smoke.py
+          if-no-files-found: error

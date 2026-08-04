@@ -10,12 +10,14 @@ def _run_without_torch(source: str) -> subprocess.CompletedProcess[str]:
 import builtins
 real_import = builtins.__import__
 
+
 def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
     if name == "torch" or name.startswith("torch."):
         error = ModuleNotFoundError("No module named 'torch'")
         error.name = "torch"
         raise error
     return real_import(name, globals, locals, fromlist, level)
+
 
 builtins.__import__ = guarded_import
 {textwrap.dedent(source)}
@@ -39,19 +41,24 @@ assert OracleSolverConfig(selection="numpy").selection == "numpy"
     assert result.returncode == 0, result.stderr
 
 
-def test_cuda_backend_reports_typed_failure_without_torch() -> None:
+def test_cuda_integration_reports_typed_failure_without_torch() -> None:
     result = _run_without_torch(
         """
-from trade_rl.learning.oracle_bellman_contracts import OracleBackendFailure
-from trade_rl.learning.oracle_solver import solve_torch_cuda_oracle_batch
+import numpy as np
+
+from trade_rl.integrations.oracle_solver import solve_torch_cuda_oracle_batch
+from trade_rl.learning.oracle_bellman_contracts import (
+    OracleBackendFailure,
+    OracleSolverConfig,
+)
 
 try:
     solve_torch_cuda_oracle_batch(
         tape=None,
-        states=None,
+        states=np.zeros((1, 1), dtype=np.float64),
         episode_inputs=None,
         parameters=None,
-        solver_config=None,
+        solver_config=OracleSolverConfig(selection="cuda"),
     )
 except OracleBackendFailure as error:
     assert error.backend == "torch_cuda"

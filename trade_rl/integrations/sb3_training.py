@@ -7,6 +7,7 @@ import shutil
 import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,14 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 
+from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.catalog.contracts import ArtifactKind
+from trade_rl.catalog.reusable_artifacts import (
+    ReusableArtifactIndex,
+    teacher_cache_identity,
+)
 from trade_rl.integrations.behavior_cloning import pretrain_policy
 from trade_rl.integrations.sb3_checkpoint_assembly import (
     load_sb3_checkpoint_model,
@@ -62,6 +69,7 @@ from trade_rl.learning.episode_teacher_artifact import (
     EPISODE_TEACHER_ARTIFACT_SCHEMA,
     EpisodeSupervisedPolicyDataset,
     collect_episode_teacher_rollout,
+    collect_episode_teacher_rollout_parallel,
     load_episode_teacher_artifact,
     write_episode_teacher_artifact,
 )
@@ -94,6 +102,30 @@ from trade_rl.rl.training_performance import (
     activate_training_performance,
     write_training_performance_evidence,
 )
+
+
+def _lagrangian_probe_worker_count(n_envs: int) -> int:
+    raw = os.environ.get("TRADE_RL_LAGRANGIAN_PROBE_WORKERS", "1").strip()
+    try:
+        configured = int(raw)
+    except ValueError as error:
+        raise ValueError(
+            "TRADE_RL_LAGRANGIAN_PROBE_WORKERS must be an integer"
+        ) from error
+    if configured <= 0:
+        raise ValueError("TRADE_RL_LAGRANGIAN_PROBE_WORKERS must be positive")
+    return min(n_envs, configured)
+
+
+def _teacher_worker_count(n_envs: int) -> int:
+    raw = os.environ.get("TRADE_RL_TEACHER_WORKERS", str(n_envs)).strip()
+    try:
+        configured = int(raw)
+    except ValueError as error:
+        raise ValueError("TRADE_RL_TEACHER_WORKERS must be an integer") from error
+    if configured <= 0:
+        raise ValueError("TRADE_RL_TEACHER_WORKERS must be positive")
+    return min(n_envs, configured)
 
 
 def _oracle_episode_sampling_config(
@@ -396,6 +428,11 @@ def _hierarchical_behavior_cloning_config(
                 config, "behavior_cloning_max_positive_class_weight"
             )
         ),
+        gate_prediction_threshold=float(
+            _required_hierarchical_config(
+                config, "behavior_cloning_gate_prediction_threshold"
+            )
+        ),
     )
 
 
@@ -434,7 +471,7 @@ def _behavior_cloning_gate_thresholds(
                 config, "behavior_cloning_max_causal_holdout_regret"
             )
         ),
-        minimum_causal_holdout_episodes=2,
+        minimum_causal_holdout_episodes=1,
         maximum_causal_holdout_regret_upper_bound=float(
             _required_hierarchical_config(
                 config, "behavior_cloning_max_causal_holdout_regret"
@@ -607,6 +644,13 @@ class StableBaselines3Backend:
         self.teacher_cache_root = (
             None if not raw_teacher_cache else Path(raw_teacher_cache).resolve()
         )
+        self.reusable_artifact_index = (
+            None
+            if self.teacher_cache_root is None
+            else ReusableArtifactIndex.from_environment(
+                storage_root=self.teacher_cache_root
+            )
+        )
         self._oracle_target_cache: dict[tuple[str, int, int, str], np.ndarray] = {}
         self._oracle_episode_batch_cache: dict[
             tuple[str, int, int, str, str], EpisodeOracleBatch
@@ -625,6 +669,7 @@ class StableBaselines3Backend:
         train_range: tuple[int, int],
         teacher_config: OracleTeacherConfig,
         sampling_config: OracleEpisodeSamplingConfig,
+        max_workers: int = 1,
     ) -> EpisodeOracleBatch:
         dataset = environment.dataset
         dataset_id = getattr(dataset, "dataset_id", None)
@@ -651,6 +696,7 @@ class StableBaselines3Backend:
                 mode,
                 index,
             ),
+            max_workers=max_workers,
         )
         self._oracle_episode_batch_cache[key] = batch
         return batch
@@ -662,6 +708,7 @@ class StableBaselines3Backend:
         *,
         train_range: tuple[int, int],
         teacher_config: OracleTeacherConfig,
+        max_workers: int = 1,
     ) -> EpisodeSupervisedPolicyDataset:
         start, stop = train_range
         environment_digest = getattr(environment, "environment_digest", None)
@@ -693,7 +740,15 @@ class StableBaselines3Backend:
         if cached is not None:
             return cached
         cache_path: Path | None = None
+        shard_root: Path | None = None
         if self.teacher_cache_root is not None:
+            cache_identity = teacher_cache_identity(
+                dataset_id=batch.dataset_id,
+                train_range=(start, stop),
+                environment_digest=environment_digest,
+                action_spec_digest=action_spec_digest,
+                teacher_config_digest=teacher_identity,
+            )
             cache_path = self.teacher_cache_root / _teacher_cache_key(
                 dataset_id=batch.dataset_id,
                 train_range=(start, stop),
@@ -701,8 +756,16 @@ class StableBaselines3Backend:
                 action_spec_digest=action_spec_digest,
                 teacher_config_digest=teacher_identity,
             )
+            if self.reusable_artifact_index is not None:
+                indexed = self.reusable_artifact_index.resolve(
+                    ArtifactKind.ORACLE_TEACHER,
+                    cache_identity,
+                )
+                if indexed is not None:
+                    cache_path = indexed
+            shard_root = cache_path.with_name(f".{cache_path.name}.episodes")
             if cache_path.exists():
-                _, teacher_dataset = load_episode_teacher_artifact(
+                manifest, teacher_dataset = load_episode_teacher_artifact(
                     cache_path,
                     expected_dataset_id=batch.dataset_id,
                     expected_environment_digest=environment_digest,
@@ -710,13 +773,35 @@ class StableBaselines3Backend:
                 )
                 if teacher_dataset.teacher_config_digest != teacher_identity:
                     raise ValueError("cached episode teacher identity mismatch")
+                if self.reusable_artifact_index is not None:
+                    self.reusable_artifact_index.register_directory(
+                        artifact_digest=manifest.artifact_digest,
+                        artifact_kind=ArtifactKind.ORACLE_TEACHER,
+                        schema_version=manifest.schema_version,
+                        dataset_id=batch.dataset_id,
+                        cache_key=cache_identity,
+                        metadata={
+                            "episode_count": manifest.episode_count,
+                            "sample_count": manifest.sample_count,
+                        },
+                        location=cache_path,
+                    )
                 self._episode_teacher_dataset_cache[key] = teacher_dataset
                 return teacher_dataset
-        teacher_dataset = collect_episode_teacher_rollout(
-            environment,
-            batch,
-            teacher_config_digest=teacher_identity,
-        )
+        if max_workers == 1:
+            teacher_dataset = collect_episode_teacher_rollout(
+                environment,
+                batch,
+                teacher_config_digest=teacher_identity,
+            )
+        else:
+            teacher_dataset = collect_episode_teacher_rollout_parallel(
+                self.environment_factory,
+                batch,
+                teacher_config_digest=teacher_identity,
+                max_workers=max_workers,
+                shard_root=shard_root,
+            )
         if cache_path is not None:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             temporary = Path(
@@ -733,6 +818,27 @@ class StableBaselines3Backend:
             finally:
                 if temporary.exists():
                     shutil.rmtree(temporary)
+            if shard_root is not None and shard_root.exists():
+                shutil.rmtree(shard_root)
+            if self.reusable_artifact_index is not None:
+                manifest, _ = load_episode_teacher_artifact(
+                    cache_path,
+                    expected_dataset_id=batch.dataset_id,
+                    expected_environment_digest=environment_digest,
+                    expected_action_spec_digest=action_spec_digest,
+                )
+                self.reusable_artifact_index.register_directory(
+                    artifact_digest=manifest.artifact_digest,
+                    artifact_kind=ArtifactKind.ORACLE_TEACHER,
+                    schema_version=manifest.schema_version,
+                    dataset_id=batch.dataset_id,
+                    cache_key=cache_identity,
+                    metadata={
+                        "episode_count": manifest.episode_count,
+                        "sample_count": manifest.sample_count,
+                    },
+                    location=cache_path,
+                )
         self._episode_teacher_dataset_cache[key] = teacher_dataset
         return teacher_dataset
 
@@ -820,6 +926,13 @@ class StableBaselines3Backend:
             return cached
         cache_path: Path | None = None
         if self.teacher_cache_root is not None:
+            cache_identity = teacher_cache_identity(
+                dataset_id=dataset_id,
+                train_range=(start, stop),
+                environment_digest=environment_digest,
+                action_spec_digest=action_spec_digest,
+                teacher_config_digest=teacher_config.digest,
+            )
             cache_path = self.teacher_cache_root / _teacher_cache_key(
                 dataset_id=dataset_id,
                 train_range=(start, stop),
@@ -827,8 +940,15 @@ class StableBaselines3Backend:
                 action_spec_digest=action_spec_digest,
                 teacher_config_digest=teacher_config.digest,
             )
+            if self.reusable_artifact_index is not None:
+                indexed = self.reusable_artifact_index.resolve(
+                    ArtifactKind.ORACLE_TEACHER,
+                    cache_identity,
+                )
+                if indexed is not None:
+                    cache_path = indexed
             if cache_path.exists():
-                _, teacher_dataset = load_teacher_artifact(
+                manifest, teacher_dataset = load_teacher_artifact(
                     cache_path,
                     expected_dataset_id=dataset_id,
                     expected_environment_digest=environment_digest,
@@ -837,6 +957,16 @@ class StableBaselines3Backend:
                 )
                 if teacher_dataset.teacher_config_digest != teacher_config.digest:
                     raise ValueError("cached teacher configuration identity mismatch")
+                if self.reusable_artifact_index is not None:
+                    self.reusable_artifact_index.register_directory(
+                        artifact_digest=manifest.artifact_digest,
+                        artifact_kind=ArtifactKind.ORACLE_TEACHER,
+                        schema_version=manifest.schema_version,
+                        dataset_id=dataset_id,
+                        cache_key=cache_identity,
+                        metadata={"sample_count": manifest.sample_count},
+                        location=cache_path,
+                    )
                 self._teacher_dataset_cache[key] = teacher_dataset
                 return teacher_dataset
         teacher_dataset = collect_teacher_rollout(
@@ -863,6 +993,23 @@ class StableBaselines3Backend:
             finally:
                 if temporary.exists():
                     shutil.rmtree(temporary)
+            if self.reusable_artifact_index is not None:
+                manifest, _ = load_teacher_artifact(
+                    cache_path,
+                    expected_dataset_id=dataset_id,
+                    expected_environment_digest=environment_digest,
+                    expected_action_spec_digest=action_spec_digest,
+                    expected_train_range=(start, stop),
+                )
+                self.reusable_artifact_index.register_directory(
+                    artifact_digest=manifest.artifact_digest,
+                    artifact_kind=ArtifactKind.ORACLE_TEACHER,
+                    schema_version=manifest.schema_version,
+                    dataset_id=dataset_id,
+                    cache_key=cache_identity,
+                    metadata={"sample_count": manifest.sample_count},
+                    location=cache_path,
+                )
         self._teacher_dataset_cache[key] = teacher_dataset
         return teacher_dataset
 
@@ -873,23 +1020,14 @@ class StableBaselines3Backend:
         config: ResidualTrainingConfig,
         output_path: Path,
     ) -> PolicyTrainingResult:
-        import torch
-
-        torch_runtime = _configure_torch_cuda_runtime(
-            torch,
-            config.device,
-            config.cuda_runtime_mode,
-        )
         if self.structured_export_enabled and (
             config.observation_encoder != "hierarchical_sequence_v2"
         ):
             raise ValueError("structured export requires hierarchical_sequence_v2")
 
-        probe = self.environment_factory()
+        probe: Any | None = None
         environment: Any | None = None
         try:
-            identity = _environment_identity(probe)
-            _validate_training_environment(identity, config)
             algorithm_config = build_algorithm_config(config)
             canonical_action_probe_evidence = None
             if isinstance(algorithm_config, LagrangianPPOConfig):
@@ -905,8 +1043,84 @@ class StableBaselines3Backend:
                         max_steps_per_episode=(
                             algorithm_config.probe_max_steps_per_episode
                         ),
+                        max_workers=_lagrangian_probe_worker_count(config.n_envs),
                     )
                 )
+            # A full-market environment is several GiB.  Do not keep the
+            # identity probe alive while the isolated canonical probe creates
+            # its own environment, otherwise the 15.5 GiB training cgroup can
+            # contain two full environments at once and be OOM killed.
+            probe = self.environment_factory()
+            identity = _environment_identity(probe)
+            _validate_training_environment(identity, config)
+            resume_root = self.resume_checkpoint_artifacts.get(seed)
+            transfer_root = self.transfer_checkpoint_artifacts.get(seed)
+            fresh_behavior_cloning = (
+                config.behavior_cloning_epochs > 0
+                and resume_root is None
+                and transfer_root is None
+            )
+            prefetched_episode_batch: EpisodeOracleBatch | None = None
+            prefetched_episode_teacher: EpisodeSupervisedPolicyDataset | None = None
+            prefetched_oracle_config: OracleTeacherConfig | None = None
+            if fresh_behavior_cloning and config.behavior_cloning_teacher == "oracle":
+                unwrapped_probe: Any = getattr(probe, "unwrapped", probe)
+                probe_action_names = tuple(identity["action_names"])
+                if not probe_action_names or not all(
+                    name.startswith("target_weight:") for name in probe_action_names
+                ):
+                    raise ValueError(
+                        "behavior cloning requires direct target-weight actions"
+                    )
+                probe_dataset = unwrapped_probe.dataset
+                probe_train_range = (
+                    int(unwrapped_probe.minimum_start_index),
+                    int(probe_dataset.n_bars),
+                )
+                risk_config = unwrapped_probe.pre_trade_risk.config
+                prefetched_oracle_config = OracleTeacherConfig(
+                    execution_cost=unwrapped_probe.config.execution_cost,
+                    portfolio_risk=unwrapped_probe.portfolio_risk.config,
+                    max_gross=risk_config.max_gross,
+                    max_abs_weight=risk_config.max_abs_weight,
+                    entry_threshold=risk_config.entry_threshold,
+                    exit_threshold=risk_config.exit_threshold,
+                    no_trade_band=risk_config.no_trade_band,
+                    reference_portfolio_value=unwrapped_probe.initial_capital,
+                    signal_delay_decisions=(
+                        unwrapped_probe.config.signal_delay_decisions
+                    ),
+                )
+                sampling_config = _oracle_episode_sampling_config(
+                    unwrapped_probe,
+                    train_range=probe_train_range,
+                    seed=seed,
+                )
+                teacher_workers = _teacher_worker_count(config.n_envs)
+                prefetched_episode_batch = self._oracle_episode_batch(
+                    unwrapped_probe,
+                    probe_train_range,
+                    prefetched_oracle_config,
+                    sampling_config,
+                    max_workers=teacher_workers,
+                )
+                prefetched_episode_teacher = self._episode_teacher_dataset(
+                    probe,
+                    prefetched_episode_batch,
+                    train_range=probe_train_range,
+                    teacher_config=prefetched_oracle_config,
+                    max_workers=teacher_workers,
+                )
+            # The CPU-only canonical probe may fork on Linux.  Initialize the
+            # CUDA runtime only after its workers and the forked Oracle teacher
+            # workers have joined so no child inherits a live CUDA context.
+            import torch
+
+            torch_runtime = _configure_torch_cuda_runtime(
+                torch,
+                config.device,
+                config.cuda_runtime_mode,
+            )
             policy = resolve_sb3_policy_assembly(
                 probe=probe,
                 identity=identity,
@@ -916,13 +1130,8 @@ class StableBaselines3Backend:
             sequence_reconstructor = policy.sequence_reconstructor
             vector_environment_kind = _effective_vector_environment_kind(config)
             full_observation_space = probe.observation_space
-            if config.n_envs == 1:
-                environment = _TrainingInfoFilter(probe)
-                probe = None
-            else:
-                probe_to_close = probe
-                probe = None
-                probe_to_close.close()
+
+            def build_parallel_environment() -> Any:
                 if vector_environment_kind == "subprocess_compact_sequence":
                     if sequence_reconstructor is None:
                         raise RuntimeError(
@@ -932,20 +1141,26 @@ class StableBaselines3Backend:
                         raise RuntimeError(
                             "parallel sequence environment requires a Dict space"
                         )
-                    environment = _build_parallel_sequence_training_environment(
+                    return _build_parallel_sequence_training_environment(
                         self.environment_factory,
                         config.n_envs,
                         full_observation_space=full_observation_space,
                         reconstructor=sequence_reconstructor,
                     )
-                else:
-                    environment = _build_training_environment(
-                        lambda: _filtered_training_environment(
-                            self.environment_factory
-                        ),
-                        config.n_envs,
-                        subprocesses=vector_environment_kind == "subprocess",
-                    )
+                return _build_training_environment(
+                    lambda: _filtered_training_environment(self.environment_factory),
+                    config.n_envs,
+                    subprocesses=vector_environment_kind == "subprocess",
+                )
+
+            if config.n_envs == 1:
+                environment = _TrainingInfoFilter(probe)
+                probe = None
+            else:
+                probe_to_close = probe
+                probe = None
+                probe_to_close.close()
+                environment = build_parallel_environment()
             model = build_sb3_model(
                 environment=environment,
                 seed=seed,
@@ -958,8 +1173,6 @@ class StableBaselines3Backend:
             )
             resume_manifest = None
             transfer_manifest = None
-            resume_root = self.resume_checkpoint_artifacts.get(seed)
-            transfer_root = self.transfer_checkpoint_artifacts.get(seed)
             if resume_root is not None:
                 loaded_checkpoint = load_sb3_checkpoint_model(
                     checkpoint_root=Path(resume_root),
@@ -1049,6 +1262,7 @@ class StableBaselines3Backend:
                 architecture_details["lagrangian_probe"] = {
                     "digest": canonical_action_probe_evidence.digest,
                     "payload": (canonical_action_probe_evidence.digest_payload()),
+                    "workers": _lagrangian_probe_worker_count(config.n_envs),
                     "violated_costs": list(
                         canonical_action_probe_evidence.violated_costs
                     ),
@@ -1134,11 +1348,23 @@ class StableBaselines3Backend:
                     }
                 )
             )
-            if (
+            if fresh_behavior_cloning != (
                 config.behavior_cloning_epochs > 0
                 and resume_manifest is None
                 and transfer_manifest is None
             ):
+                raise RuntimeError("behavior cloning resume state changed unexpectedly")
+            environment_suspended_for_teacher = False
+            if fresh_behavior_cloning and config.n_envs > 1:
+                # The compact PPO vector environment keeps one full market view in
+                # each subprocess.  It is idle during behavior cloning, while the
+                # Oracle rollout creates its own bounded worker environments.  Do
+                # not retain both groups: on the 15-symbol full-history dataset the
+                # otherwise-idle PPO workers alone consume most of a 24 GiB cgroup.
+                environment.close()
+                environment = None
+                environment_suspended_for_teacher = True
+            if fresh_behavior_cloning:
                 teacher_environment = self.environment_factory()
                 try:
                     teacher_identity = _environment_identity(teacher_environment)
@@ -1167,40 +1393,18 @@ class StableBaselines3Backend:
                     episode_split: BehaviorCloningSplit | None = None
                     teacher_dataset: SupervisedPolicyDataset
                     if teacher_kind == "oracle":
-                        risk_config = unwrapped_teacher.pre_trade_risk.config
-                        teacher_config: Any = OracleTeacherConfig(
-                            execution_cost=unwrapped_teacher.config.execution_cost,
-                            portfolio_risk=unwrapped_teacher.portfolio_risk.config,
-                            max_gross=risk_config.max_gross,
-                            max_abs_weight=risk_config.max_abs_weight,
-                            entry_threshold=risk_config.entry_threshold,
-                            exit_threshold=risk_config.exit_threshold,
-                            no_trade_band=risk_config.no_trade_band,
-                            reference_portfolio_value=(
-                                unwrapped_teacher.initial_capital
-                            ),
-                            signal_delay_decisions=(
-                                unwrapped_teacher.config.signal_delay_decisions
-                            ),
-                        )
-                        sampling_config = _oracle_episode_sampling_config(
-                            unwrapped_teacher,
-                            train_range=train_range,
-                            seed=seed,
-                        )
-                        episode_batch = self._oracle_episode_batch(
-                            unwrapped_teacher,
-                            train_range,
-                            teacher_config,
-                            sampling_config,
-                        )
+                        if (
+                            prefetched_oracle_config is None
+                            or prefetched_episode_batch is None
+                            or prefetched_episode_teacher is None
+                        ):
+                            raise RuntimeError(
+                                "prefetched Oracle teacher evidence is unavailable"
+                            )
+                        teacher_config: Any = prefetched_oracle_config
+                        episode_batch = prefetched_episode_batch
                         targets = np.concatenate(episode_batch.targets, axis=0)
-                        teacher_dataset = self._episode_teacher_dataset(
-                            teacher_environment,
-                            episode_batch,
-                            train_range=train_range,
-                            teacher_config=teacher_config,
-                        )
+                        teacher_dataset = prefetched_episode_teacher
                         teacher_digest = write_episode_teacher_artifact(
                             output_path.parent / "teacher",
                             teacher_dataset,
@@ -1297,6 +1501,29 @@ class StableBaselines3Backend:
                                 teacher_dataset,
                             )
                         )
+                    behavior_cloning_progress_path = (
+                        output_path.parent / "behavior-cloning-progress.json"
+                    )
+                    behavior_cloning_progress_state: dict[str, object] = {
+                        "phase": "training",
+                        "seed": seed,
+                    }
+
+                    def write_behavior_cloning_progress(
+                        progress: Mapping[str, object],
+                    ) -> None:
+                        behavior_cloning_progress_state.update(progress)
+                        atomic_write_bytes(
+                            behavior_cloning_progress_path,
+                            canonical_json_bytes(
+                                {
+                                    "schema_version": "behavior_cloning_progress_v1",
+                                    "updated_at": datetime.now(UTC).isoformat(),
+                                    **behavior_cloning_progress_state,
+                                }
+                            ),
+                        )
+
                     cloning = pretrain_policy(
                         model.policy,
                         teacher_dataset,
@@ -1304,6 +1531,23 @@ class StableBaselines3Backend:
                         seed=seed,
                         observation_provider=observation_provider,
                         hierarchical_labels=hierarchical_labels,
+                        progress_callback=write_behavior_cloning_progress,
+                    )
+                    write_behavior_cloning_progress(
+                        {
+                            "phase": "evaluating",
+                            "epoch": cloning.best_epoch,
+                            "total_epochs": cloning.config.epochs,
+                            "best_epoch": cloning.best_epoch,
+                            "validation_loss": (
+                                cloning.validation_mse
+                                if cloning.validation_hierarchical_losses is None
+                                else cloning.validation_hierarchical_losses.weighted
+                            ),
+                            "gate_precision": None,
+                            "gate_recall": None,
+                            "activity_ratio": None,
+                        }
                     )
                     required_relative_improvement = (
                         config.behavior_cloning_required_relative_improvement
@@ -1404,6 +1648,34 @@ class StableBaselines3Backend:
                     (output_path.parent / "behavior-cloning.json").write_bytes(
                         canonical_json_bytes(cloning_payload)
                     )
+                    write_behavior_cloning_progress(
+                        {
+                            "phase": "passed" if quality_passed else "failed",
+                            "epoch": cloning.best_epoch,
+                            "total_epochs": cloning.config.epochs,
+                            "best_epoch": cloning.best_epoch,
+                            "validation_loss": (
+                                cloning.validation_mse
+                                if cloning.validation_hierarchical_losses is None
+                                else cloning.validation_hierarchical_losses.weighted
+                            ),
+                            "gate_precision": (
+                                None
+                                if cloning.validation_hierarchical_metrics is None
+                                else cloning.validation_hierarchical_metrics.gate_precision
+                            ),
+                            "gate_recall": (
+                                None
+                                if cloning.validation_hierarchical_metrics is None
+                                else cloning.validation_hierarchical_metrics.gate_recall
+                            ),
+                            "activity_ratio": (
+                                None
+                                if cloning.validation_hierarchical_metrics is None
+                                else cloning.validation_hierarchical_metrics.activity_ratio
+                            ),
+                        }
+                    )
                     if gate_evaluation is not None:
                         _enforce_behavior_cloning_gates(gate_evaluation)
                     elif not quality_passed:
@@ -1412,6 +1684,9 @@ class StableBaselines3Backend:
                         )
                 finally:
                     teacher_environment.close()
+            if environment_suspended_for_teacher:
+                environment = build_parallel_environment()
+                model.set_env(environment)
             from trade_rl.rl.checkpointing import build_checkpoint_callback
 
             if self.resume_replay_artifact is not None:

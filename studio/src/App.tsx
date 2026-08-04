@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
+import { loadStudioOverview } from './api/studioApi'
 import { AppShell } from './components/AppShell'
 import type { WorkspaceId } from './components/Sidebar'
 import type { StudioOverviewResult } from './data/types'
@@ -24,7 +25,23 @@ const workspaceMeta: Record<Exclude<WorkspaceId, 'dashboard' | 'data' | 'experim
 
 export function App({ initialOverview }: AppProps) {
   const [active, setActive] = useState<WorkspaceId>(() => readWorkspace(window.location.search))
-  const { overview, source, error } = initialOverview
+  const [overviewResult, setOverviewResult] = useState(initialOverview)
+  const { overview, source, error } = overviewResult
+  useEffect(() => {
+    if (initialOverview.source === 'demo') return undefined
+    let activeRequest = true
+    let timer: number | undefined
+    const refresh = async () => {
+      const result = await loadStudioOverview()
+      if (activeRequest) setOverviewResult(result)
+      if (activeRequest) timer = window.setTimeout(() => void refresh(), 500)
+    }
+    timer = window.setTimeout(() => void refresh(), 500)
+    return () => {
+      activeRequest = false
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [initialOverview.source])
   const select = (workspace: WorkspaceId) => {
     setActive(workspace)
     replaceParams({ workspace })

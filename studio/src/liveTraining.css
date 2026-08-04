@@ -360,6 +360,38 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
+
+.bc-progress-panel {
+  align-self: stretch;
+  min-height: 0;
+  display: grid;
+  align-content: center;
+  gap: 18px;
+  padding: clamp(24px, 5vh, 58px);
+  border: 1px solid var(--live-border);
+  border-radius: 13px;
+  background:
+    radial-gradient(circle at 85% 15%, rgba(100, 242, 196, .08), transparent 35%),
+    var(--live-panel);
+  overflow: auto;
+}
+.bc-progress-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.bc-progress-heading span { color: var(--live-accent); font-size: 10px; font-weight: 800; letter-spacing: .14em; }
+.bc-progress-heading h2 { margin: 4px 0 0; color: var(--live-text); font-size: clamp(24px, 3vw, 38px); }
+.bc-progress-heading strong { padding: 7px 11px; border: 1px solid var(--live-border); border-radius: 999px; color: var(--live-accent); font-size: 12px; }
+.bc-progress-heading strong[data-phase="failed"] { color: #ff8b7c; border-color: #7f3b31; }
+.bc-progress-panel > p { max-width: 760px; margin: 0; color: var(--live-muted); font-size: 13px; }
+.bc-progress-track { height: 10px; overflow: hidden; border: 1px solid var(--live-border); border-radius: 999px; background: #11191c; }
+.bc-progress-track > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #35c99a, var(--live-accent)); transition: width .2s linear; }
+.bc-progress-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.bc-progress-stats > div { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--live-border); border-radius: 9px; background: rgba(7, 14, 17, .54); }
+.bc-progress-stats span { color: var(--live-muted); font-size: 10px; }
+.bc-progress-stats strong { color: var(--live-text); font-size: 16px; }
+.bc-progress-panel footer { color: var(--live-muted); font-size: 10px; }
+
+@media (max-width: 900px) {
+  .bc-progress-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .research-summary-card {
   display: flex;
   align-items: baseline;

@@ -46,4 +46,30 @@ describe('DashboardPage', () => {
     expect(finalPathY(rlPath)).toBeCloseTo(18, 1)
     expect(finalPathY(baselinePath)).toBeCloseTo(111.3, 1)
   })
+
+  it('renders every recent alert in a scrollable list and labels the dataset universe', () => {
+    const alerts = Array.from({ length: 6 }, (_, index) => ({
+      level: 'info' as const,
+      message: `alert-${index}`,
+      age: `${index + 1}分前`,
+    }))
+    const { container } = render(
+      <DashboardPage
+        overview={{
+          ...demoOverview,
+          latestDataset: demoOverview.latestDataset && {
+            ...demoOverview.latestDataset,
+            symbols: ['BNBUSDT', 'UNIUSDT', 'XRPUSDT'],
+            symbolCount: 3,
+            universeSymbolCount: 15,
+            timeframes: ['15m', '1h', '4h', '1d'],
+          },
+          alerts,
+        }}
+      />,
+    )
+
+    expect(container.querySelectorAll('.alert-row')).toHaveLength(6)
+    expect(screen.getByText('時間足 15m / 1h / 4h / 1d ・ 銘柄 3 / 15（選択 / 全体）')).toBeInTheDocument()
+  })
 })

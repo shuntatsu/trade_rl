@@ -127,7 +127,9 @@ def test_training_dockerfile_isolates_fast_provenance_validation_stage() -> None
 
 def test_training_dockerfile_keeps_heavy_dependencies_out_of_late_layers() -> None:
     dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
-    runtime = dockerfile.split(" AS training-runtime", 1)[1]
+    runtime = dockerfile.split(" AS training-runtime", 1)[1].split(
+        "FROM training-runtime AS studio-runtime", 1
+    )[0]
 
     dependency_sync = runtime.index(
         "uv sync --frozen --extra train-sb3 --extra postgres --no-dev --no-install-project"

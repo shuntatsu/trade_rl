@@ -23,5 +23,7 @@ describe('ResearchChartInspector', () => {
     expect(screen.getByText('クロスヘア')).toBeInTheDocument()
     expect(screen.getByText(/Step 64/)).toBeInTheDocument()
     expect(screen.getByText(/199.00 \/ 202.00/)).toBeInTheDocument()
+    expect(screen.getByText('ロング増し')).toBeInTheDocument()
+    expect(screen.getByText(/\+0.200 → \+0.400/)).toBeInTheDocument()
   })
 })

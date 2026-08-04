@@ -64,12 +64,16 @@ def test_behavior_cloning_teacher_and_quality_gate_are_validated_and_digested() 
         behavior_cloning_epochs=1,
         behavior_cloning_teacher="trend_baseline",
         behavior_cloning_required_relative_improvement=0.05,
+        behavior_cloning_gate_prediction_threshold=0.49,
     )
 
     assert config.digest_payload()["behavior_cloning_teacher"] == "trend_baseline"
     assert config.digest_payload()[
         "behavior_cloning_required_relative_improvement"
     ] == pytest.approx(0.05)
+    assert config.digest_payload()[
+        "behavior_cloning_gate_prediction_threshold"
+    ] == pytest.approx(0.49)
 
     with pytest.raises(ValueError, match="behavior_cloning_teacher"):
         _base(behavior_cloning_teacher="future_oracle")
@@ -77,3 +81,5 @@ def test_behavior_cloning_teacher_and_quality_gate_are_validated_and_digested() 
         ValueError, match="behavior_cloning_required_relative_improvement"
     ):
         _base(behavior_cloning_required_relative_improvement=1.0)
+    with pytest.raises(ValueError, match="gate_prediction_threshold"):
+        _base(behavior_cloning_gate_prediction_threshold=1.0)

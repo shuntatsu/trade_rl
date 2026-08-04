@@ -32,7 +32,9 @@ def _load(name: str) -> TrainingRunConfig:
     return TrainingRunConfig.from_json(EXAMPLE_ROOT / name)
 
 
-def _common_contract(config: TrainingRunConfig) -> None:
+def _common_contract(
+    config: TrainingRunConfig, *, behavior_cloning_epochs: int = 45
+) -> None:
     assert config.action.mode.value == "target_weight"
     assert config.action.target_weight_count == 3
     assert config.action.alpha_enabled is False
@@ -49,11 +51,15 @@ def _common_contract(config: TrainingRunConfig) -> None:
     training = config.training
     assert training.seeds == (0, 1, 2)
     assert training.timesteps == 524_288
-    assert training.n_steps == 256
-    assert training.n_envs == 4
+    assert training.n_steps == 128
+    assert training.n_envs == 8
     assert training.batch_size == 256
     assert training.n_epochs == 10
-    assert training.behavior_cloning_epochs == 15
+    assert training.behavior_cloning_epochs == behavior_cloning_epochs
+    assert training.behavior_cloning_gate_loss_weight == pytest.approx(1.25)
+    assert training.behavior_cloning_max_positive_class_weight == pytest.approx(1.4)
+    assert training.behavior_cloning_target_loss_weight == pytest.approx(1.5)
+    assert training.behavior_cloning_min_causal_holdout_trades == 20
     assert training.behavior_cloning_teacher == "oracle"
     assert training.behavior_cloning_validation_fraction == pytest.approx(0.1)
     assert training.policy_net_arch == (384, 256, 128)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import gymnasium as gym
 import numpy as np
@@ -65,6 +66,9 @@ class _SequenceProbe:
     sequence_normalizer = None
     sequence_policy_plane = None
     sequence_layout_metadata = {"n_symbols": 1}
+    pre_trade_risk = SimpleNamespace(
+        config=SimpleNamespace(entry_threshold=0.1, no_trade_band=0.05)
+    )
 
     @property
     def unwrapped(self) -> "_SequenceProbe":
@@ -220,6 +224,8 @@ def test_sequence_assembly_binds_hierarchical_actor_identity() -> None:
         policy="MultiInputPolicy",
         policy_actor_head="hierarchical_gate_target_v1",
         hierarchical_gate_temperature=0.75,
+        behavior_cloning_epochs=1,
+        behavior_cloning_gate_prediction_threshold=0.49,
     )
 
     _, policy_kwargs, _, _, uses_shared_actor = _sequence_policy_assembly(
@@ -231,6 +237,13 @@ def test_sequence_assembly_binds_hierarchical_actor_identity() -> None:
     assert uses_shared_actor is True
     assert policy_kwargs["shared_actor_head"] == "hierarchical_gate_target_v1"
     assert policy_kwargs["shared_actor_gate_temperature"] == pytest.approx(0.75)
+    assert policy_kwargs["shared_actor_gate_prediction_threshold"] == pytest.approx(
+        0.49
+    )
+    assert policy_kwargs["shared_actor_entry_threshold"] == pytest.approx(0.1)
+    assert policy_kwargs[
+        "shared_actor_minimum_deterministic_change"
+    ] == pytest.approx(0.05)
 
 
 def test_hierarchical_actor_fields_are_digest_bound() -> None:

@@ -36,7 +36,13 @@ export function DashboardPage({ overview }: DashboardPageProps) {
             <div className="dataset-card">
               <div className="dataset-card__title"><ServerCog size={16} aria-hidden="true" />{latestDataset.name}</div>
               <p>{latestDataset.market} / {latestDataset.symbols.join(', ')}</p>
-              <p>{latestDataset.timeframes.join('/')} ・ {latestDataset.range}</p>
+              <p>
+                時間足 {latestDataset.timeframes.join(' / ')} ・ 銘柄 {latestDataset.symbolCount}
+                {latestDataset.universeSymbolCount && latestDataset.universeSymbolCount > latestDataset.symbolCount
+                  ? ` / ${latestDataset.universeSymbolCount}（選択 / 全体）`
+                  : ''}
+              </p>
+              <p>{latestDataset.range}</p>
               <div className="dataset-card__footer">
                 <span className={`status-valid${latestDataset.status === 'INVALID' ? ' status-valid--invalid' : ''}`}><CheckCircle2 size={12} aria-hidden="true" />{latestDataset.status}</span>
                 <strong>{latestDataset.featureCount} features</strong>
@@ -81,8 +87,8 @@ export function DashboardPage({ overview }: DashboardPageProps) {
         <Panel title="直近のアラート" index={5} accent="purple" className="alerts-panel">
           <div className={`alerts-list${overview.alerts.length === 0 ? ' alerts-list--empty' : ''}`}>
             {overview.alerts.length === 0 ? <div className="dashboard-empty">新しいアラートなし</div> : null}
-            {overview.alerts.slice(0, 4).map((alert) => (
-              <article className="alert-row" key={`${alert.message}-${alert.age}`}>
+            {overview.alerts.map((alert, index) => (
+              <article className="alert-row" key={`${alert.message}-${index}`}>
                 <span className={`alert-tag alert-tag--${alert.level}`}>
                   {alert.level === 'warning' ? <AlertTriangle size={12} aria-hidden="true" /> : <Info size={12} aria-hidden="true" />}
                   {alert.level.toUpperCase()}

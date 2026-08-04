@@ -19,6 +19,8 @@ def test_training_compose_separates_market_data_ownership() -> None:
     assert "condition: service_healthy" in compose
     assert "TRADE_RL_DATABASE_URL:" in compose
     assert 'TORCHINDUCTOR_COMPILE_THREADS: "4"' in compose
+    assert 'TRADE_RL_TEACHER_WORKERS: "4"' in compose
+    assert "TRADE_RL_FROZEN_METADATA_CACHE_ROOT:" in compose
     assert "--legacy-cache-root" in compose
     assert "trade-rl-training-runs:" not in compose
     assert "trade-rl-teacher-cache:" not in compose

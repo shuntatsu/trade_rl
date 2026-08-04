@@ -7,6 +7,7 @@ interface MetricRingProps {
 
 export function MetricRing({ label, value, detail, tone = 'green' }: MetricRingProps) {
   const clamped = Math.max(0, Math.min(100, value))
+  const displayed = clamped.toFixed(1)
   const angle = clamped * 3.6
   return (
     <article className="metric-card">
@@ -14,9 +15,9 @@ export function MetricRing({ label, value, detail, tone = 'green' }: MetricRingP
       <div
         className={`metric-ring metric-ring--${tone}`}
         style={{ '--metric-angle': `${angle}deg` } as React.CSSProperties}
-        aria-label={`${label} ${clamped}%`}
+        aria-label={`${label} ${displayed}%`}
       >
-        <div>{clamped}<small>%</small></div>
+        <div>{displayed}<small>%</small></div>
       </div>
       <span className="metric-card__detail">{detail}</span>
     </article>

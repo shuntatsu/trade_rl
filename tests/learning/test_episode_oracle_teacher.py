@@ -192,6 +192,42 @@ def test_episode_oracle_batch_preserves_episode_boundaries_and_initial_state() -
         assert np.all(targets[:, 0] > 0.0)
 
 
+def test_parallel_episode_oracle_batch_matches_serial_digest() -> None:
+    market = _market(np.linspace(100.0, 110.0, 48))
+    sampling = OracleEpisodeSamplingConfig(
+        episode_bars=6,
+        episode_count=5,
+        initial_state_modes=("cash", "baseline"),
+        seed=19,
+    )
+    teacher = _costly_oracle()
+    def provider(mode: str, start: int) -> np.ndarray:
+        return np.array([0.35])
+
+    serial = build_episode_oracle_batch(
+        market,
+        minimum_start_index=2,
+        sampling_config=sampling,
+        teacher_config=teacher,
+        initial_weight_provider=provider,
+    )
+    parallel = build_episode_oracle_batch(
+        market,
+        minimum_start_index=2,
+        sampling_config=sampling,
+        teacher_config=teacher,
+        initial_weight_provider=provider,
+        max_workers=3,
+    )
+
+    assert parallel.digest == serial.digest
+    assert tuple(contract.digest for contract in parallel.contracts) == tuple(
+        contract.digest for contract in serial.contracts
+    )
+    for actual, expected in zip(parallel.targets, serial.targets, strict=True):
+        np.testing.assert_array_equal(actual, expected)
+
+
 def test_delayed_episode_oracle_holds_initial_position_before_pending_target_executes() -> (
     None
 ):

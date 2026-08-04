@@ -29,7 +29,7 @@ def test_postgres_runner_uses_identity_free_native_features() -> None:
         )
     )
     dataset = SimpleNamespace(
-        n_bars=55_392,
+        n_bars=192_672,
         symbols=("SLOT0", "SLOT1", "SLOT2"),
         feature_names=feature_names,
     )

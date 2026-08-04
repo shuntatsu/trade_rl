@@ -47,6 +47,31 @@ def test_studio_cli_rejects_remote_binding_unconditionally(
         )
 
 
+def test_studio_cli_allows_explicit_container_bind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called: dict[str, object] = {}
+
+    def runner(app, **kwargs):
+        called.update(kwargs)
+
+    monkeypatch.setenv("TRADE_RL_STUDIO_CONTAINER_BIND", "true")
+    result = cli.main(
+        [
+            "start",
+            "--project-root",
+            str(tmp_path),
+            "--host",
+            "0.0.0.0",
+            "--allow-container-bind",
+        ],
+        runner=runner,
+    )
+
+    assert result == 0
+    assert called["host"] == "0.0.0.0"
+
+
 def test_top_level_cli_dispatches_studio_without_loading_full_research_parser(
     monkeypatch,
 ) -> None:

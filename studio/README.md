@@ -65,7 +65,7 @@ Chart直下にはRaw Replay recordを移動するScrubberを置きます。上�
 
 一つのChart instanceに4つのPaneを持たせ、Time scaleとCrosshairを共有します。
 
-1. Market: CandlestickとBUY、SELL、RISK、END Marker
+1. Market: CandlestickとLONG、SHORT、CLOSE、増し・縮小、RISK、END Marker
 2. Policy: Target weightとExecuted target
 3. Learning: RewardとInterval cost
 4. Performance: RL equity、Baseline equity、Drawdown
@@ -100,7 +100,9 @@ Timeframe aggregationは次のContractです。
 
 Nanosecond timestampはMillisecondへ安全に正規化してからParseします。不正Timestampや非有限値へ架空の時刻・値を割り当てません。
 
-BUY／SELL MarkerはTarget exposureの変化であり、取引所注文ではありません。表示中のPrimary assetは配列Index 0です。Primary weight deltaが正ならBUY、負ならSELL、0なら他Assetで`position` Eventが発生していても方向Markerを表示しません。RISKとENDは独立したEvent Markerです。
+LONG／SHORT／CLOSE MarkerはTarget exposureの符号と変化を表し、取引所注文ではありません。表示中のPrimary assetは配列Index 0です。同符号内の増し玉・縮小・買戻しと、符号反転によるドテンも区別します。Marker clickは対応する正確なTelemetry sequenceをInspectorへ確定し、RISKとENDは独立したEvent Markerです。
+
+Telemetry eventsは200ms間隔で取得し、Browser内のReplay cacheは直近512 record、1回の取得は最大128 recordに制限します。長時間学習でも過去Recordを無制限に保持しません。
 
 Telemetry書込失敗はVisualizationを停止できますが、学習自体を停止しません。
 

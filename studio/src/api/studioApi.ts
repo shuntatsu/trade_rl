@@ -2,6 +2,7 @@ import { demoOverview } from '../data/demoOverview'
 import { offlineOverview } from '../data/offlineOverview'
 import type {
   CheckpointEvaluationsResponse,
+  BehaviorCloningProgressResponse,
   ConfigListResponse,
   DatasetListResponse,
   EvidenceReport,
@@ -18,6 +19,7 @@ import type {
   TrainingMetricsResponse,
   TrainingMetricsStatusResponse,
 } from '../data/types'
+import { isBehaviorCloningProgress } from '../live/behaviorCloningGuards'
 import {
   isCheckpointEvaluations,
   isTelemetryEvents,
@@ -217,6 +219,17 @@ export function loadCheckpointEvaluations(
   )
 }
 
+export function loadBehaviorCloningProgress(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<BehaviorCloningProgressResponse> {
+  return requestJson(
+    `/api/studio/jobs/${encodeURIComponent(jobId)}/behavior-cloning/progress`,
+    fetcher,
+    isBehaviorCloningProgress,
+  )
+}
+
 export function loadRunComparison(
   leftResourceId: string,
   rightResourceId: string,
@@ -245,6 +258,7 @@ export interface StudioApi {
   loadTelemetryStatus: (jobId: string, seed?: number | null) => Promise<TelemetryStatusResponse>
   loadTelemetryEvents: (jobId: string, afterSequence?: number, limit?: number, seed?: number | null, streamGeneration?: string | null) => Promise<TelemetryEventsResponse>
   loadCheckpointEvaluations?: (jobId: string) => Promise<CheckpointEvaluationsResponse>
+  loadBehaviorCloningProgress?: (jobId: string) => Promise<BehaviorCloningProgressResponse>
   loadTrainingMetricsStatus?: (jobId: string, seed?: number | null) => Promise<TrainingMetricsStatusResponse>
   loadTrainingMetricScalars?: (jobId: string, tags: string[], afterStep?: number, limit?: number, seed?: number | null, generation?: string | null) => Promise<TrainingMetricsResponse>
   loadRunComparison: (leftResourceId: string, rightResourceId: string) => Promise<RunComparison>
@@ -263,6 +277,7 @@ export const studioApi: StudioApi = {
   loadTelemetryStatus,
   loadTelemetryEvents,
   loadCheckpointEvaluations,
+  loadBehaviorCloningProgress,
   loadTrainingMetricsStatus,
   loadTrainingMetricScalars,
   loadRunComparison,

@@ -10,6 +10,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ from trade_rl.evaluation.research_gate import (
     paired_block_bootstrap_excess_lower_bound,
 )
 from trade_rl.integrations.binance import (
+    BinanceExchangeInfoSnapshot,
     BinanceMarket,
     BinancePublicTransport,
     BinanceTransportMode,
@@ -82,13 +84,78 @@ _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
 _ACTIVE_SYMBOL_TRIPLET: dict[str, object] | None = None
 _NATIVE_TIMEFRAMES = ("15m", "1h", "4h", "1d")
 _FEATURE_TIMEFRAMES = ("1h", "4h", "1d")
-_START = "2024-12-01T00:00:00Z"
+_START = "2021-01-01T00:00:00Z"
 _END = "2026-07-01T00:00:00Z"
-_EXPECTED_15M_BARS = 55_392
+_EXPECTED_15M_BARS = 192_672
 _EXPECTED_POLICY_OBSERVATIONS = 217_886
 _GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
+
+
+class _PersistentFrozenSnapshotTransport:
+    """Persist one audited exchange-info snapshot across supervised retries."""
+
+    def __init__(self, delegate: BinancePublicTransport, root: Path) -> None:
+        self._delegate = delegate
+        self._root = root
+
+    def load_exchange_information_snapshot(
+        self,
+        *,
+        market: BinanceMarket | str,
+        mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
+    ) -> BinanceExchangeInfoSnapshot:
+        resolved_market = BinanceMarket(market)
+        raw_path = self._root / "exchange-info.raw.json"
+        manifest_path = self._root / "manifest.json"
+        if raw_path.exists() != manifest_path.exists():
+            raise RuntimeError("frozen metadata cache is incomplete")
+        if raw_path.exists():
+            raw = raw_path.read_bytes()
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not isinstance(manifest, dict):
+                raise ValueError("frozen metadata cache manifest must be an object")
+            digest = sha256(raw).hexdigest()
+            if manifest.get("schema_version") != "frozen_metadata_cache_v1":
+                raise ValueError("frozen metadata cache schema mismatch")
+            if manifest.get("market") != resolved_market.value:
+                raise ValueError("frozen metadata cache market mismatch")
+            if manifest.get("raw_payload_sha256") != digest:
+                raise ValueError("frozen metadata cache digest mismatch")
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("cached exchange information must be an object")
+            return BinanceExchangeInfoSnapshot(
+                payload=payload,
+                raw_payload=raw,
+                source_uri=str(manifest["source_uri"]),
+                retrieved_at=_parse_utc(str(manifest["retrieved_at"])),
+                raw_payload_sha256=digest,
+            )
+
+        snapshot = self._delegate.load_exchange_information_snapshot(
+            market=resolved_market,
+            mode=mode,
+        )
+        self._root.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "market": resolved_market.value,
+            "raw_payload_sha256": snapshot.raw_payload_sha256,
+            "retrieved_at": snapshot.retrieved_at.isoformat(),
+            "schema_version": "frozen_metadata_cache_v1",
+            "source_uri": snapshot.source_uri,
+        }
+        raw_temporary = raw_path.with_suffix(f".raw.{os.getpid()}.tmp")
+        manifest_temporary = manifest_path.with_suffix(f".{os.getpid()}.tmp")
+        raw_temporary.write_bytes(snapshot.raw_payload)
+        manifest_temporary.write_text(
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        raw_temporary.replace(raw_path)
+        manifest_temporary.replace(manifest_path)
+        return snapshot
 
 
 def _activate_symbol_triplet(
@@ -188,6 +255,40 @@ def _training_policy_digest(payload: object) -> str:
     if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
         raise ValueError("training result policy_digest is missing or invalid")
     return value
+
+
+def _align_workflow_to_full_dataset(
+    workflow: dict[str, Any], *, n_bars: int
+) -> None:
+    """Use the full immutable timeline while retaining the requested fold count."""
+
+    required = (
+        "checkpoint_bars",
+        "max_folds",
+        "purge_bars",
+        "selection_bars",
+        "step_bars",
+        "test_bars",
+    )
+    values: dict[str, int] = {}
+    for field in required:
+        value = workflow.get(field)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"workflow.{field} must be an integer")
+        values[field] = value
+    if n_bars <= 0 or any(value <= 0 for value in values.values()):
+        raise ValueError("dataset bars and full-range workflow values must be positive")
+    reserved = (
+        (values["max_folds"] - 1) * values["step_bars"]
+        + values["checkpoint_bars"]
+        + values["selection_bars"]
+        + values["test_bars"]
+        + 3 * values["purge_bars"]
+    )
+    train_bars = n_bars - reserved
+    if train_bars <= 0:
+        raise ValueError("dataset is too short for the requested full-range workflow")
+    workflow["train_bars"] = train_bars
 
 
 def _packaged_git_provenance() -> tuple[str, bool]:
@@ -333,8 +434,15 @@ def _resolve_metadata(
             end_time=end_time,
         )
     if mode is BinanceMetadataMode.FROZEN_SNAPSHOT:
+        snapshot_transport: Any = transport
+        cache_root = os.environ.get("TRADE_RL_FROZEN_METADATA_CACHE_ROOT", "").strip()
+        if cache_root:
+            snapshot_transport = _PersistentFrozenSnapshotTransport(
+                transport,
+                Path(cache_root),
+            )
         return resolve_frozen_snapshot(
-            transport=transport,
+            transport=snapshot_transport,
             market=BinanceMarket.USDS_M,
             symbols=_SYMBOLS,
             start_time=start_time,
@@ -953,6 +1061,7 @@ def _finalize_research_run(
 # Public aliases used by the state runner and tests.
 parse_utc = _parse_utc
 activate_symbol_triplet = _activate_symbol_triplet
+align_workflow_to_full_dataset = _align_workflow_to_full_dataset
 policy_observation_count = _policy_observation_count
 write_json = _write_json
 load_json = _load_json

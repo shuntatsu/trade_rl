@@ -9,13 +9,46 @@ import pytest
 from gymnasium import spaces
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.integrations.sb3_training import StableBaselines3Backend
+from trade_rl.integrations.sb3_training import (
+    StableBaselines3Backend,
+    _lagrangian_probe_worker_count,
+    _teacher_worker_count,
+)
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
 from trade_rl.rl.lagrangian_probe import (
     CanonicalActionProbeEvidence,
     CanonicalActionSemantic,
 )
 from trade_rl.rl.training import ResidualTrainingConfig
+
+
+def test_lagrangian_probe_workers_are_memory_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TRADE_RL_LAGRANGIAN_PROBE_WORKERS", raising=False)
+    assert _lagrangian_probe_worker_count(8) == 1
+    assert _lagrangian_probe_worker_count(2) == 1
+
+    monkeypatch.setenv("TRADE_RL_LAGRANGIAN_PROBE_WORKERS", "3")
+    assert _lagrangian_probe_worker_count(8) == 3
+    monkeypatch.setenv("TRADE_RL_LAGRANGIAN_PROBE_WORKERS", "0")
+    with pytest.raises(ValueError, match="must be positive"):
+        _lagrangian_probe_worker_count(8)
+
+
+def test_teacher_workers_are_independently_memory_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TRADE_RL_TEACHER_WORKERS", raising=False)
+    assert _teacher_worker_count(8) == 8
+
+    monkeypatch.setenv("TRADE_RL_TEACHER_WORKERS", "4")
+    assert _teacher_worker_count(8) == 4
+    assert _teacher_worker_count(4) == 4
+
+    monkeypatch.setenv("TRADE_RL_TEACHER_WORKERS", "invalid")
+    with pytest.raises(ValueError, match="must be an integer"):
+        _teacher_worker_count(8)
 
 
 class _LagrangianProbe(gym.Env[np.ndarray, np.ndarray]):
@@ -155,6 +188,19 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
     probe = _LagrangianProbe()
     evidence = _probe_evidence()
     constructed: list[_FakeLagrangianPPO] = []
+    factory_calls = 0
+
+    def environment_factory() -> _LagrangianProbe:
+        nonlocal factory_calls
+        factory_calls += 1
+        return probe
+
+    def run_probe(**kwargs: object) -> CanonicalActionProbeEvidence:
+        # The full-market identity environment must not coexist with the
+        # canonical probe environment under the training memory limit.
+        assert factory_calls == 0
+        assert kwargs["environment_factory"] is environment_factory
+        return evidence
 
     def build_model(
         policy: object,
@@ -171,7 +217,7 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
     )
     monkeypatch.setattr(
         "trade_rl.rl.lagrangian_probe.run_canonical_action_feasibility_probe",
-        lambda **kwargs: evidence,
+        run_probe,
     )
     monkeypatch.setattr(
         "trade_rl.rl.checkpointing.build_checkpoint_callback",
@@ -179,7 +225,7 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
     )
 
     config = _config()
-    result = StableBaselines3Backend(lambda: probe).train(
+    result = StableBaselines3Backend(environment_factory).train(
         seed=7,
         config=config,
         output_path=tmp_path / "policy.zip",
@@ -220,4 +266,5 @@ def test_backend_constructs_lagrangian_ppo_with_full_schema(
     assert probe_identity["digest"] == evidence.digest
     assert probe_identity["payload"] == evidence.digest_payload()
     assert result.actual_timesteps == 4
+    assert factory_calls == 1
     assert probe.close_calls == 1

@@ -14,6 +14,7 @@ from trade_rl.integrations.sb3_training import (
     _oracle_episode_sampling_config,
 )
 from trade_rl.learning.episode_behavior_cloning import behavior_cloning_split
+from trade_rl.learning.episode_oracle_bc import evaluate_episode_action_path
 from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
     OracleEpisodeContract,
@@ -22,6 +23,7 @@ from trade_rl.learning.episode_oracle_teacher import (
 from trade_rl.learning.episode_teacher_artifact import (
     EpisodeSupervisedPolicyDataset,
     collect_episode_teacher_rollout,
+    collect_episode_teacher_rollout_parallel,
     load_episode_teacher_artifact,
     write_episode_teacher_artifact,
 )
@@ -180,6 +182,86 @@ def test_episode_teacher_rollout_round_trip_preserves_boundaries(
     np.testing.assert_array_equal(loaded.decision_indices, supervised.decision_indices)
     assert loaded.episode_ids.flags.writeable is False
     assert loaded.decision_indices.flags.writeable is False
+
+
+def test_parallel_episode_teacher_rollout_matches_serial_dataset() -> None:
+    environment = _environment()
+    batch = _episode_batch(environment)
+    serial = collect_episode_teacher_rollout(
+        environment,
+        batch,
+        teacher_config_digest=batch.teacher_config_digest,
+    )
+
+    parallel = collect_episode_teacher_rollout_parallel(
+        _environment,
+        batch,
+        teacher_config_digest=batch.teacher_config_digest,
+        max_workers=2,
+    )
+
+    assert parallel.observation_digest == serial.observation_digest
+    assert parallel.action_digest == serial.action_digest
+    np.testing.assert_array_equal(parallel.actions, serial.actions)
+    np.testing.assert_array_equal(parallel.episode_ids, serial.episode_ids)
+    np.testing.assert_array_equal(
+        parallel.decision_indices,
+        serial.decision_indices,
+    )
+    assert isinstance(parallel.observations, dict)
+    assert isinstance(serial.observations, dict)
+    for key in serial.observations:
+        np.testing.assert_array_equal(
+            parallel.observations[key],
+            serial.observations[key],
+        )
+
+
+def test_parallel_episode_teacher_rollout_resumes_from_persistent_shards(
+    tmp_path: Path,
+) -> None:
+    environment = _environment()
+    batch = _episode_batch(environment)
+    shard_root = tmp_path / "episode-shards"
+
+    first = collect_episode_teacher_rollout_parallel(
+        _environment,
+        batch,
+        teacher_config_digest=batch.teacher_config_digest,
+        max_workers=2,
+        shard_root=shard_root,
+    )
+
+    def forbidden_factory() -> ResidualMarketEnv:
+        raise AssertionError("completed teacher shards must be reused")
+
+    resumed = collect_episode_teacher_rollout_parallel(
+        forbidden_factory,
+        batch,
+        teacher_config_digest=batch.teacher_config_digest,
+        max_workers=2,
+        shard_root=shard_root,
+    )
+
+    assert len(tuple(shard_root.iterdir())) == batch.episode_count
+    assert resumed.observation_digest == first.observation_digest
+    assert resumed.action_digest == first.action_digest
+    np.testing.assert_array_equal(resumed.episode_ids, first.episode_ids)
+    np.testing.assert_array_equal(resumed.decision_indices, first.decision_indices)
+
+
+def test_baseline_episode_action_path_seeds_closed_trade_positions() -> None:
+    environment = _environment()
+    batch = _episode_batch(environment)
+    contract = batch.contracts[1]
+
+    result = evaluate_episode_action_path(
+        _environment,
+        contract,
+        actions=batch.targets[1],
+    )
+
+    assert result.performance.step_count == contract.stop - contract.start - 1
 
 
 def _supervised_with_episode_ids() -> EpisodeSupervisedPolicyDataset:

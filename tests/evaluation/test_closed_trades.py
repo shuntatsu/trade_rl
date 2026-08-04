@@ -46,6 +46,27 @@ def test_tracker_closes_and_opens_cycles_at_a_sign_reversal() -> None:
     assert result.open_positions == 0
 
 
+def test_tracker_seeds_positions_at_the_evaluation_boundary() -> None:
+    tracker = ClosedTradeTracker([1.0])
+    tracker.seed_positions(quantities=[2.0], prices=[100.0])
+
+    tracker.record_fill(symbol=0, quantity=-2.0, price=110.0, execution_cost=2.0)
+
+    result = tracker.diagnostics()
+    assert result.closed_trades == 1
+    assert result.winning_trades == 1
+    assert result.net_realized_pnl == pytest.approx(18.0)
+    assert result.open_positions == 0
+
+
+def test_tracker_rejects_reseeding_after_a_fill() -> None:
+    tracker = ClosedTradeTracker([1.0])
+    tracker.record_fill(symbol=0, quantity=1.0, price=100.0, execution_cost=0.0)
+
+    with pytest.raises(RuntimeError, match="already initialized"):
+        tracker.seed_positions(quantities=[1.0], prices=[100.0])
+
+
 def test_closed_trade_diagnostics_combine_recomputes_derived_metrics() -> None:
     combined = ClosedTradeDiagnostics.combine(
         (

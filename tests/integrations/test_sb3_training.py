@@ -484,12 +484,12 @@ def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None
     result = StableBaselines3Backend(factory).train(
         seed=3,
         config=ResidualTrainingConfig(
-            timesteps=2,
+            timesteps=4,
             gamma=0.99,
             seeds=(3,),
             n_steps=2,
-            n_envs=1,
-            batch_size=2,
+            n_envs=2,
+            batch_size=4,
             n_epochs=1,
             observation_encoder=("flat_mlp"),
             device="cpu",
@@ -500,7 +500,7 @@ def test_backend_runs_oracle_behavior_cloning_before_ppo(tmp_path: Path) -> None
         output_path=tmp_path / "member" / "policy.zip",
     )
 
-    assert result.actual_timesteps == 2
+    assert result.actual_timesteps == 4
     assert (tmp_path / "member" / "teacher" / "manifest.json").is_file()
     assert (tmp_path / "member" / "behavior-cloning.json").is_file()
     assert (tmp_path / "member" / "oracle-evaluation.json").is_file()

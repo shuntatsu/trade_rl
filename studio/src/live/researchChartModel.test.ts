@@ -4,6 +4,7 @@ import type { TrainingTelemetryRecord } from '../data/types'
 import {
   buildResearchChartData,
   nextEventIndex,
+  positionTransition,
   previousEventIndex,
 } from './researchChartModel'
 
@@ -110,36 +111,58 @@ describe('buildResearchChartData', () => {
     expect(result.markers).toEqual([])
   })
 
-  it('creates truthful BUY SELL RISK and END markers for the selected symbol', () => {
-    const buy = telemetry({ eventType: 'position', sequence: 1 })
-    const sell = telemetry({
+  it('creates truthful LONG SHORT CLOSE reduction RISK and END markers', () => {
+    const long = telemetry({
+      eventType: 'position',
+      sequence: 1,
+      weightsBefore: [0, 0.1],
+      weightsAfter: [0.2, 0.1],
+    })
+    const close = telemetry({
       eventType: 'position',
       sequence: 2,
       marketTime: '2026-07-31T08:20:00.000000000',
       weightsBefore: [0.4, 0.1],
-      weightsAfter: [0.1, 0.1],
+      weightsAfter: [0, 0.1],
+    })
+    const short = telemetry({
+      eventType: 'position',
+      sequence: 3,
+      marketTime: '2026-07-31T08:35:00.000000000',
+      weightsBefore: [0, 0.1],
+      weightsAfter: [-0.3, 0.1],
+    })
+    const cover = telemetry({
+      eventType: 'position',
+      sequence: 4,
+      marketTime: '2026-07-31T08:50:00.000000000',
+      weightsBefore: [-0.4, 0.1],
+      weightsAfter: [-0.1, 0.1],
     })
     const risk = telemetry({
       eventType: 'risk',
-      sequence: 3,
-      marketTime: '2026-07-31T08:35:00.000000000',
+      sequence: 5,
+      marketTime: '2026-07-31T09:05:00.000000000',
       riskReasons: ['drawdown'],
     })
     const end = telemetry({
       eventType: 'episode_end',
-      sequence: 4,
-      marketTime: '2026-07-31T08:50:00.000000000',
+      sequence: 6,
+      marketTime: '2026-07-31T09:20:00.000000000',
       terminated: true,
     })
 
-    const result = buildResearchChartData([buy, sell, risk, end], 'BTCUSDT', '15m')
+    const result = buildResearchChartData([long, close, short, cover, risk, end], 'BTCUSDT', '15m')
 
     expect(result.markers.map((marker) => ({ text: marker.text, sequence: marker.sequence }))).toEqual([
-      { text: 'BUY', sequence: 1 },
-      { text: 'SELL', sequence: 2 },
-      { text: 'RISK', sequence: 3 },
-      { text: 'END', sequence: 4 },
+      { text: 'LONG', sequence: 1 },
+      { text: 'CLOSE', sequence: 2 },
+      { text: 'SHORT', sequence: 3 },
+      { text: 'COVER SHORT', sequence: 4 },
+      { text: 'RISK', sequence: 5 },
+      { text: 'END', sequence: 6 },
     ])
+    expect(result.recordBySequence.get(3)).toBe(short)
   })
 
   it('filters all chart series and markers to the selected symbol', () => {
@@ -180,5 +203,22 @@ describe('event navigation', () => {
     expect(nextEventIndex(records, 0)).toBe(1)
     expect(nextEventIndex(records, 1)).toBe(3)
     expect(nextEventIndex(records, 4)).toBe(4)
+  })
+})
+
+describe('positionTransition', () => {
+  it.each([
+    [0, 0.3, 'LONG'],
+    [-0.2, 0.3, 'LONG'],
+    [0, -0.3, 'SHORT'],
+    [0.2, -0.3, 'SHORT'],
+    [0.3, 0, 'CLOSE'],
+    [-0.3, 0, 'CLOSE'],
+    [0.2, 0.4, 'ADD LONG'],
+    [0.4, 0.2, 'REDUCE LONG'],
+    [-0.2, -0.4, 'ADD SHORT'],
+    [-0.4, -0.2, 'COVER SHORT'],
+  ] as const)('classifies %s → %s as %s', (before, after, expected) => {
+    expect(positionTransition(before, after)).toBe(expected)
   })
 })

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import multiprocessing as mp
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -22,6 +23,20 @@ from trade_rl.rl.lagrangian_episode import classify_episode_completion
 
 _TOLERANCE = 1e-12
 _EVIDENCE_SCHEMA_VERSION = "canonical_action_probe_evidence_v1"
+
+
+@dataclass(frozen=True, slots=True)
+class _ProbeEpisodeResult:
+    action_semantic: CanonicalActionSemantic
+    action: np.ndarray
+    numerators: Mapping[str, float]
+    denominators: Mapping[str, int]
+    censored_episode_count: int
+
+
+_FORK_ENVIRONMENT_FACTORY: Callable[[], Any] | None = None
+_FORK_SCHEMA: LagrangianSchema | None = None
+_FORK_MAXIMUM_STEPS = 0
 
 
 class CanonicalActionSemantic(str, Enum):
@@ -228,12 +243,177 @@ def _boolean(value: object, *, field_name: str) -> bool:
     return bool(value)
 
 
+def _run_probe_episode(
+    environment_factory: Callable[[], Any],
+    schema: LagrangianSchema,
+    *,
+    episode_index: int,
+    maximum_steps: int,
+) -> _ProbeEpisodeResult:
+    accumulator = CompletedEpisodeCostAccumulator(n_envs=1, schema=schema)
+    steps_for_episode = 0
+    censored_count = 0
+    canonical_semantic: CanonicalActionSemantic | None = None
+    canonical_action: np.ndarray | None = None
+
+    while steps_for_episode < maximum_steps:
+        environment = environment_factory()
+        if environment is None:
+            raise ValueError("environment_factory returned null")
+        try:
+            semantic, action = _resolve_canonical_action(environment)
+            if canonical_semantic is None:
+                canonical_semantic = semantic
+                canonical_action = action.copy()
+            elif (
+                semantic is not canonical_semantic
+                or canonical_action is None
+                or not np.array_equal(action, canonical_action)
+            ):
+                raise ValueError("canonical probe environment contract changed")
+
+            environment.reset(seed=episode_index)
+            attempt_finished = False
+            while steps_for_episode < maximum_steps:
+                transition = environment.step(action.copy())
+                if not isinstance(transition, tuple) or len(transition) != 5:
+                    raise ValueError(
+                        "canonical probe step returned an invalid transition"
+                    )
+                _, _, raw_terminated, raw_truncated, raw_info = transition
+                terminated = _boolean(raw_terminated, field_name="terminated")
+                truncated = _boolean(raw_truncated, field_name="truncated")
+                if not isinstance(raw_info, Mapping):
+                    raise ValueError("canonical probe info must be a mapping")
+                info = raw_info
+                raw_costs = info.get("constraint_costs")
+                if not isinstance(raw_costs, ConstraintCostVector):
+                    raise ValueError(
+                        "canonical probe info is missing valid constraint_costs"
+                    )
+                elapsed = _elapsed_hours(info, raw_costs)
+                raw_time_limit = info.get("TimeLimit.truncated", truncated)
+                time_limit = _boolean(
+                    raw_time_limit,
+                    field_name="TimeLimit.truncated",
+                )
+                completion_kind = classify_episode_completion(
+                    terminated=terminated,
+                    truncated=truncated,
+                    time_limit_truncated=time_limit,
+                    termination_reason=info.get("termination_reason"),
+                )
+                values = raw_costs.constraint_dict()
+                cost_row = np.asarray(
+                    [values[name] for name in schema.names],
+                    dtype=np.float64,
+                )
+                batch = accumulator.ingest_rollout(
+                    costs=cost_row.reshape(1, 1, -1),
+                    elapsed_hours=np.asarray([[elapsed]], dtype=np.float64),
+                    completion_kinds=np.asarray(
+                        [[int(completion_kind)]],
+                        dtype=np.int8,
+                    ),
+                )
+                steps_for_episode += 1
+                censored_count += batch.censored_episode_count
+                if batch.completed_episode_count:
+                    numerators: dict[str, float] = {}
+                    denominators: dict[str, int] = {}
+                    for name in schema.names:
+                        estimate = batch.estimates[name]
+                        if estimate is None:
+                            raise RuntimeError(
+                                "completed canonical probe estimate is missing"
+                            )
+                        numerators[name] = estimate.numerator
+                        denominators[name] = estimate.denominator
+                    if canonical_semantic is None or canonical_action is None:
+                        raise RuntimeError("canonical probe did not resolve an action")
+                    return _ProbeEpisodeResult(
+                        action_semantic=canonical_semantic,
+                        action=canonical_action,
+                        numerators=numerators,
+                        denominators=denominators,
+                        censored_episode_count=censored_count,
+                    )
+                if batch.censored_episode_count:
+                    attempt_finished = True
+                    break
+            if not attempt_finished and steps_for_episode >= maximum_steps:
+                raise ValueError(
+                    "canonical probe episode did not complete within the step limit"
+                )
+        finally:
+            close = getattr(environment, "close", None)
+            if callable(close):
+                close()
+
+    raise ValueError(
+        "canonical probe did not obtain a valid completed episode within the step limit"
+    )
+
+
+def _run_forked_probe_episode(episode_index: int) -> _ProbeEpisodeResult:
+    if _FORK_ENVIRONMENT_FACTORY is None or _FORK_SCHEMA is None:
+        raise RuntimeError("forked canonical probe worker is not initialized")
+    return _run_probe_episode(
+        _FORK_ENVIRONMENT_FACTORY,
+        _FORK_SCHEMA,
+        episode_index=episode_index,
+        maximum_steps=_FORK_MAXIMUM_STEPS,
+    )
+
+
+def _probe_episode_results(
+    environment_factory: Callable[[], Any],
+    schema: LagrangianSchema,
+    *,
+    episode_count: int,
+    maximum_steps: int,
+    max_workers: int,
+) -> tuple[_ProbeEpisodeResult, ...]:
+    episode_indices = tuple(range(episode_count))
+    worker_count = min(max_workers, episode_count)
+    if "fork" not in mp.get_all_start_methods():
+        return tuple(
+            _run_probe_episode(
+                environment_factory,
+                schema,
+                episode_index=episode_index,
+                maximum_steps=maximum_steps,
+            )
+            for episode_index in episode_indices
+        )
+
+    global _FORK_ENVIRONMENT_FACTORY, _FORK_MAXIMUM_STEPS, _FORK_SCHEMA
+    _FORK_ENVIRONMENT_FACTORY = environment_factory
+    _FORK_SCHEMA = schema
+    _FORK_MAXIMUM_STEPS = maximum_steps
+    try:
+        context = mp.get_context("fork")
+        # A full-market environment dirties enough inherited Python/NumPy pages
+        # that running episodes in the parent or reusing a child steadily grows
+        # RSS. Even with one worker, isolate and recycle every episode so its
+        # allocator/COW state is returned to the OS.
+        with context.Pool(processes=worker_count, maxtasksperchild=1) as pool:
+            # map preserves episode/seed order, keeping floating-point aggregation
+            # and the evidence digest identical to the serial implementation.
+            return tuple(pool.map(_run_forked_probe_episode, episode_indices))
+    finally:
+        _FORK_ENVIRONMENT_FACTORY = None
+        _FORK_SCHEMA = None
+        _FORK_MAXIMUM_STEPS = 0
+
+
 def run_canonical_action_feasibility_probe(
     *,
     environment_factory: Callable[[], Any],
     schema: LagrangianSchema,
     episode_count: int,
     max_steps_per_episode: int,
+    max_workers: int = 1,
 ) -> CanonicalActionProbeEvidence:
     """Step the canonical zero action and return warning-only feasibility evidence."""
 
@@ -246,109 +426,33 @@ def run_canonical_action_feasibility_probe(
         max_steps_per_episode,
         field_name="max_steps_per_episode",
     )
-
-    accumulator = CompletedEpisodeCostAccumulator(n_envs=1, schema=schema)
+    worker_count = _positive_integer(max_workers, field_name="max_workers")
+    results = _probe_episode_results(
+        environment_factory,
+        schema,
+        episode_count=required_episodes,
+        maximum_steps=maximum_steps,
+        max_workers=worker_count,
+    )
     pooled_numerators = {name: 0.0 for name in schema.names}
     pooled_denominators = {name: 0 for name in schema.names}
-    completed_count = 0
     censored_count = 0
     canonical_semantic: CanonicalActionSemantic | None = None
     canonical_action: np.ndarray | None = None
-
-    while completed_count < required_episodes:
-        steps_for_episode = 0
-        valid_completion = False
-        while not valid_completion and steps_for_episode < maximum_steps:
-            environment = environment_factory()
-            if environment is None:
-                raise ValueError("environment_factory returned null")
-            try:
-                semantic, action = _resolve_canonical_action(environment)
-                if canonical_semantic is None:
-                    canonical_semantic = semantic
-                    canonical_action = action.copy()
-                elif (
-                    semantic is not canonical_semantic
-                    or canonical_action is None
-                    or not np.array_equal(action, canonical_action)
-                ):
-                    raise ValueError("canonical probe environment contract changed")
-
-                environment.reset(seed=completed_count)
-                attempt_finished = False
-                while steps_for_episode < maximum_steps:
-                    transition = environment.step(action.copy())
-                    if not isinstance(transition, tuple) or len(transition) != 5:
-                        raise ValueError(
-                            "canonical probe step returned an invalid transition"
-                        )
-                    _, _, raw_terminated, raw_truncated, raw_info = transition
-                    terminated = _boolean(raw_terminated, field_name="terminated")
-                    truncated = _boolean(raw_truncated, field_name="truncated")
-                    if not isinstance(raw_info, Mapping):
-                        raise ValueError("canonical probe info must be a mapping")
-                    info = raw_info
-                    raw_costs = info.get("constraint_costs")
-                    if not isinstance(raw_costs, ConstraintCostVector):
-                        raise ValueError(
-                            "canonical probe info is missing valid constraint_costs"
-                        )
-                    elapsed = _elapsed_hours(info, raw_costs)
-                    raw_time_limit = info.get("TimeLimit.truncated", False)
-                    time_limit = _boolean(
-                        raw_time_limit,
-                        field_name="TimeLimit.truncated",
-                    )
-                    completion_kind = classify_episode_completion(
-                        terminated=terminated,
-                        truncated=truncated,
-                        time_limit_truncated=time_limit,
-                        termination_reason=info.get("termination_reason"),
-                    )
-                    values = raw_costs.constraint_dict()
-                    cost_row = np.asarray(
-                        [values[name] for name in schema.names],
-                        dtype=np.float64,
-                    )
-                    batch = accumulator.ingest_rollout(
-                        costs=cost_row.reshape(1, 1, -1),
-                        elapsed_hours=np.asarray([[elapsed]], dtype=np.float64),
-                        completion_kinds=np.asarray(
-                            [[int(completion_kind)]],
-                            dtype=np.int8,
-                        ),
-                    )
-                    steps_for_episode += 1
-                    censored_count += batch.censored_episode_count
-                    if batch.completed_episode_count:
-                        for name in schema.names:
-                            estimate = batch.estimates[name]
-                            if estimate is None:
-                                raise RuntimeError(
-                                    "completed canonical probe estimate is missing"
-                                )
-                            pooled_numerators[name] += estimate.numerator
-                            pooled_denominators[name] += estimate.denominator
-                        completed_count += batch.completed_episode_count
-                        valid_completion = True
-                        attempt_finished = True
-                        break
-                    if batch.censored_episode_count:
-                        attempt_finished = True
-                        break
-                if not attempt_finished:
-                    raise ValueError(
-                        "canonical probe episode did not complete within the step limit"
-                    )
-            finally:
-                close = getattr(environment, "close", None)
-                if callable(close):
-                    close()
-
-        if not valid_completion:
-            raise ValueError(
-                "canonical probe did not obtain a valid completed episode within the step limit"
-            )
+    for result in results:
+        if canonical_semantic is None:
+            canonical_semantic = result.action_semantic
+            canonical_action = result.action.copy()
+        elif (
+            result.action_semantic is not canonical_semantic
+            or canonical_action is None
+            or not np.array_equal(result.action, canonical_action)
+        ):
+            raise ValueError("canonical probe environment contract changed")
+        for name in schema.names:
+            pooled_numerators[name] += result.numerators[name]
+            pooled_denominators[name] += result.denominators[name]
+        censored_count += result.censored_episode_count
 
     if canonical_semantic is None or canonical_action is None:
         raise RuntimeError("canonical probe did not resolve an action")
@@ -367,7 +471,7 @@ def run_canonical_action_feasibility_probe(
         denominators=pooled_denominators,
         budgets=budgets,
         violated_costs=violated,
-        completed_episode_count=completed_count,
+        completed_episode_count=len(results),
         censored_episode_count=censored_count,
         episode_count=required_episodes,
         max_steps_per_episode=maximum_steps,

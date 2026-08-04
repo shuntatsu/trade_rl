@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import math
+import multiprocessing as mp
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Final, TypeAlias
 
@@ -29,6 +31,9 @@ _ALLOWED_INITIAL_STATE_MODES: Final = frozenset({"cash", "baseline"})
 _EPSILON: Final = 1e-12
 
 InitialWeightProvider: TypeAlias = Callable[[str, int], np.ndarray]
+
+_FORK_ORACLE_CONFIG: OracleTeacherConfig | None = None
+_FORK_ORACLE_DATASET: MarketDataset | None = None
 
 
 def _array_identity(value: np.ndarray) -> dict[str, object]:
@@ -232,6 +237,17 @@ def episode_oracle_target_path(
     result = np.asarray(targets, dtype=np.float32)
     result.setflags(write=False)
     return result
+
+
+def _forked_episode_oracle_target(contract: OracleEpisodeContract) -> np.ndarray:
+    if _FORK_ORACLE_DATASET is None or _FORK_ORACLE_CONFIG is None:
+        raise RuntimeError("forked episode Oracle worker is not initialized")
+    return episode_oracle_target_path(
+        _FORK_ORACLE_DATASET,
+        (contract.start, contract.stop),
+        _FORK_ORACLE_CONFIG,
+        initial_weights=contract.initial_weights,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,8 +493,14 @@ def build_episode_oracle_batch(
     sampling_config: OracleEpisodeSamplingConfig,
     teacher_config: OracleTeacherConfig,
     initial_weight_provider: InitialWeightProvider | None = None,
+    max_workers: int = 1,
 ) -> EpisodeOracleBatch:
     """Build bounded Oracle targets for independently sampled PPO-like episodes."""
+
+    if isinstance(max_workers, bool) or not isinstance(max_workers, int):
+        raise ValueError("Oracle episode worker count must be an integer")
+    if max_workers <= 0:
+        raise ValueError("Oracle episode worker count must be positive")
 
     contracts = sample_oracle_episode_contracts(
         dataset,
@@ -486,15 +508,46 @@ def build_episode_oracle_batch(
         config=sampling_config,
         initial_weight_provider=initial_weight_provider,
     )
-    targets = tuple(
-        episode_oracle_target_path(
+    def build_target(contract: OracleEpisodeContract) -> np.ndarray:
+        return episode_oracle_target_path(
             dataset,
             (contract.start, contract.stop),
             teacher_config,
             initial_weights=contract.initial_weights,
         )
-        for contract in contracts
-    )
+
+    if max_workers == 1 or len(contracts) == 1:
+        targets = tuple(build_target(contract) for contract in contracts)
+    elif "fork" in mp.get_all_start_methods():
+        global _FORK_ORACLE_CONFIG, _FORK_ORACLE_DATASET
+        _FORK_ORACLE_DATASET = dataset
+        _FORK_ORACLE_CONFIG = teacher_config
+        worker_count = min(max_workers, len(contracts))
+        try:
+            context = mp.get_context("fork")
+            # Each bounded episode runs in a fresh child.  The multi-GiB market
+            # dataset remains read-only and copy-on-write shared, while temporary
+            # dynamic-programming matrices are returned to the OS after every
+            # episode instead of accumulating in a persistent worker allocator.
+            with context.Pool(
+                processes=worker_count,
+                maxtasksperchild=1,
+            ) as pool:
+                targets = tuple(
+                    pool.map(_forked_episode_oracle_target, contracts, chunksize=1)
+                )
+        finally:
+            _FORK_ORACLE_DATASET = None
+            _FORK_ORACLE_CONFIG = None
+    else:
+        worker_count = min(max_workers, len(contracts))
+        with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="oracle-teacher",
+        ) as executor:
+            # executor.map preserves contract order, which keeps the artifact digest
+            # identical to serial generation.
+            targets = tuple(executor.map(build_target, contracts))
     return EpisodeOracleBatch(
         dataset_id=dataset.dataset_id,
         teacher_config_digest=teacher_config.digest,

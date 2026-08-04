@@ -131,7 +131,7 @@ describe('useTrainingTelemetry generation handling', () => {
       1,
       'job-live',
       0,
-      512,
+      128,
       7,
       null,
     )
@@ -139,7 +139,7 @@ describe('useTrainingTelemetry generation handling', () => {
       2,
       'job-live',
       0,
-      512,
+      128,
       7,
       GENERATION_B,
     )
@@ -180,7 +180,7 @@ describe('useTrainingTelemetry generation handling', () => {
     expect(loadStatus).toHaveBeenCalledTimes(1)
     expect(loadEvents).toHaveBeenCalledTimes(1)
 
-    await act(async () => { vi.advanceTimersByTime(1_000) })
+    await act(async () => { vi.advanceTimersByTime(200) })
     expect(loadStatus).toHaveBeenCalledTimes(1)
     expect(loadEvents).toHaveBeenCalledTimes(1)
 
@@ -191,7 +191,7 @@ describe('useTrainingTelemetry generation handling', () => {
       await Promise.resolve()
     })
 
-    await act(async () => { vi.advanceTimersByTime(999) })
+    await act(async () => { vi.advanceTimersByTime(199) })
     expect(loadStatus).toHaveBeenCalledTimes(1)
     await act(async () => {
       vi.advanceTimersByTime(1)
@@ -199,6 +199,21 @@ describe('useTrainingTelemetry generation handling', () => {
     })
     expect(loadStatus).toHaveBeenCalledTimes(2)
     expect(loadEvents).toHaveBeenCalledTimes(2)
+    unmount()
+  })
+
+  it('keeps only the latest 512 records in the browser replay cache', async () => {
+    const records = Array.from({ length: 600 }, (_, index) => telemetry(index + 1))
+    const loadStatus = vi.fn().mockResolvedValue(status(GENERATION_A))
+    const loadEvents = vi.fn().mockResolvedValue(page(GENERATION_A, records))
+    const runtimeApi = api(loadStatus, loadEvents)
+
+    const { result, unmount } = renderHook(() =>
+      useTrainingTelemetry('job-live', runtimeApi, 7))
+
+    await waitFor(() => expect(result.current.records).toHaveLength(512))
+    expect(result.current.records[0]?.sequence).toBe(89)
+    expect(result.current.records.at(-1)?.sequence).toBe(600)
     unmount()
   })
 })

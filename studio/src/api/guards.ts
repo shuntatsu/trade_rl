@@ -37,6 +37,7 @@ function isDataset(value: unknown): boolean {
     && isNumber(value.featureCount)
     && isNumber(value.barCount)
     && isNumber(value.symbolCount)
+    && (value.universeSymbolCount === undefined || value.universeSymbolCount === null || isNumber(value.universeSymbolCount))
     && isString(value.updated)
     && isNullableString(value.validationError)
 }

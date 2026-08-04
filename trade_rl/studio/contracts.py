@@ -42,6 +42,7 @@ class DatasetSummary(StudioModel):
     feature_count: int = Field(ge=0)
     bar_count: int = Field(ge=0)
     symbol_count: int = Field(ge=0)
+    universe_symbol_count: int | None = Field(default=None, ge=0)
     updated: str
     validation_error: str | None = None
 

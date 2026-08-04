@@ -409,7 +409,6 @@ class SharedPerAssetGateTargetHead(nn.Module):
     """Apply one shared trunk with Gate and Target heads to every asset."""
 
     _ATANH_EPSILON = 1e-6
-
     def __init__(
         self,
         *,
@@ -418,6 +417,9 @@ class SharedPerAssetGateTargetHead(nn.Module):
         context_dim: int,
         hidden_dims: tuple[int, ...],
         temperature: float = 1.0,
+        gate_prediction_threshold: float = 0.5,
+        entry_threshold: float = 0.0,
+        minimum_deterministic_change: float = 0.01,
         activation_fn: type[nn.Module] = nn.Tanh,
     ) -> None:
         super().__init__()
@@ -429,10 +431,30 @@ class SharedPerAssetGateTargetHead(nn.Module):
             raise ValueError("gate temperature must be positive and finite")
         if float(temperature) <= 0.0:
             raise ValueError("gate temperature must be positive and finite")
+        if (
+            not math.isfinite(float(gate_prediction_threshold))
+            or not 0.0 < float(gate_prediction_threshold) < 1.0
+        ):
+            raise ValueError("gate prediction threshold must be within (0, 1)")
+        if (
+            not math.isfinite(float(entry_threshold))
+            or not 0.0 <= float(entry_threshold) <= 1.0
+        ):
+            raise ValueError("entry threshold must be within [0, 1]")
+        if (
+            not math.isfinite(float(minimum_deterministic_change))
+            or not 0.0 <= float(minimum_deterministic_change) <= 2.0
+        ):
+            raise ValueError(
+                "minimum deterministic change must be within [0, 2]"
+            )
         self.n_symbols = n_symbols
         self.token_dim = token_dim
         self.context_dim = context_dim
         self.temperature = float(temperature)
+        self.gate_prediction_threshold = float(gate_prediction_threshold)
+        self.entry_threshold = float(entry_threshold)
+        self.minimum_deterministic_change = float(minimum_deterministic_change)
         layers: list[nn.Module] = []
         width = context_dim
         for hidden in hidden_dims:
@@ -465,9 +487,47 @@ class SharedPerAssetGateTargetHead(nn.Module):
         raw_target_logits = self.target_head(hidden).squeeze(-1)
         gate_probabilities = torch.sigmoid(raw_gate_logits / self.temperature)
         target_actions = torch.tanh(raw_target_logits)
-        composed_actions = current_weights + gate_probabilities * (
-            target_actions - current_weights
-        )
+        # Optimize through the smooth probability during training, but honor the
+        # hierarchical change/hold decision for deterministic evaluation and
+        # serving.  A soft mixture at inference emits tiny target changes on
+        # every bar; those are subsequently suppressed by exchange lot/notional
+        # limits even when the diagnostic gate correctly predicts a change.
+        target_delta = target_actions - current_weights
+        if self.training:
+            effective_gate = gate_probabilities
+            effective_delta = target_delta
+        else:
+            effective_gate = (
+                gate_probabilities >= self.gate_prediction_threshold
+            ).to(
+                gate_probabilities.dtype
+            )
+            # A hard change from a flat position must cross the same entry
+            # hysteresis used by pre-trade risk.  Otherwise the policy reports
+            # a change while the execution layer correctly turns it into HOLD.
+            flat_position = current_weights.abs() <= self._ATANH_EPSILON
+            sub_entry_target = (
+                flat_position
+                & (target_actions.abs() > 0.0)
+                & (target_actions.abs() < self.entry_threshold)
+            )
+            operational_targets = torch.where(
+                sub_entry_target,
+                target_actions.sign()
+                * torch.full_like(target_actions, self.entry_threshold),
+                target_actions,
+            )
+            target_delta = operational_targets - current_weights
+            minimum = torch.full_like(
+                target_delta, self.minimum_deterministic_change
+            )
+            effective_delta = torch.where(
+                (target_delta.abs() > 0.0)
+                & (target_delta.abs() < self.minimum_deterministic_change),
+                target_delta.sign() * minimum,
+                target_delta,
+            )
+        composed_actions = current_weights + effective_gate * effective_delta
         mask = active_mask.to(dtype=composed_actions.dtype)
         current_weights = current_weights * mask
         gate_logits = raw_gate_logits * mask
@@ -555,6 +615,9 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
         shared_actor_net_arch: tuple[int, ...] = (128, 128),
         shared_actor_head: str = "shared_target_v1",
         shared_actor_gate_temperature: float = 1.0,
+        shared_actor_gate_prediction_threshold: float = 0.5,
+        shared_actor_entry_threshold: float = 0.0,
+        shared_actor_minimum_deterministic_change: float = 0.01,
         **kwargs: Any,
     ) -> None:
         if kwargs.get("use_sde", False):
@@ -582,6 +645,13 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
         self.shared_actor_net_arch = tuple(shared_actor_net_arch)
         self.shared_actor_head = shared_actor_head
         self.shared_actor_gate_temperature = float(shared_actor_gate_temperature)
+        self.shared_actor_gate_prediction_threshold = float(
+            shared_actor_gate_prediction_threshold
+        )
+        self.shared_actor_entry_threshold = float(shared_actor_entry_threshold)
+        self.shared_actor_minimum_deterministic_change = float(
+            shared_actor_minimum_deterministic_change
+        )
         super().__init__(observation_space, action_space, lr_schedule, **kwargs)
 
     def _critic_architecture(self) -> tuple[int, ...]:
@@ -615,6 +685,13 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
                 context_dim=context_dim,
                 hidden_dims=self.shared_actor_net_arch,
                 temperature=self.shared_actor_gate_temperature,
+                gate_prediction_threshold=(
+                    self.shared_actor_gate_prediction_threshold
+                ),
+                entry_threshold=self.shared_actor_entry_threshold,
+                minimum_deterministic_change=(
+                    self.shared_actor_minimum_deterministic_change
+                ),
                 activation_fn=self.activation_fn,
             ).to(self.device)
         else:
@@ -703,6 +780,13 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
             shared_actor_net_arch=self.shared_actor_net_arch,
             shared_actor_head=self.shared_actor_head,
             shared_actor_gate_temperature=self.shared_actor_gate_temperature,
+            shared_actor_gate_prediction_threshold=(
+                self.shared_actor_gate_prediction_threshold
+            ),
+            shared_actor_entry_threshold=self.shared_actor_entry_threshold,
+            shared_actor_minimum_deterministic_change=(
+                self.shared_actor_minimum_deterministic_change
+            ),
         )
         return data
 

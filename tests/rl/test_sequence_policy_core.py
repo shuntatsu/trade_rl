@@ -453,13 +453,40 @@ def test_hierarchical_head_composes_gate_target_and_distribution_logits() -> Non
 
     expected_gate = torch.full_like(current, 0.5)
     expected_target = torch.full_like(current, torch.tanh(torch.tensor(0.5)))
-    expected = current + expected_gate * (expected_target - current)
+    expected = expected_target
     torch.testing.assert_close(outputs.gate_probabilities, expected_gate)
     torch.testing.assert_close(outputs.target_actions, expected_target)
     torch.testing.assert_close(outputs.composed_actions, expected)
     torch.testing.assert_close(
         torch.tanh(outputs.mean_logits), outputs.composed_actions, atol=1e-6, rtol=1e-6
     )
+
+
+def test_hierarchical_head_uses_soft_gate_while_training() -> None:
+    from trade_rl.rl.policies import SharedPerAssetGateTargetHead
+
+    head = SharedPerAssetGateTargetHead(
+        n_symbols=2,
+        token_dim=2,
+        context_dim=6,
+        hidden_dims=(4,),
+    ).train()
+    with torch.no_grad():
+        for parameter in head.parameters():
+            parameter.zero_()
+        head.target_head.bias.fill_(0.5)
+    current = torch.tensor([[0.4, -0.2]])
+    outputs = head.outputs(
+        _hierarchical_contexts(
+            current_weights=current,
+            active=torch.ones_like(current),
+            context_dim=6,
+        )
+    )
+
+    expected_target = torch.full_like(current, torch.tanh(torch.tensor(0.5)))
+    expected = current + 0.5 * (expected_target - current)
+    torch.testing.assert_close(outputs.composed_actions, expected)
 
 
 def test_hierarchical_gate_near_zero_preserves_current_weight() -> None:
@@ -486,6 +513,72 @@ def test_hierarchical_gate_near_zero_preserves_current_weight() -> None:
     )
 
     torch.testing.assert_close(outputs.composed_actions, current, atol=1e-6, rtol=0.0)
+
+
+def test_hierarchical_hard_change_has_minimum_deterministic_weight_delta() -> None:
+    from trade_rl.rl.policies import SharedPerAssetGateTargetHead
+
+    head = SharedPerAssetGateTargetHead(
+        n_symbols=1,
+        token_dim=2,
+        context_dim=6,
+        hidden_dims=(3,),
+    ).eval()
+    current = torch.tensor([[0.2]])
+    with torch.no_grad():
+        for parameter in head.parameters():
+            parameter.zero_()
+        head.gate_head.bias.fill_(1.0)
+        head.target_head.bias.fill_(torch.atanh(torch.tensor(0.205)))
+    outputs = head.outputs(
+        _hierarchical_contexts(
+            current_weights=current,
+            active=torch.ones_like(current),
+            context_dim=6,
+        )
+    )
+
+    torch.testing.assert_close(
+        outputs.composed_actions,
+        torch.tensor([[0.21]]),
+        atol=1e-6,
+        rtol=0.0,
+    )
+
+
+def test_hierarchical_hard_change_uses_operational_thresholds() -> None:
+    from trade_rl.rl.policies import SharedPerAssetGateTargetHead
+
+    head = SharedPerAssetGateTargetHead(
+        n_symbols=1,
+        token_dim=2,
+        context_dim=6,
+        hidden_dims=(3,),
+        gate_prediction_threshold=0.49,
+        entry_threshold=0.1,
+        minimum_deterministic_change=0.05,
+    ).eval()
+    current = torch.zeros((1, 1))
+    with torch.no_grad():
+        for parameter in head.parameters():
+            parameter.zero_()
+        head.gate_head.bias.fill_(-0.02)  # sigmoid ~= 0.495: change at 0.49.
+        head.target_head.bias.fill_(torch.atanh(torch.tensor(0.08)))
+
+    outputs = head.outputs(
+        _hierarchical_contexts(
+            current_weights=current,
+            active=torch.ones_like(current),
+            context_dim=6,
+        )
+    )
+
+    torch.testing.assert_close(
+        outputs.composed_actions,
+        torch.tensor([[0.1]]),
+        atol=1e-6,
+        rtol=0.0,
+    )
 
 
 def test_hierarchical_head_masks_inactive_assets() -> None:
@@ -721,6 +814,9 @@ def test_hierarchical_policy_distribution_mode_matches_composed_actions() -> Non
     constructor = policy._get_constructor_parameters()
     assert constructor["shared_actor_head"] == "hierarchical_gate_target_v1"
     assert constructor["shared_actor_gate_temperature"] == 0.75
+    assert constructor["shared_actor_gate_prediction_threshold"] == 0.5
+    assert constructor["shared_actor_entry_threshold"] == 0.0
+    assert constructor["shared_actor_minimum_deterministic_change"] == 0.01
 
 
 def test_partial_feature_availability_keeps_latest_timestep_usable() -> None:

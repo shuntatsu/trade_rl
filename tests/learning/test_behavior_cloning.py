@@ -3,7 +3,10 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from trade_rl.integrations.behavior_cloning import pretrain_policy
+from trade_rl.integrations.behavior_cloning import (
+    _positive_class_weight,
+    pretrain_policy,
+)
 from trade_rl.learning.behavior_cloning import BehaviorCloningConfig
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 
@@ -317,3 +320,14 @@ def test_hierarchical_behavior_cloning_reports_hold_collapse_without_events() ->
     assert result.final_hierarchical_metrics is not None
     assert result.final_hierarchical_metrics.all_hold_collapse is True
     assert result.final_hierarchical_metrics.gate_recall == 0.0
+
+
+def test_hierarchical_gate_balances_majority_positive_labels() -> None:
+    _, labels = _hierarchical_case()
+    indices = np.array([0, 4, 5, 6, 7], dtype=np.int64)
+    active = labels.active_mask[indices]
+    positive = labels.gate_labels[indices] & active
+    expected = np.count_nonzero(active & ~positive) / np.count_nonzero(positive)
+
+    assert expected < 1.0
+    assert np.isclose(_positive_class_weight(labels, indices, maximum=20.0), expected)

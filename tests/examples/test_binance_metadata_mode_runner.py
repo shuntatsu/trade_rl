@@ -75,7 +75,7 @@ class _Transport:
 
 def _verified_history():
     now = datetime(2026, 7, 17, tzinfo=UTC)
-    start = datetime(2024, 12, 1, tzinfo=UTC)
+    start = datetime(2021, 1, 1, tzinfo=UTC)
     end = datetime(2026, 7, 1, tzinfo=UTC)
     payload = {
         "schema_version": "binance_instrument_rule_history_v4",
@@ -130,6 +130,7 @@ def _verified_history():
 def test_runner_frozen_mode_does_not_require_signed_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("TRADE_RL_FROZEN_METADATA_CACHE_ROOT", raising=False)
     namespace = _namespace()
     resolve = namespace["_resolve_metadata"]
     monkeypatch.setitem(
@@ -148,6 +149,35 @@ def test_runner_frozen_mode_does_not_require_signed_history(
     assert transport.calls == 1
     assert result.mode is BinanceMetadataMode.FROZEN_SNAPSHOT
     assert result.execution_rule_histories is None
+
+
+def test_runner_frozen_mode_reuses_persistent_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolve = _namespace()["_resolve_metadata"]
+    cache_root = tmp_path / "frozen-metadata"
+    monkeypatch.setenv("TRADE_RL_FROZEN_METADATA_CACHE_ROOT", str(cache_root))
+    first_transport = _Transport()
+    second_transport = _Transport()
+
+    first = resolve(
+        mode=BinanceMetadataMode.FROZEN_SNAPSHOT,
+        transport=first_transport,
+        conservative_static_path=None,
+    )
+    second = resolve(
+        mode=BinanceMetadataMode.FROZEN_SNAPSHOT,
+        transport=second_transport,
+        conservative_static_path=None,
+    )
+
+    assert first_transport.calls == 1
+    assert second_transport.calls == 0
+    assert second.evidence_digest == first.evidence_digest
+    assert second.raw_payload == first.raw_payload
+    assert (cache_root / "exchange-info.raw.json").is_file()
+    assert (cache_root / "manifest.json").is_file()
 
 
 def test_runner_historical_mode_accepts_only_verified_history(

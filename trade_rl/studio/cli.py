@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import os
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ def _parser() -> argparse.ArgumentParser:
     start.add_argument("--host", default="127.0.0.1")
     start.add_argument("--port", type=int, default=8765)
     start.add_argument("--log-level", default="info")
+    start.add_argument("--allow-container-bind", action="store_true")
     return parser
 
 
@@ -44,7 +46,12 @@ def main(
         raise ValueError("unsupported studio command")
     if not 1 <= args.port <= 65_535:
         raise ValueError("port must be between 1 and 65535")
-    if not _loopback_host(args.host):
+    container_bind = (
+        args.allow_container_bind
+        and args.host == "0.0.0.0"
+        and os.environ.get("TRADE_RL_STUDIO_CONTAINER_BIND") == "true"
+    )
+    if not _loopback_host(args.host) and not container_bind:
         raise ValueError("Studio API host must be loopback-only")
     settings = StudioSettings.from_environment(args.project_root)
     app = create_app(settings)

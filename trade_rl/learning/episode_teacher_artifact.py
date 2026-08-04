@@ -4,18 +4,25 @@ from __future__ import annotations
 
 import io
 import json
+import multiprocessing as mp
+import shutil
+import tempfile
 import zipfile
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 import numpy as np
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
-from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeContract,
+)
 from trade_rl.learning.teacher_artifact import (
     TEACHER_ARRAYS_NAME,
     TEACHER_MANIFEST_NAME,
@@ -40,6 +47,10 @@ _COMPACT_KEYS = (
     "current_weights",
     "global_state",
 )
+
+_FORK_EPISODE_BATCH: EpisodeOracleBatch | None = None
+_FORK_EPISODE_ENVIRONMENT_FACTORY: Any | None = None
+_FORK_EPISODE_TEACHER_DIGEST: str | None = None
 
 
 def _readonly_int_vector(value: object, *, field: str, count: int) -> np.ndarray:
@@ -531,11 +542,237 @@ def collect_episode_teacher_rollout(
     )
 
 
+def _collect_isolated_episode(
+    environment_factory: Any,
+    batch: EpisodeOracleBatch,
+    teacher_config_digest: str,
+    item: tuple[OracleEpisodeContract, np.ndarray],
+) -> tuple[EpisodeSupervisedPolicyDataset, int]:
+    contract, targets = item
+    isolated_contract = OracleEpisodeContract(
+        dataset_id=contract.dataset_id,
+        episode_index=0,
+        start=contract.start,
+        stop=contract.stop,
+        initial_state_mode=contract.initial_state_mode,
+        initial_weights=contract.initial_weights,
+    )
+    episode_batch = EpisodeOracleBatch(
+        dataset_id=batch.dataset_id,
+        teacher_config_digest=batch.teacher_config_digest,
+        sampling_config_digest=batch.sampling_config_digest,
+        contracts=(isolated_contract,),
+        targets=(targets,),
+    )
+    environment = environment_factory()
+    try:
+        episode = collect_episode_teacher_rollout(
+            environment,
+            episode_batch,
+            teacher_config_digest=teacher_config_digest,
+        )
+        return episode, contract.episode_index
+    finally:
+        environment.close()
+
+
+def _collect_forked_episode(
+    item: tuple[OracleEpisodeContract, np.ndarray],
+) -> tuple[EpisodeSupervisedPolicyDataset, int]:
+    if (
+        _FORK_EPISODE_ENVIRONMENT_FACTORY is None
+        or _FORK_EPISODE_BATCH is None
+        or _FORK_EPISODE_TEACHER_DIGEST is None
+    ):
+        raise RuntimeError("forked episode teacher worker is not initialized")
+    return _collect_isolated_episode(
+        _FORK_EPISODE_ENVIRONMENT_FACTORY,
+        _FORK_EPISODE_BATCH,
+        _FORK_EPISODE_TEACHER_DIGEST,
+        item,
+    )
+
+
+def collect_episode_teacher_rollout_parallel(
+    environment_factory: Any,
+    batch: EpisodeOracleBatch,
+    *,
+    teacher_config_digest: str,
+    max_workers: int,
+    shard_root: str | Path | None = None,
+) -> EpisodeSupervisedPolicyDataset:
+    """Collect independent teacher episodes concurrently and preserve serial order."""
+
+    if isinstance(max_workers, bool) or not isinstance(max_workers, int):
+        raise ValueError("teacher rollout worker count must be an integer")
+    if max_workers <= 0:
+        raise ValueError("teacher rollout worker count must be positive")
+    if max_workers == 1 or batch.episode_count == 1:
+        environment = environment_factory()
+        try:
+            return collect_episode_teacher_rollout(
+                environment,
+                batch,
+                teacher_config_digest=teacher_config_digest,
+            )
+        finally:
+            environment.close()
+
+    worker_count = min(max_workers, batch.episode_count)
+    items = tuple(zip(batch.contracts, batch.targets, strict=True))
+    resolved_shard_root = None if shard_root is None else Path(shard_root)
+    collected_by_id: dict[
+        int, tuple[EpisodeSupervisedPolicyDataset, int]
+    ] = {}
+    pending_items: list[tuple[OracleEpisodeContract, np.ndarray]] = []
+    for item in items:
+        contract, _ = item
+        shard_path = (
+            None
+            if resolved_shard_root is None
+            else resolved_shard_root / contract.digest
+        )
+        if shard_path is None or not shard_path.exists():
+            pending_items.append(item)
+            continue
+        _, episode = load_episode_teacher_artifact(
+            shard_path,
+            expected_dataset_id=batch.dataset_id,
+            expected_train_range=(contract.start, contract.stop),
+        )
+        if episode.teacher_config_digest != teacher_config_digest:
+            raise ValueError("cached episode teacher shard identity mismatch")
+        collected_by_id[contract.episode_index] = (
+            episode,
+            contract.episode_index,
+        )
+
+    def persist(
+        value: tuple[EpisodeSupervisedPolicyDataset, int],
+    ) -> None:
+        episode, episode_id = value
+        collected_by_id[episode_id] = value
+        if resolved_shard_root is None:
+            return
+        contract = batch.contracts[episode_id]
+        shard_path = resolved_shard_root / contract.digest
+        if shard_path.exists():
+            return
+        shard_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = Path(
+            tempfile.mkdtemp(
+                prefix=f".{shard_path.name}.",
+                dir=str(shard_path.parent),
+            )
+        )
+        try:
+            write_episode_teacher_artifact(temporary, episode)
+            try:
+                temporary.replace(shard_path)
+            except FileExistsError:
+                pass
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+
+    if pending_items and "fork" in mp.get_all_start_methods():
+        global _FORK_EPISODE_BATCH
+        global _FORK_EPISODE_ENVIRONMENT_FACTORY
+        global _FORK_EPISODE_TEACHER_DIGEST
+        _FORK_EPISODE_BATCH = batch
+        _FORK_EPISODE_ENVIRONMENT_FACTORY = environment_factory
+        _FORK_EPISODE_TEACHER_DIGEST = teacher_config_digest
+        try:
+            context = mp.get_context("fork")
+            with context.Pool(
+                processes=worker_count,
+                maxtasksperchild=1,
+            ) as pool:
+                for value in pool.imap(
+                    _collect_forked_episode,
+                    pending_items,
+                    chunksize=1,
+                ):
+                    persist(value)
+        finally:
+            _FORK_EPISODE_BATCH = None
+            _FORK_EPISODE_ENVIRONMENT_FACTORY = None
+            _FORK_EPISODE_TEACHER_DIGEST = None
+    elif pending_items:
+        def collect_one(
+            item: tuple[OracleEpisodeContract, np.ndarray],
+        ) -> tuple[EpisodeSupervisedPolicyDataset, int]:
+            return _collect_isolated_episode(
+                environment_factory,
+                batch,
+                teacher_config_digest,
+                item,
+            )
+
+        with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="teacher-rollout",
+        ) as executor:
+            for value in executor.map(collect_one, pending_items):
+                persist(value)
+    collected = tuple(
+        collected_by_id[contract.episode_index] for contract in batch.contracts
+    )
+    episodes = tuple(item[0] for item in collected)
+
+    first = episodes[0]
+    if any(
+        episode.dataset_id != first.dataset_id
+        or episode.environment_digest != first.environment_digest
+        or episode.action_spec_digest != first.action_spec_digest
+        or episode.teacher_config_digest != first.teacher_config_digest
+        or isinstance(episode.observations, Mapping)
+        != isinstance(first.observations, Mapping)
+        for episode in episodes[1:]
+    ):
+        raise ValueError("parallel teacher episode identities do not match")
+    if isinstance(first.observations, Mapping):
+        keys = tuple(sorted(first.observations))
+        if any(tuple(sorted(episode.observations)) != keys for episode in episodes):
+            raise ValueError("parallel teacher observation keys do not match")
+        observations: ObservationBatch = {
+            key: np.concatenate(
+                [np.asarray(episode.observations[key]) for episode in episodes],
+                axis=0,
+            )
+            for key in keys
+        }
+    else:
+        observations = np.concatenate(
+            [np.asarray(episode.observations) for episode in episodes], axis=0
+        )
+    return EpisodeSupervisedPolicyDataset(
+        observations=observations,
+        actions=np.concatenate([episode.actions for episode in episodes], axis=0),
+        dataset_id=first.dataset_id,
+        train_start=min(episode.train_start for episode in episodes),
+        train_stop=max(episode.train_stop for episode in episodes),
+        environment_digest=first.environment_digest,
+        action_spec_digest=first.action_spec_digest,
+        teacher_config_digest=first.teacher_config_digest,
+        decision_indices=np.concatenate(
+            [episode.decision_indices for episode in episodes], axis=0
+        ),
+        episode_ids=np.concatenate(
+            [
+                np.full(episode.sample_count, episode_id, dtype=np.int64)
+                for episode, episode_id in collected
+            ]
+        ),
+    )
+
+
 __all__ = [
     "EPISODE_TEACHER_ARTIFACT_SCHEMA",
     "EpisodeSupervisedPolicyDataset",
     "EpisodeTeacherArtifactManifest",
     "collect_episode_teacher_rollout",
+    "collect_episode_teacher_rollout_parallel",
     "load_episode_teacher_artifact",
     "write_episode_teacher_artifact",
 ]

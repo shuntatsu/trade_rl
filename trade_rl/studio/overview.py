@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -32,6 +33,36 @@ def _number(value: object) -> float | None:
         return None
     resolved = float(value)
     return resolved if math.isfinite(resolved) else None
+
+
+def _timestamp(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(UTC)
+
+
+def _relative_age(value: str | None, *, now: datetime) -> str:
+    timestamp = _timestamp(value)
+    if timestamp is None:
+        return "時刻不明"
+    seconds = max(0, int((now - timestamp).total_seconds()))
+    if seconds < 5:
+        return "たった今"
+    if seconds < 60:
+        return f"{seconds}秒前"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}分前"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}時間前"
+    return f"{hours // 24}日前"
 
 
 def _wealth_points(folds: object) -> tuple[EquityPoint, ...]:
@@ -107,6 +138,37 @@ def _stability_points(folds: object) -> tuple[StabilityFold, ...]:
     return tuple(points)
 
 
+def _supervised_active_jobs(runs: RunCatalog) -> tuple[ActiveJob, ...]:
+    active: list[ActiveJob] = []
+    now = datetime.now(UTC)
+    for root in runs.settings.run_roots:
+        if not root.is_dir():
+            continue
+        generation_root = root / "runs" if (root / "runs").is_dir() else root
+        for generation in generation_root.iterdir():
+            payload = read_json(generation / "heartbeat.json")
+            if payload is None or payload.get("state") != "running":
+                continue
+            observed = payload.get("observed_at")
+            try:
+                age = (now - datetime.fromisoformat(str(observed))).total_seconds()
+            except (TypeError, ValueError):
+                continue
+            if age < 0.0 or age > 120.0:
+                continue
+            phase = payload.get("phase")
+            active.append(
+                ActiveJob(
+                    id=generation.name,
+                    algorithm="full walk-forward",
+                    phase=phase if isinstance(phase, str) else "running",
+                    seed_progress="supervised Docker run",
+                    progress=0.0,
+                )
+            )
+    return tuple(active)
+
+
 class OverviewService:
     def __init__(
         self,
@@ -119,6 +181,7 @@ class OverviewService:
         self.system = system
 
     def build(self, jobs: Sequence[JobSummary]) -> StudioOverview:
+        now = datetime.now(UTC)
         datasets = self.datasets.list()
         runs = self.runs.list()
         valid_datasets = tuple(item for item in datasets if item.status == "VALID")
@@ -134,51 +197,63 @@ class OverviewService:
             for job in jobs
             if job.status in {"queued", "running", "cancelling"}
         )
+        known_ids = {item.id for item in active}
+        active += tuple(
+            item for item in _supervised_active_jobs(self.runs) if item.id not in known_ids
+        )
         alerts: list[StudioAlert] = []
         if not valid_datasets:
             alerts.append(
                 StudioAlert(
                     level="warning",
                     message="検証済みデータセットがありません",
-                    age="now",
+                    age="現在",
                 )
             )
-        invalid_dataset_count = len(datasets) - len(valid_datasets)
-        if invalid_dataset_count:
+        for item in datasets:
+            if item.status != "INVALID":
+                continue
             alerts.append(
                 StudioAlert(
                     level="warning",
-                    message=f"無効なデータセットが{invalid_dataset_count}件あります",
-                    age="now",
+                    message=f"データセット {item.name} が無効です",
+                    age=_relative_age(item.updated, now=now),
                 )
             )
         if not valid_runs:
             alerts.append(
-                StudioAlert(level="info", message="公開済みrunがありません", age="now")
+                StudioAlert(level="info", message="公開済みrunがありません", age="現在")
             )
-        invalid_run_count = len(runs) - len(valid_runs)
-        if invalid_run_count:
+        for item in runs:
+            if item.status != "INVALID":
+                continue
             alerts.append(
                 StudioAlert(
                     level="warning",
-                    message=f"無効なrunが{invalid_run_count}件あります",
-                    age="now",
+                    message=f"run {item.run_id} が無効です",
+                    age=_relative_age(item.completed_at or item.created_at, now=now),
                 )
             )
-        if active:
+        active_jobs = tuple(
+            job
+            for job in jobs
+            if job.status in {"queued", "running", "cancelling"}
+        )
+        for job in active_jobs:
             alerts.append(
                 StudioAlert(
                     level="info",
-                    message=f"{len(active)}件のジョブが実行中です",
-                    age="now",
+                    message=f"ジョブ {job.id} が実行中です",
+                    age=_relative_age(job.started_at or job.submitted_at, now=now),
                 )
             )
-        while len(alerts) < 4:
+        fallback_active_count = len(active) - len(active_jobs)
+        if fallback_active_count > 0:
             alerts.append(
                 StudioAlert(
                     level="info",
-                    message="ローカル研究モードで稼働しています",
-                    age="now",
+                    message=f"{fallback_active_count}件の外部ジョブが実行中です",
+                    age="現在",
                 )
             )
 
@@ -207,7 +282,7 @@ class OverviewService:
             latest_dataset=valid_datasets[0] if valid_datasets else None,
             active_jobs=active,
             runs=valid_runs[:4],
-            alerts=tuple(alerts[:4]),
+            alerts=tuple(alerts[:50]),
             equity=equity,
             stability=stability,
             assessment=ProductionAssessment(reasons=tuple(reasons)),

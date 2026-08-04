@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from trade_rl.simulation.liquidity import (
@@ -256,6 +258,43 @@ def test_large_capacity_tolerates_subtraction_roundoff() -> None:
         allocations[0].filled_notional
     )
     assert evidence.remaining_capacity_notional >= 0.0
+
+
+def test_lot_rounding_does_not_promote_a_sub_lot_residual() -> None:
+    lot_size = 1e-6
+    remaining = math.nextafter(lot_size, 0.0)
+
+    allocations, _ = allocate_symbol_capacity(
+        requests=(_request("a", remaining, price=100.0),),
+        processing_volume=1_000.0,
+        price=100.0,
+        contract_multiplier=1.0,
+        participation_limit=1.0,
+        lot_size=lot_size,
+        minimum_notional=0.0,
+    )
+
+    assert allocations[0].filled_quantity == 0.0
+    assert allocations[0].no_fill_reason == "below_lot_size"
+
+
+def test_full_capacity_fill_clamps_division_roundoff_to_remaining_quantity() -> None:
+    remaining = 116.19077365110831
+    execution_price = 0.0027559216281914747
+
+    allocations, _ = allocate_symbol_capacity(
+        requests=(_request("a", remaining, price=execution_price),),
+        processing_volume=1_000_000.0,
+        processing_market_notional=remaining * execution_price,
+        price=execution_price,
+        contract_multiplier=1.0,
+        participation_limit=1.0,
+        lot_size=0.0,
+        minimum_notional=0.0,
+    )
+
+    assert allocations[0].filled_quantity == remaining
+    assert abs(allocations[0].filled_quantity) <= abs(remaining)
 
 
 def test_invalid_requests_and_capacity_inputs_fail_closed() -> None:

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from trade_rl.studio.catalog import StudioCatalog
+from trade_rl.studio.dataset_catalog import _display_identity
 from trade_rl.studio.settings import StudioSettings
 
 from .helpers import write_dataset, write_run
@@ -57,6 +61,25 @@ def test_catalog_lists_validated_datasets_and_reports_invalid_artifacts(
     assert invalid_record.validation_error
 
 
+def test_dataset_display_identity_exposes_physical_triplet_and_feature_timeframes() -> None:
+    dataset = SimpleNamespace(
+        symbols=("SLOT0", "SLOT1", "SLOT2"),
+        feature_names=("15m__return", "1h__return", "4h__return", "1d__return"),
+        identity_payload_json=json.dumps(
+            {
+                "selected_symbols": ["BNBUSDT", "UNIUSDT", "XRPUSDT"],
+                "symbol_vocabulary": [f"SYMBOL-{index}" for index in range(15)],
+            }
+        ),
+    )
+
+    symbols, timeframes, universe_count = _display_identity(dataset)
+
+    assert symbols == ("BNBUSDT", "UNIUSDT", "XRPUSDT")
+    assert timeframes == ("15m", "1h", "4h", "1d")
+    assert universe_count == 15
+
+
 def test_catalog_validates_complete_training_configs(tmp_path: Path) -> None:
     pytest.importorskip("gymnasium")
     write_config(tmp_path / "configs")
@@ -94,6 +117,17 @@ def test_catalog_lists_validated_runs_and_extracts_walk_forward_metrics(
     assert run.relative_path == "research/runs/run-001"
     invalid = next(item for item in records if item.status == "INVALID")
     assert invalid.validation_error
+
+
+def test_run_catalog_discovers_supervised_generation_artifacts(tmp_path: Path) -> None:
+    nested_root = tmp_path / "research" / "generation-1" / "artifacts"
+    write_run(nested_root, run_id="nested-run")
+
+    records = StudioCatalog(settings(tmp_path)).list_runs()
+
+    assert [item.run_id for item in records if item.status == "VALID"] == [
+        "nested-run"
+    ]
 
 
 def test_duplicate_human_run_ids_resolve_by_unique_resource_id(tmp_path: Path) -> None:
@@ -159,3 +193,23 @@ def test_overview_uses_real_catalog_and_remains_no_go(tmp_path: Path) -> None:
     assert overview.runs[0].run_id == "run-001"
     assert overview.equity[-1].rl > overview.equity[-1].baseline
     assert overview.assessment.status == "NO-GO"
+
+
+def test_overview_includes_fresh_supervised_docker_run(tmp_path: Path) -> None:
+    generation = tmp_path / "research" / "generation-1"
+    generation.mkdir(parents=True)
+    (generation / "heartbeat.json").write_text(
+        json.dumps(
+            {
+                "state": "running",
+                "phase": "develop",
+                "observed_at": datetime.now(UTC).isoformat(),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    overview = StudioCatalog(settings(tmp_path)).overview(jobs=())
+
+    assert overview.active_jobs[0].id == "generation-1"
+    assert overview.active_jobs[0].algorithm == "full walk-forward"

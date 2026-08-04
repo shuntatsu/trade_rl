@@ -3,8 +3,9 @@ import { statSync } from 'node:fs'
 import { mkdir, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 
-const studioRoot = path.resolve(new URL('..', import.meta.url).pathname)
+const studioRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
 const assetsDir = path.join(studioRoot, 'dist', 'assets')
 const assets = await readdir(assetsDir)
 const cssFile = assets.find((name) => name.endsWith('.css'))
@@ -88,6 +89,9 @@ const auditFixtures = {
 
 const browserCandidates = [
   process.env.CHROMIUM_PATH,
+  chromium.executablePath(),
+  process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+  process.env['PROGRAMFILES(X86)'] && path.join(process.env['PROGRAMFILES(X86)'], 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
   '/usr/bin/chromium',
   '/usr/bin/chromium-browser',
   '/usr/bin/google-chrome',

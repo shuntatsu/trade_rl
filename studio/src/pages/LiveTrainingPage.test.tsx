@@ -92,7 +92,7 @@ describe('LiveTrainingPage research workspace', () => {
     expect(screen.queryByLabelText('Live Training Seed')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Live Training Environment')).not.toBeInTheDocument()
     expect(screen.queryByText('LIVE')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('article')).toHaveLength(3)
+    expect(await screen.findAllByRole('article')).toHaveLength(3)
 
     await user.click(screen.getByRole('button', { name: /対象を変更/ }))
     expect(screen.getByLabelText('Live Training Seed')).toBeInTheDocument()

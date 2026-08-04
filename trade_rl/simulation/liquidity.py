@@ -103,7 +103,11 @@ class SymbolCapacityEvidence:
 def _rounded_toward_zero(quantity: float, lot_size: float) -> float:
     if lot_size <= 0.0:
         return quantity
-    lots = math.floor((abs(quantity) + _TOLERANCE) / lot_size)
+    # Nudge the dimensionless lot ratio by one representable float. Adding a
+    # fixed quantity tolerance before division can become a material fraction
+    # of very small exchange lot sizes and produce a true overfill.
+    ratio = abs(quantity) / lot_size
+    lots = math.floor(math.nextafter(ratio, math.inf))
     rounded = lots * lot_size
     return math.copysign(rounded, quantity) if rounded > _TOLERANCE else 0.0
 
@@ -228,6 +232,21 @@ def allocate_symbol_capacity(
             request.remaining_quantity,
         )
         filled_quantity = _rounded_toward_zero(raw_quantity, lot_size)
+        quantity_tolerance = max(
+            _TOLERANCE,
+            32.0 * math.ulp(abs(request.remaining_quantity)),
+            32.0 * math.ulp(abs(filled_quantity)),
+        )
+        if abs(filled_quantity) > abs(request.remaining_quantity):
+            if (
+                abs(filled_quantity) - abs(request.remaining_quantity)
+                <= quantity_tolerance
+            ):
+                filled_quantity = request.remaining_quantity
+            else:
+                raise LiquidityAllocationError(
+                    "rounded fill exceeds the order remaining quantity"
+                )
         if abs(filled_quantity) <= _TOLERANCE:
             allocations.append(
                 _zero_allocation(

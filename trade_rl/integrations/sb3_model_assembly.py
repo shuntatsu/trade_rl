@@ -180,6 +180,10 @@ def _sequence_policy_assembly(
         },
     }
     if uses_shared_asset_actor:
+        pre_trade_risk = getattr(unwrapped, "pre_trade_risk", None)
+        risk_config = getattr(pre_trade_risk, "config", None)
+        entry_threshold = float(getattr(risk_config, "entry_threshold", 0.0))
+        no_trade_band = float(getattr(risk_config, "no_trade_band", 0.0))
         policy_kwargs.update(
             {
                 "shared_actor_n_symbols": int(sequence_metadata["n_symbols"]),
@@ -188,6 +192,11 @@ def _sequence_policy_assembly(
                 "shared_actor_net_arch": tuple(config.policy_net_arch),
                 "shared_actor_head": config.policy_actor_head,
                 "shared_actor_gate_temperature": (config.hierarchical_gate_temperature),
+                "shared_actor_gate_prediction_threshold": (
+                    config.behavior_cloning_gate_prediction_threshold
+                ),
+                "shared_actor_entry_threshold": entry_threshold,
+                "shared_actor_minimum_deterministic_change": no_trade_band,
             }
         )
     policy_identifier: object = (

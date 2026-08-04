@@ -137,6 +137,7 @@ class ResidualTrainingConfig:
     behavior_cloning_target_loss_weight: float = 1.0
     behavior_cloning_composed_loss_weight: float = 1.0
     behavior_cloning_gate_change_threshold: float = 0.05
+    behavior_cloning_gate_prediction_threshold: float = 0.5
     behavior_cloning_max_positive_class_weight: float = 20.0
     behavior_cloning_min_gate_precision: float = 0.0
     behavior_cloning_min_gate_recall: float = 0.0
@@ -241,6 +242,13 @@ class ResidualTrainingConfig:
         ):
             raise ValueError(
                 "behavior_cloning_gate_change_threshold must be within (0, 1]"
+            )
+        if (
+            not math.isfinite(self.behavior_cloning_gate_prediction_threshold)
+            or not 0.0 < self.behavior_cloning_gate_prediction_threshold < 1.0
+        ):
+            raise ValueError(
+                "behavior_cloning_gate_prediction_threshold must be within (0, 1)"
             )
         if (
             not math.isfinite(self.behavior_cloning_max_positive_class_weight)
@@ -930,6 +938,11 @@ class ResidualTrainingConfig:
                         0.05,
                     ),
                     (
+                        "behavior_cloning_gate_prediction_threshold",
+                        self.behavior_cloning_gate_prediction_threshold,
+                        0.5,
+                    ),
+                    (
                         "behavior_cloning_max_positive_class_weight",
                         self.behavior_cloning_max_positive_class_weight,
                         20.0,
@@ -1019,6 +1032,9 @@ class ResidualTrainingConfig:
             "behavior_cloning_composed_loss_weight": self.behavior_cloning_composed_loss_weight,
             "behavior_cloning_gate_change_threshold": (
                 self.behavior_cloning_gate_change_threshold
+            ),
+            "behavior_cloning_gate_prediction_threshold": (
+                self.behavior_cloning_gate_prediction_threshold
             ),
             "behavior_cloning_max_positive_class_weight": (
                 self.behavior_cloning_max_positive_class_weight

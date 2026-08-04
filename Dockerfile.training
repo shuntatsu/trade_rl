@@ -90,3 +90,12 @@ RUN test "$(id -u)" -ne 0 \
         = "${TRADE_RL_GIT_COMMIT}:${TRADE_RL_GIT_DIRTY}:${TRADE_RL_SOURCE_TREE_DIGEST}:${TRADE_RL_LOCKFILE_DIGEST}"
 
 CMD ["python", "examples/binance-multitimeframe/full_run_entrypoint.py"]
+
+FROM training-runtime AS studio-runtime
+
+USER root
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --extra train-sb3 --extra postgres --extra studio --no-dev
+USER trainer
+
+CMD ["trade-rl", "studio", "start", "--project-root", "/workspace", "--host", "0.0.0.0", "--port", "8765", "--allow-container-bind"]

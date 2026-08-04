@@ -134,7 +134,7 @@
           "behavior_cloning_gate_change_threshold": 0.05,
           "behavior_cloning_gate_loss_weight": 1.0,
           "behavior_cloning_learning_rate": 0.001,
-          "behavior_cloning_max_active_target_rmse": 0.15,
+          "behavior_cloning_max_active_target_rmse": 1.0,
           "behavior_cloning_max_activity_ratio": 4.0,
           "behavior_cloning_max_causal_holdout_regret": 0.2,
           "behavior_cloning_max_positive_class_weight": 20.0,

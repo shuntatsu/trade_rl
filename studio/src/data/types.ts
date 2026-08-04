@@ -29,6 +29,7 @@ export interface DatasetSummary {
   featureCount: number
   barCount: number
   symbolCount: number
+  universeSymbolCount?: number | null
   updated: string
   validationError: string | null
 }
@@ -169,6 +170,41 @@ export interface TelemetryEventsResponse {
   sequenceGaps: [number, number][]
   streamGeneration: string | null
   resetRequired: boolean
+}
+
+export type BehaviorCloningPhase =
+  | 'not_started'
+  | 'preparing'
+  | 'training'
+  | 'evaluating'
+  | 'passed'
+  | 'failed'
+
+export interface BehaviorCloningProgressResponse {
+  schemaVersion: 'behavior_cloning_progress_v1'
+  available: boolean
+  phase: BehaviorCloningPhase
+  epoch: number | null
+  totalEpochs: number | null
+  bestEpoch: number | null
+  percent: number | null
+  seed: number | null
+  fold: string | null
+  configuration: string | null
+  elapsedSeconds: number | null
+  estimatedRemainingSeconds: number | null
+  validationLoss: number | null
+  gateLoss: number | null
+  targetLoss: number | null
+  composedLoss: number | null
+  gatePrecision: number | null
+  gateRecall: number | null
+  activityRatio: number | null
+  allHoldCollapse: boolean | null
+  allTradeCollapse: boolean | null
+  earlyStopping: boolean | null
+  updatedAt: string | null
+  source: string | null
 }
 
 export interface CheckpointEvaluationItem {

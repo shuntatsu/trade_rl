@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import math
+import multiprocessing
 import os
+import shutil
+import tempfile
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,7 +24,9 @@ from trade_rl.artifacts.run_manifest import (
     write_walk_forward_run_manifest,
 )
 from trade_rl.artifacts.store import ArtifactStore
+from trade_rl.catalog.contracts import ArtifactKind
 from trade_rl.catalog.postgres import PostgresArtifactCatalog
+from trade_rl.catalog.reusable_artifacts import ReusableArtifactIndex
 from trade_rl.catalog.sealed_test import PostgresSealedTestLedger
 from trade_rl.data import load_market_dataset_artifact
 from trade_rl.data.artifacts import MarketDatasetView
@@ -44,6 +50,10 @@ from trade_rl.rl.sequence_observations import (
     SequenceWindowSpec,
 )
 from trade_rl.rl.training import train_residual_ensemble
+from trade_rl.serving.normalizer import (
+    load_observation_normalizer,
+    write_observation_normalizer,
+)
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.execution import ExecutionRuleStress
 from trade_rl.strategies.trend import TrendStrategy
@@ -86,6 +96,105 @@ from trade_rl.workflows.walk_forward_evaluation import (
     minimum_environment_start,
     resolve_signal_digest,
 )
+
+_NORMALIZER_ENVIRONMENT_FACTORY: Any | None = None
+
+
+def _collect_normalizer_chunk(bounds: tuple[int, int, int]) -> np.ndarray:
+    """Collect one cash/zero-action interval in an isolated environment."""
+
+    start, stop, action_size = bounds
+    factory = _NORMALIZER_ENVIRONMENT_FACTORY
+    if factory is None:
+        raise RuntimeError("normalizer worker environment factory is unavailable")
+    environment = factory()
+    observations: list[np.ndarray] = []
+    try:
+        observation, _ = environment.reset(
+            seed=0,
+            options={
+                "episode_bars": stop - start,
+                "initial_state_mode": "cash",
+                "start_idx": start,
+            },
+        )
+        terminated = False
+        truncated = False
+        while not terminated and not truncated:
+            observations.append(
+                np.asarray(observation, dtype=np.float32).copy(order="C")
+            )
+            observation, _, terminated, truncated, _ = environment.step(
+                np.zeros(action_size, dtype=np.float32)
+            )
+    finally:
+        environment.close()
+    if len(observations) != stop - start:
+        raise RuntimeError("normalizer worker observation count mismatch")
+    return np.stack(observations, axis=0)
+
+
+def _normalizer_worker_count(episode_bars: int) -> int:
+    raw = os.environ.get("TRADE_RL_PREPROCESS_WORKERS", "8").strip()
+    try:
+        configured = int(raw)
+    except ValueError as exc:
+        raise ValueError("TRADE_RL_PREPROCESS_WORKERS must be an integer") from exc
+    if configured <= 0:
+        raise ValueError("TRADE_RL_PREPROCESS_WORKERS must be positive")
+    return min(configured, episode_bars)
+
+
+def _normalizer_partitions(
+    start: int,
+    stop: int,
+    worker_count: int,
+    action_size: int,
+) -> tuple[tuple[int, int, int], ...]:
+    boundaries = np.linspace(start, stop, worker_count + 1, dtype=np.int64)
+    return tuple(
+        (int(left), int(right), action_size)
+        for left, right in zip(boundaries[:-1], boundaries[1:], strict=True)
+        if right > left
+    )
+
+
+def _collect_normalizer_matrix(
+    environment_factory: Any,
+    *,
+    start: int,
+    episode_bars: int,
+    action_size: int,
+    finite_horizon: bool,
+) -> np.ndarray:
+    global _NORMALIZER_ENVIRONMENT_FACTORY
+
+    worker_count = _normalizer_worker_count(episode_bars)
+    parallel = (
+        worker_count > 1
+        and "fork" in multiprocessing.get_all_start_methods()
+        and not finite_horizon
+    )
+    _NORMALIZER_ENVIRONMENT_FACTORY = environment_factory
+    try:
+        if not parallel:
+            return _collect_normalizer_chunk(
+                (start, start + episode_bars, action_size)
+            )
+        partitions = _normalizer_partitions(
+            start,
+            start + episode_bars,
+            worker_count,
+            action_size,
+        )
+        with ProcessPoolExecutor(
+            max_workers=len(partitions),
+            mp_context=multiprocessing.get_context("fork"),
+        ) as executor:
+            chunks = tuple(executor.map(_collect_normalizer_chunk, partitions))
+        return np.concatenate(chunks, axis=0)
+    finally:
+        _NORMALIZER_ENVIRONMENT_FACTORY = None
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -247,63 +356,56 @@ def _fit_normalizer(
         if run.environment.structured_sequence_observation
         else run
     )
-    env = build_market_environment(
-        training_dataset,
-        normalizer_run,
-        normalizer=None,
-        sequence_normalizer=None,
-        episode_bars=episode_bars,
-        liquidate_on_end=False,
-        alpha_provider=alpha_provider,
-        factor_provider=factor_provider,
-    )
-    observations: list[np.ndarray] = []
-    try:
-        observation, _ = env.reset(
-            seed=0,
-            options={
-                "episode_bars": episode_bars,
-                "initial_state_mode": "cash",
-                "start_idx": start,
-            },
+    def environment_factory() -> Any:
+        return build_market_environment(
+            training_dataset,
+            normalizer_run,
+            normalizer=None,
+            sequence_normalizer=None,
+            episode_bars=episode_bars,
+            liquidate_on_end=False,
+            alpha_provider=alpha_provider,
+            factor_provider=factor_provider,
         )
-        terminated = False
-        truncated = False
-        while not terminated and not truncated:
-            observations.append(np.asarray(observation, dtype=np.float32).copy())
-            observation, _, terminated, truncated, _ = env.step(
-                np.zeros(run.action.size, dtype=np.float32)
-            )
+
+    env = environment_factory()
+    try:
+        matrix = _collect_normalizer_matrix(
+            environment_factory,
+            start=start,
+            episode_bars=episode_bars,
+            action_size=run.action.size,
+            finite_horizon=normalizer_run.environment.finite_horizon_observation,
+        )
+        passthrough = observation_passthrough_indices(
+            training_dataset,
+            action_size=run.action.size,
+            n_factors=run.action.n_factors,
+            finite_horizon=run.environment.finite_horizon_observation,
+        )
+        return ObservationNormalizer.fit(
+            matrix,
+            train_start=0,
+            train_end=matrix.shape[0],
+            passthrough_indices=passthrough,
+            dataset_id=training_dataset.dataset_id,
+            source_dataset_id=dataset.dataset_id,
+            absolute_train_start=view_start + start,
+            absolute_train_end=train_range.stop,
+            observation_schema_digest=env.observation_builder.schema_digest(
+                training_dataset
+            ),
+            action_spec_digest=env.action_spec_digest,
+            alpha_artifact_digest=(
+                None if alpha_provider is None else alpha_provider.artifact_digest
+            ),
+            factor_artifact_digest=(
+                None if factor_provider is None else factor_provider.artifact_digest
+            ),
+            candidate_config_digest=content_digest(run.digest_payload()),
+        )
     finally:
         env.close()
-    matrix = np.stack(observations, axis=0)
-    passthrough = observation_passthrough_indices(
-        training_dataset,
-        action_size=run.action.size,
-        n_factors=run.action.n_factors,
-        finite_horizon=run.environment.finite_horizon_observation,
-    )
-    return ObservationNormalizer.fit(
-        matrix,
-        train_start=0,
-        train_end=matrix.shape[0],
-        passthrough_indices=passthrough,
-        dataset_id=training_dataset.dataset_id,
-        source_dataset_id=dataset.dataset_id,
-        absolute_train_start=view_start + start,
-        absolute_train_end=train_range.stop,
-        observation_schema_digest=env.observation_builder.schema_digest(
-            training_dataset
-        ),
-        action_spec_digest=env.action_spec_digest,
-        alpha_artifact_digest=(
-            None if alpha_provider is None else alpha_provider.artifact_digest
-        ),
-        factor_artifact_digest=(
-            None if factor_provider is None else factor_provider.artifact_digest
-        ),
-        candidate_config_digest=content_digest(run.digest_payload()),
-    )
 
 
 def _fit_sequence_normalizer(
@@ -427,6 +529,19 @@ class MarketCandidateTrainer(CandidateTrainer):
         self.registry = registry
         self.checkpoint_finalists_per_seed = checkpoint_finalists_per_seed
         self.checkpoint_loader = checkpoint_loader or StableBaselines3CheckpointLoader()
+        raw_normalizer_cache = os.environ.get(
+            "TRADE_RL_NORMALIZER_CACHE_ROOT", ""
+        ).strip()
+        self.normalizer_cache_root = (
+            None if not raw_normalizer_cache else Path(raw_normalizer_cache).resolve()
+        )
+        self.normalizer_artifact_index = (
+            None
+            if self.normalizer_cache_root is None
+            else ReusableArtifactIndex.from_environment(
+                storage_root=self.normalizer_cache_root
+            )
+        )
         self._normalizers: dict[tuple[int, str], ObservationNormalizer] = {}
         self._sequence_normalizers: dict[
             tuple[int, str], SequenceFeatureNormalizer | None
@@ -441,7 +556,61 @@ class MarketCandidateTrainer(CandidateTrainer):
         existing = self._normalizers.get(key)
         if existing is not None:
             return existing
-        normalizer = _fit_normalizer(self.dataset, request.train, run)
+        cache_identity = {
+            "candidate_config_digest": content_digest(run.digest_payload()),
+            "dataset_id": self.dataset.dataset_id,
+            "schema_version": "walk_forward_normalizer_cache_identity_v1",
+            "train_range": [request.train.start, request.train.stop],
+        }
+        cache_path: Path | None = None
+        normalizer: ObservationNormalizer | None = None
+        if self.normalizer_cache_root is not None:
+            cache_path = self.normalizer_cache_root / content_digest(cache_identity)
+            if self.normalizer_artifact_index is not None:
+                indexed = self.normalizer_artifact_index.resolve(
+                    ArtifactKind.NORMALIZER,
+                    cache_identity,
+                )
+                if indexed is not None:
+                    cache_path = indexed
+            if cache_path.is_dir():
+                normalizer = load_observation_normalizer(cache_path)
+                if normalizer.source_dataset_id != self.dataset.dataset_id:
+                    raise ValueError("cached normalizer dataset identity mismatch")
+                if normalizer.absolute_train_end != request.train.stop:
+                    raise ValueError("cached normalizer train range mismatch")
+        if normalizer is None:
+            normalizer = _fit_normalizer(self.dataset, request.train, run)
+            if cache_path is not None:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = Path(
+                    tempfile.mkdtemp(
+                        prefix=f".{cache_path.name}.", dir=str(cache_path.parent)
+                    )
+                )
+                try:
+                    write_observation_normalizer(temporary, normalizer)
+                    try:
+                        temporary.replace(cache_path)
+                    except FileExistsError:
+                        pass
+                finally:
+                    if temporary.exists():
+                        shutil.rmtree(temporary)
+        if cache_path is not None and self.normalizer_artifact_index is not None:
+            self.normalizer_artifact_index.register_directory(
+                artifact_digest=normalizer.digest,
+                artifact_kind=ArtifactKind.NORMALIZER,
+                schema_version=normalizer.schema_version,
+                dataset_id=self.dataset.dataset_id,
+                cache_key=cache_identity,
+                metadata={
+                    "feature_count": normalizer.size,
+                    "train_start": request.train.start,
+                    "train_stop": request.train.stop,
+                },
+                location=cache_path,
+            )
         self._normalizers[key] = normalizer
         _write_json(
             self.root / f"fold-{request.fold_index:03d}" / "normalizer.json",

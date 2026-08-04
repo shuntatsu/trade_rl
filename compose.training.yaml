@@ -3,6 +3,7 @@ x-training-image: &training-image
   build:
     context: .
     dockerfile: Dockerfile.training
+    target: training-runtime
     args:
       TRADE_RL_GIT_COMMIT: ${TRADE_RL_GIT_COMMIT:-}
       TRADE_RL_GIT_DIRTY: ${TRADE_RL_GIT_DIRTY:-}
@@ -72,8 +73,21 @@ services:
       TRADE_RL_DYNAMIC_SYMBOL_TRIPLETS: ${TRADE_RL_DYNAMIC_SYMBOL_TRIPLETS:-false}
       TRADE_RL_SYMBOL_TRIPLET_SEED: ${TRADE_RL_SYMBOL_TRIPLET_SEED:-20260729}
       TRADE_RL_SYMBOL_TRIPLET_TRAIN_SLOT: ${TRADE_RL_SYMBOL_TRIPLET_TRAIN_SLOT:-0}
+      TRADE_RL_FULL_TRAINING_TEMPLATE: ${TRADE_RL_FULL_TRAINING_TEMPLATE:-}
       TRADE_RL_MARKET_DATA_CACHE_ROOT: /workspace/market-data/binance-vision
       TRADE_RL_TEACHER_CACHE_ROOT: /workspace/var/cache/teacher-artifacts
+      TRADE_RL_NORMALIZER_CACHE_ROOT: /workspace/var/cache/normalizers
+      TRADE_RL_REUSABLE_ARTIFACT_CATALOG: "true"
+      TRADE_RL_FROZEN_METADATA_CACHE_ROOT: /workspace/var/cache/frozen-metadata/usds-m
+      TRADE_RL_PREPROCESS_WORKERS: "8"
+      # Even two concurrent full-market probe environments exceed Docker
+      # Desktop's 15.5 GiB limit. Keep this diagnostic serial; the expensive
+      # normalizer, teacher, and PPO phases remain independently parallelized.
+      TRADE_RL_LAGRANGIAN_PROBE_WORKERS: "1"
+      # Eight full-market teacher workers can exceed the 23.5 GiB WSL budget.
+      # Four retains parallel Oracle generation while leaving headroom for the
+      # parent process and transient allocator peaks. PPO remains at 8 envs.
+      TRADE_RL_TEACHER_WORKERS: "4"
       OMP_NUM_THREADS: "8"
       MKL_NUM_THREADS: "8"
       # Bound the persistent Inductor subprocess pool on memory-constrained hosts.
@@ -85,6 +99,42 @@ services:
         source: ${TRADE_RL_EVIDENCE_ROOT:-./var/evidence}
         target: /workspace/evidence
         read_only: true
+
+  studio-api:
+    <<: *training-image
+    image: trade-rl-studio:${TRADE_RL_GIT_COMMIT:-invalid}
+    build:
+      context: .
+      dockerfile: Dockerfile.training
+      target: studio-runtime
+      args:
+        TRADE_RL_GIT_COMMIT: ${TRADE_RL_GIT_COMMIT:-}
+        TRADE_RL_GIT_DIRTY: ${TRADE_RL_GIT_DIRTY:-}
+        TRADE_RL_SOURCE_TREE_DIGEST: ${TRADE_RL_SOURCE_TREE_DIGEST:-}
+        TRADE_RL_LOCKFILE_DIGEST: ${TRADE_RL_LOCKFILE_DIGEST:-}
+    command:
+      - trade-rl
+      - studio
+      - start
+      - --project-root
+      - /workspace
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8765"
+      - --allow-container-bind
+    gpus: all
+    environment:
+      TRADE_RL_STUDIO_CONTAINER_BIND: "true"
+      TRADE_RL_STUDIO_DATASET_ROOTS: /workspace/var/runs
+      TRADE_RL_STUDIO_RUN_ROOTS: /workspace/var
+      TRADE_RL_STUDIO_CONFIG_ROOTS: /workspace/examples
+      TRADE_RL_STUDIO_JOB_ROOT: /workspace/var/studio/jobs
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - trade-rl-training-data:/workspace/var
+    restart: unless-stopped
 
 volumes:
   trade-rl-postgres:

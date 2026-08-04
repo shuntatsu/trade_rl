@@ -129,6 +129,38 @@ class ClosedTradeTracker:
     def quantities(self) -> np.ndarray:
         return self._quantities.copy()
 
+    def seed_positions(self, *, quantities: object, prices: object) -> None:
+        """Seed positions that already exist at the evaluation boundary.
+
+        The boundary prices become the diagnostic cost basis, so realized PnL is
+        measured only over the evaluated path.  Seeding is deliberately allowed
+        only before any fill has been ingested.
+        """
+
+        resolved_quantities = np.asarray(quantities, dtype=np.float64).reshape(-1)
+        resolved_prices = np.asarray(prices, dtype=np.float64).reshape(-1)
+        if (
+            resolved_quantities.shape != self._quantities.shape
+            or resolved_prices.shape != self._quantities.shape
+        ):
+            raise ValueError("seeded positions do not match the tracker universe")
+        if not np.isfinite(resolved_quantities).all() or not np.isfinite(
+            resolved_prices
+        ).all():
+            raise ValueError("seeded positions must be finite")
+        open_mask = np.abs(resolved_quantities) > _TOLERANCE
+        if np.any(resolved_prices[open_mask] <= 0.0):
+            raise ValueError("seeded open positions require positive prices")
+        if (
+            np.any(np.abs(self._quantities) > _TOLERANCE)
+            or self._closed_pnls
+            or np.any(np.abs(self._entry_costs) > _TOLERANCE)
+            or np.any(np.abs(self._cycle_pnl) > _TOLERANCE)
+        ):
+            raise RuntimeError("closed trade tracker positions are already initialized")
+        self._quantities = resolved_quantities.copy()
+        self._average_prices = np.where(open_mask, resolved_prices, 0.0)
+
     def _close_cycle(self, symbol: int) -> None:
         self._closed_pnls.append(float(self._cycle_pnl[symbol]))
         self._cycle_pnl[symbol] = 0.0

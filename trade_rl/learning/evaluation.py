@@ -881,12 +881,29 @@ def evaluate_behavior_cloning_gates(
     causal_episode_support = (
         len(causal_records) if causal_records else (0 if holdout is None else 1)
     )
-    causal_regret_upper = (
-        None
-        if holdout is None
-        else getattr(holdout, "causal_regret_upper_confidence_bound", None)
-    )
-    if causal_regret_upper is None and holdout is not None and not causal_records:
+    causal_regret_upper = None
+    if holdout is not None and causal_records:
+        cash_regrets = np.asarray(
+            [
+                max(0.0, -record.causal_policy_performance.net_return)
+                for record in causal_records
+            ],
+            dtype=np.float64,
+        )
+        causal_regret_upper = deterministic_bootstrap_upper_bound(
+            cash_regrets,
+            confidence_level=float(
+                getattr(holdout, "bootstrap_confidence_level", 0.95)
+            ),
+            resamples=int(getattr(holdout, "bootstrap_resamples", 2_000)),
+            seed_material=content_digest(
+                {
+                    "scope": "causal_cash_regret",
+                    "values": cash_regrets.tolist(),
+                }
+            ),
+        )
+    elif holdout is not None:
         causal_regret_upper = getattr(holdout, "heldout_oracle_regret", None)
     upper_threshold = (
         thresholds.maximum_causal_holdout_regret

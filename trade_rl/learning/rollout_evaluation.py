@@ -127,6 +127,12 @@ def evaluate_action_path(
     )
     multipliers = environment.dataset.resolved_array("contract_multipliers")
     trades = ClosedTradeTracker(multipliers)
+    initial_book = getattr(environment, "hybrid", None)
+    if initial_book is not None:
+        trades.seed_positions(
+            quantities=initial_book.quantities,
+            prices=initial_book.mark_prices,
+        )
     evaluated_actions: list[np.ndarray] = []
     gross_returns: list[float] = []
     net_returns: list[float] = []

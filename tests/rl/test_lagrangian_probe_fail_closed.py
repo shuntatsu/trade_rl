@@ -95,7 +95,7 @@ class _BoundaryEnvironment(gym.Env[np.ndarray, np.ndarray]):
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
         del action
         terminated = self.completion == "terminated"
-        truncated = self.completion in {"censored", "unknown"}
+        truncated = self.completion in {"censored", "native_time_limit", "unknown"}
         info: dict[str, object] = {
             "constraint_costs": _costs(),
             "transition_elapsed_hours": self.elapsed,
@@ -133,6 +133,24 @@ def test_probe_rejects_action_space_shape_mismatch_and_closes() -> None:
             max_steps_per_episode=2,
         )
 
+    assert closes == [1]
+
+
+def test_probe_accepts_native_gymnasium_truncation_without_legacy_sb3_key() -> None:
+    closes: list[int] = []
+
+    evidence = run_canonical_action_feasibility_probe(
+        environment_factory=lambda: _BoundaryEnvironment(
+            completion="native_time_limit",
+            close_calls=closes,
+        ),
+        schema=_schema(),
+        episode_count=1,
+        max_steps_per_episode=2,
+    )
+
+    assert evidence.completed_episode_count == 1
+    assert evidence.censored_episode_count == 0
     assert closes == [1]
 
 

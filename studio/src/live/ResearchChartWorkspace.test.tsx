@@ -168,6 +168,19 @@ describe('ResearchChartWorkspace', () => {
     expect(onCommitRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 2 }))
   })
 
+  it('commits the exact LONG or SHORT marker even when events share a candle', async () => {
+    const onCommitRecord = vi.fn()
+    renderWorkspace({ onCommitRecord })
+    await waitFor(() => expect(runtime.handlers.click).toBeDefined())
+
+    act(() => runtime.handlers.click?.({
+      hoveredObjectId: 'telemetry-1',
+      time: Math.floor(Date.parse('2026-07-31T08:00:00Z') / 1_000 / 900) * 900,
+    }))
+
+    expect(onCommitRecord).toHaveBeenCalledWith(expect.objectContaining({ sequence: 1 }))
+  })
+
   it('commits the nearest record when a click falls outside a bar time', async () => {
     const onCommitRecord = vi.fn()
     renderWorkspace({ onCommitRecord })

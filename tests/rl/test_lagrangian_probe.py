@@ -202,6 +202,35 @@ def test_probe_budget_violation_is_warning_evidence() -> None:
     assert evidence.digest_payload()["warning"] is True
 
 
+def test_parallel_probe_preserves_serial_evidence_digest() -> None:
+    serial = run_canonical_action_feasibility_probe(
+        environment_factory=_factory(
+            mode=ActionMode.TARGET_WEIGHT,
+            recorded_actions=[],
+            close_calls=[],
+            cost_value=0.25,
+        ),
+        schema=_schema(),
+        episode_count=8,
+        max_steps_per_episode=4,
+        max_workers=1,
+    )
+    parallel = run_canonical_action_feasibility_probe(
+        environment_factory=_factory(
+            mode=ActionMode.TARGET_WEIGHT,
+            recorded_actions=[],
+            close_calls=[],
+            cost_value=0.25,
+        ),
+        schema=_schema(),
+        episode_count=8,
+        max_steps_per_episode=4,
+        max_workers=8,
+    )
+
+    assert parallel.digest == serial.digest
+
+
 def test_probe_fails_closed_on_missing_constraint_costs_and_closes_environment() -> (
     None
 ):

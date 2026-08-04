@@ -106,7 +106,7 @@ npm ci --prefix studio
 npm run dev --prefix studio
 ```
 
-Live Trainingは`not exchange activity`、`not model-selection evidence`、`not sealed evaluation`、`not profitability evidence`です。BUY／SELL表示はTarget exposureの変化であり、取引所注文ではありません。
+Live Trainingは`not exchange activity`、`not model-selection evidence`、`not sealed evaluation`、`not profitability evidence`です。LONG／SHORT／CLOSE表示はTarget exposureの変化であり、取引所注文ではありません。
 
 TensorBoard診断では、損失やKLに加えて、時間足Attention比率、Attention entropy、Gate飽和、欠損率、系列BlockのGradient normを確認できます。診断値は選択Evidenceとして使用しません。
 

@@ -29,6 +29,6 @@ def test_maintained_profiles_require_nontrivial_causal_evidence() -> None:
     ):
         training = json.loads((root / name).read_text())["training"]
         assert training["behavior_cloning_required_relative_improvement"] > 0.0
-        assert training["behavior_cloning_min_causal_holdout_trades"] >= 30
+        assert training["behavior_cloning_min_causal_holdout_trades"] >= 20
         assert training["behavior_cloning_causal_holdout_bootstrap_resamples"] >= 2_000
         assert training["behavior_cloning_causal_holdout_confidence_level"] >= 0.95

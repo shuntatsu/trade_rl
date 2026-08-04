@@ -61,11 +61,25 @@ class RunCatalog:
     def _directories(self) -> tuple[Path, ...]:
         directories: set[Path] = set()
         for root in self.settings.run_roots:
-            runs_root = root / "runs"
-            if runs_root.is_dir():
-                directories.update(
-                    path for path in runs_root.iterdir() if path.is_dir()
-                )
+            if root.is_dir():
+                direct = root / "runs"
+                generation_roots = [root]
+                if direct.is_dir():
+                    generation_roots.append(direct)
+                run_roots = [direct]
+                for generation_root in generation_roots:
+                    run_roots.extend(
+                        path / "artifacts" / "runs"
+                        for path in generation_root.iterdir()
+                        if path.is_dir()
+                    )
+                for runs_root in run_roots:
+                    if runs_root.is_dir():
+                        directories.update(
+                            path
+                            for path in runs_root.iterdir()
+                            if path.is_dir() and (path / "run.json").is_file()
+                        )
         return tuple(sorted(directories, key=lambda item: item.as_posix()))
 
     def _fingerprint(self, path: Path) -> tuple[object, ...]:

@@ -1,4 +1,5 @@
 import type { CheckpointEvaluationItem, TrainingTelemetryRecord } from '../data/types'
+import { positionTransition, type PositionTransition } from './researchChartModel'
 
 function signed(value: number | null | undefined, digits = 3): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—'
@@ -15,6 +16,27 @@ function plain(value: number | null | undefined, digits = 3): string {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   })
+}
+
+const POSITION_LABELS: Record<Exclude<PositionTransition, 'LONG' | 'SHORT'>, string> = {
+  CLOSE: '決済',
+  'ADD LONG': 'ロング増し',
+  'ADD SHORT': 'ショート増し',
+  'REDUCE LONG': 'ロング縮小',
+  'COVER SHORT': 'ショート買戻し',
+}
+
+function transitionLabel(
+  transition: PositionTransition,
+  before: number | null | undefined,
+): string {
+  if (transition === 'LONG') {
+    return (before ?? 0) < 0 ? 'ショート → ロング（ドテン）' : 'ロング開始'
+  }
+  if (transition === 'SHORT') {
+    return (before ?? 0) > 0 ? 'ロング → ショート（ドテン）' : 'ショート開始'
+  }
+  return POSITION_LABELS[transition]
 }
 
 export interface ResearchChartInspectorProps {
@@ -42,6 +64,10 @@ export function ResearchChartInspector({
   const weight = record?.weightsAfter[0] ?? null
   const executed = record?.executedTarget[0] ?? null
   const action = record?.action[0] ?? null
+  const transition = positionTransition(
+    record?.weightsBefore[0],
+    record?.weightsAfter[0],
+  )
   const position = weight === null || Math.abs(weight) < 1e-9
     ? 'フラット'
     : weight > 0 ? 'ロング' : 'ショート'
@@ -72,6 +98,8 @@ export function ResearchChartInspector({
 
       <dl className="research-inspector-values">
         <div><dt>Position</dt><dd>{position}{weight === null ? '' : ` ${(Math.abs(weight) * 100).toFixed(1)}%`}</dd></div>
+        <div><dt>Trade</dt><dd>{transition === null ? '変更なし' : transitionLabel(transition, record?.weightsBefore[0])}</dd></div>
+        <div><dt>Weight change</dt><dd>{record ? `${signed(record.weightsBefore[0])} → ${signed(record.weightsAfter[0])}` : '—'}</dd></div>
         <div><dt>Action</dt><dd>{plain(action)}</dd></div>
         <div><dt>Executed</dt><dd>{plain(executed)}</dd></div>
         <div><dt>Reward</dt><dd>{signed(record?.reward)}</dd></div>
@@ -85,7 +113,7 @@ export function ResearchChartInspector({
       </dl>
 
       <p className="research-inspector-note">
-        Hoverは確認のみ、クリックは再生位置を確定します。探索結果と決定論的Checkpoint評価を混同しません。
+        Hoverは確認のみ、チャートまたはLONG・SHORT・CLOSE Markerのクリックで再生位置を確定します。探索結果と決定論的Checkpoint評価を混同しません。
       </p>
     </aside>
   )

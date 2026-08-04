@@ -37,13 +37,24 @@ export type ResearchMarkerShape = 'arrowUp' | 'arrowDown' | 'circle' | 'square'
 export type ResearchMarkerPosition = 'aboveBar' | 'belowBar'
 
 export interface ResearchMarker {
+  id: string
   time: number
   position: ResearchMarkerPosition
   shape: ResearchMarkerShape
   color: string
-  text: 'BUY' | 'SELL' | 'RISK' | 'END'
+  kind: 'position' | 'risk' | 'end'
+  text: PositionTransition | 'RISK' | 'END'
   sequence: number
 }
+
+export type PositionTransition =
+  | 'LONG'
+  | 'SHORT'
+  | 'CLOSE'
+  | 'ADD LONG'
+  | 'ADD SHORT'
+  | 'REDUCE LONG'
+  | 'COVER SHORT'
 
 export interface ResearchChartData {
   symbols: string[]
@@ -57,6 +68,7 @@ export interface ResearchChartData {
   drawdown: ResearchLinePoint[]
   markers: ResearchMarker[]
   recordByTime: Map<number, TrainingTelemetryRecord>
+  recordBySequence: Map<number, TrainingTelemetryRecord>
   timeBySequence: Map<number, number>
 }
 
@@ -132,47 +144,65 @@ function stablePercentage(value: number): number {
   return Math.round(value * 1_000_000_000_000) / 1_000_000_000_000
 }
 
+const POSITION_EPSILON = 1e-9
+
+export function positionTransition(
+  before: number | null | undefined,
+  after: number | null | undefined,
+): PositionTransition | null {
+  if (!finite(before) || !finite(after) || Math.abs(after - before) <= POSITION_EPSILON) return null
+  const beforeFlat = Math.abs(before) <= POSITION_EPSILON
+  const afterFlat = Math.abs(after) <= POSITION_EPSILON
+  if (!beforeFlat && afterFlat) return 'CLOSE'
+  if (after > POSITION_EPSILON) {
+    if (before <= POSITION_EPSILON) return 'LONG'
+    return after > before ? 'ADD LONG' : 'REDUCE LONG'
+  }
+  if (after < -POSITION_EPSILON) {
+    if (before >= -POSITION_EPSILON) return 'SHORT'
+    return after < before ? 'ADD SHORT' : 'COVER SHORT'
+  }
+  return null
+}
+
 function markerFor(record: TrainingTelemetryRecord, time: number): ResearchMarker | null {
   if (record.eventType === 'position') {
-    const delta = (record.weightsAfter[0] ?? 0) - (record.weightsBefore[0] ?? 0)
-    if (delta > 0) {
-      return {
-        time,
-        position: 'belowBar',
-        shape: 'arrowUp',
-        color: '#36e37d',
-        text: 'BUY',
-        sequence: record.sequence,
-      }
+    const transition = positionTransition(record.weightsBefore[0], record.weightsAfter[0])
+    if (transition === null) return null
+    const upward = transition === 'LONG' || transition === 'ADD LONG' || transition === 'COVER SHORT'
+    const close = transition === 'CLOSE'
+    const reducing = transition === 'REDUCE LONG' || transition === 'COVER SHORT'
+    return {
+      id: `telemetry-${record.sequence}`,
+      time,
+      position: upward ? 'belowBar' : 'aboveBar',
+      shape: close ? 'square' : upward ? 'arrowUp' : 'arrowDown',
+      color: close ? '#45d6d2' : reducing ? '#f3b33d' : upward ? '#36e37d' : '#ff5b63',
+      kind: 'position',
+      text: transition,
+      sequence: record.sequence,
     }
-    if (delta < 0) {
-      return {
-        time,
-        position: 'aboveBar',
-        shape: 'arrowDown',
-        color: '#ff5b63',
-        text: 'SELL',
-        sequence: record.sequence,
-      }
-    }
-    return null
   }
   if (record.eventType === 'risk') {
     return {
+      id: `telemetry-${record.sequence}`,
       time,
       position: 'aboveBar',
       shape: 'circle',
       color: '#f3b33d',
+      kind: 'risk',
       text: 'RISK',
       sequence: record.sequence,
     }
   }
   if (record.eventType === 'episode_end') {
     return {
+      id: `telemetry-${record.sequence}`,
       time,
       position: 'aboveBar',
       shape: 'square',
       color: '#4098ff',
+      kind: 'end',
       text: 'END',
       sequence: record.sequence,
     }
@@ -219,6 +249,7 @@ export function buildResearchChartData(
   const baseline: ResearchLinePoint[] = []
   const drawdown: ResearchLinePoint[] = []
   const recordByTime = new Map<number, TrainingTelemetryRecord>()
+  const recordBySequence = new Map<number, TrainingTelemetryRecord>()
 
   for (const [time, bucketRecords] of [...buckets.entries()].sort(([left], [right]) => left - right)) {
     const open = firstFinite(bucketRecords, (record) => record.open)
@@ -257,6 +288,7 @@ export function buildResearchChartData(
     .map((item) => markerFor(item.record, item.bucketTime))
     .filter((marker): marker is ResearchMarker => marker !== null)
     .sort((left, right) => left.time - right.time || left.sequence - right.sequence)
+  for (const item of timed) recordBySequence.set(item.record.sequence, item.record)
 
   return {
     symbols,
@@ -270,6 +302,7 @@ export function buildResearchChartData(
     drawdown,
     markers,
     recordByTime,
+    recordBySequence,
     timeBySequence,
   }
 }

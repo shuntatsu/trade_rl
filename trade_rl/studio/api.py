@@ -5,6 +5,10 @@ from __future__ import annotations
 from fastapi import FastAPI, Query, Request, status
 from fastapi.responses import JSONResponse
 
+from trade_rl.studio.behavior_cloning_progress import (
+    BehaviorCloningProgressResponse,
+    StudioBehaviorCloningProgressReader,
+)
 from trade_rl.studio.catalog import StudioCatalog
 from trade_rl.studio.checkpoint_evaluations import (
     CheckpointEvaluationsResponse,
@@ -36,6 +40,7 @@ from trade_rl.studio.evidence import inspect_run_evidence
 from trade_rl.studio.jobs import JobSupervisor
 from trade_rl.studio.serving_monitor import inspect_serving
 from trade_rl.studio.settings import StudioSettings
+from trade_rl.studio.supervised_jobs import SupervisedJobCatalog
 from trade_rl.studio.telemetry import (
     StudioTelemetryReader,
     TelemetryEventsResponse,
@@ -79,6 +84,19 @@ def create_app(
     telemetry_reader = StudioTelemetryReader(settings)
     training_metrics_reader = StudioTrainingMetricsReader(settings)
     checkpoint_reader = StudioCheckpointEvaluationReader(settings)
+    behavior_cloning_reader = StudioBehaviorCloningProgressReader(settings)
+    supervised_jobs = SupervisedJobCatalog(settings)
+
+    def all_jobs() -> tuple[JobSummary, ...]:
+        internal = resolved_supervisor.list_jobs()
+        known = {job.id for job in internal}
+        return internal + tuple(job for job in supervised_jobs.list() if job.id not in known)
+
+    def resolve_job(job_id: str) -> JobSummary:
+        try:
+            return resolved_supervisor.get_job(job_id)
+        except ResourceNotFound:
+            return supervised_jobs.get(job_id)
     app = FastAPI(
         title="Trade RL Studio API",
         version="0.3.0",
@@ -100,7 +118,7 @@ def create_app(
 
     @app.get("/api/studio/overview", response_model=StudioOverview)
     def overview() -> StudioOverview:
-        return resolved_catalog.overview(resolved_supervisor.list_jobs())
+        return resolved_catalog.overview(all_jobs())
 
     @app.get("/api/studio/datasets", response_model=DatasetListResponse)
     def datasets() -> DatasetListResponse:
@@ -155,20 +173,30 @@ def create_app(
 
     @app.get("/api/studio/jobs", response_model=JobListResponse)
     def jobs() -> JobListResponse:
-        items = resolved_supervisor.list_jobs()
+        items = all_jobs()
         return JobListResponse(items=items, total=len(items))
 
     @app.get("/api/studio/jobs/{job_id}", response_model=JobSummary)
     def job(job_id: str) -> JobSummary:
-        return resolved_supervisor.get_job(job_id)
+        return resolve_job(job_id)
 
     @app.get("/api/studio/jobs/{job_id}/log", response_model=JobLogResponse)
     def job_log(
         job_id: str,
         limit: int = Query(default=200, ge=1, le=2_000),
     ) -> JobLogResponse:
+        resolved = resolve_job(job_id)
+        if resolved.owner_instance_id == "external-supervisor":
+            return JobLogResponse(job_id=job_id, lines=(), truncated=False)
         lines, truncated = resolved_supervisor.tail_log(job_id, limit=limit)
         return JobLogResponse(job_id=job_id, lines=lines, truncated=truncated)
+
+    @app.get(
+        "/api/studio/jobs/{job_id}/behavior-cloning/progress",
+        response_model=BehaviorCloningProgressResponse,
+    )
+    def behavior_cloning_progress(job_id: str) -> BehaviorCloningProgressResponse:
+        return behavior_cloning_reader.inspect(resolve_job(job_id))
 
     @app.get(
         "/api/studio/jobs/{job_id}/telemetry/status",
@@ -179,7 +207,7 @@ def create_app(
         seed: int | None = Query(default=None, ge=0),
     ) -> TelemetryStatusResponse:
         return telemetry_reader.status(
-            resolved_supervisor.get_job(job_id),
+            resolve_job(job_id),
             seed=seed,
         )
 
@@ -201,7 +229,7 @@ def create_app(
         ),
     ) -> TelemetryEventsResponse:
         return telemetry_reader.events(
-            resolved_supervisor.get_job(job_id),
+            resolve_job(job_id),
             seed=seed,
             after_sequence=after_sequence,
             limit=limit,
@@ -217,7 +245,7 @@ def create_app(
         seed: int | None = Query(default=None, ge=0),
     ) -> TrainingMetricsStatusResponse:
         return training_metrics_reader.status(
-            resolved_supervisor.get_job(job_id),
+            resolve_job(job_id),
             seed=seed,
         )
 
@@ -234,7 +262,7 @@ def create_app(
         generation: str | None = Query(default=None, min_length=64, max_length=64),
     ) -> TrainingMetricsResponse:
         return training_metrics_reader.scalars(
-            resolved_supervisor.get_job(job_id),
+            resolve_job(job_id),
             seed=seed,
             tags=tuple(tag),
             after_step=after_step,
@@ -247,7 +275,7 @@ def create_app(
         response_model=CheckpointEvaluationsResponse,
     )
     def checkpoint_evaluations(job_id: str) -> CheckpointEvaluationsResponse:
-        return checkpoint_reader.inspect(resolved_supervisor.get_job(job_id))
+        return checkpoint_reader.inspect(resolve_job(job_id))
 
     @app.post(
         "/api/studio/jobs/training",
@@ -259,6 +287,8 @@ def create_app(
 
     @app.post("/api/studio/jobs/{job_id}/cancel", response_model=JobSummary)
     def cancel(job_id: str) -> JobSummary:
+        if resolve_job(job_id).owner_instance_id == "external-supervisor":
+            raise InvalidStudioRequest("externally supervised jobs are read-only")
         return resolved_supervisor.cancel(job_id)
 
     return app

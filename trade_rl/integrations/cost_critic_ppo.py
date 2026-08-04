@@ -158,6 +158,15 @@ class CostCriticPPO(PPO):
             self.policy.extract_features(observations)
         ).detach()
 
+    @staticmethod
+    def _resolved_device(device: torch.device | str) -> torch.device:
+        """Resolve implicit CUDA devices to the process-local device index."""
+
+        resolved = torch.device(device)
+        if resolved.type == "cuda" and resolved.index is None:
+            return torch.device("cuda", torch.cuda.current_device())
+        return resolved
+
     def _run_policy_with_cost_features(
         self,
         operation: Callable[[], Any],
@@ -356,7 +365,7 @@ class CostCriticPPO(PPO):
             self.policy.set_training_mode(policy_training)
         if cache.ndim != 2 or cache.shape[0] != transition_count:
             raise RuntimeError("Cost Critic feature cache has an invalid rollout shape")
-        if cache.device != self.device:
+        if cache.device != self._resolved_device(self.device):
             raise RuntimeError("Cost Critic feature cache is on the wrong device")
         if not bool(torch.isfinite(cache).all()):
             raise RuntimeError("Cost Critic feature cache contains non-finite values")

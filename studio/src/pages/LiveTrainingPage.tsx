@@ -21,7 +21,9 @@ import {
   type ResearchTimeframe,
 } from '../live/researchChartModel'
 import { TrainingDiagnosticsPanel } from '../live/TrainingDiagnosticsPanel'
+import { BehaviorCloningProgressPanel } from '../live/BehaviorCloningProgressPanel'
 import { currentEnvironmentEpisode, telemetryEnvironmentIds } from '../live/telemetryStreams'
+import { useBehaviorCloningProgress } from '../live/useBehaviorCloningProgress'
 import { useTrainingTelemetry } from '../live/useTrainingTelemetry'
 import '../liveTraining.css'
 
@@ -79,6 +81,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const [previewRecord, setPreviewRecord] = useState<TrainingTelemetryRecord | null>(null)
   const [chartResetToken, setChartResetToken] = useState(0)
   const telemetry = useTrainingTelemetry(jobId, api, seed)
+  const behaviorCloning = useBehaviorCloningProgress(jobId, api)
 
   useEffect(() => {
     let active = true
@@ -248,8 +251,8 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
         </div>
       </header>
 
-      {(jobsError || telemetry.error || checkpointError) ? (
-        <div className="live-alert"><AlertTriangle size={16} aria-hidden="true" />{jobsError ?? telemetry.error ?? checkpointError}</div>
+      {(jobsError || telemetry.error || checkpointError || behaviorCloning.error) ? (
+        <div className="live-alert"><AlertTriangle size={16} aria-hidden="true" />{jobsError ?? telemetry.error ?? checkpointError ?? behaviorCloning.error}</div>
       ) : null}
 
       <div hidden={liveView !== 'diagnostics'}><TrainingDiagnosticsPanel job={selectedJob} seed={effectiveSeed} api={api} /></div>
@@ -283,6 +286,9 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
           onResetView={resetView}
         />
 
+        {replayRecords.length === 0 ? (
+          <BehaviorCloningProgressPanel progress={behaviorCloning.progress} />
+        ) : (<>
         <div className="research-summary-grid" aria-label="研究サマリー">
           <MetricCard label="RL資産" value={equity === null ? '—' : equity.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} tone="neutral" />
           <MetricCard label="Baseline差" value={`${signed(baselineDelta)} USDT`} tone={(baselineDelta ?? 0) >= 0 ? 'positive' : 'negative'} />
@@ -333,6 +339,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
             labelFor={checkpointLabel}
           />
         </div>
+        </>)}
       </div>
     </section>
   )

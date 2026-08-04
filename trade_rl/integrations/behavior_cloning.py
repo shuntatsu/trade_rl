@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import copy
 import math
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import torch
@@ -112,9 +113,13 @@ def _positive_class_weight(
     positive = labels.gate_labels[train_indices] & active
     positive_count = int(np.count_nonzero(positive))
     negative_count = int(np.count_nonzero(active & ~positive))
-    if positive_count == 0:
+    if positive_count == 0 or negative_count == 0:
         return 1.0
-    return min(maximum, max(1.0, negative_count / positive_count))
+    # ``pos_weight`` balances both minority-positive and majority-positive
+    # labels.  Clamping it to at least one makes a majority-positive gate's
+    # constant optimum exceed 0.5, which is indistinguishable from an
+    # all-trade policy at inference time.
+    return min(maximum, max(1.0 / maximum, negative_count / positive_count))
 
 
 def _hierarchical_batch_losses(
@@ -256,6 +261,7 @@ def pretrain_policy(
     seed: int,
     observation_provider: ObservationBatchProvider | None = None,
     hierarchical_labels: HierarchicalTeacherLabels | None = None,
+    progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> BehaviorCloningResult:
     """Fit legacy MSE or hierarchical BC with a chronological validation tail."""
 
@@ -316,6 +322,7 @@ def pretrain_policy(
     best_validation = math.inf
     best_epoch = 0
     stale_epochs = 0
+    started_at = time.monotonic()
     for epoch in range(1, config.epochs + 1):
         permutation = torch.randperm(train_count, generator=generator).numpy()
         shuffled = train_indices[permutation]
@@ -348,11 +355,12 @@ def pretrain_policy(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+        validation_evaluation: _HierarchicalEvaluation | None = None
+        validation_loss: float | None = None
         if validation_count == 0:
             best_state = copy.deepcopy(policy.state_dict())
             best_epoch = epoch
-            continue
-        if hierarchical_labels is None:
+        elif hierarchical_labels is None:
             validation_loss = _mean_squared_error(
                 policy,
                 dataset,
@@ -362,7 +370,7 @@ def pretrain_policy(
                 provider=observation_provider,
             )
         else:
-            validation_loss = _evaluate_hierarchical(
+            validation_evaluation = _evaluate_hierarchical(
                 policy,
                 dataset,
                 hierarchical_labels,
@@ -372,16 +380,50 @@ def pretrain_policy(
                 positive_class_weight=positive_class_weight,
                 device=device,
                 provider=observation_provider,
-            ).losses.weighted
-        if validation_loss + config.minimum_improvement < best_validation:
-            best_validation = validation_loss
-            best_state = copy.deepcopy(policy.state_dict())
-            best_epoch = epoch
-            stale_epochs = 0
-        else:
-            stale_epochs += 1
-            if stale_epochs >= config.early_stopping_patience:
-                break
+            )
+            validation_loss = validation_evaluation.losses.weighted
+        should_stop = False
+        if validation_loss is not None:
+            if validation_loss + config.minimum_improvement < best_validation:
+                best_validation = validation_loss
+                best_state = copy.deepcopy(policy.state_dict())
+                best_epoch = epoch
+                stale_epochs = 0
+            else:
+                stale_epochs += 1
+                should_stop = stale_epochs >= config.early_stopping_patience
+        if progress_callback is not None:
+            elapsed_seconds = time.monotonic() - started_at
+            estimated_remaining_seconds = (
+                elapsed_seconds / epoch * (config.epochs - epoch)
+            )
+            metrics = (
+                None if validation_evaluation is None else validation_evaluation.metrics
+            )
+            losses = (
+                None if validation_evaluation is None else validation_evaluation.losses
+            )
+            progress_callback(
+                {
+                    "epoch": epoch,
+                    "total_epochs": config.epochs,
+                    "best_epoch": best_epoch,
+                    "elapsed_seconds": elapsed_seconds,
+                    "estimated_remaining_seconds": estimated_remaining_seconds,
+                    "validation_loss": validation_loss,
+                    "gate_loss": None if losses is None else losses.gate,
+                    "target_loss": None if losses is None else losses.target,
+                    "composed_loss": None if losses is None else losses.composed,
+                    "gate_precision": None if metrics is None else metrics.gate_precision,
+                    "gate_recall": None if metrics is None else metrics.gate_recall,
+                    "activity_ratio": None if metrics is None else metrics.activity_ratio,
+                    "all_hold_collapse": None if metrics is None else metrics.all_hold_collapse,
+                    "all_trade_collapse": None if metrics is None else metrics.all_trade_collapse,
+                    "early_stopping": should_stop,
+                }
+            )
+        if should_stop:
+            break
     policy.load_state_dict(best_state)
 
     final_mse = _mean_squared_error(

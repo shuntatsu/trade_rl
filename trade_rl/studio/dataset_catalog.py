@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -32,6 +33,47 @@ def _timeframe(bar_hours: float) -> str:
     return f"{bar_hours:g}h"
 
 
+def _display_identity(
+    dataset: object,
+) -> tuple[tuple[str, ...], tuple[str, ...], int | None]:
+    symbols = tuple(getattr(dataset, "symbols"))
+    feature_names = tuple(getattr(dataset, "feature_names"))
+    timeframes = tuple(
+        dict.fromkeys(
+            name.split("__", 1)[0]
+            for name in feature_names
+            if "__" in name and name.split("__", 1)[0]
+        )
+    )
+    identity_json = getattr(dataset, "identity_payload_json", None)
+    if not isinstance(identity_json, str):
+        return symbols, timeframes, None
+    try:
+        identity = json.loads(identity_json)
+    except json.JSONDecodeError:
+        return symbols, timeframes, None
+    if not isinstance(identity, dict):
+        return symbols, timeframes, None
+    selected = identity.get("selected_symbols")
+    if (
+        isinstance(selected, list)
+        and len(selected) == len(symbols)
+        and all(isinstance(item, str) and item for item in selected)
+        and len(set(selected)) == len(selected)
+    ):
+        symbols = tuple(selected)
+    vocabulary = identity.get("symbol_vocabulary")
+    universe_count = (
+        len(vocabulary)
+        if isinstance(vocabulary, list)
+        and vocabulary
+        and all(isinstance(item, str) and item for item in vocabulary)
+        and len(set(vocabulary)) == len(vocabulary)
+        else None
+    )
+    return symbols, timeframes, universe_count
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedDataset:
     path: Path
@@ -49,7 +91,18 @@ class DatasetCatalog:
             if (root / "manifest.json").is_file() and (root / "arrays.npz").is_file():
                 directories.add(root)
             if root.is_dir():
-                for manifest in root.rglob("manifest.json"):
+                manifests = list(root.glob("*/manifest.json"))
+                generations = sorted(
+                    (path for path in root.iterdir() if path.is_dir()),
+                    key=lambda path: path.stat().st_mtime_ns,
+                    reverse=True,
+                )
+                for generation in generations:
+                    generated = list(generation.glob("dataset-*/manifest.json"))
+                    if generated:
+                        manifests.extend(generated)
+                        break
+                for manifest in manifests:
                     if (manifest.parent / "arrays.npz").is_file():
                         directories.add(manifest.parent)
         return tuple(sorted(directories, key=lambda item: item.as_posix()))
@@ -69,19 +122,23 @@ class DatasetCatalog:
                 dataset = load_market_dataset_artifact(path)
                 start = _iso_timestamp(dataset.timestamps[0])
                 end = _iso_timestamp(dataset.timestamps[-1])
+                symbols, feature_timeframes, universe_count = _display_identity(
+                    dataset
+                )
                 return DatasetSummary(
                     id=resource_id("dataset", relative, dataset.dataset_id),
                     dataset_id=dataset.dataset_id,
                     name=path.name,
                     relative_path=relative,
                     market=dataset.calendar_kind,
-                    symbols=dataset.symbols,
-                    timeframes=(_timeframe(dataset.bar_hours),),
+                    symbols=symbols,
+                    timeframes=feature_timeframes or (_timeframe(dataset.bar_hours),),
                     range=f"{start} — {end}",
                     status="VALID",
                     feature_count=dataset.n_features,
                     bar_count=dataset.n_bars,
                     symbol_count=dataset.n_symbols,
+                    universe_symbol_count=universe_count,
                     updated=mtime(path / "manifest.json"),
                 )
             except (OSError, ValueError, TypeError) as error:

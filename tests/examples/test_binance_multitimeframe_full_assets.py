@@ -13,6 +13,7 @@ from trade_rl.rl.checkpointing import publish_checkpoint
 from trade_rl.rl.observations import ORDER_OBSERVATION_WIDTH
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
+from trade_rl.workflows.walk_forward import WalkForwardWorkflowConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_ROOT = ROOT / "examples" / "binance-multitimeframe"
@@ -72,6 +73,38 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert execution.impact_rate > 0.0
     assert config.portfolio_risk.max_abs_weight is not None
     assert config.portfolio_risk.max_abs_weight <= 0.5
+
+
+def test_requested_constrained_growth_template_is_full_lagrangian_training() -> None:
+    config = TrainingRunConfig.from_json(
+        EXAMPLE_ROOT / "training-target-weight-constrained-growth.json"
+    )
+
+    assert config.training.algorithm == "lagrangian_ppo"
+    assert config.training.timesteps >= 524_288
+    assert config.training.seeds == (0, 1, 2)
+    assert config.training.behavior_cloning_epochs == 45
+    assert config.training.behavior_cloning_patience == 10
+    assert config.training.behavior_cloning_max_active_target_rmse == pytest.approx(1.0)
+
+
+def test_requested_full_range_workflow_uses_postgres_timeline_end_to_end() -> None:
+    namespace = _runner_namespace()
+    align = namespace["_align_workflow_to_full_dataset"]
+    payload = json.loads(
+        (EXAMPLE_ROOT / "walk-forward-constrained-growth.json").read_text(
+            encoding="utf-8"
+        )
+    )["workflow"]
+
+    align(payload, n_bars=192_672)
+
+    assert payload["train_bars"] == 169_056
+    config = WalkForwardWorkflowConfig(n_bars=192_672, **payload)
+    folds = config.build_folds()
+    assert len(folds) == 6
+    assert folds[0].train.start == 0
+    assert folds[-1].test.stop == 192_672
 
 
 def test_full_walk_forward_config_has_six_material_folds() -> None:
@@ -161,9 +194,9 @@ def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
         assert symbol in content
     for timeframe in ("15m", "1h", "4h", "1d"):
         assert timeframe in content
-    assert "2024-12-01T00:00:00Z" in content
+    assert "2021-01-01T00:00:00Z" in content
     assert "2026-07-01T00:00:00Z" in content
-    assert "55_392" in content
+    assert "192_672" in content
     assert "dataset_id" in content
     assert "artifact_digest" in content
     assert "binance_multitimeframe_feature_specs" in content

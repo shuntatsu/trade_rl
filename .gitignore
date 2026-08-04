@@ -220,6 +220,7 @@ __marimo__/
 !mars_lite/data/
 *.parquet
 *.zip
+
 # 学習出力
 output/
 outputs/
@@ -230,3 +231,6 @@ elites_memo.txt
 .agents/
 .worktrees/
 /data_past/
+
+.pytest-preflight/
+.pytest-tmp/

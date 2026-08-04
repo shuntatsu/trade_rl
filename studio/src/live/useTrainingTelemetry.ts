@@ -3,8 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { studioApi, type StudioApi } from '../api/studioApi'
 import type { TelemetryStatusResponse, TrainingTelemetryRecord } from '../data/types'
 
-const MAX_BUFFERED_RECORDS = 2_048
-const POLL_INTERVAL_MS = 1_000
+const MAX_BUFFERED_RECORDS = 512
+const EVENT_PAGE_LIMIT = 128
+const POLL_INTERVAL_MS = 200
 
 export type TelemetryConnection = 'connecting' | 'live' | 'delayed' | 'offline'
 
@@ -60,7 +61,7 @@ export function useTrainingTelemetry(
         api.loadTelemetryEvents(
           resolvedJobId,
           sequence.current,
-          512,
+          EVENT_PAGE_LIMIT,
           seed,
           expectedGeneration,
         ),

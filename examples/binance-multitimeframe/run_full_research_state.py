@@ -87,6 +87,16 @@ def _absolute_artifact_path(raw: object, *, field: str) -> Path:
     return path if path.is_absolute() else _ROOT / path
 
 
+def _example_template(value: str, *, field: str) -> Path:
+    raw = Path(value)
+    if raw.name != value or raw.suffix != ".json":
+        raise ValueError(f"{field} must name one JSON file in {_EXAMPLE_DIR}")
+    resolved = (_EXAMPLE_DIR / raw).resolve()
+    if resolved.parent != _EXAMPLE_DIR.resolve() or not resolved.is_file():
+        raise ValueError(f"{field} is not a maintained example template")
+    return resolved
+
+
 def _normalize_selected_config(path: Path) -> TrainingRunConfig:
     payload = pipeline.load_json(path)
     payload["resume_checkpoints"] = {}
@@ -222,8 +232,36 @@ class BinanceFullResearchStages:
                 f"observed {policy_observation_count:,}"
             )
 
+        workflow_template = _EXAMPLE_DIR / "walk-forward-full.json"
+        requested_training = getattr(self.args, "training_template", None)
+        if requested_training:
+            training_template = _example_template(
+                requested_training, field="training template"
+            )
+            requested_config = normalize_training_run_config(
+                TrainingRunConfig.from_json(training_template)
+            )
+            if requested_config.resume_checkpoints:
+                raise ValueError("requested training template must not resume checkpoints")
+            requested_workflow = pipeline.load_json(
+                _EXAMPLE_DIR / "walk-forward-constrained-growth.json"
+            )
+            raw_workflow = requested_workflow.get("workflow")
+            if not isinstance(raw_workflow, dict):
+                raise ValueError("requested walk-forward workflow is invalid")
+            pipeline.align_workflow_to_full_dataset(
+                raw_workflow, n_bars=dataset.n_bars
+            )
+            requested_workflow["candidates"] = [
+                {
+                    "name": training_template.stem,
+                    "run": pipeline.load_json(training_template),
+                }
+            ]
+            workflow_template = work_root / "requested-walk-forward-template.json"
+            pipeline.write_json(workflow_template, requested_workflow)
         workflow_config = pipeline.write_run_config(
-            template_path=_EXAMPLE_DIR / "walk-forward-full.json",
+            template_path=workflow_template,
             output_path=work_root / "walk-forward-full.json",
         )
         artifact_root = work_root / "artifacts"
@@ -514,6 +552,10 @@ def main(argv: list[str] | None = None) -> int:
         "--symbol-triplet-train-slot",
         type=int,
         default=int(os.environ.get("TRADE_RL_SYMBOL_TRIPLET_TRAIN_SLOT", "0")),
+    )
+    parser.add_argument(
+        "--training-template",
+        default=os.environ.get("TRADE_RL_FULL_TRAINING_TEMPLATE"),
     )
     args = parser.parse_args(argv)
     work_root = (

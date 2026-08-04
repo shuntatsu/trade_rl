@@ -278,6 +278,11 @@ def evaluate_range_evidence(
                 "start_idx": start_index,
             },
         )
+        initial_book = env.shadow if baseline else env.hybrid
+        closed_trade_tracker.seed_positions(
+            quantities=initial_book.quantities,
+            prices=initial_book.mark_prices,
+        )
         terminated = False
         truncated = False
         while not terminated and not truncated:

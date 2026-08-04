@@ -244,6 +244,20 @@ def test_full_rollout_cache_matches_fresh_features_with_zero_tolerance() -> None
         environment.close()
 
 
+def test_implicit_cuda_device_resolves_to_current_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+
+    assert CostCriticPPO._resolved_device(torch.device("cuda")) == torch.device(
+        "cuda:0"
+    )
+    assert CostCriticPPO._resolved_device(torch.device("cuda:1")) == torch.device(
+        "cuda:1"
+    )
+    assert CostCriticPPO._resolved_device(torch.device("cpu")) == torch.device("cpu")
+
+
 def test_cost_diagnostics_reuse_supplied_cache_without_feature_extraction() -> None:
     environment = DummyVecEnv([lambda: _CostEnvironment()])
     model = _model(environment, cost_n_epochs=1, cost_batch_size=4)

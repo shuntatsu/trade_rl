@@ -118,6 +118,14 @@ function interactionRecord(
   params: MouseEventParams<Time>,
   data: ResearchChartData,
 ): TrainingTelemetryRecord | null {
+  if (typeof params.hoveredObjectId === 'string') {
+    const match = /^telemetry-(\d+)$/.exec(params.hoveredObjectId)
+    if (match) {
+      const sequence = Number(match[1])
+      const markerRecord = data.recordBySequence.get(sequence)
+      if (markerRecord) return markerRecord
+    }
+  }
   const directTime = timeNumber(params.time)
   if (directTime !== null) return nearestRecord(data, directTime)
   if (params.point === undefined) return null
@@ -280,10 +288,10 @@ export function ResearchChartWorkspace({
     setSeriesData(series, data)
 
     const visibleMarkers = data.markers.filter((marker) =>
-      marker.text === 'BUY' || marker.text === 'SELL'
+      marker.kind === 'position'
         ? layers.positionEvents
-        : marker.text === 'RISK' ? layers.riskEvents : true)
-    markerRef.current?.setMarkers(visibleMarkers.map(({ sequence: _sequence, ...marker }) => ({
+        : marker.kind === 'risk' ? layers.riskEvents : true)
+    markerRef.current?.setMarkers(visibleMarkers.map(({ sequence: _sequence, kind: _kind, ...marker }) => ({
       ...marker,
       time: marker.time as UTCTimestamp,
     })) as SeriesMarker<Time>[])

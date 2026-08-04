@@ -643,6 +643,16 @@ def _prepare_compiled_core(
         return None, f"compile_setup_failed:{type(error).__name__}"
 
 
+def _resolve_compile_fallback_reason(
+    *,
+    setup_reason: str | None,
+    execution_reason: str | None,
+) -> str | None:
+    """Preserve the most specific truthful reason for eager execution."""
+
+    return execution_reason or setup_reason
+
+
 def _run_compiled_or_eager(
     *,
     compiled: Callable[[], _ResultT],
@@ -767,7 +777,11 @@ def solve_torch_cuda_oracle_batch(
         initial_block_size=initial_block,
         cleanup=cleanup,
     )
-    result, actual_compile_mode, fallback_reason = solve_output
+    result, actual_compile_mode, execution_fallback_reason = solve_output
+    fallback_reason = _resolve_compile_fallback_reason(
+        setup_reason=compile_setup_reason,
+        execution_reason=execution_fallback_reason,
+    )
     torch.cuda.synchronize(device)
     elapsed = time.perf_counter() - started
     peak_device = int(torch.cuda.max_memory_allocated(device))

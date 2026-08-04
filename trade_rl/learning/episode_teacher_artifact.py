@@ -40,7 +40,8 @@ from trade_rl.learning.teacher_artifact import (
 )
 
 EPISODE_TEACHER_ARTIFACT_SCHEMA_V1: Final = "episode_supervised_teacher_artifact_v1"
-EPISODE_TEACHER_ARTIFACT_SCHEMA: Final = "episode_supervised_teacher_artifact_v2"
+EPISODE_TEACHER_ARTIFACT_SCHEMA_V2: Final = "episode_supervised_teacher_artifact_v2"
+EPISODE_TEACHER_ARTIFACT_SCHEMA: Final = "episode_supervised_teacher_artifact_v3"
 _ALLOWED_FILES = frozenset({TEACHER_MANIFEST_NAME, TEACHER_ARRAYS_NAME})
 _COMPACT_KEYS = (
     "active",
@@ -186,6 +187,7 @@ class EpisodeTeacherArtifactManifest:
     observation_shapes: dict[str, tuple[int, ...]]
     observation_dtypes: dict[str, str]
     action_shape: tuple[int, int]
+    solver_provenance_digest: str | None = None
     solver_provenance: OracleSolverProvenance | None = None
     schema_version: str = EPISODE_TEACHER_ARTIFACT_SCHEMA
 
@@ -221,16 +223,39 @@ class EpisodeTeacherArtifactManifest:
             raise ValueError("episode teacher action count mismatch")
         if self.schema_version not in {
             EPISODE_TEACHER_ARTIFACT_SCHEMA_V1,
+            EPISODE_TEACHER_ARTIFACT_SCHEMA_V2,
             EPISODE_TEACHER_ARTIFACT_SCHEMA,
         }:
             raise ValueError("unsupported episode teacher artifact schema")
         if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V1:
-            if self.solver_provenance is not None:
+            if (
+                self.solver_provenance is not None
+                or self.solver_provenance_digest is not None
+            ):
                 raise ValueError(
                     "legacy episode teacher artifacts cannot claim provenance"
                 )
         elif not isinstance(self.solver_provenance, OracleSolverProvenance):
-            raise ValueError("v2 episode teacher artifacts require solver provenance")
+            raise ValueError("episode teacher artifacts require solver provenance")
+        elif self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V2:
+            if self.solver_provenance_digest is not None:
+                raise ValueError(
+                    "v2 episode teacher artifacts cannot claim v3 integrity"
+                )
+        else:
+            if self.solver_provenance_digest is None:
+                raise ValueError(
+                    "v3 episode teacher artifacts require provenance digest"
+                )
+            require_sha256(
+                self.solver_provenance_digest,
+                field="solver_provenance_digest",
+            )
+            expected_provenance_digest = content_digest(
+                self.solver_provenance.serialized_payload()
+            )
+            if self.solver_provenance_digest != expected_provenance_digest:
+                raise ValueError("episode teacher manifest provenance digest mismatch")
 
     def digest_payload(self) -> dict[str, object]:
         """Return numerical artifact identity without volatile runtime evidence."""
@@ -256,7 +281,10 @@ class EpisodeTeacherArtifactManifest:
             "train_start": self.train_start,
             "train_stop": self.train_stop,
         }
-        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA:
+        if self.schema_version in {
+            EPISODE_TEACHER_ARTIFACT_SCHEMA_V2,
+            EPISODE_TEACHER_ARTIFACT_SCHEMA,
+        }:
             if self.solver_provenance is None:  # pragma: no cover - guarded above
                 raise RuntimeError("solver provenance disappeared")
             payload["solver_identity"] = {
@@ -269,10 +297,15 @@ class EpisodeTeacherArtifactManifest:
         """Return complete manifest with runtime evidence outside artifact identity."""
 
         payload = self.digest_payload()
-        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA:
+        if self.schema_version in {
+            EPISODE_TEACHER_ARTIFACT_SCHEMA_V2,
+            EPISODE_TEACHER_ARTIFACT_SCHEMA,
+        }:
             if self.solver_provenance is None:  # pragma: no cover - guarded above
                 raise RuntimeError("solver provenance disappeared")
             payload["solver_provenance"] = self.solver_provenance.serialized_payload()
+        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA:
+            payload["solver_provenance_digest"] = self.solver_provenance_digest
         return {**payload, "artifact_digest": self.artifact_digest}
 
 
@@ -297,6 +330,11 @@ def write_episode_teacher_artifact(
         EPISODE_TEACHER_ARTIFACT_SCHEMA_V1
         if dataset.solver_provenance is None
         else EPISODE_TEACHER_ARTIFACT_SCHEMA
+    )
+    solver_provenance_digest = (
+        None
+        if dataset.solver_provenance is None
+        else content_digest(dataset.solver_provenance.serialized_payload())
     )
     base: dict[str, object] = {
         "action_digest": dataset.action_digest,
@@ -343,6 +381,7 @@ def write_episode_teacher_artifact(
         observation_shapes=dataset.observation_shapes,
         observation_dtypes=dataset.observation_dtypes,
         action_shape=(dataset.actions.shape[0], dataset.actions.shape[1]),
+        solver_provenance_digest=solver_provenance_digest,
         solver_provenance=dataset.solver_provenance,
         schema_version=schema_version,
     )
@@ -380,6 +419,11 @@ def load_episode_teacher_artifact(
             if schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V1
             else OracleSolverProvenance.from_payload(raw["solver_provenance"])
         )
+        solver_provenance_digest = (
+            str(raw["solver_provenance_digest"])
+            if schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA
+            else None
+        )
         manifest = EpisodeTeacherArtifactManifest(
             artifact_digest=str(raw["artifact_digest"]),
             arrays_digest=str(raw["arrays_digest"]),
@@ -404,6 +448,7 @@ def load_episode_teacher_artifact(
                 str(key): str(value) for key, value in raw["observation_dtypes"].items()
             },
             action_shape=tuple(int(value) for value in raw["action_shape"]),  # type: ignore[arg-type]
+            solver_provenance_digest=solver_provenance_digest,
             solver_provenance=solver_provenance,
             schema_version=schema_version,
         )

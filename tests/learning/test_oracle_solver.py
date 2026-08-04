@@ -9,9 +9,9 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.learning.oracle_bellman_contracts import (
     OracleBackendFailure,
     OracleEpisodeInputs,
-    OracleSolveResult,
     OracleSolverConfig,
     OracleSolverProvenance,
+    OracleSolveResult,
 )
 from trade_rl.learning.oracle_bellman_numpy import solve_numpy_oracle_batch
 from trade_rl.learning.oracle_market_tape import build_oracle_market_tape

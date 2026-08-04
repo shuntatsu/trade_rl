@@ -29,7 +29,7 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 
 ORACLE_BENCHMARK_SCHEMA: Final = "oracle_teacher_benchmark_v2"
 _SUPPORTED_BACKENDS: Final = (
-    "legacy_numpy",
+    "serial_numpy",
     "numpy_batched",
     "torch_cuda_eager",
     "torch_cuda_compiled",
@@ -194,10 +194,10 @@ def _solver_config(
     target_state_block_size: int | None,
     compile_chunk_size: int,
 ) -> OracleSolverConfig:
-    if backend in {"legacy_numpy", "numpy_batched"}:
+    if backend in {"serial_numpy", "numpy_batched"}:
         return OracleSolverConfig(
             selection="numpy",
-            episode_batch_size=(1 if backend == "legacy_numpy" else episode_batch_size),
+            episode_batch_size=(1 if backend == "serial_numpy" else episode_batch_size),
             target_state_block_size=target_state_block_size,
         )
     return OracleSolverConfig(
@@ -220,7 +220,7 @@ def _run_solver(
     solver_config: OracleSolverConfig,
 ) -> _OperationEvidence:
     states = _portfolio_states(dataset, teacher_config)
-    if backend == "legacy_numpy":
+    if backend == "serial_numpy":
         targets: list[np.ndarray] = []
         scores: list[float] = []
         provenances: list[OracleSolverProvenance] = []
@@ -441,10 +441,10 @@ def run_oracle_teacher_benchmark(
                 "synchronized solve, first-call compilation when enabled, and "
                 "backtracking"
             ),
-            "compatibility_note": (
-                "serial calls through the maintained NumPy solver; the removed "
-                "pre-refactor implementation is not retained"
-                if backend == "legacy_numpy"
+            "baseline_note": (
+                "maintained NumPy solver invoked one episode at a time; "
+                "not the removed pre-refactor implementation"
+                if backend == "serial_numpy"
                 else None
             ),
         },

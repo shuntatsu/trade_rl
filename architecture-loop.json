@@ -1,0 +1,28 @@
+{
+  "operations": [
+    {
+      "kind": "replace",
+      "path": "trade_rl/artifacts/structured_policy_contract.py",
+      "old": "from trade_rl.domain.canonical_json import to_json_value\nfrom trade_rl.domain.common import require_sha256\n",
+      "new": "from trade_rl.domain.canonical_json import to_json_value\nfrom trade_rl.domain.common import require_sha256\nfrom trade_rl.domain.policy_contracts import (\n    HIERARCHICAL_SEQUENCE_ENCODER,\n    SB3_POLICY_IDENTITY_SCHEMA,\n    STRUCTURED_TIMEFRAMES,\n)\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/artifacts/structured_policy_contract.py",
+      "old": "STRUCTURED_EXPORT_MODEL_NAME: Final = \"policy.structured.torchscript.pt\"\nSTRUCTURED_TIMEFRAMES: Final = (\"15m\", \"1h\", \"4h\", \"1d\")\n_POLICY_IDENTITY_SCHEMA: Final = \"sb3_policy_identity_v4\"\n",
+      "new": "STRUCTURED_EXPORT_MODEL_NAME: Final = \"policy.structured.torchscript.pt\"\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/artifacts/structured_policy_contract.py",
+      "old": "    if payload.get(\"schema_version\") != _POLICY_IDENTITY_SCHEMA:\n",
+      "new": "    if payload.get(\"schema_version\") != SB3_POLICY_IDENTITY_SCHEMA:\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/artifacts/structured_policy_contract.py",
+      "old": "    if payload.get(\"observation_encoder\") != \"hierarchical_sequence_v2\":\n",
+      "new": "    if payload.get(\"observation_encoder\") != HIERARCHICAL_SEQUENCE_ENCODER:\n"
+    }
+  ]
+}

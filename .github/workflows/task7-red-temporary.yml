@@ -1,0 +1,31 @@
+name: Task 7 cache identity RED
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/task7-red-temporary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Prove v2 API is absent before implementation
+        run: |
+          python - <<'PY'
+          from trade_rl.catalog import reusable_artifacts
+          assert not hasattr(reusable_artifacts, "teacher_cache_identity_v2")
+          raise SystemExit("RED: teacher_cache_identity_v2 is not implemented")
+          PY

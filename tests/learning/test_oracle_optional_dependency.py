@@ -46,7 +46,9 @@ def test_cuda_integration_reports_typed_failure_without_torch() -> None:
         """
 import numpy as np
 
-from trade_rl.integrations.oracle_solver import solve_torch_cuda_oracle_batch
+from trade_rl.integrations.oracle_solver import (
+    solve_torch_cuda_oracle_batch,
+)
 from trade_rl.learning.oracle_bellman_contracts import (
     OracleBackendFailure,
     OracleSolverConfig,

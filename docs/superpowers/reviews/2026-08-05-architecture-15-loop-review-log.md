@@ -108,4 +108,12 @@
 
 **Fix:** Added `_run_identity_payload()` which extends the recipe with export options, Git state, and checkpoint digests; `digest_payload()` now uses it while `candidate_digest_payload()` remains recipe-only.
 
-**Review:** Full run identity retains all prior transport/provenance fields, while candidate selection no longer changes for export or checkout state. The reviewed change set is staged for focused verification.
+**Review:** Full run identity retains all prior transport/provenance fields, while candidate selection no longer changes for export or checkout state. Focused result: 13 passed, 2 failed.
+
+## Loop 14: Oracle accelerator registration is explicit
+
+**Check:** Importing `trade_rl.integrations` mutated the Learning-layer accelerator registry.
+
+**Fix:** Added explicit idempotent `register_default_oracle_accelerators()` and invoke it only when CUDA or CUDA-fallback Oracle solving is requested.
+
+**Review:** NumPy imports remain side-effect free; Torch remains lazily imported by the CUDA adapter. The reviewed change set is staged for focused verification.

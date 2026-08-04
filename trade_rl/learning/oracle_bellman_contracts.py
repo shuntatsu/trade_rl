@@ -150,10 +150,8 @@ class OracleSolverConfig:
             or not 0.0 < self.cuda_memory_fraction <= 1.0
         ):
             raise ValueError("cuda_memory_fraction must be within (0, 1]")
-        if self.compile_mode != "disabled":
-            raise ValueError(
-                "compile_mode_unvalidated: compile_mode must remain disabled"
-            )
+        if self.compile_mode not in {"disabled", "reduce_overhead"}:
+            raise ValueError("compile_mode is unsupported")
         _positive_integer(self.compile_chunk_size, field="compile_chunk_size")
         if self.schema_version != ORACLE_SOLVER_CONFIG_SCHEMA:
             raise ValueError("unsupported Oracle solver config schema")

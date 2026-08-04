@@ -62,9 +62,7 @@ def _readonly_integer_array(
     raw = np.asarray(value)
     if raw.ndim != ndim:
         raise ValueError(f"{field} must be {ndim}-dimensional")
-    if not np.issubdtype(raw.dtype, np.integer) or np.issubdtype(
-        raw.dtype, np.bool_
-    ):
+    if not np.issubdtype(raw.dtype, np.integer) or np.issubdtype(raw.dtype, np.bool_):
         raise ValueError(f"{field} must contain integers")
     array = np.asarray(raw, dtype=np.int64).copy(order="C")
     array.setflags(write=False)
@@ -367,7 +365,9 @@ class OracleSolveResult:
                 "final_scores": _array_identity(scores),
                 "provenance_digest": self.provenance.digest,
                 "schema_version": self.schema_version,
-                "targets": tuple(_array_identity(target) for target in resolved_targets),
+                "targets": tuple(
+                    _array_identity(target) for target in resolved_targets
+                ),
             }
         )
         if self.digest and self.digest != expected:

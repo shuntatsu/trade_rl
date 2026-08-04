@@ -5,18 +5,6 @@
       "path": "docs/ARCHITECTURE.md",
       "old": "`sb3_policy_identity_v1`は、ConfigをそのままHashせず、組み立て済みFeature extractorから構造を読み取ります。",
       "new": "`sb3_policy_identity_v4`は、ConfigをそのままHashせず、組み立て済みFeature extractorから構造を読み取ります。"
-    },
-    {
-      "kind": "replace",
-      "path": ".github/workflows/ci.yml",
-      "old": "  pull_request:\n    branches:\n      - main\n      - agent/causal-training-hardening\n      - agent/causal-sequence-feature-encoder\n",
-      "new": "  pull_request:\n    branches:\n      - main\n"
-    },
-    {
-      "kind": "replace",
-      "path": ".github/workflows/ci.yml",
-      "old": "          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log\n",
-      "new": "          uv run pytest -q tests/architecture tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log\n"
     }
   ]
 }

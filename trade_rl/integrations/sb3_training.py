@@ -189,9 +189,9 @@ def _teacher_worker_count(
     *,
     solver_config: OracleSolverConfig | None = None,
 ) -> int:
-    raw = os.environ.get("TRADE_RL_TEACHER_WORKERS", "1").strip()
+    raw = os.environ.get("TRADE_RL_TEACHER_WORKERS", "").strip()
     try:
-        configured = int(raw)
+        configured = n_envs if not raw else int(raw)
     except ValueError as error:
         raise ValueError("TRADE_RL_TEACHER_WORKERS must be an integer") from error
     if configured <= 0:

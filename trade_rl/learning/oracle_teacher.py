@@ -261,10 +261,13 @@ def project_portfolio_targets(
         raise ValueError(
             "oracle portfolio target batch does not match portfolio values"
         )
+    liquidity = np.asarray(market_notional, dtype=np.float64)
+    if liquidity.ndim == 1:
+        liquidity = liquidity[None, :]
     return project_portfolio_targets_numpy(
         weights[None, :, :, :],
         portfolio_value=values[None, :],
-        market_notional=market_notional,
+        market_notional=liquidity,
         config=config,
     )[0]
 

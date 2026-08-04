@@ -1,8 +1,4 @@
-from pathlib import Path
-
-path = Path("tests/learning/test_oracle_optional_dependency.py")
-path.write_text(
-    '''from __future__ import annotations
+from __future__ import annotations
 
 import subprocess
 import sys
@@ -66,6 +62,3 @@ else:
     )
 
     assert result.returncode == 0, result.stderr
-''',
-    encoding="utf-8",
-)

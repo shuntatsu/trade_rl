@@ -15,8 +15,38 @@ from trade_rl.learning.oracle_bellman_contracts import (
     OracleSolveResult,
 )
 from trade_rl.learning.oracle_bellman_numpy import solve_numpy_oracle_batch
-from trade_rl.learning.oracle_bellman_torch import solve_torch_cuda_oracle_batch
-from trade_rl.learning.oracle_market_tape import build_oracle_market_tape
+from trade_rl.learning.oracle_market_tape import (
+    OracleMarketTape,
+    build_oracle_market_tape,
+)
+
+
+def solve_torch_cuda_oracle_batch(
+    *,
+    tape: OracleMarketTape,
+    states: np.ndarray,
+    episode_inputs: OracleEpisodeInputs,
+    parameters: OracleBellmanParameters,
+    solver_config: OracleSolverConfig,
+) -> OracleSolveResult:
+    """Load the optional Torch backend only when CUDA execution is requested."""
+
+    try:
+        from trade_rl.learning.oracle_bellman_torch import (
+            solve_torch_cuda_oracle_batch as implementation,
+        )
+    except ModuleNotFoundError as error:
+        missing = error.name or ""
+        if missing == "torch" or missing.startswith("torch."):
+            raise OracleBackendFailure("torch_cuda", "torch_unavailable") from error
+        raise
+    return implementation(
+        tape=tape,
+        states=states,
+        episode_inputs=episode_inputs,
+        parameters=parameters,
+        solver_config=solver_config,
+    )
 
 
 def _episode_subset(

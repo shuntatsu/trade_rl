@@ -303,69 +303,8 @@ def test_oom_retry_fails_after_second_out_of_memory() -> None:
     assert calls == [8, 4]
 
 
-@pytest.mark.parametrize("chunk_size", [8, 16, 32, 64])
-def test_compile_mode_accepts_only_maintained_fixed_chunks(chunk_size: int) -> None:
-    from trade_rl.integrations.oracle_bellman_torch import (
-        _validated_compile_chunk_size,
-    )
-
-    assert (
-        _validated_compile_chunk_size(
-            OracleSolverConfig(
-                selection="cuda",
-                compile_mode="reduce_overhead",
-                compile_chunk_size=chunk_size,
-            )
-        )
-        == chunk_size
-    )
-
-
-def test_compile_mode_rejects_unmaintained_chunk_size() -> None:
-    from trade_rl.integrations.oracle_bellman_torch import (
-        _validated_compile_chunk_size,
-    )
-
-    with pytest.raises(ValueError, match="compile_chunk_size"):
-        _validated_compile_chunk_size(
-            OracleSolverConfig(
-                selection="cuda",
-                compile_mode="reduce_overhead",
-                compile_chunk_size=7,
-            )
-        )
-
-
-def test_compile_failure_restarts_from_eager_path() -> None:
-    from trade_rl.integrations.oracle_bellman_torch import _run_compiled_or_eager
-
-    calls: list[str] = []
-
-    def compiled() -> str:
-        calls.append("compiled")
-        raise RuntimeError("compile unsupported")
-
-    def eager() -> str:
-        calls.append("eager")
-        return "ok"
-
-    result, compile_mode, reason = _run_compiled_or_eager(
-        compiled=compiled,
-        eager=eager,
-    )
-
-    assert result == "ok"
-    assert compile_mode == "disabled"
-    assert reason == "compile_failed:RuntimeError"
-    assert calls == ["compiled", "eager"]
-
-
 def test_forward_solver_core_contains_no_explicit_host_transfer() -> None:
     import inspect
-
-    from trade_rl.integrations.oracle_bellman_torch import (
-        _solve_torch_oracle_batch_core,
-    )
 
     source = inspect.getsource(_solve_torch_oracle_batch_core)
     assert ".cpu(" not in source
@@ -373,19 +312,8 @@ def test_forward_solver_core_contains_no_explicit_host_transfer() -> None:
     assert ".item(" not in source
 
 
-def test_cuda_solver_contains_real_reduce_overhead_compile_path() -> None:
-    import inspect
-
-    from trade_rl.integrations.oracle_bellman_torch import _prepare_compiled_core
-
-    source = inspect.getsource(_prepare_compiled_core)
-    assert "torch.compile(" in source
-    assert 'mode="reduce-overhead"' in source
-
-
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
-@pytest.mark.parametrize("compile_mode", ["disabled", "reduce_overhead"])
-def test_cuda_solver_matches_numpy_reference(compile_mode: str) -> None:
+def test_cuda_eager_solver_matches_numpy_reference() -> None:
     close = np.column_stack(
         [
             100.0 * np.exp(np.arange(8) * 0.02),
@@ -426,8 +354,6 @@ def test_cuda_solver_matches_numpy_reference(compile_mode: str) -> None:
             selection="cuda",
             episode_batch_size=2,
             target_state_block_size=1,
-            compile_mode=compile_mode,
-            compile_chunk_size=8,
         ),
     )
 
@@ -443,29 +369,5 @@ def test_cuda_solver_matches_numpy_reference(compile_mode: str) -> None:
         np.testing.assert_array_equal(actual_path, expected_path)
     assert actual.provenance.backend == "torch_cuda"
     assert actual.provenance.target_state_block_size == 1
-    if compile_mode == "disabled":
-        assert actual.provenance.compile_mode == "disabled"
-        assert actual.provenance.fallback_reason is None
-    else:
-        assert actual.provenance.compile_mode in {"disabled", "reduce_overhead"}
-        if actual.provenance.compile_mode == "disabled":
-            assert actual.provenance.fallback_reason is not None
-
-
-def test_compile_setup_failure_uses_eager_mode(monkeypatch) -> None:
-    from trade_rl.integrations.oracle_bellman_torch import _prepare_compiled_core
-
-    def fail_compile(*args, **kwargs):
-        raise RuntimeError("torch.compile is unavailable")
-
-    monkeypatch.setattr("torch.compile", fail_compile)
-    compiled, reason = _prepare_compiled_core(
-        OracleSolverConfig(
-            selection="cuda",
-            compile_mode="reduce_overhead",
-            compile_chunk_size=8,
-        )
-    )
-
-    assert compiled is None
-    assert reason == "compile_setup_failed:RuntimeError"
+    assert actual.provenance.compile_mode == "disabled"
+    assert actual.provenance.fallback_reason is None

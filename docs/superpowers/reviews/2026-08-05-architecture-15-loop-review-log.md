@@ -52,4 +52,12 @@
 
 **Fix:** Added the lower `simulation.performance` contract with unchanged return-series validation and performance formulas, then redirected RL to that contract.
 
-**Review:** Environment behavior and metric values are unchanged; the dependency now follows the maintained layer direction. Focused verification follows on this commit.
+**Review:** Environment behavior and metric values are unchanged; the dependency now follows the maintained layer direction. Focused result: 6 passed, 9 failed.
+
+## Loop 7: Performance implementation has one owner
+
+**Check:** The lower performance contract existed, but Evaluation still owned duplicate implementations of return-series and metric calculations.
+
+**Fix:** Replaced `evaluation.series` and `evaluation.metrics` with compatibility facades that re-export the Simulation-owned contracts.
+
+**Review:** Existing import paths remain valid and the formulas now have one implementation owner. Focused verification follows after the reviewed change set is applied.

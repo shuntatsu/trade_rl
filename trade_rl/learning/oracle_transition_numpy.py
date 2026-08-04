@@ -85,6 +85,76 @@ def _numeric_array(
     return array
 
 
+def _step_indices(
+    step: int | np.ndarray,
+    *,
+    batch_size: int,
+    tape: OracleMarketTape,
+) -> np.ndarray:
+    raw = np.asarray(step)
+    if raw.ndim == 0:
+        if np.issubdtype(raw.dtype, np.bool_) or not np.issubdtype(
+            raw.dtype, np.integer
+        ):
+            raise ValueError("step must contain integer indices")
+        indices = np.full(batch_size, int(raw), dtype=np.int64)
+    elif raw.ndim == 1:
+        if np.issubdtype(raw.dtype, np.bool_) or not np.issubdtype(
+            raw.dtype, np.integer
+        ):
+            raise ValueError("step must contain integer indices")
+        if raw.shape != (batch_size,):
+            raise ValueError("step indices must match the episode batch")
+        indices = np.asarray(raw, dtype=np.int64)
+    else:
+        raise ValueError("step must be a scalar or one-dimensional array")
+    if np.any(indices < 0) or np.any(indices >= tape.steps):
+        raise ValueError("step is outside the market tape")
+    return indices
+
+
+def _batch_symbol_array(
+    value: object,
+    *,
+    field: str,
+    batch_size: int,
+    symbol_count: int,
+    boolean: bool = False,
+) -> np.ndarray:
+    raw = np.asarray(value)
+    expected_shared = (symbol_count,)
+    expected_batched = (batch_size, symbol_count)
+    if raw.shape == expected_shared:
+        raw = np.broadcast_to(raw[None, :], expected_batched)
+    elif raw.shape != expected_batched:
+        raise ValueError(f"{field} must match the batch and symbol counts")
+    if boolean:
+        if not np.issubdtype(raw.dtype, np.bool_):
+            raise ValueError(f"{field} must contain booleans")
+        return np.asarray(raw, dtype=np.bool_)
+    return _numeric_array(raw, field=field, ndim=2)
+
+
+def _batch_targets(
+    targets: object,
+    *,
+    batch_size: int,
+    symbol_count: int,
+) -> np.ndarray:
+    raw = np.asarray(targets)
+    if raw.ndim == 2:
+        values = _numeric_array(raw, field="targets", ndim=2)
+        if values.shape[1] != symbol_count:
+            raise ValueError("targets must match the current symbol count")
+        return np.broadcast_to(values[None, :, :], (batch_size, *values.shape))
+    if raw.ndim == 3:
+        values = _numeric_array(raw, field="targets", ndim=3)
+        if values.shape[0] != batch_size or values.shape[2] != symbol_count:
+            raise ValueError("targets must match the batch and symbol counts")
+        return values
+    raise ValueError("targets must be two- or three-dimensional")
+
+
 def numpy_open_state_step(
     *,
     raw_position_factor: np.ndarray,
@@ -94,7 +164,7 @@ def numpy_open_state_step(
     prior_close_weights: np.ndarray,
     reference_portfolio_value: float,
 ) -> NumPyOpenStateBatch:
-    """Advance batched prior close states through the next open."""
+    """Advance batched prior close states through each episode's next open."""
 
     scores = _numeric_array(
         prior_scores,
@@ -109,47 +179,53 @@ def numpy_open_state_step(
     )
     if scores.shape != weights.shape[:2]:
         raise ValueError("prior scores and close weights do not align")
-    symbol_count = weights.shape[2]
-    raw_factor = _numeric_array(
+    batch_size, _, symbol_count = weights.shape
+    raw_factor = _batch_symbol_array(
         raw_position_factor,
         field="raw_position_factor",
-        ndim=1,
+        batch_size=batch_size,
+        symbol_count=symbol_count,
     )
-    equity_factor = _numeric_array(
+    equity_factor = _batch_symbol_array(
         equity_position_factor,
         field="equity_position_factor",
-        ndim=1,
+        batch_size=batch_size,
+        symbol_count=symbol_count,
     )
-    active_mask = np.asarray(active)
-    if (
-        raw_factor.shape != (symbol_count,)
-        or equity_factor.shape != (symbol_count,)
-        or active_mask.shape != (symbol_count,)
-        or not np.issubdtype(active_mask.dtype, np.bool_)
-    ):
-        raise ValueError("open market inputs must match the symbol count")
+    active_mask = _batch_symbol_array(
+        active,
+        field="active",
+        batch_size=batch_size,
+        symbol_count=symbol_count,
+        boolean=True,
+    )
     if np.any(raw_factor <= 0.0) or np.any(equity_factor < 0.0):
         raise ValueError("open position factors are outside their maintained bounds")
-    if not math.isfinite(reference_portfolio_value) or reference_portfolio_value <= 0.0:
+    if (
+        not math.isfinite(reference_portfolio_value)
+        or reference_portfolio_value <= 0.0
+    ):
         raise ValueError("reference_portfolio_value must be finite and positive")
 
     gap_factor = 1.0 + np.sum(
-        weights * (equity_factor[None, None, :] - 1.0),
+        weights * (equity_factor[:, None, :] - 1.0),
         axis=2,
     )
-    valid_prior = (
-        np.isfinite(scores) & np.isfinite(gap_factor) & (gap_factor > _EPSILON)
+    valid_prior = np.isfinite(scores) & np.isfinite(gap_factor) & (
+        gap_factor > _EPSILON
     )
     safe_gap = np.where(valid_prior, gap_factor, 1.0)
     open_position_fractions = (
         weights
-        * raw_factor[None, None, :]
-        * active_mask[None, None, :].astype(np.float64)
+        * raw_factor[:, None, :]
+        * active_mask[:, None, :].astype(np.float64)
     )
     open_weights = open_position_fractions / safe_gap[:, :, None]
     open_weights = np.where(valid_prior[:, :, None], open_weights, 0.0)
     open_equity = (
-        reference_portfolio_value * np.exp(np.clip(scores, -50.0, 50.0)) * safe_gap
+        reference_portfolio_value
+        * np.exp(np.clip(scores, -50.0, 50.0))
+        * safe_gap
     )
     open_equity = np.where(valid_prior, open_equity, 0.0)
     return NumPyOpenStateBatch(
@@ -167,18 +243,24 @@ def numpy_effective_target_matrix(
 ) -> np.ndarray:
     """Apply maintained rebalance controls and hard target limits."""
 
-    current = _numeric_array(
+    current_batch = _numeric_array(
         current_weights,
         field="current_weights",
         ndim=3,
-    )[:, :, None, :]
-    requested_targets = _numeric_array(targets, field="targets", ndim=2)
-    if requested_targets.shape[1] != current.shape[3]:
-        raise ValueError("targets must match the current symbol count")
-    requested = np.broadcast_to(
-        requested_targets[None, None, :, :],
-        (*current.shape[:2], requested_targets.shape[0], current.shape[3]),
     )
+    batch_size, prior_count, symbol_count = current_batch.shape
+    requested = _batch_targets(
+        targets,
+        batch_size=batch_size,
+        symbol_count=symbol_count,
+    )
+    current = current_batch[:, :, None, :]
+    if requested.shape[1] == 1 and prior_count != 1:
+        requested = np.broadcast_to(
+            requested,
+            (batch_size, prior_count, *requested.shape[2:]),
+        )
+    requested = requested[:, None, :, :]
     controlled = requested.copy()
     current_abs = np.abs(current)
     target_abs = np.abs(requested)
@@ -186,13 +268,15 @@ def numpy_effective_target_matrix(
     current_zero = current_abs <= _EPSILON
     same_direction = current * requested > 0.0
 
-    entry_suppressed = (
-        current_zero & target_nonzero & (target_abs < parameters.entry_threshold)
+    entry_suppressed = current_zero & target_nonzero & (
+        target_abs < parameters.entry_threshold
     )
     controlled[entry_suppressed] = 0.0
 
     exit_suppressed = (
-        ~current_zero & same_direction & (target_abs <= parameters.exit_threshold)
+        ~current_zero
+        & same_direction
+        & (target_abs <= parameters.exit_threshold)
     )
     controlled[exit_suppressed] = 0.0
 
@@ -246,17 +330,19 @@ def project_portfolio_targets_numpy(
     liquidity = _numeric_array(
         market_notional,
         field="market_notional",
-        ndim=1,
+        ndim=2,
     )
-    if weights.shape[:2] != values.shape or weights.shape[3] != liquidity.size:
-        raise ValueError("portfolio projection inputs do not align")
+    if weights.shape[:2] != values.shape or weights.shape[0] != liquidity.shape[0]:
+        raise ValueError("portfolio projection batches do not align")
+    if weights.shape[3] != liquidity.shape[1]:
+        raise ValueError("portfolio projection does not match liquidity")
     if np.any(values <= 0.0) or np.any(liquidity < 0.0):
         raise ValueError("portfolio projection inputs are outside maintained bounds")
     if config.max_abs_weight is not None:
         weights = np.clip(weights, -config.max_abs_weight, config.max_abs_weight)
     if config.max_position_to_market_notional is not None:
         caps = (
-            liquidity[None, None, None, :]
+            liquidity[:, None, None, :]
             * config.max_position_to_market_notional
             / values[:, :, None, None]
         )
@@ -288,25 +374,27 @@ def _fill_classification(
         & executable
         & (
             requested
-            < minimum_notional[None, None, None, :] - _MINIMUM_NOTIONAL_TOLERANCE
+            < minimum_notional[:, None, None, :]
+            - _MINIMUM_NOTIONAL_TOLERANCE
         )
-    )
+   )
     blocked = requested_trade & ~executable
     eligible = requested_trade & executable & ~below_minimum
-    capacity_noop = eligible & (capacity[None, None, None, :] <= _EPSILON)
+    capacity_noop = eligible & (capacity[:, None, None, :] <= _EPSILON)
     fully_filled = np.all(
-        ~requested_trade | (filled_notional >= requested - _MINIMUM_NOTIONAL_TOLERANCE),
+        ~requested_trade
+        | (filled_notional >= requested - _MINIMUM_NOTIONAL_TOLERANCE),
         axis=3,
     )
 
     result = np.full(valid.shape, FillClassification.NO_REQUEST, dtype=np.int8)
     no_fill = requested_any & ~filled_any
-    result[no_fill & np.any(below_minimum, axis=3)] = (
-        FillClassification.MINIMUM_NOTIONAL_NOOP
-    )
-    result[no_fill & ~np.any(below_minimum, axis=3) & np.any(blocked, axis=3)] = (
-        FillClassification.EXECUTION_BLOCKED_NOOP
-    )
+    result[no_fill & np.any(below_minimum, axis=3)] = FillClassification.MINIMUM_NOTIONAL_NOOP
+    result[
+        no_fill
+        & ~np.any(below_minimum, axis=3)
+        & np.any(blocked, axis=3)
+    ] = FillClassification.EXECUTION_BLOCKED_NOOP
     result[
         no_fill
         & ~np.any(below_minimum, axis=3)
@@ -322,7 +410,7 @@ def _fill_classification(
 def numpy_execute_transition_step(
     *,
     tape: OracleMarketTape,
-    step: int,
+    step: int | np.ndarray,
     current_weights: np.ndarray,
     open_equity: np.ndarray,
     targets: np.ndarray,
@@ -334,23 +422,19 @@ def numpy_execute_transition_step(
         raise ValueError("tape must be OracleMarketTape")
     if not isinstance(parameters, OracleBellmanParameters):
         raise ValueError("parameters must be OracleBellmanParameters")
-    if (
-        isinstance(step, bool)
-        or not isinstance(step, int)
-        or not 0 <= step < tape.steps
-    ):
-        raise ValueError("step is outside the market tape")
     weights = _numeric_array(current_weights, field="current_weights", ndim=3)
     equity = _numeric_array(open_equity, field="open_equity", ndim=2)
     if weights.shape[:2] != equity.shape or weights.shape[2] != tape.symbol_count:
         raise ValueError("current weights and equity do not align with the tape")
-
+    batch_size = weights.shape[0]
+    indices = _step_indices(step, batch_size=batch_size, tape=tape)
     requested_targets = numpy_effective_target_matrix(parameters, weights, targets)
     safe_portfolio_value = np.maximum(equity, _EPSILON)
+    market_notional = tape.market_notional[indices]
     requested_targets = project_portfolio_targets_numpy(
         requested_targets,
         portfolio_value=safe_portfolio_value,
-        market_notional=tape.market_notional[step],
+        market_notional=market_notional,
         config=parameters.portfolio_risk,
     )
     current = weights[:, :, None, :]
@@ -362,36 +446,45 @@ def numpy_execute_transition_step(
         desired_delta.shape[:3],
     ).copy()
 
+    buy_allowed = tape.buy_allowed[indices]
+    sell_allowed = tape.sell_allowed[indices]
     direction_allowed = np.where(
         desired_delta > _EPSILON,
-        tape.buy_allowed[step][None, None, None, :],
+        buy_allowed[:, None, None, :],
         np.where(
             desired_delta < -_EPSILON,
-            tape.sell_allowed[step][None, None, None, :],
+            sell_allowed[:, None, None, :],
             True,
         ),
     )
     executable = (
-        tape.active[step][None, None, None, :]
-        & tape.tradable[step][None, None, None, :]
+        tape.active[indices][:, None, None, :]
+        & tape.tradable[indices][:, None, None, :]
         & direction_allowed
     )
-    increasing_short = (desired_delta < -_EPSILON) & (requested_targets < -_EPSILON)
-    executable &= ~increasing_short | tape.borrow_available[step][None, None, None, :]
+    increasing_short = (desired_delta < -_EPSILON) & (
+        requested_targets < -_EPSILON
+    )
+    executable &= ~increasing_short | tape.borrow_available[indices][
+        :, None, None, :
+    ]
     if not parameters.execution_cost.allow_short:
         executable &= requested_targets >= -_EPSILON
 
     requested = np.abs(desired_delta) * equity[:, :, None, None]
-    minimum = tape.minimum_notional[step]
+    minimum = tape.minimum_notional[indices]
     eligible = (
         requested_trade
         & executable
-        & (requested >= minimum[None, None, None, :] - _MINIMUM_NOTIONAL_TOLERANCE)
+        & (
+            requested
+            >= minimum[:, None, None, :] - _MINIMUM_NOTIONAL_TOLERANCE
+        )
     )
-    capacity = tape.participation_capacity[step]
+    capacity = tape.participation_capacity[indices]
     filled_notional = np.where(
         eligible,
-        np.minimum(requested, capacity[None, None, None, :]),
+        np.minimum(requested, capacity[:, None, None, :]),
         0.0,
     )
     safe_equity = np.maximum(equity[:, :, None, None], _EPSILON)
@@ -400,12 +493,14 @@ def numpy_execute_transition_step(
     absolute_delta = np.abs(filled_delta)
 
     participation = np.zeros_like(filled_notional)
-    positive_liquidity = tape.market_notional[step] > _EPSILON
-    participation[..., positive_liquidity] = (
-        filled_notional[..., positive_liquidity]
-        / tape.market_notional[step][None, None, None, positive_liquidity]
+    positive_liquidity = market_notional > _EPSILON
+    np.divide(
+        filled_notional,
+        market_notional[:, None, None, :],
+        out=participation,
+        where=positive_liquidity[r:, None, None, :],
     )
-    unit_cost = tape.base_unit_cost[step][None, None, None, :] + (
+    unit_cost = tape.base_unit_cost[indices][:, None, None, :] + (
         parameters.execution_cost.multiplier
         * parameters.execution_cost.impact_rate
         * np.sqrt(participation)
@@ -426,26 +521,30 @@ def numpy_execute_transition_step(
     )
     valid &= open_collateral + _EPSILON >= open_maintenance
 
-    close_position = effective_targets * tape.mark_open_ratio[step][None, None, None, :]
+    close_position = effective_targets * tape.mark_open_ratio[indices][
+        :, None, None, :
+    ]
     dividend_fraction = np.sum(
-        effective_targets * tape.dividend_open_ratio[step][None, None, None, :],
+        effective_targets * tape.dividend_open_ratio[indices][:, None, None, :],
         axis=3,
     )
     interest_base = cash_after_execution + dividend_fraction
     cash_interest_fraction = (
-        interest_base * tape.cash_rate[step] * tape.elapsed_year_fraction[step]
+        interest_base
+        * tape.cash_rate[indices][:, None, None]
+        * tape.elapsed_year_fraction[indices][:, None, None]
     )
     funding_fraction = -np.sum(
-        effective_targets * tape.funding_due_rate[step][None, None, None, :],
+        effective_targets * tape.funding_due_rate[indices][:, None, None, :],
         axis=3,
     )
     borrow_fraction = (
         np.sum(
             np.maximum(-effective_targets, 0.0)
-            * tape.borrow_rate[step][None, None, None, :],
+            * tape.borrow_rate[indices][:, None, None, :],
             axis=3,
         )
-        * tape.elapsed_year_fraction[step]
+        * tape.elapsed_year_fraction[indices][:, None, None]
         * parameters.execution_cost.borrow_rate_multiplier
     )
     close_factor = (
@@ -481,11 +580,7 @@ def numpy_execute_transition_step(
         filled_notional=filled_notional,
     )
     close_weights = np.where(valid[:, :, :, None], close_weights, 0.0)
-    effective_targets = np.where(
-        valid[:, :, :, None],
-        effective_targets,
-        0.0,
-    )
+    effective_targets = np.where(valid[:, :, :, None], effective_targets, 0.0)
     return NumPyExecutionBatch(
         valid=valid,
         close_factor=close_factor,
@@ -498,7 +593,7 @@ def numpy_execute_transition_step(
 def numpy_transition_step(
     *,
     tape: OracleMarketTape,
-    step: int,
+    step: int | np.ndarray,
     prior_scores: np.ndarray,
     prior_close_weights: np.ndarray,
     targets: np.ndarray,
@@ -506,23 +601,31 @@ def numpy_transition_step(
 ) -> NumPyTransitionBatch:
     """Advance and evaluate one Bellman step for a batch of episodes."""
 
-    if (
-        isinstance(step, bool)
-        or not isinstance(step, int)
-        or not 0 <= step < tape.steps
-    ):
-        raise ValueError("step is outside the market tape")
+    scores = _numeric_array(
+        prior_scores,
+        field="prior_scores",
+        ndim=2,
+        allow_negative_infinity=True,
+    )
+    weights = _numeric_array(
+        prior_close_weights,
+        field="prior_close_weights",
+        ndim=3,
+    )
+    if scores.shape != weights.shape[:2] or weights.shape[2] != tape.symbol_count:
+        raise ValueError("prior state does not align with the market tape")
+    indices = _step_indices(step, batch_size=scores.shape[0], tape=tape)
     open_state = numpy_open_state_step(
-        raw_position_factor=tape.raw_position_factor[step],
-        equity_position_factor=tape.equity_position_factor[step],
-        active=tape.active[step],
-        prior_scores=prior_scores,
-        prior_close_weights=prior_close_weights,
+        raw_position_factor=tape.raw_position_factor[indices],
+        equity_position_factor=tape.equity_position_factor[indices],
+        active=tape.active[indices],
+        prior_scores=scores,
+        prior_close_weights=weights,
         reference_portfolio_value=parameters.reference_portfolio_value,
     )
     execution = numpy_execute_transition_step(
         tape=tape,
-        step=step,
+        step=indices,
         current_weights=open_state.open_weights,
         open_equity=open_state.open_equity,
         targets=targets,
@@ -530,7 +633,9 @@ def numpy_transition_step(
     )
     valid = execution.valid & open_state.valid_prior[:, :, None]
     close_weights = np.where(valid[:, :, :, None], execution.close_weights, 0.0)
-    effective_targets = np.where(valid[:, :, :, None], execution.effective_targets, 0.0)
+    effective_targets = np.where(
+        valid[:, :, :, None], execution.effective_targets, 0.0
+    )
     fill_classification = np.where(
         valid,
         execution.fill_classification,

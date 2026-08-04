@@ -41,9 +41,7 @@ def _market() -> MarketDataset:
         low=np.minimum(open_price, close) * 0.999,
         close=close,
         volume=np.full_like(close, 10_000.0),
-        funding_rate=np.array(
-            [[0.0, 0.0], [0.001, -0.001], [0.0, 0.0], [0.0, 0.0]]
-        ),
+        funding_rate=np.array([[0.0, 0.0], [0.001, -0.001], [0.0, 0.0], [0.0, 0.0]]),
         tradable=np.ones_like(close, dtype=np.bool_),
         feature_available=np.ones((4, 2, 1), dtype=np.bool_),
         feature_names=("return",),
@@ -109,12 +107,20 @@ def test_batched_transition_matches_legacy_helpers() -> None:
     )
 
     np.testing.assert_allclose(result.gap_factor[0], gap, rtol=1e-10, atol=1e-12)
-    np.testing.assert_allclose(result.open_weights[0], open_weights, rtol=1e-10, atol=1e-12)
-    np.testing.assert_allclose(result.open_equity[0], open_equity, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(
+        result.open_weights[0], open_weights, rtol=1e-10, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        result.open_equity[0], open_equity, rtol=1e-10, atol=1e-12
+    )
     np.testing.assert_array_equal(result.valid_prior[0], valid_prior)
     np.testing.assert_array_equal(result.valid[0], valid)
-    np.testing.assert_allclose(result.close_factor[0], close_factor, rtol=1e-10, atol=1e-12)
-    np.testing.assert_allclose(result.close_weights[0], close_weights, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(
+        result.close_factor[0], close_factor, rtol=1e-10, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        result.close_weights[0], close_weights, rtol=1e-10, atol=1e-12
+    )
     np.testing.assert_allclose(
         result.effective_targets[0], effective_targets, rtol=1e-10, atol=1e-12
     )
@@ -172,8 +178,7 @@ def test_minimum_notional_noop_is_classified_and_valid() -> None:
 
     assert result.valid[0, 0, 0]
     assert (
-        result.fill_classification[0, 0, 0]
-        == FillClassification.MINIMUM_NOTIONAL_NOOP
+        result.fill_classification[0, 0, 0] == FillClassification.MINIMUM_NOTIONAL_NOOP
     )
     np.testing.assert_array_equal(result.effective_targets[0, 0, 0], np.zeros(2))
 

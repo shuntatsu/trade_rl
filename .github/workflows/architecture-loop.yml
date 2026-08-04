@@ -1,6 +1,9 @@
 name: Architecture loop
 
 on:
+  push:
+    branches:
+      - agent/architecture-15-loop-hardening
   pull_request:
     branches:
       - agent/architecture-15-loop-base
@@ -9,21 +12,21 @@ permissions:
   contents: write
 
 concurrency:
-  group: architecture-loop-${{ github.event.pull_request.number }}-${{ github.sha }}
+  group: architecture-loop-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
   focused:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: true
 
       - name: Apply one reviewed change set

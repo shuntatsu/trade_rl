@@ -1,0 +1,42 @@
+name: Temporary delete integrated branches
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temp-delete-integrated-branches.yml
+
+permissions:
+  contents: write
+
+jobs:
+  delete-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cleanup branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/cleanup-integrated-branches
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Delete integrated branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          branches=(
+            agent/architecture-boundary-hardening-20260801
+            agent/oracle-bellman-batched-design
+            agent/oracle-bellman-batched-solver
+            agent/architecture-boundary-hardening-current
+          )
+          for branch in "${branches[@]}"; do
+            if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+              git push origin --delete "$branch"
+            fi
+          done
+
+      - name: Delete cleanup branch
+        shell: bash
+        run: git push origin --delete agent/cleanup-integrated-branches

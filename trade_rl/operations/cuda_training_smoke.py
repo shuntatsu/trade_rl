@@ -44,14 +44,10 @@ class TinyTrainingSmokeResult:
         if any(not math.isfinite(value) for value in self.losses):
             raise ValueError("losses must be finite")
         if any(
-            not math.isfinite(value) or value <= 0.0
-            for value in self.gradient_norms
+            not math.isfinite(value) or value <= 0.0 for value in self.gradient_norms
         ):
             raise ValueError("gradient norms must be finite and positive")
-        if (
-            not math.isfinite(self.parameter_delta_l2)
-            or self.parameter_delta_l2 <= 0.0
-        ):
+        if not math.isfinite(self.parameter_delta_l2) or self.parameter_delta_l2 <= 0.0:
             raise ValueError("parameters must change during the smoke test")
         for field, value in (
             ("peak_allocated_bytes", self.peak_allocated_bytes),
@@ -209,11 +205,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"CUDA_SMOKE_FAIL: {error}", file=sys.stderr)
         return 1
 
-    serialized = json.dumps(
-        result.payload(),
-        sort_keys=True,
-        separators=(",", ":"),
-    ) + "\n"
+    serialized = (
+        json.dumps(
+            result.payload(),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
     if arguments.output is None:
         sys.stdout.write(serialized)
     else:

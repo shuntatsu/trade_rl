@@ -7,6 +7,13 @@ import pytest
 import torch
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.integrations.oracle_bellman_torch import (
+    _solve_torch_oracle_batch_core,
+    reduce_candidates_torch,
+    solve_torch_cuda_oracle_batch,
+    transfer_market_tape_to_torch,
+)
+from trade_rl.integrations.oracle_transition_torch import torch_transition_step
 from trade_rl.learning.oracle_bellman_contracts import (
     OracleBackendFailure,
     OracleEpisodeInputs,
@@ -16,16 +23,9 @@ from trade_rl.learning.oracle_bellman_numpy import (
     reduce_candidates_numpy,
     solve_numpy_oracle_batch,
 )
-from trade_rl.learning.oracle_bellman_torch import (
-    _solve_torch_oracle_batch_core,
-    reduce_candidates_torch,
-    solve_torch_cuda_oracle_batch,
-    transfer_market_tape_to_torch,
-)
 from trade_rl.learning.oracle_market_tape import build_oracle_market_tape
 from trade_rl.learning.oracle_teacher import OracleTeacherConfig, _portfolio_states
 from trade_rl.learning.oracle_transition_numpy import numpy_transition_step
-from trade_rl.learning.oracle_transition_torch import torch_transition_step
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 
@@ -262,7 +262,7 @@ def test_cuda_wrapper_fails_closed_when_cuda_is_unavailable() -> None:
 
 
 def test_oom_retry_halves_target_block_once() -> None:
-    from trade_rl.learning.oracle_bellman_torch import _run_with_oom_retry
+    from trade_rl.integrations.oracle_bellman_torch import _run_with_oom_retry
 
     calls: list[int] = []
 
@@ -285,7 +285,7 @@ def test_oom_retry_halves_target_block_once() -> None:
 
 
 def test_oom_retry_fails_after_second_out_of_memory() -> None:
-    from trade_rl.learning.oracle_bellman_torch import _run_with_oom_retry
+    from trade_rl.integrations.oracle_bellman_torch import _run_with_oom_retry
 
     calls: list[int] = []
 
@@ -305,7 +305,9 @@ def test_oom_retry_fails_after_second_out_of_memory() -> None:
 
 @pytest.mark.parametrize("chunk_size", [8, 16, 32, 64])
 def test_compile_mode_accepts_only_maintained_fixed_chunks(chunk_size: int) -> None:
-    from trade_rl.learning.oracle_bellman_torch import _validated_compile_chunk_size
+    from trade_rl.integrations.oracle_bellman_torch import (
+        _validated_compile_chunk_size,
+    )
 
     assert (
         _validated_compile_chunk_size(
@@ -320,7 +322,9 @@ def test_compile_mode_accepts_only_maintained_fixed_chunks(chunk_size: int) -> N
 
 
 def test_compile_mode_rejects_unmaintained_chunk_size() -> None:
-    from trade_rl.learning.oracle_bellman_torch import _validated_compile_chunk_size
+    from trade_rl.integrations.oracle_bellman_torch import (
+        _validated_compile_chunk_size,
+    )
 
     with pytest.raises(ValueError, match="compile_chunk_size"):
         _validated_compile_chunk_size(
@@ -333,7 +337,7 @@ def test_compile_mode_rejects_unmaintained_chunk_size() -> None:
 
 
 def test_compile_failure_restarts_from_eager_path() -> None:
-    from trade_rl.learning.oracle_bellman_torch import _run_compiled_or_eager
+    from trade_rl.integrations.oracle_bellman_torch import _run_compiled_or_eager
 
     calls: list[str] = []
 
@@ -359,7 +363,9 @@ def test_compile_failure_restarts_from_eager_path() -> None:
 def test_forward_solver_core_contains_no_explicit_host_transfer() -> None:
     import inspect
 
-    from trade_rl.learning.oracle_bellman_torch import _solve_torch_oracle_batch_core
+    from trade_rl.integrations.oracle_bellman_torch import (
+        _solve_torch_oracle_batch_core,
+    )
 
     source = inspect.getsource(_solve_torch_oracle_batch_core)
     assert ".cpu(" not in source
@@ -370,7 +376,7 @@ def test_forward_solver_core_contains_no_explicit_host_transfer() -> None:
 def test_cuda_solver_contains_real_reduce_overhead_compile_path() -> None:
     import inspect
 
-    from trade_rl.learning.oracle_bellman_torch import _prepare_compiled_core
+    from trade_rl.integrations.oracle_bellman_torch import _prepare_compiled_core
 
     source = inspect.getsource(_prepare_compiled_core)
     assert "torch.compile(" in source
@@ -447,7 +453,7 @@ def test_cuda_solver_matches_numpy_reference(compile_mode: str) -> None:
 
 
 def test_compile_setup_failure_uses_eager_mode(monkeypatch) -> None:
-    from trade_rl.learning.oracle_bellman_torch import _prepare_compiled_core
+    from trade_rl.integrations.oracle_bellman_torch import _prepare_compiled_core
 
     def fail_compile(*args, **kwargs):
         raise RuntimeError("torch.compile is unavailable")

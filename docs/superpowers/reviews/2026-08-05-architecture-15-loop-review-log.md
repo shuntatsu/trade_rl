@@ -44,4 +44,12 @@
 
 **Fix:** Added `catalog.postgres_connection` and moved optional psycopg loading plus default connection construction there. Both adapters now consume the public utility.
 
-**Review:** Connection behavior and optional-dependency errors are preserved. Focused and PostgreSQL verification follow on this commit.
+**Review:** Connection behavior and optional-dependency errors are preserved. Focused result: 5 passed, 10 failed. PostgreSQL validation remains active on the branch.
+
+## Loop 6: RL terminal info stops importing Evaluation
+
+**Check:** `rl.environment_info` calculated terminal metrics through `trade_rl.evaluation`, coupling the runtime environment to the reporting layer.
+
+**Fix:** Added the lower `simulation.performance` contract with unchanged return-series validation and performance formulas, then redirected RL to that contract.
+
+**Review:** Environment behavior and metric values are unchanged; the dependency now follows the maintained layer direction. Focused verification follows on this commit.

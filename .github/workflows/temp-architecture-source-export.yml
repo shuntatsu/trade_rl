@@ -1,9 +1,9 @@
 name: Temporary architecture source export
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/architecture-boundary-hardening-current
+      - main
     paths:
       - .github/workflows/temp-architecture-source-export.yml
 

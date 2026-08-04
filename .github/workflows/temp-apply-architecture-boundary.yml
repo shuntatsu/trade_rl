@@ -1,0 +1,97 @@
+name: Temporary apply current architecture boundaries
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temp-apply-architecture-boundary.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temp-apply-architecture-boundary
+  cancel-in-progress: false
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/architecture-boundary-hardening-current
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Confirm RED architecture contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q tests/architecture/test_config_and_export_boundaries.py > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            cat /tmp/red.log
+            echo "Expected architecture boundary test to fail before migration" >&2
+            exit 1
+          fi
+          cat /tmp/red.log
+
+      - name: Apply verified current-main migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .tmp/architecture.patch.b64.* | base64 -d | gzip -d > /tmp/architecture.patch
+          git apply --check /tmp/architecture.patch
+          git apply /tmp/architecture.patch
+          rm -rf .tmp
+          rm -f \
+            .github/workflows/temp-architecture-source-export.yml \
+            .github/workflows/temp-architecture-legacy-export.yml \
+            .github/workflows/temp-apply-architecture-boundary.yml
+
+      - name: Format and verify focused contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix .
+          uv run ruff format .
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest -q \
+            tests/architecture/test_config_and_export_boundaries.py \
+            tests/workflows/test_config_fields.py \
+            tests/workflows/test_selection_authorization.py \
+            tests/rl/test_structured_export.py \
+            tests/rl/test_structured_manifest_trust_boundary.py \
+            tests/serving/test_structured_policy_loader.py \
+            tests/workflows/test_training_run_config.py \
+            tests/workflows/test_training_run_transfer_config.py \
+            tests/studio/test_catalog.py \
+            tests/studio/test_evidence.py \
+            tests/e2e/test_research_to_serving_v2.py
+          uv run lint-imports
+          uv run mypy .
+
+      - name: Commit verified migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "refactor: port architecture boundaries to current main"
+          git push origin HEAD:agent/architecture-boundary-hardening-current

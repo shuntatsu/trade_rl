@@ -41,4 +41,9 @@ text = text.replace(
     ") -> tuple[_ResultT, CompileMode, str | None]:\n",
     1,
 )
+text = text.replace(
+    "    ) -> tuple[TorchBellmanResult, str, str | None]:\n",
+    "    ) -> tuple[TorchBellmanResult, CompileMode, str | None]:\n",
+    1,
+)
 path.write_text(text, encoding="utf-8")

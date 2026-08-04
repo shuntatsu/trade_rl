@@ -1,0 +1,34 @@
+name: Temporary Ruff Fix Oracle Solver
+
+on:
+  push:
+    branches:
+      - agent/oracle-bellman-batched-solver
+    paths:
+      - .github/workflows/temp-ruff-fix-oracle-solver.yml
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Install lint dependencies
+        run: uv sync --extra dev
+      - name: Apply Ruff import fix
+        run: uv run ruff check --fix tests/learning/test_oracle_solver.py
+      - name: Upload fixed file
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fixed-oracle-solver-test
+          path: tests/learning/test_oracle_solver.py
+          if-no-files-found: error

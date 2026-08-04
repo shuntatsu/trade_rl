@@ -7,9 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.episode_teacher_artifact import (
     EPISODE_TEACHER_ARTIFACT_SCHEMA,
     EPISODE_TEACHER_ARTIFACT_SCHEMA_V1,
+    EPISODE_TEACHER_ARTIFACT_SCHEMA_V2,
     EpisodeSupervisedPolicyDataset,
     load_episode_teacher_artifact,
     write_episode_teacher_artifact,
@@ -60,11 +62,13 @@ def test_legacy_artifact_round_trip_does_not_fabricate_solver_provenance(
 
     assert raw["schema_version"] == EPISODE_TEACHER_ARTIFACT_SCHEMA_V1
     assert "solver_provenance" not in raw
+    assert "solver_provenance_digest" not in raw
     assert manifest.solver_provenance is None
+    assert manifest.solver_provenance_digest is None
     assert dataset.solver_provenance is None
 
 
-def test_v2_artifact_round_trip_preserves_complete_solver_provenance(
+def test_v3_artifact_round_trip_preserves_complete_solver_provenance(
     tmp_path: Path,
 ) -> None:
     provenance = _provenance()
@@ -76,11 +80,38 @@ def test_v2_artifact_round_trip_preserves_complete_solver_provenance(
     assert raw["schema_version"] == EPISODE_TEACHER_ARTIFACT_SCHEMA
     assert raw["solver_provenance"]["backend"] == "numpy"
     assert raw["solver_provenance"]["solver_wall_time_seconds"] == 0.25
+    assert len(raw["solver_provenance_digest"]) == 64
     assert manifest.solver_provenance == provenance
+    assert manifest.solver_provenance_digest == raw["solver_provenance_digest"]
     assert dataset.solver_provenance == provenance
 
 
-def test_v2_artifact_rejects_tampered_solver_provenance(tmp_path: Path) -> None:
+def test_legacy_v2_artifact_without_runtime_digest_remains_readable(
+    tmp_path: Path,
+) -> None:
+    provenance = _provenance()
+    write_episode_teacher_artifact(tmp_path, _dataset(provenance=provenance))
+    manifest_path = tmp_path / "manifest.json"
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    raw["schema_version"] = EPISODE_TEACHER_ARTIFACT_SCHEMA_V2
+    raw.pop("solver_provenance_digest")
+    identity_payload = {
+        key: value
+        for key, value in raw.items()
+        if key not in {"artifact_digest", "solver_provenance"}
+    }
+    raw["artifact_digest"] = content_digest(identity_payload)
+    manifest_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    manifest, dataset = load_episode_teacher_artifact(tmp_path)
+
+    assert manifest.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA_V2
+    assert manifest.solver_provenance == provenance
+    assert manifest.solver_provenance_digest is None
+    assert dataset.solver_provenance == provenance
+
+
+def test_v3_artifact_rejects_tampered_solver_provenance(tmp_path: Path) -> None:
     write_episode_teacher_artifact(tmp_path, _dataset(provenance=_provenance()))
     manifest_path = tmp_path / "manifest.json"
     raw = json.loads(manifest_path.read_text(encoding="utf-8"))

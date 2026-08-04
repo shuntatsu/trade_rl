@@ -623,6 +623,26 @@ def _is_compile_failure(error: Exception) -> bool:
     )
 
 
+def _prepare_compiled_core(
+    solver_config: OracleSolverConfig,
+) -> tuple[Callable[..., TorchBellmanResult] | None, str | None]:
+    if solver_config.compile_mode != "reduce_overhead":
+        return None, None
+    try:
+        return (
+            torch.compile(
+                _solve_torch_oracle_batch_core,
+                mode="reduce-overhead",
+                fullgraph=False,
+            ),
+            None,
+        )
+    except Exception as error:
+        if not _is_compile_failure(error):
+            raise
+        return None, f"compile_setup_failed:{type(error).__name__}"
+
+
 def _run_compiled_or_eager(
     *,
     compiled: Callable[[], _ResultT],
@@ -701,13 +721,7 @@ def solve_torch_cuda_oracle_batch(
     )
     initial_block = max(1, min(initial_block, int(state_tensor.shape[0])))
 
-    compiled_core: Callable[..., TorchBellmanResult] | None = None
-    if solver_config.compile_mode == "reduce_overhead":
-        compiled_core = torch.compile(
-            _solve_torch_oracle_batch_core,
-            mode="reduce-overhead",
-            fullgraph=False,
-        )
+    compiled_core, compile_setup_reason = _prepare_compiled_core(solver_config)
 
     def cleanup() -> None:
         torch.cuda.synchronize(device)

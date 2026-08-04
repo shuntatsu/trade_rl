@@ -322,3 +322,84 @@ def test_cuda_or_numpy_does_not_hide_untyped_backend_failures(monkeypatch) -> No
             parameters=teacher.bellman_parameters,
             solver_config=OracleSolverConfig(selection="cuda_or_numpy"),
         )
+
+
+def test_orchestrator_aggregates_variable_cuda_runtime_provenance(monkeypatch) -> None:
+    from dataclasses import replace
+
+    import trade_rl.learning.oracle_solver as oracle_solver_module
+    from trade_rl.learning.oracle_bellman_contracts import (
+        OracleSolveResult,
+        OracleSolverProvenance,
+    )
+
+    market = _market()
+    teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+    calls = 0
+
+    def fake_torch_backend(*, tape, states, episode_inputs, parameters, solver_config):
+        nonlocal calls
+        calls += 1
+        numpy_result = solve_numpy_oracle_batch(
+            tape=tape,
+            states=states,
+            episode_inputs=episode_inputs,
+            parameters=parameters,
+            solver_config=replace(
+                solver_config,
+                selection="numpy",
+                compile_mode="disabled",
+            ),
+        )
+        fallback = "compile_failed:Unsupported" if calls == 2 else None
+        return OracleSolveResult(
+            targets=numpy_result.targets,
+            final_scores=numpy_result.final_scores,
+            provenance=OracleSolverProvenance(
+                backend="torch_cuda",
+                solver_config_digest=solver_config.digest,
+                market_tape_digest=tape.digest,
+                numeric_dtype="float64",
+                tie_tolerance=solver_config.tie_tolerance,
+                episode_batch_size=solver_config.episode_batch_size,
+                target_state_block_size=2 if calls == 1 else 1,
+                compile_mode="reduce_overhead" if calls == 1 else "disabled",
+                compile_chunk_size=solver_config.compile_chunk_size,
+                fallback_reason=fallback,
+                oom_retry_performed=calls == 3,
+                solver_wall_time_seconds=float(calls),
+                peak_device_memory_bytes=100 * calls,
+                torch_version="test",
+                cuda_version="test",
+                device_name="test",
+                compute_capability="0.0",
+            ),
+        )
+
+    monkeypatch.setattr(
+        oracle_solver_module,
+        "solve_torch_cuda_oracle_batch",
+        fake_torch_backend,
+    )
+
+    result = solve_oracle_episodes(
+        market,
+        states=_portfolio_states(market, teacher),
+        episode_inputs=_inputs(),
+        parameters=teacher.bellman_parameters,
+        solver_config=OracleSolverConfig(
+            selection="cuda",
+            episode_batch_size=1,
+            target_state_block_size=2,
+            compile_mode="reduce_overhead",
+            compile_chunk_size=8,
+        ),
+    )
+
+    assert calls == 3
+    assert result.provenance.target_state_block_size == 1
+    assert result.provenance.compile_mode == "disabled"
+    assert result.provenance.fallback_reason == "compile_failed:Unsupported"
+    assert result.provenance.oom_retry_performed is True
+    assert result.provenance.solver_wall_time_seconds == 6.0
+    assert result.provenance.peak_device_memory_bytes == 300

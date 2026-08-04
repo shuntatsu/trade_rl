@@ -370,7 +370,9 @@ def test_forward_solver_core_contains_no_explicit_host_transfer() -> None:
 def test_cuda_solver_contains_real_reduce_overhead_compile_path() -> None:
     import inspect
 
-    source = inspect.getsource(solve_torch_cuda_oracle_batch)
+    from trade_rl.learning.oracle_bellman_torch import _prepare_compiled_core
+
+    source = inspect.getsource(_prepare_compiled_core)
     assert "torch.compile(" in source
     assert 'mode="reduce-overhead"' in source
 
@@ -442,3 +444,22 @@ def test_cuda_solver_matches_numpy_reference(compile_mode: str) -> None:
         assert actual.provenance.compile_mode in {"disabled", "reduce_overhead"}
         if actual.provenance.compile_mode == "disabled":
             assert actual.provenance.fallback_reason is not None
+
+
+def test_compile_setup_failure_uses_eager_mode(monkeypatch) -> None:
+    from trade_rl.learning.oracle_bellman_torch import _prepare_compiled_core
+
+    def fail_compile(*args, **kwargs):
+        raise RuntimeError("torch.compile is unavailable")
+
+    monkeypatch.setattr("torch.compile", fail_compile)
+    compiled, reason = _prepare_compiled_core(
+        OracleSolverConfig(
+            selection="cuda",
+            compile_mode="reduce_overhead",
+            compile_chunk_size=8,
+        )
+    )
+
+    assert compiled is None
+    assert reason == "compile_setup_failed:RuntimeError"

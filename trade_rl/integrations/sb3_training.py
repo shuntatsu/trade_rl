@@ -132,6 +132,10 @@ def _oracle_solver_config() -> OracleSolverConfig:
         raise ValueError(
             f"{selection_name} must be one of numpy, cuda, or cuda_or_numpy"
         )
+    if raw_selection != "numpy":
+        from trade_rl.integrations import register_default_oracle_accelerators
+
+        register_default_oracle_accelerators()
 
     def positive_integer(name: str, default: int) -> int:
         raw = os.environ.get(name, str(default)).strip()

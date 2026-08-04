@@ -2,8 +2,8 @@
 
 The package root intentionally avoids importing optional frameworks. Consumers
 should import adapters from their concrete modules; attribute access remains as
-an explicit lazy compatibility shim. The Oracle CUDA adapter registered here is
-a lazy callable and does not import Torch until an explicit CUDA solve occurs.
+an explicit lazy compatibility shim. Oracle CUDA registration is explicit, and
+the lazy adapter does not import Torch until an explicit CUDA solve occurs.
 """
 
 from __future__ import annotations
@@ -14,7 +14,12 @@ from typing import Any
 from trade_rl.integrations.oracle_solver import solve_torch_cuda_oracle_batch
 from trade_rl.learning.oracle_solver import register_oracle_accelerator_backend
 
-register_oracle_accelerator_backend("cuda", solve_torch_cuda_oracle_batch)
+
+def register_default_oracle_accelerators() -> None:
+    """Register maintained optional Oracle accelerators idempotently."""
+
+    register_oracle_accelerator_backend("cuda", solve_torch_cuda_oracle_batch)
+
 
 _EXPORTS = {
     "LoadedAlphaArtifact": (
@@ -52,4 +57,4 @@ def __getattr__(name: str) -> Any:
     return getattr(import_module(module_name), attribute)
 
 
-__all__ = tuple(_EXPORTS)
+__all__ = (*tuple(_EXPORTS), "register_default_oracle_accelerators")

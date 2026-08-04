@@ -39,8 +39,9 @@ jobs:
         run: |
           set -euo pipefail
           python .github/task10_apply_patch.py implementation
+          python .github/task10_type_fix.py
           sha256sum -c <<'EOF'
-          fb93785456bf1d0c8c2508e5fe8cbb67bc240cc4330b3590842d97ebb825db8d  trade_rl/operations/oracle_teacher_benchmark.py
+          2c332fea09e992687dfda474a81ed67784d042a73752c4b6070a8cd4ad96d5b7  trade_rl/operations/oracle_teacher_benchmark.py
           3b93434110d36b69b97842d447ae6e6bce82dc5e62976ed5d80ba391f163c959  tests/operations/test_oracle_teacher_benchmark.py
           EOF
       - name: Normalize and verify benchmark implementation
@@ -93,6 +94,7 @@ jobs:
             .github/task10_tests.patch.b85 \
             .github/task10_impl.patch.b85 \
             .github/task10_apply_patch.py \
+            .github/task10_type_fix.py \
             .github/workflows/apply-verify-task10-temporary.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

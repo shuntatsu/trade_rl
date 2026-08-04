@@ -63,11 +63,12 @@ jobs:
               encoding="utf-8",
           )
           PY
-      - name: Install and verify
+      - name: Install, format, and verify
         shell: bash
         run: |
           set -euo pipefail
           uv sync --extra dev --extra train-sb3
+          uv run ruff format trade_rl/learning/oracle_market_tape.py
           uv run pytest -q tests/learning/test_oracle_market_tape.py tests/learning/test_oracle_teacher.py
           uv run ruff check trade_rl/learning/oracle_market_tape.py tests/learning/test_oracle_market_tape.py
           uv run ruff format --check --diff trade_rl/learning/oracle_market_tape.py tests/learning/test_oracle_market_tape.py

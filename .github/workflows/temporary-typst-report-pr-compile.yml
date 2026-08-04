@@ -16,32 +16,60 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Japanese fonts
+      - name: Install Japanese fonts and PDF tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk
+          sudo apt-get install -y fonts-noto-cjk poppler-utils
 
       - name: Reconstruct and patch Typst source
         shell: bash
         run: |
-          mkdir -p report
+          mkdir -p report/render
           sed -n "/cat > report\/source.typ.gz.b64 <<'B64'/,/^[[:space:]]*B64$/p" \
             .github/workflows/temporary-typst-report-compile.yml \
             | sed '1d;$d;s/^[[:space:]]*//' \
             > report/source.typ.gz.b64
           base64 --decode report/source.typ.gz.b64 | gzip --decompress > report/information_network_report_final.typ
           test "$(wc -c < report/information_network_report_final.typ)" -eq 27543
-          sed -i \
-            -e 's/#header-cell/header-cell/g' \
-            -e 's/out_1/"out"_1/g' \
-            -e 's/out_2/"out"_2/g' \
-            -e 's/out_3/"out"_3/g' \
-            -e 's/@state-transitionに照合して/#ref(<state-transition>)に照合して/g' \
-            -e 's/@encoding-stepsに示す/#ref(<encoding-steps>)に示す/g' \
-            -e 's/@state-transitionに基づく/#ref(<state-transition>)に基づく/g' \
-            -e 's/@viterbi-metricsより/#ref(<viterbi-metrics>)より/g' \
-            -e 's/@rsa-squaresに示す/#ref(<rsa-squares>)に示す/g' \
-            report/information_network_report_final.typ
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("report/information_network_report_final.typ")
+          text = path.read_text(encoding="utf-8")
+          replacements = {
+              "#header-cell": "header-cell",
+              "out_1": '"out"_1',
+              "out_2": '"out"_2',
+              "out_3": '"out"_3',
+              "@state-transitionに照合して": "#ref(<state-transition>)に照合して",
+              "@encoding-stepsに示す": "#ref(<encoding-steps>)に示す",
+              "@state-transitionに基づく": "#ref(<state-transition>)に基づく",
+              "@viterbi-metricsより": "#ref(<viterbi-metrics>)より",
+              "@rsa-squaresに示す": "#ref(<rsa-squares>)に示す",
+          }
+          for old, new in replacements.items():
+              text = text.replace(old, new)
+
+          old_status = "2026年7月17日時点のIEEE 802.11公式タイムラインでは、P802.11bnはDraft 1.50であり、IEEE 802.11ワーキンググループの最終承認が2028年3月、RevComおよびStandards Board承認が2028年5月と予測されている[7]。また、2026年8月4日時点のIEEE 802.11公式ページでは、P802.11bn Draft 2.0の初回ワーキンググループ投票（LB296）が2026年8月3日に開始され、9月2日まで実施されることが示されている[8]。したがって、内容は今後も変更され得るため、確定規格の性能として断定せず、「現在の標準化目標」として扱う必要がある。"
+          new_status = "2026年7月17日時点のIEEE 802.11公式タイムラインでは、P802.11bnはDraft 1.50であり、IEEE 802.11ワーキンググループの最終承認が2028年3月、RevComおよびStandards Board承認が2028年5月と予測されている[7]。また、2026年8月4日時点のIEEE 802.11公式ページでは、P802.11bn Draft 2.0の初回ワーキンググループ投票は「Soon（近日開始）」と表示されており、まだ開始日・終了日は掲載されていない[8]。したがって、内容は今後も変更され得るため、確定規格の性能として断定せず、「現在の標準化目標」として扱う必要がある。"
+          if old_status not in text:
+              raise SystemExit("expected Wi-Fi 8 status text was not found")
+          text = text.replace(old_status, new_status)
+
+          old_reference = "[8] IEEE 802.11 Working Group, “Current and Recent Ballots and Comment Collections,” LB296, P802.11bn Draft 2.0 initial WG ballot. #link(\"https://www.ieee802.org/11/\")[https://www.ieee802.org/11/]（2026年8月4日閲覧）"
+          new_reference = "[8] IEEE 802.11 Working Group, “Current and Recent Ballots and Comment Collections,” P802.11bn Draft 2.0 initial WG ballot, status “Soon.” #link(\"https://www.ieee802.org/11/\")[https://www.ieee802.org/11/]（2026年8月4日閲覧）"
+          if old_reference not in text:
+              raise SystemExit("expected reference 8 text was not found")
+          text = text.replace(old_reference, new_reference)
+
+          old_style = "#set par(first-line-indent: 0em, hanging-indent: 1.8em, justify: true)\n#set text(9.5pt)"
+          new_style = "#set par(first-line-indent: 0em, hanging-indent: 1.8em, justify: true, leading: 0.52em, spacing: 0.34em)\n#set text(9pt)"
+          if old_style not in text:
+              raise SystemExit("expected reference style was not found")
+          text = text.replace(old_style, new_style)
+
+          path.write_text(text, encoding="utf-8")
+          PY
 
       - name: Show Typst version
         run: docker run --rm ghcr.io/typst/typst:latest --version
@@ -55,20 +83,27 @@ jobs:
             ghcr.io/typst/typst:latest \
             compile --font-path /fonts information_network_report_final.typ information_network_report_final.pdf
 
-      - name: Inspect output
+      - name: Inspect and render output
         run: |
           test -s report/information_network_report_final.pdf
           file report/information_network_report_final.pdf
           pdfinfo report/information_network_report_final.pdf | tee report/pdfinfo.txt
+          pdffonts report/information_network_report_final.pdf | tee report/pdffonts.txt
+          pdftotext -layout report/information_network_report_final.pdf report/extracted.txt
+          pdftoppm -png -r 120 report/information_network_report_final.pdf report/render/page >/dev/null 2>&1
+          test "$(find report/render -name 'page-*.png' | wc -l)" -ge 1
           ls -lh report/information_network_report_final.typ report/information_network_report_final.pdf
 
       - name: Upload report artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: information-network-report-typst
+          name: information-network-report-typst-v2
           path: |
             report/information_network_report_final.typ
             report/information_network_report_final.pdf
             report/pdfinfo.txt
+            report/pdffonts.txt
+            report/extracted.txt
+            report/render/page-*.png
           if-no-files-found: error
           retention-days: 1

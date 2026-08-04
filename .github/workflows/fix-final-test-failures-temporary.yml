@@ -1,0 +1,123 @@
+name: Fix final full-suite regressions
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/fix-final-test-failures-temporary.yml
+
+permissions:
+  contents: write
+
+jobs:
+  red-green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/oracle-bellman-batched-solver
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install full CI dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Prove each regression group RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          expect_failure() {
+            label="$1"
+            shift
+            set +e
+            "$@" 2>&1 | tee "/tmp/${label}.log"
+            status=${PIPESTATUS[0]}
+            set -e
+            test "$status" -ne 0
+          }
+          expect_failure probe \
+            uv run pytest -q \
+              tests/rl/test_lagrangian_probe.py \
+              tests/rl/test_lagrangian_probe_fail_closed.py \
+              tests/integrations/test_sb3_lagrangian_probe_backend.py
+          grep -F "failed" /tmp/probe.log
+          expect_failure projection \
+            uv run pytest -q \
+              tests/architecture/test_architecture_audit_fixes.py \
+              -k oracle_portfolio_projection
+          grep -F "market_notional must be 2-dimensional" /tmp/projection.log
+          expect_failure workers \
+            uv run pytest -q \
+              tests/integrations/test_sb3_lagrangian_backend.py \
+              -k teacher_workers_are_independently_memory_bounded
+          expect_failure profiles \
+            uv run pytest -q \
+              tests/examples/test_target_weight_constrained_growth_profiles.py
+          expect_failure docs \
+            uv run pytest -q \
+              tests/test_current_documentation_contract.py \
+              -k historical_documentation_clutter_is_removed
+          grep -F "docs/superpowers" /tmp/docs.log
+
+      - name: Apply minimal corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/fix_final_test_failures.py
+          rm -rf docs/superpowers
+
+      - name: Verify corrected contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            trade_rl/rl/lagrangian_probe.py
+            trade_rl/learning/oracle_teacher.py
+            trade_rl/integrations/sb3_training.py
+          )
+          uv run ruff check --fix "${files[@]}"
+          uv run ruff format "${files[@]}"
+          uv run pytest -q \
+            tests/rl/test_lagrangian_probe.py \
+            tests/rl/test_lagrangian_probe_fail_closed.py \
+            tests/integrations/test_sb3_lagrangian_probe_backend.py \
+            tests/integrations/test_sb3_lagrangian_backend.py \
+            tests/architecture/test_architecture_audit_fixes.py \
+            tests/examples/test_target_weight_constrained_growth_profiles.py \
+            tests/test_current_documentation_contract.py \
+            tests/test_training_compose_contract.py
+          uv run ruff check .
+          uv run ruff format --check --diff .
+          uv run mypy \
+            trade_rl/rl/lagrangian_probe.py \
+            trade_rl/learning/oracle_teacher.py \
+            trade_rl/integrations/sb3_training.py
+          uv run lint-imports
+          test ! -e docs/superpowers
+          git diff --check
+
+      - name: Commit verified corrections and remove temporary files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .github/fix_final_test_failures.py \
+            .github/workflows/fix-final-test-failures-temporary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/rl/lagrangian_probe.py \
+            trade_rl/learning/oracle_teacher.py \
+            trade_rl/integrations/sb3_training.py \
+            examples/binance-multitimeframe/training-target-weight-constrained-growth.json \
+            docs/superpowers \
+            .github
+          git diff --cached --check
+          git commit -m "fix: resolve final full-suite regressions"
+          git push origin HEAD:agent/oracle-bellman-batched-solver

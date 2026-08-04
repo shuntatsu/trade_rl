@@ -25,16 +25,20 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Restore reviewed batch-aware source
+      - name: Restore and diagnose reviewed batch-aware source
         shell: bash
         run: |
           set -euo pipefail
           cat .github/oracle-refine/tr* > /tmp/transition.b64
           cat .github/oracle-refine/te* > /tmp/test.b64
+          echo "transition_b64=$(sha256sum /tmp/transition.b64 | cut -d' ' -f1)"
+          echo "test_b64=$(sha256sum /tmp/test.b64 | cut -d' ' -f1)"
           test "$(sha256sum /tmp/transition.b64 | cut -d' ' -f1)" = "c25b0ff1585752833a5d38fad028eae4ca4fcb1a0eaa6a29bb8d5d270cf42e07"
           test "$(sha256sum /tmp/test.b64 | cut -d' ' -f1)" = "0bfa1b0490818f757b33435c4a958a63a71a70042c15bbf9437b727c8fd59f6a"
           base64 --decode /tmp/transition.b64 | gzip --decompress > trade_rl/learning/oracle_transition_numpy.py
           base64 --decode /tmp/test.b64 | gzip --decompress > tests/learning/test_oracle_transition_numpy.py
+          echo "transition_source=$(sha256sum trade_rl/learning/oracle_transition_numpy.py | cut -d' ' -f1)"
+          echo "test_source=$(sha256sum tests/learning/test_oracle_transition_numpy.py | cut -d' ' -f1)"
           test "$(sha256sum trade_rl/learning/oracle_transition_numpy.py | cut -d' ' -f1)" = "09b926cb84162fb2e2fc094dffe9a22e75bc543527fd3ea4c91cf3d172df0f08"
           test "$(sha256sum tests/learning/test_oracle_transition_numpy.py | cut -d' ' -f1)" = "09e910073410d0eb559c1bde98a08f13e5e48d3cdc635a8bf434a43c29c7404b"
       - name: Install, normalize, and verify

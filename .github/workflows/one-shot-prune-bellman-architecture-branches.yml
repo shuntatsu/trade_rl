@@ -1,0 +1,42 @@
+name: One-shot prune Bellman and architecture branches
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prune:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      CLEANUP_BRANCH: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - name: Delete integrated and superseded branches
+        run: |
+          set -euo pipefail
+          for branch in \
+            agent/oracle-bellman-batched-design \
+            agent/oracle-bellman-batched-solver \
+            agent/architecture-boundary-hardening-20260801 \
+            agent/architecture-boundary-hardening-current
+          do
+            if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}" >/dev/null 2>&1; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+            fi
+          done
+      - name: Close cleanup pull request
+        run: |
+          gh pr close "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --comment "Integrated and superseded Bellman/architecture branches were removed. This maintenance PR is intentionally not merged."
+      - name: Delete cleanup branch
+        run: |
+          gh api --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/git/refs/heads/${CLEANUP_BRANCH}"

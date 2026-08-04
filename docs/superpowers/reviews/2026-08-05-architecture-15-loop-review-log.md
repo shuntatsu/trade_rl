@@ -92,4 +92,12 @@
 
 **Fix:** Introduced `_recipe_identity_payload()` and removed export-only fields from the candidate recipe path while retaining the remaining run identity fields for subsequent separation.
 
-**Review:** Learning/economic configuration ownership is clearer; full run transport is restored explicitly in Loop 13. The reviewed change set is staged for focused verification.
+**Review:** Learning/economic configuration ownership is clearer; full run transport is restored explicitly in Loop 13. Focused result: 11 passed, 4 failed.
+
+## Loop 12: Recipe identity excludes source provenance
+
+**Check:** Candidate recipe identity still included Git commit and dirty state despite runtime provenance recording them separately.
+
+**Fix:** Removed Git source state from `_recipe_identity_payload()`.
+
+**Review:** Candidate identity now represents authored learning/economic meaning only, aside from checkpoint transport which is separated in Loop 13. The reviewed change set is staged for focused verification.

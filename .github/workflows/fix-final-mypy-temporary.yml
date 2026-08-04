@@ -56,6 +56,7 @@ jobs:
           )
           uv run ruff check --fix "${files[@]}"
           uv run ruff format "${files[@]}"
+          uv run ruff format .github/fix_final_mypy.py
           uv run mypy .
           uv run pytest -q \
             tests/studio \

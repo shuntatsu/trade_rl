@@ -28,4 +28,12 @@
 
 **Fix:** Published `portfolio_states()`, retained `_portfolio_states` as an internal compatibility alias, and moved the Operations consumer to the public name.
 
-**Review:** The state enumeration algorithm is byte-for-byte equivalent in behavior; only API visibility changed. Focused verification follows on this commit.
+**Review:** The state enumeration algorithm is unchanged; only API visibility changed. Focused result: 3 passed, 12 failed.
+
+## Loop 4: Generic catalog excludes sealed evaluation
+
+**Check:** `PostgresArtifactCatalog` imported a sealed-evaluation record and delegated reservation persistence.
+
+**Fix:** Removed the evaluation import and sealed-test method from the generic Artifact Catalog. The dedicated sealed-test stores remain intact.
+
+**Review:** Generic catalog behavior is unchanged; sealed reservation ownership is no longer duplicated. Focused verification follows on this commit.

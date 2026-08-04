@@ -1,0 +1,51 @@
+name: Verify Task 5 NumPy Bellman solver
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-task5-temporary.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/oracle-bellman-batched-solver
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Normalize and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run ruff check --fix trade_rl/learning/oracle_bellman_numpy.py tests/learning/test_oracle_bellman_numpy.py
+          uv run ruff format trade_rl/learning/oracle_bellman_numpy.py tests/learning/test_oracle_bellman_numpy.py
+          uv run pytest -q tests/learning/test_oracle_bellman_numpy.py tests/learning/test_oracle_teacher.py tests/learning/test_episode_oracle_teacher.py
+          uv run ruff check trade_rl/learning/oracle_bellman_numpy.py tests/learning/test_oracle_bellman_numpy.py
+          uv run ruff format --check --diff trade_rl/learning/oracle_bellman_numpy.py tests/learning/test_oracle_bellman_numpy.py
+          uv run mypy trade_rl/learning/oracle_bellman_numpy.py
+      - name: Commit normalization and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/verify-task5-temporary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/learning/oracle_bellman_numpy.py tests/learning/test_oracle_bellman_numpy.py .github/workflows
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "test: verify rolling NumPy Bellman solver"
+          git push origin HEAD:agent/oracle-bellman-batched-solver

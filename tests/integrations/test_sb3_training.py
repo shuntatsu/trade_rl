@@ -21,6 +21,8 @@ from trade_rl.integrations.sb3_training import (
     _build_training_environment,
     _compact_training_info,
     _configure_torch_cuda_runtime,
+    _oracle_solver_config,
+    _teacher_worker_count,
 )
 from trade_rl.learning import OracleTeacherConfig
 from trade_rl.rl.actions import ActionSpec
@@ -1019,3 +1021,125 @@ def test_bc_gate_enforcement_rejects_zero_trade_report() -> None:
 
     with pytest.raises(RuntimeError, match="zero-trade collapse"):
         _enforce_behavior_cloning_gates(report)
+
+
+_ORACLE_ENV_KEYS = (
+    "TRADE_RL_ORACLE_SOLVER",
+    "TRADE_RL_ORACLE_EPISODE_BATCH_SIZE",
+    "TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE",
+    "TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION",
+    "TRADE_RL_ORACLE_COMPILE_MODE",
+    "TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE",
+)
+
+
+def test_oracle_solver_environment_defaults_to_numpy(monkeypatch) -> None:
+    for key in _ORACLE_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+    config = _oracle_solver_config()
+
+    assert config.selection == "numpy"
+    assert config.episode_batch_size == 8
+    assert config.target_state_block_size is None
+    assert config.cuda_memory_fraction == 0.65
+    assert config.compile_mode == "disabled"
+    assert config.compile_chunk_size == 16
+
+
+def test_oracle_solver_environment_parses_explicit_cuda_contract(monkeypatch) -> None:
+    monkeypatch.setenv("TRADE_RL_ORACLE_SOLVER", "cuda_or_numpy")
+    monkeypatch.setenv("TRADE_RL_ORACLE_EPISODE_BATCH_SIZE", "4")
+    monkeypatch.setenv("TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE", "32")
+    monkeypatch.setenv("TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION", "0.5")
+    monkeypatch.setenv("TRADE_RL_ORACLE_COMPILE_MODE", "reduce_overhead")
+    monkeypatch.setenv("TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE", "8")
+
+    config = _oracle_solver_config()
+
+    assert config.selection == "cuda_or_numpy"
+    assert config.episode_batch_size == 4
+    assert config.target_state_block_size == 32
+    assert config.cuda_memory_fraction == 0.5
+    assert config.compile_mode == "reduce_overhead"
+    assert config.compile_chunk_size == 8
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("TRADE_RL_ORACLE_SOLVER", "automatic"),
+        ("TRADE_RL_ORACLE_EPISODE_BATCH_SIZE", "0"),
+        ("TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE", "none"),
+        ("TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION", "1.5"),
+        ("TRADE_RL_ORACLE_COMPILE_MODE", "max-autotune"),
+        ("TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE", "7"),
+    ],
+)
+def test_oracle_solver_environment_rejects_invalid_values(
+    monkeypatch, name: str, value: str
+) -> None:
+    for key in _ORACLE_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match=name):
+        _oracle_solver_config()
+
+
+def test_cuda_oracle_solver_requires_one_teacher_worker(monkeypatch) -> None:
+    monkeypatch.setenv("TRADE_RL_TEACHER_WORKERS", "2")
+
+    with pytest.raises(ValueError, match="TRADE_RL_TEACHER_WORKERS=1"):
+        _teacher_worker_count(
+            8,
+            solver_config=sb3_training.OracleSolverConfig(selection="cuda"),
+        )
+
+
+def test_numpy_oracle_solver_defaults_to_one_compatibility_worker(monkeypatch) -> None:
+    monkeypatch.delenv("TRADE_RL_TEACHER_WORKERS", raising=False)
+
+    assert (
+        _teacher_worker_count(8, solver_config=sb3_training.OracleSolverConfig()) == 1
+    )
+
+
+def test_oracle_episode_batch_cache_separates_solver_configs(monkeypatch) -> None:
+    backend = object.__new__(StableBaselines3Backend)
+    backend._oracle_episode_batch_cache = {}
+    environment = SimpleNamespace(dataset=SimpleNamespace(dataset_id="f" * 64))
+    teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+    sampling = sb3_training.OracleEpisodeSamplingConfig(
+        episode_bars=4,
+        episode_count=2,
+    )
+    calls: list[str] = []
+
+    def fake_build_episode_oracle_batch(*args, solver_config, **kwargs):
+        del args, kwargs
+        calls.append(solver_config.digest)
+        return SimpleNamespace(solver_config=solver_config)
+
+    monkeypatch.setattr(
+        sb3_training,
+        "build_episode_oracle_batch",
+        fake_build_episode_oracle_batch,
+    )
+    numpy_result = backend._oracle_episode_batch(
+        environment,
+        (1, 10),
+        teacher,
+        sampling,
+        solver_config=sb3_training.OracleSolverConfig(selection="numpy"),
+    )
+    cuda_result = backend._oracle_episode_batch(
+        environment,
+        (1, 10),
+        teacher,
+        sampling,
+        solver_config=sb3_training.OracleSolverConfig(selection="cuda"),
+    )
+
+    assert numpy_result is not cuda_result
+    assert len(calls) == 2

@@ -235,3 +235,90 @@ def test_orchestrator_routes_cuda_batches_to_torch_backend(monkeypatch) -> None:
 
     assert calls == [2, 1]
     assert result.provenance.backend == "torch_cuda"
+
+
+def test_cuda_or_numpy_restarts_entire_solve_with_numpy_after_backend_failure(
+    monkeypatch,
+) -> None:
+    import trade_rl.learning.oracle_solver as oracle_solver_module
+
+    market = _market()
+    teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+    calls = 0
+
+    def fail_cuda(**kwargs):
+        nonlocal calls
+        calls += 1
+        raise OracleBackendFailure("torch_cuda", "cuda_unavailable")
+
+    monkeypatch.setattr(
+        oracle_solver_module,
+        "solve_torch_cuda_oracle_batch",
+        fail_cuda,
+    )
+
+    result = solve_oracle_episodes(
+        market,
+        states=_portfolio_states(market, teacher),
+        episode_inputs=_inputs(),
+        parameters=teacher.bellman_parameters,
+        solver_config=OracleSolverConfig(
+            selection="cuda_or_numpy",
+            episode_batch_size=2,
+            target_state_block_size=1,
+        ),
+    )
+
+    assert calls == 1
+    assert result.provenance.backend == "numpy"
+    assert result.provenance.fallback_reason == "torch_cuda:cuda_unavailable"
+
+
+def test_explicit_cuda_does_not_fall_back_to_numpy(monkeypatch) -> None:
+    import trade_rl.learning.oracle_solver as oracle_solver_module
+
+    market = _market()
+    teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+
+    def fail_cuda(**kwargs):
+        raise OracleBackendFailure("torch_cuda", "cuda_unavailable")
+
+    monkeypatch.setattr(
+        oracle_solver_module,
+        "solve_torch_cuda_oracle_batch",
+        fail_cuda,
+    )
+
+    with pytest.raises(OracleBackendFailure, match="cuda_unavailable"):
+        solve_oracle_episodes(
+            market,
+            states=_portfolio_states(market, teacher),
+            episode_inputs=_inputs(),
+            parameters=teacher.bellman_parameters,
+            solver_config=OracleSolverConfig(selection="cuda"),
+        )
+
+
+def test_cuda_or_numpy_does_not_hide_untyped_backend_failures(monkeypatch) -> None:
+    import trade_rl.learning.oracle_solver as oracle_solver_module
+
+    market = _market()
+    teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+
+    def fail_cuda(**kwargs):
+        raise RuntimeError("unexpected kernel contract failure")
+
+    monkeypatch.setattr(
+        oracle_solver_module,
+        "solve_torch_cuda_oracle_batch",
+        fail_cuda,
+    )
+
+    with pytest.raises(RuntimeError, match="unexpected kernel contract failure"):
+        solve_oracle_episodes(
+            market,
+            states=_portfolio_states(market, teacher),
+            episode_inputs=_inputs(),
+            parameters=teacher.bellman_parameters,
+            solver_config=OracleSolverConfig(selection="cuda_or_numpy"),
+        )

@@ -60,6 +60,29 @@ tensorboard diagnostics: enabled
 
 このPresetは維持対象候補であり、最適値を意味しません。
 
+## Oracle Bellman solver
+
+Oracle teacher生成の既定backendは`numpy`です。CUDAは明示選択でのみ使用し、backend、float64契約、tape digest、batch/block設定、fallback理由、OOM再試行、実行時間、peak memory、GPU情報をartifact provenanceへ保存します。
+
+```text
+TRADE_RL_ORACLE_SOLVER=numpy|cuda|cuda_or_numpy
+TRADE_RL_ORACLE_EPISODE_BATCH_SIZE=8
+TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE=
+TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION=0.65
+TRADE_RL_ORACLE_COMPILE_MODE=disabled|reduce_overhead
+TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE=8|16|32|64
+TRADE_RL_TEACHER_WORKERS=1
+```
+
+- `numpy`: 維持対象の既定経路です。
+- `cuda`: CUDA unavailable、OOM再試行失敗、backend errorをそのままFail closedします。
+- `cuda_or_numpy`: CUDA solve全体がartifact promotion前に失敗した場合だけ、部分結果を破棄してNumPyで全episodeを最初から再実行します。fallback理由はprovenanceとcache identityへ記録されます。
+- CUDA選択時は`TRADE_RL_TEACHER_WORKERS=1`が必須です。並列性は複数GPU-owner processではなく`TRADE_RL_ORACLE_EPISODE_BATCH_SIZE`で管理します。
+- `TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE`を空にすると、backendがmemory予算からblock sizeを決定します。
+- `reduce_overhead`は固定chunk `8,16,32,64`だけを受け付けます。compile開始前の失敗は同じCUDA backendのeager経路へ戻り、CUDA solve失敗とは区別して記録します。
+
+CUDAを既定へ変更する判断は、同期済みcorrectness corpusと維持対象GPUのbenchmark evidenceを別途満たした後に行います。
+
 ## Shared market archive
 
 Raw Binance archive cacheと学習Artifact volumeを分離します。学習開始時にCacheを検証し、不足期間だけを取得します。

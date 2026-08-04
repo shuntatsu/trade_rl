@@ -8,6 +8,7 @@ import numpy as np
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.learning.oracle_bellman_contracts import (
+    OracleBackendFailure,
     OracleBellmanParameters,
     OracleEpisodeInputs,
     OracleSolverConfig,
@@ -48,6 +49,33 @@ def solve_oracle_episodes(
         raise ValueError("parameters must be OracleBellmanParameters")
     if not isinstance(solver_config, OracleSolverConfig):
         raise ValueError("solver_config must be OracleSolverConfig")
+    if solver_config.selection == "cuda_or_numpy":
+        try:
+            return solve_oracle_episodes(
+                dataset,
+                states=states,
+                episode_inputs=episode_inputs,
+                parameters=parameters,
+                solver_config=replace(solver_config, selection="cuda"),
+            )
+        except OracleBackendFailure as error:
+            fallback = solve_oracle_episodes(
+                dataset,
+                states=states,
+                episode_inputs=episode_inputs,
+                parameters=parameters,
+                solver_config=replace(
+                    solver_config,
+                    selection="numpy",
+                    compile_mode="disabled",
+                ),
+            )
+            provenance = replace(
+                fallback.provenance,
+                fallback_reason=f"{error.backend}:{error.reason}",
+                digest="",
+            )
+            return replace(fallback, provenance=provenance, digest="")
     tape = build_oracle_market_tape(
         dataset,
         (int(episode_inputs.starts.min()), int(episode_inputs.stops.max())),

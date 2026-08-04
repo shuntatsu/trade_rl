@@ -19,7 +19,28 @@ def test_training_compose_separates_market_data_ownership() -> None:
     assert "condition: service_healthy" in compose
     assert "TRADE_RL_DATABASE_URL:" in compose
     assert 'TORCHINDUCTOR_COMPILE_THREADS: "4"' in compose
-    assert 'TRADE_RL_TEACHER_WORKERS: "4"' in compose
+    assert 'TRADE_RL_TEACHER_WORKERS: "1"' in compose
+    assert "TRADE_RL_ORACLE_SOLVER: ${TRADE_RL_ORACLE_SOLVER:-numpy}" in compose
+    assert (
+        "TRADE_RL_ORACLE_EPISODE_BATCH_SIZE: "
+        "${TRADE_RL_ORACLE_EPISODE_BATCH_SIZE:-8}" in compose
+    )
+    assert (
+        "TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE: "
+        "${TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE:-}" in compose
+    )
+    assert (
+        "TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION: "
+        "${TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION:-0.65}" in compose
+    )
+    assert (
+        "TRADE_RL_ORACLE_COMPILE_MODE: "
+        "${TRADE_RL_ORACLE_COMPILE_MODE:-disabled}" in compose
+    )
+    assert (
+        "TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE: "
+        "${TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE:-16}" in compose
+    )
     assert "TRADE_RL_FROZEN_METADATA_CACHE_ROOT:" in compose
     assert "--legacy-cache-root" in compose
     assert "trade-rl-training-runs:" not in compose

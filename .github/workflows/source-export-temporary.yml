@@ -1,0 +1,30 @@
+name: Temporary source export
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/source-export-temporary.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Package source tree
+        run: tar --exclude=.git --exclude=.venv -czf /tmp/trade-rl-source.tar.gz .
+      - name: Upload source tree
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: trade-rl-source-${{ github.event.pull_request.head.sha }}
+          path: /tmp/trade-rl-source.tar.gz
+          if-no-files-found: error
+          retention-days: 1

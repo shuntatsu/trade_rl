@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-APPROVED_TORCH_MODULES = {
+APPROVED_INTEGRATION_MODULES = {
     "oracle_bellman_torch.py",
     "oracle_transition_torch.py",
 }
@@ -26,21 +26,30 @@ def _imports_torch(path: Path) -> bool:
     return False
 
 
-def test_learning_torch_dependency_is_limited_to_explicit_oracle_backend() -> None:
+def test_learning_remains_torch_free() -> None:
     learning = ROOT / "trade_rl" / "learning"
     torch_modules = {
         path.name for path in learning.glob("*.py") if _imports_torch(path)
     }
-    assert torch_modules == APPROVED_TORCH_MODULES
+    assert torch_modules == set()
 
     contract = (ROOT / ".importlinter").read_text(encoding="utf-8")
     block = contract.split("[importlinter:contract:learning-frameworks]", maxsplit=1)[
         1
     ].split("[importlinter:", maxsplit=1)[0]
-    assert "allow_indirect_imports = True" in block
-    for module in APPROVED_TORCH_MODULES:
-        qualified = f"trade_rl.learning.{module.removesuffix('.py')} -> torch"
-        assert qualified in block
+    assert "ignore_imports" not in block
+    assert "oracle_bellman_torch" not in block
+    assert "oracle_transition_torch" not in block
+
+
+def test_oracle_torch_backend_is_confined_to_integrations() -> None:
+    integrations = ROOT / "trade_rl" / "integrations"
+    torch_modules = {
+        path.name
+        for path in integrations.glob("oracle_*_torch.py")
+        if _imports_torch(path)
+    }
+    assert torch_modules == APPROVED_INTEGRATION_MODULES
 
 
 def test_catalog_reusable_artifacts_remains_below_learning() -> None:

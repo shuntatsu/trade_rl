@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 
 import numpy as np
@@ -20,38 +21,10 @@ from trade_rl.learning.oracle_market_tape import (
     build_oracle_market_tape,
 )
 
-
-def solve_torch_cuda_oracle_batch(
-    *,
-    tape: OracleMarketTape,
-    states: np.ndarray,
-    episode_inputs: OracleEpisodeInputs,
-    parameters: OracleBellmanParameters,
-    solver_config: OracleSolverConfig,
-) -> OracleSolveResult:
-    """Load the optional Torch integration only when CUDA execution is requested."""
-
-    if (
-        isinstance(solver_config, OracleSolverConfig)
-        and solver_config.compile_mode != "disabled"
-    ):
-        raise OracleBackendFailure("torch_cuda", "compile_mode_unvalidated")
-    try:
-        from trade_rl.integrations.oracle_bellman_torch import (
-            solve_torch_cuda_oracle_batch as implementation,
-        )
-    except ModuleNotFoundError as error:
-        missing = error.name or ""
-        if missing == "torch" or missing.startswith("torch."):
-            raise OracleBackendFailure("torch_cuda", "torch_unavailable") from error
-        raise
-    return implementation(
-        tape=tape,
-        states=states,
-        episode_inputs=episode_inputs,
-        parameters=parameters,
-        solver_config=solver_config,
-    )
+OracleBatchBackend = Callable[
+    ...,
+    OracleSolveResult,
+]
 
 
 def _episode_subset(
@@ -73,8 +46,14 @@ def solve_oracle_episodes(
     episode_inputs: OracleEpisodeInputs,
     parameters: OracleBellmanParameters,
     solver_config: OracleSolverConfig,
+    accelerator_backend: OracleBatchBackend | None = None,
 ) -> OracleSolveResult:
-    """Solve independent episodes while preserving their input ordering."""
+    """Solve independent episodes while preserving their input ordering.
+
+    Learning owns the numerical orchestration and NumPy reference path. Higher
+    layers inject an accelerator backend explicitly, so this module never imports
+    optional model frameworks or integration adapters.
+    """
 
     if not isinstance(dataset, MarketDataset):
         raise ValueError("dataset must be MarketDataset")
@@ -92,6 +71,7 @@ def solve_oracle_episodes(
                 episode_inputs=episode_inputs,
                 parameters=parameters,
                 solver_config=replace(solver_config, selection="cuda"),
+                accelerator_backend=accelerator_backend,
             )
         except OracleBackendFailure as error:
             fallback = solve_oracle_episodes(
@@ -111,6 +91,9 @@ def solve_oracle_episodes(
                 digest="",
             )
             return replace(fallback, provenance=provenance, digest="")
+    if solver_config.selection == "cuda" and accelerator_backend is None:
+        raise OracleBackendFailure("oracle_solver", "accelerator_backend_required")
+
     tape = build_oracle_market_tape(
         dataset,
         (int(episode_inputs.starts.min()), int(episode_inputs.stops.max())),
@@ -120,6 +103,13 @@ def solve_oracle_episodes(
     scores = np.empty(episode_inputs.episode_count, dtype=np.float64)
     provenances = []
     horizons = episode_inputs.stops - episode_inputs.starts - 1
+    backend = (
+        solve_numpy_oracle_batch
+        if solver_config.selection == "numpy"
+        else accelerator_backend
+    )
+    if backend is None:  # pragma: no cover - guarded above
+        raise RuntimeError("Oracle accelerator backend disappeared")
     for horizon in sorted(set(horizons.tolist())):
         horizon_positions = np.flatnonzero(horizons == horizon)
         for offset in range(
@@ -128,11 +118,6 @@ def solve_oracle_episodes(
             positions = horizon_positions[
                 offset : offset + solver_config.episode_batch_size
             ]
-            backend = (
-                solve_numpy_oracle_batch
-                if solver_config.selection == "numpy"
-                else solve_torch_cuda_oracle_batch
-            )
             result = backend(
                 tape=tape,
                 states=states,
@@ -216,4 +201,4 @@ def solve_oracle_episodes(
     )
 
 
-__all__ = ["solve_oracle_episodes"]
+__all__ = ["OracleBatchBackend", "solve_oracle_episodes"]

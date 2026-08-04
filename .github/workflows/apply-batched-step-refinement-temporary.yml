@@ -35,12 +35,12 @@ jobs:
           test "$(sha256sum /tmp/test.b64 | cut -d' ' -f1)" = "0bfa1b0490818f757b33435c4a958a63a71a70042c15bbf9437b727c8fd59f6a"
           base64 --decode /tmp/transition.b64 | gzip --decompress > trade_rl/learning/oracle_transition_numpy.py
           base64 --decode /tmp/test.b64 | gzip --decompress > tests/learning/test_oracle_transition_numpy.py
-          python -m py_compile trade_rl/learning/oracle_transition_numpy.py tests/learning/test_oracle_transition_numpy.py
       - name: Install, normalize, and verify
         shell: bash
         run: |
           set -euo pipefail
           uv sync --extra dev --extra train-sb3
+          uv run python -m py_compile trade_rl/learning/oracle_transition_numpy.py tests/learning/test_oracle_transition_numpy.py
           uv run ruff check --fix trade_rl/learning/oracle_transition_numpy.py tests/learning/test_oracle_transition_numpy.py
           uv run ruff format trade_rl/learning/oracle_transition_numpy.py tests/learning/test_oracle_transition_numpy.py
           uv run pytest -q tests/learning/test_oracle_transition_numpy.py tests/learning/test_oracle_teacher.py tests/learning/test_oracle_market_tape.py

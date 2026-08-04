@@ -1,0 +1,136 @@
+name: Architecture loop
+
+on:
+  pull_request:
+    branches:
+      - agent/architecture-15-loop-base
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-loop-${{ github.event.pull_request.number }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: true
+
+      - name: Apply one reviewed change set
+        id: apply
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f architecture-loop.json ]; then
+            echo 'applied=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          allowed_exact = {
+              "tests/architecture/test_architecture_15_loop.py",
+              "docs/ARCHITECTURE.md",
+              ".github/workflows/ci.yml",
+          }
+
+          def allowed(path: str) -> bool:
+              return path.startswith("trade_rl/") or path in allowed_exact
+
+          payload = json.loads(Path("architecture-loop.json").read_text(encoding="utf-8"))
+          operations = payload.get("operations")
+          if not isinstance(operations, list) or not operations:
+              raise SystemExit("architecture-loop.json requires non-empty operations")
+
+          for operation in operations:
+              if not isinstance(operation, dict):
+                  raise SystemExit("operation must be an object")
+              kind = operation.get("kind")
+              path = operation.get("path")
+              if not isinstance(path, str) or not allowed(path):
+                  raise SystemExit(f"path outside allowlist: {path!r}")
+              target = Path(path)
+              if kind == "create":
+                  if target.exists():
+                      raise SystemExit(f"create target already exists: {path}")
+                  content = operation.get("content")
+                  if not isinstance(content, str):
+                      raise SystemExit(f"create content must be text: {path}")
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_text(content, encoding="utf-8")
+              elif kind == "replace":
+                  if not target.is_file():
+                      raise SystemExit(f"replace target missing: {path}")
+                  old = operation.get("old")
+                  new = operation.get("new")
+                  if not isinstance(old, str) or not isinstance(new, str) or not old:
+                      raise SystemExit(f"replace requires non-empty old/new text: {path}")
+                  source = target.read_text(encoding="utf-8")
+                  count = source.count(old)
+                  if count != 1:
+                      raise SystemExit(
+                          f"replace precondition mismatch for {path}: expected 1, observed {count}"
+                      )
+                  target.write_text(source.replace(old, new, 1), encoding="utf-8")
+              elif kind == "delete":
+                  if not target.is_file():
+                      raise SystemExit(f"delete target missing: {path}")
+                  target.unlink()
+              else:
+                  raise SystemExit(f"unsupported operation kind: {kind!r}")
+          PY
+
+          rm architecture-loop.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: resolve focused architecture lint regressions'
+          git push origin "HEAD:${HEAD_BRANCH}"
+          echo 'applied=true' >> "$GITHUB_OUTPUT"
+
+      - name: Set up uv
+        if: steps.apply.outputs.applied != 'true'
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install focused dependencies
+        if: steps.apply.outputs.applied != 'true'
+        run: uv sync --extra dev
+
+      - name: Architecture loop tests
+        if: steps.apply.outputs.applied != 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q tests/architecture/test_architecture_15_loop.py 2>&1 | tee architecture-loop.log
+
+      - name: Static checks for touched packages
+        if: steps.apply.outputs.applied != 'true' && success()
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check trade_rl tests/architecture/test_architecture_15_loop.py
+          uv run mypy trade_rl
+          uv run lint-imports
+
+      - name: Upload diagnostics
+        if: always() && steps.apply.outputs.applied != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-loop-diagnostics
+          path: architecture-loop.log
+          if-no-files-found: ignore

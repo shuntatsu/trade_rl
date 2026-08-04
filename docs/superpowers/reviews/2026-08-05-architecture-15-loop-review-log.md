@@ -84,4 +84,12 @@
 
 **Fix:** Redirected both modules to `domain.policy_contracts` while preserving the exact schema string and window lengths.
 
-**Review:** Policy digests and sequence tensor ordering are intended to remain byte-identical. The reviewed change set is staged for focused verification.
+**Review:** Policy schema values and sequence tensor ordering remain unchanged. Focused result: 10 passed, 5 failed.
+
+## Loop 11: Recipe identity excludes export transport
+
+**Check:** Candidate recipe identity included ONNX/TorchScript output choices and export tolerance.
+
+**Fix:** Introduced `_recipe_identity_payload()` and removed export-only fields from the candidate recipe path while retaining the remaining run identity fields for subsequent separation.
+
+**Review:** Learning/economic configuration ownership is clearer; full run transport is restored explicitly in Loop 13. The reviewed change set is staged for focused verification.

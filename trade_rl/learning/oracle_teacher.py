@@ -11,6 +11,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
+from trade_rl.learning.oracle_bellman_contracts import OracleBellmanParameters
 from trade_rl.risk.portfolio import PortfolioRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 
@@ -125,6 +126,24 @@ class OracleTeacherConfig:
     @property
     def digest(self) -> str:
         return content_digest(self)
+
+    @property
+    def bellman_parameters(self) -> OracleBellmanParameters:
+        return OracleBellmanParameters(
+            execution_cost=self.execution_cost,
+            portfolio_risk=self.portfolio_risk,
+            positions=self.positions,
+            max_gross=self.max_gross,
+            max_abs_weight=self.max_abs_weight,
+            entry_threshold=self.entry_threshold,
+            exit_threshold=self.exit_threshold,
+            no_trade_band=self.no_trade_band,
+            reference_portfolio_value=self.reference_portfolio_value,
+            maximum_states=self.maximum_states,
+            signal_delay_decisions=self.signal_delay_decisions,
+            approximation_contract=self.approximation_contract,
+            control_tie_break_penalty=self.control_tie_break_penalty,
+        )
 
 
 def _validate_train_range(

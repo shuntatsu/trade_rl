@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  red:
+  green:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout exact head
@@ -24,5 +24,11 @@ jobs:
           python-version: "3.12"
       - name: Install test dependencies
         run: uv sync --extra dev --extra train-sb3
-      - name: Confirm tiny CUDA smoke contract is red
+      - name: Confirm tiny CUDA smoke contract is green
         run: uv run pytest -q tests/operations/test_cuda_training_smoke.py
+      - name: Verify targeted lint and format
+        run: |
+          uv run ruff check trade_rl/operations/cuda_training_smoke.py tests/operations/test_cuda_training_smoke.py
+          uv run ruff format --check trade_rl/operations/cuda_training_smoke.py tests/operations/test_cuda_training_smoke.py
+      - name: Verify targeted types
+        run: uv run mypy trade_rl/operations/cuda_training_smoke.py

@@ -86,6 +86,42 @@ def test_v3_artifact_round_trip_preserves_complete_solver_provenance(
     assert dataset.solver_provenance == provenance
 
 
+def test_runtime_evidence_changes_integrity_digest_not_artifact_identity(
+    tmp_path: Path,
+) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_provenance = _provenance()
+    second_provenance = replace(
+        first_provenance,
+        solver_wall_time_seconds=9.0,
+        peak_host_memory_bytes=8192,
+        digest="",
+    )
+
+    first_digest = write_episode_teacher_artifact(
+        first_root,
+        _dataset(provenance=first_provenance),
+    )
+    second_digest = write_episode_teacher_artifact(
+        second_root,
+        _dataset(provenance=second_provenance),
+    )
+    first_raw = json.loads(
+        (first_root / "manifest.json").read_text(encoding="utf-8")
+    )
+    second_raw = json.loads(
+        (second_root / "manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert first_provenance.digest == second_provenance.digest
+    assert first_digest == second_digest
+    assert (
+        first_raw["solver_provenance_digest"]
+        != second_raw["solver_provenance_digest"]
+    )
+
+
 def test_legacy_v2_artifact_without_runtime_digest_remains_readable(
     tmp_path: Path,
 ) -> None:

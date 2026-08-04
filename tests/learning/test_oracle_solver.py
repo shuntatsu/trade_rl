@@ -17,9 +17,9 @@ from trade_rl.learning.oracle_bellman_numpy import solve_numpy_oracle_batch
 from trade_rl.learning.oracle_market_tape import build_oracle_market_tape
 from trade_rl.learning.oracle_solver import solve_oracle_episodes
 from trade_rl.learning.oracle_teacher import (
+    OracleTeacherConfig,
     _portfolio_states,
     oracle_target_path,
-    OracleTeacherConfig,
 )
 from trade_rl.simulation.execution import ExecutionCostConfig
 

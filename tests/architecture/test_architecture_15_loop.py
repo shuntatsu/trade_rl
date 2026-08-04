@@ -167,18 +167,23 @@ def test_loop_05_postgres_adapters_share_public_connection_factory() -> None:
     contract = PACKAGE_ROOT / "catalog/postgres_connection.py"
     assert contract.is_file()
     assert {"default_connection_factory", "import_psycopg"} <= _defined_names(contract)
-    postgres_targets = _import_targets(
-        PACKAGE_ROOT / "catalog/postgres.py",
-        module_name="trade_rl.catalog.postgres",
-    )
-    sealed_targets = _import_targets(
-        PACKAGE_ROOT / "catalog/postgres_sealed_test.py",
-        module_name="trade_rl.catalog.postgres_sealed_test",
+    adapter_modules = (
+        (PACKAGE_ROOT / "catalog/postgres.py", "trade_rl.catalog.postgres"),
+        (
+            PACKAGE_ROOT / "catalog/postgres_sealed_test.py",
+            "trade_rl.catalog.postgres_sealed_test",
+        ),
+        (
+            PACKAGE_ROOT / "catalog/postgres_stage_a_sealed_test.py",
+            "trade_rl.catalog.postgres_stage_a_sealed_test",
+        ),
     )
     expected = "trade_rl.catalog.postgres_connection.default_connection_factory"
-    assert expected in postgres_targets
-    assert expected in sealed_targets
-    assert "trade_rl.catalog.postgres._default_connection_factory" not in sealed_targets
+    forbidden = "trade_rl.catalog.postgres._default_connection_factory"
+    for path, module_name in adapter_modules:
+        targets = _import_targets(path, module_name=module_name)
+        assert expected in targets
+        assert forbidden not in targets
 
 
 def test_loop_06_rl_environment_info_does_not_import_evaluation() -> None:

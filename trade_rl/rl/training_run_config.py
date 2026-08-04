@@ -431,7 +431,7 @@ class TrainingRunConfig:
         config = cls.from_mapping(json.loads(path.read_text(encoding="utf-8")))
         return config.resolve_artifact_paths(path.parent)
 
-    def _identity_payload(
+    def _recipe_identity_payload(
         self,
         *,
         resume_checkpoint_digests: dict[str, str],
@@ -443,10 +443,6 @@ class TrainingRunConfig:
             "alpha_artifact_digest": self.alpha_artifact_digest,
             "environment": asdict(self.environment),
             "factor_artifact_digest": self.factor_artifact_digest,
-            "export_onnx": self.export_onnx,
-            "export_structured_torchscript": self.export_structured_torchscript,
-            "export_tolerance": self.export_tolerance,
-            "export_torchscript": self.export_torchscript,
             "git_commit": self.git_commit,
             "git_dirty": self.git_dirty,
             "portfolio_risk": asdict(self.portfolio_risk),
@@ -464,13 +460,13 @@ class TrainingRunConfig:
     def candidate_digest_payload(self) -> dict[str, object]:
         """Return the stable learning recipe identity, excluding checkpoint transport."""
 
-        return self._identity_payload(
+        return self._recipe_identity_payload(
             resume_checkpoint_digests={},
             transfer_checkpoint_digests={},
         )
 
     def digest_payload(self) -> dict[str, object]:
-        return self._identity_payload(
+        return self._recipe_identity_payload(
             resume_checkpoint_digests={
                 str(seed): load_checkpoint_manifest(
                     path / "checkpoint.json" if path.is_dir() else path

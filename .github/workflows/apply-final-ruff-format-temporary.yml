@@ -1,0 +1,96 @@
+name: Apply final Ruff formatting
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/apply-final-ruff-format-temporary.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/oracle-bellman-batched-solver
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install development dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+
+      - name: Format and verify exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=/tmp/expected-format-files.txt
+          actual=/tmp/actual-format-files.txt
+          cat > "$expected" <<'EOF'
+          examples/binance-multitimeframe/full_research_pipeline.py
+          examples/binance-multitimeframe/run_full_research_state.py
+          tests/integrations/test_sb3_model_assembly.py
+          tests/studio/test_behavior_cloning_progress_api.py
+          tests/studio/test_catalog.py
+          tests/studio/test_supervised_jobs.py
+          trade_rl/evaluation/closed_trades.py
+          trade_rl/integrations/behavior_cloning.py
+          trade_rl/rl/policies.py
+          trade_rl/studio/api.py
+          trade_rl/studio/behavior_cloning_progress.py
+          trade_rl/studio/dataset_catalog.py
+          trade_rl/studio/overview.py
+          trade_rl/studio/supervised_jobs.py
+          trade_rl/studio/system_probe.py
+          trade_rl/workflows/_market_walk_forward_core.py
+          EOF
+          uv run ruff format .
+          git diff --name-only -- '*.py' | sort > "$actual"
+          diff -u "$expected" "$actual"
+          uv run ruff check .
+          uv run ruff format --check --diff .
+          uv run mypy \
+            trade_rl/evaluation/closed_trades.py \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/rl/policies.py \
+            trade_rl/studio \
+            trade_rl/workflows/_market_walk_forward_core.py
+          uv run lint-imports
+          git diff --check
+
+      - name: Commit formatting and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/apply-final-ruff-format-temporary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            examples/binance-multitimeframe/full_research_pipeline.py \
+            examples/binance-multitimeframe/run_full_research_state.py \
+            tests/integrations/test_sb3_model_assembly.py \
+            tests/studio/test_behavior_cloning_progress_api.py \
+            tests/studio/test_catalog.py \
+            tests/studio/test_supervised_jobs.py \
+            trade_rl/evaluation/closed_trades.py \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/rl/policies.py \
+            trade_rl/studio/api.py \
+            trade_rl/studio/behavior_cloning_progress.py \
+            trade_rl/studio/dataset_catalog.py \
+            trade_rl/studio/overview.py \
+            trade_rl/studio/supervised_jobs.py \
+            trade_rl/studio/system_probe.py \
+            trade_rl/workflows/_market_walk_forward_core.py \
+            .github/workflows/apply-final-ruff-format-temporary.yml
+          git diff --cached --check
+          git commit -m "style: apply repository Ruff formatting"
+          git push origin HEAD:agent/oracle-bellman-batched-solver

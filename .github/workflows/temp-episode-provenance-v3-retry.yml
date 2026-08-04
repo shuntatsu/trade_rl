@@ -1,0 +1,56 @@
+name: Temporary Episode Provenance V3 Retry
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temp-episode-provenance-v3-retry.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Reuse provenance v3 patch
+        run: |
+          awk '
+            /^          python - <<'"'"'PY'"'"'$/ { capture=1; next }
+            /^          PY$/ { capture=0 }
+            capture { sub(/^          /, ""); print }
+          ' .github/workflows/temp-episode-provenance-v3.yml > /tmp/episode-provenance-v3.py
+          python /tmp/episode-provenance-v3.py
+      - name: Format patched files
+        run: |
+          uv run ruff format trade_rl/learning/episode_teacher_artifact.py tests/learning/test_episode_teacher_provenance.py
+          uv run ruff check --fix trade_rl/learning/episode_teacher_artifact.py tests/learning/test_episode_teacher_provenance.py
+      - name: Verify provenance contracts
+        run: |
+          uv run pytest -q \
+            tests/learning/test_episode_teacher_provenance.py \
+            tests/learning/test_episode_teacher_integration.py \
+            tests/learning/test_oracle_bellman_contracts.py \
+            tests/learning/test_teacher_cache.py
+          uv run ruff check trade_rl/learning/episode_teacher_artifact.py tests/learning/test_episode_teacher_provenance.py
+          uv run ruff format --check trade_rl/learning/episode_teacher_artifact.py tests/learning/test_episode_teacher_provenance.py
+          uv run mypy trade_rl/learning/episode_teacher_artifact.py
+      - name: Upload verified files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: episode-provenance-v3-files
+          path: |
+            trade_rl/learning/episode_teacher_artifact.py
+            tests/learning/test_episode_teacher_provenance.py
+          if-no-files-found: error

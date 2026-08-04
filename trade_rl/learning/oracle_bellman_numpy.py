@@ -11,8 +11,8 @@ import numpy as np
 from trade_rl.learning.oracle_bellman_contracts import (
     OracleBellmanParameters,
     OracleEpisodeInputs,
-    OracleSolveResult,
     OracleSolverConfig,
+    OracleSolveResult,
     OracleSolverProvenance,
 )
 from trade_rl.learning.oracle_market_tape import OracleMarketTape

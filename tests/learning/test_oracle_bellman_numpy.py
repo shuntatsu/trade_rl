@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.learning.episode_oracle_teacher import episode_oracle_target_path

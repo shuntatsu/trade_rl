@@ -118,7 +118,7 @@ Timeframe AttentionとAsset AttentionはHead、Layer、FFN倍率、Gate biasを�
 
 ## Policy identity
 
-`sb3_policy_identity_v1`は、ConfigをそのままHashせず、組み立て済みFeature extractorから構造を読み取ります。
+`sb3_policy_identity_v4`は、ConfigをそのままHashせず、組み立て済みFeature extractorから構造を読み取ります。
 
 Sequence identityは次を含みます。
 

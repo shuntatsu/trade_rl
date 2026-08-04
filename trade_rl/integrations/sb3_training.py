@@ -19,11 +19,7 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.catalog.contracts import ArtifactKind
-from trade_rl.catalog.reusable_artifacts import (
-    ReusableArtifactIndex,
-    teacher_cache_identity,
-    teacher_cache_identity_v2,
-)
+from trade_rl.catalog.reusable_artifacts import ReusableArtifactIndex
 from trade_rl.integrations.behavior_cloning import pretrain_policy
 from trade_rl.integrations.sb3_checkpoint_assembly import (
     load_sb3_checkpoint_model,
@@ -78,6 +74,10 @@ from trade_rl.learning.episode_teacher_artifact import (
 from trade_rl.learning.hierarchical_teacher_labels import (
     HierarchicalTeacherLabels,
     build_hierarchical_teacher_labels,
+)
+from trade_rl.learning.teacher_cache import (
+    teacher_cache_identity,
+    teacher_cache_identity_v2,
 )
 from trade_rl.rl.algorithm_configs import (
     CostCriticPPOConfig,

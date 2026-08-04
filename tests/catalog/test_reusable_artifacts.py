@@ -146,11 +146,11 @@ def test_rejects_catalog_location_outside_durable_root(tmp_path: Path) -> None:
 
 
 def test_cache_identity_v2_separates_actual_backends() -> None:
-    from trade_rl.catalog.reusable_artifacts import teacher_cache_identity_v2
     from trade_rl.learning.oracle_bellman_contracts import (
         OracleSolverConfig,
         OracleSolverProvenance,
     )
+    from trade_rl.learning.teacher_cache import teacher_cache_identity_v2
 
     config = OracleSolverConfig(selection="numpy")
     numpy_provenance = OracleSolverProvenance.numpy_reference(
@@ -255,10 +255,10 @@ def _episode_dataset_with_provenance(*, with_provenance: bool):
 
 
 def test_v1_backfill_remains_legacy_without_cuda_claim(tmp_path: Path) -> None:
-    from trade_rl.catalog.reusable_artifacts import backfill_teacher_cache
     from trade_rl.learning.episode_teacher_artifact import (
         write_episode_teacher_artifact,
     )
+    from trade_rl.learning.teacher_cache import backfill_teacher_cache
 
     root = tmp_path / "cache"
     artifact = root / "legacy"
@@ -279,10 +279,10 @@ def test_v1_backfill_remains_legacy_without_cuda_claim(tmp_path: Path) -> None:
 
 
 def test_v2_backfill_records_truthful_solver_identity(tmp_path: Path) -> None:
-    from trade_rl.catalog.reusable_artifacts import backfill_teacher_cache
     from trade_rl.learning.episode_teacher_artifact import (
         write_episode_teacher_artifact,
     )
+    from trade_rl.learning.teacher_cache import backfill_teacher_cache
 
     root = tmp_path / "cache"
     artifact = root / "current"
@@ -305,11 +305,11 @@ def test_v2_backfill_records_truthful_solver_identity(tmp_path: Path) -> None:
 def test_v2_identity_ignores_runtime_metrics_but_not_backend() -> None:
     from dataclasses import replace
 
-    from trade_rl.catalog.reusable_artifacts import teacher_cache_identity_v2
     from trade_rl.learning.oracle_bellman_contracts import (
         OracleSolverConfig,
         OracleSolverProvenance,
     )
+    from trade_rl.learning.teacher_cache import teacher_cache_identity_v2
 
     base_provenance = OracleSolverProvenance.numpy_reference(
         config=OracleSolverConfig(),

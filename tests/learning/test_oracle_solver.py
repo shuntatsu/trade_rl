@@ -169,3 +169,69 @@ def test_public_oracle_path_accepts_explicit_numpy_solver_config() -> None:
     )
 
     np.testing.assert_array_equal(explicit, default)
+
+
+def test_orchestrator_routes_cuda_batches_to_torch_backend(monkeypatch) -> None:
+    from dataclasses import replace
+
+    import trade_rl.learning.oracle_solver as oracle_solver_module
+    from trade_rl.learning.oracle_bellman_contracts import (
+        OracleSolveResult,
+        OracleSolverProvenance,
+    )
+
+    market = _market()
+    teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+    states = _portfolio_states(market, teacher)
+    inputs = _inputs()
+    calls: list[int] = []
+
+    def fake_torch_backend(*, tape, states, episode_inputs, parameters, solver_config):
+        calls.append(episode_inputs.episode_count)
+        numpy_result = solve_numpy_oracle_batch(
+            tape=tape,
+            states=states,
+            episode_inputs=episode_inputs,
+            parameters=parameters,
+            solver_config=replace(solver_config, selection="numpy"),
+        )
+        return OracleSolveResult(
+            targets=numpy_result.targets,
+            final_scores=numpy_result.final_scores,
+            provenance=OracleSolverProvenance(
+                backend="torch_cuda",
+                solver_config_digest=solver_config.digest,
+                market_tape_digest=tape.digest,
+                numeric_dtype="float64",
+                tie_tolerance=solver_config.tie_tolerance,
+                episode_batch_size=solver_config.episode_batch_size,
+                target_state_block_size=solver_config.target_state_block_size,
+                compile_mode=solver_config.compile_mode,
+                compile_chunk_size=solver_config.compile_chunk_size,
+                torch_version="test",
+                cuda_version="test",
+                device_name="test",
+                compute_capability="0.0",
+            ),
+        )
+
+    monkeypatch.setattr(
+        oracle_solver_module,
+        "solve_torch_cuda_oracle_batch",
+        fake_torch_backend,
+    )
+
+    result = solve_oracle_episodes(
+        market,
+        states=states,
+        episode_inputs=inputs,
+        parameters=teacher.bellman_parameters,
+        solver_config=OracleSolverConfig(
+            selection="cuda",
+            episode_batch_size=2,
+            target_state_block_size=1,
+        ),
+    )
+
+    assert calls == [2, 1]
+    assert result.provenance.backend == "torch_cuda"

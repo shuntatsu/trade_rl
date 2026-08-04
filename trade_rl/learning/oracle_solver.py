@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.learning.oracle_bellman_contracts import (
-    OracleBackendFailure,
     OracleBellmanParameters,
     OracleEpisodeInputs,
     OracleSolverConfig,
     OracleSolveResult,
 )
 from trade_rl.learning.oracle_bellman_numpy import solve_numpy_oracle_batch
+from trade_rl.learning.oracle_bellman_torch import solve_torch_cuda_oracle_batch
 from trade_rl.learning.oracle_market_tape import build_oracle_market_tape
 
 
@@ -46,9 +48,6 @@ def solve_oracle_episodes(
         raise ValueError("parameters must be OracleBellmanParameters")
     if not isinstance(solver_config, OracleSolverConfig):
         raise ValueError("solver_config must be OracleSolverConfig")
-    if solver_config.selection != "numpy":
-        raise OracleBackendFailure("torch_cuda", "CUDA backend is not available")
-
     tape = build_oracle_market_tape(
         dataset,
         (int(episode_inputs.starts.min()), int(episode_inputs.stops.max())),
@@ -56,7 +55,7 @@ def solve_oracle_episodes(
     )
     targets: list[np.ndarray | None] = [None] * episode_inputs.episode_count
     scores = np.empty(episode_inputs.episode_count, dtype=np.float64)
-    provenance = None
+    provenances = []
     horizons = episode_inputs.stops - episode_inputs.starts - 1
     for horizon in sorted(set(horizons.tolist())):
         horizon_positions = np.flatnonzero(horizons == horizon)
@@ -66,26 +65,76 @@ def solve_oracle_episodes(
             positions = horizon_positions[
                 offset : offset + solver_config.episode_batch_size
             ]
-            result = solve_numpy_oracle_batch(
+            backend = (
+                solve_numpy_oracle_batch
+                if solver_config.selection == "numpy"
+                else solve_torch_cuda_oracle_batch
+            )
+            result = backend(
                 tape=tape,
                 states=states,
                 episode_inputs=_episode_subset(episode_inputs, positions),
                 parameters=parameters,
                 solver_config=solver_config,
             )
-            if provenance is None:
-                provenance = result.provenance
-            elif provenance.digest != result.provenance.digest:
-                raise RuntimeError("Oracle backend provenance changed within one solve")
+            provenances.append(result.provenance)
             for local_index, position in enumerate(positions):
                 targets[int(position)] = result.targets[local_index]
                 scores[int(position)] = result.final_scores[local_index]
-    if provenance is None or any(target is None for target in targets):
+    if not provenances or any(target is None for target in targets):
         raise RuntimeError("Oracle solve did not produce every episode")
+    first = provenances[0]
+    stable_fields = (
+        "backend",
+        "solver_config_digest",
+        "market_tape_digest",
+        "numeric_dtype",
+        "tie_tolerance",
+        "episode_batch_size",
+        "target_state_block_size",
+        "compile_mode",
+        "compile_chunk_size",
+        "fallback_reason",
+        "solver_contract",
+        "tie_break_contract",
+        "torch_version",
+        "cuda_version",
+        "device_name",
+        "compute_capability",
+    )
+    for provenance in provenances[1:]:
+        if any(
+            getattr(provenance, field) != getattr(first, field)
+            for field in stable_fields
+        ):
+            raise RuntimeError("Oracle backend provenance changed within one solve")
+    wall_times = [
+        value.solver_wall_time_seconds
+        for value in provenances
+        if value.solver_wall_time_seconds is not None
+    ]
+    host_peaks = [
+        value.peak_host_memory_bytes
+        for value in provenances
+        if value.peak_host_memory_bytes is not None
+    ]
+    device_peaks = [
+        value.peak_device_memory_bytes
+        for value in provenances
+        if value.peak_device_memory_bytes is not None
+    ]
+    aggregate = replace(
+        first,
+        oom_retry_performed=any(value.oom_retry_performed for value in provenances),
+        solver_wall_time_seconds=sum(wall_times) if wall_times else None,
+        peak_host_memory_bytes=max(host_peaks) if host_peaks else None,
+        peak_device_memory_bytes=max(device_peaks) if device_peaks else None,
+        digest="",
+    )
     return OracleSolveResult(
         targets=tuple(target for target in targets if target is not None),
         final_scores=scores,
-        provenance=provenance,
+        provenance=aggregate,
     )
 
 

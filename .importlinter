@@ -124,6 +124,10 @@ forbidden_modules =
     stable_baselines3
     sb3_contrib
     torch
+allow_indirect_imports = True
+ignore_imports =
+    trade_rl.learning.oracle_bellman_torch -> torch
+    trade_rl.learning.oracle_transition_torch -> torch
 
 [importlinter:contract:workflow-frameworks]
 name = Workflows cannot directly import model frameworks

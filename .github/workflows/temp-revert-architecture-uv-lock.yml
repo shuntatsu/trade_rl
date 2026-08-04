@@ -1,0 +1,35 @@
+name: Temporary revert architecture lock drift
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temp-revert-architecture-uv-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  revert-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/architecture-boundary-hardening-current
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Restore lockfile and remove workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout origin/main -- uv.lock
+          rm .github/workflows/temp-revert-architecture-uv-lock.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "chore: remove architecture migration lock drift"
+          git push origin HEAD:agent/architecture-boundary-hardening-current

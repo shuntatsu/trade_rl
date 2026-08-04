@@ -406,9 +406,21 @@ def run_oracle_teacher_benchmark(
             else episode_lengths,
             "episode_count": len(resolved_contracts),
             "episode_batch_size": config.episode_batch_size,
-            "target_state_block_size": config.target_state_block_size,
-            "compile_mode": config.compile_mode,
+            "requested_target_state_block_size": config.target_state_block_size,
+            "actual_target_state_block_size": (
+                None if provenance is None else provenance.target_state_block_size
+            ),
+            "requested_compile_mode": config.compile_mode,
+            "actual_compile_mode": (
+                None if provenance is None else provenance.compile_mode
+            ),
             "compile_chunk_size": config.compile_chunk_size,
+            "fallback_reason": (
+                None if provenance is None else provenance.fallback_reason
+            ),
+            "oom_retry_performed": (
+                False if provenance is None else provenance.oom_retry_performed
+            ),
             "repetitions": repeat_count,
             "state_count": int(_portfolio_states(dataset, teacher_config).shape[0]),
             "symbol_count": dataset.n_symbols,

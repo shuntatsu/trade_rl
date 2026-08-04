@@ -102,6 +102,10 @@ def test_serial_and_batched_numpy_return_equal_output_digests() -> None:
     assert serial.output_digest == batched.output_digest
     assert serial.metadata["compatibility_note"] is not None
     assert batched.metadata["actual_backend"] == "numpy"
+    assert batched.metadata["requested_compile_mode"] == "disabled"
+    assert batched.metadata["actual_compile_mode"] == "disabled"
+    assert batched.metadata["fallback_reason"] is None
+    assert batched.metadata["oom_retry_performed"] is False
     assert "market-tape construction" in str(batched.metadata["total_wall_scope"])
     assert "host-to-device" in str(batched.metadata["solver_wall_scope"])
     assert serial.peak_device_allocated_bytes is None

@@ -1,0 +1,50 @@
+name: Temporary cleanup merged branches
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temp-cleanup-merged-branches.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete merged branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for branch in \
+            agent/architecture-boundary-hardening-20260801 \
+            agent/architecture-boundary-hardening-current \
+            agent/oracle-bellman-batched-design \
+            agent/oracle-bellman-batched-solver
+          do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" || {
+              status=$?
+              if [ "$status" -ne 0 ]; then
+                echo "Failed to delete ${branch}" >&2
+                exit "$status"
+              fi
+            }
+          done
+
+      - name: Remove temporary workflow
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          path='.github/workflows/temp-cleanup-merged-branches.yml'
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=main" --jq '.sha')"
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/contents/${path}" \
+            -f message='chore: remove temporary branch cleanup workflow' \
+            -f sha="${sha}" \
+            -f branch='main'

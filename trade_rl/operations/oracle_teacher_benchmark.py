@@ -32,7 +32,6 @@ _SUPPORTED_BACKENDS: Final = (
     "serial_numpy",
     "numpy_batched",
     "torch_cuda_eager",
-    "torch_cuda_compiled",
 )
 
 
@@ -204,9 +203,7 @@ def _solver_config(
         selection="cuda",
         episode_batch_size=episode_batch_size,
         target_state_block_size=target_state_block_size,
-        compile_mode=(
-            "reduce_overhead" if backend == "torch_cuda_compiled" else "disabled"
-        ),
+        compile_mode="disabled",
         compile_chunk_size=compile_chunk_size,
     )
 
@@ -438,8 +435,7 @@ def run_oracle_teacher_benchmark(
             "solver_wall_scope": (
                 "backend provenance timer; CUDA excludes tape/state host-to-device "
                 "transfer and output device-to-host materialization, includes the "
-                "synchronized solve, first-call compilation when enabled, and "
-                "backtracking"
+                "synchronized eager solve and backtracking"
             ),
             "baseline_note": (
                 "maintained NumPy solver invoked one episode at a time; "

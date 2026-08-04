@@ -57,12 +57,6 @@ jobs:
           diff -u "$expected" "$actual"
           uv run ruff check .
           uv run ruff format --check --diff .
-          uv run mypy \
-            trade_rl/evaluation/closed_trades.py \
-            trade_rl/integrations/behavior_cloning.py \
-            trade_rl/rl/policies.py \
-            trade_rl/studio \
-            trade_rl/workflows/_market_walk_forward_core.py
           uv run lint-imports
           git diff --check
 

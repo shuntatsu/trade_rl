@@ -16,15 +16,27 @@ from trade_rl.learning.oracle_bellman_contracts import (
     OracleSolveResult,
 )
 from trade_rl.learning.oracle_bellman_numpy import solve_numpy_oracle_batch
-from trade_rl.learning.oracle_market_tape import (
-    OracleMarketTape,
-    build_oracle_market_tape,
-)
+from trade_rl.learning.oracle_market_tape import build_oracle_market_tape
 
-OracleBatchBackend = Callable[
-    ...,
-    OracleSolveResult,
-]
+OracleBatchBackend = Callable[..., OracleSolveResult]
+_ACCELERATOR_BACKENDS: dict[str, OracleBatchBackend] = {}
+
+
+def register_oracle_accelerator_backend(
+    name: str,
+    backend: OracleBatchBackend,
+) -> None:
+    """Register one higher-layer accelerator adapter idempotently."""
+
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Oracle accelerator backend name must be non-empty")
+    if not callable(backend):
+        raise ValueError("Oracle accelerator backend must be callable")
+    normalized = name.strip()
+    existing = _ACCELERATOR_BACKENDS.get(normalized)
+    if existing is not None and existing is not backend:
+        raise RuntimeError(f"Oracle accelerator backend already registered: {normalized}")
+    _ACCELERATOR_BACKENDS[normalized] = backend
 
 
 def _episode_subset(
@@ -51,8 +63,8 @@ def solve_oracle_episodes(
     """Solve independent episodes while preserving their input ordering.
 
     Learning owns the numerical orchestration and NumPy reference path. Higher
-    layers inject an accelerator backend explicitly, so this module never imports
-    optional model frameworks or integration adapters.
+    layers inject or register an accelerator backend explicitly, so this module
+    never imports optional model frameworks or integration adapters.
     """
 
     if not isinstance(dataset, MarketDataset):
@@ -63,6 +75,7 @@ def solve_oracle_episodes(
         raise ValueError("parameters must be OracleBellmanParameters")
     if not isinstance(solver_config, OracleSolverConfig):
         raise ValueError("solver_config must be OracleSolverConfig")
+    selected_accelerator = accelerator_backend or _ACCELERATOR_BACKENDS.get("cuda")
     if solver_config.selection == "cuda_or_numpy":
         try:
             return solve_oracle_episodes(
@@ -71,7 +84,7 @@ def solve_oracle_episodes(
                 episode_inputs=episode_inputs,
                 parameters=parameters,
                 solver_config=replace(solver_config, selection="cuda"),
-                accelerator_backend=accelerator_backend,
+                accelerator_backend=selected_accelerator,
             )
         except OracleBackendFailure as error:
             fallback = solve_oracle_episodes(
@@ -91,7 +104,7 @@ def solve_oracle_episodes(
                 digest="",
             )
             return replace(fallback, provenance=provenance, digest="")
-    if solver_config.selection == "cuda" and accelerator_backend is None:
+    if solver_config.selection == "cuda" and selected_accelerator is None:
         raise OracleBackendFailure("oracle_solver", "accelerator_backend_required")
 
     tape = build_oracle_market_tape(
@@ -106,7 +119,7 @@ def solve_oracle_episodes(
     backend = (
         solve_numpy_oracle_batch
         if solver_config.selection == "numpy"
-        else accelerator_backend
+        else selected_accelerator
     )
     if backend is None:  # pragma: no cover - guarded above
         raise RuntimeError("Oracle accelerator backend disappeared")
@@ -201,4 +214,8 @@ def solve_oracle_episodes(
     )
 
 
-__all__ = ["OracleBatchBackend", "solve_oracle_episodes"]
+__all__ = [
+    "OracleBatchBackend",
+    "register_oracle_accelerator_backend",
+    "solve_oracle_episodes",
+]

@@ -1,0 +1,16 @@
+{
+  "operations": [
+    {
+      "kind": "replace",
+      "path": "trade_rl/catalog/postgres.py",
+      "old": "from trade_rl.catalog.migrations import apply_migrations\nfrom trade_rl.evaluation.walk_forward.sealed_test import SealedTestAccessRecord\n",
+      "new": "from trade_rl.catalog.migrations import apply_migrations\n"
+    },
+    {
+      "kind": "replace",
+      "path": "trade_rl/catalog/postgres.py",
+      "old": "    def reserve_sealed_test_access(self, record: SealedTestAccessRecord) -> None:\n        from trade_rl.catalog.postgres_sealed_test import (\n            PostgresSealedTestReservationStore,\n        )\n\n        PostgresSealedTestReservationStore(\n            self._database_url,\n            connection_factory=self._connection_factory,\n        ).reserve_sealed_test_access(record)\n\n",
+      "new": ""
+    }
+  ]
+}

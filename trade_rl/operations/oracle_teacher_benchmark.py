@@ -24,7 +24,7 @@ from trade_rl.learning.oracle_bellman_contracts import (
     OracleSolverProvenance,
 )
 from trade_rl.learning.oracle_solver import solve_oracle_episodes
-from trade_rl.learning.oracle_teacher import OracleTeacherConfig, _portfolio_states
+from trade_rl.learning.oracle_teacher import OracleTeacherConfig, portfolio_states
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 ORACLE_BENCHMARK_SCHEMA: Final = "oracle_teacher_benchmark_v2"
@@ -216,7 +216,7 @@ def _run_solver(
     backend: str,
     solver_config: OracleSolverConfig,
 ) -> _OperationEvidence:
-    states = _portfolio_states(dataset, teacher_config)
+    states = portfolio_states(dataset, teacher_config)
     if backend == "serial_numpy":
         targets: list[np.ndarray] = []
         scores: list[float] = []

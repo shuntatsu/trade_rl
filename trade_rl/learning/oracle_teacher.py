@@ -179,7 +179,7 @@ def _validate_train_range(
     return start, stop
 
 
-def _portfolio_states(
+def portfolio_states(
     dataset: MarketDataset, config: OracleTeacherConfig
 ) -> np.ndarray:
     levels = tuple(value * config.max_abs_weight for value in config.positions)
@@ -198,6 +198,9 @@ def _portfolio_states(
     if not np.any(np.all(np.isclose(states, 0.0), axis=1)):
         raise RuntimeError("oracle portfolio states do not contain cash")
     return states
+
+
+_portfolio_states = portfolio_states
 
 
 def _effective_target_matrix(
@@ -318,7 +321,7 @@ def oracle_target_path(
     start, stop = _validate_train_range(dataset, train_range)
     result = solve_oracle_episodes(
         dataset,
-        states=_portfolio_states(dataset, config),
+        states=portfolio_states(dataset, config),
         episode_inputs=OracleEpisodeInputs(
             episode_indices=np.array([0], dtype=np.int64),
             starts=np.array([start], dtype=np.int64),
@@ -335,5 +338,6 @@ __all__ = [
     "ORACLE_TEACHER_SCHEMA",
     "OracleTeacherConfig",
     "oracle_target_path",
+    "portfolio_states",
     "project_portfolio_targets",
 ]

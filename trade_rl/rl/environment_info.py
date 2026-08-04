@@ -8,8 +8,12 @@ from typing import Protocol
 
 import numpy as np
 
-from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
-from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+from trade_rl.simulation.performance import (
+    PerformanceMetrics,
+    ReturnKind,
+    ReturnSeries,
+    evaluate_performance,
+)
 from trade_rl.rl.environment_constraints import (
     ActionPathDiagnostics,
     ConstraintCostRequest,

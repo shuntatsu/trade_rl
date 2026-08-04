@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Fix batch liquidity mask
+      - name: Fix target and liquidity broadcasting
         shell: bash
         run: |
           set -euo pipefail
@@ -34,11 +34,31 @@ jobs:
 
           path = Path("trade_rl/learning/oracle_transition_numpy.py")
           text = path.read_text(encoding="utf-8")
-          old = "where=positive_liquidity[r:, None, None, :],"
-          new = "where=positive_liquidity[:, None, None, :],"
-          if text.count(old) != 1:
+          old_targets = '''    current = current_batch[:, :, None, :]
+              if requested.shape[1] == 1 and prior_count != 1:
+                  requested = np.broadcast_to(
+                      requested,
+                      (batch_size, prior_count, *requested.shape[2:]),
+                  )
+              requested = requested[:, None, :, :]
+              controlled = requested.copy()
+          '''
+          new_targets = '''    current = current_batch[:, :, None, :]
+              requested = np.broadcast_to(
+                  requested[:, None, :, :],
+                  (batch_size, prior_count, requested.shape[1], symbol_count),
+              )
+              controlled = requested.copy()
+          '''
+          old_liquidity = "where=positive_liquidity[r:, None, None, :],"
+          new_liquidity = "where=positive_liquidity[:, None, None, :],"
+          if text.count(old_targets) != 1:
+              raise SystemExit("expected target-broadcast block was not found exactly once")
+          if text.count(old_liquidity) != 1:
               raise SystemExit("expected liquidity-mask typo was not found exactly once")
-          path.write_text(text.replace(old, new), encoding="utf-8")
+          text = text.replace(old_targets, new_targets)
+          text = text.replace(old_liquidity, new_liquidity)
+          path.write_text(text, encoding="utf-8")
           PY
       - name: Install, normalize, and verify
         shell: bash
@@ -60,5 +80,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add trade_rl/learning/oracle_transition_numpy.py tests/learning/test_oracle_transition_numpy.py .github/workflows
-          git commit -m "fix: align Oracle liquidity mask with episode batch"
+          git commit -m "fix: broadcast Oracle transitions across prior states"
           git push origin HEAD:agent/oracle-bellman-batched-solver

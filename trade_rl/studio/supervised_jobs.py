@@ -19,13 +19,13 @@ class SupervisedJobCatalog:
         roots: set[Path] = set()
         for configured in self.settings.run_roots:
             generations = (
-                configured / "runs"
-                if (configured / "runs").is_dir()
-                else configured
+                configured / "runs" if (configured / "runs").is_dir() else configured
             )
             if generations.is_dir():
                 roots.update(path for path in generations.iterdir() if path.is_dir())
-        return tuple(sorted(roots, key=lambda path: path.stat().st_mtime_ns, reverse=True))
+        return tuple(
+            sorted(roots, key=lambda path: path.stat().st_mtime_ns, reverse=True)
+        )
 
     def _job(self, generation: Path) -> JobSummary | None:
         heartbeat_path = generation / "heartbeat.json"
@@ -42,12 +42,18 @@ class SupervisedJobCatalog:
             return None
         artifact_root = generation / "artifacts"
         staging = artifact_root / ".staging"
-        candidates = sorted(path for path in staging.iterdir() if path.is_dir()) if staging.is_dir() else []
+        candidates = (
+            sorted(path for path in staging.iterdir() if path.is_dir())
+            if staging.is_dir()
+            else []
+        )
         run_id = candidates[0].name if candidates else generation.name
         pid = payload.get("pid")
         provenance_path = generation / "entrypoint-provenance.json"
         started_at = (
-            mtime(provenance_path) if provenance_path.is_file() else observed_at.isoformat()
+            mtime(provenance_path)
+            if provenance_path.is_file()
+            else observed_at.isoformat()
         )
         return JobSummary(
             id=generation.name,

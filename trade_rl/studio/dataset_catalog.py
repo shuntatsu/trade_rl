@@ -122,9 +122,7 @@ class DatasetCatalog:
                 dataset = load_market_dataset_artifact(path)
                 start = _iso_timestamp(dataset.timestamps[0])
                 end = _iso_timestamp(dataset.timestamps[-1])
-                symbols, feature_timeframes, universe_count = _display_identity(
-                    dataset
-                )
+                symbols, feature_timeframes, universe_count = _display_identity(dataset)
                 return DatasetSummary(
                     id=resource_id("dataset", relative, dataset.dataset_id),
                     dataset_id=dataset.dataset_id,

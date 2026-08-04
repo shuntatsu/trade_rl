@@ -178,9 +178,7 @@ def _collect_normalizer_matrix(
     _NORMALIZER_ENVIRONMENT_FACTORY = environment_factory
     try:
         if not parallel:
-            return _collect_normalizer_chunk(
-                (start, start + episode_bars, action_size)
-            )
+            return _collect_normalizer_chunk((start, start + episode_bars, action_size))
         partitions = _normalizer_partitions(
             start,
             start + episode_bars,
@@ -356,6 +354,7 @@ def _fit_normalizer(
         if run.environment.structured_sequence_observation
         else run
     )
+
     def environment_factory() -> Any:
         return build_market_environment(
             training_dataset,

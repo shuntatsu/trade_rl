@@ -242,16 +242,16 @@ class BinanceFullResearchStages:
                 TrainingRunConfig.from_json(training_template)
             )
             if requested_config.resume_checkpoints:
-                raise ValueError("requested training template must not resume checkpoints")
+                raise ValueError(
+                    "requested training template must not resume checkpoints"
+                )
             requested_workflow = pipeline.load_json(
                 _EXAMPLE_DIR / "walk-forward-constrained-growth.json"
             )
             raw_workflow = requested_workflow.get("workflow")
             if not isinstance(raw_workflow, dict):
                 raise ValueError("requested walk-forward workflow is invalid")
-            pipeline.align_workflow_to_full_dataset(
-                raw_workflow, n_bars=dataset.n_bars
-            )
+            pipeline.align_workflow_to_full_dataset(raw_workflow, n_bars=dataset.n_bars)
             requested_workflow["candidates"] = [
                 {
                     "name": training_template.stem,

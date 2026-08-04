@@ -44,7 +44,5 @@ def test_catalog_projects_fresh_supervisor_heartbeat_as_read_only_job(
     assert job.artifact_root == "var/runs/generation-1/artifacts"
     assert job.status == "running"
     assert job.cancellable is False
-    assert job.started_at == datetime.fromtimestamp(
-        started_timestamp, UTC
-    ).isoformat()
+    assert job.started_at == datetime.fromtimestamp(started_timestamp, UTC).isoformat()
     assert job.submitted_at == job.started_at

@@ -414,11 +414,19 @@ def pretrain_policy(
                     "gate_loss": None if losses is None else losses.gate,
                     "target_loss": None if losses is None else losses.target,
                     "composed_loss": None if losses is None else losses.composed,
-                    "gate_precision": None if metrics is None else metrics.gate_precision,
+                    "gate_precision": None
+                    if metrics is None
+                    else metrics.gate_precision,
                     "gate_recall": None if metrics is None else metrics.gate_recall,
-                    "activity_ratio": None if metrics is None else metrics.activity_ratio,
-                    "all_hold_collapse": None if metrics is None else metrics.all_hold_collapse,
-                    "all_trade_collapse": None if metrics is None else metrics.all_trade_collapse,
+                    "activity_ratio": None
+                    if metrics is None
+                    else metrics.activity_ratio,
+                    "all_hold_collapse": None
+                    if metrics is None
+                    else metrics.all_hold_collapse,
+                    "all_trade_collapse": None
+                    if metrics is None
+                    else metrics.all_trade_collapse,
                     "early_stopping": should_stop,
                 }
             )

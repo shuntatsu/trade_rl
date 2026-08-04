@@ -18,9 +18,13 @@ _PROGRESS_NAME = "behavior-cloning-progress.json"
 
 
 class BehaviorCloningProgressResponse(StudioModel):
-    schema_version: Literal["behavior_cloning_progress_v1"] = "behavior_cloning_progress_v1"
+    schema_version: Literal["behavior_cloning_progress_v1"] = (
+        "behavior_cloning_progress_v1"
+    )
     available: bool
-    phase: Literal["not_started", "preparing", "training", "evaluating", "passed", "failed"]
+    phase: Literal[
+        "not_started", "preparing", "training", "evaluating", "passed", "failed"
+    ]
     epoch: int | None = Field(default=None, ge=0)
     total_epochs: int | None = Field(default=None, ge=1)
     best_epoch: int | None = Field(default=None, ge=0)
@@ -53,7 +57,9 @@ class StudioBehaviorCloningProgressReader:
         try:
             root.relative_to(self.settings.project_root.resolve())
         except ValueError as error:
-            raise ArtifactInvalid("job artifact root escapes the Studio project") from error
+            raise ArtifactInvalid(
+                "job artifact root escapes the Studio project"
+            ) from error
         return root
 
     @staticmethod
@@ -73,9 +79,15 @@ class StudioBehaviorCloningProgressReader:
 
     def _source(self, path: Path) -> str:
         try:
-            return path.resolve().relative_to(self.settings.project_root.resolve()).as_posix()
+            return (
+                path.resolve()
+                .relative_to(self.settings.project_root.resolve())
+                .as_posix()
+            )
         except ValueError as error:
-            raise ArtifactInvalid("behavior-cloning source is outside the project") from error
+            raise ArtifactInvalid(
+                "behavior-cloning source is outside the project"
+            ) from error
 
     @staticmethod
     def _latest(paths: list[Path]) -> Path | None:
@@ -89,7 +101,9 @@ class StudioBehaviorCloningProgressReader:
             try:
                 candidate.relative_to(root)
             except ValueError as error:
-                raise ArtifactInvalid("behavior-cloning run path escapes artifact root") from error
+                raise ArtifactInvalid(
+                    "behavior-cloning run path escapes artifact root"
+                ) from error
             if candidate.is_dir():
                 resolved.append(candidate)
         return tuple(resolved)
@@ -108,14 +122,19 @@ class StudioBehaviorCloningProgressReader:
                 payload = json.loads(progress_path.read_text(encoding="utf-8"))
             except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
                 raise ArtifactInvalid("behavior-cloning progress is invalid") from error
-            if not isinstance(payload, dict) or payload.get("schema_version") != "behavior_cloning_progress_v1":
+            if (
+                not isinstance(payload, dict)
+                or payload.get("schema_version") != "behavior_cloning_progress_v1"
+            ):
                 raise ArtifactInvalid("behavior-cloning progress schema is invalid")
             seed, fold, configuration = self._identity(progress_path)
             epoch = payload.get("epoch")
             total_epochs = payload.get("total_epochs")
             percent = (
                 min(100.0, 100.0 * epoch / total_epochs)
-                if isinstance(epoch, int) and isinstance(total_epochs, int) and total_epochs > 0
+                if isinstance(epoch, int)
+                and isinstance(total_epochs, int)
+                and total_epochs > 0
                 else None
             )
             return BehaviorCloningProgressResponse.model_validate(
@@ -134,7 +153,9 @@ class StudioBehaviorCloningProgressReader:
             path
             for root in run_roots
             for path in root.rglob("manifest.json")
-            if path.parent.name == "teacher" and path.is_file() and not path.is_symlink()
+            if path.parent.name == "teacher"
+            and path.is_file()
+            and not path.is_symlink()
         ]
         teacher_path = self._latest(teacher_paths)
         if teacher_path is not None:

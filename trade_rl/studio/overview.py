@@ -199,7 +199,9 @@ class OverviewService:
         )
         known_ids = {item.id for item in active}
         active += tuple(
-            item for item in _supervised_active_jobs(self.runs) if item.id not in known_ids
+            item
+            for item in _supervised_active_jobs(self.runs)
+            if item.id not in known_ids
         )
         alerts: list[StudioAlert] = []
         if not valid_datasets:
@@ -235,9 +237,7 @@ class OverviewService:
                 )
             )
         active_jobs = tuple(
-            job
-            for job in jobs
-            if job.status in {"queued", "running", "cancelling"}
+            job for job in jobs if job.status in {"queued", "running", "cancelling"}
         )
         for job in active_jobs:
             alerts.append(

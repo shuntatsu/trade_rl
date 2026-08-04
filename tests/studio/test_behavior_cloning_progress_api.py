@@ -51,9 +51,7 @@ def test_behavior_cloning_progress_exposes_latest_epoch(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    response = api.get(
-        f"/api/studio/jobs/{created['id']}/behavior-cloning/progress"
-    )
+    response = api.get(f"/api/studio/jobs/{created['id']}/behavior-cloning/progress")
 
     assert response.status_code == 200
     payload = response.json()
@@ -68,7 +66,9 @@ def test_behavior_cloning_progress_exposes_latest_epoch(tmp_path: Path) -> None:
     assert payload["seed"] == 7
 
 
-def test_behavior_cloning_progress_infers_preparing_from_teacher(tmp_path: Path) -> None:
+def test_behavior_cloning_progress_infers_preparing_from_teacher(
+    tmp_path: Path,
+) -> None:
     api, _, catalog, _ = client(tmp_path)
     created = api.post(
         "/api/studio/jobs/training",
@@ -88,9 +88,7 @@ def test_behavior_cloning_progress_infers_preparing_from_teacher(tmp_path: Path)
     manifest.parent.mkdir(parents=True)
     manifest.write_text("{}", encoding="utf-8")
 
-    response = api.get(
-        f"/api/studio/jobs/{created['id']}/behavior-cloning/progress"
-    )
+    response = api.get(f"/api/studio/jobs/{created['id']}/behavior-cloning/progress")
 
     assert response.status_code == 200
     assert response.json()["phase"] == "preparing"

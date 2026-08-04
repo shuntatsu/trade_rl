@@ -82,8 +82,7 @@ def _memory_metric() -> SystemMetric:
                 label="メモリ",
                 value=float(status.memory_load),
                 detail=(
-                    f"{used / 1024**3:.1f} / "
-                    f"{status.total_physical / 1024**3:.1f} GB"
+                    f"{used / 1024**3:.1f} / {status.total_physical / 1024**3:.1f} GB"
                 ),
             )
     path = Path("/proc/meminfo")

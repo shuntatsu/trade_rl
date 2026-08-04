@@ -257,9 +257,7 @@ def _training_policy_digest(payload: object) -> str:
     return value
 
 
-def _align_workflow_to_full_dataset(
-    workflow: dict[str, Any], *, n_bars: int
-) -> None:
+def _align_workflow_to_full_dataset(workflow: dict[str, Any], *, n_bars: int) -> None:
     """Use the full immutable timeline while retaining the requested fold count."""
 
     required = (

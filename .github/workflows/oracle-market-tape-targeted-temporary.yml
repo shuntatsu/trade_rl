@@ -36,3 +36,4 @@ jobs:
         run: uv run ruff format --check --diff trade_rl/learning/oracle_market_tape.py tests/learning/test_oracle_market_tape.py
       - name: Mypy
         run: uv run mypy trade_rl/learning/oracle_market_tape.py
+      # User-authored rerun after the formatter bot commit.

@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reconstruct Typst source
+      - name: Reconstruct and patch Typst source
         shell: bash
         run: |
           mkdir -p report
@@ -26,6 +26,7 @@ jobs:
             > report/source.typ.gz.b64
           base64 --decode report/source.typ.gz.b64 | gzip --decompress > report/information_network_report_final.typ
           test "$(wc -c < report/information_network_report_final.typ)" -eq 27543
+          sed -i 's/#header-cell/header-cell/g' report/information_network_report_final.typ
 
       - name: Show Typst version
         run: docker run --rm ghcr.io/typst/typst:latest --version

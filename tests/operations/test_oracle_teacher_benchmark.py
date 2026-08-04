@@ -41,11 +41,11 @@ def _market(n_bars: int = 8) -> MarketDataset:
     )
 
 
-def _contract(market: MarketDataset) -> OracleEpisodeContract:
+def _contract(market: MarketDataset, index: int = 0) -> OracleEpisodeContract:
     return OracleEpisodeContract(
         dataset_id=market.dataset_id,
-        episode_index=0,
-        start=0,
+        episode_index=index,
+        start=index,
         stop=market.n_bars,
         initial_state_mode="cash",
         initial_weights=np.zeros(market.n_symbols, dtype=np.float64),
@@ -59,6 +59,7 @@ def test_benchmark_case_rejects_non_positive_values() -> None:
         "state_count",
         "symbol_count",
         "repetitions",
+        "episode_batch_size",
     ):
         values = {
             "episode_count": 1,
@@ -66,35 +67,47 @@ def test_benchmark_case_rejects_non_positive_values() -> None:
             "state_count": 1,
             "symbol_count": 1,
             "repetitions": 1,
+            "episode_batch_size": 1,
         }
         values[field] = 0
         try:
             OracleBenchmarkCase(**values)
         except ValueError as error:
             assert field in str(error)
-        else:  # pragma: no cover - assertion branch
+        else:
             raise AssertionError(f"{field} accepted zero")
 
 
-def test_legacy_benchmark_returns_finite_non_negative_timings() -> None:
-    market = _market()
-    result = run_oracle_teacher_benchmark(
+def test_serial_and_batched_numpy_return_equal_output_digests() -> None:
+    market = _market(10)
+    contracts = (_contract(market, 0),)
+    teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+
+    serial = run_oracle_teacher_benchmark(
         market,
-        (_contract(market),),
-        OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero()),
+        contracts,
+        teacher,
         backend="legacy_numpy",
-        repetitions=2,
+        repetitions=1,
+    )
+    batched = run_oracle_teacher_benchmark(
+        market,
+        contracts,
+        teacher,
+        backend="numpy_batched",
+        repetitions=1,
     )
 
-    assert isinstance(result, OracleBenchmarkResult)
-    assert result.backend == "legacy_numpy"
-    assert np.isfinite(result.cold_seconds)
-    assert result.cold_seconds >= 0.0
-    assert len(result.steady_seconds) == 2
-    assert np.isfinite(result.steady_seconds).all()
-    assert all(value >= 0.0 for value in result.steady_seconds)
-    assert result.metadata["episode_count"] == 1
-    assert result.metadata["episode_bars"] == market.n_bars - 1
+    assert isinstance(serial, OracleBenchmarkResult)
+    assert serial.output_digest == batched.output_digest
+    assert serial.metadata["compatibility_note"] is not None
+    assert batched.metadata["actual_backend"] == "numpy"
+    assert "market-tape construction" in str(batched.metadata["total_wall_scope"])
+    assert "host-to-device" in str(batched.metadata["solver_wall_scope"])
+    assert serial.peak_device_allocated_bytes is None
+    assert serial.peak_device_reserved_bytes is None
+    assert len(serial.steady_solver_seconds) == 1
+    assert np.isfinite(serial.steady_seconds).all()
 
 
 def test_cli_writes_canonical_json(tmp_path: Path) -> None:
@@ -103,7 +116,7 @@ def test_cli_writes_canonical_json(tmp_path: Path) -> None:
     exit_code = main(
         [
             "--backend",
-            "legacy_numpy",
+            "numpy_batched",
             "--episode-count",
             "1",
             "--episode-bars",
@@ -119,6 +132,11 @@ def test_cli_writes_canonical_json(tmp_path: Path) -> None:
     raw = output.read_text(encoding="utf-8")
     assert raw.endswith("\n")
     payload = json.loads(raw)
-    assert payload["backend"] == "legacy_numpy"
+    assert payload["backend"] == "numpy_batched"
     assert payload["case"]["episode_count"] == 1
     assert payload["case"]["episode_bars"] == 8
+    assert len(payload["output_digest"]) == 64
+    assert len(payload["steady_solver_seconds"]) == 1
+    assert payload["steady_summary"]["minimum_seconds"] >= 0.0
+    assert payload["peak_device_allocated_bytes"] is None
+    assert payload["peak_device_reserved_bytes"] is None

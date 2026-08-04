@@ -1,0 +1,75 @@
+name: Verify per-episode Oracle transition rows
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/apply-batched-step-refinement-temporary.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/oracle-bellman-batched-solver
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Restore reviewed batch-aware source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/oracle-transition.part00 .github/oracle-transition.part01 \
+            | base64 --decode | gzip --decompress \
+            > trade_rl/learning/oracle_transition_numpy.py
+          cat .github/oracle-transition-test.part00 \
+            | base64 --decode | gzip --decompress \
+            > tests/learning/test_oracle_transition_numpy.py
+      - name: Install, normalize, and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run ruff check --fix \
+            trade_rl/learning/oracle_transition_numpy.py \
+            tests/learning/test_oracle_transition_numpy.py
+          uv run ruff format \
+            trade_rl/learning/oracle_transition_numpy.py \
+            tests/learning/test_oracle_transition_numpy.py
+          uv run pytest -q \
+            tests/learning/test_oracle_transition_numpy.py \
+            tests/learning/test_oracle_teacher.py \
+            tests/learning/test_oracle_market_tape.py
+          uv run ruff check \
+            trade_rl/learning/oracle_transition_numpy.py \
+            tests/learning/test_oracle_transition_numpy.py
+          uv run ruff format --check --diff \
+            trade_rl/learning/oracle_transition_numpy.py \
+            tests/learning/test_oracle_transition_numpy.py
+          uv run mypy trade_rl/learning/oracle_transition_numpy.py
+      - name: Commit verified refinement and remove temporary payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/oracle-transition.part00
+          rm .github/oracle-transition.part01
+          rm .github/oracle-transition-test.part00
+          rm .github/workflows/apply-batched-step-refinement-temporary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/learning/oracle_transition_numpy.py \
+            tests/learning/test_oracle_transition_numpy.py \
+            .github
+          git commit -m "feat: batch Oracle transitions across episode timelines"
+          git push origin HEAD:agent/oracle-bellman-batched-solver

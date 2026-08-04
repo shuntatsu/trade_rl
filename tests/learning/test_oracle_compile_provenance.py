@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from trade_rl.learning.oracle_bellman_torch import _resolve_compile_fallback_reason
+from trade_rl.integrations.oracle_bellman_torch import (
+    _resolve_compile_fallback_reason,
+)
 
 
 def test_compile_setup_failure_reason_is_preserved() -> None:

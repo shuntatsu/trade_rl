@@ -31,8 +31,8 @@ jobs:
           set -euo pipefail
           cat .github/oracle-refine/tr* > /tmp/transition.b64
           cat .github/oracle-refine/te* > /tmp/test.b64
-          test "$(sha256sum /tmp/transition.b64 | cut -d' ' -f1)" = "d07e61fd5d855bfdf9bf7eac456fd10c0dac24739350ce408a3bfb634b3b5b9c"
-          test "$(sha256sum /tmp/test.b64 | cut -d' ' -f1)" = "fba100a94e1a77e2f93d537d849b9f6e156d06e2d9855fe4cff730cf01dc4ba6"
+          test "$(sha256sum /tmp/transition.b64 | cut -d' ' -f1)" = "c25b0ff1585752833a5d38fad028eae4ca4fcb1a0eaa6a29bb8d5d270cf42e07"
+          test "$(sha256sum /tmp/test.b64 | cut -d' ' -f1)" = "0bfa1b0490818f757b33435c4a958a63a71a70042c15bbf9437b727c8fd59f6a"
           base64 --decode /tmp/transition.b64 | gzip --decompress > trade_rl/learning/oracle_transition_numpy.py
           base64 --decode /tmp/test.b64 | gzip --decompress > tests/learning/test_oracle_transition_numpy.py
           test "$(sha256sum trade_rl/learning/oracle_transition_numpy.py | cut -d' ' -f1)" = "09b926cb84162fb2e2fc094dffe9a22e75bc543527fd3ea4c91cf3d172df0f08"

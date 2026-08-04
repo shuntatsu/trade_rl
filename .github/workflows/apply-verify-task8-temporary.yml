@@ -29,7 +29,7 @@ jobs:
           python .github/task8_transition.py
           python .github/task8_apply.py
           python .github/task8_type_fix.py
-          python .github/task8_architecture_fix.py
+          python .github/task8_architecture_fix_wrapper.py
           sha256sum -c <<'EOF'
           c53efb8a9267afc4f53db4da718cceaf38aac52ce70251b39426c8b0a7b4af71  trade_rl/learning/oracle_transition_torch.py
           09c8ea78b482c44cadc76e5f923275fdf0939e9cf430cd8d8af507c3b4b5bd7c  trade_rl/learning/oracle_bellman_torch.py
@@ -86,6 +86,7 @@ jobs:
             .github/task8_apply.py \
             .github/task8_type_fix.py \
             .github/task8_architecture_fix.py \
+            .github/task8_architecture_fix_wrapper.py \
             .github/task8_payload_bellman.txt \
             .github/task8_payload_solver.txt \
             .github/task8_payload_test_bellman.txt \

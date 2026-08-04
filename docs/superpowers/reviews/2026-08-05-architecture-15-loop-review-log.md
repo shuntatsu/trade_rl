@@ -100,4 +100,12 @@
 
 **Fix:** Removed Git source state from `_recipe_identity_payload()`.
 
-**Review:** Candidate identity now represents authored learning/economic meaning only, aside from checkpoint transport which is separated in Loop 13. The reviewed change set is staged for focused verification.
+**Review:** Candidate identity now represents authored learning/economic meaning only, aside from checkpoint transport which is separated in Loop 13. Focused result: 12 passed, 3 failed.
+
+## Loop 13: Full run identity retains transport and provenance
+
+**Check:** Recipe, export transport, source provenance, resume, and transfer needed explicit composition after their separation.
+
+**Fix:** Added `_run_identity_payload()` which extends the recipe with export options, Git state, and checkpoint digests; `digest_payload()` now uses it while `candidate_digest_payload()` remains recipe-only.
+
+**Review:** Full run identity retains all prior transport/provenance fields, while candidate selection no longer changes for export or checkout state. The reviewed change set is staged for focused verification.

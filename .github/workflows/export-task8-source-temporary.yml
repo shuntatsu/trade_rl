@@ -21,12 +21,12 @@ jobs:
       - name: Package source tree
         run: |
           set -euo pipefail
-          tar --exclude=.git --exclude=.venv -czf trade-rl-task8-source.tar.gz .
+          tar --exclude=.git --exclude=.venv -czf /tmp/trade-rl-task8-source.tar.gz .
       - name: Upload source tree
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: trade-rl-task8-source-${{ github.sha }}
-          path: trade-rl-task8-source.tar.gz
+          path: /tmp/trade-rl-task8-source.tar.gz
           if-no-files-found: error
           retention-days: 1
       - name: Remove temporary workflow

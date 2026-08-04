@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from trade_rl.catalog.postgres import _default_connection_factory
+from trade_rl.catalog.postgres_connection import default_connection_factory
 from trade_rl.evaluation.walk_forward.sealed_test import SealedTestAccessRecord
 
 
@@ -21,7 +21,7 @@ class PostgresSealedTestReservationStore:
         if not isinstance(database_url, str) or not database_url.strip():
             raise ValueError("database_url must be non-empty")
         self._database_url = database_url
-        self._connection_factory = connection_factory or _default_connection_factory
+        self._connection_factory = connection_factory or default_connection_factory
 
     def reserve_sealed_test_access(self, record: SealedTestAccessRecord) -> None:
         with self._connection_factory(self._database_url) as connection:

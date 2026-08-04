@@ -77,6 +77,41 @@ def test_generic_config_field_validation_lives_in_domain() -> None:
     } <= compatibility_targets
 
 
+def test_selection_authorization_lives_in_release_with_workflow_facade() -> None:
+    release_contract = ROOT / "trade_rl/release/selection_authorization.py"
+    compatibility = ROOT / "trade_rl/workflows/selection_authorization.py"
+    studio = ROOT / "trade_rl/studio/evidence.py"
+
+    assert release_contract.is_file()
+    assert {
+        "SelectionAuthorization",
+        "SelectionProposal",
+        "load_selection_authorization",
+        "load_selection_proposal",
+        "write_selection_authorization",
+        "write_selection_proposal",
+    } <= _defined_names(release_contract)
+
+    compatibility_targets = _import_targets(
+        compatibility,
+        module_name="trade_rl.workflows.selection_authorization",
+    )
+    assert _imports_prefix(
+        compatibility_targets,
+        "trade_rl.release.selection_authorization",
+    )
+
+    studio_targets = _import_targets(
+        studio,
+        module_name="trade_rl.studio.evidence",
+    )
+    assert _imports_prefix(
+        studio_targets,
+        "trade_rl.release.selection_authorization",
+    )
+    assert not _imports_prefix(studio_targets, "trade_rl.workflows")
+
+
 def test_structured_policy_contract_is_neutral_and_serving_owned() -> None:
     contract = ROOT / "trade_rl/artifacts/structured_policy_contract.py"
     exporter = ROOT / "trade_rl/rl/structured_export.py"

@@ -109,3 +109,34 @@ def test_solver_provenance_digest_changes_with_backend() -> None:
     )
     cuda_provenance = replace(numpy_provenance, backend="torch_cuda", digest="")
     assert numpy_provenance.digest != cuda_provenance.digest
+
+
+def test_solver_provenance_serialization_preserves_runtime_metadata() -> None:
+    provenance = replace(
+        OracleSolverProvenance.numpy_reference(
+            config=OracleSolverConfig(),
+            market_tape_digest="f" * 64,
+        ),
+        solver_wall_time_seconds=0.5,
+        peak_host_memory_bytes=1024,
+        device_name="CPU",
+        digest="",
+    )
+
+    loaded = OracleSolverProvenance.from_payload(provenance.serialized_payload())
+
+    assert loaded == provenance
+    assert loaded.solver_wall_time_seconds == 0.5
+    assert loaded.peak_host_memory_bytes == 1024
+
+
+def test_solver_provenance_payload_rejects_string_boolean() -> None:
+    provenance = OracleSolverProvenance.numpy_reference(
+        config=OracleSolverConfig(),
+        market_tape_digest="f" * 64,
+    )
+    payload = provenance.serialized_payload()
+    payload["oom_retry_performed"] = "false"
+
+    with pytest.raises(ValueError, match="payload"):
+        OracleSolverProvenance.from_payload(payload)

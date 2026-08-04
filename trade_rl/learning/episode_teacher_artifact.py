@@ -23,9 +23,7 @@ from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
     OracleEpisodeContract,
 )
-from trade_rl.learning.oracle_bellman_contracts import (
-    OracleSolverProvenance,
-)
+from trade_rl.learning.oracle_bellman_contracts import OracleSolverProvenance
 from trade_rl.learning.teacher_artifact import (
     TEACHER_ARRAYS_NAME,
     TEACHER_MANIFEST_NAME,
@@ -235,6 +233,8 @@ class EpisodeTeacherArtifactManifest:
             raise ValueError("v2 episode teacher artifacts require solver provenance")
 
     def digest_payload(self) -> dict[str, object]:
+        """Return numerical artifact identity without volatile runtime evidence."""
+
         payload: dict[str, object] = {
             "action_digest": self.action_digest,
             "action_shape": self.action_shape,
@@ -259,8 +259,21 @@ class EpisodeTeacherArtifactManifest:
         if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA:
             if self.solver_provenance is None:  # pragma: no cover - guarded above
                 raise RuntimeError("solver provenance disappeared")
-            payload["solver_provenance"] = self.solver_provenance.serialized_payload()
+            payload["solver_identity"] = {
+                **self.solver_provenance.identity_payload(),
+                "digest": self.solver_provenance.digest,
+            }
         return payload
+
+    def serialized_payload(self) -> dict[str, object]:
+        """Return complete manifest with runtime evidence outside artifact identity."""
+
+        payload = self.digest_payload()
+        if self.schema_version == EPISODE_TEACHER_ARTIFACT_SCHEMA:
+            if self.solver_provenance is None:  # pragma: no cover - guarded above
+                raise RuntimeError("solver provenance disappeared")
+            payload["solver_provenance"] = self.solver_provenance.serialized_payload()
+        return {**payload, "artifact_digest": self.artifact_digest}
 
 
 def write_episode_teacher_artifact(
@@ -285,7 +298,7 @@ def write_episode_teacher_artifact(
         if dataset.solver_provenance is None
         else EPISODE_TEACHER_ARTIFACT_SCHEMA
     )
-    base = {
+    base: dict[str, object] = {
         "action_digest": dataset.action_digest,
         "action_shape": dataset.actions.shape,
         "action_spec_digest": dataset.action_spec_digest,
@@ -307,7 +320,10 @@ def write_episode_teacher_artifact(
         "train_stop": dataset.train_stop,
     }
     if dataset.solver_provenance is not None:
-        base["solver_provenance"] = dataset.solver_provenance.serialized_payload()
+        base["solver_identity"] = {
+            **dataset.solver_provenance.identity_payload(),
+            "digest": dataset.solver_provenance.digest,
+        }
     manifest = EpisodeTeacherArtifactManifest(
         artifact_digest=content_digest(base),
         arrays_digest=arrays_digest,
@@ -333,9 +349,7 @@ def write_episode_teacher_artifact(
     _atomic_write(output / TEACHER_ARRAYS_NAME, arrays_payload)
     _atomic_write(
         output / TEACHER_MANIFEST_NAME,
-        canonical_json_bytes(
-            {**manifest.digest_payload(), "artifact_digest": manifest.artifact_digest}
-        ),
+        canonical_json_bytes(manifest.serialized_payload()),
     )
     return manifest.artifact_digest
 
@@ -459,11 +473,7 @@ def load_episode_teacher_artifact(
         raise ValueError("episode teacher action specification identity mismatch")
     if (
         expected_train_range is not None
-        and (
-            dataset.train_start,
-            dataset.train_stop,
-        )
-        != expected_train_range
+        and (dataset.train_start, dataset.train_stop) != expected_train_range
     ):
         raise ValueError("episode teacher training envelope mismatch")
     return manifest, dataset

@@ -443,8 +443,6 @@ class TrainingRunConfig:
             "alpha_artifact_digest": self.alpha_artifact_digest,
             "environment": asdict(self.environment),
             "factor_artifact_digest": self.factor_artifact_digest,
-            "git_commit": self.git_commit,
-            "git_dirty": self.git_dirty,
             "portfolio_risk": asdict(self.portfolio_risk),
             "risk": asdict(self.risk),
             "reward": asdict(self.reward),

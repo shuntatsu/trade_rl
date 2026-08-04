@@ -38,7 +38,9 @@ def register_oracle_accelerator_backend(
     normalized = name.strip()
     existing = _ACCELERATOR_BACKENDS.get(normalized)
     if existing is not None and existing is not backend:
-        raise RuntimeError(f"Oracle accelerator backend already registered: {normalized}")
+        raise RuntimeError(
+            f"Oracle accelerator backend already registered: {normalized}"
+        )
     _ACCELERATOR_BACKENDS[normalized] = backend
 
 

@@ -75,9 +75,7 @@ def _numeric_array(
     raw = np.asarray(value)
     if raw.ndim != ndim:
         raise ValueError(f"{field} must be {ndim}-dimensional")
-    if not np.issubdtype(raw.dtype, np.number) or np.issubdtype(
-        raw.dtype, np.bool_
-    ):
+    if not np.issubdtype(raw.dtype, np.number) or np.issubdtype(raw.dtype, np.bool_):
         raise ValueError(f"{field} must be numeric")
     array = np.asarray(raw, dtype=np.float64)
     if np.isnan(array).any() or np.isposinf(array).any():
@@ -132,10 +130,7 @@ def numpy_open_state_step(
         raise ValueError("open market inputs must match the symbol count")
     if np.any(raw_factor <= 0.0) or np.any(equity_factor < 0.0):
         raise ValueError("open position factors are outside their maintained bounds")
-    if (
-        not math.isfinite(reference_portfolio_value)
-        or reference_portfolio_value <= 0.0
-    ):
+    if not math.isfinite(reference_portfolio_value) or reference_portfolio_value <= 0.0:
         raise ValueError("reference_portfolio_value must be finite and positive")
 
     gap_factor = 1.0 + np.sum(
@@ -143,9 +138,7 @@ def numpy_open_state_step(
         axis=2,
     )
     valid_prior = (
-        np.isfinite(scores)
-        & np.isfinite(gap_factor)
-        & (gap_factor > _EPSILON)
+        np.isfinite(scores) & np.isfinite(gap_factor) & (gap_factor > _EPSILON)
     )
     safe_gap = np.where(valid_prior, gap_factor, 1.0)
     open_position_fractions = (
@@ -156,9 +149,7 @@ def numpy_open_state_step(
     open_weights = open_position_fractions / safe_gap[:, :, None]
     open_weights = np.where(valid_prior[:, :, None], open_weights, 0.0)
     open_equity = (
-        reference_portfolio_value
-        * np.exp(np.clip(scores, -50.0, 50.0))
-        * safe_gap
+        reference_portfolio_value * np.exp(np.clip(scores, -50.0, 50.0)) * safe_gap
     )
     open_equity = np.where(valid_prior, open_equity, 0.0)
     return NumPyOpenStateBatch(
@@ -196,16 +187,12 @@ def numpy_effective_target_matrix(
     same_direction = current * requested > 0.0
 
     entry_suppressed = (
-        current_zero
-        & target_nonzero
-        & (target_abs < parameters.entry_threshold)
+        current_zero & target_nonzero & (target_abs < parameters.entry_threshold)
     )
     controlled[entry_suppressed] = 0.0
 
     exit_suppressed = (
-        ~current_zero
-        & same_direction
-        & (target_abs <= parameters.exit_threshold)
+        ~current_zero & same_direction & (target_abs <= parameters.exit_threshold)
     )
     controlled[exit_suppressed] = 0.0
 
@@ -220,9 +207,7 @@ def numpy_effective_target_matrix(
     ]
 
     reversal_suppressed = (
-        ~current_zero
-        & ~same_direction
-        & (target_abs < parameters.entry_threshold)
+        ~current_zero & ~same_direction & (target_abs < parameters.entry_threshold)
     )
     controlled[reversal_suppressed] = 0.0
 
@@ -303,16 +288,14 @@ def _fill_classification(
         & executable
         & (
             requested
-            < minimum_notional[None, None, None, :]
-            - _MINIMUM_NOTIONAL_TOLERANCE
+            < minimum_notional[None, None, None, :] - _MINIMUM_NOTIONAL_TOLERANCE
         )
     )
     blocked = requested_trade & ~executable
     eligible = requested_trade & executable & ~below_minimum
     capacity_noop = eligible & (capacity[None, None, None, :] <= _EPSILON)
     fully_filled = np.all(
-        ~requested_trade
-        | (filled_notional >= requested - _MINIMUM_NOTIONAL_TOLERANCE),
+        ~requested_trade | (filled_notional >= requested - _MINIMUM_NOTIONAL_TOLERANCE),
         axis=3,
     )
 
@@ -321,9 +304,9 @@ def _fill_classification(
     result[no_fill & np.any(below_minimum, axis=3)] = (
         FillClassification.MINIMUM_NOTIONAL_NOOP
     )
-    result[
-        no_fill & ~np.any(below_minimum, axis=3) & np.any(blocked, axis=3)
-    ] = FillClassification.EXECUTION_BLOCKED_NOOP
+    result[no_fill & ~np.any(below_minimum, axis=3) & np.any(blocked, axis=3)] = (
+        FillClassification.EXECUTION_BLOCKED_NOOP
+    )
     result[
         no_fill
         & ~np.any(below_minimum, axis=3)
@@ -393,13 +376,8 @@ def numpy_execute_transition_step(
         & tape.tradable[step][None, None, None, :]
         & direction_allowed
     )
-    increasing_short = (desired_delta < -_EPSILON) & (
-        requested_targets < -_EPSILON
-    )
-    executable &= (
-        ~increasing_short
-        | tape.borrow_available[step][None, None, None, :]
-    )
+    increasing_short = (desired_delta < -_EPSILON) & (requested_targets < -_EPSILON)
+    executable &= ~increasing_short | tape.borrow_available[step][None, None, None, :]
     if not parameters.execution_cost.allow_short:
         executable &= requested_targets >= -_EPSILON
 
@@ -408,11 +386,7 @@ def numpy_execute_transition_step(
     eligible = (
         requested_trade
         & executable
-        & (
-            requested
-            >= minimum[None, None, None, :]
-            - _MINIMUM_NOTIONAL_TOLERANCE
-        )
+        & (requested >= minimum[None, None, None, :] - _MINIMUM_NOTIONAL_TOLERANCE)
     )
     capacity = tape.participation_capacity[step]
     filled_notional = np.where(
@@ -429,9 +403,7 @@ def numpy_execute_transition_step(
     positive_liquidity = tape.market_notional[step] > _EPSILON
     participation[..., positive_liquidity] = (
         filled_notional[..., positive_liquidity]
-        / tape.market_notional[step][
-            None, None, None, positive_liquidity
-        ]
+        / tape.market_notional[step][None, None, None, positive_liquidity]
     )
     unit_cost = tape.base_unit_cost[step][None, None, None, :] + (
         parameters.execution_cost.multiplier
@@ -449,30 +421,22 @@ def numpy_execute_transition_step(
         + parameters.execution_cost.collateral_haircut
         * np.sum(np.maximum(effective_targets, 0.0), axis=3)
     )
-    open_maintenance = (
-        parameters.execution_cost.maintenance_margin_rate
-        * np.sum(np.abs(effective_targets), axis=3)
+    open_maintenance = parameters.execution_cost.maintenance_margin_rate * np.sum(
+        np.abs(effective_targets), axis=3
     )
     valid &= open_collateral + _EPSILON >= open_maintenance
 
-    close_position = (
-        effective_targets
-        * tape.mark_open_ratio[step][None, None, None, :]
-    )
+    close_position = effective_targets * tape.mark_open_ratio[step][None, None, None, :]
     dividend_fraction = np.sum(
-        effective_targets
-        * tape.dividend_open_ratio[step][None, None, None, :],
+        effective_targets * tape.dividend_open_ratio[step][None, None, None, :],
         axis=3,
     )
     interest_base = cash_after_execution + dividend_fraction
     cash_interest_fraction = (
-        interest_base
-        * tape.cash_rate[step]
-        * tape.elapsed_year_fraction[step]
+        interest_base * tape.cash_rate[step] * tape.elapsed_year_fraction[step]
     )
     funding_fraction = -np.sum(
-        effective_targets
-        * tape.funding_due_rate[step][None, None, None, :],
+        effective_targets * tape.funding_due_rate[step][None, None, None, :],
         axis=3,
     )
     borrow_fraction = (
@@ -503,9 +467,8 @@ def numpy_execute_transition_step(
         + parameters.execution_cost.collateral_haircut
         * np.sum(np.maximum(close_position, 0.0), axis=3)
     )
-    close_maintenance = (
-        parameters.execution_cost.maintenance_margin_rate
-        * np.sum(np.abs(close_position), axis=3)
+    close_maintenance = parameters.execution_cost.maintenance_margin_rate * np.sum(
+        np.abs(close_position), axis=3
     )
     valid &= close_collateral + _EPSILON >= close_maintenance
     classification = _fill_classification(
@@ -566,12 +529,8 @@ def numpy_transition_step(
         parameters=parameters,
     )
     valid = execution.valid & open_state.valid_prior[:, :, None]
-    close_weights = np.where(
-        valid[:, :, :, None], execution.close_weights, 0.0
-    )
-    effective_targets = np.where(
-        valid[:, :, :, None], execution.effective_targets, 0.0
-    )
+    close_weights = np.where(valid[:, :, :, None], execution.close_weights, 0.0)
+    effective_targets = np.where(valid[:, :, :, None], execution.effective_targets, 0.0)
     fill_classification = np.where(
         valid,
         execution.fill_classification,

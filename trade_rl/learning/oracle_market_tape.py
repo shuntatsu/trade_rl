@@ -193,6 +193,32 @@ def _validate_range(
     return start, stop
 
 
+def oracle_open_market_factors(
+    dataset: MarketDataset,
+    close_index: int | np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return raw/equity position factors and active masks for next-open gaps."""
+
+    raw_indices = np.asarray(close_index)
+    if raw_indices.ndim > 1 or not np.issubdtype(raw_indices.dtype, np.integer):
+        raise ValueError("close_index must contain integer indices")
+    indices = np.asarray(raw_indices, dtype=np.int64)
+    if np.any(indices < 0) or np.any(indices >= dataset.n_bars - 1):
+        raise ValueError("close_index is outside the dataset")
+    execution_indices = indices + 1
+    previous_mark = dataset.resolved_array("mark_price")[indices]
+    split = dataset.resolved_array("split_factor")[execution_indices]
+    raw_position_factor = dataset.open[execution_indices] * split / previous_mark
+    active = dataset.resolved_array("asset_active")[execution_indices]
+    recovery = dataset.resolved_array("delisting_recovery")[execution_indices]
+    equity_position_factor = np.where(
+        active,
+        raw_position_factor,
+        raw_position_factor * recovery,
+    )
+    return raw_position_factor, equity_position_factor, active
+
+
 def _market_notional_matrix(
     dataset: MarketDataset,
     *,
@@ -232,17 +258,10 @@ def build_oracle_market_tape(
     close_indices = np.arange(start, stop - 1, dtype=np.int64)
     execution_indices = close_indices + 1
 
-    previous_mark = dataset.resolved_array("mark_price")[close_indices]
-    split = dataset.resolved_array("split_factor")[execution_indices]
-    execution_open = dataset.open[execution_indices]
-    raw_position_factor = execution_open * split / previous_mark
-    active = dataset.resolved_array("asset_active")[execution_indices]
-    recovery = dataset.resolved_array("delisting_recovery")[execution_indices]
-    equity_position_factor = np.where(
-        active,
-        raw_position_factor,
-        raw_position_factor * recovery,
+    raw_position_factor, equity_position_factor, active = oracle_open_market_factors(
+        dataset, close_indices
     )
+    execution_open = dataset.open[execution_indices]
     market_notional = _market_notional_matrix(
         dataset,
         close_indices=close_indices,
@@ -313,4 +332,5 @@ __all__ = [
     "ORACLE_MARKET_TAPE_SCHEMA",
     "OracleMarketTape",
     "build_oracle_market_tape",
+    "oracle_open_market_factors",
 ]

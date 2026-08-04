@@ -60,4 +60,20 @@
 
 **Fix:** Replaced `evaluation.series` and `evaluation.metrics` with compatibility facades that re-export the Simulation-owned contracts.
 
-**Review:** Existing import paths remain valid and the formulas now have one implementation owner. The reviewed change set is applied; focused verification runs on this commit.
+**Review:** Existing import paths remain valid and the formulas now have one implementation owner. Focused result: 7 passed, 8 failed.
+
+## Loop 8: Neutral policy identifier contract
+
+**Check:** Artifact and RL modules duplicated maintained policy schema, encoder, and timeframe identifiers.
+
+**Fix:** Added standard-library-only `domain.policy_contracts` as their neutral owner.
+
+**Review:** All serialized identifier values remain unchanged. Focused result: 8 passed, 7 failed.
+
+## Loop 9: Structured export consumes neutral identifiers
+
+**Check:** `artifacts.structured_policy_contract` still defined its own policy schema and timeframe constants.
+
+**Fix:** Redirected schema, encoder, and timeframe validation to `domain.policy_contracts` and removed local duplicates.
+
+**Review:** Structured export schema and manifest values remain unchanged. The reviewed change set is staged for focused verification.

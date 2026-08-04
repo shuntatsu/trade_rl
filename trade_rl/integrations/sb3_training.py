@@ -1479,7 +1479,9 @@ class StableBaselines3Backend:
             if fresh_behavior_cloning:
                 teacher_environment = self.environment_factory()
                 try:
-                    teacher_identity = _environment_identity(teacher_environment)
+                    teacher_identity = training_environment_identity(
+                        teacher_environment
+                    )
                     if (
                         teacher_identity["environment_digest"]
                         != identity["environment_digest"]

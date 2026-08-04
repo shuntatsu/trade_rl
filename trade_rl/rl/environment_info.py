@@ -8,12 +8,6 @@ from typing import Protocol
 
 import numpy as np
 
-from trade_rl.simulation.performance import (
-    PerformanceMetrics,
-    ReturnKind,
-    ReturnSeries,
-    evaluate_performance,
-)
 from trade_rl.rl.environment_constraints import (
     ActionPathDiagnostics,
     ConstraintCostRequest,
@@ -22,6 +16,12 @@ from trade_rl.rl.environment_constraints import (
 )
 from trade_rl.rl.rewards import RewardBreakdown, RewardConfig, RewardContext
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.performance import (
+    PerformanceMetrics,
+    ReturnKind,
+    ReturnSeries,
+    evaluate_performance,
+)
 
 _TOLERANCE = 1e-12
 

@@ -419,7 +419,7 @@ def run_oracle_teacher_benchmark(
                 False if provenance is None else provenance.oom_retry_performed
             ),
             "repetitions": repeat_count,
-            "state_count": int(_portfolio_states(dataset, teacher_config).shape[0]),
+            "state_count": int(portfolio_states(dataset, teacher_config).shape[0]),
             "symbol_count": dataset.n_symbols,
             "actual_backend": None if provenance is None else provenance.backend,
             "torch_version": None if provenance is None else provenance.torch_version,
@@ -577,7 +577,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     case = OracleBenchmarkCase(
         episode_count=arguments.episode_count,
         episode_bars=arguments.episode_bars,
-        state_count=int(_portfolio_states(dataset, teacher).shape[0]),
+        state_count=int(portfolio_states(dataset, teacher).shape[0]),
         symbol_count=dataset.n_symbols,
         repetitions=arguments.repetitions,
         episode_batch_size=arguments.episode_batch_size,

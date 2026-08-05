@@ -11,9 +11,9 @@ import type {
 import { ReplayToolbar, type ReplaySpeed, type ReplaySourceSelection } from '../live/ReplayToolbar'
 import { ResearchChartInspector } from '../live/ResearchChartInspector'
 import {
-  ResearchChartWorkspace,
+  SynchronizedResearchChartWorkspace,
   type ResearchRangePreset,
-} from '../live/ResearchChartWorkspace'
+} from '../live/SynchronizedResearchChartWorkspace'
 import {
   DEFAULT_RESEARCH_CHART_LAYERS,
   nextEventIndex,
@@ -26,18 +26,10 @@ import { currentEnvironmentEpisode, telemetryEnvironmentIds } from '../live/tele
 import { useBehaviorCloningProgress } from '../live/useBehaviorCloningProgress'
 import { useTrainingTelemetry } from '../live/useTrainingTelemetry'
 import '../liveTraining.css'
+import '../synchronizedResearchChart.css'
 
 interface LiveTrainingPageProps { api?: StudioApi }
 type LiveView = 'replay' | 'diagnostics'
-
-function signed(value: number | null, digits = 2): string {
-  if (value === null || !Number.isFinite(value)) return '—'
-  const sign = value >= 0 ? '+' : ''
-  return `${sign}${value.toLocaleString('ja-JP', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })}`
-}
 
 function checkpointIdentity(item: CheckpointEvaluationItem): string {
   return `${item.fold}|${item.configuration}|${item.evaluationDigest}`
@@ -45,19 +37,6 @@ function checkpointIdentity(item: CheckpointEvaluationItem): string {
 
 function checkpointLabel(item: CheckpointEvaluationItem): string {
   return `${item.fold} · ${item.configuration}${item.finalist ? ' · finalist' : ''}`
-}
-
-function MetricCard({ label, value, tone }: {
-  label: string
-  value: string
-  tone: 'positive' | 'negative' | 'neutral'
-}) {
-  return (
-    <article className="research-summary-card">
-      <span>{label}</span>
-      <strong className={`live-tone live-tone--${tone}`}>{value}</strong>
-    </article>
-  )
 }
 
 export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
@@ -193,10 +172,6 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
   const selectedCheckpoint = checkpointOptions.find(
     (item) => checkpointIdentity(item) === checkpointEvidenceId,
   ) ?? checkpointOptions[0] ?? null
-  const equity = activeRecord?.portfolioValue ?? null
-  const baseline = activeRecord?.baselinePortfolioValue ?? null
-  const baselineDelta = equity !== null && baseline !== null ? equity - baseline : null
-  const drawdown = activeRecord?.drawdown ?? null
 
   const commitCursor = (next: number) => {
     setPlaying(false)
@@ -243,7 +218,7 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
         <div className="live-title-block">
           <div className="live-title-row"><span className="live-nogo">NO-GO</span></div>
           <h1 id="live-training-title">Live Training</h1>
-          <p>市場・方策・報酬・リスクを同じ時刻で直接操作し、探索とCheckpoint評価を分離して確認します。</p>
+          <p>市場・売買・資産・リスクを同じ時間軸で直接操作し、必要な詳細だけを展開します。</p>
         </div>
         <div className="live-view-selector" aria-label="Live Training view">
           <button type="button" aria-pressed={liveView === 'replay'} onClick={() => setLiveView('replay')}>市場リプレイ</button>
@@ -288,58 +263,58 @@ export function LiveTrainingPage({ api = studioApi }: LiveTrainingPageProps) {
 
         {replayRecords.length === 0 ? (
           <BehaviorCloningProgressPanel progress={behaviorCloning.progress} />
-        ) : (<>
-        <div className="research-summary-grid" aria-label="研究サマリー">
-          <MetricCard label="RL資産" value={equity === null ? '—' : equity.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} tone="neutral" />
-          <MetricCard label="Baseline差" value={`${signed(baselineDelta)} USDT`} tone={(baselineDelta ?? 0) >= 0 ? 'positive' : 'negative'} />
-          <MetricCard label="Drawdown" value={drawdown === null ? '—' : `-${(drawdown * 100).toFixed(2)}%`} tone={drawdown === null ? 'neutral' : 'negative'} />
-        </div>
-
-        <div className="research-workspace-grid">
-          <div className="research-chart-stack">
-            <ResearchChartWorkspace
-              records={replayRecords}
-              symbol={symbol}
-              timeframe={timeframe}
-              rangePreset={rangePreset}
-              layers={layers}
-              followLatest={followLatest}
-              committedSequence={activeRecord?.sequence ?? null}
-              resetToken={chartResetToken}
-              onSymbolChange={setSymbol}
-              onTimeframeChange={setTimeframe}
-              onRangePresetChange={setRangePreset}
-              onPreviewRecord={setPreviewRecord}
-              onCommitRecord={commitRecord}
-              onManualNavigation={() => setFollowLatest(false)}
-            />
-            <div className="research-replay-scrubber">
-              <span>Step {activeRecord?.globalStep.toLocaleString('ja-JP') ?? '—'}</span>
-              <input
-                type="range"
-                min={0}
-                max={Math.max(0, replayRecords.length - 1)}
-                value={Math.min(cursor, Math.max(0, replayRecords.length - 1))}
-                disabled={replayRecords.length === 0}
-                aria-label="再生位置"
-                onChange={(event) => commitCursor(Number(event.target.value))}
+        ) : (
+          <div className="synchronized-workspace-shell">
+            <div className="synchronized-chart-stack">
+              <SynchronizedResearchChartWorkspace
+                records={replayRecords}
+                symbol={symbol}
+                timeframe={timeframe}
+                rangePreset={rangePreset}
+                layers={layers}
+                followLatest={followLatest}
+                committedSequence={activeRecord?.sequence ?? null}
+                resetToken={chartResetToken}
+                onSymbolChange={setSymbol}
+                onTimeframeChange={setTimeframe}
+                onRangePresetChange={setRangePreset}
+                onPreviewRecord={setPreviewRecord}
+                onCommitRecord={commitRecord}
+                onManualNavigation={() => setFollowLatest(false)}
               />
-              <time>{activeRecord?.marketTime?.replace('T', ' ').slice(0, 19) ?? '—'}</time>
+              <div className="research-replay-scrubber">
+                <span>Step {activeRecord?.globalStep.toLocaleString('ja-JP') ?? '—'}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(0, replayRecords.length - 1)}
+                  value={Math.min(cursor, Math.max(0, replayRecords.length - 1))}
+                  disabled={replayRecords.length === 0}
+                  aria-label="再生位置"
+                  onChange={(event) => commitCursor(Number(event.target.value))}
+                />
+                <time>{activeRecord?.marketTime?.replace('T', ' ').slice(0, 19) ?? '—'}</time>
+              </div>
             </div>
-          </div>
 
-          <ResearchChartInspector
-            committed={activeRecord}
-            preview={previewRecord}
-            checkpoint={selectedCheckpoint}
-            checkpointIdentity={checkpointEvidenceId}
-            checkpointOptions={checkpointOptions}
-            onCheckpointChange={setCheckpointEvidenceId}
-            identityFor={checkpointIdentity}
-            labelFor={checkpointLabel}
-          />
-        </div>
-        </>)}
+            <details className="synchronized-details">
+              <summary>
+                選択・Evidence詳細
+                <span>Step {activeRecord?.globalStep.toLocaleString('ja-JP') ?? '—'}</span>
+              </summary>
+              <ResearchChartInspector
+                committed={activeRecord}
+                preview={previewRecord}
+                checkpoint={selectedCheckpoint}
+                checkpointIdentity={checkpointEvidenceId}
+                checkpointOptions={checkpointOptions}
+                onCheckpointChange={setCheckpointEvidenceId}
+                identityFor={checkpointIdentity}
+                labelFor={checkpointLabel}
+              />
+            </details>
+          </div>
+        )}
       </div>
     </section>
   )

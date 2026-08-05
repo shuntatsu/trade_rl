@@ -36,9 +36,7 @@ const executablePath = browserCandidates.find((candidate) => {
     return false
   }
 })
-if (!executablePath) {
-  throw new Error(`Chromium executable was not found. Checked: ${browserCandidates.join(', ')}`)
-}
+if (!executablePath) throw new Error(`Chromium executable was not found. Checked: ${browserCandidates.join(', ')}`)
 
 const outputDir = process.env.STUDIO_QA_OUTPUT_DIR
   ? path.resolve(studioRoot, '..', process.env.STUDIO_QA_OUTPUT_DIR)
@@ -72,7 +70,6 @@ const job = {
 
 const telemetry = Array.from({ length: 8 }, (_, index) => {
   const sequence = index + 1
-  const minute = String(index * 15).padStart(2, '0')
   const hour = 8 + Math.floor(index / 4)
   const minuteInHour = String((index % 4) * 15).padStart(2, '0')
   const before = sequence === 2 ? 0.1 : sequence === 4 ? 0.4 : 0.2
@@ -193,68 +190,81 @@ try {
   await page.getByRole('heading', { name: 'Live Training' }).waitFor()
   await page.getByLabel('Live Training Run').waitFor()
   await page.getByRole('button', { name: /対象を変更/ }).waitFor()
-  await page.getByText('101,920', { exact: true }).waitFor()
+  const chartSurface = page.locator('.synchronized-chart-canvas')
+  await chartSurface.waitFor()
+  await chartSurface.locator('canvas').first().waitFor()
   await page.locator('.research-replay-scrubber').getByText('Step 256', { exact: true }).waitFor()
 
   if (await page.locator('.live-connection').count() !== 0) {
     throw new Error('Decorative connection chrome returned to the research workspace')
   }
+  if (await page.locator('.research-summary-grid').count() !== 0) {
+    throw new Error('Legacy summary cards returned above the synchronized chart')
+  }
+  const details = page.locator('.synchronized-details')
+  if (await details.evaluate((node) => node.hasAttribute('open'))) {
+    throw new Error('Selection and evidence details must start collapsed')
+  }
 
-  const chartSurface = page.locator('.research-chart-canvas')
-  await chartSurface.locator('canvas').first().waitFor()
   const canvasCount = await chartSurface.locator('canvas').count()
-  if (canvasCount < 4) {
-    throw new Error(`Interactive chart did not render all panes: canvasCount=${canvasCount}`)
+  if (canvasCount < 3) {
+    throw new Error(`Synchronized chart did not render all panes: canvasCount=${canvasCount}`)
+  }
+  if (await page.locator('.synchronized-pane-labels > span').count() !== 3) {
+    throw new Error('Synchronized chart must expose exactly three pane labels')
   }
 
   const replayGeometry = await page.evaluate(() => {
     const toolbar = document.querySelector('.research-replay-toolbar')
-    const workspace = document.querySelector('.research-workspace-grid')
-    if (!(toolbar instanceof HTMLElement) || !(workspace instanceof HTMLElement)) {
-      throw new Error('Research replay workspace nodes are missing')
+    const workspace = document.querySelector('.synchronized-workspace-shell')
+    const chart = document.querySelector('.synchronized-chart-canvas')
+    if (!(toolbar instanceof HTMLElement) || !(workspace instanceof HTMLElement) || !(chart instanceof HTMLElement)) {
+      throw new Error('Synchronized replay workspace nodes are missing')
     }
     const toolbarBox = toolbar.getBoundingClientRect()
     const workspaceBox = workspace.getBoundingClientRect()
+    const chartBox = chart.getBoundingClientRect()
     return {
       viewportHeight: window.innerHeight,
       toolbarHeight: toolbarBox.height,
       workspaceHeight: workspaceBox.height,
       workspaceBottom: workspaceBox.bottom,
+      chartHeight: chartBox.height,
     }
   })
   if (replayGeometry.toolbarHeight > 120) {
     throw new Error(`Research replay toolbar consumed the workspace: ${JSON.stringify(replayGeometry)}`)
   }
-  if (replayGeometry.workspaceHeight < 320) {
-    throw new Error(`Research replay chart was compressed below the usable workspace: ${JSON.stringify(replayGeometry)}`)
+  if (replayGeometry.workspaceHeight < 320 || replayGeometry.chartHeight < 300) {
+    throw new Error(`Synchronized chart was compressed below the usable workspace: ${JSON.stringify(replayGeometry)}`)
   }
   if (replayGeometry.workspaceBottom > replayGeometry.viewportHeight + 1) {
-    throw new Error(`Research replay workspace overflowed the viewport: ${JSON.stringify(replayGeometry)}`)
+    throw new Error(`Synchronized replay workspace overflowed the viewport: ${JSON.stringify(replayGeometry)}`)
   }
 
   const followLatest = page.getByRole('checkbox', { name: '最新へ追従' })
   if (!(await followLatest.isChecked())) throw new Error('Latest-follow did not start enabled')
   const chartBox = await chartSurface.boundingBox()
-  if (!chartBox) throw new Error('Interactive chart has no measurable bounds')
+  if (!chartBox) throw new Error('Synchronized chart has no measurable bounds')
   await page.mouse.move(chartBox.x + chartBox.width * 0.7, chartBox.y + chartBox.height * 0.35)
   await page.mouse.down()
   await page.mouse.move(chartBox.x + chartBox.width * 0.42, chartBox.y + chartBox.height * 0.35, { steps: 8 })
   await page.mouse.up()
   await page.waitForFunction(() => {
-    const label = [...document.querySelectorAll('label')].find((candidate) =>
-      candidate.textContent?.includes('最新へ追従'))
+    const label = [...document.querySelectorAll('label')].find((candidate) => candidate.textContent?.includes('最新へ追従'))
     const input = label?.querySelector('input[type="checkbox"]')
     return input instanceof HTMLInputElement && !input.checked
   })
 
   await page.mouse.click(chartBox.x + chartBox.width * 0.45, chartBox.y + chartBox.height * 0.22)
   await page.getByRole('button', { name: '再生' }).waitFor()
+  await details.locator('summary').click()
+  await page.getByRole('complementary', { name: '選択時点の研究データ' }).waitFor()
 
   await page.screenshot({ path: path.join(outputDir, 'trade-rl-studio-live-training-replay.png'), fullPage: false })
 
   await page.getByRole('button', { name: '学習診断' }).click()
   await page.locator('.training-diagnostics').waitFor()
-
   const geometry = await page.evaluate(() => {
     const selector = document.querySelector('.live-view-selector')
     const diagnostics = document.querySelector('.training-diagnostics')
@@ -270,7 +280,6 @@ try {
       diagnosticsBottom: diagnosticsBox.bottom,
     }
   })
-
   if (geometry.selectorHeight > 80) {
     throw new Error(`Live Training view selector consumed the workspace: ${JSON.stringify(geometry)}`)
   }

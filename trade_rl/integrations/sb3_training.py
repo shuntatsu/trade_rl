@@ -80,6 +80,7 @@ from trade_rl.learning.oracle_bellman_contracts import (
     OracleSolverConfig,
     SolverSelection,
 )
+from trade_rl.learning.oracle_solver import OracleBatchBackend
 from trade_rl.learning.teacher_cache import (
     teacher_cache_identity,
     teacher_cache_identity_v2,
@@ -97,11 +98,10 @@ from trade_rl.rl.replay import (
 from trade_rl.rl.tensorboard_logging import (
     build_tensorboard_metrics_callback,
 )
-from trade_rl.rl.training import (
-    PolicyTrainingResult,
-    ResidualTrainingConfig,
-    _environment_identity,
-    _validate_training_environment,
+from trade_rl.rl.training import PolicyTrainingResult, ResidualTrainingConfig
+from trade_rl.rl.training_environment_contract import (
+    training_environment_identity,
+    validate_training_environment,
 )
 from trade_rl.rl.training_modes import CudaRuntimeMode
 from trade_rl.rl.training_performance import (
@@ -182,6 +182,18 @@ def _oracle_solver_config() -> OracleSolverConfig:
         compile_mode=cast(CompileMode, raw_compile),
         compile_chunk_size=compile_chunk_size,
     )
+
+
+def _oracle_accelerator_backend(
+    solver_config: OracleSolverConfig,
+) -> OracleBatchBackend | None:
+    """Resolve the concrete optional backend only for explicit CUDA selection."""
+
+    if solver_config.selection == "numpy":
+        return None
+    from trade_rl.integrations.oracle_solver import solve_torch_cuda_oracle_batch
+
+    return solve_torch_cuda_oracle_batch
 
 
 def _teacher_worker_count(
@@ -778,6 +790,7 @@ class StableBaselines3Backend:
             ),
             max_workers=max_workers,
             solver_config=resolved_solver_config,
+            accelerator_backend=_oracle_accelerator_backend(resolved_solver_config),
         )
         self._oracle_episode_batch_cache[key] = batch
         return batch
@@ -1155,8 +1168,8 @@ class StableBaselines3Backend:
             # its own environment, otherwise the 15.5 GiB training cgroup can
             # contain two full environments at once and be OOM killed.
             probe = self.environment_factory()
-            identity = _environment_identity(probe)
-            _validate_training_environment(identity, config)
+            identity = training_environment_identity(probe)
+            validate_training_environment(identity, config)
             resume_root = self.resume_checkpoint_artifacts.get(seed)
             transfer_root = self.transfer_checkpoint_artifacts.get(seed)
             fresh_behavior_cloning = (
@@ -1476,7 +1489,9 @@ class StableBaselines3Backend:
             if fresh_behavior_cloning:
                 teacher_environment = self.environment_factory()
                 try:
-                    teacher_identity = _environment_identity(teacher_environment)
+                    teacher_identity = training_environment_identity(
+                        teacher_environment
+                    )
                     if (
                         teacher_identity["environment_digest"]
                         != identity["environment_digest"]

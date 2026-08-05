@@ -291,15 +291,19 @@ def test_step_info_copies_targets_and_adds_optional_fields() -> None:
     assert info["shadow_liquidation"] is shadow_liquidation
 
 
-def test_terminal_info_builds_metrics_and_diagnostics() -> None:
+def test_terminal_info_exposes_raw_accounting_facts_without_metrics() -> None:
     hybrid = _book()
     shadow = _book()
-    hybrid.returns_history.extend([0.01, -0.005])
-    shadow.returns_history.extend([0.005, -0.002])
     hybrid.turnover_total = 0.4
     shadow.turnover_total = 0.2
     hybrid.total_cost = 0.01
     shadow.total_cost = 0.005
+    hybrid.funding_pnl = 0.003
+    shadow.funding_pnl = 0.001
+    hybrid.borrow_cost = 0.0004
+    shadow.borrow_cost = 0.0002
+    hybrid.fill_count = 3
+    shadow.fill_count = 2
     diagnostics = object()
     builder = EnvironmentInfoBuilder(_Dataset(), _RewardTracker())
 
@@ -314,12 +318,32 @@ def test_terminal_info_builds_metrics_and_diagnostics() -> None:
         )
     )
 
+    assert set(info) == {
+        "episode_hours",
+        "episode_seed",
+        "action_diagnostics",
+        "initial_state_mode",
+        "hybrid_portfolio_value",
+        "shadow_portfolio_value",
+        "hybrid_turnover_total",
+        "shadow_turnover_total",
+        "hybrid_total_cost",
+        "shadow_total_cost",
+        "hybrid_funding_pnl",
+        "shadow_funding_pnl",
+        "hybrid_borrow_cost",
+        "shadow_borrow_cost",
+        "hybrid_fill_count",
+        "shadow_fill_count",
+        "hybrid_rebalance_events",
+        "shadow_rebalance_events",
+    }
     assert info["episode_hours"] == 48.0
     assert info["episode_seed"] == 7
     assert info["action_diagnostics"] is diagnostics
     assert info["initial_state_mode"] == "cash"
-    assert info["hybrid_metrics"].turnover_total == 0.4
-    assert info["shadow_metrics"].turnover_total == 0.2
-    assert info["excess_total_return"] == (
-        info["hybrid_metrics"].total_return - info["shadow_metrics"].total_return
-    )
+    assert info["hybrid_turnover_total"] == pytest.approx(0.4)
+    assert info["shadow_turnover_total"] == pytest.approx(0.2)
+    assert "hybrid_metrics" not in info
+    assert "shadow_metrics" not in info
+    assert "excess_total_return" not in info

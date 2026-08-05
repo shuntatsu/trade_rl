@@ -203,7 +203,7 @@ def test_walk_forward_environment_requires_complete_reward_preroll() -> None:
 
 def test_normalizer_fit_begins_after_complete_reward_preroll() -> None:
     from trade_rl.evaluation.walk_forward.folds import IndexRange
-    from trade_rl.workflows.market_walk_forward import _fit_normalizer
+    from trade_rl.workflows._market_walk_forward_core import _fit_normalizer
 
     raw = _mapping()
     raw["action"] = {"alpha_enabled": False, "n_factors": 0}
@@ -406,3 +406,68 @@ def test_training_config_rejects_structured_torchscript_for_flat_policy() -> Non
 
     with pytest.raises(ValueError, match="requires hierarchical_sequence_v2"):
         TrainingRunConfig.from_mapping(raw)
+
+
+def test_candidate_identity_excludes_export_transport_and_git_provenance() -> None:
+    from copy import deepcopy
+
+    from trade_rl.artifacts.hashing import content_digest
+
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    baseline = TrainingRunConfig.from_mapping(raw)
+
+    changed_raw = deepcopy(raw)
+    changed_raw["exports"] = {"onnx": True, "tolerance": 0.0001}
+    changed_raw["git_commit"] = "b" * 40
+    changed_raw["git_dirty"] = True
+    changed = TrainingRunConfig.from_mapping(changed_raw)
+
+    assert content_digest(baseline.candidate_digest_payload()) == content_digest(
+        changed.candidate_digest_payload()
+    )
+    assert content_digest(baseline.digest_payload()) != content_digest(
+        changed.digest_payload()
+    )
+
+
+def test_candidate_identity_changes_when_learning_recipe_changes() -> None:
+    from copy import deepcopy
+
+    from trade_rl.artifacts.hashing import content_digest
+
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    baseline = TrainingRunConfig.from_mapping(raw)
+
+    changed_raw = deepcopy(raw)
+    training = dict(changed_raw["training"])  # type: ignore[arg-type]
+    training["timesteps"] = 16
+    changed_raw["training"] = training
+    changed = TrainingRunConfig.from_mapping(changed_raw)
+
+    assert content_digest(baseline.candidate_digest_payload()) != content_digest(
+        changed.candidate_digest_payload()
+    )
+
+
+def test_candidate_identity_payload_contains_only_authored_recipe_fields() -> None:
+    raw = _mapping()
+    raw["action"] = {"alpha_enabled": False, "n_factors": 0}
+    raw["exports"] = {"onnx": True, "tolerance": 0.0001}
+    raw["git_commit"] = "c" * 40
+    raw["git_dirty"] = False
+    config = TrainingRunConfig.from_mapping(raw)
+
+    candidate = config.candidate_digest_payload()
+    for excluded in (
+        "export_onnx",
+        "export_structured_torchscript",
+        "export_tolerance",
+        "export_torchscript",
+        "git_commit",
+        "git_dirty",
+        "resume_checkpoint_digests",
+        "transfer_checkpoint_digests",
+    ):
+        assert excluded not in candidate

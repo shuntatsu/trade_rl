@@ -6,6 +6,9 @@ import os
 import pytest
 
 from trade_rl.catalog.postgres import PostgresArtifactCatalog
+from trade_rl.catalog.postgres_sealed_test import (
+    PostgresSealedTestReservationStore,
+)
 from trade_rl.catalog.postgres_stage_a_sealed_test import (
     PostgresStageASealedTestLedger,
 )
@@ -92,8 +95,7 @@ def _counts(database_url: str, plan_digest: str) -> tuple[int, int, int]:
 
 def test_postgres_stage_a_ledger_persists_complete_batch_once() -> None:
     database_url = _database_url()
-    catalog = PostgresArtifactCatalog(database_url)
-    catalog.migrate()
+    PostgresArtifactCatalog(database_url).migrate()
     batch = _batch("stage-a-ledger-once")
     first = PostgresStageASealedTestLedger(database_url)
     second = PostgresStageASealedTestLedger(database_url)
@@ -112,11 +114,10 @@ def test_postgres_stage_a_ledger_rolls_back_complete_batch_on_generic_conflict()
     None
 ):
     database_url = _database_url()
-    catalog = PostgresArtifactCatalog(database_url)
-    catalog.migrate()
+    PostgresArtifactCatalog(database_url).migrate()
     batch = _batch("stage-a-ledger-rollback")
     conflicting = batch.cells[1].access_record
-    generic = PostgresSealedTestLedger(catalog)
+    generic = PostgresSealedTestLedger(PostgresSealedTestReservationStore(database_url))
     generic.authorize_once(
         experiment_plan_digest=conflicting.experiment_plan_digest,
         dataset_id=conflicting.dataset_id,

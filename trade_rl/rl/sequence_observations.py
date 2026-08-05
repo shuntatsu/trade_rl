@@ -15,6 +15,7 @@ from weakref import WeakValueDictionary
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.policy_identity_contract import STRUCTURED_TIMEFRAMES
 from trade_rl.data.contracts import timeframe_hours
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE, ObservationLayout
@@ -153,11 +154,15 @@ def _compile_sequence_layout(
     )
 
 
-DEFAULT_SEQUENCE_WINDOWS = (
-    SequenceWindowSpec("15m", 96),
-    SequenceWindowSpec("1h", 168),
-    SequenceWindowSpec("4h", 120),
-    SequenceWindowSpec("1d", 60),
+_DEFAULT_SEQUENCE_LENGTHS = {
+    "15m": 96,
+    "1h": 168,
+    "4h": 120,
+    "1d": 60,
+}
+DEFAULT_SEQUENCE_WINDOWS = tuple(
+    SequenceWindowSpec(timeframe, _DEFAULT_SEQUENCE_LENGTHS[timeframe])
+    for timeframe in STRUCTURED_TIMEFRAMES
 )
 
 

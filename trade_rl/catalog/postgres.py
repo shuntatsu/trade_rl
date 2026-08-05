@@ -16,7 +16,7 @@ from trade_rl.catalog.contracts import (
     thaw_json,
 )
 from trade_rl.catalog.migrations import apply_migrations
-from trade_rl.evaluation.walk_forward.sealed_test import SealedTestAccessRecord
+from trade_rl.catalog.postgres_connection import default_connection_factory
 
 _ARTIFACT_COLUMNS = """
 artifact_digest, artifact_kind, schema_version, dataset_id, cache_key_digest,
@@ -26,23 +26,6 @@ cache_key, metadata, location, size_bytes, status, created_at, last_seen_at
 
 class CatalogConflictError(ValueError):
     """Raised when one exact cache identity resolves to incompatible metadata."""
-
-
-def _import_psycopg() -> Any | None:
-    try:
-        import psycopg
-    except ImportError:
-        return None
-    return psycopg
-
-
-def _default_connection_factory(database_url: str) -> Any:
-    psycopg = _import_psycopg()
-    if psycopg is None:
-        raise RuntimeError(
-            "PostgreSQL catalog support requires the 'postgres' optional dependency"
-        )
-    return psycopg.connect(database_url)
 
 
 def _record_from_row(row: tuple[Any, ...]) -> ArtifactRecord:
@@ -107,7 +90,7 @@ class PostgresArtifactCatalog:
         if not isinstance(database_url, str) or not database_url.strip():
             raise ValueError("database_url must be non-empty")
         self._database_url = database_url
-        self._connection_factory = connection_factory or _default_connection_factory
+        self._connection_factory = connection_factory or default_connection_factory
 
     def _connect(self) -> Any:
         return self._connection_factory(self._database_url)
@@ -253,16 +236,6 @@ class PostgresArtifactCatalog:
                 )
                 rows = cursor.fetchall()
         return tuple(_record_from_row(row) for row in rows)
-
-    def reserve_sealed_test_access(self, record: SealedTestAccessRecord) -> None:
-        from trade_rl.catalog.postgres_sealed_test import (
-            PostgresSealedTestReservationStore,
-        )
-
-        PostgresSealedTestReservationStore(
-            self._database_url,
-            connection_factory=self._connection_factory,
-        ).reserve_sealed_test_access(record)
 
     def add_dependency(self, parent_digest: str, child_digest: str, role: str) -> None:
         ArtifactRegistration(

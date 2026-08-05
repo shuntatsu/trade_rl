@@ -8,8 +8,6 @@ from typing import Protocol
 
 import numpy as np
 
-from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
-from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.rl.environment_constraints import (
     ActionPathDiagnostics,
     ConstraintCostRequest,
@@ -459,37 +457,29 @@ class EnvironmentInfoBuilder:
             info["shadow_liquidation"] = request.shadow_liquidation
         return info
 
-    def book_metrics(self, book: BookState) -> PerformanceMetrics:
-        return evaluate_performance(
-            ReturnSeries(
-                values=tuple(book.returns_history),
-                kind=ReturnKind.BASE_BAR,
-                periods_per_year=self.dataset.periods_per_year,
-            ),
-            turnover_total=book.turnover_total,
-            total_cost=book.total_cost,
-            funding_pnl=book.funding_pnl - book.borrow_cost,
-            n_trades=book.fill_count,
-        )
-
     def terminal_info(
         self,
         request: EnvironmentTerminalInfoRequest,
     ) -> dict[str, object]:
-        hybrid_metrics = self.book_metrics(request.hybrid)
-        shadow_metrics = self.book_metrics(request.shadow)
         return {
             "episode_hours": request.episode_hours,
             "episode_seed": request.episode_seed,
             "action_diagnostics": request.action_diagnostics,
-            "hybrid_metrics": hybrid_metrics,
-            "hybrid_rebalance_events": request.hybrid.rebalance_events,
             "initial_state_mode": request.initial_state_mode,
-            "shadow_metrics": shadow_metrics,
+            "hybrid_portfolio_value": request.hybrid.portfolio_value,
+            "shadow_portfolio_value": request.shadow.portfolio_value,
+            "hybrid_turnover_total": request.hybrid.turnover_total,
+            "shadow_turnover_total": request.shadow.turnover_total,
+            "hybrid_total_cost": request.hybrid.total_cost,
+            "shadow_total_cost": request.shadow.total_cost,
+            "hybrid_funding_pnl": request.hybrid.funding_pnl,
+            "shadow_funding_pnl": request.shadow.funding_pnl,
+            "hybrid_borrow_cost": request.hybrid.borrow_cost,
+            "shadow_borrow_cost": request.shadow.borrow_cost,
+            "hybrid_fill_count": request.hybrid.fill_count,
+            "shadow_fill_count": request.shadow.fill_count,
+            "hybrid_rebalance_events": request.hybrid.rebalance_events,
             "shadow_rebalance_events": request.shadow.rebalance_events,
-            "excess_total_return": (
-                hybrid_metrics.total_return - shadow_metrics.total_return
-            ),
         }
 
 

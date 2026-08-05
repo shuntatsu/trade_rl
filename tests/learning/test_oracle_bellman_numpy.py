@@ -17,7 +17,7 @@ from trade_rl.learning.oracle_bellman_numpy import (
     solve_numpy_oracle_batch,
 )
 from trade_rl.learning.oracle_market_tape import build_oracle_market_tape
-from trade_rl.learning.oracle_teacher import OracleTeacherConfig, _portfolio_states
+from trade_rl.learning.oracle_teacher import OracleTeacherConfig, portfolio_states
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 
@@ -132,7 +132,7 @@ def test_batched_solver_matches_legacy_episode_paths(signal_delay: int) -> None:
         execution_cost=ExecutionCostConfig.zero(),
         signal_delay_decisions=signal_delay,
     )
-    states = _portfolio_states(market, config)
+    states = portfolio_states(market, config)
     episodes = _episodes(
         starts=(0, 1),
         stops=(7, 8),
@@ -178,7 +178,7 @@ def test_batched_solver_matches_legacy_episode_paths(signal_delay: int) -> None:
 def test_target_state_blocks_do_not_change_solver_result() -> None:
     market = _market(100.0 * np.exp(np.arange(7) * 0.02))
     config = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
-    states = _portfolio_states(market, config)
+    states = portfolio_states(market, config)
     episodes = _episodes(
         starts=(0,),
         stops=(7,),
@@ -208,7 +208,7 @@ def test_target_state_blocks_do_not_change_solver_result() -> None:
 def test_solver_rejects_mixed_episode_horizons() -> None:
     market = _market(np.linspace(100.0, 106.0, 7))
     config = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
-    states = _portfolio_states(market, config)
+    states = portfolio_states(market, config)
     episodes = _episodes(
         starts=(0, 1),
         stops=(7, 6),
@@ -255,7 +255,7 @@ def test_numpy_solver_matches_legacy_across_randomized_small_markets(
         execution_cost=cost,
         signal_delay_decisions=signal_delay,
     )
-    states = _portfolio_states(market, config)
+    states = portfolio_states(market, config)
     initial = np.array([[initial_weight]], dtype=np.float64)
     episodes = _episodes(
         starts=(0,),

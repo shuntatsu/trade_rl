@@ -172,7 +172,7 @@ BCと後続PPOは同じFeature extractorを使用します。Cost criticやLagra
 
 ## Architecture identityとCheckpoint
 
-`sb3_policy_identity_v1`は、設定値の写しではなく、**実際に組み立てられたModel**から生成します。
+`sb3_policy_identity_v4`は、設定値の写しではなく、**実際に組み立てられたModel**から生成します。
 
 `hierarchical_sequence_v2`では次を結合します。
 
@@ -212,7 +212,7 @@ Flat policyでは`exports.onnx`と`exports.torchscript`を使用できます。
 
 - Canonical Dict input順
 - Input shapeとdtype
-- `sb3_policy_identity_v1`
+- `sb3_policy_identity_v4`
 - Sequence architecture digest
 - Model file digestとSize
 - Action size

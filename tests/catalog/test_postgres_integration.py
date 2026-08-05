@@ -6,6 +6,9 @@ import pytest
 
 from trade_rl.catalog import ArtifactKind, ArtifactQuery, ArtifactRegistration
 from trade_rl.catalog.postgres import CatalogConflictError, PostgresArtifactCatalog
+from trade_rl.catalog.postgres_sealed_test import (
+    PostgresSealedTestReservationStore,
+)
 from trade_rl.catalog.sealed_test import PostgresSealedTestLedger
 from trade_rl.evaluation.walk_forward.folds import IndexRange
 
@@ -80,10 +83,9 @@ def test_postgres_catalog_migrates_registers_queries_and_links_artifacts() -> No
 
 def test_postgres_sealed_test_ledger_rejects_duplicate_across_instances() -> None:
     database_url = _database_url()
-    first_catalog = PostgresArtifactCatalog(database_url)
-    first_catalog.migrate()
-    first = PostgresSealedTestLedger(first_catalog)
-    second = PostgresSealedTestLedger(PostgresArtifactCatalog(database_url))
+    PostgresArtifactCatalog(database_url).migrate()
+    first = PostgresSealedTestLedger(PostgresSealedTestReservationStore(database_url))
+    second = PostgresSealedTestLedger(PostgresSealedTestReservationStore(database_url))
 
     first.authorize_once(
         experiment_plan_digest="a" * 64,

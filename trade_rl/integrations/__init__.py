@@ -1,20 +1,14 @@
 """Framework-specific adapters composed around the core research runtime.
 
-The package root intentionally avoids importing optional frameworks. Consumers
-should import adapters from their concrete modules; attribute access remains as
-an explicit lazy compatibility shim. The Oracle CUDA adapter registered here is
-a lazy callable and does not import Torch until an explicit CUDA solve occurs.
+The package root intentionally avoids importing optional frameworks or concrete
+adapters. Consumers import adapters from their concrete modules; selected public
+compatibility attributes remain available through an explicit lazy shim.
 """
 
 from __future__ import annotations
 
 from importlib import import_module
 from typing import Any
-
-from trade_rl.integrations.oracle_solver import solve_torch_cuda_oracle_batch
-from trade_rl.learning.oracle_solver import register_oracle_accelerator_backend
-
-register_oracle_accelerator_backend("cuda", solve_torch_cuda_oracle_batch)
 
 _EXPORTS = {
     "LoadedAlphaArtifact": (

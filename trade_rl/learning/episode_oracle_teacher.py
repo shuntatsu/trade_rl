@@ -20,8 +20,8 @@ from trade_rl.learning.oracle_bellman_contracts import (
 from trade_rl.learning.oracle_solver import OracleBatchBackend, solve_oracle_episodes
 from trade_rl.learning.oracle_teacher import (
     OracleTeacherConfig,
-    _portfolio_states,
     _validate_train_range,
+    portfolio_states,
 )
 
 EPISODE_ORACLE_TEACHER_SCHEMA: Final = "episode_aligned_oracle_teacher_v1"
@@ -96,7 +96,7 @@ def episode_oracle_target_path(
     initial = _validated_oracle_initial_weights(dataset, config, initial_weights)
     result = solve_oracle_episodes(
         dataset,
-        states=_portfolio_states(dataset, config),
+        states=portfolio_states(dataset, config),
         episode_inputs=OracleEpisodeInputs(
             episode_indices=np.array([0], dtype=np.int64),
             starts=np.array([start], dtype=np.int64),
@@ -381,7 +381,7 @@ def build_episode_oracle_batch(
     )
     result = solve_oracle_episodes(
         dataset,
-        states=_portfolio_states(dataset, teacher_config),
+        states=portfolio_states(dataset, teacher_config),
         episode_inputs=OracleEpisodeInputs(
             episode_indices=np.asarray(
                 [contract.episode_index for contract in contracts],

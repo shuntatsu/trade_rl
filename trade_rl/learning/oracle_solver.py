@@ -22,26 +22,6 @@ OracleBatchBackend = Callable[
     ...,
     OracleSolveResult,
 ]
-_ACCELERATOR_BACKENDS: dict[str, OracleBatchBackend] = {}
-
-
-def register_oracle_accelerator_backend(
-    name: str,
-    backend: OracleBatchBackend,
-) -> None:
-    """Register one higher-layer accelerator adapter idempotently."""
-
-    if not isinstance(name, str) or not name.strip():
-        raise ValueError("Oracle accelerator backend name must be non-empty")
-    if not callable(backend):
-        raise ValueError("Oracle accelerator backend must be callable")
-    normalized = name.strip()
-    existing = _ACCELERATOR_BACKENDS.get(normalized)
-    if existing is not None and existing is not backend:
-        raise RuntimeError(
-            f"Oracle accelerator backend already registered: {normalized}"
-        )
-    _ACCELERATOR_BACKENDS[normalized] = backend
 
 
 def _episode_subset(
@@ -68,8 +48,8 @@ def solve_oracle_episodes(
     """Solve independent episodes while preserving their input ordering.
 
     Learning owns the numerical orchestration and NumPy reference path. Higher
-    layers inject or register an accelerator backend explicitly, so this module
-    never imports optional model frameworks or integration adapters.
+    layers inject an accelerator backend explicitly, so this module never
+    imports optional model frameworks or integration adapters.
     """
 
     if not isinstance(dataset, MarketDataset):
@@ -80,7 +60,7 @@ def solve_oracle_episodes(
         raise ValueError("parameters must be OracleBellmanParameters")
     if not isinstance(solver_config, OracleSolverConfig):
         raise ValueError("solver_config must be OracleSolverConfig")
-    selected_accelerator = accelerator_backend or _ACCELERATOR_BACKENDS.get("cuda")
+    selected_accelerator = accelerator_backend
     if solver_config.selection == "cuda_or_numpy":
         try:
             return solve_oracle_episodes(
@@ -219,8 +199,4 @@ def solve_oracle_episodes(
     )
 
 
-__all__ = [
-    "OracleBatchBackend",
-    "register_oracle_accelerator_backend",
-    "solve_oracle_episodes",
-]
+__all__ = ["OracleBatchBackend", "solve_oracle_episodes"]

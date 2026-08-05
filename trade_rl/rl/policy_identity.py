@@ -8,6 +8,10 @@ from typing import Any, Final
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.policy_identity_contract import (
+    HIERARCHICAL_SEQUENCE_ENCODER,
+    SB3_POLICY_IDENTITY_SCHEMA,
+)
 from trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE
 from trade_rl.rl.sequence_architecture import (
     SequenceAssetBindingIdentity,
@@ -18,7 +22,6 @@ from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.rl.sequence_policy import SequencePolicyArchitecture
 
 SB3_POLICY_IDENTITY_ATTRIBUTE: Final = "_trade_rl_policy_identity"
-SB3_POLICY_IDENTITY_SCHEMA: Final = "sb3_policy_identity_v4"
 LEGACY_SB3_POLICY_IDENTITY_SCHEMAS: Final = frozenset(
     {"sb3_policy_identity_v2", "sb3_policy_identity_v3"}
 )
@@ -178,7 +181,7 @@ def _policy_architecture_payload(
         "current_weight_observation": dict(current_weight_observation),
         "exploration_contract": dict(exploration_contract),
         "gate_temperature": gate_temperature,
-        "observation_encoder": "hierarchical_sequence_v2",
+        "observation_encoder": HIERARCHICAL_SEQUENCE_ENCODER,
         "schema_version": _policy_architecture_schema(actor_head),
         "sequence_architecture_digest": sequence_architecture_digest,
     }
@@ -238,9 +241,9 @@ def _validated_payload(value: object) -> dict[str, object]:
     if schema != SB3_POLICY_IDENTITY_SCHEMA:
         raise ValueError("unsupported SB3 policy identity schema")
     encoder = payload.get("observation_encoder")
-    if encoder not in {"flat_mlp", "asset_set", "hierarchical_sequence_v2"}:
+    if encoder not in {"flat_mlp", "asset_set", HIERARCHICAL_SEQUENCE_ENCODER}:
         raise ValueError("SB3 policy identity observation encoder is invalid")
-    if encoder == "hierarchical_sequence_v2":
+    if encoder == HIERARCHICAL_SEQUENCE_ENCODER:
         architecture_payload = _validated_sequence_architecture(
             payload.get("sequence_architecture"),
             digest=payload.get("sequence_architecture_digest"),
@@ -323,13 +326,13 @@ def bind_sb3_policy_identity(model: Any, assembly: object) -> dict[str, object]:
     """Bind actual model structure and the exact runtime asset mapping."""
 
     encoder = getattr(assembly, "observation_encoder", None)
-    if encoder not in {"flat_mlp", "asset_set", "hierarchical_sequence_v2"}:
+    if encoder not in {"flat_mlp", "asset_set", HIERARCHICAL_SEQUENCE_ENCODER}:
         raise ValueError("SB3 assembly observation encoder is invalid")
     payload: dict[str, object] = {
         "observation_encoder": encoder,
         "schema_version": SB3_POLICY_IDENTITY_SCHEMA,
     }
-    if encoder == "hierarchical_sequence_v2":
+    if encoder == HIERARCHICAL_SEQUENCE_ENCODER:
         symbols = _string_tuple(
             getattr(assembly, "sequence_symbols", None), field="sequence_symbols"
         )

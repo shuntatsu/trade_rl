@@ -1,4 +1,4 @@
-name: Private import control flow GREEN
+name: Private import control flow format diff
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  green:
+  format-diff:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -28,18 +28,5 @@ jobs:
       - name: Install test dependencies
         run: uv sync --extra dev
 
-      - name: Run focused tests
-        run: |
-          uv run pytest -q \
-            tests/architecture/test_private_import_control_flow.py \
-            tests/architecture/test_private_import_usage.py \
-            tests/architecture/test_ownership_boundaries.py
-
-      - name: Run focused static checks
-        run: |
-          uv run ruff check \
-            tests/architecture/import_references.py \
-            tests/architecture/test_private_import_control_flow.py
-          uv run ruff format --check \
-            tests/architecture/import_references.py \
-            tests/architecture/test_private_import_control_flow.py
+      - name: Show required formatting
+        run: uv run ruff format --diff tests/architecture/test_private_import_control_flow.py

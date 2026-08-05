@@ -98,9 +98,7 @@ else:
 """,
     )
 
-    assert _targets(violations) == (
-        "trade_rl.evaluation.metrics._private_on_success",
-    )
+    assert _targets(violations) == ("trade_rl.evaluation.metrics._private_on_success",)
 
 
 def test_finally_shadow_is_definite_after_try(tmp_path: Path) -> None:

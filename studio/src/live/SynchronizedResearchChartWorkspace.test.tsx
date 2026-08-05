@@ -176,12 +176,18 @@ describe('SynchronizedResearchChartWorkspace', () => {
     expect(runtime.panes[2]?.setStretchFactor).toHaveBeenCalledWith(1.4)
   })
 
-  it('creates direct latest-value labels from the existing series', async () => {
+  it('creates direct latest-value labels without leaving the built-in labels visible', async () => {
     renderWorkspace()
 
     await waitFor(() => expect(runtime.series[0]?.createPriceLine).toHaveBeenCalled())
     const titles = runtime.series.flatMap((series) => series.createPriceLine.mock.calls.map((call) => call[0]?.title))
     expect(titles).toEqual(expect.arrayContaining(['BTCUSDT', 'Portfolio', 'Baseline', 'Drawdown', 'Gross exposure']))
+    for (const index of [0, 3, 4, 5, 6]) {
+      expect(runtime.chart.addSeries.mock.calls[index]?.[1]).toEqual(expect.objectContaining({
+        lastValueVisible: false,
+        priceLineVisible: false,
+      }))
+    }
   })
 
   it('changes emphasis without replacing panes or hiding context', async () => {

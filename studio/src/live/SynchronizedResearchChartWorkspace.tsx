@@ -239,6 +239,7 @@ export function SynchronizedResearchChartWorkspace({
     : [...data.recordByTime.values()].at(-1)?.sequence ?? null
   const showSelectionCard = selectedRecord !== null && (!followLatest || selectedRecord.sequence !== latestSequence)
   const summary = rangeSummary(data, selection)
+
   const refreshOverlay = () => setOverlayVersion((current) => current + 1)
 
   useEffect(() => {
@@ -271,13 +272,14 @@ export function SynchronizedResearchChartWorkspace({
 
     const candles = chart.addSeries(CandlestickSeries, {
       upColor: '#36e37d', downColor: '#ff5b63', wickUpColor: '#36e37d', wickDownColor: '#ff5b63', borderVisible: false,
+      lastValueVisible: false, priceLineVisible: false,
     }, 0)
     const targetWeight = chart.addSeries(LineSeries, { color: '#4098ff', lineWidth: 2, title: 'Target', priceScaleId: 'left' }, 0)
     const executedWeight = chart.addSeries(LineSeries, { color: '#b2c2cc', lineWidth: 1, lineStyle: LineStyle.Dashed, title: 'Executed', priceScaleId: 'left' }, 0)
-    const equity = chart.addSeries(LineSeries, { color: '#56c2e6', lineWidth: 2, title: 'Portfolio' }, 1)
-    const baseline = chart.addSeries(LineSeries, { color: '#a6b6c0', lineWidth: 2, lineStyle: LineStyle.Dashed, title: 'Baseline' }, 1)
-    const drawdown = chart.addSeries(LineSeries, { color: '#ff756d', lineWidth: 2, title: 'Drawdown', priceScaleId: 'left' }, 1)
-    const grossExposure = chart.addSeries(LineSeries, { color: '#f2b84b', lineWidth: 2, title: 'Gross exposure' }, 2)
+    const equity = chart.addSeries(LineSeries, { color: '#56c2e6', lineWidth: 2, title: 'Portfolio', lastValueVisible: false, priceLineVisible: false }, 1)
+    const baseline = chart.addSeries(LineSeries, { color: '#a6b6c0', lineWidth: 2, lineStyle: LineStyle.Dashed, title: 'Baseline', lastValueVisible: false, priceLineVisible: false }, 1)
+    const drawdown = chart.addSeries(LineSeries, { color: '#ff756d', lineWidth: 2, title: 'Drawdown', priceScaleId: 'left', lastValueVisible: false, priceLineVisible: false }, 1)
+    const grossExposure = chart.addSeries(LineSeries, { color: '#f2b84b', lineWidth: 2, title: 'Gross exposure', lastValueVisible: false, priceLineVisible: false }, 2)
     const reward = chart.addSeries(LineSeries, { color: '#7fd37a', lineWidth: 1, title: 'Reward', priceScaleId: 'left' }, 2)
     const cost = chart.addSeries(LineSeries, { color: '#ff8a65', lineWidth: 1, title: 'Cost', priceScaleId: 'left' }, 2)
     const series = { candles, targetWeight, executedWeight, equity, baseline, drawdown, grossExposure, reward, cost }

@@ -1,0 +1,109 @@
+name: Apply private import control-flow fix
+
+on:
+  push:
+    branches:
+      - agent/private-import-control-flow-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/private-import-control-flow-hardening
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Apply minimal scanner fix and remove temporary workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/architecture/import_references.py")
+          source = path.read_text(encoding="utf-8")
+
+          loop_needle = '''    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+        self._visit_for(node)
+
+    def visit_If(self, node: ast.If) -> None:
+'''
+          loop_replacement = '''    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+        self._visit_for(node)
+
+    def visit_While(self, node: ast.While) -> None:
+        self.visit(node.test)
+        snapshot = self._scope_snapshot()
+        for statement in node.body:
+            self.visit(statement)
+        self._restore_scope(snapshot)
+        for statement in node.orelse:
+            self.visit(statement)
+        self._restore_scope(snapshot)
+
+    def visit_If(self, node: ast.If) -> None:
+'''
+          if source.count(loop_needle) != 1:
+              raise SystemExit("while insertion point mismatch")
+          source = source.replace(loop_needle, loop_replacement, 1)
+
+          try_needle = '''    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.type is not None:
+            self.visit(node.type)
+        if node.name is not None:
+            self._bind(node.name, None)
+        for statement in node.body:
+            self.visit(statement)
+
+    def _visit_function(
+'''
+          try_replacement = '''    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.type is not None:
+            self.visit(node.type)
+        if node.name is not None:
+            self._bind(node.name, None)
+        for statement in node.body:
+            self.visit(statement)
+
+    def visit_Try(self, node: ast.Try) -> None:
+        snapshot = self._scope_snapshot()
+
+        for statement in node.body:
+            self.visit(statement)
+        for statement in node.orelse:
+            self.visit(statement)
+
+        self._restore_scope(snapshot)
+        for handler in node.handlers:
+            self.visit(handler)
+            self._restore_scope(snapshot)
+
+        for statement in node.finalbody:
+            self.visit(statement)
+
+    def _visit_function(
+'''
+          if source.count(try_needle) != 1:
+              raise SystemExit("try insertion point mismatch")
+          source = source.replace(try_needle, try_replacement, 1)
+          path.write_text(source, encoding="utf-8")
+
+          for workflow in (
+              Path(".github/workflows/private-import-control-flow-red.yml"),
+              Path(".github/workflows/apply-private-import-control-flow-fix.yml"),
+          ):
+              workflow.unlink()
+          PY
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/architecture/import_references.py .github/workflows
+          git commit -m 'fix: preserve private import aliases across control flow'
+          git push origin HEAD:agent/private-import-control-flow-hardening

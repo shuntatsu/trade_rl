@@ -23,8 +23,11 @@ from trade_rl.learning.oracle_bellman_contracts import (
     OracleSolveResult,
     OracleSolverProvenance,
 )
-from trade_rl.learning.oracle_solver import solve_oracle_episodes
-from trade_rl.learning.oracle_teacher import OracleTeacherConfig, _portfolio_states
+from trade_rl.learning.oracle_solver import (
+    OracleBatchBackend,
+    solve_oracle_episodes,
+)
+from trade_rl.learning.oracle_teacher import OracleTeacherConfig, portfolio_states
 from trade_rl.simulation.execution import ExecutionCostConfig
 
 ORACLE_BENCHMARK_SCHEMA: Final = "oracle_teacher_benchmark_v2"
@@ -215,8 +218,9 @@ def _run_solver(
     *,
     backend: str,
     solver_config: OracleSolverConfig,
+    accelerator_backend: OracleBatchBackend | None = None,
 ) -> _OperationEvidence:
-    states = _portfolio_states(dataset, teacher_config)
+    states = portfolio_states(dataset, teacher_config)
     if backend == "serial_numpy":
         targets: list[np.ndarray] = []
         scores: list[float] = []
@@ -228,6 +232,7 @@ def _run_solver(
                 episode_inputs=_episode_inputs((contract,)),
                 parameters=teacher_config.bellman_parameters,
                 solver_config=solver_config,
+                accelerator_backend=accelerator_backend,
             )
             targets.extend(serial_result.targets)
             scores.extend(serial_result.final_scores.tolist())
@@ -257,6 +262,7 @@ def _run_solver(
         episode_inputs=_episode_inputs(contracts),
         parameters=teacher_config.bellman_parameters,
         solver_config=solver_config,
+        accelerator_backend=accelerator_backend,
     )
     return _OperationEvidence(
         output_digest=_target_payload_digest(
@@ -303,6 +309,7 @@ def run_oracle_teacher_benchmark(
     episode_batch_size: int = 8,
     target_state_block_size: int | None = None,
     compile_chunk_size: int = 16,
+    accelerator_backend: OracleBatchBackend | None = None,
 ) -> OracleBenchmarkResult:
     """Measure one backend and fail if repeated outputs drift."""
 
@@ -339,6 +346,7 @@ def run_oracle_teacher_benchmark(
             teacher_config,
             backend=backend,
             solver_config=config,
+            accelerator_backend=accelerator_backend,
         )
 
     was_tracing = tracemalloc.is_tracing()
@@ -419,7 +427,7 @@ def run_oracle_teacher_benchmark(
                 False if provenance is None else provenance.oom_retry_performed
             ),
             "repetitions": repeat_count,
-            "state_count": int(_portfolio_states(dataset, teacher_config).shape[0]),
+            "state_count": int(portfolio_states(dataset, teacher_config).shape[0]),
             "symbol_count": dataset.n_symbols,
             "actual_backend": None if provenance is None else provenance.backend,
             "torch_version": None if provenance is None else provenance.torch_version,
@@ -544,10 +552,20 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    accelerator_backend: OracleBatchBackend | None = None,
+) -> int:
     """Run the deterministic synthetic benchmark and write canonical JSON."""
 
     arguments = _parser().parse_args(argv)
+    if arguments.backend in {"torch_cuda_eager", "all"} and accelerator_backend is None:
+        raise ValueError(
+            "torch_cuda_eager Oracle benchmarking requires an explicitly "
+            "injected accelerator backend; use "
+            "trade_rl.operations.oracle_cuda_smoke"
+        )
     dataset = _synthetic_market(
         episode_bars=arguments.episode_bars,
         episode_count=arguments.episode_count,
@@ -571,13 +589,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             episode_batch_size=arguments.episode_batch_size,
             target_state_block_size=arguments.target_state_block_size,
             compile_chunk_size=arguments.compile_chunk_size,
+            accelerator_backend=accelerator_backend,
         )
         for backend in backends
     )
     case = OracleBenchmarkCase(
         episode_count=arguments.episode_count,
         episode_bars=arguments.episode_bars,
-        state_count=int(_portfolio_states(dataset, teacher).shape[0]),
+        state_count=int(portfolio_states(dataset, teacher).shape[0]),
         symbol_count=dataset.n_symbols,
         repetitions=arguments.repetitions,
         episode_batch_size=arguments.episode_batch_size,

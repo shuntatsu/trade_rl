@@ -18,8 +18,8 @@ from trade_rl.learning.oracle_market_tape import build_oracle_market_tape
 from trade_rl.learning.oracle_solver import solve_oracle_episodes
 from trade_rl.learning.oracle_teacher import (
     OracleTeacherConfig,
-    _portfolio_states,
     oracle_target_path,
+    portfolio_states,
 )
 from trade_rl.simulation.execution import ExecutionCostConfig
 
@@ -99,7 +99,7 @@ def _numpy_backed_accelerator(calls: list[int]):
 def test_orchestrator_groups_horizons_and_restores_input_order() -> None:
     market = _market()
     teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
-    states = _portfolio_states(market, teacher)
+    states = portfolio_states(market, teacher)
     inputs = _inputs()
     config = OracleSolverConfig(
         selection="numpy",
@@ -153,7 +153,7 @@ def test_orchestrator_groups_horizons_and_restores_input_order() -> None:
 def test_orchestrator_digest_is_deterministic() -> None:
     market = _market()
     teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
-    states = _portfolio_states(market, teacher)
+    states = portfolio_states(market, teacher)
     inputs = _inputs()
     config = OracleSolverConfig(episode_batch_size=2, target_state_block_size=1)
 
@@ -175,17 +175,14 @@ def test_orchestrator_digest_is_deterministic() -> None:
     assert second.digest == first.digest
 
 
-def test_cuda_requires_explicit_or_registered_accelerator(monkeypatch) -> None:
-    import trade_rl.learning.oracle_solver as oracle_solver_module
-
-    monkeypatch.setattr(oracle_solver_module, "_ACCELERATOR_BACKENDS", {})
+def test_cuda_requires_explicit_accelerator() -> None:
     market = _market()
     teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
 
     with pytest.raises(OracleBackendFailure, match="accelerator_backend_required"):
         solve_oracle_episodes(
             market,
-            states=_portfolio_states(market, teacher),
+            states=portfolio_states(market, teacher),
             episode_inputs=_inputs(),
             parameters=teacher.bellman_parameters,
             solver_config=OracleSolverConfig(selection="cuda"),
@@ -218,7 +215,7 @@ def test_orchestrator_routes_cuda_batches_to_injected_backend() -> None:
 
     result = solve_oracle_episodes(
         market,
-        states=_portfolio_states(market, teacher),
+        states=portfolio_states(market, teacher),
         episode_inputs=_inputs(),
         parameters=teacher.bellman_parameters,
         solver_config=OracleSolverConfig(
@@ -245,7 +242,7 @@ def test_cuda_or_numpy_restarts_entire_solve_with_numpy_after_backend_failure() 
 
     result = solve_oracle_episodes(
         market,
-        states=_portfolio_states(market, teacher),
+        states=portfolio_states(market, teacher),
         episode_inputs=_inputs(),
         parameters=teacher.bellman_parameters,
         solver_config=OracleSolverConfig(
@@ -271,7 +268,7 @@ def test_explicit_cuda_does_not_fall_back_to_numpy() -> None:
     with pytest.raises(OracleBackendFailure, match="cuda_unavailable"):
         solve_oracle_episodes(
             market,
-            states=_portfolio_states(market, teacher),
+            states=portfolio_states(market, teacher),
             episode_inputs=_inputs(),
             parameters=teacher.bellman_parameters,
             solver_config=OracleSolverConfig(selection="cuda"),
@@ -289,7 +286,7 @@ def test_cuda_or_numpy_does_not_hide_untyped_backend_failures() -> None:
     with pytest.raises(RuntimeError, match="unexpected kernel contract failure"):
         solve_oracle_episodes(
             market,
-            states=_portfolio_states(market, teacher),
+            states=portfolio_states(market, teacher),
             episode_inputs=_inputs(),
             parameters=teacher.bellman_parameters,
             solver_config=OracleSolverConfig(selection="cuda_or_numpy"),
@@ -339,7 +336,7 @@ def test_orchestrator_aggregates_variable_cuda_runtime_provenance() -> None:
 
     result = solve_oracle_episodes(
         market,
-        states=_portfolio_states(market, teacher),
+        states=portfolio_states(market, teacher),
         episode_inputs=_inputs(),
         parameters=teacher.bellman_parameters,
         solver_config=OracleSolverConfig(

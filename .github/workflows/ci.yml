@@ -7,8 +7,6 @@ on:
   pull_request:
     branches:
       - main
-      - agent/causal-training-hardening
-      - agent/causal-sequence-feature-encoder
 
 permissions:
   contents: read
@@ -180,7 +178,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest -q tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log
+          uv run pytest -q tests/architecture tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log
       - name: Upload compatibility diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

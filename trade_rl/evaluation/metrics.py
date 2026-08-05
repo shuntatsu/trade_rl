@@ -91,7 +91,6 @@ def evaluate_performance(
     sharpe = (
         mean / standard_deviation * annualization if standard_deviation > 0 else 0.0
     )
-
     downside_rms = math.sqrt(fmean(min(value, 0.0) ** 2 for value in values))
     sortino = mean / downside_rms * annualization if downside_rms > 0 else 0.0
 

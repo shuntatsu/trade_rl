@@ -17,34 +17,31 @@ from trade_rl.artifacts.run_manifest import (
     write_walk_forward_run_manifest,
 )
 from trade_rl.artifacts.store import ArtifactStore
-from trade_rl.catalog.postgres import PostgresArtifactCatalog
+from trade_rl.catalog.postgres_sealed_test import (
+    PostgresSealedTestReservationStore,
+)
 from trade_rl.catalog.sealed_test import PostgresSealedTestLedger
 from trade_rl.data import load_market_dataset_artifact
 from trade_rl.evaluation.walk_forward.sealed_test import (
     SealedTestLedger,
     SealedTestLedgerProtocol,
 )
+from trade_rl.workflows._market_walk_forward_core import (
+    CandidateConfiguration,
+    ConcreteFoldRunner,
+    FoldExecutionConfig,
+    MarketCandidateEvaluator,
+    MarketCandidateTrainer,
+    WalkForwardExecutionResult,
+    WalkForwardRunResult,
+    execute_walk_forward,
+    resolve_signal_digest,
+)
 from trade_rl.workflows.market_walk_forward_config import (
     MarketWalkForwardConfig,
     NamedCandidateRun,
     SealedTestLedgerMode,
 )
-
-WalkForwardRunResult = _core.WalkForwardRunResult
-_PolicyRecord = _core._PolicyRecord
-_experiment_plan_digest = _core._experiment_plan_digest
-_write_json = _core._write_json
-_artifact_paths = _core._artifact_paths
-_evaluate_execution_sensitivity = _core._evaluate_execution_sensitivity
-_fold_payload = _core._fold_payload
-MarketCandidateTrainer = _core.MarketCandidateTrainer
-MarketCandidateEvaluator = _core.MarketCandidateEvaluator
-ConcreteFoldRunner = _core.ConcreteFoldRunner
-FoldExecutionConfig = _core.FoldExecutionConfig
-CandidateConfiguration = _core.CandidateConfiguration
-WalkForwardExecutionResult = _core.WalkForwardExecutionResult
-execute_walk_forward = _core.execute_walk_forward
-resolve_signal_digest = _core.resolve_signal_digest
 
 __all__ = [
     "MarketCandidateEvaluator",
@@ -55,17 +52,6 @@ __all__ = [
     "WalkForwardRunResult",
     "execute_market_walk_forward",
 ]
-
-
-def __getattr__(name: str) -> Any:
-    """Preserve the established helper API while orchestration remains isolated."""
-
-    try:
-        return getattr(_core, name)
-    except AttributeError as error:
-        raise AttributeError(
-            f"module {__name__!r} has no attribute {name!r}"
-        ) from error
 
 
 def _validate_for_store(path: Path) -> bool:
@@ -81,8 +67,8 @@ def _sealed_test_ledger(mode: SealedTestLedgerMode) -> SealedTestLedgerProtocol:
         raise ValueError(
             "durable PostgreSQL sealed-test ledger requires TRADE_RL_DATABASE_URL"
         )
-    catalog = PostgresArtifactCatalog(database_url)
-    return PostgresSealedTestLedger(catalog)
+    store = PostgresSealedTestReservationStore(database_url)
+    return PostgresSealedTestLedger(store)
 
 
 def execute_market_walk_forward(
@@ -117,14 +103,14 @@ def execute_market_walk_forward(
             "workflow_config_digest": config_digest,
         },
     )
-    experiment_plan_digest = _experiment_plan_digest(
+    experiment_plan_digest = _core._experiment_plan_digest(
         config,
         dataset_id=dataset.dataset_id,
     )
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
-    _write_json(stage / "provenance.json", asdict(provenance))
-    registry: dict[str, _PolicyRecord] = {}
+    _core._write_json(stage / "provenance.json", asdict(provenance))
+    registry: dict[str, _core._PolicyRecord] = {}
     candidate_map = {item.name: item.run for item in config.candidates}
     trainer = MarketCandidateTrainer(
         dataset=dataset,
@@ -171,7 +157,7 @@ def execute_market_walk_forward(
             dataset_id=dataset.dataset_id,
             runner=fold_runner,
         )
-        sensitivity_payload = _evaluate_execution_sensitivity(
+        sensitivity_payload = _core._evaluate_execution_sensitivity(
             config=config.execution_sensitivity,
             dataset=dataset,
             result=result,
@@ -180,7 +166,7 @@ def execute_market_walk_forward(
         )
         sensitivity_by_fold: dict[int, dict[str, Any]] = {}
         if sensitivity_payload is not None:
-            _write_json(stage / "execution-sensitivity.json", sensitivity_payload)
+            _core._write_json(stage / "execution-sensitivity.json", sensitivity_payload)
             sensitivity_by_fold = {
                 int(item["fold_index"]): item
                 for item in sensitivity_payload["folds"]
@@ -200,7 +186,7 @@ def execute_market_walk_forward(
                 raise RuntimeError(
                     "sealed outer test evaluation count violates the fold contract"
                 )
-            payload = _fold_payload(
+            payload = _core._fold_payload(
                 fold,
                 fold_result,
                 sealed_test_evaluations=sealed_count,
@@ -217,7 +203,7 @@ def execute_market_walk_forward(
                     if isinstance(item, dict)
                 )
             folds_payload.append(payload)
-            _write_json(
+            _core._write_json(
                 stage / f"fold-{fold.fold_index:03d}" / "result.json",
                 payload,
             )
@@ -268,9 +254,9 @@ def execute_market_walk_forward(
             ),
             "stitch_mode": config.workflow.stitch_mode.value,
         }
-        _write_json(stage / "walk-forward.json", walk_forward_payload)
-        _write_json(stage / "walk-forward-config.json", config.digest_payload())
-        _write_json(
+        _core._write_json(stage / "walk-forward.json", walk_forward_payload)
+        _core._write_json(stage / "walk-forward-config.json", config.digest_payload())
+        _core._write_json(
             stage / "dataset-reference.json",
             {
                 "artifact_path": str(dataset_path),
@@ -323,7 +309,7 @@ def execute_market_walk_forward(
             policy_set_digest=policy_digest,
             provenance_digest=provenance.digest,
             fold_count=len(result.folds),
-            artifact_paths=_artifact_paths(stage),
+            artifact_paths=_core._artifact_paths(stage),
             created_at=resolved_created_at,
         )
         write_walk_forward_run_manifest(stage, run_manifest)

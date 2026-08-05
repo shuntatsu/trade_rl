@@ -8,7 +8,7 @@ import pytest
 from test_support.training_config import complete_execution_config
 from trade_rl.evaluation.walk_forward.sealed_test import SealedTestLedger
 from trade_rl.workflows import market_walk_forward as workflow_module
-from trade_rl.workflows.market_walk_forward import _experiment_plan_digest
+from trade_rl.workflows._market_walk_forward_core import _experiment_plan_digest
 from trade_rl.workflows.market_walk_forward_config import (
     MarketWalkForwardConfig,
     SealedTestLedgerMode,
@@ -119,8 +119,8 @@ def test_local_mode_ignores_database_environment(
     monkeypatch.setenv("TRADE_RL_DATABASE_URL", "postgresql://must-not-be-used")
     monkeypatch.setattr(
         workflow_module,
-        "PostgresArtifactCatalog",
-        lambda _: pytest.fail("local mode constructed PostgreSQL catalog"),
+        "PostgresSealedTestReservationStore",
+        lambda _: pytest.fail("local mode constructed PostgreSQL sealed-test store"),
     )
 
     ledger = workflow_module._sealed_test_ledger(SealedTestLedgerMode.LOCAL_EXPLORATORY)
@@ -135,31 +135,32 @@ def test_durable_mode_requires_database_url(monkeypatch: pytest.MonkeyPatch) -> 
         workflow_module._sealed_test_ledger(SealedTestLedgerMode.DURABLE_POSTGRES)
 
 
-def test_durable_mode_constructs_ledger_without_migration(
+def test_durable_mode_constructs_dedicated_store_without_runtime_migration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
 
-    class Catalog:
+    class Store:
         def __init__(self, database_url: str) -> None:
             observed["database_url"] = database_url
+            observed["store"] = self
 
         def migrate(self) -> None:
-            pytest.fail("walk-forward execution must not run catalog migrations")
+            pytest.fail("walk-forward runtime must not apply catalog migrations")
 
     class Ledger:
-        def __init__(self, catalog: object) -> None:
-            observed["catalog"] = catalog
+        def __init__(self, store: object) -> None:
+            observed["ledger_store"] = store
 
     monkeypatch.setenv("TRADE_RL_DATABASE_URL", "postgresql://explicit")
-    monkeypatch.setattr(workflow_module, "PostgresArtifactCatalog", Catalog)
+    monkeypatch.setattr(workflow_module, "PostgresSealedTestReservationStore", Store)
     monkeypatch.setattr(workflow_module, "PostgresSealedTestLedger", Ledger)
 
     ledger = workflow_module._sealed_test_ledger(SealedTestLedgerMode.DURABLE_POSTGRES)
 
     assert isinstance(ledger, Ledger)
     assert observed["database_url"] == "postgresql://explicit"
-    assert observed["catalog"] is not None
+    assert observed["ledger_store"] is observed["store"]
 
 
 def test_unknown_ledger_mode_is_rejected(tmp_path: Path) -> None:

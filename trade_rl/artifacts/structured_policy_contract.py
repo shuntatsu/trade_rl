@@ -11,6 +11,11 @@ from typing import Final, cast
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.policy_identity_contract import (
+    HIERARCHICAL_SEQUENCE_ENCODER,
+    SB3_POLICY_IDENTITY_SCHEMA,
+    STRUCTURED_TIMEFRAMES,
+)
 from trade_rl.artifacts.verified_file import (
     file_digest_and_size,
     open_regular_binary,
@@ -21,8 +26,6 @@ from trade_rl.domain.common import require_sha256
 STRUCTURED_EXPORT_SCHEMA: Final = "structured_policy_export_v2"
 STRUCTURED_EXPORT_MANIFEST_NAME: Final = "structured-export.json"
 STRUCTURED_EXPORT_MODEL_NAME: Final = "policy.structured.torchscript.pt"
-STRUCTURED_TIMEFRAMES: Final = ("15m", "1h", "4h", "1d")
-_POLICY_IDENTITY_SCHEMA: Final = "sb3_policy_identity_v4"
 _BASE_KEYS: Final = (
     "current_snapshot",
     "asset_state",
@@ -49,9 +52,9 @@ def _validated_policy_identity(value: object) -> dict[str, object]:
     if not isinstance(normalized, dict) or not normalized:
         raise ValueError("structured export requires policy identity")
     payload = cast(dict[str, object], normalized)
-    if payload.get("schema_version") != _POLICY_IDENTITY_SCHEMA:
+    if payload.get("schema_version") != SB3_POLICY_IDENTITY_SCHEMA:
         raise ValueError("structured export policy identity schema mismatch")
-    if payload.get("observation_encoder") != "hierarchical_sequence_v2":
+    if payload.get("observation_encoder") != HIERARCHICAL_SEQUENCE_ENCODER:
         raise ValueError("structured export requires hierarchical sequence policy")
     architecture_digest = payload.get("policy_architecture_digest")
     if not isinstance(architecture_digest, str):

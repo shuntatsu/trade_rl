@@ -102,7 +102,7 @@ def test_current_schema_contracts_are_documented() -> None:
         "sequence_timeframe_attention_layers",
         "sequence_asset_attention_heads",
         "sequence_asset_attention_layers",
-        "sb3_policy_identity_v1",
+        "sb3_policy_identity_v4",
         "structured_policy_export_v2",
         "CanonicalStructuredPolicyLoader",
     ):

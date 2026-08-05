@@ -16,7 +16,7 @@ from trade_rl.release.asymmetric import (
 from trade_rl.release.attestation import ReleaseAttestation
 from trade_rl.release.offline_approval import create_release_attestation
 from trade_rl.release.offline_signing import generate_private_key, public_key_bytes
-from trade_rl.workflows import market_walk_forward as market_walk_forward_module
+from trade_rl.workflows import _market_walk_forward_core as market_walk_forward_core
 from trade_rl.workflows.fold_runner import (
     CandidateConfiguration,
     CandidateEvaluation,
@@ -143,12 +143,7 @@ def test_walk_forward_selects_and_outer_tests_deployable_ensemble_identity() -> 
 
 
 def test_maintained_training_environment_uses_mark_to_market_truncation() -> None:
-    resolver = getattr(
-        market_walk_forward_module,
-        "_maintained_training_environment",
-        None,
-    )
-    assert callable(resolver)
+    resolver = market_walk_forward_core._maintained_training_environment
     from trade_rl.rl.environment_config import ResidualMarketEnvConfig
 
     resolved = resolver(

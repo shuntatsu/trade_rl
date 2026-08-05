@@ -9,6 +9,7 @@ import pytest
 from trade_rl.data.market import MarketDataset
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
 from trade_rl.learning.oracle_teacher import OracleTeacherConfig
+from trade_rl.operations import oracle_teacher_benchmark as benchmark_module
 from trade_rl.operations.oracle_teacher_benchmark import (
     OracleBenchmarkCase,
     OracleBenchmarkResult,
@@ -163,3 +164,61 @@ def test_cli_writes_canonical_json(tmp_path: Path) -> None:
     assert payload["steady_summary"]["minimum_seconds"] >= 0.0
     assert payload["peak_device_allocated_bytes"] is None
     assert payload["peak_device_reserved_bytes"] is None
+
+
+def test_benchmark_forwards_explicit_accelerator_backend(monkeypatch) -> None:
+    market = _market(10)
+    teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
+
+    def backend(**kwargs: object) -> dict[str, object]:
+        return kwargs
+
+    observed: list[object] = []
+
+    def fake_run_solver(*args, accelerator_backend=None, **kwargs):
+        del args, kwargs
+        observed.append(accelerator_backend)
+        return benchmark_module._OperationEvidence(
+            output_digest="f" * 64,
+            solver_seconds=None,
+            peak_device_allocated_bytes=None,
+            peak_device_reserved_bytes=None,
+            provenance=None,
+        )
+
+    monkeypatch.setattr(benchmark_module, "_run_solver", fake_run_solver)
+    result = run_oracle_teacher_benchmark(
+        market,
+        (_contract(market, 0),),
+        teacher,
+        backend="numpy_batched",
+        repetitions=1,
+        accelerator_backend=backend,
+    )
+    assert result.output_digest == "f" * 64
+    assert observed == [backend, backend]
+
+
+def test_generic_benchmark_cli_rejects_cuda_without_injected_adapter(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "cuda.json"
+    with pytest.raises(
+        ValueError,
+        match="requires an explicitly injected accelerator backend",
+    ):
+        main(
+            [
+                "--backend",
+                "torch_cuda_eager",
+                "--episode-count",
+                "1",
+                "--episode-bars",
+                "8",
+                "--repetitions",
+                "1",
+                "--output",
+                str(output),
+            ]
+        )
+    assert not output.exists()

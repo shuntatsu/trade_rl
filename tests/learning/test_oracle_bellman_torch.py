@@ -24,7 +24,7 @@ from trade_rl.learning.oracle_bellman_numpy import (
     solve_numpy_oracle_batch,
 )
 from trade_rl.learning.oracle_market_tape import build_oracle_market_tape
-from trade_rl.learning.oracle_teacher import OracleTeacherConfig, _portfolio_states
+from trade_rl.learning.oracle_teacher import OracleTeacherConfig, portfolio_states
 from trade_rl.learning.oracle_transition_numpy import numpy_transition_step
 from trade_rl.simulation.execution import ExecutionCostConfig
 
@@ -164,7 +164,7 @@ def test_torch_solver_core_matches_numpy(
         execution_cost=ExecutionCostConfig.zero(),
         signal_delay_decisions=signal_delay,
     )
-    states = _portfolio_states(market, config)
+    states = portfolio_states(market, config)
     episodes = _episodes(
         starts=(0, 1),
         stops=(7, 8),
@@ -210,7 +210,7 @@ def test_torch_solver_preserves_minimum_notional_noop_path() -> None:
         minimum_notional=np.full_like(market.close, 1_000_000.0),
     )
     config = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
-    states = _portfolio_states(market, config)
+    states = portfolio_states(market, config)
     episodes = _episodes(
         starts=(0,),
         stops=(7,),
@@ -243,7 +243,7 @@ def test_cuda_wrapper_fails_closed_when_cuda_is_unavailable() -> None:
         pytest.skip("CPU-only contract test")
     market = _market(np.linspace(100.0, 106.0, 7))
     config = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
-    states = _portfolio_states(market, config)
+    states = portfolio_states(market, config)
     episodes = _episodes(
         starts=(0,),
         stops=(7,),
@@ -325,7 +325,7 @@ def test_cuda_eager_solver_matches_numpy_reference() -> None:
         execution_cost=ExecutionCostConfig.zero(),
         signal_delay_decisions=1,
     )
-    states = _portfolio_states(market, config)
+    states = portfolio_states(market, config)
     episodes = _episodes(
         starts=(0, 1),
         stops=(7, 8),

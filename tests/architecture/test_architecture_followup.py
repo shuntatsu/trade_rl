@@ -116,14 +116,19 @@ def test_catalog_has_single_canonical_json_and_sealed_test_sql_owners() -> None:
     contracts = _source("trade_rl/catalog/contracts.py")
     postgres = _source("trade_rl/catalog/postgres.py")
     sealed_store = _source("trade_rl/catalog/postgres_sealed_test.py")
+    stage_a_store = _source("trade_rl/catalog/postgres_stage_a_sealed_test.py")
 
     assert (
         "from trade_rl.domain.canonical_json import canonical_json_bytes" in contracts
     )
     assert "def canonical_json_bytes(" not in contracts
     assert "INSERT INTO catalog_sealed_test_access" not in postgres
-    assert "PostgresSealedTestReservationStore" in postgres
+    assert "PostgresSealedTestReservationStore" not in postgres
+    assert "class PostgresSealedTestReservationStore" in sealed_store
     assert "INSERT INTO catalog_sealed_test_access" in sealed_store
+    assert "INSERT INTO catalog_sealed_test_access" not in stage_a_store
+    assert "_insert_sealed_test_access(cursor, record)" in sealed_store
+    assert "_insert_sealed_test_access(cursor, record)" in stage_a_store
 
 
 def test_postgres_workflow_runs_on_exact_pr_head_and_main_push() -> None:

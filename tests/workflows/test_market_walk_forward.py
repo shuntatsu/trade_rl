@@ -10,10 +10,8 @@ import pytest
 from test_support.training_config import complete_execution_config
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
-from trade_rl.workflows.market_walk_forward import (
-    _experiment_plan_digest,
-    execute_market_walk_forward,
-)
+from trade_rl.workflows._market_walk_forward_core import _experiment_plan_digest
+from trade_rl.workflows.market_walk_forward import execute_market_walk_forward
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 
 
@@ -392,7 +390,7 @@ def _training_run_mapping(run) -> dict[str, object]:
 
 def test_structured_training_view_preserves_exact_sequence_and_reward_preroll() -> None:
     from trade_rl.evaluation.walk_forward.folds import IndexRange
-    from trade_rl.workflows.market_walk_forward import (
+    from trade_rl.workflows._market_walk_forward_core import (
         _training_view,
         _training_view_bounds,
     )
@@ -413,7 +411,10 @@ def test_structured_training_view_preserves_exact_sequence_and_reward_preroll() 
 def test_structured_walk_forward_fits_flat_snapshot_normalizer_train_only() -> None:
     from trade_rl.evaluation.walk_forward.folds import IndexRange
     from trade_rl.rl.observations import observation_layout
-    from trade_rl.workflows.market_walk_forward import _fit_normalizer, _training_view
+    from trade_rl.workflows._market_walk_forward_core import (
+        _fit_normalizer,
+        _training_view,
+    )
 
     dataset = _sequence_dataset()
     run = _sequence_candidate_config()
@@ -437,7 +438,7 @@ def test_structured_walk_forward_fits_sequence_normalizer_on_exact_train_range()
     None
 ):
     from trade_rl.evaluation.walk_forward.folds import IndexRange
-    from trade_rl.workflows.market_walk_forward import (
+    from trade_rl.workflows._market_walk_forward_core import (
         _fit_sequence_normalizer,
         _training_view_bounds,
     )

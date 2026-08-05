@@ -349,7 +349,7 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
     vector_environment = VectorEnvironment(events)
     factory_calls = 0
     model_arguments: dict[str, Any] = {}
-    validate_environment = sb3_training._validate_training_environment
+    validate_environment = sb3_training.validate_training_environment
 
     def factory() -> TrainingProbe:
         nonlocal factory_calls
@@ -399,7 +399,7 @@ def test_backend_builds_workers_after_probe_validation_and_metadata(
             Path(f"{target}.zip").write_bytes(b"policy")
 
     monkeypatch.setattr(sb3_training, "_build_training_environment", build_workers)
-    monkeypatch.setattr(sb3_training, "_validate_training_environment", validate_probe)
+    monkeypatch.setattr(sb3_training, "validate_training_environment", validate_probe)
     monkeypatch.setattr("stable_baselines3.PPO", FakePPO)
     monkeypatch.setattr(
         "trade_rl.rl.checkpointing.build_checkpoint_callback",

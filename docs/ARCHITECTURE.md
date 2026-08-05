@@ -118,7 +118,7 @@ Timeframe AttentionとAsset AttentionはHead、Layer、FFN倍率、Gate biasを�
 
 ## Policy identity
 
-`sb3_policy_identity_v1`は、ConfigをそのままHashせず、組み立て済みFeature extractorから構造を読み取ります。
+`sb3_policy_identity_v4`は、ConfigをそのままHashせず、組み立て済みFeature extractorから構造を読み取ります。Serialized vocabularyは`artifacts/policy_identity_contract.py`、runtime組み立ては`rl/policy_identity.py`が所有します。
 
 Sequence identityは次を含みます。
 
@@ -155,6 +155,10 @@ OHLCVから真のIntrabar順序、Queue position、Hidden liquidity、Auction、
 
 `trade-rl train run`はDatasetを検証し、Train capabilityだけでNormalizerをFitし、SeedごとにModelを学習し、RunをAtomic publishします。
 
+`candidate_digest_payload()`は学習・経済条件からなる再利用可能なRecipe identityです。Export方式、Git provenance、Resume checkpoint、Transfer checkpointはCandidate選択を変えず、完全な`digest_payload()`のRun identityだけへ含めます。Signal artifactは内容DigestでRecipeへ固定します。
+
+RL Environmentの終端`info`はPortfolio value、Turnover、Cost、Funding、Borrow、Fillなどのprimitive accounting factだけを返します。Sharpe、Sortino、Drawdown、Total returnなどのPerformance metricとReturn seriesの解釈はEvaluationが所有し、RLはEvaluation metricを生成しません。
+
 Nested walk-forwardは次を分離します。
 
 1. Fold-local training
@@ -165,6 +169,8 @@ Nested walk-forwardは次を分離します。
 6. Release gate
 
 Configuration selection、Sealed評価、Servingは同じ決定論的Mean ensembleを使用します。独立Foldは分布として報告し、Account-state handoffなしに1本の連続Portfolioへ合成しません。
+
+OracleのNumPy参照経路はLearningが所有します。任意のCUDA adapterはIntegrationsまたはOperationsのcomposition rootから明示的に注入し、process-globalなBackend registryは使用しません。
 
 ## TensorBoard and Studio boundary
 
@@ -201,6 +207,8 @@ Binance SpotはLong側Book、USDⓈ-M先物はShort側Bookとして扱います�
 Filesystem artifactが数値データの正本です。Runは`.staging/<run-id>`で作成し、検証後に`runs/<run-id>`へAtomic publishします。
 
 PostgreSQLは任意のmetadata catalogです。Artifact identity、Cache key、Location、Size、Dependency、Lifecycle、Sealed-test reservationを保存します。ModelやDatasetのBLOBを数値計算の正本にはしません。
+
+汎用`PostgresArtifactCatalog`とSealed-test reservation adapterは別責務です。予約SQLは専用adapterだけが所有し、Walk-forward runtimeはSchema migrationを実行しません。Migrationは`trade-rl catalog migrate`またはDeployment／CIの明示的な管理手順で先に適用します。
 
 ## Privileged GPU boundary
 

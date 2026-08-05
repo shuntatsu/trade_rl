@@ -6,7 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from trade_rl.catalog.postgres import _default_connection_factory
+from trade_rl.catalog.postgres_connection import default_connection_factory
+from trade_rl.catalog.postgres_sealed_test import _insert_sealed_test_access
 from trade_rl.evaluation.stage_a_sealed_test import (
     StageASealedTestAuthorizationBatch,
 )
@@ -27,7 +28,7 @@ class PostgresStageASealedTestLedger:
         if not isinstance(self.database_url, str) or not self.database_url.strip():
             raise ValueError("database_url must be non-empty")
         if self.connection_factory is None:
-            self.connection_factory = _default_connection_factory
+            self.connection_factory = default_connection_factory
 
     @property
     def records(self) -> tuple[StageASealedTestAuthorizationBatch, ...]:
@@ -73,35 +74,7 @@ class PostgresStageASealedTestLedger:
     def _insert_cells(cursor: Any, batch: StageASealedTestAuthorizationBatch) -> None:
         for cell in batch.cells:
             record = cell.access_record
-            cursor.execute(
-                """
-                INSERT INTO catalog_sealed_test_access (
-                    experiment_plan_digest, dataset_id, fold_index,
-                    test_start, test_stop, selected_configuration,
-                    selected_policy_digest, access_digest
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
-                RETURNING access_digest
-                """,
-                (
-                    record.experiment_plan_digest,
-                    record.dataset_id,
-                    record.fold_index,
-                    record.test_range.start,
-                    record.test_range.stop,
-                    record.selected_configuration,
-                    record.selected_policy_digest,
-                    record.access_digest,
-                ),
-            )
-            generic_row = cursor.fetchone()
-            if generic_row is None:
-                raise ValueError("sealed outer test was already opened for this plan")
-            if str(generic_row[0]) != record.access_digest:
-                raise RuntimeError(
-                    "Stage A generic sealed-test insert returned wrong digest"
-                )
+            _insert_sealed_test_access(cursor, record)
 
             cursor.execute(
                 """

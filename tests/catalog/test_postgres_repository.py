@@ -220,9 +220,9 @@ def test_list_filters_and_dependency_insert(catalog) -> None:
 
 
 def test_missing_psycopg_dependency_has_focused_error(monkeypatch) -> None:
-    from trade_rl.catalog import postgres
+    from trade_rl.catalog import postgres_connection
 
-    monkeypatch.setattr(postgres, "_import_psycopg", lambda: None)
+    monkeypatch.setattr(postgres_connection, "_import_psycopg", lambda: None)
     repository = PostgresArtifactCatalog("postgresql://localhost/trade_rl")
 
     with pytest.raises(RuntimeError, match="postgres"):

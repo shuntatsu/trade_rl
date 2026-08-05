@@ -25,7 +25,9 @@ from trade_rl.artifacts.run_manifest import (
 )
 from trade_rl.artifacts.store import ArtifactStore
 from trade_rl.catalog.contracts import ArtifactKind
-from trade_rl.catalog.postgres import PostgresArtifactCatalog
+from trade_rl.catalog.postgres_sealed_test import (
+    PostgresSealedTestReservationStore,
+)
 from trade_rl.catalog.reusable_artifacts import ReusableArtifactIndex
 from trade_rl.catalog.sealed_test import PostgresSealedTestLedger
 from trade_rl.data import load_market_dataset_artifact
@@ -1274,9 +1276,8 @@ def _sealed_test_ledger() -> PostgresSealedTestLedger | None:
     database_url = os.environ.get("TRADE_RL_DATABASE_URL")
     if not database_url:
         return None
-    catalog = PostgresArtifactCatalog(database_url)
-    catalog.migrate()
-    return PostgresSealedTestLedger(catalog)
+    store = PostgresSealedTestReservationStore(database_url)
+    return PostgresSealedTestLedger(store)
 
 
 def execute_market_walk_forward(

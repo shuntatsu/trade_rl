@@ -268,7 +268,8 @@ def test_ci_explicitly_runs_recovery_and_structured_serving_smokes() -> None:
     assert "Recovery and structured serving smoke" in workflow
     assert "test_backend_resumes_ppo_checkpoint_to_requested_total" in workflow
     assert "test_structured_sb3_loader_rebuilds_native_sequence_observation" in workflow
-    assert "agent/causal-sequence-feature-encoder" in workflow
+    assert "agent/causal-training-hardening" not in workflow
+    assert "agent/causal-sequence-feature-encoder" not in workflow
 
 
 def test_architecture_docs_state_current_research_and_runtime_boundaries() -> None:

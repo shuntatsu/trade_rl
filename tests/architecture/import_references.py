@@ -490,6 +490,16 @@ class _CrossPackagePrivateUsageVisitor(ast.NodeVisitor):
     def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
         self._visit_for(node)
 
+    def visit_While(self, node: ast.While) -> None:
+        self.visit(node.test)
+        snapshot = self._scope_snapshot()
+        for statement in node.body:
+            self.visit(statement)
+        self._restore_scope(snapshot)
+        for statement in node.orelse:
+            self.visit(statement)
+        self._restore_scope(snapshot)
+
     def visit_If(self, node: ast.If) -> None:
         self.visit(node.test)
         snapshot = self._scope_snapshot()
@@ -520,6 +530,22 @@ class _CrossPackagePrivateUsageVisitor(ast.NodeVisitor):
         if node.name is not None:
             self._bind(node.name, None)
         for statement in node.body:
+            self.visit(statement)
+
+    def visit_Try(self, node: ast.Try) -> None:
+        snapshot = self._scope_snapshot()
+
+        for statement in node.body:
+            self.visit(statement)
+        for statement in node.orelse:
+            self.visit(statement)
+
+        self._restore_scope(snapshot)
+        for handler in node.handlers:
+            self.visit(handler)
+            self._restore_scope(snapshot)
+
+        for statement in node.finalbody:
             self.visit(statement)
 
     def _visit_function(

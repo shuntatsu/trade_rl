@@ -21,7 +21,7 @@ const runtime = vi.hoisted(() => {
     fitContent: vi.fn(),
     setVisibleRange: vi.fn(),
     scrollToRealTime: vi.fn(),
-    coordinateToTime: vi.fn((coordinate: number) => baseTime + Math.round(coordinate * 9)),
+    coordinateToTime: vi.fn((coordinate: number) => baseTime + Math.round((Number.isFinite(coordinate) ? coordinate : 0) * 9)),
     coordinateToLogical: vi.fn(() => 1),
     timeToCoordinate: vi.fn((time: number) => (time - baseTime) / 9),
     subscribeVisibleLogicalRangeChange: vi.fn((handler: () => void) => { handlers.range = handler }),

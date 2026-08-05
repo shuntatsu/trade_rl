@@ -5,12 +5,12 @@ import { describe, expect, it, vi } from 'vitest'
 import type { StudioApi } from '../api/studioApi'
 import type { JobSummary, TrainingTelemetryRecord } from '../data/types'
 
-vi.mock('../live/ResearchChartWorkspace', () => ({
-  ResearchChartWorkspace: ({ records, onCommitRecord }: {
+vi.mock('../live/SynchronizedResearchChartWorkspace', () => ({
+  SynchronizedResearchChartWorkspace: ({ records, onCommitRecord }: {
     records: TrainingTelemetryRecord[]
     onCommitRecord: (record: TrainingTelemetryRecord) => void
   }) => (
-    <div role="img" aria-label="BTCUSDT 15m 市場・方策・学習・成績の同期チャート">
+    <div role="img" aria-label="BTCUSDT 15m 市場・売買・資産・リスクの3Pane同期チャート">
       <button
         type="button"
         disabled={!records[1]}
@@ -83,29 +83,28 @@ function api(): StudioApi {
   }
 }
 
-describe('LiveTrainingPage research workspace', () => {
-  it('renders Run as the only always-visible source selector and removes LIVE chrome', async () => {
+describe('LiveTrainingPage synchronized research workspace', () => {
+  it('uses the synchronized chart as the primary surface and hides summary cards and inspector details by default', async () => {
     const user = userEvent.setup()
     render(<LiveTrainingPage api={api()} />)
+
     expect(await screen.findByRole('heading', { name: 'Live Training' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Live Training Run')).toBeInTheDocument()
+    expect(await screen.findByRole('img', { name: /3Pane同期チャート/ })).toBeInTheDocument()
+    expect(screen.queryByLabelText('研究サマリー')).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('article')).toHaveLength(0)
+    expect(screen.queryByRole('complementary', { name: '選択時点の研究データ' })).not.toBeVisible()
+
+    await user.click(screen.getByText(/選択・Evidence詳細/))
+    expect(screen.getByRole('complementary', { name: '選択時点の研究データ' })).toBeVisible()
+  })
+
+  it('keeps Run as the only always-visible source selector and applies source changes atomically', async () => {
+    const user = userEvent.setup()
+    render(<LiveTrainingPage api={api()} />)
+    expect(await screen.findByLabelText('Live Training Run')).toBeInTheDocument()
     expect(screen.queryByLabelText('Live Training Seed')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Live Training Environment')).not.toBeInTheDocument()
     expect(screen.queryByText('LIVE')).not.toBeInTheDocument()
-    expect(await screen.findAllByRole('article')).toHaveLength(3)
-
-    await user.click(screen.getByRole('button', { name: /対象を変更/ }))
-    expect(screen.getByLabelText('Live Training Seed')).toBeInTheDocument()
-    expect(screen.getByLabelText('Live Training Environment')).toBeInTheDocument()
-  })
-
-  it('keeps explicit checkpoint evidence and applies source changes atomically', async () => {
-    const user = userEvent.setup()
-    render(<LiveTrainingPage api={api()} />)
-    const evidence = await screen.findByLabelText('Checkpoint evaluation evidence')
-    await waitFor(() => expect(evidence).toHaveDisplayValue('fold-000 · residual · finalist'))
-    await user.selectOptions(evidence, screen.getByRole('option', { name: 'fold-001 · residual · finalist' }))
-    expect(screen.getByText(/\+5.00% · fold-001/)).toBeInTheDocument()
 
     const sourceButton = screen.getByRole('button', { name: /対象を変更/ })
     await waitFor(() => expect(sourceButton).toHaveAccessibleName(/Seed 7 · Env 0/))
@@ -116,15 +115,28 @@ describe('LiveTrainingPage research workspace', () => {
     await waitFor(() => expect(sourceButton).toHaveAccessibleName(/Seed 11 · Env 0/))
   })
 
-  it('pauses and commits replay when the chart selects a record', async () => {
+  it('keeps checkpoint evidence in the collapsed details disclosure', async () => {
+    const user = userEvent.setup()
+    render(<LiveTrainingPage api={api()} />)
+    await screen.findByRole('img', { name: /3Pane同期チャート/ })
+
+    await user.click(screen.getByText(/選択・Evidence詳細/))
+    const evidence = await screen.findByLabelText('Checkpoint evaluation evidence')
+    await waitFor(() => expect(evidence).toHaveDisplayValue('fold-000 · residual · finalist'))
+    await user.selectOptions(evidence, screen.getByRole('option', { name: 'fold-001 · residual · finalist' }))
+    expect(screen.getByText(/\+5.00% · fold-001/)).toBeInTheDocument()
+  })
+
+  it('pauses and commits replay when the synchronized chart selects a record', async () => {
     const user = userEvent.setup()
     const runtimeApi = api()
     render(<LiveTrainingPage api={runtimeApi} />)
-    await screen.findByRole('img', { name: /同期チャート/ })
+    await screen.findByRole('img', { name: /3Pane同期チャート/ })
     const chartSelection = screen.getByRole('button', { name: 'チャートでStep 64を選択' })
     await waitFor(() => expect(chartSelection).toBeEnabled())
     await user.click(chartSelection)
 
+    await user.click(screen.getByText(/選択・Evidence詳細/))
     const inspector = screen.getByRole('complementary', { name: '選択時点の研究データ' })
     await waitFor(() => expect(within(inspector).getByText('Step 64')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: '再生' })).toBeInTheDocument()

@@ -258,10 +258,16 @@ try {
 
   await page.mouse.click(chartBox.x + chartBox.width * 0.45, chartBox.y + chartBox.height * 0.22)
   await page.getByRole('button', { name: '再生' }).waitFor()
+  await page.screenshot({ path: path.join(outputDir, 'trade-rl-studio-live-training-replay.png'), fullPage: false })
+
+  const chartHeightBeforeDetails = await chartSurface.evaluate((node) => node.getBoundingClientRect().height)
   await details.locator('summary').click()
   await page.getByRole('complementary', { name: '選択時点の研究データ' }).waitFor()
-
-  await page.screenshot({ path: path.join(outputDir, 'trade-rl-studio-live-training-replay.png'), fullPage: false })
+  const chartHeightAfterDetails = await chartSurface.evaluate((node) => node.getBoundingClientRect().height)
+  if (chartHeightAfterDetails < chartHeightBeforeDetails - 1) {
+    throw new Error(`Details disclosure compressed the chart: before=${chartHeightBeforeDetails}, after=${chartHeightAfterDetails}`)
+  }
+  await page.screenshot({ path: path.join(outputDir, 'trade-rl-studio-live-training-details.png'), fullPage: false })
 
   await page.getByRole('button', { name: '学習診断' }).click()
   await page.locator('.training-diagnostics').waitFor()

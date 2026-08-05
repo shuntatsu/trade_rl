@@ -1,4 +1,5 @@
 .synchronized-workspace-shell {
+  position: relative;
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
@@ -221,6 +222,18 @@
   background: var(--live-panel);
 }
 
+.synchronized-details[open] {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  max-height: min(52vh, 380px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  box-shadow: 0 -18px 42px rgba(0, 0, 0, 0.42);
+}
+
 .synchronized-details > summary {
   min-height: 38px;
   display: flex;
@@ -239,6 +252,11 @@
   border: 0;
   border-top: 1px solid var(--live-border);
   border-radius: 0;
+}
+.synchronized-details[open] > .research-chart-inspector {
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
 }
 
 .synchronized-chart-header button:focus-visible,
@@ -263,6 +281,7 @@
   .synchronized-chart-presets { grid-column: auto; grid-row: auto; justify-self: stretch; }
   .synchronized-chart-canvas { min-height: 320px; }
   .synchronized-selection-card { top: 38px; right: 8px; }
+  .synchronized-details[open] { max-height: min(58vh, 340px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

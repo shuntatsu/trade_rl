@@ -73,10 +73,16 @@ const SERIES: Array<{ key: ComparisonSeriesKey; label: string }> = [
 ]
 
 function finite(values: Array<number | null | undefined>): number[] {
-  return values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  return values.filter(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value),
+  )
 }
 
-function paddedDomain(values: number[], required: number, minimumSpan: number): NumericDomain {
+function paddedDomain(
+  values: number[],
+  required: number,
+  minimumSpan: number,
+): NumericDomain {
   const minimumValue = Math.min(required, ...values)
   const maximumValue = Math.max(required, ...values)
   const rawSpan = maximumValue - minimumValue
@@ -84,9 +90,15 @@ function paddedDomain(values: number[], required: number, minimumSpan: number): 
   const padding = span * 0.08
   const centre = (minimumValue + maximumValue) / 2
   if (rawSpan < minimumSpan) {
-    return { minimum: centre - span / 2 - padding, maximum: centre + span / 2 + padding }
+    return {
+      minimum: centre - span / 2 - padding,
+      maximum: centre + span / 2 + padding,
+    }
   }
-  return { minimum: minimumValue - padding, maximum: maximumValue + padding }
+  return {
+    minimum: minimumValue - padding,
+    maximum: maximumValue + padding,
+  }
 }
 
 function normalize(value: number, domain: NumericDomain): number {
@@ -100,25 +112,39 @@ function placeLabels(
 ): ComparisonDirectLabel[] {
   const minimumGap = 0.075
   const ordered = values
-    .map((item) => ({ ...item, natural: Math.max(0, Math.min(1, normalize(item.value, domain))) }))
-    .sort((left, right) => left.natural - right.natural || left.key.localeCompare(right.key))
+    .map((item) => ({
+      ...item,
+      natural: Math.max(0, Math.min(1, normalize(item.value, domain))),
+    }))
+    .sort(
+      (left, right) => left.natural - right.natural || left.key.localeCompare(right.key),
+    )
 
   for (let index = 1; index < ordered.length; index += 1) {
-    ordered[index].natural = Math.max(ordered[index].natural, ordered[index - 1].natural + minimumGap)
+    ordered[index].natural = Math.max(
+      ordered[index].natural,
+      ordered[index - 1].natural + minimumGap,
+    )
   }
   const overflow = ordered.at(-1)?.natural ?? 0
   if (overflow > 1) {
     for (const item of ordered) item.natural -= overflow - 1
   }
   for (let index = ordered.length - 2; index >= 0; index -= 1) {
-    ordered[index].natural = Math.min(ordered[index].natural, ordered[index + 1].natural - minimumGap)
+    ordered[index].natural = Math.min(
+      ordered[index].natural,
+      ordered[index + 1].natural - minimumGap,
+    )
   }
   const underflow = ordered[0]?.natural ?? 0
   if (underflow < 0) {
     for (const item of ordered) item.natural -= underflow
   }
 
-  return ordered.map(({ natural, ...item }) => ({ ...item, position: Math.max(0, Math.min(1, natural)) }))
+  return ordered.map(({ natural, ...item }) => ({
+    ...item,
+    position: Math.max(0, Math.min(1, natural)),
+  }))
 }
 
 function metricVerdict(metric: ComparisonMetric): ComparisonVerdict {
@@ -128,7 +154,10 @@ function metricVerdict(metric: ComparisonMetric): ComparisonVerdict {
   return improved ? 'improved' : 'worse'
 }
 
-function foldSpans(points: ComparisonWorkspacePoint[], folds: FoldComparison[]): ComparisonFoldSpan[] {
+function foldSpans(
+  points: ComparisonWorkspacePoint[],
+  folds: FoldComparison[],
+): ComparisonFoldSpan[] {
   const spans = new Map<number, { startIndex: number; endIndex: number }>()
   for (const point of points) {
     if (point.foldIndex === null) continue
@@ -151,24 +180,46 @@ function foldSpans(points: ComparisonWorkspacePoint[], folds: FoldComparison[]):
     }))
 }
 
-export function buildComparisonWorkspaceModel(comparison: RunComparison): ComparisonWorkspaceModel {
+export function buildComparisonWorkspaceModel(
+  comparison: RunComparison,
+): ComparisonWorkspaceModel {
   const points = comparison.wealth.map((rawPoint, index) => {
     const point = rawPoint as FoldAwareComparisonPoint
+    const foldIndex = Number.isInteger(point.foldIndex) && (point.foldIndex ?? -1) >= 0
+      ? point.foldIndex ?? null
+      : null
     return {
       ...rawPoint,
       index,
-      foldIndex: Number.isInteger(point.foldIndex) && (point.foldIndex ?? -1) >= 0 ? point.foldIndex ?? null : null,
-      delta: typeof point.left === 'number' && typeof point.right === 'number' ? point.right - point.left : null,
+      foldIndex,
+      delta: typeof point.left === 'number' && typeof point.right === 'number'
+        ? point.right - point.left
+        : null,
     }
   })
-  const wealthValues = finite(points.flatMap((point) => [point.left, point.right, point.leftBaseline, point.rightBaseline]))
+  const wealthValues = finite(
+    points.flatMap((point) => [
+      point.left,
+      point.right,
+      point.leftBaseline,
+      point.rightBaseline,
+    ]),
+  )
   const deltaValues = finite(points.map((point) => point.delta))
   const wealthDomain = paddedDomain(wealthValues, 1, 0.01)
   const deltaDomain = paddedDomain(deltaValues, 0, 0.01)
+  const directLabelValues: Array<{
+    key: ComparisonSeriesKey
+    label: string
+    value: number
+  }> = []
   const final = points.at(-1)
-  const directLabelValues = final
-    ? SERIES.flatMap(({ key, label }) => typeof final[key] === 'number' ? [{ key, label, value: final[key] }] : [])
-    : []
+  if (final) {
+    for (const { key, label } of SERIES) {
+      const value = final[key]
+      if (typeof value === 'number') directLabelValues.push({ key, label, value })
+    }
+  }
 
   return {
     leftRunId: comparison.leftRunId,
@@ -178,12 +229,17 @@ export function buildComparisonWorkspaceModel(comparison: RunComparison): Compar
     deltaDomain,
     foldSpans: foldSpans(points, comparison.folds),
     directLabels: placeLabels(directLabelValues, wealthDomain),
-    metricVerdicts: comparison.metrics.map((metric) => ({ ...metric, verdict: metricVerdict(metric) })),
+    metricVerdicts: comparison.metrics.map((metric) => ({
+      ...metric,
+      verdict: metricVerdict(metric),
+    })),
   }
 }
 
 function periodReturn(start: number | null, end: number | null): number | null {
-  return typeof start === 'number' && typeof end === 'number' && start !== 0 ? end / start - 1 : null
+  return typeof start === 'number' && typeof end === 'number' && start !== 0
+    ? end / start - 1
+    : null
 }
 
 export function summarizeComparisonRange(
@@ -192,14 +248,24 @@ export function summarizeComparisonRange(
   secondIndex: number,
 ): ComparisonRangeSummary {
   const maximumIndex = Math.max(0, model.points.length - 1)
-  const startIndex = Math.max(0, Math.min(maximumIndex, Math.min(firstIndex, secondIndex)))
-  const endIndex = Math.max(0, Math.min(maximumIndex, Math.max(firstIndex, secondIndex)))
+  const startIndex = Math.max(
+    0,
+    Math.min(maximumIndex, Math.min(firstIndex, secondIndex)),
+  )
+  const endIndex = Math.max(
+    0,
+    Math.min(maximumIndex, Math.max(firstIndex, secondIndex)),
+  )
   const start = model.points[startIndex]
   const end = model.points[endIndex]
   const leftReturn = periodReturn(start?.left ?? null, end?.left ?? null)
   const rightReturn = periodReturn(start?.right ?? null, end?.right ?? null)
-  const relativeReturn = leftReturn === null || rightReturn === null ? null : rightReturn - leftReturn
-  const gaps = finite(model.points.slice(startIndex, endIndex + 1).map((point) => point.delta)).map(Math.abs)
+  const relativeReturn = leftReturn === null || rightReturn === null
+    ? null
+    : rightReturn - leftReturn
+  const gaps = finite(
+    model.points.slice(startIndex, endIndex + 1).map((point) => point.delta),
+  ).map(Math.abs)
   const finalDelta = end?.delta ?? null
   const winner: ComparisonWinner = finalDelta === null
     ? 'unknown'

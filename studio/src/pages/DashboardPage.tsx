@@ -55,6 +55,18 @@ export function DashboardPage({ overview, freshness = 'LIVE', sourceError = null
   }, [])
 
   useEffect(() => {
+    const restoreSelection = () => {
+      const selection = readDashboardSelection(window.location.search)
+      setCommittedStage(selection.stage)
+      setCommittedDecisionId(selection.decision)
+      setPreviewStage(null)
+      setPreviewDecisionId(null)
+    }
+    window.addEventListener('popstate', restoreSelection)
+    return () => window.removeEventListener('popstate', restoreSelection)
+  }, [])
+
+  useEffect(() => {
     const stageExists = committedStage === null || model.stages.some((item) => item.key === committedStage)
     const decisionExists = committedDecisionId === null || model.decisions.some((item) => item.id === committedDecisionId)
     if (!stageExists || !decisionExists) commitSelection(stageExists ? committedStage : null, decisionExists ? committedDecisionId : null)
@@ -62,7 +74,7 @@ export function DashboardPage({ overview, freshness = 'LIVE', sourceError = null
 
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
-      if (editableTarget(event.target)) return
+      if (editableTarget(event.target) || event.altKey || event.ctrlKey || event.metaKey) return
       if ((event.key === 'e' || event.key === 'E') && !environmentOpen) {
         event.preventDefault()
         setEnvironmentOpen(true)

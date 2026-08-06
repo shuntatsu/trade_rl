@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -26,6 +26,19 @@ describe('DashboardPage', () => {
     expect(new URL(window.location.href).searchParams.get('stage')).toBe('data')
   })
 
+  it('restores the committed selection when Dashboard URL state changes through popstate', async () => {
+    render(<DashboardPage overview={demoOverview} />)
+    const pipeline = screen.getByRole('list', { name: '研究準備ステージ' })
+    const evidenceStage = within(pipeline).getByRole('button', { name: /Evidence/i })
+
+    act(() => {
+      window.history.pushState(null, '', '/?workspace=dashboard&stage=evidence')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+
+    await waitFor(() => expect(evidenceStage).toHaveAttribute('aria-pressed', 'true'))
+  })
+
   it('opens Environment with E and restores trigger focus after closing', async () => {
     const user = userEvent.setup()
     render(<DashboardPage overview={demoOverview} />)
@@ -33,6 +46,12 @@ describe('DashboardPage', () => {
     expect(screen.getByRole('dialog', { name: 'Environment' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Environmentを閉じる' }))
     await waitFor(() => expect(screen.getByRole('button', { name: /Environment/ })).toHaveFocus())
+  })
+
+  it('does not intercept modified browser or operating-system shortcuts', () => {
+    render(<DashboardPage overview={demoOverview} />)
+    fireEvent.keyDown(window, { key: 'e', ctrlKey: true })
+    expect(screen.queryByRole('dialog', { name: 'Environment' })).not.toBeInTheDocument()
   })
 
   it('drills through using the action contract', async () => {

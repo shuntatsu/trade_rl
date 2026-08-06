@@ -72,7 +72,10 @@ def _require_single_symbol_run_payload(payload: dict[str, object]) -> None:
 
 
 def _materialize_candidate_run_files(
-    payload: dict[str, object], *, template_path: Path
+    payload: dict[str, object],
+    *,
+    template_path: Path,
+    validate_runs: bool,
 ) -> bool:
     candidates = payload.get("candidates", ())
     if not isinstance(candidates, (list, tuple)):
@@ -99,7 +102,8 @@ def _materialize_candidate_run_files(
             continue
         if not isinstance(run, dict):
             raise ValueError("walk-forward candidate run must be an object")
-        _require_single_symbol_run_payload(run)
+        if validate_runs:
+            _require_single_symbol_run_payload(run)
     return changed
 
 
@@ -112,7 +116,11 @@ def _write_run_config(*, template_path: Path, output_path: Path) -> Path:
     payload["git_dirty"] = git_dirty
     if "training" in payload:
         _require_single_symbol_run_payload(payload)
-    _materialize_candidate_run_files(payload, template_path=template_path)
+    _materialize_candidate_run_files(
+        payload,
+        template_path=template_path,
+        validate_runs=True,
+    )
     candidates = payload.get("candidates", ())
     assert isinstance(candidates, (list, tuple))
     for candidate in candidates:
@@ -136,7 +144,9 @@ def _selected_walk_forward_recipe(
 
     payload = _legacy._load_json(walk_forward_config_path)
     if not _materialize_candidate_run_files(
-        payload, template_path=walk_forward_config_path
+        payload,
+        template_path=walk_forward_config_path,
+        validate_runs=False,
     ):
         return _legacy._selected_walk_forward_recipe(
             walk_forward_path,

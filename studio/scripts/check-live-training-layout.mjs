@@ -120,7 +120,15 @@ try {
         latestDataset: null,
         activeJobs: [],
         runs: [],
-        alerts: [{ level: 'info', message: 'QA fixture', age: 'now' }],
+        alerts: [{ id: 'alert:qa', level: 'info', message: 'QA fixture', age: 'now', occurredAt: null }],
+        evidence: {
+          runResourceId: null,
+          status: 'UNAVAILABLE',
+          requiredCount: 0,
+          verifiedCount: 0,
+          blockerCount: 0,
+          updatedAt: null,
+        },
         equity: [],
         stability: [],
         assessment: { status: 'NO-GO', reasons: ['QA fixture'] },
@@ -185,7 +193,7 @@ try {
   })
 
   await page.setContent(html, { waitUntil: 'networkidle' })
-  await page.getByText('最新の実験結果サマリー').waitFor()
+  await page.getByRole('heading', { name: 'Research Readiness Pipeline' }).waitFor()
   await page.getByRole('button', { name: 'Live Training' }).click()
   await page.getByRole('heading', { name: 'Live Training' }).waitFor()
   await page.getByLabel('Live Training Run').waitFor()

@@ -16,7 +16,10 @@ import type {
   ComparisonWorkspaceModel,
   NumericDomain,
 } from './comparisonWorkspaceModel'
-import { summarizeComparisonRange } from './comparisonWorkspaceModel'
+import {
+  buildComparisonDirectLabels,
+  summarizeComparisonRange,
+} from './comparisonWorkspaceModel'
 
 export interface ComparisonRangeSelection {
   start: number
@@ -41,6 +44,7 @@ interface DragState {
 }
 
 const WIDTH = 1000
+const HEIGHT = 560
 const PLOT_LEFT = 58
 const PLOT_RIGHT = 850
 const PLOT_WIDTH = PLOT_RIGHT - PLOT_LEFT
@@ -53,8 +57,14 @@ const FOLD_HEIGHT = 24
 const FALLBACK_POINTER_ID = 1
 
 const SERIES: Array<{ key: ComparisonSeriesKey; className: string }> = [
-  { key: 'leftBaseline', className: 'comparison-line comparison-line--left-baseline' },
-  { key: 'rightBaseline', className: 'comparison-line comparison-line--right-baseline' },
+  {
+    key: 'leftBaseline',
+    className: 'comparison-line comparison-line--left-baseline',
+  },
+  {
+    key: 'rightBaseline',
+    className: 'comparison-line comparison-line--right-baseline',
+  },
   { key: 'left', className: 'comparison-line comparison-line--left' },
   { key: 'right', className: 'comparison-line comparison-line--right' },
 ]
@@ -68,10 +78,17 @@ function finiteCoordinate(value: number | undefined, fallback = 0): number {
 }
 
 function normalizedPointerId(value: number | undefined): number {
-  return typeof value === 'number' && Number.isInteger(value) ? value : FALLBACK_POINTER_ID
+  return typeof value === 'number' && Number.isInteger(value)
+    ? value
+    : FALLBACK_POINTER_ID
 }
 
-function y(value: number, domain: NumericDomain, top: number, bottom: number): number {
+function y(
+  value: number,
+  domain: NumericDomain,
+  top: number,
+  bottom: number,
+): number {
   const span = domain.maximum - domain.minimum || 1
   return bottom - ((value - domain.minimum) / span) * (bottom - top)
 }
@@ -110,7 +127,9 @@ function format(value: number | null, digits = 4): string {
 }
 
 function percent(value: number | null): string {
-  return value === null ? '—' : `${value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`
+  return value === null
+    ? '—'
+    : `${value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`
 }
 
 function selectedIndex(
@@ -157,10 +176,15 @@ export function InteractiveComparisonWorkspace({
   onCommitRange,
 }: InteractiveComparisonWorkspaceProps) {
   const maximumIndex = Math.max(0, model.points.length - 1)
-  const [visible, setVisible] = useState<ComparisonRangeSelection>({ start: 0, end: maximumIndex })
+  const [visible, setVisible] = useState<ComparisonRangeSelection>({
+    start: 0,
+    end: maximumIndex,
+  })
   const [rangeMode, setRangeMode] = useState(false)
   const [previewPoint, setPreviewPoint] = useState<number | null>(null)
-  const [draftRange, setDraftRange] = useState<ComparisonRangeSelection | null>(null)
+  const [draftRange, setDraftRange] = useState<ComparisonRangeSelection | null>(
+    null,
+  )
   const drag = useRef<DragState | null>(null)
 
   useEffect(() => {
@@ -170,7 +194,14 @@ export function InteractiveComparisonWorkspace({
     drag.current = null
   }, [maximumIndex, model.leftRunId, model.rightRunId])
 
-  const currentIndex = selectedIndex(model, committedPoint, previewPoint)
+  const requestedIndex = selectedIndex(model, committedPoint, previewPoint)
+  const currentIndex = previewPoint !== null
+    ? requestedIndex
+    : committedPoint !== null
+        && committedPoint >= visible.start
+        && committedPoint <= visible.end
+      ? committedPoint
+      : visible.end
   const current = model.points[currentIndex]
   const effectiveRange = draftRange ?? committedRange
   const rangeSummary = useMemo(
@@ -179,15 +210,30 @@ export function InteractiveComparisonWorkspace({
       : null,
     [effectiveRange, model],
   )
+  const directLabels = useMemo(
+    () => buildComparisonDirectLabels(
+      model.points[visible.end],
+      model.wealthDomain,
+    ),
+    [model.points, model.wealthDomain, visible.end],
+  )
 
-  const indexAtClientX = (rawClientX: number | undefined, target: HTMLElement): number => {
+  const indexAtClientX = (
+    rawClientX: number | undefined,
+    target: HTMLElement,
+  ): number => {
     const bounds = target.getBoundingClientRect()
     const left = finiteCoordinate(bounds.left)
-    const clientX = finiteCoordinate(rawClientX, left + PLOT_LEFT)
-    const coordinate = clamp(clientX - left, PLOT_LEFT, PLOT_RIGHT)
-    const ratio = (coordinate - PLOT_LEFT) / PLOT_WIDTH
+    const renderedWidth = Math.max(1, finiteCoordinate(bounds.width, WIDTH))
+    const fallbackClientX = left + (PLOT_LEFT / WIDTH) * renderedWidth
+    const clientX = finiteCoordinate(rawClientX, fallbackClientX)
+    const viewCoordinate = ((clientX - left) / renderedWidth) * WIDTH
+    const plotCoordinate = clamp(viewCoordinate, PLOT_LEFT, PLOT_RIGHT)
+    const ratio = (plotCoordinate - PLOT_LEFT) / PLOT_WIDTH
     return clamp(
-      Math.round(visible.start + ratio * Math.max(1, visible.end - visible.start)),
+      Math.round(
+        visible.start + ratio * Math.max(1, visible.end - visible.start),
+      ),
       visible.start,
       visible.end,
     )
@@ -233,8 +279,10 @@ export function InteractiveComparisonWorkspace({
     }
     if (!state.moved) return
     const bounds = event.currentTarget.getBoundingClientRect()
-    const width = Math.max(1, finiteCoordinate(bounds.width, 1))
-    const pointsPerPixel = Math.max(1, state.endVisible - state.startVisible) / width
+    const renderedWidth = Math.max(1, finiteCoordinate(bounds.width, WIDTH))
+    const renderedPlotWidth = renderedWidth * (PLOT_WIDTH / WIDTH)
+    const pointsPerPixel = Math.max(1, state.endVisible - state.startVisible)
+      / Math.max(1, renderedPlotWidth)
     const shift = Math.round((state.originX - clientX) * pointsPerPixel)
     const span = state.endVisible - state.startVisible
     const start = clamp(
@@ -279,7 +327,9 @@ export function InteractiveComparisonWorkspace({
       minimumSpan,
       maximumIndex,
     )
-    const ratio = currentSpan === 0 ? 0.5 : (anchor - visible.start) / currentSpan
+    const ratio = currentSpan === 0
+      ? 0.5
+      : (anchor - visible.start) / currentSpan
     const start = clamp(
       Math.round(anchor - ratio * nextSpan),
       0,
@@ -289,7 +339,9 @@ export function InteractiveComparisonWorkspace({
   }
 
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape'].includes(event.key)) return
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape'].includes(event.key)) {
+      return
+    }
     event.preventDefault()
     if (event.key === 'Escape') {
       onCommitRange(null)
@@ -302,20 +354,31 @@ export function InteractiveComparisonWorkspace({
       ? 0
       : event.key === 'End'
         ? maximumIndex
-        : clamp(base + (event.key === 'ArrowRight' ? 1 : -1), 0, maximumIndex)
+        : clamp(
+            base + (event.key === 'ArrowRight' ? 1 : -1),
+            0,
+            maximumIndex,
+          )
     onCommitPoint(next)
   }
 
   const selectFold = (span: ComparisonFoldSpan) => {
     setVisible({
       start: span.startIndex,
-      end: Math.max(span.startIndex + 1, span.endIndex),
+      end: Math.min(
+        maximumIndex,
+        Math.max(span.startIndex + 1, span.endIndex),
+      ),
     })
     onCommitRange({ start: span.startIndex, end: span.endIndex })
   }
 
   if (!model.points.length) {
-    return <div className="comparison-workspace-empty">比較可能なwealth系列がありません。</div>
+    return (
+      <div className="comparison-workspace-empty">
+        比較可能なwealth系列がありません。
+      </div>
+    )
   }
 
   const rangeStart = effectiveRange
@@ -324,18 +387,28 @@ export function InteractiveComparisonWorkspace({
   const rangeEnd = effectiveRange
     ? Math.min(visible.end, Math.max(effectiveRange.start, effectiveRange.end))
     : null
-  const selectionVisible = rangeStart !== null && rangeEnd !== null && rangeStart <= rangeEnd
-  const selectionLeft = selectionVisible ? x(rangeStart, visible.start, visible.end) : null
-  const selectionRight = selectionVisible ? x(rangeEnd, visible.start, visible.end) : null
-  const crosshairIndex = clamp(currentIndex, visible.start, visible.end)
+  const selectionVisible = rangeStart !== null
+    && rangeEnd !== null
+    && rangeStart <= rangeEnd
+  const selectionLeft = selectionVisible
+    ? x(rangeStart, visible.start, visible.end)
+    : null
+  const selectionRight = selectionVisible
+    ? x(rangeEnd, visible.start, visible.end)
+    : null
 
   return (
-    <section className="comparison-workspace-shell" aria-label="Interactive run comparison">
+    <section
+      className="comparison-workspace-shell"
+      aria-label="Interactive run comparison"
+    >
       <div className="comparison-workspace-toolbar">
         <div className="comparison-workspace-key" aria-label="series key">
           <span className="comparison-key comparison-key--left">Left</span>
           <span className="comparison-key comparison-key--right">Right</span>
-          <span className="comparison-key comparison-key--baseline">Dashed = baseline</span>
+          <span className="comparison-key comparison-key--baseline">
+            Dashed = baseline
+          </span>
         </div>
         <div className="comparison-workspace-actions">
           <button
@@ -359,14 +432,20 @@ export function InteractiveComparisonWorkspace({
         data-visible-range={`${visible.start}:${visible.end}`}
         onPointerDown={pointerDown}
         onPointerMove={pointerMove}
-        onPointerLeave={() => { if (!drag.current) setPreviewPoint(null) }}
+        onPointerLeave={() => {
+          if (!drag.current) setPreviewPoint(null)
+        }}
         onPointerUp={pointerUp}
         onPointerCancel={pointerUp}
         onWheel={wheel}
         onDoubleClick={reset}
         onKeyDown={keyDown}
       >
-        <svg viewBox={`0 0 ${WIDTH} 560`} preserveAspectRatio="none" aria-hidden="true">
+        <svg
+          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
           <rect
             x={PLOT_LEFT}
             y={WEALTH_TOP}
@@ -438,9 +517,9 @@ export function InteractiveComparisonWorkspace({
             />
           ) : null}
           <line
-            x1={x(crosshairIndex, visible.start, visible.end)}
+            x1={x(currentIndex, visible.start, visible.end)}
             y1={WEALTH_TOP}
-            x2={x(crosshairIndex, visible.start, visible.end)}
+            x2={x(currentIndex, visible.start, visible.end)}
             y2={DELTA_BOTTOM}
             className="comparison-crosshair"
           />
@@ -474,17 +553,30 @@ export function InteractiveComparisonWorkspace({
           Right − Left
         </div>
         <div className="comparison-axis comparison-axis--wealth">
-          <span>{model.wealthDomain.maximum.toFixed(3)}</span><span>1.000</span><span>{model.wealthDomain.minimum.toFixed(3)}</span>
+          <span>{model.wealthDomain.maximum.toFixed(3)}</span>
+          <span>1.000</span>
+          <span>{model.wealthDomain.minimum.toFixed(3)}</span>
         </div>
         <div className="comparison-axis comparison-axis--delta">
-          <span>{model.deltaDomain.maximum.toFixed(3)}</span><span>0.000</span><span>{model.deltaDomain.minimum.toFixed(3)}</span>
+          <span>{model.deltaDomain.maximum.toFixed(3)}</span>
+          <span>0.000</span>
+          <span>{model.deltaDomain.minimum.toFixed(3)}</span>
         </div>
-        <div className="comparison-direct-labels" aria-label="latest series values">
-          {model.directLabels.map((label) => (
+        <div
+          className="comparison-direct-labels"
+          aria-label="visible endpoint series values"
+        >
+          {directLabels.map((label) => (
             <span
               key={label.key}
               className={`comparison-direct-label comparison-direct-label--${label.key}`}
-              style={{ top: `${WEALTH_TOP + label.position * (WEALTH_BOTTOM - WEALTH_TOP)}px` }}
+              style={{
+                top: `${(
+                  (WEALTH_TOP
+                    + label.position * (WEALTH_BOTTOM - WEALTH_TOP))
+                  / HEIGHT
+                ) * 100}%`,
+              }}
             >
               {label.label} {label.value.toFixed(4)}
             </span>
@@ -506,7 +598,11 @@ export function InteractiveComparisonWorkspace({
 
       <div className="comparison-fold-strip" aria-label="Fold comparison strip">
         {model.foldSpans.map((span) => (
-          <button key={span.foldIndex} type="button" onClick={() => selectFold(span)}>
+          <button
+            key={span.foldIndex}
+            type="button"
+            onClick={() => selectFold(span)}
+          >
             <strong>{span.label}</strong>
             <span>L {percent(span.leftSelectedReturn)}</span>
             <span>R {percent(span.rightSelectedReturn)}</span>
@@ -518,7 +614,13 @@ export function InteractiveComparisonWorkspace({
         <caption>Run comparison values by sealed evaluation index</caption>
         <thead>
           <tr>
-            <th>Index</th><th>Fold</th><th>Left</th><th>Right</th><th>Left baseline</th><th>Right baseline</th><th>Right minus Left</th>
+            <th>Index</th>
+            <th>Fold</th>
+            <th>Left</th>
+            <th>Right</th>
+            <th>Left baseline</th>
+            <th>Right baseline</th>
+            <th>Right minus Left</th>
           </tr>
         </thead>
         <tbody>

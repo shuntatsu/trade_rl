@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { studioApi, type StudioApi } from '../api/studioApi'
 import type { DatasetSummary } from '../data/types'
+import { readParam, replaceParams } from '../state/urlState'
 
 interface DataLabPageProps {
   api?: StudioApi
@@ -17,7 +18,7 @@ function formatUpdated(value: string): string {
 
 export function DataLabPage({ api = studioApi }: DataLabPageProps) {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(() => readParam(window.location.search, 'dataset'))
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -28,12 +29,14 @@ export function DataLabPage({ api = studioApi }: DataLabPageProps) {
     try {
       const response = await api.loadDatasets()
       setDatasets(response.items)
-      setSelectedId((current) =>
-        current && response.items.some((item) => item.id === current)
-          ? current
-          : response.items[0]?.id ?? null,
-      )
-      setPage((current) => Math.min(current, Math.max(Math.ceil(response.items.length / PAGE_SIZE) - 1, 0)))
+      const nextSelectedId = selectedId && response.items.some((item) => item.id === selectedId)
+        ? selectedId
+        : response.items[0]?.id ?? null
+      setSelectedId(nextSelectedId)
+      const selectedIndex = nextSelectedId === null
+        ? -1
+        : response.items.findIndex((item) => item.id === nextSelectedId)
+      setPage(selectedIndex < 0 ? 0 : Math.floor(selectedIndex / PAGE_SIZE))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'データセットを取得できませんでした。')
     } finally {
@@ -82,7 +85,10 @@ export function DataLabPage({ api = studioApi }: DataLabPageProps) {
                 type="button"
                 key={dataset.id}
                 className={`runtime-row${dataset.id === selectedId ? ' runtime-row--selected' : ''}`}
-                onClick={() => setSelectedId(dataset.id)}
+                onClick={() => {
+                  setSelectedId(dataset.id)
+                  replaceParams({ dataset: dataset.id })
+                }}
                 aria-label={`${dataset.name} ${dataset.status}`}
               >
                 <Database size={16} aria-hidden="true" />

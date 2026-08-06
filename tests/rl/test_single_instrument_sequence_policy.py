@@ -74,7 +74,11 @@ def test_one_symbol_encoder_does_not_call_cross_asset_transformer() -> None:
 def test_one_symbol_architecture_identity_differs_from_three_symbol_identity() -> None:
     single = sequence_architecture_identity(_architecture(1))
     legacy = sequence_architecture_identity(_architecture(3))
+    single_payload = single.digest_payload()
+    legacy_payload = legacy.digest_payload()
 
-    assert single.digest_payload()["n_symbols"] == 1
-    assert legacy.digest_payload()["n_symbols"] == 3
+    assert single_payload["n_symbols"] == 1
+    assert single_payload["asset_fusion_mode"] == "single_symbol_bypass_v1"
+    assert legacy_payload["n_symbols"] == 3
+    assert "asset_fusion_mode" not in legacy_payload
     assert single.digest != legacy.digest

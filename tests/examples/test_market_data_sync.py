@@ -19,11 +19,12 @@ def _load_module():
     return module
 
 
-def test_build_maintained_plan_uses_pipeline_identity() -> None:
+def test_build_maintained_plan_uses_single_btc_pipeline_identity() -> None:
     module = _load_module()
 
     plan = module.build_maintained_plan()
 
+    assert plan.symbols == ("BTCUSDT",)
     assert plan.symbols == tuple(module.pipeline._SYMBOLS)
     assert plan.intervals == tuple(module.pipeline._NATIVE_TIMEFRAMES)
     assert plan.start_time == datetime.fromisoformat(
@@ -33,6 +34,8 @@ def test_build_maintained_plan_uses_pipeline_identity() -> None:
         module.pipeline._END.replace("Z", "+00:00")
     ).astimezone(UTC)
     assert plan.urls
+    assert all("BTCUSDT" in url for url in plan.urls)
+    assert all("ETHUSDT" not in url and "BNBUSDT" not in url for url in plan.urls)
 
 
 def test_import_legacy_cache_copies_only_missing_nonempty_payloads(

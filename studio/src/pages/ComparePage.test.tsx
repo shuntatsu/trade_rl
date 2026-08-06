@@ -70,6 +70,29 @@ describe('ComparePage', () => {
     await waitFor(() => expect(runtimeApi.loadRunComparison).toHaveBeenLastCalledWith(runs[0].id, runs[0].id))
   })
 
+  it('clears the old pair while a genuinely different pair is loading', async () => {
+    let resolveSecond: ((value: RunComparison) => void) | null = null
+    const second = new Promise<RunComparison>((resolve) => { resolveSecond = resolve })
+    const runtimeApi: Pick<StudioApi, 'loadRuns' | 'loadRunComparison'> = {
+      loadRuns: vi.fn().mockResolvedValue({ items: runs, total: 2, invalid: 0 }),
+      loadRunComparison: vi.fn()
+        .mockResolvedValueOnce(comparison)
+        .mockReturnValueOnce(second),
+    }
+    const user = userEvent.setup()
+    render(<ComparePage api={runtimeApi} />)
+    await screen.findByText('run-001 ↔ run-002')
+
+    await user.selectOptions(screen.getByLabelText('Right run'), runs[0].id)
+
+    expect(screen.getByRole('status')).toHaveTextContent('比較を読み込み中です')
+    expect(screen.queryByText('run-001 ↔ run-002')).not.toBeInTheDocument()
+    expect(screen.queryByRole('application', { name: 'Run comparison chart' })).not.toBeInTheDocument()
+
+    act(() => resolveSecond?.({ ...comparison, rightRunId: 'run-001', rightResourceId: runs[0].id }))
+    await waitFor(() => expect(screen.getByText('run-001 ↔ run-001')).toBeInTheDocument())
+  })
+
   it('opens metrics and configuration in an overlay inspector', async () => {
     const user = userEvent.setup()
     render(<ComparePage api={api()} />)
@@ -77,6 +100,7 @@ describe('ComparePage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Details' }))
     expect(screen.getByRole('dialog', { name: 'Comparison inspector' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Comparison inspector' })).not.toHaveAttribute('aria-modal')
     await user.click(screen.getByRole('tab', { name: 'metrics' }))
     expect(screen.getByText('Total return')).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: 'config' }))

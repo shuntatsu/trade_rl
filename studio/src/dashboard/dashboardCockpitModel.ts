@@ -177,7 +177,7 @@ function buildDecisions(overview: StudioOverview, latest: RunSummary | null): Da
   if (dataset === null) {
     addDecision(decisions, seen, { id: 'dataset:no-valid', stage: 'data', severity: 'warning', title: 'Datasetがありません', explanation: '学習前に検証済みDatasetを登録してください。', occurredAt: null, age: null, action: { label: 'Data Labを開く', workspace: 'data', params: {} } })
   } else if (dataset.status === 'INVALID') {
-    addDecision(decisions, seen, { id: `dataset:${dataset.id}:invalid`, stage: 'data', severity: 'critical', title: `Dataset ${dataset.name} が無効です`, explanation: dataset.validationError ?? 'Dataset validation failed.', occurredAt: null, age: dataset.updated, action: { label: 'Data Labで確認', workspace: 'data', params: { dataset: dataset.id } } })
+    addDecision(decisions, seen, { id: `dataset:${dataset.id}:invalid`, stage: 'data', severity: 'critical', title: `Dataset ${dataset.name} が無効です`, explanation: dataset.validationError ?? 'Dataset validation failed.', occurredAt: dataset.updated, age: null, action: { label: 'Data Labで確認', workspace: 'data', params: { dataset: dataset.id } } })
   }
 
   for (const job of overview.activeJobs) {

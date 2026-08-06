@@ -47,6 +47,19 @@ export interface ResearchMarker {
   sequence: number
 }
 
+export type ResearchTradeDirection = 'long' | 'short'
+export type ResearchTradeStatus = 'open' | 'closed'
+
+export interface ResearchTradeBand {
+  id: string
+  startTime: number
+  endTime: number
+  direction: ResearchTradeDirection
+  status: ResearchTradeStatus
+  startSequence: number
+  endSequence: number
+}
+
 export type PositionTransition =
   | 'LONG'
   | 'SHORT'
@@ -66,7 +79,9 @@ export interface ResearchChartData {
   equity: ResearchLinePoint[]
   baseline: ResearchLinePoint[]
   drawdown: ResearchLinePoint[]
+  grossExposure: ResearchLinePoint[]
   markers: ResearchMarker[]
+  tradeBands: ResearchTradeBand[]
   recordByTime: Map<number, TrainingTelemetryRecord>
   recordBySequence: Map<number, TrainingTelemetryRecord>
   timeBySequence: Map<number, number>
@@ -144,7 +159,70 @@ function stablePercentage(value: number): number {
   return Math.round(value * 1_000_000_000_000) / 1_000_000_000_000
 }
 
+function grossExposure(record: TrainingTelemetryRecord): number | null {
+  if (record.weightsAfter.length === 0 || !record.weightsAfter.every(finite)) return null
+  return stablePercentage(record.weightsAfter.reduce((total, weight) => total + Math.abs(weight), 0) * 100)
+}
+
 const POSITION_EPSILON = 1e-9
+
+function primaryDirection(record: TrainingTelemetryRecord): ResearchTradeDirection | null {
+  const weight = record.weightsAfter[0]
+  if (!finite(weight) || Math.abs(weight) <= POSITION_EPSILON) return null
+  return weight > 0 ? 'long' : 'short'
+}
+
+function buildTradeBands(timed: TimedRecord[]): ResearchTradeBand[] {
+  const bands: ResearchTradeBand[] = []
+  let active: {
+    id: string
+    startTime: number
+    direction: ResearchTradeDirection
+    startSequence: number
+  } | null = null
+  let serial = 1
+
+  for (const item of timed) {
+    const direction = primaryDirection(item.record)
+    if (active === null && direction !== null) {
+      active = {
+        id: `trade-${serial}`,
+        startTime: item.bucketTime,
+        direction,
+        startSequence: item.record.sequence,
+      }
+      serial += 1
+      continue
+    }
+    if (active === null) continue
+    if (direction === active.direction) continue
+
+    bands.push({
+      ...active,
+      endTime: item.bucketTime,
+      endSequence: item.record.sequence,
+      status: 'closed',
+    })
+    active = direction === null ? null : {
+      id: `trade-${serial}`,
+      startTime: item.bucketTime,
+      direction,
+      startSequence: item.record.sequence,
+    }
+    if (active !== null) serial += 1
+  }
+
+  if (active !== null) {
+    const finalItem = timed.at(-1)!
+    bands.push({
+      ...active,
+      endTime: Math.max(active.startTime, finalItem.bucketTime),
+      endSequence: finalItem.record.sequence,
+      status: 'open',
+    })
+  }
+  return bands
+}
 
 export function positionTransition(
   before: number | null | undefined,
@@ -248,6 +326,7 @@ export function buildResearchChartData(
   const equity: ResearchLinePoint[] = []
   const baseline: ResearchLinePoint[] = []
   const drawdown: ResearchLinePoint[] = []
+  const grossExposurePoints: ResearchLinePoint[] = []
   const recordByTime = new Map<number, TrainingTelemetryRecord>()
   const recordBySequence = new Map<number, TrainingTelemetryRecord>()
 
@@ -281,6 +360,8 @@ export function buildResearchChartData(
       time,
       latestDrawdown === null ? null : stablePercentage(-latestDrawdown * 100),
     ))
+    const latestExposure = grossExposure(bucketRecords.at(-1)!)
+    grossExposurePoints.push(...linePoint(time, latestExposure))
     recordByTime.set(time, bucketRecords.at(-1)!)
   }
 
@@ -300,7 +381,9 @@ export function buildResearchChartData(
     equity,
     baseline,
     drawdown,
+    grossExposure: grossExposurePoints,
     markers,
+    tradeBands: buildTradeBands(timed),
     recordByTime,
     recordBySequence,
     timeBySequence,

@@ -84,9 +84,71 @@ describe('buildResearchChartData', () => {
     expect(result.equity).toEqual([{ time: bucket, value: 1_010 }])
     expect(result.baseline).toEqual([{ time: bucket, value: 1_005 }])
     expect(result.drawdown).toEqual([{ time: bucket, value: -2.2 }])
+    expect(result.grossExposure).toEqual([{ time: bucket, value: 50 }])
     expect(result.recordByTime.get(bucket)?.sequence).toBe(2)
     expect(result.timeBySequence.get(1)).toBe(bucket)
     expect(result.timeBySequence.get(2)).toBe(bucket)
+  })
+
+  it('builds closed and open trade lifecycle bands from the primary position', () => {
+    const flat = telemetry({
+      sequence: 1,
+      marketTime: '2026-07-31T08:05:00.000000000',
+      weightsBefore: [0, 0.1],
+      weightsAfter: [0, 0.1],
+    })
+    const long = telemetry({
+      sequence: 2,
+      eventType: 'position',
+      marketTime: '2026-07-31T08:20:00.000000000',
+      weightsBefore: [0, 0.1],
+      weightsAfter: [0.4, 0.1],
+    })
+    const longHold = telemetry({
+      sequence: 3,
+      marketTime: '2026-07-31T08:35:00.000000000',
+      weightsBefore: [0.4, 0.1],
+      weightsAfter: [0.4, 0.1],
+    })
+    const close = telemetry({
+      sequence: 4,
+      eventType: 'position',
+      marketTime: '2026-07-31T08:50:00.000000000',
+      weightsBefore: [0.4, 0.1],
+      weightsAfter: [0, 0.1],
+    })
+    const short = telemetry({
+      sequence: 5,
+      eventType: 'position',
+      marketTime: '2026-07-31T09:05:00.000000000',
+      weightsBefore: [0, 0.1],
+      weightsAfter: [-0.25, 0.1],
+    })
+    const shortHold = telemetry({
+      sequence: 6,
+      marketTime: '2026-07-31T09:20:00.000000000',
+      weightsBefore: [-0.25, 0.1],
+      weightsAfter: [-0.25, 0.1],
+    })
+
+    const result = buildResearchChartData([flat, long, longHold, close, short, shortHold], 'BTCUSDT', '15m')
+
+    expect(result.tradeBands).toEqual([
+      expect.objectContaining({
+        id: 'trade-1',
+        direction: 'long',
+        status: 'closed',
+        startSequence: 2,
+        endSequence: 4,
+      }),
+      expect.objectContaining({
+        id: 'trade-2',
+        direction: 'short',
+        status: 'open',
+        startSequence: 5,
+        endSequence: 6,
+      }),
+    ])
   })
 
   it('drops records with invalid timestamps instead of inventing chart times', () => {

@@ -84,11 +84,18 @@ export function useRunComparisonWorkspace(api: CompareApi = studioApi) {
     if (!left || !right) {
       setComparison(null)
       setLoading(false)
+      replaceParams({ left: null, right: null })
+      clearSelection()
       return
     }
     const sequence = ++requestSequence.current
     setLoading(true)
     setError(null)
+    setComparison((current) => (
+      current?.leftResourceId === left && current.rightResourceId === right
+        ? current
+        : null
+    ))
     replaceParams({ left, right })
     if (!preserveSelection) clearSelection()
     try {

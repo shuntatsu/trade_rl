@@ -10,7 +10,6 @@ import pytest
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.rl.checkpointing import publish_checkpoint
-from trade_rl.rl.observations import ORDER_OBSERVATION_WIDTH
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 from trade_rl.workflows.walk_forward import WalkForwardWorkflowConfig
@@ -55,11 +54,9 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert not config.action.risk_tilt_enabled
     assert config.action.mode.value == "target_weight"
     assert config.action.residual_scale == pytest.approx(1.0)
-    assert config.action.target_weight_count == 3
-    assert config.action.names_for_symbols(("BTCUSDT", "ETHUSDT", "BNBUSDT")) == (
+    assert config.action.target_weight_count == 1
+    assert config.action.names_for_symbols(("BTCUSDT",)) == (
         "target_weight:BTCUSDT",
-        "target_weight:ETHUSDT",
-        "target_weight:BNBUSDT",
     )
     assert config.action.n_factors == 0
     assert config.factor_artifact is None
@@ -71,8 +68,7 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert execution.fee_rate > 0.0
     assert execution.spread_rate > 0.0
     assert execution.impact_rate > 0.0
-    assert config.portfolio_risk.max_abs_weight is not None
-    assert config.portfolio_risk.max_abs_weight <= 0.5
+    assert config.portfolio_risk.max_abs_weight == pytest.approx(1.0)
 
 
 def test_requested_constrained_growth_template_is_full_lagrangian_training() -> None:
@@ -108,13 +104,11 @@ def test_requested_full_range_workflow_uses_postgres_timeline_end_to_end() -> No
 
 
 def test_full_walk_forward_config_has_six_material_folds() -> None:
-    standalone_payload = json.loads(
-        (EXAMPLE_ROOT / "training-full.json").read_text(encoding="utf-8")
-    )
     walk_forward_payload = json.loads(
         (EXAMPLE_ROOT / "walk-forward-full.json").read_text(encoding="utf-8")
     )
-    assert walk_forward_payload["candidates"][0]["run"] == standalone_payload
+    assert walk_forward_payload["candidates"][0]["run_file"] == "training-full.json"
+    assert "run" not in walk_forward_payload["candidates"][0]
 
     config = MarketWalkForwardConfig.from_json(
         EXAMPLE_ROOT / "walk-forward-full.json",
@@ -128,7 +122,6 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     assert sum(fold.test.size for fold in folds) == 17_280
     assert (folds[0].test.start, folds[0].test.stop) == (26_336, 29_216)
     assert (folds[-1].test.start, folds[-1].test.stop) == (40_736, 43_616)
-    # Stable candidate IDを維持した単一のtarget-weight PPO候補。
     assert [candidate.name for candidate in config.candidates] == ["residual-ppo-15m"]
     oracle = next(
         item.run for item in config.candidates if item.name == "residual-ppo-15m"
@@ -170,11 +163,9 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     assert not oracle.action.risk_tilt_enabled
     assert oracle.action.mode.value == "target_weight"
     assert oracle.action.residual_scale == pytest.approx(1.0)
-    assert oracle.action.target_weight_count == 3
-    assert oracle.action.names_for_symbols(("BTCUSDT", "ETHUSDT", "BNBUSDT")) == (
+    assert oracle.action.target_weight_count == 1
+    assert oracle.action.names_for_symbols(("BTCUSDT",)) == (
         "target_weight:BTCUSDT",
-        "target_weight:ETHUSDT",
-        "target_weight:BNBUSDT",
     )
     assert oracle.action.n_factors == 0
     assert oracle.factor_artifact is None
@@ -187,32 +178,41 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     assert config.maximum_selection_drawdown == pytest.approx(0.20)
 
 
-def test_full_runner_uses_three_assets_and_four_native_timeframes() -> None:
-    content = (EXAMPLE_ROOT / "full_research_pipeline.py").read_text(encoding="utf-8")
+def test_full_runner_uses_one_asset_and_four_native_timeframes() -> None:
+    maintained = (EXAMPLE_ROOT / "full_research_pipeline.py").read_text(
+        encoding="utf-8"
+    )
+    legacy = (EXAMPLE_ROOT / "full_research_pipeline_legacy.py").read_text(
+        encoding="utf-8"
+    )
 
-    for symbol in ("BTCUSDT", "ETHUSDT", "BNBUSDT"):
-        assert symbol in content
+    assert '_SYMBOLS = ("BTCUSDT",)' in maintained
+    assert "ETHUSDT" not in maintained
+    assert "BNBUSDT" not in maintained
     for timeframe in ("15m", "1h", "4h", "1d"):
-        assert timeframe in content
-    assert "2021-01-01T00:00:00Z" in content
-    assert "2026-07-01T00:00:00Z" in content
-    assert "192_672" in content
-    assert "dataset_id" in content
-    assert "artifact_digest" in content
-    assert "binance_multitimeframe_feature_specs" in content
-    assert "raw_feature_count" in content
-    assert "policy_observation_count" in content
-    assert "217_886" in content
-    assert "226" in content
-    assert '"train", "run"' in content
-    assert '"walk-forward", "run"' in content
+        assert timeframe in maintained
+    assert "2021-01-01T00:00:00Z" in legacy
+    assert "2026-07-01T00:00:00Z" in legacy
+    assert "192_672" in legacy
+    assert "dataset_id" in legacy
+    assert "artifact_digest" in legacy
+    assert "binance_multitimeframe_feature_specs" in legacy
+    assert "raw_feature_count" in legacy
+    assert "policy_observation_count" in maintained
+    assert "226" in legacy
+    assert '"train", "run"' in legacy
+    assert '"walk-forward", "run"' in legacy
 
 
-def test_full_runner_observation_contract_includes_pending_order_state() -> None:
+def test_full_runner_observation_contract_derives_action_width() -> None:
     namespace = _runner_namespace()
+    state_source = (EXAMPLE_ROOT / "run_full_research_state.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert namespace["_EXPECTED_POLICY_OBSERVATIONS"] == 217_886
-    assert 217_886 - 217_865 == 3 * ORDER_OBSERVATION_WIDTH
+    assert "_EXPECTED_POLICY_OBSERVATIONS" not in namespace
+    assert "action_size=dataset.n_symbols" in state_source
+    assert "action_size=3" not in state_source
 
 
 def test_full_runner_separates_selection_from_final_training() -> None:
@@ -905,7 +905,7 @@ def test_signed_rule_history_is_authoritative_and_reproducible(
 
     namespace = _runner_namespace()
     load_history = namespace["_load_rule_history"]
-    symbols = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
+    symbols = ("BTCUSDT",)
     payload = {
         "schema_version": "binance_instrument_rule_history_v4",
         "policy_version": "binance_metadata_modes_v2",
@@ -987,9 +987,6 @@ def test_signed_rule_history_is_authoritative_and_reproducible(
 
 
 def test_maintained_full_configs_enable_training_diagnostics() -> None:
-    import json
-    from pathlib import Path
-
     root = Path(__file__).resolve().parents[2]
     for name in ("training-full.json", "training-growth-optimal.json"):
         payload = json.loads(

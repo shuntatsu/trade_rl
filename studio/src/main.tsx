@@ -5,6 +5,7 @@ import { App } from './App'
 import { loadStudioOverview } from './api/studioApi'
 import './styles.css'
 import './dashboardCockpit.css'
+import './comparisonWorkspace.css'
 
 async function bootstrap() {
   const root = document.getElementById('root')

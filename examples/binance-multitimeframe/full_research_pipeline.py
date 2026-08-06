@@ -71,18 +71,13 @@ def _require_single_symbol_run_payload(payload: dict[str, object]) -> None:
         )
 
 
-def _write_run_config(*, template_path: Path, output_path: Path) -> Path:
-    """Materialize relative candidate files and bind packaged Git provenance."""
-
-    payload = _legacy._load_json(template_path)
-    git_commit, git_dirty = _legacy._packaged_git_provenance()
-    payload["git_commit"] = git_commit
-    payload["git_dirty"] = git_dirty
+def _materialize_candidate_run_files(
+    payload: dict[str, object], *, template_path: Path
+) -> bool:
     candidates = payload.get("candidates", ())
     if not isinstance(candidates, (list, tuple)):
         raise ValueError("walk-forward candidates must be an ordered list")
-    if "training" in payload:
-        _require_single_symbol_run_payload(payload)
+    changed = False
     for candidate in candidates:
         if not isinstance(candidate, dict):
             raise ValueError("walk-forward candidate must be an object")
@@ -99,15 +94,65 @@ def _write_run_config(*, template_path: Path, output_path: Path) -> Path:
             run = _legacy._load_json(resolved)
             candidate.pop("run_file", None)
             candidate["run"] = run
+            changed = True
         if run is None:
             continue
         if not isinstance(run, dict):
             raise ValueError("walk-forward candidate run must be an object")
         _require_single_symbol_run_payload(run)
+    return changed
+
+
+def _write_run_config(*, template_path: Path, output_path: Path) -> Path:
+    """Materialize relative candidate files and bind packaged Git provenance."""
+
+    payload = _legacy._load_json(template_path)
+    git_commit, git_dirty = _legacy._packaged_git_provenance()
+    payload["git_commit"] = git_commit
+    payload["git_dirty"] = git_dirty
+    if "training" in payload:
+        _require_single_symbol_run_payload(payload)
+    _materialize_candidate_run_files(payload, template_path=template_path)
+    candidates = payload.get("candidates", ())
+    assert isinstance(candidates, (list, tuple))
+    for candidate in candidates:
+        assert isinstance(candidate, dict)
+        run = candidate.get("run")
+        if run is None:
+            continue
+        assert isinstance(run, dict)
         run["git_commit"] = git_commit
         run["git_dirty"] = git_dirty
     _legacy._write_json(output_path, payload)
     return output_path
+
+
+def _selected_walk_forward_recipe(
+    walk_forward_path: Path,
+    walk_forward_config_path: Path,
+    output_path: Path,
+) -> tuple[str, tuple[int, ...], Path]:
+    """Select a recipe from embedded or relative-file candidate configuration."""
+
+    payload = _legacy._load_json(walk_forward_config_path)
+    if not _materialize_candidate_run_files(
+        payload, template_path=walk_forward_config_path
+    ):
+        return _legacy._selected_walk_forward_recipe(
+            walk_forward_path,
+            walk_forward_config_path,
+            output_path,
+        )
+    materialized = output_path.parent / f".{output_path.name}.walk-forward-config.json"
+    _legacy._write_json(materialized, payload)
+    try:
+        return _legacy._selected_walk_forward_recipe(
+            walk_forward_path,
+            materialized,
+            output_path,
+        )
+    finally:
+        materialized.unlink(missing_ok=True)
 
 
 _legacy._policy_observation_count = _policy_observation_count
@@ -129,7 +174,7 @@ require_file = _legacy._require_file
 verify_training = _legacy._verify_training
 evaluate_walk_forward_research_gate = _legacy._evaluate_walk_forward_research_gate
 execution_sensitivity_gate = _legacy._execution_sensitivity_gate
-selected_walk_forward_recipe = _legacy._selected_walk_forward_recipe
+selected_walk_forward_recipe = _selected_walk_forward_recipe
 finalize_research_run = _legacy._finalize_research_run
 validate_maintained_dataset_preset = _legacy.validate_maintained_dataset_preset
 

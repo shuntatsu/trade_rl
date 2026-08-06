@@ -1,75 +1,45 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { demoOverview } from '../data/demoOverview'
 import { DashboardPage } from './DashboardPage'
 
-function finalPathY(path: SVGPathElement): number {
-  const tokens = path.getAttribute('d')?.trim().split(/\s+/) ?? []
-  const value = Number(tokens.at(-1))
-  if (!Number.isFinite(value)) throw new Error('chart path has no finite final y coordinate')
-  return value
-}
-
 describe('DashboardPage', () => {
-  it('renders the complete research overview', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', 'http://localhost/?workspace=dashboard')
+  })
+
+  it('renders the decision cockpit instead of equal-weight overview panels', () => {
+    render(<DashboardPage overview={demoOverview} freshness="DEMO" />)
+    expect(screen.getByRole('heading', { name: 'Research Readiness Pipeline' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Action Queue' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { pressed: false }).length).toBeGreaterThanOrEqual(5)
+    expect(screen.queryByText('システム概要')).not.toBeInTheDocument()
+    expect(screen.getByText('ReleaseはNO-GOです')).toBeInTheDocument()
+  })
+
+  it('commits a stage with click and persists it in the URL', async () => {
+    const user = userEvent.setup()
     render(<DashboardPage overview={demoOverview} />)
-
-    expect(screen.getByText('システム概要')).toBeInTheDocument()
-    expect(screen.getByText('最新データセット')).toBeInTheDocument()
-    expect(screen.getByText('実行中のジョブ')).toBeInTheDocument()
-    expect(screen.getByText('最新の実験結果サマリー')).toBeInTheDocument()
-    expect(screen.getByText('直近のアラート')).toBeInTheDocument()
-    expect(screen.getByText('ベースライン比較')).toBeInTheDocument()
-    expect(screen.getByText('ウォークフォワード安定性')).toBeInTheDocument()
-    expect(screen.getByText('Production Status')).toBeInTheDocument()
-    expect(screen.getByText('binance_spot_multi_tf_v1')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Data/i }))
+    expect(new URL(window.location.href).searchParams.get('stage')).toBe('data')
   })
 
-  it('projects RL and baseline wealth through one shared y-axis domain', () => {
-    const { container } = render(
-      <DashboardPage
-        overview={{
-          ...demoOverview,
-          equity: [
-            { label: 'start', rl: 1, baseline: 1 },
-            { label: 'end', rl: 3, baseline: 1.2 },
-          ],
-        }}
-      />,
-    )
-
-    const rlPath = container.querySelector<SVGPathElement>('.chart-line--rl')
-    const baselinePath = container.querySelector<SVGPathElement>('.chart-line--baseline')
-    if (rlPath === null || baselinePath === null) throw new Error('equity paths were not rendered')
-
-    expect(finalPathY(rlPath)).toBeCloseTo(18, 1)
-    expect(finalPathY(baselinePath)).toBeCloseTo(111.3, 1)
+  it('opens Environment with E and restores trigger focus after closing', async () => {
+    const user = userEvent.setup()
+    render(<DashboardPage overview={demoOverview} />)
+    await user.keyboard('E')
+    expect(screen.getByRole('dialog', { name: 'Environment' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Environmentを閉じる' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Environment/ })).toHaveFocus())
   })
 
-  it('renders every recent alert in a scrollable list and labels the dataset universe', () => {
-    const alerts = Array.from({ length: 6 }, (_, index) => ({
-      level: 'info' as const,
-      message: `alert-${index}`,
-      age: `${index + 1}分前`,
-    }))
-    const { container } = render(
-      <DashboardPage
-        overview={{
-          ...demoOverview,
-          latestDataset: demoOverview.latestDataset && {
-            ...demoOverview.latestDataset,
-            symbols: ['BNBUSDT', 'UNIUSDT', 'XRPUSDT'],
-            symbolCount: 3,
-            universeSymbolCount: 15,
-            timeframes: ['15m', '1h', '4h', '1d'],
-          },
-          alerts,
-        }}
-      />,
-    )
-
-    expect(container.querySelectorAll('.alert-row')).toHaveLength(6)
-    expect(screen.getByText('時間足 15m / 1h / 4h / 1d ・ 銘柄 3 / 15（選択 / 全体）')).toBeInTheDocument()
+  it('drills through using the action contract', async () => {
+    const user = userEvent.setup()
+    const onNavigate = vi.fn()
+    render(<DashboardPage overview={demoOverview} onNavigate={onNavigate} />)
+    await user.click(screen.getAllByRole('button', { name: /Evidenceから確認/ })[0])
+    expect(onNavigate).toHaveBeenCalledWith('evidence', { evidenceRun: demoOverview.evidence.runResourceId })
   })
 })

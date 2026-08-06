@@ -1,118 +1,129 @@
-import { AlertTriangle, CheckCircle2, CircleDot, Info, ServerCog } from 'lucide-react'
+import { Settings2, ShieldAlert } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { LineChart } from '../components/LineChart'
-import { MetricRing } from '../components/MetricRing'
-import { Panel } from '../components/Panel'
-import { StabilityChart } from '../components/StabilityChart'
+import { DashboardActionQueue } from '../dashboard/DashboardActionQueue'
+import { DashboardDecisionRibbon } from '../dashboard/DashboardDecisionRibbon'
+import { DashboardEnvironmentSheet } from '../dashboard/DashboardEnvironmentSheet'
+import { DashboardLatestResultStrip } from '../dashboard/DashboardLatestResultStrip'
+import { DashboardReadinessPipeline } from '../dashboard/DashboardReadinessPipeline'
+import {
+  buildDashboardCockpitModel,
+  type DashboardDecisionItem,
+  type DashboardStageKey,
+  type DashboardWorkspace,
+} from '../dashboard/dashboardCockpitModel'
 import type { StudioOverview } from '../data/types'
+import { readDashboardSelection, replaceDashboardSelection } from '../state/urlState'
+
+export type DashboardFreshness = 'LIVE' | 'STALE' | 'OFFLINE' | 'DEMO'
 
 interface DashboardPageProps {
   overview: StudioOverview
+  freshness?: DashboardFreshness
+  sourceError?: string | null
+  onNavigate?: (workspace: DashboardWorkspace, params: Record<string, string>) => void
 }
 
-function metric(value: number | null, digits = 2): string {
-  return value === null ? '—' : value.toFixed(digits)
+function editableTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))
 }
 
-function percent(value: number | null): string {
-  return value === null ? '—' : `${(value * 100).toFixed(1)}%`
-}
+export function DashboardPage({ overview, freshness = 'LIVE', sourceError = null, onNavigate = () => undefined }: DashboardPageProps) {
+  const model = useMemo(() => buildDashboardCockpitModel(overview), [overview])
+  const initialSelection = useMemo(() => readDashboardSelection(window.location.search), [])
+  const [committedStage, setCommittedStage] = useState<DashboardStageKey | null>(initialSelection.stage)
+  const [committedDecisionId, setCommittedDecisionId] = useState<string | null>(initialSelection.decision)
+  const [previewStage, setPreviewStage] = useState<DashboardStageKey | null>(null)
+  const [previewDecisionId, setPreviewDecisionId] = useState<string | null>(null)
+  const [environmentOpen, setEnvironmentOpen] = useState(false)
+  const environmentTrigger = useRef<HTMLButtonElement | null>(null)
 
-export function DashboardPage({ overview }: DashboardPageProps) {
-  const latestDataset = overview.latestDataset
+  const committedDecision = model.decisions.find((item) => item.id === committedDecisionId) ?? null
+  const previewDecision = model.decisions.find((item) => item.id === previewDecisionId) ?? null
+  const primaryDecision = model.decisions.find((item) => item.id === model.primaryDecisionId) ?? null
+  const displayedDecision = previewDecision ?? committedDecision ?? primaryDecision
+  const activeStage = previewStage
+    ?? (previewDecision?.stage !== 'alert' ? previewDecision?.stage : null)
+    ?? committedStage
+    ?? (committedDecision?.stage !== 'alert' ? committedDecision?.stage : null)
+    ?? null
+
+  const commitSelection = useCallback((stage: DashboardStageKey | null, decision: string | null) => {
+    setCommittedStage(stage)
+    setCommittedDecisionId(decision)
+    replaceDashboardSelection({ stage, decision })
+  }, [])
+
+  useEffect(() => {
+    const stageExists = committedStage === null || model.stages.some((item) => item.key === committedStage)
+    const decisionExists = committedDecisionId === null || model.decisions.some((item) => item.id === committedDecisionId)
+    if (!stageExists || !decisionExists) commitSelection(stageExists ? committedStage : null, decisionExists ? committedDecisionId : null)
+  }, [commitSelection, committedDecisionId, committedStage, model.decisions, model.stages])
+
+  useEffect(() => {
+    const handle = (event: KeyboardEvent) => {
+      if (editableTarget(event.target)) return
+      if ((event.key === 'e' || event.key === 'E') && !environmentOpen) {
+        event.preventDefault()
+        setEnvironmentOpen(true)
+      } else if (event.key === 'Escape' && !environmentOpen && (committedStage !== null || committedDecisionId !== null)) {
+        event.preventDefault()
+        commitSelection(null, null)
+      }
+    }
+    window.addEventListener('keydown', handle)
+    return () => window.removeEventListener('keydown', handle)
+  }, [commitSelection, committedDecisionId, committedStage, environmentOpen])
+
+  const selectStage = (stage: DashboardStageKey) => {
+    const retained = committedDecision?.stage === stage ? committedDecision.id : null
+    commitSelection(stage, retained)
+  }
+  const selectDecision = (decision: DashboardDecisionItem) => {
+    commitSelection(decision.stage === 'alert' ? null : decision.stage, decision.id)
+  }
+  const executeAction = (decision: DashboardDecisionItem) => {
+    if (decision.action) onNavigate(decision.action.workspace, decision.action.params)
+  }
+  const closeEnvironment = useCallback(() => {
+    setEnvironmentOpen(false)
+    window.setTimeout(() => environmentTrigger.current?.focus(), 0)
+  }, [])
+
   return (
-    <div className="dashboard-grid">
-      <div className="dashboard-row dashboard-row--top">
-        <Panel title="システム概要" index={1} accent="green" className="system-panel">
-          <div className="metrics-grid">
-            {overview.system.metrics.map((item, index) => (
-              <MetricRing key={item.label} {...item} tone={index === 3 ? 'blue' : 'green'} />
-            ))}
-          </div>
-        </Panel>
+    <section className="dashboard-cockpit" aria-labelledby="dashboard-cockpit-title">
+      <header className="dashboard-cockpit__header">
+        <div><span className="dashboard-eyebrow">RESEARCH DECISION COCKPIT</span><h1 id="dashboard-cockpit-title">次に直すべき一点を特定する</h1><p>DataからReleaseまで、検証済みの契約だけで安全な次の操作を決めます。</p></div>
+        <div className="dashboard-cockpit__status">
+          <span className={`dashboard-freshness dashboard-freshness--${freshness.toLowerCase()}`} title={sourceError ?? undefined}>{freshness}</span>
+          <span className="dashboard-no-go"><ShieldAlert size={15} aria-hidden="true" />NO-GO</span>
+          <button ref={environmentTrigger} type="button" className="dashboard-environment-trigger" onClick={() => setEnvironmentOpen(true)}><Settings2 size={15} aria-hidden="true" />Environment <kbd>E</kbd></button>
+        </div>
+      </header>
 
-        <Panel title="最新データセット" index={2} accent="cyan" className="dataset-panel">
-          {latestDataset ? (
-            <div className="dataset-card">
-              <div className="dataset-card__title"><ServerCog size={16} aria-hidden="true" />{latestDataset.name}</div>
-              <p>{latestDataset.market} / {latestDataset.symbols.join(', ')}</p>
-              <p>
-                時間足 {latestDataset.timeframes.join(' / ')} ・ 銘柄 {latestDataset.symbolCount}
-                {latestDataset.universeSymbolCount && latestDataset.universeSymbolCount > latestDataset.symbolCount
-                  ? ` / ${latestDataset.universeSymbolCount}（選択 / 全体）`
-                  : ''}
-              </p>
-              <p>{latestDataset.range}</p>
-              <div className="dataset-card__footer">
-                <span className={`status-valid${latestDataset.status === 'INVALID' ? ' status-valid--invalid' : ''}`}><CheckCircle2 size={12} aria-hidden="true" />{latestDataset.status}</span>
-                <strong>{latestDataset.featureCount} features</strong>
-                <small>更新: {latestDataset.updated}</small>
-              </div>
-            </div>
-          ) : <div className="dashboard-empty">検証済みデータセットなし</div>}
-        </Panel>
+      <DashboardDecisionRibbon decision={displayedDecision} onAction={executeAction} />
 
-        <Panel title="実行中のジョブ" index={3} accent="blue" className="jobs-panel">
-          <div className={`jobs-list${overview.activeJobs.length === 0 ? ' jobs-list--empty' : ''}`}>
-            {overview.activeJobs.length === 0 ? <div className="dashboard-empty">実行中ジョブなし</div> : null}
-            {overview.activeJobs.slice(0, 2).map((job) => (
-              <article className="job-row" key={job.id}>
-                <div className="job-row__top"><strong>{job.id}</strong><span>{job.progress}%</span></div>
-                <div className="job-row__meta">{job.algorithm} ・ {job.phase} ・ {job.seedProgress}</div>
-                <div className="progress-track"><i style={{ width: `${job.progress}%` }} /></div>
-              </article>
-            ))}
-          </div>
-        </Panel>
+      <div className="dashboard-cockpit__main">
+        <DashboardReadinessPipeline
+          stages={model.stages}
+          activeStage={activeStage}
+          committedStage={committedStage}
+          onPreview={setPreviewStage}
+          onSelect={selectStage}
+        />
+        <DashboardActionQueue
+          decisions={model.decisions}
+          activeDecisionId={previewDecisionId ?? committedDecisionId}
+          committedDecisionId={committedDecisionId}
+          activeStage={activeStage}
+          onPreview={setPreviewDecisionId}
+          onSelect={selectDecision}
+          onAction={executeAction}
+        />
       </div>
 
-      <div className="dashboard-row dashboard-row--middle">
-        <Panel title="最新の実験結果サマリー" index={4} accent="green" className="runs-panel">
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Run ID</th><th>アルゴリズム</th><th>期間</th><th>Sharpe</th><th>Max DD</th><th>判定</th></tr></thead>
-              <tbody>
-                {overview.runs.length === 0 ? <tr><td colSpan={6}>run artifactがありません。</td></tr> : null}
-                {overview.runs.slice(0, 4).map((run) => (
-                  <tr key={run.id}>
-                    <td>{run.id}</td><td>{run.algorithm}</td><td>{run.period}</td><td>{metric(run.sharpe)}</td><td>{percent(run.maxDrawdown)}</td>
-                    <td><span className="run-status run-status--no-go">{run.productionStatus}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-
-        <Panel title="直近のアラート" index={5} accent="purple" className="alerts-panel">
-          <div className={`alerts-list${overview.alerts.length === 0 ? ' alerts-list--empty' : ''}`}>
-            {overview.alerts.length === 0 ? <div className="dashboard-empty">新しいアラートなし</div> : null}
-            {overview.alerts.map((alert, index) => (
-              <article className="alert-row" key={`${alert.message}-${index}`}>
-                <span className={`alert-tag alert-tag--${alert.level}`}>
-                  {alert.level === 'warning' ? <AlertTriangle size={12} aria-hidden="true" /> : <Info size={12} aria-hidden="true" />}
-                  {alert.level.toUpperCase()}
-                </span>
-                <p>{alert.message}</p>
-                <small>{alert.age}</small>
-              </article>
-            ))}
-          </div>
-        </Panel>
-      </div>
-
-      <div className="dashboard-row dashboard-row--bottom">
-        <Panel title="ベースライン比較" index={6} accent="amber" className="equity-panel"><LineChart points={overview.equity} /></Panel>
-        <Panel title="ウォークフォワード安定性" index={7} accent="blue" className="stability-panel"><StabilityChart folds={overview.stability} /></Panel>
-        <Panel title="Production Status" index={8} accent="red" className="assessment-panel">
-          <div className="assessment">
-            <div className="assessment__status"><CircleDot size={18} aria-hidden="true" />{overview.assessment.status}</div>
-            <span>主因:</span>
-            <ul>{overview.assessment.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
-            <button type="button">詳細を見る →</button>
-          </div>
-        </Panel>
-      </div>
-    </div>
+      <DashboardLatestResultStrip result={model.latestResult} />
+      <DashboardEnvironmentSheet open={environmentOpen} environment={model.environment} onClose={closeEnvironment} />
+    </section>
   )
 }

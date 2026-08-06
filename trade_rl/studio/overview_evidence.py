@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from trade_rl.studio.contracts import OverviewEvidenceSummary
 from trade_rl.studio.evidence import inspect_run_evidence
@@ -34,6 +35,7 @@ def summarize_overview_evidence(
     if report.files.status == "INVALID" and not manifest_blocked:
         blocker_count += 1
 
+    status: Literal["VERIFIED", "INCOMPLETE", "INVALID"]
     if report.status == "INVALID" or blocker_count:
         status = "INVALID"
     elif verified_count == len(required):

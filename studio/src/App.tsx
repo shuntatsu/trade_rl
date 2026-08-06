@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 
-import { loadStudioOverview } from './api/studioApi'
 import { AppShell } from './components/AppShell'
 import type { WorkspaceId } from './components/Sidebar'
 import type { StudioOverviewResult } from './data/types'
+import type { DashboardFreshness } from './pages/DashboardPage'
 import { ComparePage } from './pages/ComparePage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DataLabPage } from './pages/DataLabPage'
@@ -13,7 +13,8 @@ import { LiveTrainingPage } from './pages/LiveTrainingPage'
 import { RunCenterPage } from './pages/RunCenterPage'
 import { ServingPage } from './pages/ServingPage'
 import { WorkspacePage } from './pages/WorkspacePage'
-import { readWorkspace, replaceParams } from './state/urlState'
+import { pushWorkspace, readWorkspace } from './state/urlState'
+import { useStudioOverviewPolling } from './state/useStudioOverviewPolling'
 
 interface AppProps {
   initialOverview: StudioOverviewResult
@@ -23,28 +24,31 @@ const workspaceMeta: Record<Exclude<WorkspaceId, 'dashboard' | 'data' | 'experim
   settings: { title: '設定', description: 'ローカルUIと実行環境の設定を管理します。' },
 }
 
+function dashboardFreshness(source: StudioOverviewResult['source']): DashboardFreshness {
+  if (source === 'live') return 'LIVE'
+  if (source === 'stale') return 'STALE'
+  if (source === 'demo') return 'DEMO'
+  return 'OFFLINE'
+}
+
 export function App({ initialOverview }: AppProps) {
   const [active, setActive] = useState<WorkspaceId>(() => readWorkspace(window.location.search))
-  const [overviewResult, setOverviewResult] = useState(initialOverview)
+  const overviewResult = useStudioOverviewPolling(initialOverview)
   const { overview, source, error } = overviewResult
+
   useEffect(() => {
-    if (initialOverview.source === 'demo') return undefined
-    let activeRequest = true
-    let timer: number | undefined
-    const refresh = async () => {
-      const result = await loadStudioOverview()
-      if (activeRequest) setOverviewResult(result)
-      if (activeRequest) timer = window.setTimeout(() => void refresh(), 500)
-    }
-    timer = window.setTimeout(() => void refresh(), 500)
-    return () => {
-      activeRequest = false
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [initialOverview.source])
+    const restore = () => setActive(readWorkspace(window.location.search))
+    window.addEventListener('popstate', restore)
+    return () => window.removeEventListener('popstate', restore)
+  }, [])
+
   const select = (workspace: WorkspaceId) => {
     setActive(workspace)
-    replaceParams({ workspace })
+    pushWorkspace(workspace)
+  }
+  const drillThrough = (workspace: Exclude<WorkspaceId, 'dashboard' | 'experiments' | 'serving' | 'settings'>, params: Record<string, string>) => {
+    setActive(workspace)
+    pushWorkspace(workspace, params)
   }
 
   return (
@@ -57,7 +61,7 @@ export function App({ initialOverview }: AppProps) {
       gpuName={overview.system.gpuName}
       pythonVersion={overview.system.pythonVersion}
     >
-      {active === 'dashboard' ? <DashboardPage overview={overview} /> : null}
+      {active === 'dashboard' ? <DashboardPage overview={overview} freshness={dashboardFreshness(source)} sourceError={error} onNavigate={drillThrough} /> : null}
       {active === 'data' ? <DataLabPage /> : null}
       {active === 'experiments' ? <ExperimentsPage /> : null}
       {active === 'runs' ? <RunCenterPage /> : null}

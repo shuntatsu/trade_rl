@@ -11,7 +11,7 @@ interface TopBarProps {
 }
 
 export function TopBar({ cudaReady, gpuName, pythonVersion, source, error }: TopBarProps) {
-  const sourceLabel = source === 'live' ? 'LIVE' : source === 'demo' ? 'DEMO DATA' : 'OFFLINE'
+  const sourceLabel = source === 'live' ? 'LIVE' : source === 'stale' ? 'STALE' : source === 'demo' ? 'DEMO DATA' : 'OFFLINE'
   return (
     <header className="topbar">
       <div className="topbar-group">

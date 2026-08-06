@@ -61,6 +61,16 @@ def _policy_observation_count(dataset: MarketDataset) -> int:
     )
 
 
+def _require_single_symbol_run_payload(payload: dict[str, object]) -> None:
+    action = payload.get("action")
+    if not isinstance(action, dict):
+        raise ValueError("maintained training requires an action object")
+    if action.get("mode") != "target_weight" or action.get("target_weight_count") != 1:
+        raise ValueError(
+            "maintained training requires exactly one target-weight action"
+        )
+
+
 def _write_run_config(*, template_path: Path, output_path: Path) -> Path:
     """Materialize relative candidate files and bind packaged Git provenance."""
 
@@ -71,6 +81,8 @@ def _write_run_config(*, template_path: Path, output_path: Path) -> Path:
     candidates = payload.get("candidates", ())
     if not isinstance(candidates, (list, tuple)):
         raise ValueError("walk-forward candidates must be an ordered list")
+    if "training" in payload:
+        _require_single_symbol_run_payload(payload)
     for candidate in candidates:
         if not isinstance(candidate, dict):
             raise ValueError("walk-forward candidate must be an object")
@@ -91,6 +103,7 @@ def _write_run_config(*, template_path: Path, output_path: Path) -> Path:
             continue
         if not isinstance(run, dict):
             raise ValueError("walk-forward candidate run must be an object")
+        _require_single_symbol_run_payload(run)
         run["git_commit"] = git_commit
         run["git_dirty"] = git_dirty
     _legacy._write_json(output_path, payload)

@@ -64,9 +64,7 @@ def test_valid_required_nodes_are_verified(
 ) -> None:
     monkeypatch.setattr(
         "trade_rl.studio.overview_evidence.inspect_run_evidence",
-        lambda *_args, **_kwargs: report(
-            node_statuses=("VERIFIED", "VERIFIED")
-        ),
+        lambda *_args, **_kwargs: report(node_statuses=("VERIFIED", "VERIFIED")),
     )
     summary = summarize_overview_evidence(tmp_path, run_resource_id="run-x")
 

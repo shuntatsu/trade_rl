@@ -29,8 +29,7 @@ def summarize_overview_evidence(
     verified_count = sum(node.status == "VERIFIED" for node in required)
     blocker_count = sum(node.status != "VERIFIED" for node in required)
     manifest_blocked = any(
-        node.key == "run_manifest" and node.status != "VERIFIED"
-        for node in required
+        node.key == "run_manifest" and node.status != "VERIFIED" for node in required
     )
     if report.files.status == "INVALID" and not manifest_blocked:
         blocker_count += 1

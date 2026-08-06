@@ -114,9 +114,7 @@ def test_overview_exposes_latest_invalid_resources_and_stable_alerts(
         item.id == f"dataset:{invalid_dataset.id}:invalid" for item in first.alerts
     )
     run_alert = next(
-        item
-        for item in first.alerts
-        if item.id == f"run:{invalid_run.id}:invalid"
+        item for item in first.alerts if item.id == f"run:{invalid_run.id}:invalid"
     )
     assert run_alert.occurred_at == invalid_run.completed_at
 

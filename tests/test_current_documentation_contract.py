@@ -9,6 +9,7 @@ MAINTAINED_DOCUMENTS = (
     ROOT / "README.md",
     ROOT / "START.md",
     ROOT / "docs" / "README.md",
+    ROOT / "docs" / "SINGLE_SYMBOL.md",
     ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "docs" / "CONFIGURATION.md",
     ROOT / "docs" / "RESEARCH_STATUS.md",
@@ -90,6 +91,7 @@ def test_current_schema_contracts_are_documented() -> None:
     readme = _text(ROOT / "README.md")
     architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
     configuration = _text(ROOT / "docs" / "CONFIGURATION.md")
+    single_symbol = _text(ROOT / "docs" / "SINGLE_SYMBOL.md")
     for value in (observation_schema, bundle_schema):
         assert value in readme
         assert value in architecture
@@ -109,6 +111,11 @@ def test_current_schema_contracts_are_documented() -> None:
         assert value in configuration
     assert "Gated Cross-Timeframe Attention" in architecture
     assert "Gated Cross-Asset Attention" in architecture
+    assert "single_symbol_bypass_v1" in architecture
+    assert "single_symbol_bypass_v1" in configuration
+    assert "one run" in single_symbol.lower()
+    assert "target_weight:BTCUSDT" in single_symbol
+    assert "NO-GO" in single_symbol
 
 
 def test_operator_runbooks_use_current_training_schema() -> None:

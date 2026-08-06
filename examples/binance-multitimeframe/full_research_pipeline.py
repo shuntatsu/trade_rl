@@ -1,7 +1,7 @@
 """Maintained single-instrument Binance research pipeline.
 
 The historical multi-asset implementation remains in
-``full_research_pipeline_legacy`` for read-only artifact compatibility.  This
+``full_research_pipeline_legacy`` for read-only artifact compatibility. This
 module fixes the maintained runtime to one BTCUSDT instrument and deliberately
 does not expose triplet-selection APIs.
 """
@@ -9,6 +9,7 @@ does not expose triplet-selection APIs.
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.observations import ObservationBuilder
@@ -25,7 +26,7 @@ _EXPECTED_15M_BARS = _legacy._EXPECTED_15M_BARS
 _TRAIN_RUN_COMMAND = _legacy._TRAIN_RUN_COMMAND
 _WALK_FORWARD_RUN_COMMAND = _legacy._WALK_FORWARD_RUN_COMMAND
 
-# The legacy implementation resolves these globals at call time.  Bind them to
+# The legacy implementation resolves these globals at call time. Bind them to
 # the maintained one-instrument contract before reusing its stable IO, evidence,
 # metadata and research-gate helpers.
 _legacy._SYMBOLS = _SYMBOLS
@@ -60,9 +61,45 @@ def _policy_observation_count(dataset: MarketDataset) -> int:
     )
 
 
+def _write_run_config(*, template_path: Path, output_path: Path) -> Path:
+    """Materialize relative candidate files and bind packaged Git provenance."""
+
+    payload = _legacy._load_json(template_path)
+    git_commit, git_dirty = _legacy._packaged_git_provenance()
+    payload["git_commit"] = git_commit
+    payload["git_dirty"] = git_dirty
+    candidates = payload.get("candidates", ())
+    if not isinstance(candidates, (list, tuple)):
+        raise ValueError("walk-forward candidates must be an ordered list")
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            raise ValueError("walk-forward candidate must be an object")
+        run = candidate.get("run")
+        run_file = candidate.get("run_file")
+        if run is not None and run_file is not None:
+            raise ValueError("walk-forward candidate cannot define run and run_file")
+        if run_file is not None:
+            if not isinstance(run_file, str) or not run_file:
+                raise ValueError("walk-forward candidate run_file must be a path")
+            resolved = (template_path.parent / run_file).resolve()
+            if resolved.parent != template_path.parent.resolve() or not resolved.is_file():
+                raise ValueError("walk-forward candidate run_file is not maintained")
+            run = _legacy._load_json(resolved)
+            candidate.pop("run_file", None)
+            candidate["run"] = run
+        if run is None:
+            continue
+        if not isinstance(run, dict):
+            raise ValueError("walk-forward candidate run must be an object")
+        run["git_commit"] = git_commit
+        run["git_dirty"] = git_dirty
+    _legacy._write_json(output_path, payload)
+    return output_path
+
+
 _legacy._policy_observation_count = _policy_observation_count
 
-# Public maintained API.  These helpers retain their existing semantics while
+# Public maintained API. These helpers retain their existing semantics while
 # resolving the one-symbol globals above.
 parse_utc = _legacy._parse_utc
 align_workflow_to_full_dataset = _legacy._align_workflow_to_full_dataset
@@ -71,7 +108,7 @@ write_json = _legacy._write_json
 load_json = _legacy._load_json
 training_policy_digest = _legacy._training_policy_digest
 prepare_run_roots = _legacy._prepare_run_roots
-write_run_config = _legacy._write_run_config
+write_run_config = _write_run_config
 run_cli = _legacy._run_cli
 resolve_metadata = _legacy._resolve_metadata
 build_dataset = _legacy._build_dataset

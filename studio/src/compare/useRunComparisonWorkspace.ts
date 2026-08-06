@@ -22,11 +22,19 @@ function rangeFromUrl(search: string): ComparisonRangeSelection | null {
 
 export function useRunComparisonWorkspace(api: CompareApi = studioApi) {
   const [runs, setRuns] = useState<RunSummary[]>([])
-  const [leftRunId, setLeftRunIdState] = useState(() => readParam(window.location.search, 'left') ?? '')
-  const [rightRunId, setRightRunIdState] = useState(() => readParam(window.location.search, 'right') ?? '')
+  const [leftRunId, setLeftRunIdState] = useState(
+    () => readParam(window.location.search, 'left') ?? '',
+  )
+  const [rightRunId, setRightRunIdState] = useState(
+    () => readParam(window.location.search, 'right') ?? '',
+  )
   const [comparison, setComparison] = useState<RunComparison | null>(null)
-  const [committedPoint, setCommittedPoint] = useState<number | null>(() => integerParam(window.location.search, 'comparePoint'))
-  const [committedRange, setCommittedRange] = useState<ComparisonRangeSelection | null>(() => rangeFromUrl(window.location.search))
+  const [committedPoint, setCommittedPointState] = useState<number | null>(
+    () => integerParam(window.location.search, 'comparePoint'),
+  )
+  const [committedRange, setCommittedRangeState] = useState<ComparisonRangeSelection | null>(
+    () => rangeFromUrl(window.location.search),
+  )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const requestSequence = useRef(0)
@@ -36,14 +44,18 @@ export function useRunComparisonWorkspace(api: CompareApi = studioApi) {
     pairRef.current.left = value
     setLeftRunIdState(value)
   }, [])
+
   const setRightRunId = useCallback((value: string) => {
     pairRef.current.right = value
     setRightRunIdState(value)
   }, [])
 
-  const replaceSelection = useCallback((point: number | null, range: ComparisonRangeSelection | null) => {
-    setCommittedPoint(point)
-    setCommittedRange(range)
+  const replaceSelection = useCallback((
+    point: number | null,
+    range: ComparisonRangeSelection | null,
+  ) => {
+    setCommittedPointState(point)
+    setCommittedRangeState(range)
     replaceParams({
       comparePoint: point === null ? null : String(point),
       compareStart: range === null ? null : String(range.start),
@@ -51,7 +63,24 @@ export function useRunComparisonWorkspace(api: CompareApi = studioApi) {
     })
   }, [])
 
-  const loadComparison = useCallback(async (left: string, right: string, preserveSelection = false) => {
+  const setCommittedPoint = useCallback(
+    (index: number) => replaceSelection(index, null),
+    [replaceSelection],
+  )
+  const setCommittedRange = useCallback(
+    (range: ComparisonRangeSelection | null) => replaceSelection(null, range),
+    [replaceSelection],
+  )
+  const clearSelection = useCallback(
+    () => replaceSelection(null, null),
+    [replaceSelection],
+  )
+
+  const loadComparison = useCallback(async (
+    left: string,
+    right: string,
+    preserveSelection = false,
+  ) => {
     if (!left || !right) {
       setComparison(null)
       setLoading(false)
@@ -61,19 +90,21 @@ export function useRunComparisonWorkspace(api: CompareApi = studioApi) {
     setLoading(true)
     setError(null)
     replaceParams({ left, right })
-    if (!preserveSelection) replaceSelection(null, null)
+    if (!preserveSelection) clearSelection()
     try {
       const value = await api.loadRunComparison(left, right)
       if (sequence === requestSequence.current) setComparison(value)
     } catch (reason) {
       if (sequence === requestSequence.current) {
         setComparison(null)
-        setError(reason instanceof Error ? reason.message : 'run比較を取得できませんでした。')
+        setError(
+          reason instanceof Error ? reason.message : 'run比較を取得できませんでした。',
+        )
       }
     } finally {
       if (sequence === requestSequence.current) setLoading(false)
     }
-  }, [api, replaceSelection])
+  }, [api, clearSelection])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -83,13 +114,19 @@ export function useRunComparisonWorkspace(api: CompareApi = studioApi) {
       const valid = response.items.filter((item) => item.status === 'VALID')
       setRuns(valid)
       const current = pairRef.current
-      const left = valid.some((item) => item.id === current.left) ? current.left : valid[0]?.id ?? ''
-      const right = valid.some((item) => item.id === current.right) ? current.right : valid[1]?.id ?? valid[0]?.id ?? ''
+      const left = valid.some((item) => item.id === current.left)
+        ? current.left
+        : valid[0]?.id ?? ''
+      const right = valid.some((item) => item.id === current.right)
+        ? current.right
+        : valid[1]?.id ?? valid[0]?.id ?? ''
       setLeftRunId(left)
       setRightRunId(right)
       await loadComparison(left, right, true)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'run一覧を取得できませんでした。')
+      setError(
+        reason instanceof Error ? reason.message : 'run一覧を取得できませんでした。',
+      )
       setLoading(false)
     }
   }, [api, loadComparison, setLeftRunId, setRightRunId])
@@ -103,8 +140,8 @@ export function useRunComparisonWorkspace(api: CompareApi = studioApi) {
       const search = window.location.search
       const nextLeft = readParam(search, 'left') ?? pairRef.current.left
       const nextRight = readParam(search, 'right') ?? pairRef.current.right
-      setCommittedPoint(integerParam(search, 'comparePoint'))
-      setCommittedRange(rangeFromUrl(search))
+      setCommittedPointState(integerParam(search, 'comparePoint'))
+      setCommittedRangeState(rangeFromUrl(search))
       if (nextLeft !== pairRef.current.left || nextRight !== pairRef.current.right) {
         setLeftRunId(nextLeft)
         setRightRunId(nextRight)
@@ -126,9 +163,9 @@ export function useRunComparisonWorkspace(api: CompareApi = studioApi) {
     error,
     setLeftRunId,
     setRightRunId,
-    setCommittedPoint: (index: number) => replaceSelection(index, null),
-    setCommittedRange: (range: ComparisonRangeSelection | null) => replaceSelection(null, range),
-    clearSelection: () => replaceSelection(null, null),
+    setCommittedPoint,
+    setCommittedRange,
+    clearSelection,
     loadComparison,
     refresh,
   }

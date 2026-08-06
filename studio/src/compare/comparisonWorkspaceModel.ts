@@ -147,6 +147,23 @@ function placeLabels(
   }))
 }
 
+export function buildComparisonDirectLabels(
+  point: ComparisonWorkspacePoint | null | undefined,
+  domain: NumericDomain,
+): ComparisonDirectLabel[] {
+  if (!point) return []
+  const values: Array<{
+    key: ComparisonSeriesKey
+    label: string
+    value: number
+  }> = []
+  for (const { key, label } of SERIES) {
+    const value = point[key]
+    if (typeof value === 'number') values.push({ key, label, value })
+  }
+  return placeLabels(values, domain)
+}
+
 function metricVerdict(metric: ComparisonMetric): ComparisonVerdict {
   if (metric.delta === null || !Number.isFinite(metric.delta)) return 'unavailable'
   if (metric.delta === 0 || metric.preference === 'neutral') return 'tie'
@@ -208,18 +225,6 @@ export function buildComparisonWorkspaceModel(
   const deltaValues = finite(points.map((point) => point.delta))
   const wealthDomain = paddedDomain(wealthValues, 1, 0.01)
   const deltaDomain = paddedDomain(deltaValues, 0, 0.01)
-  const directLabelValues: Array<{
-    key: ComparisonSeriesKey
-    label: string
-    value: number
-  }> = []
-  const final = points.at(-1)
-  if (final) {
-    for (const { key, label } of SERIES) {
-      const value = final[key]
-      if (typeof value === 'number') directLabelValues.push({ key, label, value })
-    }
-  }
 
   return {
     leftRunId: comparison.leftRunId,
@@ -228,7 +233,7 @@ export function buildComparisonWorkspaceModel(
     wealthDomain,
     deltaDomain,
     foldSpans: foldSpans(points, comparison.folds),
-    directLabels: placeLabels(directLabelValues, wealthDomain),
+    directLabels: buildComparisonDirectLabels(points.at(-1), wealthDomain),
     metricVerdicts: comparison.metrics.map((metric) => ({
       ...metric,
       verdict: metricVerdict(metric),

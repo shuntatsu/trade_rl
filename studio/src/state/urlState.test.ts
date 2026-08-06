@@ -1,18 +1,28 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 
-import { readWorkspace, replaceParams } from './urlState'
+import { pushWorkspace, readDashboardSelection, readWorkspace, replaceDashboardSelection } from './urlState'
 
-describe('urlState', () => {
-  it('restores a valid workspace and rejects unknown values', () => {
-    expect(readWorkspace('?workspace=compare')).toBe('compare')
-    expect(readWorkspace('?workspace=unknown')).toBe('dashboard')
+beforeEach(() => window.history.replaceState(null, '', '/?workspace=dashboard'))
+
+describe('URL state', () => {
+  it('reads only supported Dashboard stages', () => {
+    expect(readDashboardSelection('?stage=evidence&decision=item-1')).toEqual({ stage: 'evidence', decision: 'item-1' })
+    expect(readDashboardSelection('?stage=unknown')).toEqual({ stage: null, decision: null })
   })
 
-  it('updates search parameters without discarding existing state', () => {
-    window.history.replaceState(null, '', '/?workspace=compare&left=run-a')
-    replaceParams({ right: 'run-b', left: null })
-    expect(window.location.search).toContain('workspace=compare')
-    expect(window.location.search).toContain('right=run-b')
-    expect(window.location.search).not.toContain('left=')
+  it('replaces committed Dashboard selection without adding navigation state', () => {
+    replaceDashboardSelection({ stage: 'data', decision: 'dataset:x:invalid' })
+    expect(new URL(window.location.href).searchParams.get('stage')).toBe('data')
+    expect(new URL(window.location.href).searchParams.get('decision')).toBe('dataset:x:invalid')
+  })
+
+  it('pushes workspace drill-through and clears Dashboard-only state', () => {
+    window.history.replaceState(null, '', '/?workspace=dashboard&stage=data&decision=x')
+    pushWorkspace('evidence', { evidenceRun: 'run-1' })
+    expect(readWorkspace(window.location.search)).toBe('evidence')
+    const params = new URLSearchParams(window.location.search)
+    expect(params.get('stage')).toBeNull()
+    expect(params.get('decision')).toBeNull()
+    expect(params.get('evidenceRun')).toBe('run-1')
   })
 })

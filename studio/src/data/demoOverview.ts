@@ -39,10 +39,10 @@ export const demoOverview: StudioOverview = {
     { id: 'run-demo000000000000000000004', runId: 'run_20250715_001', manifestDigest: '4'.repeat(64), relativePath: 'artifacts/research/runs/run_20250715_001', runKind: 'research_exploratory', algorithm: 'TD3', datasetId: 'd'.repeat(64), period: '2023-01 → 2024-12', createdAt: '2025-07-15T00:00:00Z', completedAt: '2025-07-15T04:00:00Z', fileCount: 8, sharpe: 0.92, maxDrawdown: 0.117, totalReturn: 0.55, productionStatus: 'NO-GO', status: 'VALID', validationError: null },
   ],
   alerts: [
-    { level: 'warning', message: 'seedが1つだけです（推奨: ≥3）', age: '2時間前' },
-    { level: 'warning', message: 'feeまたはslippageが0に設定されています', age: '3時間前' },
-    { level: 'info', message: '新しいデータセットが生成されました', age: '5時間前' },
-    { level: 'info', message: 'CUDAドライバは最新です', age: '1日前' },
+    { id: 'alert:seed-count', level: 'warning', message: 'seedが1つだけです（推奨: ≥3）', age: '2時間前', occurredAt: null },
+    { id: 'alert:zero-cost', level: 'warning', message: 'feeまたはslippageが0に設定されています', age: '3時間前', occurredAt: null },
+    { id: 'alert:dataset-created', level: 'info', message: '新しいデータセットが生成されました', age: '5時間前', occurredAt: null },
+    { id: 'alert:cuda-current', level: 'info', message: 'CUDAドライバは最新です', age: '1日前', occurredAt: null },
   ],
   equity: [
     { label: '2023-01', rl: 1.0, baseline: 1.0 },
@@ -63,6 +63,14 @@ export const demoOverview: StudioOverview = {
     { label: 'Fold 5', low: -0.69, median: -0.12, high: 0.73 },
     { label: 'Fold 6', low: -0.42, median: 0.27, high: 1.04 },
   ],
+  evidence: {
+    runResourceId: 'run-demo000000000000000000001',
+    status: 'VERIFIED',
+    requiredCount: 4,
+    verifiedCount: 4,
+    blockerCount: 0,
+    updatedAt: null,
+  },
   assessment: {
     status: 'NO-GO',
     reasons: ['最低seedがbaselineを下回った', 'コスト2倍で優位性が消失', 'fold間の結果が不安定'],

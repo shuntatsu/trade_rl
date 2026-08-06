@@ -1,7 +1,7 @@
 export type ProductionStatus = 'NO-GO'
 export type AlertLevel = 'warning' | 'info'
 export type ValidationStatus = 'VALID' | 'INVALID'
-export type RuntimeSource = 'live' | 'offline' | 'demo'
+export type RuntimeSource = 'live' | 'stale' | 'offline' | 'demo'
 export type JobStatus =
   | 'queued'
   | 'running'
@@ -250,9 +250,20 @@ export interface JobListResponse {
 }
 
 export interface StudioAlert {
+  id: string
   level: AlertLevel
   message: string
   age: string
+  occurredAt: string | null
+}
+
+export interface OverviewEvidenceSummary {
+  runResourceId: string | null
+  status: 'VERIFIED' | 'INCOMPLETE' | 'INVALID' | 'UNAVAILABLE'
+  requiredCount: number
+  verifiedCount: number
+  blockerCount: number
+  updatedAt: string | null
 }
 
 export interface EquityPoint {
@@ -284,6 +295,7 @@ export interface StudioOverview {
   activeJobs: ActiveJob[]
   runs: RunSummary[]
   alerts: StudioAlert[]
+  evidence: OverviewEvidenceSummary
   equity: EquityPoint[]
   stability: StabilityFold[]
   assessment: ProductionAssessment

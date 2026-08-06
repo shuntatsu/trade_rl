@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -117,9 +117,11 @@ class ActiveJob(StudioModel):
 
 
 class StudioAlert(StudioModel):
+    id: str = Field(min_length=1)
     level: Literal["warning", "info"]
     message: str
     age: str
+    occurred_at: str | None = None
 
 
 class EquityPoint(StudioModel):
@@ -140,12 +142,28 @@ class ProductionAssessment(StudioModel):
     reasons: tuple[str, ...]
 
 
+class OverviewEvidenceSummary(StudioModel):
+    run_resource_id: str | None
+    status: Literal["VERIFIED", "INCOMPLETE", "INVALID", "UNAVAILABLE"]
+    required_count: int = Field(ge=0)
+    verified_count: int = Field(ge=0)
+    blocker_count: int = Field(ge=0)
+    updated_at: str | None = None
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> Self:
+        if self.verified_count > self.required_count:
+            raise ValueError("verified_count cannot exceed required_count")
+        return self
+
+
 class StudioOverview(StudioModel):
     system: SystemSummary
     latest_dataset: DatasetSummary | None
     active_jobs: tuple[ActiveJob, ...]
     runs: tuple[RunSummary, ...]
     alerts: tuple[StudioAlert, ...]
+    evidence: OverviewEvidenceSummary
     equity: tuple[EquityPoint, ...]
     stability: tuple[StabilityFold, ...]
     assessment: ProductionAssessment

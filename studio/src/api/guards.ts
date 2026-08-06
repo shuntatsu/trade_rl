@@ -18,6 +18,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean'
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+const isCount = (value: unknown): value is number => isNumber(value) && Number.isInteger(value) && value >= 0
 const isNullableString = (value: unknown): value is string | null => value === null || isString(value)
 const isNullableNumber = (value: unknown): value is number | null => value === null || isNumber(value)
 const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString)
@@ -143,7 +144,21 @@ function isActiveJob(value: unknown): boolean {
 }
 
 function isAlert(value: unknown): boolean {
-  return isRecord(value) && (value.level === 'warning' || value.level === 'info') && isString(value.message) && isString(value.age)
+  return isRecord(value)
+    && isString(value.id)
+    && value.id.length > 0
+    && (value.level === 'warning' || value.level === 'info')
+    && isString(value.message)
+    && isString(value.age)
+    && isNullableString(value.occurredAt)
+}
+
+function isOverviewEvidence(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  if (!['VERIFIED', 'INCOMPLETE', 'INVALID', 'UNAVAILABLE'].includes(String(value.status))) return false
+  if (!isNullableString(value.runResourceId) || !isNullableString(value.updatedAt)) return false
+  if (!isCount(value.requiredCount) || !isCount(value.verifiedCount) || !isCount(value.blockerCount)) return false
+  return value.verifiedCount <= value.requiredCount
 }
 
 function isEquity(value: unknown): boolean {
@@ -196,6 +211,7 @@ export function isStudioOverview(value: unknown): value is StudioOverview {
     && value.runs.every(isRun)
     && Array.isArray(value.alerts)
     && value.alerts.every(isAlert)
+    && isOverviewEvidence(value.evidence)
     && Array.isArray(value.equity)
     && value.equity.every(isEquity)
     && Array.isArray(value.stability)

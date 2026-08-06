@@ -20,6 +20,7 @@ from trade_rl.studio.contracts import (
     StudioOverview,
 )
 from trade_rl.studio.dataset_catalog import DatasetCatalog
+from trade_rl.studio.overview_evidence import summarize_overview_evidence
 from trade_rl.studio.run_catalog import RunCatalog
 from trade_rl.studio.system_probe import SystemProbe
 
@@ -45,6 +46,11 @@ def _timestamp(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         return None
     return parsed.astimezone(UTC)
+
+
+def _occurred_at(value: str | None) -> str | None:
+    timestamp = _timestamp(value)
+    return None if timestamp is None else timestamp.isoformat()
 
 
 def _relative_age(value: str | None, *, now: datetime) -> str:
@@ -207,6 +213,7 @@ class OverviewService:
         if not valid_datasets:
             alerts.append(
                 StudioAlert(
+                    id="dataset:no-valid",
                     level="warning",
                     message="検証済みデータセットがありません",
                     age="現在",
@@ -217,40 +224,54 @@ class OverviewService:
                 continue
             alerts.append(
                 StudioAlert(
+                    id=f"dataset:{dataset.id}:invalid",
                     level="warning",
                     message=f"データセット {dataset.name} が無効です",
                     age=_relative_age(dataset.updated, now=now),
+                    occurred_at=_occurred_at(dataset.updated),
                 )
             )
         if not valid_runs:
             alerts.append(
-                StudioAlert(level="info", message="公開済みrunがありません", age="現在")
+                StudioAlert(
+                    id="run:no-valid",
+                    level="info",
+                    message="公開済みrunがありません",
+                    age="現在",
+                )
             )
         for run in runs:
             if run.status != "INVALID":
                 continue
+            timestamp = run.completed_at or run.created_at
             alerts.append(
                 StudioAlert(
+                    id=f"run:{run.id}:invalid",
                     level="warning",
                     message=f"run {run.run_id} が無効です",
-                    age=_relative_age(run.completed_at or run.created_at, now=now),
+                    age=_relative_age(timestamp, now=now),
+                    occurred_at=_occurred_at(timestamp),
                 )
             )
         active_jobs = tuple(
             job for job in jobs if job.status in {"queued", "running", "cancelling"}
         )
         for job in active_jobs:
+            timestamp = job.started_at or job.submitted_at
             alerts.append(
                 StudioAlert(
+                    id=f"job:{job.id}:active",
                     level="info",
                     message=f"ジョブ {job.id} が実行中です",
-                    age=_relative_age(job.started_at or job.submitted_at, now=now),
+                    age=_relative_age(timestamp, now=now),
+                    occurred_at=_occurred_at(timestamp),
                 )
             )
         fallback_active_count = len(active) - len(active_jobs)
         if fallback_active_count > 0:
             alerts.append(
                 StudioAlert(
+                    id="job:external-active",
                     level="info",
                     message=f"{fallback_active_count}件の外部ジョブが実行中です",
                     age="現在",
@@ -271,6 +292,16 @@ class OverviewService:
             if latest_payload is None
             else _stability_points(latest_payload.get("folds"))
         )
+        latest_run = runs[0] if runs else None
+        evidence_root = (
+            None
+            if latest_run is None
+            else self.runs.resolve_for_evidence(latest_run.id)
+        )
+        evidence = summarize_overview_evidence(
+            evidence_root,
+            run_resource_id=None if latest_run is None else latest_run.id,
+        )
         reasons = ["直接取引所への注文ルーティングは実装されていません"]
         if not valid_runs:
             reasons.append("検証済みrunがありません")
@@ -279,10 +310,11 @@ class OverviewService:
         reasons.append("リリース承認とpaper reconciliationは未完了です")
         return StudioOverview(
             system=self.system.snapshot(),
-            latest_dataset=valid_datasets[0] if valid_datasets else None,
+            latest_dataset=datasets[0] if datasets else None,
             active_jobs=active,
-            runs=valid_runs[:4],
+            runs=runs[:4],
             alerts=tuple(alerts[:50]),
+            evidence=evidence,
             equity=equity,
             stability=stability,
             assessment=ProductionAssessment(reasons=tuple(reasons)),

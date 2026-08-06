@@ -14,6 +14,7 @@ _TIMEFRAMES = ("15m", "1h", "4h", "1d")
 _ARCHITECTURE_SCHEMA = "hierarchical_sequence_policy_v4"
 _ASSET_BINDING_SCHEMA = "sequence_asset_binding_v1"
 _ASSET_IDENTITY_MODE = "identity_free_v1"
+_SINGLE_SYMBOL_FUSION = "single_symbol_bypass_v1"
 
 
 def _required_dilations(window_length: int) -> tuple[int, ...]:
@@ -57,6 +58,7 @@ class SequenceArchitectureIdentity:
     asset_ffn_multiplier: int
     asset_gate_bias: float
     dropout: float
+    asset_fusion_mode: str | None = None
     asset_identity_mode: str = _ASSET_IDENTITY_MODE
     timeframes: tuple[str, ...] = _TIMEFRAMES
     schema_version: str = _ARCHITECTURE_SCHEMA
@@ -80,12 +82,17 @@ class SequenceArchitectureIdentity:
                 raise ValueError(f"{field_name} must match maintained timeframes")
         if isinstance(self.n_symbols, bool) or self.n_symbols <= 0:
             raise ValueError("n_symbols must be a positive integer")
+        if self.n_symbols == 1:
+            if self.asset_fusion_mode != _SINGLE_SYMBOL_FUSION:
+                raise ValueError("single-symbol architecture requires bypass identity")
+        elif self.asset_fusion_mode is not None:
+            raise ValueError("multi-symbol architecture cannot use single-symbol fusion")
         for window, dilations in zip(self.window_lengths, self.dilations, strict=True):
             if 1 + 2 * sum(dilations) < window:
                 raise ValueError("dilation schedule does not cover declared window")
 
     def digest_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "asset_attention_heads": self.asset_attention_heads,
             "asset_attention_layers": self.asset_attention_layers,
             "asset_ffn_multiplier": self.asset_ffn_multiplier,
@@ -108,6 +115,9 @@ class SequenceArchitectureIdentity:
             "timeframes": self.timeframes,
             "window_lengths": self.window_lengths,
         }
+        if self.asset_fusion_mode is not None:
+            payload["asset_fusion_mode"] = self.asset_fusion_mode
+        return payload
 
     @property
     def digest(self) -> str:
@@ -189,6 +199,9 @@ def sequence_architecture_identity(
         asset_ffn_multiplier=architecture.asset_ffn_multiplier,
         asset_gate_bias=architecture.asset_gate_bias,
         dropout=architecture.dropout,
+        asset_fusion_mode=(
+            _SINGLE_SYMBOL_FUSION if architecture.n_symbols == 1 else None
+        ),
     )
 
 

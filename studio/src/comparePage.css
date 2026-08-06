@@ -90,6 +90,13 @@
   place-items: center;
 }
 
+.compare-workspace-page .comparison-point-readout {
+  top: 34px;
+  right: auto;
+  left: 68px;
+  max-width: calc(82% - 68px);
+}
+
 .comparison-inspector {
   position: absolute;
   z-index: 30;
@@ -147,4 +154,8 @@
   .compare-control-bar { grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr); }
   .compare-eligibility { grid-column: 1 / -1; }
   .compare-verdict-ribbon { gap: 10px; }
+  .compare-workspace-page .comparison-point-readout {
+    max-width: calc(80% - 68px);
+    flex-wrap: wrap;
+  }
 }

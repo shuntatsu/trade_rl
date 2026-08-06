@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -16,7 +16,7 @@ describe('DashboardPage', () => {
     expect(screen.getByRole('heading', { name: 'Action Queue' })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { pressed: false }).length).toBeGreaterThanOrEqual(5)
     expect(screen.queryByText('システム概要')).not.toBeInTheDocument()
-    expect(screen.getByText('ReleaseはNO-GOです')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: '次の安全な操作' })).getByText('ReleaseはNO-GOです')).toBeInTheDocument()
   })
 
   it('commits a stage with click and persists it in the URL', async () => {

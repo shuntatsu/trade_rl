@@ -18,10 +18,10 @@ export function DashboardReadinessPipeline({ stages, activeStage, committedStage
   }
   return (
     <section className="dashboard-pipeline-panel" aria-labelledby="readiness-pipeline-title">
-      <header className="dashboard-section-header">
+      <div className="dashboard-section-header">
         <div><span>RESEARCH DEPENDENCY</span><h2 id="readiness-pipeline-title">Research Readiness Pipeline</h2></div>
         <small>状態は進捗率ではなく、依存関係と検証結果です。</small>
-      </header>
+      </div>
       <ol className="dashboard-pipeline" aria-label="研究準備ステージ">
         {stages.map((stage, index) => (
           <li key={stage.key} className={`dashboard-pipeline__item dashboard-pipeline__item--${stage.state.toLowerCase()}`}>

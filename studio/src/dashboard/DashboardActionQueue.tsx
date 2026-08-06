@@ -21,10 +21,10 @@ export function DashboardActionQueue({ decisions, activeDecisionId, committedDec
   }
   return (
     <section className="dashboard-queue-panel" aria-labelledby="dashboard-queue-title">
-      <header className="dashboard-section-header dashboard-section-header--compact">
+      <div className="dashboard-section-header dashboard-section-header--compact">
         <div><span>RANKED</span><h2 id="dashboard-queue-title">Action Queue</h2></div>
         <strong>{decisions.length}</strong>
-      </header>
+      </div>
       {decisions.length === 0 ? <div className="dashboard-queue-empty"><ListChecks size={24} aria-hidden="true" />判断項目はありません。</div> : null}
       <ol className="dashboard-queue">
         {decisions.map((decision, index) => {

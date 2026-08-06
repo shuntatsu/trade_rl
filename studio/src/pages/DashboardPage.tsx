@@ -92,14 +92,14 @@ export function DashboardPage({ overview, freshness = 'LIVE', sourceError = null
 
   return (
     <section className="dashboard-cockpit" aria-labelledby="dashboard-cockpit-title">
-      <header className="dashboard-cockpit__header">
+      <div className="dashboard-cockpit__header">
         <div><span className="dashboard-eyebrow">RESEARCH DECISION COCKPIT</span><h1 id="dashboard-cockpit-title">次に直すべき一点を特定する</h1><p>DataからReleaseまで、検証済みの契約だけで安全な次の操作を決めます。</p></div>
         <div className="dashboard-cockpit__status">
           <span className={`dashboard-freshness dashboard-freshness--${freshness.toLowerCase()}`} title={sourceError ?? undefined}>{freshness}</span>
           <span className="dashboard-no-go"><ShieldAlert size={15} aria-hidden="true" />NO-GO</span>
           <button ref={environmentTrigger} type="button" className="dashboard-environment-trigger" onClick={() => setEnvironmentOpen(true)}><Settings2 size={15} aria-hidden="true" />Environment <kbd>E</kbd></button>
         </div>
-      </header>
+      </div>
 
       <DashboardDecisionRibbon decision={displayedDecision} onAction={executeAction} />
 

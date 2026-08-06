@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { RunComparison } from '../data/types'
 import {
+  buildComparisonDirectLabels,
   buildComparisonWorkspaceModel,
   summarizeComparisonRange,
 } from './comparisonWorkspaceModel'
@@ -54,6 +55,13 @@ describe('comparisonWorkspaceModel', () => {
     const positions = model.directLabels.map((item) => item.position)
     expect(new Set(positions.map((item) => item.toFixed(4))).size).toBe(positions.length)
     expect(positions.every((item) => item >= 0 && item <= 1)).toBe(true)
+  })
+
+  it('builds direct labels from the visible endpoint rather than the global final point', () => {
+    const model = buildComparisonWorkspaceModel(comparison)
+    const labels = buildComparisonDirectLabels(model.points[2], model.wealthDomain)
+    expect(labels.find((item) => item.key === 'right')?.value).toBe(1.04)
+    expect(labels.find((item) => item.key === 'right')?.value).not.toBe(1.08)
   })
 
   it('summarizes a selected ordinal range without claiming wall-clock time', () => {

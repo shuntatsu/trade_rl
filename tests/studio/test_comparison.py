@@ -101,7 +101,10 @@ def test_compare_runs_returns_comparable_aligned_metrics(tmp_path: Path) -> None
     assert result.eligibility.status == "COMPARABLE"
     metrics = {item.key: item for item in result.metrics}
     assert metrics["total_return"].delta == pytest.approx(0.15)
+    assert result.wealth[0].label == "start"
+    assert result.wealth[0].fold_index is None
     assert result.wealth[1].label == "10"
+    assert result.wealth[1].fold_index == 0
     assert result.wealth[-1].right > result.wealth[-1].left
     assert result.left_resource_id == left_resolved.summary.id
 
@@ -117,6 +120,7 @@ def test_compare_runs_marks_legacy_missing_ranges_partial(tmp_path: Path) -> Non
     assert result.eligibility.status == "PARTIALLY_COMPARABLE"
     assert any("test ranges" in reason for reason in result.eligibility.reasons)
     assert result.metrics
+    assert [point.fold_index for point in result.wealth] == [None, 0, 0]
 
 
 def test_compare_runs_fails_closed_for_different_datasets(tmp_path: Path) -> None:

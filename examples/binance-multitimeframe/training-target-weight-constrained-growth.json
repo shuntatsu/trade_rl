@@ -5,7 +5,7 @@
     "n_factors": 0,
     "residual_scale": 1.0,
     "risk_tilt_enabled": false,
-    "target_weight_count": 3,
+    "target_weight_count": 1,
     "validation_mode": "clip"
   },
   "alpha_contract": {
@@ -96,7 +96,7 @@
     "torchscript": false
   },
   "portfolio_risk": {
-    "max_abs_weight": 0.45,
+    "max_abs_weight": 1.0,
     "max_net_exposure": 1.0,
     "max_position_to_market_notional": 0.02
   },
@@ -119,7 +119,7 @@
     "emergency_turnover_override": true,
     "entry_threshold": 0.1,
     "exit_threshold": 0.03,
-    "max_abs_weight": 0.45,
+    "max_abs_weight": 1.0,
     "max_gross": 1.0,
     "max_turnover": null,
     "no_trade_band": 0.05

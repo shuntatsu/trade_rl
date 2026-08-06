@@ -49,6 +49,7 @@ export function Sidebar({ active, onSelect }: SidebarProps) {
             <button
               key={item.id}
               type="button"
+              aria-label={item.label}
               aria-current={active === item.id ? 'page' : undefined}
               className={`nav-item ${active === item.id ? 'nav-item--active' : ''}`}
               onClick={() => onSelect(item.id)}

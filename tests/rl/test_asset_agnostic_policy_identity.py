@@ -16,14 +16,16 @@ from trade_rl.rl.sequence_architecture import (
 from trade_rl.rl.sequence_policy import SequencePolicyArchitecture
 
 
-def _architecture(*, timeframe_layers: int = 1) -> SequencePolicyArchitecture:
+def _architecture(
+    *, timeframe_layers: int = 1, n_symbols: int = 3
+) -> SequencePolicyArchitecture:
     return SequencePolicyArchitecture(
         input_channels={"15m": 3, "1h": 3, "4h": 3, "1d": 3},
         window_lengths={"15m": 4, "1h": 4, "4h": 4, "1d": 4},
         latent_dims={"15m": 8, "1h": 8, "4h": 8, "1d": 8},
         asset_state_width=4,
         snapshot_width=8,
-        n_symbols=3,
+        n_symbols=n_symbols,
         d_model=24,
         timeframe_attention_heads=4,
         timeframe_attention_layers=timeframe_layers,
@@ -124,6 +126,33 @@ def test_policy_architecture_compatibility_rejects_real_model_drift() -> None:
 
     with pytest.raises(ValueError, match="architecture compatibility"):
         validate_sb3_policy_architecture_compatibility(drifted, expected)
+
+
+def test_three_symbol_checkpoint_is_incompatible_with_one_symbol_policy() -> None:
+    one_symbol_model = _model(_architecture(n_symbols=1))
+    one_symbol_identity = bind_sb3_policy_identity(
+        one_symbol_model,
+        _assembly(("BTCUSDT",)),
+    )
+    three_symbol_model = _model(_architecture(n_symbols=3))
+    three_symbol_identity = bind_sb3_policy_identity(
+        three_symbol_model,
+        _assembly(("BTCUSDT", "ETHUSDT", "BNBUSDT")),
+    )
+
+    assert one_symbol_identity["sequence_architecture_digest"] != (
+        three_symbol_identity["sequence_architecture_digest"]
+    )
+    assert one_symbol_identity["asset_binding_digest"] != (
+        three_symbol_identity["asset_binding_digest"]
+    )
+    with pytest.raises(ValueError, match="architecture compatibility"):
+        validate_sb3_policy_architecture_compatibility(
+            three_symbol_identity,
+            one_symbol_identity,
+        )
+    with pytest.raises(ValueError, match="architecture identity mismatch"):
+        validate_model_sb3_policy_identity(three_symbol_model, one_symbol_identity)
 
 
 def test_asset_binding_rejects_non_target_weight_action_names() -> None:

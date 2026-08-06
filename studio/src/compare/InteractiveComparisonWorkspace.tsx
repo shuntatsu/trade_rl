@@ -1,5 +1,13 @@
 import { Maximize2, MousePointer2, RotateCcw } from 'lucide-react'
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type WheelEvent,
+} from 'react'
 
 import type {
   ComparisonFoldSpan,
@@ -42,6 +50,7 @@ const DELTA_TOP = 370
 const DELTA_BOTTOM = 492
 const FOLD_TOP = 520
 const FOLD_HEIGHT = 24
+const FALLBACK_POINTER_ID = 1
 
 const SERIES: Array<{ key: ComparisonSeriesKey; className: string }> = [
   { key: 'leftBaseline', className: 'comparison-line comparison-line--left-baseline' },
@@ -52,6 +61,14 @@ const SERIES: Array<{ key: ComparisonSeriesKey; className: string }> = [
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value))
+}
+
+function finiteCoordinate(value: number | undefined, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function normalizedPointerId(value: number | undefined): number {
+  return typeof value === 'number' && Number.isInteger(value) ? value : FALLBACK_POINTER_ID
 }
 
 function y(value: number, domain: NumericDomain, top: number, bottom: number): number {
@@ -101,15 +118,29 @@ function selectedIndex(
   committedPoint: number | null,
   previewPoint: number | null,
 ): number {
-  return clamp(previewPoint ?? committedPoint ?? model.points.length - 1, 0, Math.max(0, model.points.length - 1))
+  return clamp(
+    previewPoint ?? committedPoint ?? model.points.length - 1,
+    0,
+    Math.max(0, model.points.length - 1),
+  )
 }
 
 function summaryText(summary: ComparisonRangeSummary): string {
-  const winner = summary.winner === 'right' ? 'RIGHT' : summary.winner === 'left' ? 'LEFT' : summary.winner === 'tie' ? 'TIE' : 'UNKNOWN'
+  const winner = summary.winner === 'right'
+    ? 'RIGHT'
+    : summary.winner === 'left'
+      ? 'LEFT'
+      : summary.winner === 'tie'
+        ? 'TIE'
+        : 'UNKNOWN'
   return `${summary.startLabel} → ${summary.endLabel} · relative ${percent(summary.relativeReturn)} · ${winner}`
 }
 
-function foldWidth(span: ComparisonFoldSpan, visibleStart: number, visibleEnd: number): { left: number; width: number } | null {
+function foldWidth(
+  span: ComparisonFoldSpan,
+  visibleStart: number,
+  visibleEnd: number,
+): { left: number; width: number } | null {
   const start = Math.max(span.startIndex, visibleStart)
   const end = Math.min(span.endIndex, visibleEnd)
   if (end < start) return null
@@ -132,19 +163,34 @@ export function InteractiveComparisonWorkspace({
   const [draftRange, setDraftRange] = useState<ComparisonRangeSelection | null>(null)
   const drag = useRef<DragState | null>(null)
 
+  useEffect(() => {
+    setVisible({ start: 0, end: maximumIndex })
+    setPreviewPoint(null)
+    setDraftRange(null)
+    drag.current = null
+  }, [maximumIndex, model.leftRunId, model.rightRunId])
+
   const currentIndex = selectedIndex(model, committedPoint, previewPoint)
   const current = model.points[currentIndex]
   const effectiveRange = draftRange ?? committedRange
   const rangeSummary = useMemo(
-    () => effectiveRange ? summarizeComparisonRange(model, effectiveRange.start, effectiveRange.end) : null,
+    () => effectiveRange
+      ? summarizeComparisonRange(model, effectiveRange.start, effectiveRange.end)
+      : null,
     [effectiveRange, model],
   )
 
-  const indexAtClientX = (clientX: number, target: HTMLElement): number => {
+  const indexAtClientX = (rawClientX: number | undefined, target: HTMLElement): number => {
     const bounds = target.getBoundingClientRect()
-    const coordinate = clamp(clientX - bounds.left, PLOT_LEFT, PLOT_RIGHT)
+    const left = finiteCoordinate(bounds.left)
+    const clientX = finiteCoordinate(rawClientX, left + PLOT_LEFT)
+    const coordinate = clamp(clientX - left, PLOT_LEFT, PLOT_RIGHT)
     const ratio = (coordinate - PLOT_LEFT) / PLOT_WIDTH
-    return Math.round(visible.start + ratio * Math.max(1, visible.end - visible.start))
+    return clamp(
+      Math.round(visible.start + ratio * Math.max(1, visible.end - visible.start)),
+      visible.start,
+      visible.end,
+    )
   }
 
   const reset = () => {
@@ -155,11 +201,17 @@ export function InteractiveComparisonWorkspace({
 
   const pointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || model.points.length === 0) return
+    const pointerId = normalizedPointerId(event.pointerId)
+    const originX = finiteCoordinate(event.clientX)
     const originIndex = indexAtClientX(event.clientX, event.currentTarget)
-    event.currentTarget.setPointerCapture(event.pointerId)
+    try {
+      event.currentTarget.setPointerCapture?.(pointerId)
+    } catch {
+      // Pointer capture can be unavailable in synthetic DOM environments.
+    }
     drag.current = {
-      pointerId: event.pointerId,
-      originX: event.clientX,
+      pointerId,
+      originX,
       originIndex,
       startVisible: visible.start,
       endVisible: visible.end,
@@ -169,31 +221,45 @@ export function InteractiveComparisonWorkspace({
   }
 
   const pointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const clientX = finiteCoordinate(event.clientX)
     const index = indexAtClientX(event.clientX, event.currentTarget)
     setPreviewPoint(index)
     const state = drag.current
-    if (!state || state.pointerId !== event.pointerId) return
-    if (Math.abs(event.clientX - state.originX) >= 4) state.moved = true
+    if (!state || state.pointerId !== normalizedPointerId(event.pointerId)) return
+    if (Math.abs(clientX - state.originX) >= 4) state.moved = true
     if (rangeMode) {
       setDraftRange({ start: state.originIndex, end: index })
       return
     }
     if (!state.moved) return
     const bounds = event.currentTarget.getBoundingClientRect()
-    const pointsPerPixel = Math.max(1, state.endVisible - state.startVisible) / Math.max(1, bounds.width)
-    const shift = Math.round((state.originX - event.clientX) * pointsPerPixel)
+    const width = Math.max(1, finiteCoordinate(bounds.width, 1))
+    const pointsPerPixel = Math.max(1, state.endVisible - state.startVisible) / width
+    const shift = Math.round((state.originX - clientX) * pointsPerPixel)
     const span = state.endVisible - state.startVisible
-    const start = clamp(state.startVisible + shift, 0, Math.max(0, maximumIndex - span))
+    const start = clamp(
+      state.startVisible + shift,
+      0,
+      Math.max(0, maximumIndex - span),
+    )
     setVisible({ start, end: start + span })
   }
 
   const pointerUp = (event: PointerEvent<HTMLDivElement>) => {
     const state = drag.current
-    if (!state || state.pointerId !== event.pointerId) return
-    event.currentTarget.releasePointerCapture(event.pointerId)
+    const pointerId = normalizedPointerId(event.pointerId)
+    if (!state || state.pointerId !== pointerId) return
+    try {
+      event.currentTarget.releasePointerCapture?.(pointerId)
+    } catch {
+      // Pointer capture can be unavailable in synthetic DOM environments.
+    }
     const index = indexAtClientX(event.clientX, event.currentTarget)
     if (rangeMode) {
-      const selection = { start: Math.min(state.originIndex, index), end: Math.max(state.originIndex, index) }
+      const selection = {
+        start: Math.min(state.originIndex, index),
+        end: Math.max(state.originIndex, index),
+      }
       setDraftRange(null)
       onCommitRange(selection)
     } else if (!state.moved) {
@@ -206,10 +272,19 @@ export function InteractiveComparisonWorkspace({
     if (model.points.length <= 2) return
     event.preventDefault()
     const anchor = indexAtClientX(event.clientX, event.currentTarget)
-    const currentSpan = Math.max(2, visible.end - visible.start)
-    const nextSpan = clamp(Math.round(currentSpan * (event.deltaY < 0 ? 0.75 : 1.3)), 2, maximumIndex)
+    const currentSpan = Math.max(1, visible.end - visible.start)
+    const minimumSpan = Math.min(2, maximumIndex)
+    const nextSpan = clamp(
+      Math.round(currentSpan * (event.deltaY < 0 ? 0.75 : 1.3)),
+      minimumSpan,
+      maximumIndex,
+    )
     const ratio = currentSpan === 0 ? 0.5 : (anchor - visible.start) / currentSpan
-    const start = clamp(Math.round(anchor - ratio * nextSpan), 0, Math.max(0, maximumIndex - nextSpan))
+    const start = clamp(
+      Math.round(anchor - ratio * nextSpan),
+      0,
+      Math.max(0, maximumIndex - nextSpan),
+    )
     setVisible({ start, end: start + nextSpan })
   }
 
@@ -232,14 +307,27 @@ export function InteractiveComparisonWorkspace({
   }
 
   const selectFold = (span: ComparisonFoldSpan) => {
-    setVisible({ start: span.startIndex, end: Math.max(span.startIndex + 1, span.endIndex) })
+    setVisible({
+      start: span.startIndex,
+      end: Math.max(span.startIndex + 1, span.endIndex),
+    })
     onCommitRange({ start: span.startIndex, end: span.endIndex })
   }
 
-  if (!model.points.length) return <div className="comparison-workspace-empty">比較可能なwealth系列がありません。</div>
+  if (!model.points.length) {
+    return <div className="comparison-workspace-empty">比較可能なwealth系列がありません。</div>
+  }
 
-  const selectionLeft = effectiveRange ? x(Math.min(effectiveRange.start, effectiveRange.end), visible.start, visible.end) : null
-  const selectionRight = effectiveRange ? x(Math.max(effectiveRange.start, effectiveRange.end), visible.start, visible.end) : null
+  const rangeStart = effectiveRange
+    ? Math.max(visible.start, Math.min(effectiveRange.start, effectiveRange.end))
+    : null
+  const rangeEnd = effectiveRange
+    ? Math.min(visible.end, Math.max(effectiveRange.start, effectiveRange.end))
+    : null
+  const selectionVisible = rangeStart !== null && rangeEnd !== null && rangeStart <= rangeEnd
+  const selectionLeft = selectionVisible ? x(rangeStart, visible.start, visible.end) : null
+  const selectionRight = selectionVisible ? x(rangeEnd, visible.start, visible.end) : null
+  const crosshairIndex = clamp(currentIndex, visible.start, visible.end)
 
   return (
     <section className="comparison-workspace-shell" aria-label="Interactive run comparison">
@@ -250,8 +338,16 @@ export function InteractiveComparisonWorkspace({
           <span className="comparison-key comparison-key--baseline">Dashed = baseline</span>
         </div>
         <div className="comparison-workspace-actions">
-          <button type="button" aria-pressed={rangeMode} onClick={() => setRangeMode((currentMode) => !currentMode)}><Maximize2 size={14} aria-hidden="true" />Range</button>
-          <button type="button" aria-label="Reset view" onClick={reset}><RotateCcw size={14} aria-hidden="true" />Reset</button>
+          <button
+            type="button"
+            aria-pressed={rangeMode}
+            onClick={() => setRangeMode((currentMode) => !currentMode)}
+          >
+            <Maximize2 size={14} aria-hidden="true" />Range
+          </button>
+          <button type="button" aria-label="Reset view" onClick={reset}>
+            <RotateCcw size={14} aria-hidden="true" />Reset
+          </button>
         </div>
       </div>
 
@@ -271,32 +367,128 @@ export function InteractiveComparisonWorkspace({
         onKeyDown={keyDown}
       >
         <svg viewBox={`0 0 ${WIDTH} 560`} preserveAspectRatio="none" aria-hidden="true">
-          <rect x={PLOT_LEFT} y={WEALTH_TOP} width={PLOT_WIDTH} height={WEALTH_BOTTOM - WEALTH_TOP} className="comparison-pane-background" />
-          <rect x={PLOT_LEFT} y={DELTA_TOP} width={PLOT_WIDTH} height={DELTA_BOTTOM - DELTA_TOP} className="comparison-pane-background" />
-          <g aria-label="Cumulative wealth pane" data-pane="wealth">
-            <line x1={PLOT_LEFT} y1={y(1, model.wealthDomain, WEALTH_TOP, WEALTH_BOTTOM)} x2={PLOT_RIGHT} y2={y(1, model.wealthDomain, WEALTH_TOP, WEALTH_BOTTOM)} className="comparison-reference" />
-            {SERIES.map((series) => <path key={series.key} d={pathFor(model, series.key, visible.start, visible.end, model.wealthDomain, WEALTH_TOP, WEALTH_BOTTOM)} className={series.className} data-series={series.key} />)}
+          <rect
+            x={PLOT_LEFT}
+            y={WEALTH_TOP}
+            width={PLOT_WIDTH}
+            height={WEALTH_BOTTOM - WEALTH_TOP}
+            className="comparison-pane-background"
+          />
+          <rect
+            x={PLOT_LEFT}
+            y={DELTA_TOP}
+            width={PLOT_WIDTH}
+            height={DELTA_BOTTOM - DELTA_TOP}
+            className="comparison-pane-background"
+          />
+          <g data-pane="wealth">
+            <line
+              x1={PLOT_LEFT}
+              y1={y(1, model.wealthDomain, WEALTH_TOP, WEALTH_BOTTOM)}
+              x2={PLOT_RIGHT}
+              y2={y(1, model.wealthDomain, WEALTH_TOP, WEALTH_BOTTOM)}
+              className="comparison-reference"
+            />
+            {SERIES.map((series) => (
+              <path
+                key={series.key}
+                d={pathFor(
+                  model,
+                  series.key,
+                  visible.start,
+                  visible.end,
+                  model.wealthDomain,
+                  WEALTH_TOP,
+                  WEALTH_BOTTOM,
+                )}
+                className={series.className}
+                data-series={series.key}
+              />
+            ))}
           </g>
-          <g aria-label="Right minus Left pane" data-pane="delta">
-            <line x1={PLOT_LEFT} y1={y(0, model.deltaDomain, DELTA_TOP, DELTA_BOTTOM)} x2={PLOT_RIGHT} y2={y(0, model.deltaDomain, DELTA_TOP, DELTA_BOTTOM)} className="comparison-reference comparison-reference--zero" />
-            <path d={pathFor(model, 'delta', visible.start, visible.end, model.deltaDomain, DELTA_TOP, DELTA_BOTTOM)} className="comparison-delta-line" data-series="delta" />
+          <g data-pane="delta">
+            <line
+              x1={PLOT_LEFT}
+              y1={y(0, model.deltaDomain, DELTA_TOP, DELTA_BOTTOM)}
+              x2={PLOT_RIGHT}
+              y2={y(0, model.deltaDomain, DELTA_TOP, DELTA_BOTTOM)}
+              className="comparison-reference comparison-reference--zero"
+            />
+            <path
+              d={pathFor(
+                model,
+                'delta',
+                visible.start,
+                visible.end,
+                model.deltaDomain,
+                DELTA_TOP,
+                DELTA_BOTTOM,
+              )}
+              className="comparison-delta-line"
+              data-series="delta"
+            />
           </g>
-          {selectionLeft !== null && selectionRight !== null ? <rect x={Math.min(selectionLeft, selectionRight)} y={WEALTH_TOP} width={Math.max(2, Math.abs(selectionRight - selectionLeft))} height={DELTA_BOTTOM - WEALTH_TOP} className="comparison-range-band" /> : null}
-          <line x1={x(currentIndex, visible.start, visible.end)} y1={WEALTH_TOP} x2={x(currentIndex, visible.start, visible.end)} y2={DELTA_BOTTOM} className="comparison-crosshair" />
+          {selectionLeft !== null && selectionRight !== null ? (
+            <rect
+              x={Math.min(selectionLeft, selectionRight)}
+              y={WEALTH_TOP}
+              width={Math.max(2, Math.abs(selectionRight - selectionLeft))}
+              height={DELTA_BOTTOM - WEALTH_TOP}
+              className="comparison-range-band"
+            />
+          ) : null}
+          <line
+            x1={x(crosshairIndex, visible.start, visible.end)}
+            y1={WEALTH_TOP}
+            x2={x(crosshairIndex, visible.start, visible.end)}
+            y2={DELTA_BOTTOM}
+            className="comparison-crosshair"
+          />
           <g data-pane="folds">
             {model.foldSpans.map((span) => {
               const geometry = foldWidth(span, visible.start, visible.end)
-              return geometry ? <rect key={span.foldIndex} x={geometry.left} y={FOLD_TOP} width={geometry.width} height={FOLD_HEIGHT} className={`comparison-fold-band comparison-fold-band--${span.foldIndex % 2}`} /> : null
+              return geometry ? (
+                <rect
+                  key={span.foldIndex}
+                  x={geometry.left}
+                  y={FOLD_TOP}
+                  width={geometry.width}
+                  height={FOLD_HEIGHT}
+                  className={`comparison-fold-band comparison-fold-band--${span.foldIndex % 2}`}
+                />
+              ) : null
             })}
           </g>
         </svg>
 
-        <div className="comparison-pane-label comparison-pane-label--wealth" aria-label="Cumulative wealth pane">Cumulative wealth</div>
-        <div className="comparison-pane-label comparison-pane-label--delta" aria-label="Right minus Left pane">Right − Left</div>
-        <div className="comparison-axis comparison-axis--wealth"><span>{model.wealthDomain.maximum.toFixed(3)}</span><span>1.000</span><span>{model.wealthDomain.minimum.toFixed(3)}</span></div>
-        <div className="comparison-axis comparison-axis--delta"><span>{model.deltaDomain.maximum.toFixed(3)}</span><span>0.000</span><span>{model.deltaDomain.minimum.toFixed(3)}</span></div>
+        <div
+          className="comparison-pane-label comparison-pane-label--wealth"
+          aria-label="Cumulative wealth pane"
+        >
+          Cumulative wealth
+        </div>
+        <div
+          className="comparison-pane-label comparison-pane-label--delta"
+          aria-label="Right minus Left pane"
+        >
+          Right − Left
+        </div>
+        <div className="comparison-axis comparison-axis--wealth">
+          <span>{model.wealthDomain.maximum.toFixed(3)}</span><span>1.000</span><span>{model.wealthDomain.minimum.toFixed(3)}</span>
+        </div>
+        <div className="comparison-axis comparison-axis--delta">
+          <span>{model.deltaDomain.maximum.toFixed(3)}</span><span>0.000</span><span>{model.deltaDomain.minimum.toFixed(3)}</span>
+        </div>
         <div className="comparison-direct-labels" aria-label="latest series values">
-          {model.directLabels.map((label) => <span key={label.key} className={`comparison-direct-label comparison-direct-label--${label.key}`} style={{ top: `${WEALTH_TOP + label.position * (WEALTH_BOTTOM - WEALTH_TOP)}px` }}>{label.label} {label.value.toFixed(4)}</span>)}
+          {model.directLabels.map((label) => (
+            <span
+              key={label.key}
+              className={`comparison-direct-label comparison-direct-label--${label.key}`}
+              style={{ top: `${WEALTH_TOP + label.position * (WEALTH_BOTTOM - WEALTH_TOP)}px` }}
+            >
+              {label.label} {label.value.toFixed(4)}
+            </span>
+          ))}
         </div>
         <div className="comparison-point-readout" aria-live="polite">
           <MousePointer2 size={14} aria-hidden="true" />
@@ -305,7 +497,11 @@ export function InteractiveComparisonWorkspace({
           <span>Right {format(current?.right ?? null)}</span>
           <span>Δ {format(current?.delta ?? null)}</span>
         </div>
-        {rangeSummary ? <div className="comparison-range-readout" aria-live="polite">{summaryText(rangeSummary)}</div> : null}
+        {rangeSummary ? (
+          <div className="comparison-range-readout" aria-live="polite">
+            {summaryText(rangeSummary)}
+          </div>
+        ) : null}
       </div>
 
       <div className="comparison-fold-strip" aria-label="Fold comparison strip">
@@ -320,8 +516,24 @@ export function InteractiveComparisonWorkspace({
 
       <table className="sr-only">
         <caption>Run comparison values by sealed evaluation index</caption>
-        <thead><tr><th>Index</th><th>Fold</th><th>Left</th><th>Right</th><th>Left baseline</th><th>Right baseline</th><th>Right minus Left</th></tr></thead>
-        <tbody>{model.points.map((point) => <tr key={`${point.index}-${point.label}`}><th>{point.label}</th><td>{point.foldIndex ?? 'start'}</td><td>{format(point.left)}</td><td>{format(point.right)}</td><td>{format(point.leftBaseline)}</td><td>{format(point.rightBaseline)}</td><td>{format(point.delta)}</td></tr>)}</tbody>
+        <thead>
+          <tr>
+            <th>Index</th><th>Fold</th><th>Left</th><th>Right</th><th>Left baseline</th><th>Right baseline</th><th>Right minus Left</th>
+          </tr>
+        </thead>
+        <tbody>
+          {model.points.map((point) => (
+            <tr key={`${point.index}-${point.label}`}>
+              <th>{point.label}</th>
+              <td>{point.foldIndex ?? 'start'}</td>
+              <td>{format(point.left)}</td>
+              <td>{format(point.right)}</td>
+              <td>{format(point.leftBaseline)}</td>
+              <td>{format(point.rightBaseline)}</td>
+              <td>{format(point.delta)}</td>
+            </tr>
+          ))}
+        </tbody>
       </table>
     </section>
   )

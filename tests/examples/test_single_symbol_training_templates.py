@@ -19,7 +19,6 @@ TRAINING_PROFILES = (
 WALK_FORWARD_PROFILES = (
     "walk-forward-full.json",
     "walk-forward-target-weight-constrained-growth.json",
-    "walk-forward-constrained-growth.json",
 )
 
 

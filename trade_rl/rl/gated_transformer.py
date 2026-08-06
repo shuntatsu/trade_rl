@@ -167,6 +167,8 @@ class GatedTransformerStack(nn.Module):
 
     def forward(self, value: torch.Tensor, *, valid: torch.Tensor) -> torch.Tensor:
         value, valid = self._validated_inputs(value, valid)
+        if value.shape[1] == 1:
+            return value
         for block in self.blocks:
             value = block(value, valid=valid)
         value = self.output_norm(value)
@@ -179,6 +181,8 @@ class GatedTransformerStack(nn.Module):
         valid: torch.Tensor,
     ) -> tuple[torch.Tensor, tuple[torch.Tensor, ...]]:
         value, valid = self._validated_inputs(value, valid)
+        if value.shape[1] == 1:
+            return value, ()
         weights: list[torch.Tensor] = []
         for block in self.blocks:
             value, block_weights = block.diagnostic_forward(value, valid=valid)

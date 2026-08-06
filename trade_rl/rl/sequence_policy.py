@@ -263,7 +263,7 @@ class SequencePolicyArchitecture:
 
 
 class MultiTimeframeAssetEncoder(nn.Module):
-    """Hierarchically fuse native-clock histories and cross-asset context."""
+    """Hierarchically fuse native-clock histories and optional asset context."""
 
     def __init__(self, architecture: SequencePolicyArchitecture) -> None:
         super().__init__()
@@ -399,13 +399,15 @@ class MultiTimeframeAssetEncoder(nn.Module):
             context=context,
         )
         asset_positions = torch.arange(assets, device=fused.device)
-
         active_mask = active.to(dtype=torch.bool)
         has_active = active_mask.any(dim=1)
         fallback = (~has_active).unsqueeze(1) & asset_positions.unsqueeze(0).eq(0)
         safe_mask = active_mask | fallback
         fused = torch.where(fallback.unsqueeze(-1), torch.zeros_like(fused), fused)
-        contextual = self.cross_asset(fused, valid=safe_mask)
+        if self.architecture.n_symbols == 1:
+            contextual = fused * safe_mask.unsqueeze(-1).to(dtype=fused.dtype)
+        else:
+            contextual = self.cross_asset(fused, valid=safe_mask)
         contextual = torch.where(
             active_mask.unsqueeze(-1), contextual, torch.zeros_like(contextual)
         )

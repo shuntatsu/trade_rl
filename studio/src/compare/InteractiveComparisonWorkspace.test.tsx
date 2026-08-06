@@ -106,9 +106,9 @@ function renderWorkspace() {
     y: 0,
     left: 0,
     top: 0,
-    right: 1000,
+    right: 500,
     bottom: 560,
-    width: 1000,
+    width: 500,
     height: 560,
     toJSON: () => ({}),
   })
@@ -130,24 +130,26 @@ describe('InteractiveComparisonWorkspace', () => {
     expect(screen.getByLabelText('Right minus Left pane')).toBeInTheDocument()
     const key = screen.getByLabelText('series key')
     expect(within(key).getByText('Right')).toBeInTheDocument()
-    expect(screen.getByLabelText('latest series values')).toHaveTextContent('Left baseline')
+    expect(screen.getByLabelText('visible endpoint series values')).toHaveTextContent(
+      'Left baseline',
+    )
   })
 
-  it('commits a point on click and moves it with ArrowRight', () => {
+  it('maps a rendered-width midpoint to the ordinal midpoint and supports ArrowRight', () => {
     const { surface, onCommitPoint } = renderWorkspace()
     fireEvent.pointerDown(surface, {
       button: 0,
       pointerId: 1,
-      clientX: 500,
+      clientX: 250,
       clientY: 200,
     })
     fireEvent.pointerUp(surface, {
       button: 0,
       pointerId: 1,
-      clientX: 500,
+      clientX: 250,
       clientY: 200,
     })
-    expect(onCommitPoint).toHaveBeenCalled()
+    expect(onCommitPoint).toHaveBeenLastCalledWith(2)
 
     surface.focus()
     fireEvent.keyDown(surface, { key: 'ArrowRight' })
@@ -161,32 +163,27 @@ describe('InteractiveComparisonWorkspace', () => {
     fireEvent.pointerDown(surface, {
       button: 0,
       pointerId: 2,
-      clientX: 250,
+      clientX: 125,
       clientY: 200,
     })
     fireEvent.pointerMove(surface, {
       pointerId: 2,
-      clientX: 750,
+      clientX: 375,
       clientY: 200,
     })
     fireEvent.pointerUp(surface, {
       pointerId: 2,
-      clientX: 750,
+      clientX: 375,
       clientY: 200,
     })
-    expect(onCommitRange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        start: expect.any(Number),
-        end: expect.any(Number),
-      }),
-    )
+    expect(onCommitRange).toHaveBeenCalledWith({ start: 1, end: 3 })
   })
 
   it('zooms with the wheel and resets the visible range', async () => {
     const user = userEvent.setup()
     const { surface } = renderWorkspace()
     const before = surface.getAttribute('data-visible-range')
-    fireEvent.wheel(surface, { deltaY: -100, clientX: 500 })
+    fireEvent.wheel(surface, { deltaY: -100, clientX: 250 })
     expect(surface.getAttribute('data-visible-range')).not.toBe(before)
     await user.click(screen.getByRole('button', { name: 'Reset view' }))
     expect(surface.getAttribute('data-visible-range')).toBe('0:4')

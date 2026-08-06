@@ -7,7 +7,7 @@ import { DashboardPage } from './DashboardPage'
 
 describe('DashboardPage', () => {
   beforeEach(() => {
-    window.history.replaceState(null, '', 'http://localhost/?workspace=dashboard')
+    window.history.replaceState(null, '', '/?workspace=dashboard')
   })
 
   it('renders the decision cockpit instead of equal-weight overview panels', () => {

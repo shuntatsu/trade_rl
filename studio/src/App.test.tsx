@@ -7,7 +7,7 @@ import { App } from './App'
 
 const initialOverview = { source: 'demo' as const, overview: demoOverview, error: null }
 
-beforeEach(() => window.history.replaceState(null, '', 'http://localhost/?workspace=dashboard'))
+beforeEach(() => window.history.replaceState(null, '', '/?workspace=dashboard'))
 
 describe('App', () => {
   it('renders the fixed shell and Dashboard decision cockpit', () => {

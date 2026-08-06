@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { pushWorkspace, readDashboardSelection, readWorkspace, replaceDashboardSelection } from './urlState'
 
-beforeEach(() => window.history.replaceState(null, '', 'http://localhost/?workspace=dashboard'))
+beforeEach(() => window.history.replaceState(null, '', '/?workspace=dashboard'))
 
 describe('URL state', () => {
   it('reads only supported Dashboard stages', () => {
@@ -17,7 +17,7 @@ describe('URL state', () => {
   })
 
   it('pushes workspace drill-through and clears Dashboard-only state', () => {
-    window.history.replaceState(null, '', 'http://localhost/?workspace=dashboard&stage=data&decision=x')
+    window.history.replaceState(null, '', '/?workspace=dashboard&stage=data&decision=x')
     pushWorkspace('evidence', { evidenceRun: 'run-1' })
     expect(readWorkspace(window.location.search)).toBe('evidence')
     const params = new URLSearchParams(window.location.search)

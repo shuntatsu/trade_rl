@@ -183,6 +183,9 @@ export function CompareWorkspacePage({ api }: CompareWorkspacePageProps) {
       </section>
 
       <div className="compare-workspace-frame" aria-busy={workspace.loading}>
+        {workspace.loading && !workspace.comparison && !workspace.error ? (
+          <div className="runtime-empty" role="status">比較を読み込み中です…</div>
+        ) : null}
         {workspace.error ? <div className="runtime-error">{workspace.error}</div> : null}
         {!workspace.error && !workspace.comparison && !workspace.loading ? (
           <div className="runtime-empty">比較可能なRun pairがありません。</div>

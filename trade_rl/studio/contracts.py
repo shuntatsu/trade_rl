@@ -1,26 +1,28 @@
-"""Typed contracts for the local, read-only Studio API."""
+"""Typed HTTP and catalog contracts for Trade RL Studio."""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic.alias_generators import to_camel
 
 
 class StudioModel(BaseModel):
-    model_config = ConfigDict(alias_generator=lambda name: "".join(
-        word.capitalize() if index else word
-        for index, word in enumerate(name.split("_"))
-    ), populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        extra="forbid",
+    )
 
 
 class SystemMetric(StudioModel):
     label: str
-    value: float
+    value: float = Field(ge=0.0, le=100.0)
     detail: str
 
 
-class SystemOverview(StudioModel):
+class SystemSummary(StudioModel):
     gpu_name: str
     cuda_ready: bool
     python_version: str
@@ -45,14 +47,6 @@ class DatasetSummary(StudioModel):
     validation_error: str | None = None
 
 
-class ActiveJob(StudioModel):
-    id: str
-    algorithm: str
-    phase: str
-    seed_progress: str
-    progress: float = Field(ge=0.0, le=100.0)
-
-
 class RunSummary(StudioModel):
     id: str
     run_id: str
@@ -73,53 +67,6 @@ class RunSummary(StudioModel):
     validation_error: str | None = None
 
 
-class StudioAlert(StudioModel):
-    id: str
-    level: Literal["warning", "info"]
-    message: str
-    age: str
-    occurred_at: str | None = None
-
-
-class OverviewEvidenceSummary(StudioModel):
-    run_resource_id: str | None = None
-    status: Literal["VERIFIED", "INCOMPLETE", "INVALID", "UNAVAILABLE"]
-    required_count: int = Field(ge=0)
-    verified_count: int = Field(ge=0)
-    blocker_count: int = Field(ge=0)
-    updated_at: str | None = None
-
-
-class EquityPoint(StudioModel):
-    label: str
-    rl: float
-    baseline: float
-
-
-class StabilityPoint(StudioModel):
-    label: str
-    low: float
-    median: float
-    high: float
-
-
-class ResearchAssessment(StudioModel):
-    status: Literal["NO-GO"] = "NO-GO"
-    reasons: tuple[str, ...]
-
-
-class StudioOverview(StudioModel):
-    system: SystemOverview
-    latest_dataset: DatasetSummary | None = None
-    active_jobs: tuple[ActiveJob, ...]
-    runs: tuple[RunSummary, ...]
-    alerts: tuple[StudioAlert, ...]
-    evidence: OverviewEvidenceSummary
-    equity: tuple[EquityPoint, ...]
-    stability: tuple[StabilityPoint, ...]
-    assessment: ResearchAssessment
-
-
 class ConfigSummary(StudioModel):
     id: str
     config_digest: str | None = None
@@ -132,10 +79,15 @@ class ConfigSummary(StudioModel):
 
 class JobSummary(StudioModel):
     id: str
-    schema_version: Literal["studio_job_v2"]
-    kind: Literal["training"]
+    schema_version: Literal["studio_job_v2"] = "studio_job_v2"
+    kind: Literal["training"] = "training"
     status: Literal[
-        "queued", "running", "succeeded", "failed", "cancelling", "cancelled"
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelling",
+        "cancelled",
     ]
     run_id: str
     config_resource_id: str
@@ -152,14 +104,69 @@ class JobSummary(StudioModel):
     pid: int | None = None
     pid_start_token: str | None = None
     exit_code: int | None = None
-    cancellable: bool
+    cancellable: bool = False
     error: str | None = None
 
 
-class JobLogResponse(StudioModel):
-    job_id: str
-    lines: tuple[str, ...]
-    truncated: bool
+class ActiveJob(StudioModel):
+    id: str
+    algorithm: str
+    phase: str
+    seed_progress: str
+    progress: float = Field(ge=0.0, le=100.0)
+
+
+class StudioAlert(StudioModel):
+    id: str = Field(min_length=1)
+    level: Literal["warning", "info"]
+    message: str
+    age: str
+    occurred_at: str | None = None
+
+
+class EquityPoint(StudioModel):
+    label: str
+    rl: float
+    baseline: float
+
+
+class StabilityFold(StudioModel):
+    label: str
+    low: float
+    median: float
+    high: float
+
+
+class ProductionAssessment(StudioModel):
+    status: Literal["NO-GO"] = "NO-GO"
+    reasons: tuple[str, ...]
+
+
+class OverviewEvidenceSummary(StudioModel):
+    run_resource_id: str | None
+    status: Literal["VERIFIED", "INCOMPLETE", "INVALID", "UNAVAILABLE"]
+    required_count: int = Field(ge=0)
+    verified_count: int = Field(ge=0)
+    blocker_count: int = Field(ge=0)
+    updated_at: str | None = None
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> Self:
+        if self.verified_count > self.required_count:
+            raise ValueError("verified_count cannot exceed required_count")
+        return self
+
+
+class StudioOverview(StudioModel):
+    system: SystemSummary
+    latest_dataset: DatasetSummary | None
+    active_jobs: tuple[ActiveJob, ...]
+    runs: tuple[RunSummary, ...]
+    alerts: tuple[StudioAlert, ...]
+    evidence: OverviewEvidenceSummary
+    equity: tuple[EquityPoint, ...]
+    stability: tuple[StabilityFold, ...]
+    assessment: ProductionAssessment
 
 
 class ComparisonMetric(StudioModel):
@@ -168,7 +175,7 @@ class ComparisonMetric(StudioModel):
     left_value: float | None = None
     right_value: float | None = None
     delta: float | None = None
-    preference: Literal["higher", "lower", "neutral"]
+    preference: Literal["higher", "lower", "neutral"] = "neutral"
 
 
 class ConfigDifference(StudioModel):
@@ -296,36 +303,13 @@ class JobListResponse(StudioModel):
     total: int = Field(ge=0)
 
 
-__all__ = [
-    "ActiveJob",
-    "ComparisonEligibility",
-    "ComparisonMetric",
-    "ComparisonSeriesPoint",
-    "ConfigDifference",
-    "ConfigListResponse",
-    "ConfigSummary",
-    "DatasetListResponse",
-    "DatasetSummary",
-    "EquityPoint",
-    "EvidenceNode",
-    "EvidenceReport",
-    "FileIntegritySummary",
-    "FoldComparison",
-    "JobListResponse",
-    "JobLogResponse",
-    "JobSummary",
-    "OverviewEvidenceSummary",
-    "PaperInferenceSnapshot",
-    "ResearchAssessment",
-    "RunComparison",
-    "RunListResponse",
-    "RunSummary",
-    "ServingCheck",
-    "ServingMonitorReport",
-    "StabilityPoint",
-    "StudioAlert",
-    "StudioModel",
-    "StudioOverview",
-    "SystemMetric",
-    "SystemOverview",
-]
+class TrainingJobRequest(StudioModel):
+    config_resource_id: str = Field(min_length=1)
+    dataset_resource_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1, max_length=128)
+
+
+class JobLogResponse(StudioModel):
+    job_id: str
+    lines: tuple[str, ...]
+    truncated: bool

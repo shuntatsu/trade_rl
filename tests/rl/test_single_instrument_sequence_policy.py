@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import torch
-from torch import nn
 
+from trade_rl.rl.gated_transformer import GatedTransformerStack
 from trade_rl.rl.sequence_architecture import sequence_architecture_identity
 from trade_rl.rl.sequence_policy import (
     MultiTimeframeAssetEncoder,
@@ -10,11 +10,6 @@ from trade_rl.rl.sequence_policy import (
 )
 
 _TIMEFRAMES = ("15m", "1h", "4h", "1d")
-
-
-class _ForbiddenCrossAsset(nn.Module):
-    def forward(self, *args: object, **kwargs: object) -> torch.Tensor:
-        raise AssertionError("one-symbol encoder must not execute cross-asset fusion")
 
 
 def _architecture(n_symbols: int) -> SequencePolicyArchitecture:
@@ -39,9 +34,10 @@ def _architecture(n_symbols: int) -> SequencePolicyArchitecture:
     )
 
 
-def test_one_symbol_encoder_does_not_call_cross_asset_transformer() -> None:
+def test_one_symbol_encoder_does_not_build_cross_asset_transformer() -> None:
     encoder = MultiTimeframeAssetEncoder(_architecture(1)).eval()
-    encoder.cross_asset = _ForbiddenCrossAsset()
+    assert encoder.cross_asset is None
+    assert not any(name.startswith("cross_asset.") for name, _ in encoder.named_parameters())
     sequences = {
         timeframe: torch.randn(2, 1, 4, 2) for timeframe in _TIMEFRAMES
     }
@@ -69,6 +65,13 @@ def test_one_symbol_encoder_does_not_call_cross_asset_transformer() -> None:
     assert torch.count_nonzero(contextual[0]) > 0
     assert torch.count_nonzero(contextual[1]) == 0
     assert torch.count_nonzero(pooled[1]) == 0
+
+
+def test_multi_symbol_encoder_retains_cross_asset_transformer() -> None:
+    encoder = MultiTimeframeAssetEncoder(_architecture(3))
+
+    assert isinstance(encoder.cross_asset, GatedTransformerStack)
+    assert any(name.startswith("cross_asset.") for name, _ in encoder.named_parameters())
 
 
 def test_one_symbol_architecture_identity_differs_from_three_symbol_identity() -> None:

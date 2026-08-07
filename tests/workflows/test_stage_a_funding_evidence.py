@@ -50,8 +50,10 @@ def _dataset() -> MarketDataset:
     mark_price[2, 0] = 120.0
     funding_rate = np.zeros(shape, dtype=np.float64)
     funding_rate[2, 0] = 0.001
+    funding_rate[4:, 0] = 0.001
     funding_due = np.zeros(shape, dtype=np.bool_)
     funding_due[2, 0] = True
+    funding_due[4:, 0] = True
     return MarketDataset(
         dataset_id=_digest("dataset"),
         symbols=("BTCUSDT",),
@@ -177,26 +179,26 @@ def test_stage_a_rejects_funding_evidence_not_bound_to_dataset(
         )
 
 
-def test_stage_a_rejects_funding_evidence_at_half_open_stop() -> None:
+def test_stage_a_accepts_funding_evidence_at_terminal_stop() -> None:
     dataset = _dataset()
     request = _request(dataset.dataset_id)
-    stop = request.evaluation_range.stop
-    forged = FundingBoundaryEvidence(
-        processing_index=stop,
-        timestamp_ns=int(dataset.timestamps[stop].astype(np.int64)),
-        funding_due=(True,),
-        signed_quantities=(0.0,),
-        mark_prices=(100.0,),
-        contract_multipliers=(1.0,),
-        funding_rates=(0.0,),
-        funding_amount=0.0,
-        equity_before_funding=1_000.0,
-        equity_after_funding=1_000.0,
-    )
+    boundary = _boundary(dataset, index=request.evaluation_range.stop)
+
+    assert validate_stage_a_funding_evidence(
+        (boundary,),
+        request=request,
+        dataset=dataset,
+    ) == (boundary,)
+
+
+def test_stage_a_rejects_funding_evidence_after_terminal_stop() -> None:
+    dataset = _dataset()
+    request = _request(dataset.dataset_id)
+    boundary = _boundary(dataset, index=request.evaluation_range.stop + 1)
 
     with pytest.raises(ValueError, match="outside authorized range"):
         validate_stage_a_funding_evidence(
-            (forged,),
+            (boundary,),
             request=request,
             dataset=dataset,
         )

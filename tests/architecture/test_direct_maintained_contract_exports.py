@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import ast
 import inspect
-from pathlib import Path
 
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.execution import MarketExecutor as DirectMarketExecutor
 from trade_rl.simulation.execution_adapter import StatefulCompatibilityMarketExecutor
@@ -20,7 +20,6 @@ from trade_rl.telemetry.training import (
 from trade_rl.telemetry.training import (
     TrainingTelemetryWriter as DirectTrainingTelemetryWriter,
 )
-from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 
 
 def _source(path: str) -> str:

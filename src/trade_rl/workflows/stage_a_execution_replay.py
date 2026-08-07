@@ -646,6 +646,13 @@ def _validate_funding_bytes(
         raise ValueError("Stage A funding evidence execution identity mismatch")
     if funding.symbol_count != expected_symbol_count:
         raise ValueError("Stage A funding evidence symbol count mismatch")
+    evaluation_range = request.evaluation_range
+    if any(
+        boundary.processing_index < evaluation_range.start
+        or boundary.processing_index > evaluation_range.stop
+        for boundary in funding.boundaries
+    ):
+        raise ValueError("Stage A funding evidence boundary outside evaluation range")
     return (
         funding.digest,
         hashlib.sha256(funding_evidence_bytes).hexdigest(),

@@ -208,15 +208,22 @@ def _eligibility(
 
 def _series(
     payload: Mapping[str, Any] | None, field: str
-) -> tuple[list[str], list[float]]:
+) -> tuple[list[str], list[int | None], list[float]]:
     labels = ["start"]
+    fold_indices: list[int | None] = [None]
     values = [1.0]
     wealth = 1.0
     fallback_index = 0
-    for fold in _folds(payload):
+    for fallback_fold_index, fold in enumerate(_folds(payload)):
         returns = fold.get(field)
         if not isinstance(returns, list):
             continue
+        raw_fold_index = fold.get("fold_index", fallback_fold_index)
+        fold_index = (
+            int(raw_fold_index)
+            if isinstance(raw_fold_index, int) and not isinstance(raw_fold_index, bool)
+            else fallback_fold_index
+        )
         test_range = _test_range(fold)
         for offset, raw in enumerate(returns):
             value = _number(raw)
@@ -230,8 +237,9 @@ def _series(
             )
             fallback_index += 1
             labels.append(label)
+            fold_indices.append(fold_index)
             values.append(wealth)
-    return labels, values
+    return labels, fold_indices, values
 
 
 def _at(values: list[float], index: int) -> float | None:
@@ -313,17 +321,27 @@ def compare_runs(left: ResolvedRun, right: ResolvedRun) -> RunComparison:
         for index in sorted(set(left_folds) | set(right_folds))
     )
 
-    left_labels, left_selected = _series(left_walk, "selected_returns")
-    right_labels, right_selected = _series(right_walk, "selected_returns")
-    _, left_baseline = _series(left_walk, "baseline_returns")
-    _, right_baseline = _series(right_walk, "baseline_returns")
+    left_labels, left_fold_indices, left_selected = _series(
+        left_walk, "selected_returns"
+    )
+    right_labels, right_fold_indices, right_selected = _series(
+        right_walk, "selected_returns"
+    )
+    _, _, left_baseline = _series(left_walk, "baseline_returns")
+    _, _, right_baseline = _series(right_walk, "baseline_returns")
     labels = left_labels if len(left_labels) >= len(right_labels) else right_labels
+    fold_indices = (
+        left_fold_indices
+        if len(left_fold_indices) >= len(right_fold_indices)
+        else right_fold_indices
+    )
     length = max(
         len(left_selected), len(right_selected), len(left_baseline), len(right_baseline)
     )
     wealth = tuple(
         ComparisonSeriesPoint(
             label=labels[index] if index < len(labels) else str(index),
+            fold_index=fold_indices[index] if index < len(fold_indices) else None,
             left=_at(left_selected, index),
             right=_at(right_selected, index),
             left_baseline=_at(left_baseline, index),

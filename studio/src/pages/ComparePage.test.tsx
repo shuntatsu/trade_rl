@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { StudioApi } from '../api/studioApi'
 import type { RunComparison, RunSummary } from '../data/types'
@@ -19,7 +19,7 @@ const runs: RunSummary[] = [
   },
 ]
 
-const comparison: RunComparison = {
+const comparison = {
   leftResourceId: runs[0].id, rightResourceId: runs[1].id, leftRunId: 'run-001', rightRunId: 'run-002', eligibility: { status: 'COMPARABLE', reasons: [], datasetId: 'dataset-1' }, productionStatus: 'NO-GO',
   metrics: [
     { key: 'total_return', label: 'Total return', leftValue: 0.12, rightValue: 0.18, delta: 0.06, preference: 'higher' },
@@ -27,8 +27,11 @@ const comparison: RunComparison = {
   ],
   configDifferences: [{ path: 'training.algorithm', left: 'ppo', right: 'sac' }],
   folds: [{ label: 'Fold 1', leftSelectedReturn: 0.05, leftBaselineReturn: 0.03, rightSelectedReturn: 0.08, rightBaselineReturn: 0.03 }],
-  wealth: [{ label: '0', left: 1, right: 1, leftBaseline: 1, rightBaseline: 1 }, { label: '1', left: 1.05, right: 1.08, leftBaseline: 1.03, rightBaseline: 1.03 }],
-}
+  wealth: [
+    { label: 'start', foldIndex: null, left: 1, right: 1, leftBaseline: 1, rightBaseline: 1 },
+    { label: '1', foldIndex: 0, left: 1.05, right: 1.08, leftBaseline: 1.03, rightBaseline: 1.03 },
+  ],
+} satisfies RunComparison & { wealth: Array<RunComparison['wealth'][number] & { foldIndex: number | null }> }
 
 function api(): Pick<StudioApi, 'loadRuns' | 'loadRunComparison'> {
   return {
@@ -37,18 +40,22 @@ function api(): Pick<StudioApi, 'loadRuns' | 'loadRunComparison'> {
   }
 }
 
-describe('ComparePage', () => {
-  it('compares two validated runs without exposing execution controls', async () => {
-    const runtimeApi = api()
-    render(<ComparePage api={runtimeApi} />)
+beforeEach(() => {
+  window.history.replaceState(null, '', '/?workspace=compare')
+})
 
-    expect(await screen.findByText('Total return')).toBeInTheDocument()
-    expect(screen.getByText('training.algorithm')).toBeInTheDocument()
-    expect(screen.getByText('Fold 1')).toBeInTheDocument()
+describe('ComparePage', () => {
+  it('makes the synchronized interactive chart the primary comparison surface', async () => {
+    render(<ComparePage api={api()} />)
+
+    expect(await screen.findByRole('application', { name: 'Run comparison chart' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Cumulative wealth pane')).toBeInTheDocument()
+    expect(screen.getByLabelText('Right minus Left pane')).toBeInTheDocument()
     expect(screen.getByText('NO-GO')).toBeInTheDocument()
-    expect(screen.getByLabelText('comparison wealth chart')).toBeInTheDocument()
-    expect(screen.getByText('改善')).toBeInTheDocument()
-    expect(screen.getByText('悪化')).toBeInTheDocument()
+    expect(screen.getByText(/no automatic winner/i)).toBeInTheDocument()
+    expect(screen.queryByText('Decision metrics')).not.toBeInTheDocument()
+    expect(screen.queryByText('Configuration diff')).not.toBeInTheDocument()
+    expect(screen.queryByText('Fold returns')).not.toBeInTheDocument()
     expect(screen.queryByText(/注文|発注/)).not.toBeInTheDocument()
   })
 
@@ -57,23 +64,77 @@ describe('ComparePage', () => {
     const runtimeApi = api()
     render(<ComparePage api={runtimeApi} />)
 
-    await screen.findByText('Total return')
+    await screen.findByRole('application', { name: 'Run comparison chart' })
     await user.selectOptions(screen.getByLabelText('Right run'), runs[0].id)
 
     await waitFor(() => expect(runtimeApi.loadRunComparison).toHaveBeenLastCalledWith(runs[0].id, runs[0].id))
   })
-})
 
+  it('clears the old pair while a genuinely different pair is loading', async () => {
+    let resolveSecond: ((value: RunComparison) => void) | null = null
+    const second = new Promise<RunComparison>((resolve) => { resolveSecond = resolve })
+    const runtimeApi: Pick<StudioApi, 'loadRuns' | 'loadRunComparison'> = {
+      loadRuns: vi.fn().mockResolvedValue({ items: runs, total: 2, invalid: 0 }),
+      loadRunComparison: vi.fn()
+        .mockResolvedValueOnce(comparison)
+        .mockReturnValueOnce(second),
+    }
+    const user = userEvent.setup()
+    render(<ComparePage api={runtimeApi} />)
+    await screen.findByText('run-001 ↔ run-002')
 
-  it('uses one shared wealth scale for every series', async () => {
-    render(<ComparePage api={api()} />)
+    await user.selectOptions(screen.getByLabelText('Right run'), runs[0].id)
 
-    const chart = await screen.findByLabelText('comparison wealth chart')
-    const left = chart.querySelector('[data-series="left"]')
-    const right = chart.querySelector('[data-series="right"]')
-    expect(left).not.toBeNull()
-    expect(right).not.toBeNull()
-    expect(left?.getAttribute('points')).not.toBe(right?.getAttribute('points'))
-    expect(left).toHaveAttribute('data-final', '1.05')
-    expect(right).toHaveAttribute('data-final', '1.08')
+    expect(screen.getByRole('status')).toHaveTextContent('比較を読み込み中です')
+    expect(screen.queryByText('run-001 ↔ run-002')).not.toBeInTheDocument()
+    expect(screen.queryByRole('application', { name: 'Run comparison chart' })).not.toBeInTheDocument()
+
+    act(() => resolveSecond?.({ ...comparison, rightRunId: 'run-001', rightResourceId: runs[0].id }))
+    await waitFor(() => expect(screen.getByText('run-001 ↔ run-001')).toBeInTheDocument())
   })
+
+  it('opens metrics and configuration in an overlay inspector', async () => {
+    const user = userEvent.setup()
+    render(<ComparePage api={api()} />)
+    await screen.findByRole('application', { name: 'Run comparison chart' })
+
+    await user.click(screen.getByRole('button', { name: 'Details' }))
+    expect(screen.getByRole('dialog', { name: 'Comparison inspector' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Comparison inspector' })).not.toHaveAttribute('aria-modal')
+    await user.click(screen.getByRole('tab', { name: 'metrics' }))
+    expect(screen.getByText('Total return')).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'config' }))
+    expect(screen.getByText('training.algorithm')).toBeInTheDocument()
+  })
+
+  it('restores the selected point from browser history', async () => {
+    render(<ComparePage api={api()} />)
+    await screen.findByRole('application', { name: 'Run comparison chart' })
+
+    act(() => {
+      window.history.pushState(null, '', '/?workspace=compare&left=run-111111111111111111111111&right=run-222222222222222222222222&comparePoint=0')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+
+    await waitFor(() => expect(screen.getByText('Index start')).toBeInTheDocument())
+  })
+
+  it('ignores a stale comparison response after the pair changes', async () => {
+    let resolveFirst: ((value: RunComparison) => void) | null = null
+    const first = new Promise<RunComparison>((resolve) => { resolveFirst = resolve })
+    const runtimeApi: Pick<StudioApi, 'loadRuns' | 'loadRunComparison'> = {
+      loadRuns: vi.fn().mockResolvedValue({ items: runs, total: 2, invalid: 0 }),
+      loadRunComparison: vi.fn()
+        .mockReturnValueOnce(first)
+        .mockResolvedValueOnce({ ...comparison, rightRunId: 'run-001', rightResourceId: runs[0].id }),
+    }
+    const user = userEvent.setup()
+    render(<ComparePage api={runtimeApi} />)
+    await waitFor(() => expect(runtimeApi.loadRunComparison).toHaveBeenCalledTimes(1))
+    await user.selectOptions(screen.getByLabelText('Right run'), runs[0].id)
+    await waitFor(() => expect(screen.getByText('run-001 ↔ run-001')).toBeInTheDocument())
+
+    act(() => resolveFirst?.(comparison))
+    expect(screen.getByText('run-001 ↔ run-001')).toBeInTheDocument()
+  })
+})

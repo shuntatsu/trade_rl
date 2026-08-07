@@ -194,6 +194,7 @@ class FoldComparison(StudioModel):
 
 class ComparisonSeriesPoint(StudioModel):
     label: str
+    fold_index: int | None = Field(default=None, ge=0)
     left: float | None = None
     right: float | None = None
     left_baseline: float | None = None

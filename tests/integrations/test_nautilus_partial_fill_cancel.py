@@ -101,7 +101,9 @@ class _PartialFillCancelReplaceProbe(Strategy):
 
         if self.quote_count == 3:
             if not self.cancel_observed:
-                raise RuntimeError("replacement cannot precede terminal cancel evidence")
+                raise RuntimeError(
+                    "replacement cannot precede terminal cancel evidence"
+                )
             assert self.primary_order is not None
             realized = _quantity(self.primary_order.filled_qty)
             plan = self.controller.plan(

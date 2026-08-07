@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Iterable
 
 from trade_rl.simulation.execution_canonicalization import CanonicalFillSignature
@@ -69,8 +69,8 @@ def canonicalize_legacy_funding_boundary_record(
         raise ValueError("boundary must be FundingBoundaryEvidence")
     if len(boundary.funding_due) != 1 or not boundary.funding_due[0]:
         raise ValueError("legacy funding canonicalization requires one due instrument")
-    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
-        raise ValueError("sequence must be a non-negative integer")
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence <= 0:
+        raise ValueError("sequence must be a positive integer")
     if (
         isinstance(currency_precision, bool)
         or not isinstance(currency_precision, int)
@@ -130,7 +130,12 @@ def _to_grid_units(value: float, increment: float, name: str) -> int:
 
 def _minor_units(value: float, *, currency_precision: int) -> int:
     quantum = Decimal(1).scaleb(-currency_precision)
-    normalized = Decimal(str(float(value))).quantize(quantum, rounding=ROUND_HALF_EVEN)
+    amount = Decimal(str(float(value)))
+    if amount < 0:
+        magnitude = (-amount).quantize(quantum, rounding=ROUND_CEILING)
+        normalized = -magnitude
+    else:
+        normalized = amount.quantize(quantum, rounding=ROUND_FLOOR)
     return int(normalized * (Decimal(10) ** currency_precision))
 
 

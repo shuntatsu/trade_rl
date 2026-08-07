@@ -3,7 +3,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
+
 APPROVED_INTEGRATION_MODULES = {
     "oracle_bellman_torch.py",
     "oracle_transition_torch.py",
@@ -27,13 +28,13 @@ def _imports_torch(path: Path) -> bool:
 
 
 def test_learning_remains_torch_free() -> None:
-    learning = ROOT / "trade_rl" / "learning"
+    learning = PYTHON_SOURCE_ROOT / "learning"
     torch_modules = {
         path.name for path in learning.glob("*.py") if _imports_torch(path)
     }
     assert torch_modules == set()
 
-    contract = (ROOT / ".importlinter").read_text(encoding="utf-8")
+    contract = (REPOSITORY_ROOT / ".importlinter").read_text(encoding="utf-8")
     block = contract.split("[importlinter:contract:learning-frameworks]", maxsplit=1)[
         1
     ].split("[importlinter:", maxsplit=1)[0]
@@ -43,7 +44,7 @@ def test_learning_remains_torch_free() -> None:
 
 
 def test_oracle_torch_backend_is_confined_to_integrations() -> None:
-    integrations = ROOT / "trade_rl" / "integrations"
+    integrations = PYTHON_SOURCE_ROOT / "integrations"
     torch_modules = {
         path.name
         for path in integrations.glob("oracle_*_torch.py")
@@ -53,7 +54,7 @@ def test_oracle_torch_backend_is_confined_to_integrations() -> None:
 
 
 def test_catalog_reusable_artifacts_remains_below_learning() -> None:
-    source = (ROOT / "trade_rl" / "catalog" / "reusable_artifacts.py").read_text(
+    source = (PYTHON_SOURCE_ROOT / "catalog" / "reusable_artifacts.py").read_text(
         encoding="utf-8"
     )
     assert "trade_rl.learning" not in source

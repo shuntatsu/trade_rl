@@ -95,7 +95,9 @@ def _request() -> tuple[StageAZeroShotEvaluationPlan, StageAEvaluationCellReques
         candidate_id="candidate-a",
         checkpoint_digest=plan.candidate("candidate-a").checkpoint_digest(0),
         evaluation_dataset_manifest_digest=manifest.digest,
-        dataset_id=manifest.dataset_id_for("validation", plan.validation_triplet_ids[0]),
+        dataset_id=manifest.dataset_id_for(
+            "validation", plan.validation_triplet_ids[0]
+        ),
         evaluation_range=manifest.range_for("validation", 0),
         feature_identity=plan.feature_identity,
         execution_identity=plan.execution_identity,
@@ -168,9 +170,10 @@ def test_v3_replay_binds_funding_sidecar_and_validates_sources(tmp_path: Path) -
 
     assert artifact.schema_version == "stage_a_execution_replay_v3"
     assert artifact.funding_evidence_digest == funding.digest
-    assert artifact.funding_evidence_sha256 == hashlib.sha256(
-        funding.raw_bytes
-    ).hexdigest()
+    assert (
+        artifact.funding_evidence_sha256
+        == hashlib.sha256(funding.raw_bytes).hexdigest()
+    )
     assert artifact.funding_evidence_size_bytes == len(funding.raw_bytes)
     validate_stage_a_execution_replay_sources(
         artifact,

@@ -69,7 +69,9 @@ def build_stage_a_historical_interval_evidence(
             if boundary.processing_index > end_index:
                 break
             if offset > 0 and boundary.processing_index <= start_index:
-                raise ValueError("Stage A historical funding interval assignment overlaps")
+                raise ValueError(
+                    "Stage A historical funding interval assignment overlaps"
+                )
             interval_funding.append(boundary)
             funding_offset += 1
         intervals.append(

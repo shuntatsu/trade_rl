@@ -114,6 +114,21 @@ def test_zero_position_funding_boundary_is_still_preserved() -> None:
     assert evidence.equity_after_funding == pytest.approx(1_000.0)
 
 
+def test_non_funding_bar_does_not_emit_boundary_evidence() -> None:
+    dataset = _dataset()
+
+    result = _executor(dataset).execute_orders(
+        _book(dataset),
+        OrderBookState.empty(),
+        (),
+        start_index=1,
+        bars=1,
+    )
+
+    assert result.funding_evidence == ()
+    assert result.interval_funding == pytest.approx(0.0)
+
+
 def test_multi_bar_execution_keeps_funding_boundaries_separate() -> None:
     dataset = _dataset(second_boundary=True)
     result = _executor(dataset).execute_orders(

@@ -21,6 +21,7 @@ from trade_rl.artifacts.verified_file import (
     verified_private_copy,
 )
 from trade_rl.domain.common import require_sha256
+from trade_rl.rl.policy_identity import validated_sb3_policy_identity
 from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.serving.bundle import ServingBundle
 
@@ -44,12 +45,27 @@ def _numpy_dtype(name: str) -> np.dtype[Any]:
     return np.dtype(name)
 
 
+def _validate_manifest_policy_identity(manifest: StructuredExportManifest) -> None:
+    identity = validated_sb3_policy_identity(manifest.policy_identity)
+    if identity.get("policy_architecture_digest") != manifest.architecture_digest:
+        raise ValueError("structured manifest architecture identity mismatch")
+    current_weight = identity.get("current_weight_observation")
+    if not isinstance(current_weight, Mapping):
+        raise ValueError("structured manifest current-weight identity is missing")
+    raw_shape = current_weight.get("shape")
+    if not isinstance(raw_shape, (list, tuple)) or tuple(raw_shape) != (
+        manifest.action_size,
+    ):
+        raise ValueError("structured manifest action size identity mismatch")
+
+
 class StructuredTorchScriptPolicy:
     """Single-observation policy wrapper with exact key/shape/dtype validation."""
 
     def __init__(self, *, root: Path, manifest: StructuredExportManifest) -> None:
         self.root = Path(root)
         self.manifest = manifest
+        _validate_manifest_policy_identity(manifest)
         model_path = self.root / manifest.model_path
         if not model_path.is_file():
             raise FileNotFoundError("structured policy model is missing")

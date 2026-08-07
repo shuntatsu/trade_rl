@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from typing import TextIO
@@ -31,6 +32,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_stage_a_parser(subparsers)
     return parser
+
+
+def _single_symbol_preflight_error(
+    error: Exception,
+    *,
+    arguments: Sequence[str],
+    stderr: TextIO,
+) -> int:
+    schema = (
+        "training_run_error_v1"
+        if tuple(arguments[:2]) == ("train", "run")
+        else "walk_forward_run_error_v1"
+    )
+    stderr.write(
+        json.dumps(
+            {
+                "error": str(error),
+                "error_type": type(error).__name__,
+                "production_status": "NO-GO",
+                "schema": schema,
+                "status": "failed",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    return 1
 
 
 def main(
@@ -71,6 +100,19 @@ def main(
 
         return run_verify(arguments[2:], stdout=output, stderr=errors)
     if tuple(arguments[:2]) in _ARTIFACT_COMMANDS:
+        if tuple(arguments[:2]) in {("train", "run"), ("walk-forward", "run")}:
+            from trade_rl.cli.maintained_single_symbol import (
+                require_maintained_single_symbol_cli,
+            )
+
+            try:
+                require_maintained_single_symbol_cli(arguments)
+            except Exception as error:
+                return _single_symbol_preflight_error(
+                    error,
+                    arguments=arguments,
+                    stderr=errors,
+                )
         from trade_rl.cli.extended import main as artifact_main
 
         return artifact_main(arguments, stdout=output, stderr=errors)

@@ -1,6 +1,6 @@
 # Trade RL
 
-Trade RLは、暗号資産を中心としたポートフォリオ配分を、**因果性・再現性・現実的な約定・証拠保存**を重視して検証する研究用の強化学習基盤です。
+Trade RLは、暗号資産を中心とした**単一InstrumentごとのTarget exposure**を、**因果性・再現性・現実的な約定・証拠保存**を重視して検証する研究用の強化学習基盤です。
 
 > **現在の判定**
 >
@@ -11,6 +11,19 @@ Trade RLは、暗号資産を中心としたポートフォリオ配分を、**�
 > - 収益性の主張: なし
 
 CI、GPU実行、Paper Servingが成功しても、利益、実資金投入、実取引所と同等の約定、運用認可は保証されません。
+
+## Maintained single-symbol contract
+
+```text
+one maintained run
+  = one instrument
+  = one target-weight action
+  = one checkpoint and evidence chain
+```
+
+初期Maintained presetはBinance USDS-M perpetualの`BTCUSDT`です。Action shapeは`(1,)`、Action nameは`target_weight:BTCUSDT`、範囲は`[-1.0, 1.0]`です。複数銘柄へ分散するときは、銘柄ごとに独立Runと資金Budgetを作り、外部Capital allocatorで配分します。同一PolicyでBTC・ETH・BNBを同時配分しません。
+
+詳細は[Maintained single-symbol workflow](docs/SINGLE_SYMBOL.md)を参照してください。旧Multi-asset Artifactは書き換えずRead-onlyで保持します。
 
 ## 最短で試す
 
@@ -67,21 +80,23 @@ Flat observationの正本は`baseline_residual_observation_v5`、Serving bundle�
 | 値 | 用途 |
 |---|---|
 | `flat_mlp` | 単純なFlat observation |
-| `asset_set` | 銘柄別tokenを使う非系列Encoder |
-| `hierarchical_sequence_v2` | 15m・1h・4h・1dの因果系列と銘柄間依存 |
+| `asset_set` | Generic／Legacyの銘柄別tokenを使う非系列Encoder |
+| `hierarchical_sequence_v2` | 15m・1h・4h・1dの因果系列Encoder |
 
-`hierarchical_sequence_v2`の経路は次のとおりです。
+Maintained `hierarchical_sequence_v2`の経路は次のとおりです。
 
 ```text
 時間足別Causal TCN
   -> Context + 15m + 1h + 4h + 1d
   -> Gated Cross-Timeframe Attention
-  -> 銘柄別token
-  -> Gated Cross-Asset Attention
+  -> BTCUSDT token
+  -> Single-symbol Cross-Asset bypass
   -> Actor / Critic
 ```
 
-時間足Attentionと銘柄Attentionは、Head数、Layer数、FFN倍率、Gate biasを別々に設定します。実際に組み立てられた構造、銘柄順、Action順からArchitecture digestを生成し、BC、PPO、CostCriticPPO、LagrangianPPO、Checkpoint、構造化Export、Servingで一致を要求します。
+旧3-symbol Checkpointを読むLegacy経路では、従来のGated Cross-Asset Attentionを保持します。Maintained 1-symbol経路ではCross-Asset Transformer ModuleとそのParameterを生成しません。`single_symbol_bypass_v1`をArchitecture identityへ含め、非適用のAsset-Attention設定はDigestへ含めず、旧1-symbol／3-symbol Identityとの暗黙互換を禁止します。
+
+時間足AttentionのHead数、Layer数、FFN倍率、Gate biasをConfigへ固定します。実際に組み立てられた構造、Instrument順、Action順からArchitecture digestを生成し、BC、PPO、CostCriticPPO、LagrangianPPO、Checkpoint、構造化Export、Servingで一致を要求します。
 
 詳細は[設定リファレンス](docs/CONFIGURATION.md)と[アーキテクチャ](docs/ARCHITECTURE.md)を参照してください。
 
@@ -108,7 +123,7 @@ npm run dev --prefix studio
 
 Live Trainingは`not exchange activity`、`not model-selection evidence`、`not sealed evaluation`、`not profitability evidence`です。LONG／SHORT／CLOSE表示はTarget exposureの変化であり、取引所注文ではありません。
 
-TensorBoard診断では、損失やKLに加えて、時間足Attention比率、Attention entropy、Gate飽和、欠損率、系列BlockのGradient normを確認できます。診断値は選択Evidenceとして使用しません。
+TensorBoard診断では、損失やKLに加えて、時間足Attention比率、Attention entropy、Gate飽和、欠損率、系列BlockのGradient normを確認できます。Maintained one-symbolではAsset-Attention指標を非適用の`0.0`として記録します。診断値は選択Evidenceとして使用しません。
 
 詳細は[Studio README](studio/README.md)を参照してください。
 
@@ -116,11 +131,12 @@ TensorBoard診断では、損失やKLに加えて、時間足Attention比率、A
 
 Flat policyのExportと、構造化系列PolicyのExportは別契約です。`hierarchical_sequence_v2`は`structured_policy_export_v2`を使い、Canonical input順、Shape、Dtype、Parity corpus、Policy identity、Architecture digestをManifestへ固定します。
 
-Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学習済みPolicyか」を表す`policy_mode`と、「ResidualかTarget-weightか」を表す`action_mode`を別々に固定します。構造化Loaderは、Bundle、Export manifest、Model digest、Observation schema、Architecture digestが一致しない場合、Policy実行前にFail closedします。
+Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学習済みPolicyか」を表す`policy_mode`と、「ResidualかTarget-weightか」を表す`action_mode`を別々に固定します。構造化Loaderは、Bundle、Export manifest、Model digest、Observation schema、完全なPolicy identity、Architecture digest、Action sizeが一致しない場合、Policy実行前にFail closedします。
 
 ## 主要ドキュメント
 
 - [ドキュメント一覧](docs/README.md)
+- [Maintained single-symbol workflow](docs/SINGLE_SYMBOL.md)
 - [最初の学習](START.md)
 - [アーキテクチャ](docs/ARCHITECTURE.md)
 - [設定リファレンス](docs/CONFIGURATION.md)
@@ -151,6 +167,7 @@ npm run check:layout --prefix studio
 - Broker reconciliationの実運用Connector
 - Production secret管理
 - Venue kill switchとOperational alerting
+- 複数Run間のCapital allocator
 
 これらの実装と実証Evidenceが揃うまで、Production statusは**NO-GO**です。
 

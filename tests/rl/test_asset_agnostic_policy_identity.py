@@ -1,29 +1,35 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.rl.policy_identity import (
     bind_sb3_policy_identity,
     validate_model_sb3_policy_identity,
     validate_sb3_policy_architecture_compatibility,
+    validated_sb3_policy_identity,
 )
 from trade_rl.rl.sequence_architecture import (
+    SINGLE_SYMBOL_ASSET_FUSION_MODE,
     sequence_architecture_identity,
     sequence_asset_binding_identity,
 )
 from trade_rl.rl.sequence_policy import SequencePolicyArchitecture
 
 
-def _architecture(*, timeframe_layers: int = 1) -> SequencePolicyArchitecture:
+def _architecture(
+    *, timeframe_layers: int = 1, n_symbols: int = 3
+) -> SequencePolicyArchitecture:
     return SequencePolicyArchitecture(
         input_channels={"15m": 3, "1h": 3, "4h": 3, "1d": 3},
         window_lengths={"15m": 4, "1h": 4, "4h": 4, "1d": 4},
         latent_dims={"15m": 8, "1h": 8, "4h": 8, "1d": 8},
         asset_state_width=4,
         snapshot_width=8,
-        n_symbols=3,
+        n_symbols=n_symbols,
         d_model=24,
         timeframe_attention_heads=4,
         timeframe_attention_layers=timeframe_layers,
@@ -68,6 +74,33 @@ def test_sequence_architecture_digest_does_not_bind_symbol_names() -> None:
     assert first.digest == repeated.digest
     assert "symbols" not in first.digest_payload()
     assert "action_names" not in first.digest_payload()
+    assert "asset_fusion_mode" not in first.digest_payload()
+
+
+def test_single_symbol_architecture_binds_only_bypass_mode() -> None:
+    identity = sequence_architecture_identity(_architecture(n_symbols=1))
+    payload = identity.digest_payload()
+
+    assert identity.asset_fusion_mode == SINGLE_SYMBOL_ASSET_FUSION_MODE
+    assert payload["asset_fusion_mode"] == SINGLE_SYMBOL_ASSET_FUSION_MODE
+    assert "asset_attention_heads" not in payload
+    assert "asset_attention_layers" not in payload
+    assert "asset_ffn_multiplier" not in payload
+    assert "asset_gate_bias" not in payload
+
+
+def test_single_symbol_digest_ignores_inactive_asset_attention_settings() -> None:
+    identity = sequence_architecture_identity(_architecture(n_symbols=1))
+    drifted = replace(
+        identity,
+        asset_attention_heads=8,
+        asset_attention_layers=9,
+        asset_ffn_multiplier=7,
+        asset_gate_bias=4.0,
+    )
+
+    assert drifted.digest_payload() == identity.digest_payload()
+    assert drifted.digest == identity.digest
 
 
 def test_asset_binding_is_separate_and_symbol_specific() -> None:
@@ -124,6 +157,86 @@ def test_policy_architecture_compatibility_rejects_real_model_drift() -> None:
 
     with pytest.raises(ValueError, match="architecture compatibility"):
         validate_sb3_policy_architecture_compatibility(drifted, expected)
+
+
+def test_three_symbol_checkpoint_is_incompatible_with_one_symbol_policy() -> None:
+    one_symbol_model = _model(_architecture(n_symbols=1))
+    one_symbol_identity = bind_sb3_policy_identity(
+        one_symbol_model,
+        _assembly(("BTCUSDT",)),
+    )
+    three_symbol_model = _model(_architecture(n_symbols=3))
+    three_symbol_identity = bind_sb3_policy_identity(
+        three_symbol_model,
+        _assembly(("BTCUSDT", "ETHUSDT", "BNBUSDT")),
+    )
+
+    assert (
+        one_symbol_identity["sequence_architecture_digest"]
+        != (three_symbol_identity["sequence_architecture_digest"])
+    )
+    assert (
+        one_symbol_identity["asset_binding_digest"]
+        != (three_symbol_identity["asset_binding_digest"])
+    )
+    with pytest.raises(ValueError, match="architecture compatibility"):
+        validate_sb3_policy_architecture_compatibility(
+            three_symbol_identity,
+            one_symbol_identity,
+        )
+    with pytest.raises(ValueError, match="architecture identity mismatch"):
+        validate_model_sb3_policy_identity(three_symbol_model, one_symbol_identity)
+
+
+def test_serialized_single_symbol_identity_requires_bypass_mode() -> None:
+    identity = bind_sb3_policy_identity(
+        _model(_architecture(n_symbols=1)),
+        _assembly(("BTCUSDT",)),
+    )
+    tampered = dict(identity)
+    raw_architecture = tampered["sequence_architecture"]
+    assert isinstance(raw_architecture, dict)
+    architecture = dict(raw_architecture)
+    architecture.pop("asset_fusion_mode")
+    tampered["sequence_architecture"] = architecture
+    tampered["sequence_architecture_digest"] = content_digest(architecture)
+
+    with pytest.raises(ValueError, match="fusion identity mismatch"):
+        validated_sb3_policy_identity(tampered)
+
+
+def test_serialized_single_symbol_identity_rejects_asset_attention_fields() -> None:
+    identity = bind_sb3_policy_identity(
+        _model(_architecture(n_symbols=1)),
+        _assembly(("BTCUSDT",)),
+    )
+    tampered = dict(identity)
+    raw_architecture = tampered["sequence_architecture"]
+    assert isinstance(raw_architecture, dict)
+    architecture = dict(raw_architecture)
+    architecture["asset_attention_heads"] = 4
+    tampered["sequence_architecture"] = architecture
+    tampered["sequence_architecture_digest"] = content_digest(architecture)
+
+    with pytest.raises(ValueError, match="cannot declare asset attention fields"):
+        validated_sb3_policy_identity(tampered)
+
+
+def test_serialized_multi_symbol_identity_rejects_bypass_mode() -> None:
+    identity = bind_sb3_policy_identity(
+        _model(_architecture(n_symbols=3)),
+        _assembly(("BTCUSDT", "ETHUSDT", "BNBUSDT")),
+    )
+    tampered = dict(identity)
+    raw_architecture = tampered["sequence_architecture"]
+    assert isinstance(raw_architecture, dict)
+    architecture = dict(raw_architecture)
+    architecture["asset_fusion_mode"] = SINGLE_SYMBOL_ASSET_FUSION_MODE
+    tampered["sequence_architecture"] = architecture
+    tampered["sequence_architecture_digest"] = content_digest(architecture)
+
+    with pytest.raises(ValueError, match="cannot declare asset fusion mode"):
+        validated_sb3_policy_identity(tampered)
 
 
 def test_asset_binding_rejects_non_target_weight_action_names() -> None:

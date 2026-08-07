@@ -2,9 +2,20 @@
 
 ## Status
 
-Trade RLは、Portfolio RLを因果データ、状態付き約定、Nested walk-forward、不変Evidence、Fail-closed Servingで検証する研究基盤です。Direct exchange tradingは未実装で、Production statusは`NO-GO`です。
+Trade RLは、単一InstrumentごとのTarget exposureを、因果データ、状態付き約定、Nested walk-forward、不変Evidence、Fail-closed Servingで検証する研究基盤です。Direct exchange tradingは未実装で、Production statusは`NO-GO`です。
 
 Architecture integrity、Empirical profitability、Operational authorizationは別のGateです。CI通過は利益や運用認可を意味しません。
+
+Maintained製品境界は次のとおりです。
+
+```text
+one maintained run
+  = one instrument
+  = one target-weight action
+  = one checkpoint and evidence chain
+```
+
+初期Maintained presetはBinance USDS-M perpetualの`BTCUSDT`です。複数Run間のCapital allocationは本Repository外の責務です。詳細は[SINGLE_SYMBOL.md](SINGLE_SYMBOL.md)を参照してください。
 
 ## Responsibility map
 
@@ -73,11 +84,25 @@ Bar timestampはClose時刻です。行`t`のObservationにはCloseまでに利�
 
 Dataset identityは、FeatureだけでなくAvailability、Staleness、Tradability、Fee、Spread、Participation、Tick/Lot、Funding、Borrow、Mark/Index price、Corporate action、Cash rateなどを含みます。Artifact load時にFile closure、Symlink、Shape、Dtype、Ordering、Digestを検証します。
 
+Filesystem artifactが数値データの正本です。PostgreSQLは任意のmetadata catalogであり、ModelやDatasetのBLOBを数値計算の正本にはしません。
+
+## Maintained data boundary
+
+Maintained market-data synchronizationは`BTCUSDT`だけを要求します。`MarketDataset`はHistorical Artifact読取のためGeneric multi-symbol配列を維持しますが、Maintained pipelineはexactly one symbolを要求します。
+
+PostgreSQL builderは次を区別します。
+
+- one symbol: Maintained `postgres_single_symbol_dataset_v1`
+- three symbols: Historical／Legacy `postgres_dynamic_triplet_dataset_v2`
+- two symbols: 拒否
+
+Historical multi-asset Artifactをone-symbol Identityへ書き換えません。
+
 ## Action、Observation、Reward
 
-Action schemaは`portfolio_action_v3`です。Residual modeではゼロActionがBaseline identity、Target-weight modeでは銘柄順に対応する直接Weightを出力します。
+Action schemaは`portfolio_action_v3`です。Maintained Target-weight modeではAction shapeは`(1,)`、Action nameは`target_weight:BTCUSDT`です。階層Actorはchange intensityとtarget exposureを分離し、最終Actionを合成します。
 
-Flat observationの正本は`baseline_residual_observation_v5`です。Feature、Availability、Staleness、Current/Requested portfolio、Fill/Cost/Capacity、Cash、Exposure、Margin、Previous action、Pending order stateを含みます。
+Flat observationの正本は`baseline_residual_observation_v5`です。Feature、Availability、Staleness、Current/Requested portfolio、Fill/Cost/Capacity、Cash、Exposure、Margin、Previous action、Pending order stateを含みます。Action widthは`dataset.n_symbols`から導出し、`3`のようなLiteralを使用しません。
 
 Reward schema v4は絶対対数資産成長を主目的にします。Baseline-relative growthは補助的な非劣後判定で、DrawdownとBaseline劣後は許容幅を超えて悪化した増分だけを罰します。
 
@@ -86,12 +111,14 @@ Reward schema v4は絶対対数資産成長を主目的にします。Baseline-r
 `training_run_config_v4`は`observation_encoder`と階層Actor契約に加え、Executionの全Fieldと完全なReward prerollを明示します。
 
 - `flat_mlp`: Flat observationをMLPへ入力
-- `asset_set`: 銘柄別構造を使う非系列Encoder
-- `hierarchical_sequence_v2`: Clock内、Clock間、銘柄間を階層的に処理
+- `asset_set`: Generic／Legacyの銘柄別構造を使う非系列Encoder
+- `hierarchical_sequence_v2`: Clock内とClock間を階層的に処理
 
 ### Hierarchical sequence v2
 
 Native Clockは15m、1h、4h、1dです。各Clockは`values`、`available`、`staleness`を保持します。
+
+Maintained one-symbol path:
 
 ```text
 15m/1h/4h/1d values
@@ -104,17 +131,22 @@ Current snapshot + Asset state
 
 [Context, 15m, 1h, 4h, 1d]
   -> Gated Cross-Timeframe Attention
-  -> Asset token
-  -> Symbol embedding
-  -> Gated Cross-Asset Attention
+  -> BTCUSDT token
+  -> single_symbol_bypass_v1
   -> Actor token / Critic global context
+```
+
+Historical three-symbol path:
+
+```text
+Asset tokens
+  -> Gated Cross-Asset Attention
+  -> Actor tokens / Critic global context
 ```
 
 TCNの受容野は宣言Window全体を覆います。完全欠損ClockはAttention keyからMaskし、入力変更とGradientが出力へ漏れないことをTestします。Context tokenは常に存在するため、全Clock欠損でもAll-masked rowを作りません。
 
-Gated TransformerはPre-LayerNorm、Attention residual gate、FFN residual gateを使います。Gate biasの既定は`-2.0`で、新BlockをIdentityに近い状態から導入します。
-
-Timeframe AttentionとAsset AttentionはHead、Layer、FFN倍率、Gate biasを別々に設定します。詳細は[CONFIGURATION.md](CONFIGURATION.md)を参照してください。
+Maintained one-symbol pathではCross-Asset Transformer ModuleとそのParameterを生成しません。Historical three-symbol pathだけがModuleとAsset-Attention設定を保持します。
 
 ## Policy identity
 
@@ -125,13 +157,15 @@ Sequence identityは次を含みます。
 - Clock順とWindow
 - Input/Latent width
 - TCN width、Dilation、受容野
-- Timeframe/Asset Attention設定
+- Timeframe Attention設定
+- Historical multi-symbol時だけAsset Attention設定
+- `asset_fusion_mode`
 - Symbol順
 - Action名と順序
 
-BC、PPO、CostCriticPPO、LagrangianPPOは同じPolicy architecture identityを使用します。Algorithm固有IdentityはこのIdentityへ合成します。
+Maintained one-symbol Identityは`asset_fusion_mode: single_symbol_bypass_v1`を含み、存在しないAsset-Attention Moduleの設定はArchitecture digestへ含めません。Historical multi-symbol payloadにはこのFieldを追加せず、既存Digestを不必要に変更しません。
 
-CheckpointはTraining config digestとArchitecture identityを別々に保存します。Resume時にどちらかが異なればFail closedします。
+BC、PPO、CostCriticPPO、LagrangianPPOは同じPolicy architecture identityを使用します。CheckpointはTraining config digest、Sequence architecture digest、Asset binding digestを保存します。Resume時にいずれかが異なればFail closedします。3-action checkpointを1-action PolicyへResume／Transferしません。
 
 ## Stateful execution
 
@@ -155,9 +189,7 @@ OHLCVから真のIntrabar順序、Queue position、Hidden liquidity、Auction、
 
 `trade-rl train run`はDatasetを検証し、Train capabilityだけでNormalizerをFitし、SeedごとにModelを学習し、RunをAtomic publishします。
 
-`candidate_digest_payload()`は学習・経済条件からなる再利用可能なRecipe identityです。Export方式、Git provenance、Resume checkpoint、Transfer checkpointはCandidate選択を変えず、完全な`digest_payload()`のRun identityだけへ含めます。Signal artifactは内容DigestでRecipeへ固定します。
-
-RL Environmentの終端`info`はPortfolio value、Turnover、Cost、Funding、Borrow、Fillなどのprimitive accounting factだけを返します。Sharpe、Sortino、Drawdown、Total returnなどのPerformance metricとReturn seriesの解釈はEvaluationが所有し、RLはEvaluation metricを生成しません。
+Maintained config writerはTraining resourceを確保する前に、`target_weight_count == 1`を検証します。BC、PPO、Lagrangian、Checkpoint、Structured export、Servingは同じone-symbol Identityを使用します。
 
 Nested walk-forwardは次を分離します。
 
@@ -170,13 +202,11 @@ Nested walk-forwardは次を分離します。
 
 Configuration selection、Sealed評価、Servingは同じ決定論的Mean ensembleを使用します。独立Foldは分布として報告し、Account-state handoffなしに1本の連続Portfolioへ合成しません。
 
-OracleのNumPy参照経路はLearningが所有します。任意のCUDA adapterはIntegrationsまたはOperationsのcomposition rootから明示的に注入し、process-globalなBackend registryは使用しません。
-
 ## TensorBoard and Studio boundary
 
 Exploratory trainingはAppend-only `training_telemetry_v1`とTensorBoard scalarを出力できます。
 
-Sequence diagnosticsは、Clock別Attention share、Missing ratio、Attention entropy、Gate飽和、Gradient normを記録します。診断Forwardは低頻度で、通常の学習Hot pathから分離します。
+Maintained one-symbol診断はClock別Attention share、Missing ratio、Attention entropy、Gate飽和、Gradient normを記録します。Asset Attention診断は非適用の0として記録し、Historical multi-symbol経路だけが実際のAsset Attention診断を出力します。
 
 TelemetryとTensorBoardは、Fitting、Checkpoint選択、Sealed評価、Run identity、Release、Order executionへ使用しません。StudioはRead-onlyに表示します。
 
@@ -186,21 +216,9 @@ Flat actorのONNX/TorchScript Exportと、Sequence actorの構造化Exportを分
 
 `structured_policy_export_v2`はCanonical Dict input order、Shape、Dtype、Parity corpus、Model digest、Policy identity、Architecture digestを保存します。構造化Modelは`policy.structured.torchscript.pt`です。
 
-Serving bundleの正本は`serving_bundle_v6`です。`policy_mode`はBaselineか学習済みPolicyかを表し、`action_mode`はResidualかTarget-weightかを表します。この2つは別IdentityとしてBundle digestとRuntime identityへ固定されます。`CanonicalStructuredPolicyLoader`は、Sequence observation schema、Bundle file closure、Export manifest、Model digest、Architecture digestをPolicy実行前に検証します。
+Serving bundleの正本は`serving_bundle_v6`です。`policy_mode`はBaselineか学習済みPolicyかを表し、`action_mode`はResidualかTarget-weightかを表します。`CanonicalStructuredPolicyLoader`は、Sequence observation schema、Bundle file closure、Export manifest、Model digest、完全なPolicy identity、Architecture digest、Action sizeをPolicy実行前に検証します。
 
 Release approvalはBundle外のEd25519 Attestationとして保持します。RuntimeへPrivate keyを渡しません。
-
-## Future asymmetric cross-market boundary
-
-Stage Bは現在未実装です。将来の市場役割は次の非対称Contractに固定します。
-
-```text
-SpotLongBook: FUTURE_LONG_ONLY_ROLE
-USDSMShortBook: FUTURE_SHORT_ONLY_ROLE
-StageBSpotFuturesGeneralization: NOT_IMPLEMENTED
-```
-
-Binance SpotはLong側Book、USDⓈ-M先物はShort側Bookとして扱います。将来のPortfolio coordinatorは両Bookを段階的に構成できますが、SpotをShort可能な市場として扱ったり、USDⓈ-M先物を無制約なLong/Short市場として扱ったりしません。
 
 ## Artifact store and PostgreSQL
 
@@ -208,7 +226,7 @@ Filesystem artifactが数値データの正本です。Runは`.staging/<run-id>`
 
 PostgreSQLは任意のmetadata catalogです。Artifact identity、Cache key、Location、Size、Dependency、Lifecycle、Sealed-test reservationを保存します。ModelやDatasetのBLOBを数値計算の正本にはしません。
 
-汎用`PostgresArtifactCatalog`とSealed-test reservation adapterは別責務です。予約SQLは専用adapterだけが所有し、Walk-forward runtimeはSchema migrationを実行しません。Migrationは`trade-rl catalog migrate`またはDeployment／CIの明示的な管理手順で先に適用します。
+汎用`PostgresArtifactCatalog`とSealed-test reservation adapterは別責務です。Migrationは`trade-rl catalog migrate`またはDeployment／CIの明示的な管理手順で先に適用します。
 
 ## Privileged GPU boundary
 
@@ -229,3 +247,15 @@ Constrained PPOのPR C正本は修正版PR #193です。PR #191は置換前のDr
 Workflow securityはrunnerの任意の表示名をallowlistするのではなく、GitHub-hosted形式かprivileged runnerかを分類し、privileged runnerについてtrigger、owner、main、Environment、権限、immutable checkoutを検証します。この方針をrunner classificationと呼びます。
 
 構造化配信の正本は`structured_policy_export_v2`と`serving_bundle_v6`です。秘密鍵ファイルのloaderは`offline_keys`、鍵生成と署名は`offline_signing`、承認署名は`offline_approval`等の明示的offline moduleへ限定します。Import Linterはruntime/trainingからこれらへの静的依存を禁止しますが、OS sandboxそのものを主張するものではありません。
+
+## Future asymmetric cross-market boundary
+
+Stage Bは現在未実装です。将来の市場役割は次の非対称Contractに固定します。
+
+```text
+SpotLongBook: FUTURE_LONG_ONLY_ROLE
+USDSMShortBook: FUTURE_SHORT_ONLY_ROLE
+StageBSpotFuturesGeneralization: NOT_IMPLEMENTED
+```
+
+本PhaseのMaintained productはBinance USDS-M perpetual `BTCUSDT`の1 Runだけであり、Stage Bは実装しません。

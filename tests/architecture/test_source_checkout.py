@@ -13,8 +13,8 @@ def test_source_checkout_resolves_root_python_package_layout() -> None:
             sys.executable,
             "-c",
             (
-                "from trade_rl._source_checkout import repository_path; "
-                "print(repository_path())"
+                "from trade_rl._source_checkout import source_checkout_root; "
+                "print(source_checkout_root())"
             ),
         ],
         cwd=REPOSITORY_ROOT,

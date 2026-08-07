@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import inspect
-from pathlib import Path
 
 import numpy as np
 import pytest
 
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.environment_config import ResidualMarketEnvConfig
 from trade_rl.rl.environment_episode import EpisodeContractSampler
@@ -18,8 +18,8 @@ from trade_rl.telemetry.indexed_training import (
     StrictTrainingTelemetryRecord,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
-PYTHON_ROOT = ROOT / "src" / "trade_rl"
+ROOT = REPOSITORY_ROOT
+PYTHON_ROOT = PYTHON_SOURCE_ROOT
 
 
 def _source(path: str) -> str:
@@ -142,7 +142,7 @@ def test_postgres_workflow_runs_on_exact_pr_head_and_main_push() -> None:
     assert "push:" in workflow
     assert "branches:" in workflow
     assert "- main" in workflow
-    assert "src/trade_rl/evaluation/walk_forward/**" in workflow
-    assert "src/trade_rl/workflows/**" in workflow
+    assert "trade_rl/evaluation/walk_forward/**" in workflow
+    assert "trade_rl/workflows/**" in workflow
     assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
     assert "persist-credentials: false" in workflow

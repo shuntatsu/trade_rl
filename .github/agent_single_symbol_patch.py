@@ -3,13 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 
-RUN_FILE_OLD = '''    walk_forward = json.loads(
+PARALLEL_OLD = '''    walk_forward = json.loads(
         (root / "examples/binance-multitimeframe/walk-forward-full.json").read_text(
             encoding="utf-8"
         )
     )["candidates"][0]["run"]["training"]
 '''
-RUN_FILE_NEW = '''    walk_forward_config = json.loads(
+PARALLEL_NEW = '''    walk_forward_config = json.loads(
         (root / "examples/binance-multitimeframe/walk-forward-full.json").read_text(
             encoding="utf-8"
         )
@@ -19,6 +19,25 @@ RUN_FILE_NEW = '''    walk_forward_config = json.loads(
         (root / "examples/binance-multitimeframe" / run_file).read_text(
             encoding="utf-8"
         )
+    )["training"]
+'''
+
+RUNTIME_OLD = '''    walk_forward = json.loads(
+        (
+            repository_root / "examples/binance-multitimeframe/walk-forward-full.json"
+        ).read_text(encoding="utf-8")
+    )["candidates"][0]["run"]["training"]
+'''
+RUNTIME_NEW = '''    walk_forward_config = json.loads(
+        (
+            repository_root / "examples/binance-multitimeframe/walk-forward-full.json"
+        ).read_text(encoding="utf-8")
+    )
+    run_file = walk_forward_config["candidates"][0]["run_file"]
+    walk_forward = json.loads(
+        (
+            repository_root / "examples/binance-multitimeframe" / run_file
+        ).read_text(encoding="utf-8")
     )["training"]
 '''
 
@@ -49,13 +68,13 @@ def replace_exact(path: Path, old: str, new: str, *, expected: int = 1) -> None:
 def main() -> None:
     replace_exact(
         Path("tests/integrations/test_parallel_sequence_environments.py"),
-        RUN_FILE_OLD,
-        RUN_FILE_NEW,
+        PARALLEL_OLD,
+        PARALLEL_NEW,
     )
     replace_exact(
         Path("tests/integrations/test_sequence_runtime_acceleration.py"),
-        RUN_FILE_OLD,
-        RUN_FILE_NEW,
+        RUNTIME_OLD,
+        RUNTIME_NEW,
     )
     replace_exact(
         Path("tests/integrations/test_single_symbol_training_smoke.py"),

@@ -7,16 +7,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_repository_uses_explicit_source_studio_and_script_roots() -> None:
+def test_repository_uses_flat_responsibility_roots() -> None:
     required = (
+        ROOT / "frontend",
         ROOT / "src" / "trade_rl",
-        ROOT / "studio",
-        ROOT / "scripts" / "ci",
+        ROOT / "scripts",
+        ROOT / "tests",
+        ROOT / "docs",
+        ROOT / "examples",
     )
     forbidden = (
         ROOT / "trade_rl",
+        ROOT / "studio",
         ROOT / "apps",
         ROOT / "tools",
+        ROOT / "scripts" / "ci",
+        ROOT / "test_support",
     )
 
     assert all(path.is_dir() for path in required)

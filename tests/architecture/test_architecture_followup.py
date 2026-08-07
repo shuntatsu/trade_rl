@@ -19,10 +19,15 @@ from trade_rl.telemetry.indexed_training import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+PYTHON_ROOT = ROOT / "src" / "trade_rl"
 
 
 def _source(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _python_source(path: str) -> str:
+    return (PYTHON_ROOT / path).read_text(encoding="utf-8")
 
 
 def _market(*, global_available: bool) -> MarketDataset:
@@ -52,12 +57,12 @@ def _market(*, global_available: bool) -> MarketDataset:
 
 def test_package_initializers_do_not_replace_runtime_symbols() -> None:
     for path in (
-        "trade_rl/simulation/__init__.py",
-        "trade_rl/telemetry/__init__.py",
-        "trade_rl/studio/__init__.py",
-        "trade_rl/catalog/__init__.py",
+        "simulation/__init__.py",
+        "telemetry/__init__.py",
+        "studio/__init__.py",
+        "catalog/__init__.py",
     ):
-        assert "setattr(" not in _source(path), path
+        assert "setattr(" not in _python_source(path), path
 
     from trade_rl.simulation.execution import MarketExecutor as DirectMarketExecutor
     from trade_rl.telemetry.training import (
@@ -113,10 +118,10 @@ def test_regime_episode_sampling_fails_when_feature_is_never_available(
 
 
 def test_catalog_has_single_canonical_json_and_sealed_test_sql_owners() -> None:
-    contracts = _source("trade_rl/catalog/contracts.py")
-    postgres = _source("trade_rl/catalog/postgres.py")
-    sealed_store = _source("trade_rl/catalog/postgres_sealed_test.py")
-    stage_a_store = _source("trade_rl/catalog/postgres_stage_a_sealed_test.py")
+    contracts = _python_source("catalog/contracts.py")
+    postgres = _python_source("catalog/postgres.py")
+    sealed_store = _python_source("catalog/postgres_sealed_test.py")
+    stage_a_store = _python_source("catalog/postgres_stage_a_sealed_test.py")
 
     assert (
         "from trade_rl.domain.canonical_json import canonical_json_bytes" in contracts
@@ -137,7 +142,7 @@ def test_postgres_workflow_runs_on_exact_pr_head_and_main_push() -> None:
     assert "push:" in workflow
     assert "branches:" in workflow
     assert "- main" in workflow
-    assert "trade_rl/evaluation/walk_forward/**" in workflow
-    assert "trade_rl/workflows/**" in workflow
+    assert "src/trade_rl/evaluation/walk_forward/**" in workflow
+    assert "src/trade_rl/workflows/**" in workflow
     assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
     assert "persist-credentials: false" in workflow

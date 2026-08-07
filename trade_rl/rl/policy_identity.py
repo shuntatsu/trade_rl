@@ -43,6 +43,14 @@ CURRENT_WEIGHT_KEY: Final = "current_weights"
 _SEQUENCE_ARCHITECTURE_SCHEMA: Final = "hierarchical_sequence_policy_v4"
 _SEQUENCE_ASSET_BINDING_SCHEMA: Final = "sequence_asset_binding_v1"
 _ASSET_IDENTITY_MODE: Final = "identity_free_v1"
+_ASSET_ATTENTION_IDENTITY_FIELDS: Final = frozenset(
+    {
+        "asset_attention_heads",
+        "asset_attention_layers",
+        "asset_ffn_multiplier",
+        "asset_gate_bias",
+    }
+)
 _INTERNAL_ACTION_DISTRIBUTION_NAMES: Final = frozenset(
     {
         "masked_shared_squashed_diag_gaussian",
@@ -204,6 +212,11 @@ def _validated_sequence_architecture(
     if n_symbols == 1:
         if payload.get("asset_fusion_mode") != SINGLE_SYMBOL_ASSET_FUSION_MODE:
             raise ValueError("single-symbol architecture fusion identity mismatch")
+        inactive_fields = _ASSET_ATTENTION_IDENTITY_FIELDS.intersection(payload)
+        if inactive_fields:
+            raise ValueError(
+                "single-symbol architecture cannot declare asset attention fields"
+            )
     elif "asset_fusion_mode" in payload:
         raise ValueError("multi-symbol architecture cannot declare asset fusion mode")
     if "symbols" in payload or "action_names" in payload:

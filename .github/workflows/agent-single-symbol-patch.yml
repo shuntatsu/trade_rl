@@ -1,0 +1,41 @@
+name: Agent Single Symbol Patch
+
+on:
+  push:
+    branches:
+      - agent/single-symbol-core-implementation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/single-symbol-core-implementation
+          persist-credentials: true
+
+      - name: Apply exact replacements
+        run: python .github/agent_single_symbol_patch.py
+
+      - name: Commit exact replacements
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            docs/ARCHITECTURE.md \
+            tests/integrations/test_parallel_sequence_environments.py \
+            tests/integrations/test_sequence_runtime_acceleration.py \
+            tests/integrations/test_single_symbol_training_smoke.py
+          if git diff --cached --quiet; then
+            echo "No patch changes required"
+            exit 0
+          fi
+          git commit -m "Fix single-symbol CI regressions"
+          git push origin HEAD:agent/single-symbol-core-implementation

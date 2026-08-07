@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from trade_rl.data.market import MarketDataset
+    from trade_rl.rl.training_run_config import TrainingRunConfig
     from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
-    from trade_rl.workflows.training_run import TrainingRunConfig
 
 _MAINTAINED_SYMBOLS = ("BTCUSDT",)
 
@@ -33,7 +33,7 @@ def _load_dataset(path: Path) -> MarketDataset:
 
 
 def _load_training_config(path: Path) -> TrainingRunConfig:
-    from trade_rl.workflows.training_run import TrainingRunConfig
+    from trade_rl.rl.training_run_config import TrainingRunConfig
 
     return TrainingRunConfig.from_json(path)
 

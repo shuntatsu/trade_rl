@@ -8,10 +8,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import trade_rl.workflows.stage_a_sb3_evaluation as stage_a_evaluation
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.walk_forward.folds import IndexRange
 from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
+from trade_rl.workflows.stage_a_funding_evidence import (
+    collect_stage_a_funding_evidence,
+    validate_stage_a_funding_evidence,
+)
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
 )
@@ -99,8 +102,8 @@ def test_stage_a_collects_and_revalidates_funding_boundaries() -> None:
     boundary = _boundary(dataset)
     info = {"hybrid_execution": SimpleNamespace(funding_evidence=(boundary,))}
 
-    collected = stage_a_evaluation._funding_from_info(info)
-    normalized = stage_a_evaluation._normalized_funding_evidence(
+    collected = collect_stage_a_funding_evidence(info)
+    normalized = validate_stage_a_funding_evidence(
         collected,
         request=request,
         dataset=dataset,
@@ -111,7 +114,7 @@ def test_stage_a_collects_and_revalidates_funding_boundaries() -> None:
 
 def test_stage_a_rejects_non_funding_values_from_environment() -> None:
     with pytest.raises(ValueError, match="invalid funding evidence"):
-        stage_a_evaluation._funding_from_info(
+        collect_stage_a_funding_evidence(
             {"hybrid_execution": SimpleNamespace(funding_evidence=(object(),))}
         )
 
@@ -167,7 +170,7 @@ def test_stage_a_rejects_funding_evidence_not_bound_to_dataset(
     forged = boundary(dataset)
 
     with pytest.raises(ValueError, match=message):
-        stage_a_evaluation._normalized_funding_evidence(
+        validate_stage_a_funding_evidence(
             (forged,),
             request=request,
             dataset=dataset,

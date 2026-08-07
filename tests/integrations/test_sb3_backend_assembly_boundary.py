@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
+
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 
 
 def _parsed(path: str) -> ast.Module:
-    return ast.parse(Path(path).read_text(encoding="utf-8"))
+    return ast.parse((PYTHON_SOURCE_ROOT / path).read_text(encoding="utf-8"))
 
 
 def test_sb3_backend_routes_model_lifecycle_through_typed_assembly() -> None:
-    tree = _parsed("trade_rl/integrations/sb3_training.py")
+    tree = _parsed("integrations/sb3_training.py")
 
     imported: dict[str, str] = {}
     for node in ast.walk(tree):
@@ -53,8 +54,8 @@ def test_sb3_backend_routes_model_lifecycle_through_typed_assembly() -> None:
 
 
 def test_external_sb3_runtime_values_remain_dynamically_typed() -> None:
-    model_tree = _parsed("trade_rl/integrations/sb3_model_assembly.py")
-    checkpoint_tree = _parsed("trade_rl/integrations/sb3_checkpoint_assembly.py")
+    model_tree = _parsed("integrations/sb3_model_assembly.py")
+    checkpoint_tree = _parsed("integrations/sb3_checkpoint_assembly.py")
 
     build_function = next(
         node

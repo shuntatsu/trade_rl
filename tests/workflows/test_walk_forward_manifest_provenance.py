@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from test_support.training_config import complete_execution_config
+from tests.support.training_config import complete_execution_config
 from trade_rl.artifacts.provenance import capture_runtime_provenance
 from trade_rl.artifacts.run_manifest import (
     WALK_FORWARD_RUN_MANIFEST_SCHEMA,
@@ -114,14 +114,15 @@ def _candidate_run() -> dict[str, object]:
 
 def _provenance(tmp_path: Path):
     root = tmp_path / "source"
-    (root / "trade_rl").mkdir(parents=True)
+    package_root = root / "src" / "trade_rl"
+    package_root.mkdir(parents=True)
     (root / "examples").mkdir()
     (root / "pyproject.toml").write_text(
         "[project]\nname='trade-rl'\n", encoding="utf-8"
     )
     (root / "uv.lock").write_text("test-lock", encoding="utf-8")
     (root / "uv.toml").write_text('required-version = "==0.10.0"\n', encoding="utf-8")
-    (root / "trade_rl" / "module.py").write_text("test", encoding="utf-8")
+    (package_root / "module.py").write_text("test", encoding="utf-8")
     (root / "examples" / "runner.py").write_text("test", encoding="utf-8")
     return capture_runtime_provenance(
         root,

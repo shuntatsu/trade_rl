@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import ast
 import inspect
-from pathlib import Path
 
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.execution import MarketExecutor as DirectMarketExecutor
 from trade_rl.simulation.execution_adapter import StatefulCompatibilityMarketExecutor
@@ -21,11 +21,13 @@ from trade_rl.telemetry.training import (
     TrainingTelemetryWriter as DirectTrainingTelemetryWriter,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
-
 
 def _source(path: str) -> str:
-    return (ROOT / path).read_text(encoding="utf-8")
+    if path == "pyproject.toml":
+        target = REPOSITORY_ROOT / path
+    else:
+        target = PYTHON_SOURCE_ROOT / path
+    return target.read_text(encoding="utf-8")
 
 
 def _tree(path: str) -> ast.Module:
@@ -55,9 +57,9 @@ def test_studio_public_reader_is_declared_by_telemetry_module() -> None:
 
 def test_compatibility_modules_are_behavior_free_aliases() -> None:
     for path in (
-        "trade_rl/simulation/execution_adapter.py",
-        "trade_rl/telemetry/indexed_training.py",
-        "trade_rl/studio/strict_telemetry.py",
+        "simulation/execution_adapter.py",
+        "telemetry/indexed_training.py",
+        "studio/strict_telemetry.py",
     ):
         tree = _tree(path)
         assert not any(isinstance(node, ast.ClassDef) for node in tree.body), path
@@ -69,9 +71,9 @@ def test_compatibility_modules_are_behavior_free_aliases() -> None:
 
 
 def test_package_facades_import_canonical_public_modules() -> None:
-    simulation = _source("trade_rl/simulation/__init__.py")
-    telemetry = _source("trade_rl/telemetry/__init__.py")
-    studio_api = _source("trade_rl/studio/api.py")
+    simulation = _source("simulation/__init__.py")
+    telemetry = _source("telemetry/__init__.py")
+    studio_api = _source("studio/api.py")
 
     assert "from trade_rl.simulation.execution import" in simulation
     assert "StatefulCompatibilityMarketExecutor" not in simulation
@@ -86,11 +88,11 @@ def test_direct_executor_owns_stateful_compatibility_body() -> None:
     assert "execute_target_statefully(" in source
     assert "compatibility_target_execution_v1" in source
     assert "_compatibility_order_book" in source
-    assert "_target_weights(" not in _source("trade_rl/simulation/execution.py")
+    assert "_target_weights(" not in _source("simulation/execution.py")
 
 
 def test_direct_training_module_owns_strict_indexed_contract() -> None:
-    source = _source("trade_rl/telemetry/training.py")
+    source = _source("telemetry/training.py")
     assert "expected_generation" in source
     assert "_IndexedTrainingTelemetryWriter" in source
     assert "def _required_bool(" in source
@@ -106,5 +108,5 @@ def test_direct_studio_reader_rejects_duplicate_seed_streams() -> None:
 
 def test_critical_coverage_tracks_private_indexed_storage() -> None:
     source = _source("pyproject.toml")
-    assert '"trade_rl/telemetry/_indexed_storage.py"' in source
-    assert '"trade_rl/telemetry/indexed_training.py"' not in source
+    assert '"src/trade_rl/telemetry/_indexed_storage.py"' in source
+    assert '"src/trade_rl/telemetry/indexed_training.py"' not in source

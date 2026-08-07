@@ -62,12 +62,13 @@ def test_setup_uv_workflows_resolve_version_from_repository_config() -> None:
 
 def test_uv_toolchain_version_is_bound_to_source_identity(tmp_path: Path) -> None:
     root = tmp_path / "repo"
-    (root / "trade_rl").mkdir(parents=True)
+    package_root = root / "src" / "trade_rl"
+    package_root.mkdir(parents=True)
     (root / "examples").mkdir()
     (root / "pyproject.toml").write_text("[project]\nname='trade-rl'\n")
     (root / "uv.lock").write_text("lock")
     (root / "uv.toml").write_text('required-version = "==0.10.0"\n')
-    (root / "trade_rl" / "module.py").write_text("module")
+    (package_root / "module.py").write_text("module")
     (root / "examples" / "runner.py").write_text("runner")
     before = source_tree_digest(root)
 

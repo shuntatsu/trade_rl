@@ -6,7 +6,7 @@
 
 ## 1. 環境を準備する
 
-Repository rootで実行します。
+Repository rootで実行します。Python本体は`src/trade_rl/`、Web UIは`frontend/`にあります。Python import名とCLIは`trade_rl.*` / `trade-rl`です。
 
 ```bash
 python -m pip install uv
@@ -17,7 +17,7 @@ uv run trade-rl --version
 用途に応じてExtraを追加します。
 
 ```bash
-# Studio
+# Studio API/backend
 uv sync --extra dev --extra train-sb3 --extra studio
 
 # PostgreSQL metadata catalog
@@ -109,11 +109,11 @@ uv sync --extra studio --extra train-sb3
 uv run trade-rl studio start --project-root .
 ```
 
-別ターミナル:
+別ターミナルでWeb UIを起動します。
 
 ```bash
-npm ci --prefix studio
-npm run dev --prefix studio
+npm ci --prefix frontend
+npm run dev --prefix frontend
 ```
 
 `http://127.0.0.1:5173`を開きます。Live TrainingのBUY／SELL表示はWeight変化であり、取引所注文ではありません。

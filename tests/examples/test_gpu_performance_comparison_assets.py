@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
+
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_REF = "1f597caf85fe5200fe7abc34461236b65ebb8b1d"
 
@@ -25,12 +27,11 @@ def test_gpu_comparison_workflow_uses_exact_refs_and_repeated_samples() -> None:
 
 
 def test_gpu_smoke_schema_records_runtime_identity() -> None:
-    facade = (ROOT / "trade_rl" / "operations" / "gpu_training_smoke.py").read_text(
+    operations_root = PYTHON_SOURCE_ROOT / "operations"
+    facade = (operations_root / "gpu_training_smoke.py").read_text(encoding="utf-8")
+    implementation = (operations_root / "_gpu_training_smoke_impl.py").read_text(
         encoding="utf-8"
     )
-    implementation = (
-        ROOT / "trade_rl" / "operations" / "_gpu_training_smoke_impl.py"
-    ).read_text(encoding="utf-8")
 
     assert (
         'GPU_TRAINING_SMOKE_SCHEMA = "gpu_sequence_target_oracle_bc_training_smoke_v8"'

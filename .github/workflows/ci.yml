@@ -40,25 +40,25 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: studio/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install Studio frontend
-        run: npm ci --prefix studio --no-audit --no-fund
+        run: npm ci --prefix frontend --no-audit --no-fund
 
       - name: Verify Studio frontend
         shell: bash
         run: |
           set -o pipefail
           {
-            npm test --prefix studio -- --run
-            npm run typecheck --prefix studio
-            npm run build --prefix studio
+            npm test --prefix frontend -- --run
+            npm run typecheck --prefix frontend
+            npm run build --prefix frontend
           } 2>&1 | tee studio-frontend.log
 
       - name: Verify Studio fixed viewport layout
         env:
-          STUDIO_QA_OUTPUT_DIR: studio/qa-screenshots
-        run: npm run check:layout --prefix studio
+          STUDIO_QA_OUTPUT_DIR: frontend/qa-screenshots
+        run: npm run check:layout --prefix frontend
 
       - name: Upload Studio layout diagnostics
         if: always()
@@ -67,7 +67,7 @@ jobs:
           name: studio-layout-diagnostics
           path: |
             studio-frontend.log
-            studio/qa-screenshots
+            frontend/qa-screenshots
           if-no-files-found: error
 
       - name: Workflow security
@@ -117,7 +117,7 @@ jobs:
           if-no-files-found: error
 
       - name: Dead-code report
-        run: uv run vulture trade_rl tests --min-confidence 100
+        run: uv run vulture src/trade_rl tests --min-confidence 100
 
       - name: Recovery and structured serving smoke
         run: >-
@@ -203,7 +203,7 @@ jobs:
         run: |
           set -euo pipefail
           commit="$(git rev-parse HEAD)"
-          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          source_digest="$(PYTHONPATH=src python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
           lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
           docker build \
             --build-arg TRADE_RL_GIT_COMMIT="$commit" \
@@ -219,7 +219,7 @@ jobs:
         run: |
           set -euo pipefail
           commit="$(git rev-parse HEAD)"
-          source_digest="$(python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          source_digest="$(PYTHONPATH=src python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
           lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
           image_id="$(docker image inspect --format '{{.Id}}' trade-rl-training:ci)"
           repo_digests="$(docker image inspect --format '{{json .RepoDigests}}' trade-rl-training:ci)"

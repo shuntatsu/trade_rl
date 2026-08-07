@@ -10,13 +10,13 @@ on:
       - .env.example
       - pyproject.toml
       - uv.lock
-      - trade_rl/catalog/**
-      - trade_rl/data/artifact.py
-      - trade_rl/evaluation/walk_forward/**
-      - trade_rl/integrations/postgres_indicator_artifacts.py
-      - trade_rl/integrations/postgres_market_dataset.py
-      - trade_rl/workflows/**
-      - trade_rl/cli/**
+      - src/trade_rl/catalog/**
+      - src/trade_rl/data/artifact.py
+      - src/trade_rl/evaluation/walk_forward/**
+      - src/trade_rl/integrations/postgres_indicator_artifacts.py
+      - src/trade_rl/integrations/postgres_market_dataset.py
+      - src/trade_rl/workflows/**
+      - src/trade_rl/cli/**
       - tests/catalog/**
       - tests/evaluation/**
       - tests/integrations/test_postgres_indicator_artifacts.py

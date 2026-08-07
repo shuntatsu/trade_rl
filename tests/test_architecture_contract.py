@@ -1,36 +1,39 @@
 from __future__ import annotations
 
 import tomllib
-from pathlib import Path
 
-ROOT = Path(__file__).parents[1]
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
+
+ROOT = REPOSITORY_ROOT
+PYTHON_ROOT = PYTHON_SOURCE_ROOT
 
 
 def test_legacy_execution_trees_are_absent() -> None:
-    for name in ("mars_lite", "legacy_tests", "scripts"):
+    for name in ("mars_lite", "legacy_tests"):
         assert not (ROOT / name).exists(), f"legacy path still exists: {name}"
 
 
 def test_only_trade_rl_is_packaged() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert config["project"]["name"] == "trade-rl"
-    assert config["tool"]["setuptools"]["packages"]["find"]["include"] == ["trade_rl*"]
+    package_find = config["tool"]["setuptools"]["packages"]["find"]
+    assert package_find["where"] == ["src"]
+    assert package_find["include"] == ["trade_rl*"]
     assert config["project"]["scripts"] == {"trade-rl": "trade_rl.cli:main"}
 
 
 def test_source_contains_maintained_direct_target_mode_without_legacy_env() -> None:
     source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted((ROOT / "trade_rl").rglob("*.py"))
+        path.read_text(encoding="utf-8") for path in sorted(PYTHON_ROOT.rglob("*.py"))
     )
-    actions = (ROOT / "trade_rl/rl/actions.py").read_text(encoding="utf-8")
+    actions = (PYTHON_ROOT / "rl" / "actions.py").read_text(encoding="utf-8")
     assert 'TARGET_WEIGHT = "target_weight"' in actions
     assert "class TargetWeightAction" in actions
     assert "MarsLiteEnv" not in source
 
 
 def test_workflows_do_not_import_model_frameworks() -> None:
-    workflow_root = ROOT / "trade_rl/workflows"
+    workflow_root = PYTHON_ROOT / "workflows"
     for path in workflow_root.glob("*.py"):
         source = path.read_text(encoding="utf-8")
         assert "stable_baselines3" not in source, path
@@ -38,15 +41,15 @@ def test_workflows_do_not_import_model_frameworks() -> None:
 
 
 def test_walk_forward_evaluation_helpers_live_in_focused_module() -> None:
-    workflow = (ROOT / "trade_rl/workflows/market_walk_forward.py").read_text(
+    workflow = (PYTHON_ROOT / "workflows" / "market_walk_forward.py").read_text(
         encoding="utf-8"
     )
     assert "def _evaluate_range(" not in workflow
-    assert (ROOT / "trade_rl/workflows/walk_forward_evaluation.py").is_file()
+    assert (PYTHON_ROOT / "workflows" / "walk_forward_evaluation.py").is_file()
 
 
 def test_environment_terminal_helpers_live_in_transition_module() -> None:
-    transition = ROOT / "trade_rl/rl/transition.py"
+    transition = PYTHON_ROOT / "rl" / "transition.py"
     assert transition.is_file()
     assert "class EconomicTransition" in transition.read_text(encoding="utf-8")
 
@@ -136,10 +139,10 @@ def test_telemetry_has_an_enforced_low_level_dependency_boundary() -> None:
 
 def test_critical_modules_do_not_disable_index_typing_file_wide() -> None:
     for path in (
-        ROOT / "trade_rl/rl/environment.py",
-        ROOT / "trade_rl/rl/observations.py",
-        ROOT / "trade_rl/simulation/execution.py",
-        ROOT / "trade_rl/strategies/trend.py",
+        PYTHON_ROOT / "rl" / "environment.py",
+        PYTHON_ROOT / "rl" / "observations.py",
+        PYTHON_ROOT / "simulation" / "execution.py",
+        PYTHON_ROOT / "strategies" / "trend.py",
     ):
         assert 'mypy: disable-error-code="index"' not in path.read_text(
             encoding="utf-8"
@@ -147,14 +150,14 @@ def test_critical_modules_do_not_disable_index_typing_file_wide() -> None:
 
 
 def test_large_facades_delegate_configuration_to_focused_modules() -> None:
-    environment = (ROOT / "trade_rl/rl/environment.py").read_text(encoding="utf-8")
-    walk_forward = (ROOT / "trade_rl/workflows/market_walk_forward.py").read_text(
+    environment = (PYTHON_ROOT / "rl" / "environment.py").read_text(encoding="utf-8")
+    walk_forward = (PYTHON_ROOT / "workflows" / "market_walk_forward.py").read_text(
         encoding="utf-8"
     )
     assert "class ResidualMarketEnvConfig" not in environment
-    assert (ROOT / "trade_rl/rl/environment_config.py").is_file()
+    assert (PYTHON_ROOT / "rl" / "environment_config.py").is_file()
     assert "class MarketWalkForwardConfig" not in walk_forward
-    assert (ROOT / "trade_rl/workflows/market_walk_forward_config.py").is_file()
+    assert (PYTHON_ROOT / "workflows" / "market_walk_forward_config.py").is_file()
 
 
 def test_sb3_and_torch_are_optional_training_dependencies() -> None:
@@ -169,7 +172,7 @@ def test_sb3_and_torch_are_optional_training_dependencies() -> None:
 
 
 def test_core_training_contract_does_not_import_gym_or_model_frameworks() -> None:
-    source = (ROOT / "trade_rl/rl/training.py").read_text(encoding="utf-8")
+    source = (PYTHON_ROOT / "rl" / "training.py").read_text(encoding="utf-8")
     assert "import gymnasium" not in source
     assert "stable_baselines3" not in source
     assert "sb3_contrib" not in source

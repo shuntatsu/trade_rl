@@ -4,7 +4,7 @@ from dataclasses import fields
 
 import pytest
 
-from test_support.training_config import complete_execution_config
+from tests.support.training_config import complete_execution_config
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 

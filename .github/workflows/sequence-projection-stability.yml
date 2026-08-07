@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'trade_rl/rl/sequence_policy.py'
+      - 'src/trade_rl/rl/sequence_policy.py'
       - 'tests/rl/test_sequence_policy_core.py'
       - 'tests/architecture/test_sequence_projection_stability.py'
       - '.github/workflows/sequence-projection-stability.yml'
@@ -13,7 +13,7 @@ on:
     branches:
       - main
     paths:
-      - 'trade_rl/rl/sequence_policy.py'
+      - 'src/trade_rl/rl/sequence_policy.py'
       - 'tests/rl/test_sequence_policy_core.py'
       - 'tests/architecture/test_sequence_projection_stability.py'
       - '.github/workflows/sequence-projection-stability.yml'

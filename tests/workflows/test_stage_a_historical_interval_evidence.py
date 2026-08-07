@@ -60,7 +60,7 @@ def _funding_boundary(index: int, *, timestamp_ns: int) -> FundingBoundaryEviden
     )
 
 
-def test_historical_intervals_bind_step_end_indices_to_equity_curve() -> None:
+def test_historical_intervals_bind_actions_indices_and_equity_curve() -> None:
     replay = _two_transition_replay()
     start = replay.cell_identity.evaluation_range.start
     stop = replay.cell_identity.evaluation_range.stop
@@ -72,13 +72,14 @@ def test_historical_intervals_bind_step_end_indices_to_equity_curve() -> None:
             item.sequence,
             item.start_index,
             item.end_index,
+            item.action,
             item.equity_before,
             item.equity_after,
         )
         for item in intervals
     ] == [
-        (1, start, start + 1, 1_000.0, 1_010.0),
-        (2, start + 1, stop, 1_010.0, 990.0),
+        (1, start, start + 1, (0.25,), 1_000.0, 1_010.0),
+        (2, start + 1, stop, (0.5,), 1_010.0, 990.0),
     ]
 
 

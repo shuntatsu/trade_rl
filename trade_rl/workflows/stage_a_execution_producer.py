@@ -157,7 +157,10 @@ class StageAEvaluationEpisodeResult:
                     raise ValueError(
                         "Stage A episode transition end indices must be non-negative integers"
                     )
-                if previous_transition_end is not None and value <= previous_transition_end:
+                if (
+                    previous_transition_end is not None
+                    and value <= previous_transition_end
+                ):
                     raise ValueError(
                         "Stage A episode transition end indices must be strictly increasing"
                     )

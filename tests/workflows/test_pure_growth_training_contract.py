@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from test_support.training_config import complete_execution_config
+from tests.support.training_config import complete_execution_config
 from trade_rl.workflows.training_run import TrainingRunConfig
 
 

@@ -72,6 +72,7 @@ def sequence_diagnostics_payload(
     latents: dict[str, torch.Tensor] = {}
     available: dict[str, torch.Tensor] = {}
     staleness: dict[str, torch.Tensor] = {}
+    asset_weights: tuple[torch.Tensor, ...] = ()
 
     was_training = bool(feature_extractor.training)
     feature_extractor.eval()
@@ -127,10 +128,13 @@ def sequence_diagnostics_payload(
             fallback = (~has_active).unsqueeze(1) & asset_positions.unsqueeze(0).eq(0)
             safe_active = active | fallback
             fused = torch.where(fallback.unsqueeze(-1), torch.zeros_like(fused), fused)
-            _, asset_weights = asset_encoder.cross_asset.diagnostic_forward(
-                fused,
-                valid=safe_active,
-            )
+            cross_asset = asset_encoder.cross_asset
+            if cross_asset is not None:
+                _, raw_asset_weights = cross_asset.diagnostic_forward(
+                    fused,
+                    valid=safe_active,
+                )
+                asset_weights = tuple(raw_asset_weights)
     finally:
         feature_extractor.train(was_training)
 
@@ -139,17 +143,21 @@ def sequence_diagnostics_payload(
     timeframe_probabilities, timeframe_entropy, timeframe_maximum = (
         _attention_distribution_metrics(timeframe_query, timeframe_key_valid)
     )
-    asset_query = asset_weights[-1]
-    asset_valid = safe_active.repeat_interleave(asset_query.shape[2], dim=0)
-    asset_rows = asset_query.permute(0, 2, 1, 3).reshape(
-        -1,
-        asset_query.shape[1],
-        asset_query.shape[-1],
-    )
-    _, asset_entropy, asset_maximum = _attention_distribution_metrics(
-        asset_rows,
-        asset_valid,
-    )
+    if asset_weights:
+        asset_query = asset_weights[-1]
+        asset_valid = safe_active.repeat_interleave(asset_query.shape[2], dim=0)
+        asset_rows = asset_query.permute(0, 2, 1, 3).reshape(
+            -1,
+            asset_query.shape[1],
+            asset_query.shape[-1],
+        )
+        _, asset_entropy, asset_maximum = _attention_distribution_metrics(
+            asset_rows,
+            asset_valid,
+        )
+    else:
+        asset_entropy = 0.0
+        asset_maximum = 0.0
 
     payload: dict[str, float] = {
         "sequence/timeframe_attention_entropy": timeframe_entropy,
@@ -170,7 +178,12 @@ def sequence_diagnostics_payload(
     timeframe_gate_mean, timeframe_gate_saturation = _gate_metrics(
         asset_encoder.timeframe_fusion.transformer
     )
-    asset_gate_mean, asset_gate_saturation = _gate_metrics(asset_encoder.cross_asset)
+    cross_asset = asset_encoder.cross_asset
+    if cross_asset is None:
+        asset_gate_mean = 0.0
+        asset_gate_saturation = 0.0
+    else:
+        asset_gate_mean, asset_gate_saturation = _gate_metrics(cross_asset)
     payload.update(
         {
             "sequence/timeframe_gate_mean": timeframe_gate_mean,
@@ -185,7 +198,11 @@ def sequence_diagnostics_payload(
     fusion_gradient, fusion_gradient_available = _gradient_norm(
         asset_encoder.timeframe_fusion
     )
-    asset_gradient, asset_gradient_available = _gradient_norm(asset_encoder.cross_asset)
+    if cross_asset is None:
+        asset_gradient = 0.0
+        asset_gradient_available = False
+    else:
+        asset_gradient, asset_gradient_available = _gradient_norm(cross_asset)
     payload.update(
         {
             "sequence/gradient/timeframe_encoder": timeframe_gradient,

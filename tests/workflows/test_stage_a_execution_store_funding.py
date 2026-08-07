@@ -37,7 +37,7 @@ def _plan() -> StageAZeroShotEvaluationPlan:
         feature_identity=_digest("features"),
         validation_triplet_ids=(_digest("validation-triplet"),),
         test_triplet_ids=(_digest("test-triplet"),),
-        folds=(0,),
+        folds=(0, 1),
     )
     candidate = StageACandidate.create(
         candidate_id="candidate-a",
@@ -59,7 +59,7 @@ def _plan() -> StageAZeroShotEvaluationPlan:
         evaluation_identity=_digest("evaluation"),
         candidates=(candidate,),
         seeds=(0,),
-        folds=(0,),
+        folds=(0, 1),
         validation_triplet_ids=manifest.validation_triplet_ids,
         test_triplet_ids=manifest.test_triplet_ids,
         bootstrap_confidence_level=0.95,

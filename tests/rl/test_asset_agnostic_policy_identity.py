@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -76,13 +77,30 @@ def test_sequence_architecture_digest_does_not_bind_symbol_names() -> None:
     assert "asset_fusion_mode" not in first.digest_payload()
 
 
-def test_single_symbol_architecture_binds_bypass_mode() -> None:
+def test_single_symbol_architecture_binds_only_bypass_mode() -> None:
     identity = sequence_architecture_identity(_architecture(n_symbols=1))
+    payload = identity.digest_payload()
 
     assert identity.asset_fusion_mode == SINGLE_SYMBOL_ASSET_FUSION_MODE
-    assert identity.digest_payload()["asset_fusion_mode"] == (
-        SINGLE_SYMBOL_ASSET_FUSION_MODE
+    assert payload["asset_fusion_mode"] == SINGLE_SYMBOL_ASSET_FUSION_MODE
+    assert "asset_attention_heads" not in payload
+    assert "asset_attention_layers" not in payload
+    assert "asset_ffn_multiplier" not in payload
+    assert "asset_gate_bias" not in payload
+
+
+def test_single_symbol_digest_ignores_inactive_asset_attention_settings() -> None:
+    identity = sequence_architecture_identity(_architecture(n_symbols=1))
+    drifted = replace(
+        identity,
+        asset_attention_heads=8,
+        asset_attention_layers=9,
+        asset_ffn_multiplier=7,
+        asset_gate_bias=4.0,
     )
+
+    assert drifted.digest_payload() == identity.digest_payload()
+    assert drifted.digest == identity.digest
 
 
 def test_asset_binding_is_separate_and_symbol_specific() -> None:

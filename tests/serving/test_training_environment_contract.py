@@ -140,5 +140,5 @@ def test_release_packaging_delegates_execution_artifact_decoding() -> None:
 def test_release_packaging_has_per_file_critical_branch_ratchets() -> None:
     configuration = (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-    assert '"src/trade_rl/workflows/release_packaging.py" = 90.0' in configuration
-    assert '"src/trade_rl/serving/training_environment.py" = 100.0' in configuration
+    assert '"trade_rl/workflows/release_packaging.py" = 90.0' in configuration
+    assert '"trade_rl/serving/training_environment.py" = 100.0' in configuration

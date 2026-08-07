@@ -86,7 +86,9 @@ class SequenceArchitectureIdentity:
             if self.asset_fusion_mode != SINGLE_SYMBOL_ASSET_FUSION_MODE:
                 raise ValueError("single-symbol architecture requires bypass identity")
         elif self.asset_fusion_mode is not None:
-            raise ValueError("multi-symbol architecture cannot use single-symbol fusion")
+            raise ValueError(
+                "multi-symbol architecture cannot use single-symbol fusion"
+            )
         for window, dilations in zip(self.window_lengths, self.dilations, strict=True):
             if 1 + 2 * sum(dilations) < window:
                 raise ValueError("dilation schedule does not cover declared window")

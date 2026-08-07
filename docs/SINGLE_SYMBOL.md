@@ -58,7 +58,12 @@ The maintained config writer rejects any profile that is not
   numeric literal.
 - Four native timeframe histories remain active.
 - Cross-timeframe fusion remains active.
-- Cross-asset Transformer computation is bypassed when `n_symbols == 1`.
+- The Cross-Asset Transformer module and its parameters are not created when
+  `n_symbols == 1`.
+- Single-symbol diagnostics report Cross-Asset metrics as non-applicable zeros
+  while retaining Cross-Timeframe and gradient diagnostics.
+- `single_symbol_bypass_v1` binds that structure into policy identity; inactive
+  Asset-Attention settings are omitted from its architecture digest.
 - Architecture and asset-binding identity distinguish one-symbol and historical
   three-symbol checkpoints.
 

@@ -3,11 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 from gymnasium import spaces
 from torch import nn
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.structured_policy_contract import StructuredExportManifest
 from trade_rl.rl.policy_identity import SB3_POLICY_IDENTITY_ATTRIBUTE
 from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 from trade_rl.rl.structured_export import export_structured_policy_actor
@@ -137,25 +139,51 @@ def _observation() -> dict[str, np.ndarray]:
     return observation
 
 
-def test_single_symbol_structured_export_round_trip(tmp_path: Path) -> None:
+def _export(tmp_path: Path) -> tuple[_SingleSymbolModel, StructuredExportManifest]:
     model = _SingleSymbolModel()
-    observation = _observation()
-
     manifest = export_structured_policy_actor(
         model=model,
         output_dir=tmp_path,
-        example_observation=observation,
+        example_observation=_observation(),
         action_size=1,
         tolerance=1e-6,
     )
+    return model, manifest
+
+
+def _rebuilt_manifest(
+    tmp_path: Path,
+    manifest: StructuredExportManifest,
+    *,
+    policy_identity: dict[str, object] | None = None,
+    action_size: int | None = None,
+) -> StructuredExportManifest:
+    return StructuredExportManifest.build(
+        model_path=tmp_path / manifest.model_path,
+        policy_identity=(
+            dict(manifest.policy_identity)
+            if policy_identity is None
+            else policy_identity
+        ),
+        inputs=manifest.inputs,
+        action_size=manifest.action_size if action_size is None else action_size,
+        tolerance=manifest.tolerance,
+        max_abs_error=manifest.max_abs_error,
+    )
+
+
+def test_single_symbol_structured_export_round_trip(tmp_path: Path) -> None:
+    model, manifest = _export(tmp_path)
+    observation = _observation()
+
     policy = StructuredTorchScriptPolicy(root=tmp_path, manifest=manifest)
     action = policy.predict(observation)
 
     assert action.shape == (1,)
     assert manifest.action_size == 1
-    assert manifest.policy_identity["sequence_architecture"][
-        "asset_fusion_mode"
-    ] == "single_symbol_bypass_v1"
+    raw_architecture = manifest.policy_identity["sequence_architecture"]
+    assert isinstance(raw_architecture, dict)
+    assert raw_architecture["asset_fusion_mode"] == "single_symbol_bypass_v1"
     np.testing.assert_allclose(
         action,
         model.policy._predict(
@@ -167,3 +195,32 @@ def test_single_symbol_structured_export_round_trip(tmp_path: Path) -> None:
         rtol=0.0,
         atol=1e-6,
     )
+
+
+def test_structured_policy_rejects_missing_single_symbol_fusion_identity(
+    tmp_path: Path,
+) -> None:
+    _model, manifest = _export(tmp_path)
+    identity = dict(manifest.policy_identity)
+    raw_architecture = identity["sequence_architecture"]
+    assert isinstance(raw_architecture, dict)
+    architecture = dict(raw_architecture)
+    architecture.pop("asset_fusion_mode")
+    identity["sequence_architecture"] = architecture
+    identity["sequence_architecture_digest"] = content_digest(architecture)
+    tampered = _rebuilt_manifest(
+        tmp_path,
+        manifest,
+        policy_identity=identity,
+    )
+
+    with pytest.raises(ValueError, match="fusion identity mismatch"):
+        StructuredTorchScriptPolicy(root=tmp_path, manifest=tampered)
+
+
+def test_structured_policy_rejects_manifest_action_size_drift(tmp_path: Path) -> None:
+    _model, manifest = _export(tmp_path)
+    tampered = _rebuilt_manifest(tmp_path, manifest, action_size=3)
+
+    with pytest.raises(ValueError, match="action size identity mismatch"):
+        StructuredTorchScriptPolicy(root=tmp_path, manifest=tampered)

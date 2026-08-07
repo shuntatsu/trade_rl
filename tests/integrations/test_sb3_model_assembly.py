@@ -7,10 +7,10 @@ import numpy as np
 import pytest
 from gymnasium import spaces
 
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 from trade_rl.rl.algorithm_configs import build_algorithm_config
 from trade_rl.rl.observations import ObservationLayout
 from trade_rl.rl.training import ResidualTrainingConfig
-from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 
 
 class _Probe(gym.Env[np.ndarray, np.ndarray]):

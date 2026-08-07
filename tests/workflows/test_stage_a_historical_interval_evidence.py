@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
 from tests.workflows.test_stage_a_execution_replay import _digest, _request
 from trade_rl.workflows.stage_a_execution_replay import (
+    STAGE_A_EXECUTION_REPLAY_SCHEMA,
     STAGE_A_EXECUTION_REPLAY_SCHEMA_V4,
     StageAExecutionCellIdentity,
     StageAExecutionReplayArtifact,
@@ -59,3 +64,16 @@ def test_historical_intervals_bind_step_end_indices_to_equity_curve() -> None:
         (1, start, start + 1, 1_000.0, 1_010.0),
         (2, start + 1, stop, 1_010.0, 990.0),
     ]
+
+
+def test_historical_intervals_require_transition_bound_replay_v4() -> None:
+    replay = _two_transition_replay()
+    legacy_replay = replace(
+        replay,
+        transition_end_indices=(),
+        schema_version=STAGE_A_EXECUTION_REPLAY_SCHEMA,
+        digest="",
+    )
+
+    with pytest.raises(ValueError, match="requires replay v4"):
+        build_stage_a_historical_interval_evidence(legacy_replay)

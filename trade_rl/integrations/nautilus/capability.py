@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from trade_rl.integrations.nautilus.instrument import (
+    build_maintained_btcusdt_perpetual,
+)
 from trade_rl.integrations.nautilus.runtime_identity import (
     NautilusRuntimeIdentity,
     require_nautilus_runtime,
@@ -17,6 +20,7 @@ class NautilusCapabilityReport:
     runtime: NautilusRuntimeIdentity
     engine_constructed: bool
     binance_margin_venue_added: bool
+    instrument_registered: bool
     engine_disposed: bool
     errors: tuple[str, ...]
 
@@ -29,6 +33,7 @@ def run_nautilus_capability_probe() -> NautilusCapabilityReport:
     engine = None
     engine_constructed = False
     binance_margin_venue_added = False
+    instrument_registered = False
     engine_disposed = False
 
     try:
@@ -49,6 +54,10 @@ def run_nautilus_capability_probe() -> NautilusCapabilityReport:
             starting_balances=[Money(100_000, USDT)],
         )
         binance_margin_venue_added = True
+
+        instrument = build_maintained_btcusdt_perpetual()
+        engine.add_instrument(instrument)
+        instrument_registered = engine.cache.instrument(instrument.id) is not None
     except Exception as exc:  # pragma: no cover - exercised by pinned-wheel CI
         errors.append(f"{type(exc).__name__}: {exc}")
     finally:
@@ -63,6 +72,7 @@ def run_nautilus_capability_probe() -> NautilusCapabilityReport:
         runtime=runtime,
         engine_constructed=engine_constructed,
         binance_margin_venue_added=binance_margin_venue_added,
+        instrument_registered=instrument_registered,
         engine_disposed=engine_disposed,
         errors=tuple(errors),
     )

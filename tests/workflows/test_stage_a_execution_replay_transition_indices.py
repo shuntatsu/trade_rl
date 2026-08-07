@@ -36,7 +36,8 @@ def test_replay_artifact_persists_transition_end_indices(tmp_path: Path) -> None
 
     assert artifact.transition_end_indices == transition_end_indices
     assert (
-        StageAExecutionReplayArtifact.from_json_bytes(artifact.raw_bytes)
-        .transition_end_indices
+        StageAExecutionReplayArtifact.from_json_bytes(
+            artifact.raw_bytes
+        ).transition_end_indices
         == transition_end_indices
     )

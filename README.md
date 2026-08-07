@@ -28,15 +28,15 @@ one maintained run
 ### Repository map
 
 ```text
-src/trade_rl/       Python engine/backend package。import名は trade_rl.* のまま
-apps/studio-web/    React/Viteの研究用Web UI
-scripts/ci/         CI・検証専用スクリプト
-tests/              Pythonの契約・単体・統合・E2Eテスト
-docs/               Architecture、運用、研究・移行ドキュメント
-examples/           Quickstartと再現可能な実行例
+src/trade_rl/    Python engine/backend package。import名は trade_rl.* のまま
+studio/          React/Viteの研究用Web UI
+scripts/ci/      CI・検証専用スクリプト
+tests/           Pythonの契約・単体・統合・E2Eテスト
+docs/            Architecture、運用、研究・移行ドキュメント
+examples/        Quickstartと再現可能な実行例
 ```
 
-`apps/studio-web/`と`src/trade_rl/studio/`は別責務です。前者はブラウザUI、後者はPython側のStudio API/backendです。リポジトリの物理配置とPython import namespaceを分離し、`trade_rl.*`の公開import契約は維持します。
+`studio/`と`src/trade_rl/studio/`は別責務です。前者はブラウザUI、後者はPython側のStudio API/backendです。不要な中間`apps/`階層は置かず、役割が一意なトップレベルDirectoryをそのまま使います。Python import namespaceは`trade_rl.*`のまま維持します。
 
 ## 最短で試す
 
@@ -130,15 +130,15 @@ uv sync --extra studio --extra train-sb3
 uv run trade-rl studio start --project-root .
 
 # 別ターミナル
-npm ci --prefix apps/studio-web
-npm run dev --prefix apps/studio-web
+npm ci --prefix studio
+npm run dev --prefix studio
 ```
 
 Live Trainingは`not exchange activity`、`not model-selection evidence`、`not sealed evaluation`、`not profitability evidence`です。LONG／SHORT／CLOSE表示はTarget exposureの変化であり、取引所注文ではありません。
 
 TensorBoard診断では、損失やKLに加えて、時間足Attention比率、Attention entropy、Gate飽和、欠損率、系列BlockのGradient normを確認できます。Maintained one-symbolではAsset-Attention指標を非適用の`0.0`として記録します。診断値は選択Evidenceとして使用しません。
 
-詳細は[Studio Web README](apps/studio-web/README.md)を参照してください。
+詳細は[Studio README](studio/README.md)を参照してください。
 
 ## ServingとExport
 
@@ -156,7 +156,7 @@ Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学
 - [研究状態とProduction gate](docs/RESEARCH_STATUS.md)
 - [Binance Public Data](docs/BINANCE.md)
 - [Docker GPU運用](docs/operations/docker-gpu-full-training.md)
-- [Trade RL Studio Web](apps/studio-web/README.md)
+- [Trade RL Studio](studio/README.md)
 - [Licensing](docs/LICENSING.md)
 - [Licensing provenance](docs/LICENSING_PROVENANCE.md)
 
@@ -168,10 +168,10 @@ uv run ruff format --check .
 uv run mypy src/trade_rl
 uv run lint-imports
 uv run pytest --cov=trade_rl --cov-branch
-npm test --prefix apps/studio-web -- --run
-npm run typecheck --prefix apps/studio-web
-npm run build --prefix apps/studio-web
-npm run check:layout --prefix apps/studio-web
+npm test --prefix studio -- --run
+npm run typecheck --prefix studio
+npm run build --prefix studio
+npm run check:layout --prefix studio
 ```
 
 ## 非対応範囲

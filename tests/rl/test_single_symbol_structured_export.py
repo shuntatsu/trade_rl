@@ -26,9 +26,7 @@ class _SingleSymbolStructuredPolicy(nn.Module):
             "asset_state": spaces.Box(-10.0, 10.0, shape=(1, 2)),
             "global_state": spaces.Box(-10.0, 10.0, shape=(2,)),
             "active": spaces.Box(0.0, 1.0, shape=(1,)),
-            "current_weights": spaces.Box(
-                -1.0, 1.0, shape=(1,), dtype=np.float32
-            ),
+            "current_weights": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32),
         }
         for timeframe in _TIMEFRAMES:
             shape = (1, 4, 2)
@@ -191,7 +189,9 @@ def test_single_symbol_structured_export_round_trip(tmp_path: Path) -> None:
                 key: torch.from_numpy(value).unsqueeze(0)
                 for key, value in observation.items()
             }
-        )[0].detach().numpy(),
+        )[0]
+        .detach()
+        .numpy(),
         rtol=0.0,
         atol=1e-6,
     )

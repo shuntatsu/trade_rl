@@ -56,9 +56,7 @@ class _Database:
             ]
             for symbol in symbols
         }
-        self.funding = {
-            symbol: [(start_ms + 1_800_000, 0.0001)] for symbol in symbols
-        }
+        self.funding = {symbol: [(start_ms + 1_800_000, 0.0001)] for symbol in symbols}
 
     def cursor(self) -> _Cursor:
         return _Cursor(self)
@@ -101,7 +99,9 @@ def _bundle(symbols: tuple[str, ...], start_ms: int) -> NativeIndicatorArtifactB
     )
 
 
-def _metadata(symbols: tuple[str, ...], start: datetime) -> dict[str, dict[str, object]]:
+def _metadata(
+    symbols: tuple[str, ...], start: datetime
+) -> dict[str, dict[str, object]]:
     return {
         symbol: {
             "listed_at": start.isoformat(),

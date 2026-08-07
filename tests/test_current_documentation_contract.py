@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_SOURCE_ROOT = ROOT / "src" / "trade_rl"
-STUDIO_WEB_ROOT = ROOT / "apps" / "studio-web"
+STUDIO_WEB_ROOT = ROOT / "studio"
 
 MAINTAINED_DOCUMENTS = (
     ROOT / "README.md",

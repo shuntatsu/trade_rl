@@ -103,7 +103,7 @@ def _dataset() -> MarketDataset:
 
 def _cost() -> ExecutionCostConfig:
     return ExecutionCostConfig(
-        fee_rate=0.0004,
+        fee_rate=0.0,
         maker_fee_rate=0.0002,
         taker_fee_rate=0.0004,
         spread_rate=0.0,

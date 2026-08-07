@@ -44,10 +44,10 @@ def canonicalize_nautilus_fill_events(
     for event in events:
         price = _decimal_value(event.last_px, name="last_px")
         quantity = _decimal_value(event.last_qty, name="last_qty")
-        side = str(event.order_side).upper()
-        if side.endswith("BUY"):
+        side = _order_side_name(event.order_side)
+        if side == "BUY":
             signed_quantity = quantity
-        elif side.endswith("SELL"):
+        elif side == "SELL":
             signed_quantity = -quantity
         else:
             raise ValueError(f"unsupported Nautilus order side: {event.order_side!r}")
@@ -76,6 +76,18 @@ def canonicalize_nautilus_fill_events(
             fee_minor += int(integral)
 
     return NautilusCanonicalFillResult(fills=tuple(fills), fee_minor=fee_minor)
+
+
+def _order_side_name(value: Any) -> str:
+    name = getattr(value, "name", None)
+    if isinstance(name, str):
+        return name.upper()
+    text = str(value).upper()
+    if text.endswith("BUY"):
+        return "BUY"
+    if text.endswith("SELL"):
+        return "SELL"
+    return text
 
 
 def _decimal_value(value: Any, *, name: str) -> Decimal:

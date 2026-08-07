@@ -157,7 +157,9 @@ def test_training_image_build_checks_non_root_runtime_contract() -> None:
     runtime_contract = dockerfile.index('test "$(id -u)" -ne 0', user)
 
     assert "test -w /workspace/var" in dockerfile[runtime_contract:]
-    assert "test -r /workspace/src/trade_rl/__init__.py" in dockerfile[runtime_contract:]
+    assert (
+        "test -r /workspace/src/trade_rl/__init__.py" in dockerfile[runtime_contract:]
+    )
     assert "test -r /workspace/examples" in dockerfile[runtime_contract:]
     assert "cat /provenance.valid" in dockerfile[runtime_contract:]
 

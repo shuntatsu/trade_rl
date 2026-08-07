@@ -135,7 +135,7 @@ def test_training_dockerfile_keeps_heavy_dependencies_out_of_late_layers() -> No
     dependency_sync = runtime.index(
         "uv sync --frozen --extra train-sb3 --extra postgres --no-dev --no-install-project"
     )
-    source_copy = runtime.index("COPY --chown=trainer:trainer src ./src")
+    source_copy = runtime.index("COPY --chown=trainer:trainer trade_rl ./trade_rl")
     project_sync = runtime.index(
         "uv sync --frozen --extra train-sb3 --extra postgres --no-dev", source_copy
     )
@@ -157,9 +157,7 @@ def test_training_image_build_checks_non_root_runtime_contract() -> None:
     runtime_contract = dockerfile.index('test "$(id -u)" -ne 0', user)
 
     assert "test -w /workspace/var" in dockerfile[runtime_contract:]
-    assert (
-        "test -r /workspace/src/trade_rl/__init__.py" in dockerfile[runtime_contract:]
-    )
+    assert "test -r /workspace/trade_rl/__init__.py" in dockerfile[runtime_contract:]
     assert "test -r /workspace/examples" in dockerfile[runtime_contract:]
     assert "cat /provenance.valid" in dockerfile[runtime_contract:]
 

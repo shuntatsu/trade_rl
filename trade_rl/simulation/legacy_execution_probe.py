@@ -16,7 +16,13 @@ from trade_rl.simulation.execution_canonicalization import (
     CanonicalFillSignature,
 )
 from trade_rl.simulation.legacy_trace_adapter import canonicalize_legacy_fill_events
-from trade_rl.simulation.orders import OrderBookState
+from trade_rl.simulation.orders import (
+    OrderBookState,
+    OrderIntent,
+    OrderType,
+    TimeInForce,
+)
+from trade_rl.simulation.stateful_execution import execute_stateful_orders
 from trade_rl.simulation.target_execution import execute_target_statefully
 
 
@@ -70,6 +76,62 @@ def run_legacy_flat_long_flat_probe() -> LegacyExecutionProbeResult:
     return LegacyExecutionProbeResult(fills=fills, economics=economics)
 
 
+def run_legacy_flat_long_flat_short_flat_probe() -> LegacyExecutionProbeResult:
+    """Execute an explicit reduce-to-flat sign reversal through the legacy engine."""
+
+    dataset = _sign_flip_dataset()
+    executor = MarketExecutor(dataset, _cost())
+    initial_capital = 1_000.0
+    book = BookState.zero(1, initial_capital, dataset.close[0])
+    order_book = OrderBookState.empty()
+    events = []
+
+    for submit_index, quantity in enumerate((1.0, -1.0, -1.0, 1.0)):
+        intent = OrderIntent.create(
+            dataset_id=dataset.dataset_id,
+            target_identity=f"dual-shadow-sign-flip-{submit_index}",
+            execution_policy_digest=executor.cost.execution_policy_digest,
+            symbol_index=0,
+            requested_quantity=quantity,
+            order_type=OrderType.MARKET,
+            time_in_force=TimeInForce.IOC,
+            limit_price=None,
+            stop_price=None,
+            submit_index=submit_index,
+            eligible_index=submit_index,
+            expiry_index=None,
+            submission_reference_price=float(dataset.close[submit_index, 0]),
+            decision_equity=book.portfolio_value,
+        )
+        result = execute_stateful_orders(
+            executor,
+            book,
+            order_book,
+            (intent,),
+            start_index=submit_index,
+            bars=1,
+        )
+        events.extend(result.order_events)
+        book = result.book
+        order_book = result.order_book
+
+    fills = canonicalize_legacy_fill_events(
+        events,
+        price_tick=0.1,
+        lot_size=0.001,
+    )
+    final_equity = book.portfolio_value
+    economics = CanonicalEconomicClosure(
+        fee_minor=_minor(book.total_cost),
+        funding_minor=_minor(book.funding_pnl),
+        realized_pnl_minor=_minor(final_equity - initial_capital),
+        final_equity_minor=_minor(final_equity),
+        terminal_position_lots=int(round(float(book.quantities[0]) / 0.001)),
+        terminal_open_orders=len(order_book.active_orders),
+    )
+    return LegacyExecutionProbeResult(fills=fills, economics=economics)
+
+
 def _dataset() -> MarketDataset:
     open_prices = np.array([[100.0], [100.1], [104.9], [105.0]], dtype=np.float64)
     close = np.array([[100.0], [105.0], [105.0], [105.0]], dtype=np.float64)
@@ -101,6 +163,40 @@ def _dataset() -> MarketDataset:
     )
 
 
+def _sign_flip_dataset() -> MarketDataset:
+    open_prices = np.array(
+        [[100.0], [100.1], [99.9], [99.9], [100.1]],
+        dtype=np.float64,
+    )
+    close = np.full((5, 1), 100.0, dtype=np.float64)
+    high = np.maximum(open_prices, close) + 1.0
+    low = np.minimum(open_prices, close) - 1.0
+    volume = np.full_like(close, 1_000.0)
+    hour_ns = 60 * 60 * 1_000_000_000
+    timestamps = np.array(
+        [0, hour_ns, 2 * hour_ns, 3 * hour_ns, 4 * hour_ns],
+        dtype="datetime64[ns]",
+    )
+    return MarketDataset(
+        dataset_id="e" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=timestamps,
+        features=np.zeros((5, 1, 1), dtype=np.float32),
+        global_features=np.zeros((5, 1), dtype=np.float32),
+        open=open_prices,
+        high=high,
+        low=low,
+        close=close,
+        volume=volume,
+        funding_rate=np.zeros_like(close),
+        tradable=np.ones_like(close, dtype=np.bool_),
+        feature_available=np.ones((5, 1, 1), dtype=np.bool_),
+        feature_names=("probe",),
+        global_feature_names=("probe",),
+        periods_per_year=8_760,
+    )
+
+
 def _cost() -> ExecutionCostConfig:
     return ExecutionCostConfig(
         fee_rate=0.0,
@@ -123,4 +219,8 @@ def _minor(value: float, *, precision: int = 8) -> int:
     return int(normalized * (Decimal(10) ** precision))
 
 
-__all__ = ["LegacyExecutionProbeResult", "run_legacy_flat_long_flat_probe"]
+__all__ = [
+    "LegacyExecutionProbeResult",
+    "run_legacy_flat_long_flat_probe",
+    "run_legacy_flat_long_flat_short_flat_probe",
+]

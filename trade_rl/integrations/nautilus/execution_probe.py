@@ -1,4 +1,4 @@
-"""Deterministic single-process execution probe for the pinned Nautilus runtime."""
+"""Deterministic single-process execution probes for the pinned Nautilus runtime."""
 
 from __future__ import annotations
 
@@ -49,6 +49,18 @@ class NautilusExecutionProbeResult:
             ensure_ascii=True,
         ).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class NautilusConformanceProbeResult:
+    """Canonical result for a multi-position Nautilus conformance lifecycle."""
+
+    runtime_version: str
+    orders_closed: int
+    positions_closed: int
+    open_positions: int
+    fills: tuple[CanonicalFillSignature, ...]
+    economics: CanonicalEconomicClosure
 
 
 def run_flat_long_flat_execution_probe(
@@ -203,6 +215,147 @@ def run_flat_long_flat_execution_probe(
         engine.dispose()
 
 
+def run_flat_long_flat_short_flat_execution_probe(
+    *,
+    starting_balance: Decimal = Decimal("100000"),
+) -> NautilusConformanceProbeResult:
+    """Run a safe long-to-short sign reversal with an explicit flat boundary."""
+
+    if not starting_balance.is_finite() or starting_balance <= 0:
+        raise ValueError("starting_balance must be finite and positive")
+    runtime = require_nautilus_runtime()
+
+    from nautilus_trader.adapters.binance import BINANCE_VENUE
+    from nautilus_trader.backtest.engine import BacktestEngine
+    from nautilus_trader.model import Money
+    from nautilus_trader.model.currencies import USDT
+    from nautilus_trader.model.enums import (
+        AccountType,
+        OmsType,
+        OrderSide,
+        TimeInForce,
+    )
+    from nautilus_trader.trading.strategy import Strategy
+
+    class SignFlipProbeStrategy(Strategy):
+        def __init__(self, instrument_id: object) -> None:
+            super().__init__()
+            self.instrument_id = instrument_id
+            self.quote_count = 0
+            self.filled_events: list[object] = []
+
+        def on_start(self) -> None:
+            self.subscribe_quote_ticks(self.instrument_id)
+
+        def on_quote_tick(self, tick: object) -> None:
+            instrument = self.cache.instrument(self.instrument_id)
+            assert instrument is not None
+            self.quote_count += 1
+            if self.quote_count == 1:
+                side = OrderSide.BUY
+                reduce_only = False
+            elif self.quote_count == 2:
+                side = OrderSide.SELL
+                reduce_only = True
+            elif self.quote_count == 3:
+                side = OrderSide.SELL
+                reduce_only = False
+            elif self.quote_count == 4:
+                side = OrderSide.BUY
+                reduce_only = True
+            else:
+                return
+            self.submit_order(
+                self.order_factory.market(
+                    instrument_id=self.instrument_id,
+                    order_side=side,
+                    quantity=instrument.make_qty(1.0),
+                    time_in_force=TimeInForce.IOC,
+                    reduce_only=reduce_only,
+                )
+            )
+
+        def on_order_filled(self, event: object) -> None:
+            self.filled_events.append(event)
+
+    engine = BacktestEngine()
+    try:
+        engine.add_venue(
+            venue=BINANCE_VENUE,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            base_currency=USDT,
+            starting_balances=[Money(starting_balance, USDT)],
+        )
+        instrument = build_maintained_btcusdt_perpetual()
+        engine.add_instrument(instrument)
+        quotes = [
+            build_quote_tick(
+                ProjectedMarketEvent(MarketPhase.OPEN_QUOTE, index * _HOUR_NS, 100.0),
+                instrument=instrument,
+                half_spread_ticks=1,
+                displayed_size=10.0,
+            )
+            for index in range(1, 5)
+        ]
+        engine.add_data(quotes, sort=True)
+        strategy = SignFlipProbeStrategy(instrument.id)
+        engine.add_strategy(strategy)
+        engine.run()
+
+        closed = engine.cache.positions_closed(instrument_id=instrument.id)
+        open_positions = engine.cache.positions_open(instrument_id=instrument.id)
+        if len(closed) != 2:
+            raise RuntimeError(f"expected two closed positions, got {len(closed)}")
+        if open_positions:
+            raise RuntimeError("safe sign-flip probe must terminate flat")
+        account = engine.cache.account_for_venue(BINANCE_VENUE)
+        if account is None:
+            raise RuntimeError("expected Binance backtest account")
+        balance = account.balance_total(USDT)
+        if balance is None:
+            raise RuntimeError("expected USDT account balance")
+
+        canonical = canonicalize_nautilus_fill_events(
+            strategy.filled_events,
+            price_tick=instrument.price_increment.as_decimal(),
+            lot_size=instrument.size_increment.as_decimal(),
+            currency_precision=USDT.precision,
+        )
+        if not canonical.fills:
+            raise RuntimeError("safe sign-flip probe produced no canonical fills")
+        scale = Decimal(10) ** USDT.precision
+        final_balance = balance.as_decimal()
+        economics = CanonicalEconomicClosure(
+            fee_minor=canonical.fee_minor,
+            funding_minor=0,
+            realized_pnl_minor=_minor_units(
+                final_balance - starting_balance,
+                scale=scale,
+                name="realized_pnl",
+            ),
+            final_equity_minor=_minor_units(
+                final_balance,
+                scale=scale,
+                name="final_balance",
+            ),
+            terminal_position_lots=canonical.fills[-1].position_lots,
+            terminal_open_orders=len(
+                engine.cache.orders_open(instrument_id=instrument.id)
+            ),
+        )
+        return NautilusConformanceProbeResult(
+            runtime_version=runtime.package_version or "",
+            orders_closed=len(engine.cache.orders_closed(instrument_id=instrument.id)),
+            positions_closed=len(closed),
+            open_positions=len(open_positions),
+            fills=canonical.fills,
+            economics=economics,
+        )
+    finally:
+        engine.dispose()
+
+
 def _minor_units(value: Decimal, *, scale: Decimal, name: str) -> int:
     scaled = value * scale
     integral = scaled.to_integral_value()
@@ -220,6 +373,8 @@ def _float_text(value: float) -> str:
 
 
 __all__ = [
+    "NautilusConformanceProbeResult",
     "NautilusExecutionProbeResult",
     "run_flat_long_flat_execution_probe",
+    "run_flat_long_flat_short_flat_execution_probe",
 ]

@@ -28,8 +28,10 @@ Current migration slices cover:
 - Market IOC open and reduce-only close lifecycle;
 - framework-neutral TargetExposureController with working-order commitment, cancel-before-replace, no-trade band, sign-flip reduce-to-flat, emergency flatten, and HALT behavior;
 - exact canonical fill/economic closure types;
-- legacy-versus-Nautilus dual-shadow conformance fixture;
+- legacy-versus-Nautilus dual-shadow conformance for both Flat → Long → Flat and the safe Flat → Long → Flat → Short → Flat sign-reversal child-order lifecycle;
 - fresh-process deterministic execution digests.
+
+The legacy high-level target reconciler is not the migration authority for sign reversals because it can represent a positive-to-negative target change as one cross-through-flat delta order. The maintained migration contract instead uses `TargetExposureController`: first reduce the realized position to flat with a reduce-only child order, wait for terminal execution evidence, and only then open the opposite side. Dual-shadow sign-reversal conformance therefore compares the resulting safe child-order lifecycle rather than preserving the legacy cross-through behavior.
 
 ## Funding limitation in v1.230.0 Python BacktestEngine
 
@@ -61,7 +63,7 @@ Passing capability or conformance fixtures does not automatically change the run
 ## Remaining work before authority promotion
 
 - connect canonical funding settlements into complete interval/equity evidence;
-- exercise more than the minimal Flat → Long → Flat conformance fixture, including partial fills, target changes, sign flips, stale working orders, and terminal settlement;
+- extend conformance beyond the maintained flat and safe sign-reversal fixtures to partial fills, target changes, stale working orders, funding, and terminal settlement;
 - run differential dual-shadow replay on representative maintained historical windows;
 - add the subprocess execution runtime used by RL environments;
 - complete 3-step PPO/Lagrangian smoke on that runtime;

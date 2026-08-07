@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING
 
-from trade_rl.data import load_market_dataset_artifact
-from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
-from trade_rl.workflows.training_run import TrainingRunConfig
+if TYPE_CHECKING:
+    from trade_rl.data.market import MarketDataset
 
 _MAINTAINED_SYMBOLS = ("BTCUSDT",)
 
@@ -24,10 +24,12 @@ def _argument_value(arguments: Sequence[str], name: str) -> str | None:
     return None
 
 
-def _require_dataset(arguments: Sequence[str]):
+def _require_dataset(arguments: Sequence[str]) -> MarketDataset | None:
     raw = _argument_value(arguments, "--dataset")
     if raw is None:
         return None
+    from trade_rl.data import load_market_dataset_artifact
+
     dataset = load_market_dataset_artifact(Path(raw))
     if dataset.symbols != _MAINTAINED_SYMBOLS:
         raise ValueError(
@@ -40,6 +42,8 @@ def _require_training_config(arguments: Sequence[str]) -> None:
     raw = _argument_value(arguments, "--config")
     if raw is None:
         return
+    from trade_rl.workflows.training_run import TrainingRunConfig
+
     config = TrainingRunConfig.from_json(Path(raw))
     if (
         config.action.mode.value != "target_weight"
@@ -56,6 +60,8 @@ def _require_walk_forward_config(arguments: Sequence[str], *, n_bars: int) -> No
     raw = _argument_value(arguments, "--config")
     if raw is None:
         return
+    from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
+
     config = MarketWalkForwardConfig.from_json(Path(raw), n_bars=n_bars)
     if not config.candidates:
         raise ValueError("maintained walk-forward requires at least one candidate")

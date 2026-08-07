@@ -125,7 +125,9 @@ def test_legacy_funding_boundary_becomes_single_instrument_canonical_record() ->
     assert record.terminal_reason is None
 
 
-def test_legacy_funding_debit_uses_same_conservative_minor_rounding_as_nautilus() -> None:
+def test_legacy_funding_debit_uses_same_conservative_minor_rounding_as_nautilus() -> (
+    None
+):
     boundary = FundingBoundaryEvidence(
         processing_index=1,
         timestamp_ns=3_600_000_000_000,

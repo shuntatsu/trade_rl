@@ -82,9 +82,7 @@ def test_source_tree_digest_changes_when_packaged_source_changes(
     _source_tree(root)
     before = source_tree_digest(root)
 
-    (root / "src" / "trade_rl" / "module.py").write_text(
-        "changed", encoding="utf-8"
-    )
+    (root / "src" / "trade_rl" / "module.py").write_text("changed", encoding="utf-8")
 
     assert source_tree_digest(root) != before
 
@@ -141,9 +139,7 @@ def test_runtime_provenance_rejects_declared_clean_state_for_dirty_checkout(
 ) -> None:
     root = tmp_path / "repo"
     observed_commit = _committed_source_tree(root)
-    (root / "src" / "trade_rl" / "module.py").write_text(
-        "dirty", encoding="utf-8"
-    )
+    (root / "src" / "trade_rl" / "module.py").write_text("dirty", encoding="utf-8")
 
     with pytest.raises(ValueError, match="git dirty state does not match checkout"):
         _capture(root, git_commit=observed_commit, git_dirty=False)

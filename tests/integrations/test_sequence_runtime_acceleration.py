@@ -80,9 +80,9 @@ def test_maintained_full_cuda_configs_enable_sequence_runtime() -> None:
     )
     run_file = walk_forward_config["candidates"][0]["run_file"]
     walk_forward = json.loads(
-        (
-            repository_root / "examples/binance-multitimeframe" / run_file
-        ).read_text(encoding="utf-8")
+        (repository_root / "examples/binance-multitimeframe" / run_file).read_text(
+            encoding="utf-8"
+        )
     )["training"]
 
     for training in (direct, walk_forward):

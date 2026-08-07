@@ -55,9 +55,7 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.action.mode.value == "target_weight"
     assert config.action.residual_scale == pytest.approx(1.0)
     assert config.action.target_weight_count == 1
-    assert config.action.names_for_symbols(("BTCUSDT",)) == (
-        "target_weight:BTCUSDT",
-    )
+    assert config.action.names_for_symbols(("BTCUSDT",)) == ("target_weight:BTCUSDT",)
     assert config.action.n_factors == 0
     assert config.factor_artifact is None
     assert config.risk.entry_threshold == 0.10
@@ -164,9 +162,7 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     assert oracle.action.mode.value == "target_weight"
     assert oracle.action.residual_scale == pytest.approx(1.0)
     assert oracle.action.target_weight_count == 1
-    assert oracle.action.names_for_symbols(("BTCUSDT",)) == (
-        "target_weight:BTCUSDT",
-    )
+    assert oracle.action.names_for_symbols(("BTCUSDT",)) == ("target_weight:BTCUSDT",)
     assert oracle.action.n_factors == 0
     assert oracle.factor_artifact is None
     assert config.minimum_seed_success_fraction == pytest.approx(2.0 / 3.0)
@@ -977,7 +973,6 @@ def test_signed_rule_history_is_authoritative_and_reproducible(
     )
     monkeypatch.setenv("TRADE_RL_BINANCE_RULE_HISTORY", str(path))
     monkeypatch.setenv("TRADE_RL_METADATA_PUBLIC_KEYS", str(key_store))
-
     verified = load_history(trusted_now=datetime(2026, 7, 18, tzinfo=UTC))
 
     assert len(verified.payload_digest) == 64

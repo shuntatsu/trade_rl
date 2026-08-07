@@ -4,9 +4,9 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 from trade_rl.data.contracts import InstrumentContract, InstrumentExecutionRule
 from trade_rl.data.economic_semantics import build_market_economic_semantics
-from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 
 
 def test_economic_semantics_are_explicit_point_in_time_and_immutable() -> None:

@@ -43,6 +43,21 @@ def _same_side_target_change_orders() -> tuple[TargetExposureChildOrder, ...]:
     return tuple(child_orders)
 
 
+def test_child_order_probes_reject_non_reduce_cross_through() -> None:
+    unsafe = (
+        TargetExposureChildOrder(quantity=1.0, reduce_only=False),
+        TargetExposureChildOrder(quantity=-2.0, reduce_only=False),
+    )
+
+    with pytest.raises(ValueError, match="non-reduce child order"):
+        run_child_order_sequence_execution_probe(
+            unsafe,
+            starting_balance=Decimal("1000"),
+        )
+    with pytest.raises(RuntimeError, match="non-reduce child order"):
+        run_legacy_child_order_sequence_probe(unsafe)
+
+
 @pytest.mark.nautilus
 def test_same_side_target_changes_have_exact_dual_shadow_parity() -> None:
     child_orders = _same_side_target_change_orders()
@@ -57,7 +72,12 @@ def test_same_side_target_changes_have_exact_dual_shadow_parity() -> None:
         starting_balance=Decimal("1000"),
     )
 
-    assert [fill.quantity_lots for fill in candidate.fills] == [1000, 1000, -1500, -500]
+    assert [fill.quantity_lots for fill in candidate.fills] == [
+        1000,
+        1000,
+        -1500,
+        -500,
+    ]
     assert [fill.position_lots for fill in candidate.fills] == [1000, 2000, 500, 0]
 
     report = compare_dual_shadow_execution(

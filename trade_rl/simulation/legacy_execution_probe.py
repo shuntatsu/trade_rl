@@ -167,10 +167,15 @@ def _assert_safe_child_order(
     quantity = float(child_order.quantity)
     if not np.isfinite(quantity) or abs(quantity) <= _QUANTITY_TOLERANCE:
         raise ValueError("child order quantity must be finite and non-zero")
-    if not child_order.reduce_only:
-        return
 
     realized = float(book.quantities[0])
+    if not child_order.reduce_only:
+        if abs(realized) > _QUANTITY_TOLERANCE and realized * quantity < 0.0:
+            raise RuntimeError(
+                "non-reduce child order cannot oppose an open realized position"
+            )
+        return
+
     if abs(realized) <= _QUANTITY_TOLERANCE:
         raise RuntimeError("reduce-only child order cannot execute while flat")
     if realized * quantity >= 0.0:
@@ -215,8 +220,13 @@ def _sequence_dataset(
     dataset_id: str,
     child_orders: tuple[TargetExposureChildOrder, ...],
 ) -> MarketDataset:
-    fill_open_prices = [100.1 if order.quantity > 0.0 else 99.9 for order in child_orders]
-    open_prices = np.asarray([[100.0], *[[price] for price in fill_open_prices]], dtype=np.float64)
+    fill_open_prices = [
+        100.1 if order.quantity > 0.0 else 99.9 for order in child_orders
+    ]
+    open_prices = np.asarray(
+        [[100.0], *[[price] for price in fill_open_prices]],
+        dtype=np.float64,
+    )
     close = np.full_like(open_prices, 100.0)
     high = np.maximum(open_prices, close) + 1.0
     low = np.minimum(open_prices, close) - 1.0

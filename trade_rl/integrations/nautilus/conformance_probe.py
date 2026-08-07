@@ -13,12 +13,16 @@ from trade_rl.integrations.nautilus.event_projection import (
 from trade_rl.integrations.nautilus.instrument import build_maintained_btcusdt_perpetual
 from trade_rl.integrations.nautilus.quote_projection import build_quote_tick
 from trade_rl.integrations.nautilus.runtime_identity import require_nautilus_runtime
-from trade_rl.integrations.nautilus.trace_adapter import canonicalize_nautilus_fill_events
+from trade_rl.integrations.nautilus.trace_adapter import (
+    canonicalize_nautilus_fill_events,
+)
 from trade_rl.simulation.execution_canonicalization import (
     CanonicalEconomicClosure,
     CanonicalFillSignature,
 )
-from trade_rl.simulation.target_exposure_controller import TargetExposureChildOrder
+from trade_rl.simulation.target_exposure_controller import (
+    TargetExposureChildOrder,
+)
 
 _HOUR_NS = 60 * 60 * 1_000_000_000
 _QUANTITY_TOLERANCE = 1e-12
@@ -79,7 +83,9 @@ def run_child_order_sequence_execution_probe(
                 return
             child_order = child_orders[self.quote_count]
             self.quote_count += 1
-            side = OrderSide.BUY if child_order.quantity > 0.0 else OrderSide.SELL
+            side = (
+                OrderSide.BUY if child_order.quantity > 0.0 else OrderSide.SELL
+            )
             self.submit_order(
                 self.order_factory.market(
                     instrument_id=self.instrument_id,
@@ -180,11 +186,18 @@ def _validate_child_orders(child_orders: tuple[TargetExposureChildOrder, ...]) -
         quantity = float(child_order.quantity)
         if not math.isfinite(quantity) or abs(quantity) <= _QUANTITY_TOLERANCE:
             raise ValueError("child order quantity must be finite and non-zero")
-        if child_order.reduce_only:
+        if not child_order.reduce_only:
+            if abs(realized) > _QUANTITY_TOLERANCE and realized * quantity < 0.0:
+                raise ValueError(
+                    "non-reduce child order cannot oppose an open realized position"
+                )
+        else:
             if abs(realized) <= _QUANTITY_TOLERANCE:
                 raise ValueError("reduce-only child order cannot start from flat")
             if realized * quantity >= 0.0:
-                raise ValueError("reduce-only child order must oppose the realized position")
+                raise ValueError(
+                    "reduce-only child order must oppose the realized position"
+                )
             if abs(quantity) > abs(realized) + _QUANTITY_TOLERANCE:
                 raise ValueError("reduce-only child order cannot cross through flat")
         realized += quantity

@@ -49,10 +49,15 @@ def validate_stage_a_funding_evidence(
                 f"Stage A funding evidence[{position}] is not funding evidence"
             )
         index = boundary.processing_index
-        if index < request.evaluation_range.start or index > request.evaluation_range.stop:
+        if (
+            index < request.evaluation_range.start
+            or index > request.evaluation_range.stop
+        ):
             raise ValueError("Stage A funding evidence outside authorized range")
         if index >= dataset.n_bars:
-            raise ValueError("Stage A funding evidence processing index outside dataset")
+            raise ValueError(
+                "Stage A funding evidence processing index outside dataset"
+            )
         expected_timestamp = int(
             dataset.timestamps[index].astype("datetime64[ns]").astype(np.int64)
         )

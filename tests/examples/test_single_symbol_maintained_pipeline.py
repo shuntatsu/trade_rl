@@ -36,9 +36,7 @@ def test_maintained_pipeline_has_no_triplet_or_literal_three_action_path() -> No
 
 
 def test_state_runner_derives_action_size_and_has_no_triplet_controls() -> None:
-    source = (EXAMPLE_ROOT / "run_full_research_state.py").read_text(
-        encoding="utf-8"
-    )
+    source = (EXAMPLE_ROOT / "run_full_research_state.py").read_text(encoding="utf-8")
 
     assert "action_size=dataset.n_symbols" in source
     for forbidden in (

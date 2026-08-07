@@ -34,6 +34,9 @@ postgres = [
 oracle = [
     "scipy>=1.14,<1.18",
 ]
+nautilus = [
+    "nautilus_trader==1.230.0",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-cov>=6.0.0",
@@ -106,6 +109,7 @@ module = [
     "torch.*",
     "tensorboard.*",
     "psycopg.*",
+    "nautilus_trader.*",
 ]
 ignore_missing_imports = true
 
@@ -115,6 +119,7 @@ pythonpath = ["."]
 addopts = "--strict-markers --strict-config"
 markers = [
     "postgres: requires a live PostgreSQL test database",
+    "nautilus: requires the exact optional NautilusTrader runtime",
 ]
 
 [tool.coverage.run]

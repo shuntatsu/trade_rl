@@ -39,9 +39,7 @@ def run_nautilus_capability_probe() -> NautilusCapabilityReport:
         from nautilus_trader.model.currencies import USDT
         from nautilus_trader.model.enums import AccountType, OmsType
 
-        engine = BacktestEngine(
-            config=BacktestEngineConfig(shutdown_on_error=True),
-        )
+        engine = BacktestEngine(config=BacktestEngineConfig())
         engine_constructed = True
         engine.add_venue(
             venue=BINANCE_VENUE,

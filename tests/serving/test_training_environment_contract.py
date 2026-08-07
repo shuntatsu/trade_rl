@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from tests.architecture.repository_paths import REPOSITORY_ROOT
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows import release_packaging as serving_package
-from tests.architecture.repository_paths import REPOSITORY_ROOT
 
 
 def _payload() -> dict[str, object]:

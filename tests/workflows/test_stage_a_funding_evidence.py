@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -158,7 +159,7 @@ def test_stage_a_rejects_non_funding_values_from_environment() -> None:
     ],
 )
 def test_stage_a_rejects_funding_evidence_not_bound_to_dataset(
-    boundary: object,
+    boundary: Callable[[MarketDataset], FundingBoundaryEvidence],
     message: str,
 ) -> None:
     dataset = _dataset()

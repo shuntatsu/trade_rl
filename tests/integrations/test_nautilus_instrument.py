@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 pytest.importorskip("nautilus_trader")
@@ -21,7 +23,8 @@ def test_maintained_btcusdt_perpetual_has_frozen_identity_and_grid() -> None:
     assert str(instrument.price_increment) == "0.1"
     assert str(instrument.size_increment) == "0.001"
     assert str(instrument.min_quantity) == "0.001"
-    assert str(instrument.min_notional) == "5.00 USDT"
+    assert instrument.min_notional.as_decimal() == Decimal("5")
+    assert instrument.min_notional.currency.code == "USDT"
 
 
 def test_maintained_spec_is_serializable_framework_neutral_data() -> None:

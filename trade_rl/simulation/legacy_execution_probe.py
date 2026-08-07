@@ -76,7 +76,7 @@ def _dataset() -> MarketDataset:
     high = np.maximum(open_prices, close) + 1.0
     low = np.minimum(open_prices, close) - 1.0
     volume = np.full_like(close, 1_000.0)
-    timestamps = np.array([0, 10, 200, 300], dtype="datetime64[ns]")
+    timestamps = np.array([0, 100, 200, 300], dtype="datetime64[ns]")
     return MarketDataset(
         dataset_id="f" * 64,
         symbols=("BTCUSDT",),

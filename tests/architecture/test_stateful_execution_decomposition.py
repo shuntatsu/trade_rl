@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "trade_rl" / "simulation" / "stateful_execution.py"
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
+
+SOURCE = PYTHON_SOURCE_ROOT / "simulation" / "stateful_execution.py"
 REQUIRED_MODULES = {
     "stateful_runtime.py": "StatefulExecutionRuntime",
     "stateful_bar_lifecycle.py": "StatefulBarLifecycle",

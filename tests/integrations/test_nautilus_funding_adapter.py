@@ -137,7 +137,7 @@ def test_funding_settlement_becomes_canonical_equity_trace_record() -> None:
     ("kwargs", "message"),
     [
         ({"sequence": 0}, "sequence"),
-        ({"price_tick": Decimal("0.03")}, "price"),
+        ({"price_tick": Decimal("0.07")}, "price"),
         ({"lot_size": Decimal("0.003")}, "quantity"),
         ({"equity_before_minor": 1.5}, "equity_before_minor"),
     ],

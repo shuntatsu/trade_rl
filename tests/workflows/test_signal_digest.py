@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from test_support.training_config import complete_execution_config
+from tests.support.training_config import complete_execution_config
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.signals import write_signal_artifact
 from trade_rl.workflows.market_walk_forward import (

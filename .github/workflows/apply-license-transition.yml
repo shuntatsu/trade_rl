@@ -1,0 +1,40 @@
+name: Apply license transition
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-license-transition.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.ref == 'agent/lgpl-nautilus-migration'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+      - name: Install canonical license texts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p LICENSES
+          cp LICENSE LICENSES/MIT.txt
+          cp /usr/share/common-licenses/LGPL-3 LICENSE
+          cp /usr/share/common-licenses/LGPL-3 LICENSES/LGPL-3.0-or-later.txt
+          cp /usr/share/common-licenses/GPL-3 LICENSES/GPL-3.0-or-later.txt
+          test "$(sha256sum LICENSE | cut -d' ' -f1)" = "$(sha256sum LICENSES/LGPL-3.0-or-later.txt | cut -d' ' -f1)"
+      - name: Commit canonical license texts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "trade-rl license migration"
+          git config user.email "actions@users.noreply.github.com"
+          git add LICENSE LICENSES
+          git commit -m "chore: install canonical LGPL license texts"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

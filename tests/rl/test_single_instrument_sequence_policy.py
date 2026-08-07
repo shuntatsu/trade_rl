@@ -37,17 +37,14 @@ def _architecture(n_symbols: int) -> SequencePolicyArchitecture:
 def test_one_symbol_encoder_does_not_build_cross_asset_transformer() -> None:
     encoder = MultiTimeframeAssetEncoder(_architecture(1)).eval()
     assert encoder.cross_asset is None
-    assert not any(name.startswith("cross_asset.") for name, _ in encoder.named_parameters())
-    sequences = {
-        timeframe: torch.randn(2, 1, 4, 2) for timeframe in _TIMEFRAMES
-    }
+    assert not any(
+        name.startswith("cross_asset.") for name, _ in encoder.named_parameters()
+    )
+    sequences = {timeframe: torch.randn(2, 1, 4, 2) for timeframe in _TIMEFRAMES}
     available = {
-        timeframe: torch.ones(2, 1, 4, 2, dtype=torch.bool)
-        for timeframe in _TIMEFRAMES
+        timeframe: torch.ones(2, 1, 4, 2, dtype=torch.bool) for timeframe in _TIMEFRAMES
     }
-    staleness = {
-        timeframe: torch.zeros(2, 1, 4, 2) for timeframe in _TIMEFRAMES
-    }
+    staleness = {timeframe: torch.zeros(2, 1, 4, 2) for timeframe in _TIMEFRAMES}
     active = torch.tensor([[1.0], [0.0]])
 
     with torch.no_grad():
@@ -71,7 +68,9 @@ def test_multi_symbol_encoder_retains_cross_asset_transformer() -> None:
     encoder = MultiTimeframeAssetEncoder(_architecture(3))
 
     assert isinstance(encoder.cross_asset, GatedTransformerStack)
-    assert any(name.startswith("cross_asset.") for name, _ in encoder.named_parameters())
+    assert any(
+        name.startswith("cross_asset.") for name, _ in encoder.named_parameters()
+    )
 
 
 def test_one_symbol_architecture_identity_differs_from_three_symbol_identity() -> None:

@@ -29,7 +29,7 @@ one maintained run
 
 ```text
 frontend/        React/Vite研究UI
-src/trade_rl/    Python本体。import名は trade_rl.*
+trade_rl/        Python本体。import名は trade_rl.*
 scripts/         CI・検証・運用補助スクリプト
 tests/           契約・単体・統合・E2Eテスト
 docs/            Architecture・運用・研究ドキュメント
@@ -165,7 +165,7 @@ Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy src/trade_rl
+uv run mypy trade_rl
 uv run lint-imports
 uv run pytest --cov=trade_rl --cov-branch
 npm test --prefix frontend -- --run

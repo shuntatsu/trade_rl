@@ -17,6 +17,7 @@
 - Do not reduce lint, type, architecture, coverage, compatibility, or CI thresholds.
 - Keep `frontend/`, `trade_rl/`, `tests/`, `scripts/`, `docs/`, and `examples/` as explicit repository roots.
 - Production authority remains legacy-authoritative / NO-GO.
+- PR #366 may target `main` temporarily only to trigger the existing `pull_request: main` CI; restore its stacked base `refactor/repository-layout-v1` before merge-readiness review.
 
 ---
 

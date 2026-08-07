@@ -94,7 +94,7 @@ Maintained `hierarchical_sequence_v2`の経路は次のとおりです。
   -> Actor / Critic
 ```
 
-旧3-symbol Checkpointを読むLegacy経路では、従来のGated Cross-Asset Attentionを保持します。Maintained 1-symbol経路ではCross-Asset Transformerを実行しません。`single_symbol_bypass_v1`をArchitecture identityへ含め、旧1-symbol／3-symbol Identityとの暗黙互換を禁止します。
+旧3-symbol Checkpointを読むLegacy経路では、従来のGated Cross-Asset Attentionを保持します。Maintained 1-symbol経路ではCross-Asset Transformer ModuleとそのParameterを生成しません。`single_symbol_bypass_v1`をArchitecture identityへ含め、非適用のAsset-Attention設定はDigestへ含めず、旧1-symbol／3-symbol Identityとの暗黙互換を禁止します。
 
 時間足AttentionのHead数、Layer数、FFN倍率、Gate biasをConfigへ固定します。実際に組み立てられた構造、Instrument順、Action順からArchitecture digestを生成し、BC、PPO、CostCriticPPO、LagrangianPPO、Checkpoint、構造化Export、Servingで一致を要求します。
 
@@ -123,7 +123,7 @@ npm run dev --prefix studio
 
 Live Trainingは`not exchange activity`、`not model-selection evidence`、`not sealed evaluation`、`not profitability evidence`です。LONG／SHORT／CLOSE表示はTarget exposureの変化であり、取引所注文ではありません。
 
-TensorBoard診断では、損失やKLに加えて、時間足Attention比率、Attention entropy、Gate飽和、欠損率、系列BlockのGradient normを確認できます。診断値は選択Evidenceとして使用しません。
+TensorBoard診断では、損失やKLに加えて、時間足Attention比率、Attention entropy、Gate飽和、欠損率、系列BlockのGradient normを確認できます。Maintained one-symbolではAsset-Attention指標を非適用の`0.0`として記録します。診断値は選択Evidenceとして使用しません。
 
 詳細は[Studio README](studio/README.md)を参照してください。
 
@@ -131,7 +131,7 @@ TensorBoard診断では、損失やKLに加えて、時間足Attention比率、A
 
 Flat policyのExportと、構造化系列PolicyのExportは別契約です。`hierarchical_sequence_v2`は`structured_policy_export_v2`を使い、Canonical input順、Shape、Dtype、Parity corpus、Policy identity、Architecture digestをManifestへ固定します。
 
-Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学習済みPolicyか」を表す`policy_mode`と、「ResidualかTarget-weightか」を表す`action_mode`を別々に固定します。構造化Loaderは、Bundle、Export manifest、Model digest、Observation schema、Architecture digestが一致しない場合、Policy実行前にFail closedします。
+Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学習済みPolicyか」を表す`policy_mode`と、「ResidualかTarget-weightか」を表す`action_mode`を別々に固定します。構造化Loaderは、Bundle、Export manifest、Model digest、Observation schema、完全なPolicy identity、Architecture digest、Action sizeが一致しない場合、Policy実行前にFail closedします。
 
 ## 主要ドキュメント
 

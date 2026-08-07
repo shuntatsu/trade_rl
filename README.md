@@ -144,6 +144,8 @@ Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学
 - [Binance Public Data](docs/BINANCE.md)
 - [Docker GPU運用](docs/operations/docker-gpu-full-training.md)
 - [Trade RL Studio](studio/README.md)
+- [Licensing](docs/LICENSING.md)
+- [Licensing provenance](docs/LICENSING_PROVENANCE.md)
 
 ## 品質確認
 
@@ -176,3 +178,9 @@ npm run check:layout --prefix studio
 維持対象の学習設定は`training_run_config_v4`、構造化Policy exportは`structured_policy_export_v2`、Serving bundleは`serving_bundle_v6`です。Quickstartを含む維持対象設定は、Executionの全Fieldと`require_full_reward_preroll: true`を明示し、dataclass既定値の変更で学習意味が静かに変わることを防ぎます。
 
 データの因果性はFeature契約だけでなく、Raw Barのavailability、MarketDatasetのeconomic arrays、SequenceObservationのstalenessまで多層で検証します。constraint costは報酬と分離されていますが、hard safetyとLagrangian soft budgetは同義ではありません。
+
+## License
+
+Maintained Trade RL source at and after the license transition is distributed under `LGPL-3.0-or-later`. Historical revisions already distributed under MIT keep their historical MIT grant. See [docs/LICENSING.md](docs/LICENSING.md), [docs/LICENSING_PROVENANCE.md](docs/LICENSING_PROVENANCE.md), `LICENSE`, `LICENSES/`, and `THIRD_PARTY_NOTICES.md` for the exact boundary and third-party notices.
+
+NautilusTrader is an external upstream dependency developed by Nautech Systems. Trade RL is an independent project and is not affiliated with, endorsed by, sponsored by, or an official work of Nautech Systems.

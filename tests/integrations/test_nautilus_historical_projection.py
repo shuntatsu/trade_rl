@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+import importlib
+import importlib.util
+
 import numpy as np
 import pytest
 
 from tests.data.test_market_dataset_v2 import kwargs
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
-from trade_rl.integrations.nautilus import historical_projection
+
+_MODULE = "trade_rl.integrations.nautilus.historical_projection"
+
+
+def _projector():
+    spec = importlib.util.find_spec(_MODULE)
+    assert spec is not None, "historical source-bar projection module must exist"
+    module = importlib.import_module(_MODULE)
+    project = getattr(module, "project_historical_source_bar", None)
+    assert callable(project), "historical source-bar projector must exist"
+    return project
 
 
 def _single_symbol_market() -> MarketDataset:
@@ -17,8 +30,7 @@ def _single_symbol_market() -> MarketDataset:
 
 
 def test_project_historical_source_bar_uses_close_timestamp_and_fixed_cadence() -> None:
-    project = getattr(historical_projection, "project_historical_source_bar", None)
-    assert callable(project), "historical source-bar projector must exist"
+    project = _projector()
     market = _single_symbol_market()
     index = 2
     close_ns = int(market.timestamps[index].astype("datetime64[ns]").astype(np.int64))
@@ -40,8 +52,7 @@ def test_project_historical_source_bar_uses_close_timestamp_and_fixed_cadence() 
 
 
 def test_project_historical_source_bar_rejects_non_single_symbol_or_session_data() -> None:
-    project = getattr(historical_projection, "project_historical_source_bar", None)
-    assert callable(project), "historical source-bar projector must exist"
+    project = _projector()
 
     with pytest.raises(ValueError, match="single-symbol"):
         project(MarketDataset(**kwargs(n_symbols=2)), processing_index=1)

@@ -477,7 +477,6 @@ class StageAExecutionReplayArtifact:
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> StageAExecutionReplayArtifact:
-        schema = _string(value.get("schema_version"), field="schema_version")
         required = {
             "actions",
             "cell_identity",
@@ -491,6 +490,9 @@ class StageAExecutionReplayArtifact:
             "observation_digests",
             "schema_version",
         }
+        if not required.issubset(value):
+            raise ValueError("Stage A execution replay field closure mismatch")
+        schema = _string(value["schema_version"], field="schema_version")
         if schema == STAGE_A_EXECUTION_REPLAY_SCHEMA_V3:
             required = required | {
                 "funding_evidence_digest",
@@ -625,7 +627,10 @@ def _validate_funding_bytes(
     request: StageAEvaluationCellRequest,
     funding_evidence_bytes: bytes,
 ) -> tuple[str, str, int]:
-    funding = load_funding_evidence_artifact_bytes(funding_evidence_bytes)
+    try:
+        funding = load_funding_evidence_artifact_bytes(funding_evidence_bytes)
+    except ValueError as error:
+        raise ValueError(f"Stage A funding evidence is invalid: {error}") from error
     if funding.dataset_id != request.dataset_id:
         raise ValueError("Stage A funding evidence dataset identity mismatch")
     if funding.execution_policy_digest != request.execution_identity:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import trade_rl.simulation.legacy_trace_adapter as legacy_trace_adapter
 from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
 from trade_rl.simulation.legacy_trace_adapter import canonicalize_legacy_fill_events
@@ -121,3 +123,55 @@ def test_legacy_funding_boundary_becomes_single_instrument_canonical_record() ->
     assert record.position_lots == 10_000
     assert record.equity_minor == 119_880_000_000
     assert record.terminal_reason is None
+
+
+def test_legacy_funding_debit_uses_same_conservative_minor_rounding_as_nautilus() -> None:
+    boundary = FundingBoundaryEvidence(
+        processing_index=1,
+        timestamp_ns=3_600_000_000_000,
+        funding_due=(True,),
+        signed_quantities=(1.0,),
+        mark_prices=(10.0,),
+        contract_multipliers=(1.0,),
+        funding_rates=(0.0005,),
+        funding_amount=-0.005,
+        equity_before_funding=100.0,
+        equity_after_funding=99.995,
+    )
+
+    record = legacy_trace_adapter.canonicalize_legacy_funding_boundary_record(
+        boundary,
+        sequence=1,
+        price_tick=0.1,
+        lot_size=0.001,
+        currency_precision=2,
+        equity_before_minor=10_000,
+    )
+
+    assert record.funding_minor == -1
+    assert record.equity_minor == 9_999
+
+
+def test_legacy_funding_sequence_must_match_positive_canonical_contract() -> None:
+    boundary = FundingBoundaryEvidence(
+        processing_index=1,
+        timestamp_ns=3_600_000_000_000,
+        funding_due=(True,),
+        signed_quantities=(1.0,),
+        mark_prices=(100.0,),
+        contract_multipliers=(1.0,),
+        funding_rates=(0.001,),
+        funding_amount=-0.1,
+        equity_before_funding=100.0,
+        equity_after_funding=99.9,
+    )
+
+    with pytest.raises(ValueError, match="sequence"):
+        legacy_trace_adapter.canonicalize_legacy_funding_boundary_record(
+            boundary,
+            sequence=0,
+            price_tick=0.1,
+            lot_size=0.001,
+            currency_precision=8,
+            equity_before_minor=10_000_000_000,
+        )

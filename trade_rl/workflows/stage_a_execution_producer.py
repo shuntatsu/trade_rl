@@ -93,6 +93,7 @@ class StageAEvaluationEpisodeResult:
     terminal_book: BookState
     terminal_order_book: OrderBookState
     funding_evidence: tuple[FundingBoundaryEvidence, ...] = ()
+    transition_end_indices: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         require_sha256(
@@ -144,6 +145,24 @@ class StageAEvaluationEpisodeResult:
         if any(value <= 0.0 for value in equity):
             raise ValueError("Stage A episode equity curve must be positive")
 
+        transition_end_indices = tuple(self.transition_end_indices)
+        if transition_end_indices:
+            if len(transition_end_indices) != len(actions):
+                raise ValueError(
+                    "Stage A episode transition end indices must match actions"
+                )
+            previous_transition_end: int | None = None
+            for value in transition_end_indices:
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    raise ValueError(
+                        "Stage A episode transition end indices must be non-negative integers"
+                    )
+                if previous_transition_end is not None and value <= previous_transition_end:
+                    raise ValueError(
+                        "Stage A episode transition end indices must be strictly increasing"
+                    )
+                previous_transition_end = value
+
         events = tuple(self.order_events)
         if not events:
             raise ValueError("Stage A episode order events must not be empty")
@@ -192,6 +211,7 @@ class StageAEvaluationEpisodeResult:
         object.__setattr__(self, "actions", tuple(actions))
         object.__setattr__(self, "observation_digests", observations)
         object.__setattr__(self, "equity_curve", equity)
+        object.__setattr__(self, "transition_end_indices", transition_end_indices)
         object.__setattr__(self, "order_events", events)
         object.__setattr__(self, "funding_evidence", funding)
 

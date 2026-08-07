@@ -16,7 +16,7 @@
 | DockerとCUDAで完全実行する | [operations/docker-gpu-full-training.md](operations/docker-gpu-full-training.md) |
 | Causal Scenario C3を実行する | [operations/causal-scenario-c3-execution.md](operations/causal-scenario-c3-execution.md) |
 | 4070 Ti SUPER向け設定を確認する | [performance/4070ti-super-full-training.md](performance/4070ti-super-full-training.md) |
-| Studioを使う | [apps/studio-web/README.md](../apps/studio-web/README.md) |
+| Frontendを使う | [frontend/README.md](../frontend/README.md) |
 
 Repositoryの概要は[README.md](../README.md)が正本です。
 
@@ -32,7 +32,7 @@ Repositoryの概要は[README.md](../README.md)が正本です。
 - `BINANCE.md`: Public market dataとMetadata mode
 - `operations/`: 実行Runbook
 - `performance/`: Hardware別の測定・候補設定
-- `apps/studio-web/README.md`: UIと診断Telemetryの境界
+- `frontend/README.md`: UIと診断Telemetryの境界
 
 同じ説明を複数ファイルへ複製せず、責務を持つ文書へLinkします。
 

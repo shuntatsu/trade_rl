@@ -83,9 +83,7 @@ def run_child_order_sequence_execution_probe(
                 return
             child_order = child_orders[self.quote_count]
             self.quote_count += 1
-            side = (
-                OrderSide.BUY if child_order.quantity > 0.0 else OrderSide.SELL
-            )
+            side = OrderSide.BUY if child_order.quantity > 0.0 else OrderSide.SELL
             self.submit_order(
                 self.order_factory.market(
                     instrument_id=self.instrument_id,

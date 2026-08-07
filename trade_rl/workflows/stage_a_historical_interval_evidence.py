@@ -19,6 +19,7 @@ class StageAHistoricalIntervalEvidence:
     sequence: int
     start_index: int
     end_index: int
+    action: tuple[float, ...]
     equity_before: float
     equity_after: float
     funding_boundaries: tuple[FundingBoundaryEvidence, ...] = ()
@@ -79,6 +80,7 @@ def build_stage_a_historical_interval_evidence(
                 sequence=offset + 1,
                 start_index=start_index,
                 end_index=end_index,
+                action=artifact.actions[offset],
                 equity_before=artifact.equity_curve[offset],
                 equity_after=artifact.equity_curve[offset + 1],
                 funding_boundaries=tuple(interval_funding),

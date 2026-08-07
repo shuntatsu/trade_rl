@@ -146,7 +146,7 @@ Asset tokens
 
 TCNの受容野は宣言Window全体を覆います。完全欠損ClockはAttention keyからMaskし、入力変更とGradientが出力へ漏れないことをTestします。Context tokenは常に存在するため、全Clock欠損でもAll-masked rowを作りません。
 
-Maintained one-symbol pathはCross-Asset Transformerを呼びません。Historical checkpoint読取のためModuleとAsset Attention設定は維持します。
+Maintained one-symbol pathではCross-Asset Transformer ModuleとそのParameterを生成しません。Historical three-symbol pathだけがModuleとAsset-Attention設定を保持します。
 
 ## Policy identity
 
@@ -157,12 +157,13 @@ Sequence identityは次を含みます。
 - Clock順とWindow
 - Input/Latent width
 - TCN width、Dilation、受容野
-- Timeframe/Asset Attention設定
+- Timeframe Attention設定
+- Historical multi-symbol時だけAsset Attention設定
 - `asset_fusion_mode`
 - Symbol順
 - Action名と順序
 
-Maintained one-symbol Identityは`asset_fusion_mode: single_symbol_bypass_v1`を含みます。Historical multi-symbol payloadにはこのFieldを追加せず、既存Digestを不必要に変更しません。
+Maintained one-symbol Identityは`asset_fusion_mode: single_symbol_bypass_v1`を含み、存在しないAsset-Attention Moduleの設定はArchitecture digestへ含めません。Historical multi-symbol payloadにはこのFieldを追加せず、既存Digestを不必要に変更しません。
 
 BC、PPO、CostCriticPPO、LagrangianPPOは同じPolicy architecture identityを使用します。CheckpointはTraining config digest、Sequence architecture digest、Asset binding digestを保存します。Resume時にいずれかが異なればFail closedします。3-action checkpointを1-action PolicyへResume／Transferしません。
 
@@ -205,7 +206,7 @@ Configuration selection、Sealed評価、Servingは同じ決定論的Mean ensemb
 
 Exploratory trainingはAppend-only `training_telemetry_v1`とTensorBoard scalarを出力できます。
 
-Maintained one-symbol診断はClock別Attention share、Missing ratio、Attention entropy、Gate飽和、Gradient normを記録します。Asset Attention診断はHistorical multi-symbol経路に限定されます。
+Maintained one-symbol診断はClock別Attention share、Missing ratio、Attention entropy、Gate飽和、Gradient normを記録します。Asset Attention診断は非適用の0として記録し、Historical multi-symbol経路だけが実際のAsset Attention診断を出力します。
 
 TelemetryとTensorBoardは、Fitting、Checkpoint選択、Sealed評価、Run identity、Release、Order executionへ使用しません。StudioはRead-onlyに表示します。
 
@@ -215,7 +216,7 @@ Flat actorのONNX/TorchScript Exportと、Sequence actorの構造化Exportを分
 
 `structured_policy_export_v2`はCanonical Dict input order、Shape、Dtype、Parity corpus、Model digest、Policy identity、Architecture digestを保存します。構造化Modelは`policy.structured.torchscript.pt`です。
 
-Serving bundleの正本は`serving_bundle_v6`です。`policy_mode`はBaselineか学習済みPolicyかを表し、`action_mode`はResidualかTarget-weightかを表します。`CanonicalStructuredPolicyLoader`は、Sequence observation schema、Bundle file closure、Export manifest、Model digest、Architecture digestをPolicy実行前に検証します。
+Serving bundleの正本は`serving_bundle_v6`です。`policy_mode`はBaselineか学習済みPolicyかを表し、`action_mode`はResidualかTarget-weightかを表します。`CanonicalStructuredPolicyLoader`は、Sequence observation schema、Bundle file closure、Export manifest、Model digest、完全なPolicy identity、Architecture digest、Action sizeをPolicy実行前に検証します。
 
 Release approvalはBundle外のEd25519 Attestationとして保持します。RuntimeへPrivate keyを渡しません。
 

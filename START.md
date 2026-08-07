@@ -6,7 +6,7 @@
 
 ## 1. 環境を準備する
 
-Repository rootで実行します。Python本体は`src/trade_rl/`、Web UIは`frontend/`にあります。Python import名とCLIは`trade_rl.*` / `trade-rl`です。
+Repository rootで実行します。Python本体は`trade_rl/`、Web UIは`frontend/`にあります。Python import名とCLIは`trade_rl.*` / `trade-rl`です。
 
 ```bash
 python -m pip install uv

@@ -1,33 +1,27 @@
 from __future__ import annotations
 
-from tests.workflows.test_stage_a_sb3_evaluation import (
-    _FakeEnvironment,
-    _Policy,
-    _dataset,
-    _digest,
-    _executor,
-    _plan_and_manifest,
-    _request,
-)
+from tests.workflows import test_stage_a_sb3_evaluation as sb3_test
 
 
 def test_sb3_executor_records_transition_end_index_for_each_completed_step() -> None:
-    request = _request(policy=True)
-    dataset = _dataset(request)
-    environment = _FakeEnvironment(request, dataset)
-    executor, _, _ = _executor(
+    request = sb3_test._request(policy=True)
+    dataset = sb3_test._dataset(request)
+    environment = sb3_test._FakeEnvironment(request, dataset)
+    executor, _, _ = sb3_test._executor(
         request=request,
         dataset=dataset,
         environment=environment,
     )
     candidate_digest = (
-        _plan_and_manifest()[0].candidate("candidate-a").candidate_config_digest
+        sb3_test._plan_and_manifest()[0]
+        .candidate("candidate-a")
+        .candidate_config_digest
     )
 
     result = executor.execute(
         request,
-        policy=_Policy(),
-        policy_source_digest=_digest("policy-source"),
+        policy=sb3_test._Policy(),
+        policy_source_digest=sb3_test._digest("policy-source"),
         candidate_config_digest=candidate_digest,
     )
 

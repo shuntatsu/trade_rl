@@ -6,7 +6,9 @@ from pathlib import Path
 from tests.workflows.test_stage_a_policy_producer_orchestration import _policy_producer
 
 
-def test_policy_producer_persists_episode_transition_end_indices(tmp_path: Path) -> None:
+def test_policy_producer_persists_episode_transition_end_indices(
+    tmp_path: Path,
+) -> None:
     producer, request, _, _ = _policy_producer(
         tmp_path,
         result_transform=lambda result: replace(

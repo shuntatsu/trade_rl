@@ -80,7 +80,7 @@ def _training_config() -> ResidualTrainingConfig:
         learning_rate=3e-4,
         policy_net_arch=(16, 8),
         value_net_arch=(16, 8),
-        checkpoint_interval_steps=8,
+        checkpoint_interval_steps=4,
         max_checkpoints=1,
         device="cpu",
         n_steps=8,

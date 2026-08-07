@@ -100,7 +100,7 @@ Historical multi-asset Artifactをone-symbol Identityへ書き換えません。
 
 ## Action、Observation、Reward
 
-Action schemaは`portfolio_action_v3`です。Maintained Target-weight modeではAction shapeは`(1,)`、Action nameは`target_weight:BTCUSDT`です。
+Action schemaは`portfolio_action_v3`です。Maintained Target-weight modeではAction shapeは`(1,)`、Action nameは`target_weight:BTCUSDT`です。階層Actorはchange intensityとtarget exposureを分離し、最終Actionを合成します。
 
 Flat observationの正本は`baseline_residual_observation_v5`です。Feature、Availability、Staleness、Current/Requested portfolio、Fill/Cost/Capacity、Cash、Exposure、Margin、Previous action、Pending order stateを含みます。Action widthは`dataset.n_symbols`から導出し、`3`のようなLiteralを使用しません。
 

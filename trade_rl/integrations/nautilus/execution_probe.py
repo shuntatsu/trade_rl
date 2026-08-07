@@ -14,7 +14,9 @@ from trade_rl.integrations.nautilus.event_projection import (
 from trade_rl.integrations.nautilus.instrument import build_maintained_btcusdt_perpetual
 from trade_rl.integrations.nautilus.quote_projection import build_quote_tick
 from trade_rl.integrations.nautilus.runtime_identity import require_nautilus_runtime
-from trade_rl.integrations.nautilus.trace_adapter import canonicalize_nautilus_fill_events
+from trade_rl.integrations.nautilus.trace_adapter import (
+    canonicalize_nautilus_fill_events,
+)
 from trade_rl.simulation.execution_canonicalization import (
     CanonicalEconomicClosure,
     CanonicalFillSignature,

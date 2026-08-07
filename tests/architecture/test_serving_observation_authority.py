@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 
 OBSOLETE = PYTHON_SOURCE_ROOT / "serving/observations.py"

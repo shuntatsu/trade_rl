@@ -86,7 +86,7 @@ files = ["src/trade_rl"]
 exclude = [
     "^tests/",
     "^examples/",
-    "^studio/",
+    "^frontend/",
 ]
 check_untyped_defs = true
 disallow_untyped_defs = true

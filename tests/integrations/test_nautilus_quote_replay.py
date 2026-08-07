@@ -10,8 +10,13 @@ from nautilus_trader.model import Money
 from nautilus_trader.model.currencies import USDT
 from nautilus_trader.model.enums import AccountType, OmsType
 
-from trade_rl.integrations.nautilus.event_projection import SourceBar, project_bar_events
-from trade_rl.integrations.nautilus.instrument import build_maintained_btcusdt_perpetual
+from trade_rl.integrations.nautilus.event_projection import (
+    SourceBar,
+    project_bar_events,
+)
+from trade_rl.integrations.nautilus.instrument import (
+    build_maintained_btcusdt_perpetual,
+)
 from trade_rl.integrations.nautilus.quote_projection import build_quote_tick
 
 

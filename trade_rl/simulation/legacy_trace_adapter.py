@@ -78,7 +78,9 @@ def canonicalize_legacy_funding_boundary_record(
         or currency_precision > 18
     ):
         raise ValueError("currency_precision must be an integer within [0, 18]")
-    if isinstance(equity_before_minor, bool) or not isinstance(equity_before_minor, int):
+    if isinstance(equity_before_minor, bool) or not isinstance(
+        equity_before_minor, int
+    ):
         raise ValueError("equity_before_minor must be an integer")
 
     price_ticks = _to_grid_units(boundary.mark_prices[0], price_tick, "price")

@@ -49,9 +49,14 @@ class NautilusExecutionProbeResult:
         return hashlib.sha256(payload).hexdigest()
 
 
-def run_flat_long_flat_execution_probe() -> NautilusExecutionProbeResult:
+def run_flat_long_flat_execution_probe(
+    *,
+    starting_balance: Decimal = Decimal("100000"),
+) -> NautilusExecutionProbeResult:
     """Run one deterministic Nautilus lifecycle; callers must isolate processes."""
 
+    if not starting_balance.is_finite() or starting_balance <= 0:
+        raise ValueError("starting_balance must be finite and positive")
     runtime = require_nautilus_runtime()
 
     from nautilus_trader.adapters.binance import BINANCE_VENUE
@@ -110,7 +115,7 @@ def run_flat_long_flat_execution_probe() -> NautilusExecutionProbeResult:
             oms_type=OmsType.NETTING,
             account_type=AccountType.MARGIN,
             base_currency=USDT,
-            starting_balances=[Money(100_000, USDT)],
+            starting_balances=[Money(starting_balance, USDT)],
         )
         instrument = build_maintained_btcusdt_perpetual()
         engine.add_instrument(instrument)
@@ -153,7 +158,9 @@ def run_flat_long_flat_execution_probe() -> NautilusExecutionProbeResult:
             currency_precision=USDT.precision,
         )
         scale = Decimal(10) ** USDT.precision
-        realized_minor = _minor_units(realized.as_decimal(), scale=scale, name="realized_pnl")
+        realized_minor = _minor_units(
+            realized.as_decimal(), scale=scale, name="realized_pnl"
+        )
         final_balance_minor = _minor_units(
             balance.as_decimal(),
             scale=scale,

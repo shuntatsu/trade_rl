@@ -54,6 +54,7 @@ jobs:
           uv run pytest -q -m nautilus \
             tests/integrations/test_nautilus_instrument.py \
             tests/integrations/test_nautilus_quote_projection.py \
+            tests/integrations/test_nautilus_derivative_data.py \
             tests/integrations/test_nautilus_order_adapter.py
       - name: Probe BacktestEngine in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_capability.py
@@ -61,3 +62,5 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_quote_replay.py
       - name: Exercise order lifecycle in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
+      - name: Exercise funding settlement in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_funding_settlement.py

@@ -194,7 +194,7 @@ class FundingBoundaryEvidence:
                 value["processing_index"], field="processing_index"
             ),
             timestamp_ns=_integer(value["timestamp_ns"], field="timestamp_ns"),
-            funding_due=tuple(raw_due),
+            funding_due=tuple(bool(item) for item in raw_due),
             signed_quantities=vector("signed_quantities"),
             mark_prices=vector("mark_prices"),
             contract_multipliers=vector("contract_multipliers"),

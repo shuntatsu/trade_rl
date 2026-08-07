@@ -1,4 +1,4 @@
-"""Deterministic legacy execution fixture used for dual-shadow conformance."""
+"""Deterministic legacy execution fixtures used for dual-shadow conformance."""
 
 from __future__ import annotations
 
@@ -25,6 +25,9 @@ from trade_rl.simulation.orders import (
 )
 from trade_rl.simulation.stateful_execution import execute_stateful_orders
 from trade_rl.simulation.target_execution import execute_target_statefully
+from trade_rl.simulation.target_exposure_controller import TargetExposureChildOrder
+
+_QUANTITY_TOLERANCE = 1e-12
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,20 +83,44 @@ def run_legacy_flat_long_flat_probe() -> LegacyExecutionProbeResult:
 def run_legacy_flat_long_flat_short_flat_probe() -> LegacyExecutionProbeResult:
     """Execute an explicit reduce-to-flat sign reversal through the legacy engine."""
 
-    dataset = _sign_flip_dataset()
+    child_orders = (
+        TargetExposureChildOrder(quantity=1.0, reduce_only=False),
+        TargetExposureChildOrder(quantity=-1.0, reduce_only=True),
+        TargetExposureChildOrder(quantity=-1.0, reduce_only=False),
+        TargetExposureChildOrder(quantity=1.0, reduce_only=True),
+    )
+    return run_legacy_child_order_sequence_probe(
+        child_orders,
+        dataset_id="e" * 64,
+        target_identity_prefix="dual-shadow-sign-flip",
+    )
+
+
+def run_legacy_child_order_sequence_probe(
+    child_orders: tuple[TargetExposureChildOrder, ...],
+    *,
+    dataset_id: str = "d" * 64,
+    target_identity_prefix: str = "dual-shadow-child-order",
+) -> LegacyExecutionProbeResult:
+    """Execute controller-approved child orders through the legacy fill engine."""
+
+    if not child_orders:
+        raise ValueError("child_orders must be non-empty")
+    dataset = _sequence_dataset(dataset_id=dataset_id, child_orders=child_orders)
     executor = MarketExecutor(dataset, _cost())
     initial_capital = 1_000.0
     book = BookState.zero(1, initial_capital, dataset.close[0])
     order_book = OrderBookState.empty()
     events: list[OrderEvent] = []
 
-    for submit_index, quantity in enumerate((1.0, -1.0, -1.0, 1.0)):
+    for submit_index, child_order in enumerate(child_orders):
+        _assert_safe_child_order(book, child_order)
         intent = OrderIntent.create(
             dataset_id=dataset.dataset_id,
-            target_identity=f"dual-shadow-sign-flip-{submit_index}",
+            target_identity=f"{target_identity_prefix}-{submit_index}",
             execution_policy_digest=executor.cost.execution_policy_digest,
             symbol_index=0,
-            requested_quantity=quantity,
+            requested_quantity=child_order.quantity,
             order_type=OrderType.MARKET,
             time_in_force=TimeInForce.IOC,
             limit_price=None,
@@ -133,6 +160,25 @@ def run_legacy_flat_long_flat_short_flat_probe() -> LegacyExecutionProbeResult:
     return LegacyExecutionProbeResult(fills=fills, economics=economics)
 
 
+def _assert_safe_child_order(
+    book: BookState,
+    child_order: TargetExposureChildOrder,
+) -> None:
+    quantity = float(child_order.quantity)
+    if not np.isfinite(quantity) or abs(quantity) <= _QUANTITY_TOLERANCE:
+        raise ValueError("child order quantity must be finite and non-zero")
+    if not child_order.reduce_only:
+        return
+
+    realized = float(book.quantities[0])
+    if abs(realized) <= _QUANTITY_TOLERANCE:
+        raise RuntimeError("reduce-only child order cannot execute while flat")
+    if realized * quantity >= 0.0:
+        raise RuntimeError("reduce-only child order must oppose the realized position")
+    if abs(quantity) > abs(realized) + _QUANTITY_TOLERANCE:
+        raise RuntimeError("reduce-only child order cannot cross through flat")
+
+
 def _dataset() -> MarketDataset:
     open_prices = np.array([[100.0], [100.1], [104.9], [105.0]], dtype=np.float64)
     close = np.array([[100.0], [105.0], [105.0], [105.0]], dtype=np.float64)
@@ -164,26 +210,29 @@ def _dataset() -> MarketDataset:
     )
 
 
-def _sign_flip_dataset() -> MarketDataset:
-    open_prices = np.array(
-        [[100.0], [100.1], [99.9], [99.9], [100.1]],
-        dtype=np.float64,
-    )
-    close = np.full((5, 1), 100.0, dtype=np.float64)
+def _sequence_dataset(
+    *,
+    dataset_id: str,
+    child_orders: tuple[TargetExposureChildOrder, ...],
+) -> MarketDataset:
+    fill_open_prices = [100.1 if order.quantity > 0.0 else 99.9 for order in child_orders]
+    open_prices = np.asarray([[100.0], *[[price] for price in fill_open_prices]], dtype=np.float64)
+    close = np.full_like(open_prices, 100.0)
     high = np.maximum(open_prices, close) + 1.0
     low = np.minimum(open_prices, close) - 1.0
     volume = np.full_like(close, 1_000.0)
     hour_ns = 60 * 60 * 1_000_000_000
-    timestamps = np.array(
-        [0, hour_ns, 2 * hour_ns, 3 * hour_ns, 4 * hour_ns],
+    timestamps = np.asarray(
+        [index * hour_ns for index in range(len(child_orders) + 1)],
         dtype="datetime64[ns]",
     )
+    rows = len(child_orders) + 1
     return MarketDataset(
-        dataset_id="e" * 64,
+        dataset_id=dataset_id,
         symbols=("BTCUSDT",),
         timestamps=timestamps,
-        features=np.zeros((5, 1, 1), dtype=np.float32),
-        global_features=np.zeros((5, 1), dtype=np.float32),
+        features=np.zeros((rows, 1, 1), dtype=np.float32),
+        global_features=np.zeros((rows, 1), dtype=np.float32),
         open=open_prices,
         high=high,
         low=low,
@@ -191,7 +240,7 @@ def _sign_flip_dataset() -> MarketDataset:
         volume=volume,
         funding_rate=np.zeros_like(close),
         tradable=np.ones_like(close, dtype=np.bool_),
-        feature_available=np.ones((5, 1, 1), dtype=np.bool_),
+        feature_available=np.ones((rows, 1, 1), dtype=np.bool_),
         feature_names=("probe",),
         global_feature_names=("probe",),
         periods_per_year=8_760,
@@ -222,6 +271,7 @@ def _minor(value: float, *, precision: int = 8) -> int:
 
 __all__ = [
     "LegacyExecutionProbeResult",
+    "run_legacy_child_order_sequence_probe",
     "run_legacy_flat_long_flat_probe",
     "run_legacy_flat_long_flat_short_flat_probe",
 ]

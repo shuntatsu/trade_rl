@@ -7,6 +7,9 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "trade_rl/integrations/nautilus/**"
+      - "trade_rl/simulation/execution_canonicalization.py"
+      - "trade_rl/simulation/legacy_execution_probe.py"
+      - "trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
       - "tools/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
@@ -16,6 +19,9 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "trade_rl/integrations/nautilus/**"
+      - "trade_rl/simulation/execution_canonicalization.py"
+      - "trade_rl/simulation/legacy_execution_probe.py"
+      - "trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
       - "tools/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
@@ -64,10 +70,12 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_quote_replay.py
       - name: Exercise order lifecycle in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
-      - name: Exercise funding settlement in isolated process
+      - name: Lock native funding limitation in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_funding_settlement.py
       - name: Record execution accounting in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
+      - name: Compare legacy and Nautilus conformance in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_dual_shadow.py
       - name: Verify deterministic execution digest across fresh processes
         shell: bash
         run: |

@@ -142,7 +142,7 @@ Clock別Causal TCN
   -> Actor / Critic
 ```
 
-Maintained BTC経路ではCross-Asset Transformerを実行しません。`sequence_asset_*` Fieldは`training_run_config_v4`と旧Checkpointの構造契約を安定させるため保持します。1-symbol Architecture identityには`asset_fusion_mode: single_symbol_bypass_v1`が入り、旧1-symbol／3-symbol Identityとの暗黙互換を禁止します。
+Maintained BTC経路ではCross-Asset Transformer ModuleとそのParameterを生成しません。`sequence_asset_*` Fieldは`training_run_config_v4`のSchema互換とHistorical three-symbol設定の読取用に残しますが、Maintained one-symbol Modelでは非適用です。1-symbol Architecture identityには`asset_fusion_mode: single_symbol_bypass_v1`が入り、非適用のAsset-Attention設定はDigestへ含めません。
 
 ### TCNと共通次元
 
@@ -165,7 +165,7 @@ Maintained BTC経路ではCross-Asset Transformerを実行しません。`sequen
 | `sequence_timeframe_ffn_multiplier` | `3` |
 | `sequence_timeframe_gate_bias` | `-2.0` |
 
-### Cross-Asset Attention compatibility fields
+### Historical Cross-Asset Attention compatibility fields
 
 | 設定 | 既定 |
 |---|---:|
@@ -174,7 +174,7 @@ Maintained BTC経路ではCross-Asset Transformerを実行しません。`sequen
 | `sequence_asset_ffn_multiplier` | `3` |
 | `sequence_asset_gate_bias` | `-2.0` |
 
-時間足と銘柄の設定は独立しています。同じ値を使う場合でも、意味の異なる設定を1つのFieldへまとめません。Maintained one-symbol RunではAsset Attention Fieldを構造Identityへ保持しますが、Forward計算には適用しません。
+時間足と銘柄の設定は独立しています。同じ値を使う場合でも、意味の異なる設定を1つのFieldへまとめません。Maintained one-symbol RunではAsset-Attention FieldをConfigとして受理しますが、Module、Parameter、Forward計算、Architecture digestのいずれにも使用しません。Historical multi-symbol Runだけがこれらを実構造へBindします。
 
 ## Runtime acceleration
 
@@ -220,7 +220,8 @@ BCと後続PPOは同じFeature extractorを使用します。Cost criticやLagra
 `hierarchical_sequence_v2`では次を結合します。
 
 - Clock順、Window、Input channel、Latent width、TCN widthとDilation
-- Timeframe/Asset Attention構造
+- Timeframe Attention構造
+- Historical multi-symbol時だけAsset-Attention構造
 - `asset_fusion_mode`（Maintained one-symbolでは`single_symbol_bypass_v1`）
 - Symbol順
 - Action名とAction順
@@ -246,6 +247,7 @@ Checkpoint manifestはTraining config digestとPolicy architecture identityを�
 - Timeframe Gate平均と飽和率
 - Timeframe encoderとTimeframe fusionのGradient norm
 - Legacy multi-symbol時のAsset Attention／Cross-asset Block診断
+- Maintained one-symbol時はAsset Attention／Cross-asset指標を非適用の`0.0`として記録
 
 診断は最適化状態を観察するためのもので、Checkpoint選択、Sealed評価、収益性Evidenceではありません。
 
@@ -263,7 +265,7 @@ Flat policyでは`exports.onnx`と`exports.torchscript`を使用できます。
 - Action size
 - Parity corpusの最大誤差とTolerance
 
-Model fileは`policy.structured.torchscript.pt`です。Servingでは`CanonicalStructuredPolicyLoader`が`serving_bundle_v6`、Sequence observation schema、Export manifest、Model、Architecture digestを照合します。
+Model fileは`policy.structured.torchscript.pt`です。Servingでは`CanonicalStructuredPolicyLoader`が`serving_bundle_v6`、Sequence observation schema、Export manifest、Model、完全なPolicy identity、Architecture digest、Action sizeを照合します。
 
 ## TensorとParameterの上限
 

@@ -11,7 +11,10 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.execution_canonicalization import CanonicalEconomicClosure
+from trade_rl.simulation.execution_canonicalization import (
+    CanonicalEconomicClosure,
+    CanonicalFillSignature,
+)
 from trade_rl.simulation.legacy_trace_adapter import canonicalize_legacy_fill_events
 from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.target_execution import execute_target_statefully
@@ -19,7 +22,7 @@ from trade_rl.simulation.target_execution import execute_target_statefully
 
 @dataclass(frozen=True, slots=True)
 class LegacyExecutionProbeResult:
-    fills: tuple
+    fills: tuple[CanonicalFillSignature, ...]
     economics: CanonicalEconomicClosure
 
 

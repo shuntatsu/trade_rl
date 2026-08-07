@@ -8,6 +8,7 @@ import pytest
 
 from tests.data.test_market_dataset_v2 import kwargs
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
+from trade_rl.integrations.nautilus.event_projection import SourceBar
 
 _MODULE = "trade_rl.integrations.nautilus.historical_projection"
 
@@ -29,7 +30,7 @@ def _single_symbol_market() -> MarketDataset:
     return MarketDataset(**values)
 
 
-def test_project_historical_source_bar_uses_close_timestamp_and_fixed_cadence() -> None:
+def test_project_historical_source_bar_uses_existing_source_bar_contract() -> None:
     project = _projector()
     market = _single_symbol_market()
     index = 2
@@ -41,6 +42,7 @@ def test_project_historical_source_bar_uses_close_timestamp_and_fixed_cadence() 
 
     bar = project(market, processing_index=index)
 
+    assert isinstance(bar, SourceBar)
     assert bar.open_ns == close_ns - cadence_ns
     assert bar.close_ns == close_ns
     assert bar.open_price == pytest.approx(market.open[index, 0])

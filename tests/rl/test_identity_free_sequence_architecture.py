@@ -33,14 +33,21 @@ def _identity():
 
 def test_sequence_identity_records_identity_free_asset_semantics() -> None:
     identity = _identity()
+    payload = identity.digest_payload()
 
     assert identity.schema_version == "hierarchical_sequence_policy_v4"
     assert identity.asset_identity_mode == "identity_free_v1"
-    assert identity.digest_payload()["asset_identity_mode"] == "identity_free_v1"
-    assert "symbols" not in identity.digest_payload()
-    assert "action_names" not in identity.digest_payload()
+    assert payload["asset_identity_mode"] == "identity_free_v1"
+    assert "asset_fusion_mode" not in payload
+    assert "symbols" not in payload
+    assert "action_names" not in payload
 
 
 def test_sequence_identity_rejects_other_asset_identity_modes() -> None:
     with pytest.raises(ValueError, match="asset identity mode"):
         replace(_identity(), asset_identity_mode="fixed_slot_embedding_v1")
+
+
+def test_multi_symbol_identity_rejects_single_symbol_fusion_marker() -> None:
+    with pytest.raises(ValueError, match="multi-symbol architecture"):
+        replace(_identity(), asset_fusion_mode="single_symbol_bypass_v1")

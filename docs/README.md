@@ -7,6 +7,7 @@
 | 目的 | 文書 |
 |---|---|
 | まず動かす | [START.md](../START.md) |
+| Maintained 1 Run＝1 Instrument契約を確認する | [SINGLE_SYMBOL.md](SINGLE_SYMBOL.md) |
 | 全体構造を理解する | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 設定項目を調べる | [CONFIGURATION.md](CONFIGURATION.md) |
 | 研究結果を正しく解釈する | [RESEARCH_STATUS.md](RESEARCH_STATUS.md) |
@@ -23,6 +24,7 @@ Repositoryの概要は[README.md](../README.md)が正本です。
 
 - `README.md`: 状態、Quickstart、能力境界、主要リンク
 - `START.md`: 実行手順とTroubleshooting
+- `SINGLE_SYMBOL.md`: Maintained 1 Run＝1 Instrument、Action、Identity、Legacy互換
 - `ARCHITECTURE.md`: 現行実装の責務、Data flow、Identity、Fail-closed境界
 - `CONFIGURATION.md`: 現行Schemaと設定値
 - `RESEARCH_STATUS.md`: 実装済み能力、未取得Evidence、Production gate

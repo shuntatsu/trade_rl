@@ -10,34 +10,34 @@
   "action": {},
   "risk": {},
   "execution": {
-  "fee_rate": 0.0005,
-  "maker_fee_rate": 0.0,
-  "taker_fee_rate": 0.0,
-  "spread_rate": 0.0002,
-  "impact_rate": 0.0001,
-  "multiplier": 1.0,
-  "max_participation_rate": 0.05,
-  "slippage_std": 0.0,
-  "tail_slippage_probability": 0.0,
-  "tail_slippage_multiplier": 5.0,
-  "random_seed": 0,
-  "minimum_notional": 0.0,
-  "lot_size": 0.0,
-  "tick_size": 0.0,
-  "allow_short": true,
-  "borrow_rate_multiplier": 1.0,
-  "max_leverage": 1.0,
-  "maintenance_margin_rate": 0.25,
-  "collateral_haircut": 1.0,
-  "margin_mode": "cross",
-  "order_latency_bars": 0,
-  "order_type": "market",
-  "limit_offset_rate": 0.0005,
-  "path_mode": "conservative",
-  "processing_bar_volume_capacity": true,
-  "partial_fill_carry": true,
-  "trigger_volume_fractions": [1.0, 0.5, 0.25, 0.0]
-},
+    "fee_rate": 0.0005,
+    "maker_fee_rate": 0.0,
+    "taker_fee_rate": 0.0,
+    "spread_rate": 0.0002,
+    "impact_rate": 0.0001,
+    "multiplier": 1.0,
+    "max_participation_rate": 0.05,
+    "slippage_std": 0.0,
+    "tail_slippage_probability": 0.0,
+    "tail_slippage_multiplier": 5.0,
+    "random_seed": 0,
+    "minimum_notional": 0.0,
+    "lot_size": 0.0,
+    "tick_size": 0.0,
+    "allow_short": true,
+    "borrow_rate_multiplier": 1.0,
+    "max_leverage": 1.0,
+    "maintenance_margin_rate": 0.25,
+    "collateral_haircut": 1.0,
+    "margin_mode": "cross",
+    "order_latency_bars": 0,
+    "order_type": "market",
+    "limit_offset_rate": 0.0005,
+    "path_mode": "conservative",
+    "processing_bar_volume_capacity": true,
+    "partial_fill_carry": true,
+    "trigger_volume_fractions": [1.0, 0.5, 0.25, 0.0]
+  },
   "reward": {},
   "trend": {},
   "exports": {}
@@ -47,8 +47,10 @@
 完全な維持対象Example:
 
 - [Quickstart](../examples/quickstart/training.json)
-- [Binance Multi-Timeframe full training](../examples/binance-multitimeframe/training-full.json)
-- [Binance Multi-Timeframe walk-forward](../examples/binance-multitimeframe/walk-forward-full.json)
+- [Binance single-symbol full training](../examples/binance-multitimeframe/training-full.json)
+- [Binance single-symbol walk-forward](../examples/binance-multitimeframe/walk-forward-full.json)
+
+Maintained Binance契約は[Single-symbol workflow](SINGLE_SYMBOL.md)を正本とし、`BTCUSDT`、`target_weight_count: 1`、Action name `target_weight:BTCUSDT`を使用します。
 
 ## Legacy設定
 
@@ -65,12 +67,41 @@ sequence_attention_layers
 
 対応する現行設定は、単一の`observation_encoder`と、時間足・銘柄別のAttention設定です。
 
+## Maintained action contract
+
+Maintained Binance profileは次を必須とします。
+
+```json
+{
+  "action": {
+    "mode": "target_weight",
+    "alpha_enabled": false,
+    "risk_tilt_enabled": false,
+    "n_factors": 0,
+    "target_weight_count": 1,
+    "validation_mode": "clip"
+  },
+  "risk": {
+    "max_abs_weight": 1.0,
+    "max_gross": 1.0
+  },
+  "portfolio_risk": {
+    "max_abs_weight": 1.0
+  },
+  "execution": {
+    "max_leverage": 1.0
+  }
+}
+```
+
+Maintained config writerは、Training resourceを確保する前に`target_weight_count != 1`を拒否します。旧3-action ArtifactはRead-onlyであり、1-action PolicyへResumeまたはTransferしません。
+
 ## `observation_encoder`
 
 | 値 | Policy | 対応Algorithm | 説明 |
 |---|---|---|---|
 | `flat_mlp` | `MlpPolicy` | PPO-family、SAC、TD3、TQC | Flat observationをMLPへ入力 |
-| `asset_set` | 通常は`MultiInputPolicy` | PPO-family、SAC、TD3、TQC | 銘柄集合を明示的に扱う非系列Encoder |
+| `asset_set` | 通常は`MultiInputPolicy` | PPO-family、SAC、TD3、TQC | Generic／Legacyの銘柄集合を扱う非系列Encoder |
 | `hierarchical_sequence_v2` | `MultiInputPolicy` | PPO、CostCriticPPO、LagrangianPPO | Native sequenceを階層的に融合 |
 
 設定値は小文字へ正規化されます。無効な値や、EncoderとPolicy／Algorithmの不整合は初期化時に拒否されます。
@@ -90,16 +121,28 @@ Encoderで使わない設定を非既定値にするとFail closedします。�
 
 各Clockは`values`、`available`、`staleness`を別Tensorとして保持します。
 
-Model flow:
+Maintained one-symbol flow:
 
 ```text
 Clock別Causal TCN
   -> Clock latent + Context token
   -> Gated Cross-Timeframe Attention
-  -> Asset token + Symbol embedding
+  -> BTCUSDT token
+  -> single_symbol_bypass_v1
+  -> Actor / Critic
+```
+
+Historical multi-symbol flow:
+
+```text
+Clock別Causal TCN
+  -> Gated Cross-Timeframe Attention
+  -> Asset tokens
   -> Gated Cross-Asset Attention
   -> Actor / Critic
 ```
+
+Maintained BTC経路ではCross-Asset Transformer ModuleとそのParameterを生成しません。`sequence_asset_*` Fieldは`training_run_config_v4`のSchema互換とHistorical three-symbol設定の読取用に残しますが、Maintained one-symbol Modelでは非適用です。1-symbol Architecture identityには`asset_fusion_mode: single_symbol_bypass_v1`が入り、非適用のAsset-Attention設定はDigestへ含めません。
 
 ### TCNと共通次元
 
@@ -122,7 +165,7 @@ Clock別Causal TCN
 | `sequence_timeframe_ffn_multiplier` | `3` |
 | `sequence_timeframe_gate_bias` | `-2.0` |
 
-### Cross-Asset Attention
+### Historical Cross-Asset Attention compatibility fields
 
 | 設定 | 既定 |
 |---|---:|
@@ -131,7 +174,7 @@ Clock別Causal TCN
 | `sequence_asset_ffn_multiplier` | `3` |
 | `sequence_asset_gate_bias` | `-2.0` |
 
-時間足と銘柄の設定は独立しています。同じ値を使う場合でも、意味の異なる設定を1つのFieldへまとめません。
+時間足と銘柄の設定は独立しています。同じ値を使う場合でも、意味の異なる設定を1つのFieldへまとめません。Maintained one-symbol RunではAsset-Attention FieldをConfigとして受理しますが、Module、Parameter、Forward計算、Architecture digestのいずれにも使用しません。Historical multi-symbol Runだけがこれらを実構造へBindします。
 
 ## Runtime acceleration
 
@@ -177,7 +220,9 @@ BCと後続PPOは同じFeature extractorを使用します。Cost criticやLagra
 `hierarchical_sequence_v2`では次を結合します。
 
 - Clock順、Window、Input channel、Latent width、TCN widthとDilation
-- Timeframe/Asset Attention構造
+- Timeframe Attention構造
+- Historical multi-symbol時だけAsset-Attention構造
+- `asset_fusion_mode`（Maintained one-symbolでは`single_symbol_bypass_v1`）
 - Symbol順
 - Action名とAction順
 - Observation encoder
@@ -198,9 +243,11 @@ Checkpoint manifestはTraining config digestとPolicy architecture identityを�
 系列Policyでは次の診断を低頻度で記録します。
 
 - Clock別Attention shareとMissing ratio
-- Timeframe/Asset Attention entropyと最大Share
-- Timeframe/Asset Gate平均と飽和率
-- Timeframe encoder、Timeframe fusion、Cross-asset BlockのGradient norm
+- Timeframe Attention entropyと最大Share
+- Timeframe Gate平均と飽和率
+- Timeframe encoderとTimeframe fusionのGradient norm
+- Legacy multi-symbol時のAsset Attention／Cross-asset Block診断
+- Maintained one-symbol時はAsset Attention／Cross-asset指標を非適用の`0.0`として記録
 
 診断は最適化状態を観察するためのもので、Checkpoint選択、Sealed評価、収益性Evidenceではありません。
 
@@ -218,7 +265,7 @@ Flat policyでは`exports.onnx`と`exports.torchscript`を使用できます。
 - Action size
 - Parity corpusの最大誤差とTolerance
 
-Model fileは`policy.structured.torchscript.pt`です。Servingでは`CanonicalStructuredPolicyLoader`が`serving_bundle_v5`、Sequence observation schema、Export manifest、Model、Architecture digestを照合します。
+Model fileは`policy.structured.torchscript.pt`です。Servingでは`CanonicalStructuredPolicyLoader`が`serving_bundle_v6`、Sequence observation schema、Export manifest、Model、完全なPolicy identity、Architecture digest、Action sizeを照合します。
 
 ## TensorとParameterの上限
 

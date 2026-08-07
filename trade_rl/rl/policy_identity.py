@@ -14,6 +14,7 @@ from trade_rl.artifacts.policy_identity_contract import (
 )
 from trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE
 from trade_rl.rl.sequence_architecture import (
+    SINGLE_SYMBOL_ASSET_FUSION_MODE,
     SequenceAssetBindingIdentity,
     sequence_architecture_identity,
     sequence_asset_binding_identity,
@@ -42,6 +43,14 @@ CURRENT_WEIGHT_KEY: Final = "current_weights"
 _SEQUENCE_ARCHITECTURE_SCHEMA: Final = "hierarchical_sequence_policy_v4"
 _SEQUENCE_ASSET_BINDING_SCHEMA: Final = "sequence_asset_binding_v1"
 _ASSET_IDENTITY_MODE: Final = "identity_free_v1"
+_ASSET_ATTENTION_IDENTITY_FIELDS: Final = frozenset(
+    {
+        "asset_attention_heads",
+        "asset_attention_layers",
+        "asset_ffn_multiplier",
+        "asset_gate_bias",
+    }
+)
 _INTERNAL_ACTION_DISTRIBUTION_NAMES: Final = frozenset(
     {
         "masked_shared_squashed_diag_gaussian",
@@ -199,7 +208,17 @@ def _validated_sequence_architecture(
         raise ValueError("sequence architecture identity schema mismatch")
     if payload.get("asset_identity_mode") != _ASSET_IDENTITY_MODE:
         raise ValueError("sequence architecture asset identity mode mismatch")
-    _positive_symbol_count(payload.get("n_symbols"))
+    n_symbols = _positive_symbol_count(payload.get("n_symbols"))
+    if n_symbols == 1:
+        if payload.get("asset_fusion_mode") != SINGLE_SYMBOL_ASSET_FUSION_MODE:
+            raise ValueError("single-symbol architecture fusion identity mismatch")
+        inactive_fields = _ASSET_ATTENTION_IDENTITY_FIELDS.intersection(payload)
+        if inactive_fields:
+            raise ValueError(
+                "single-symbol architecture cannot declare asset attention fields"
+            )
+    elif "asset_fusion_mode" in payload:
+        raise ValueError("multi-symbol architecture cannot declare asset fusion mode")
     if "symbols" in payload or "action_names" in payload:
         raise ValueError("sequence architecture must not bind concrete assets")
     return payload

@@ -36,14 +36,16 @@ def _common_contract(
     config: TrainingRunConfig, *, behavior_cloning_epochs: int = 45
 ) -> None:
     assert config.action.mode.value == "target_weight"
-    assert config.action.target_weight_count == 3
+    assert config.action.target_weight_count == 1
+    assert config.action.names_for_symbols(("BTCUSDT",)) == ("target_weight:BTCUSDT",)
     assert config.action.alpha_enabled is False
     assert config.action.risk_tilt_enabled is False
     assert config.reward.is_pure_net_log_growth() is True
     assert config.environment.episode_hours == pytest.approx(720.0)
     assert config.environment.finite_horizon_observation is False
     assert config.environment.liquidate_on_end is False
-    assert config.risk.max_abs_weight == pytest.approx(0.45)
+    assert config.risk.max_abs_weight == pytest.approx(1.0)
+    assert config.portfolio_risk.max_abs_weight == pytest.approx(1.0)
     assert config.risk.max_gross == pytest.approx(1.0)
     assert config.risk.drawdown_start == pytest.approx(0.10)
     assert config.risk.drawdown_stop == pytest.approx(0.20)

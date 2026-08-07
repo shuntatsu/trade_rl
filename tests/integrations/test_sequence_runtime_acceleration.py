@@ -73,11 +73,17 @@ def test_maintained_full_cuda_configs_enable_sequence_runtime() -> None:
             repository_root / "examples/binance-multitimeframe/training-full.json"
         ).read_text(encoding="utf-8")
     )["training"]
-    walk_forward = json.loads(
+    walk_forward_config = json.loads(
         (
             repository_root / "examples/binance-multitimeframe/walk-forward-full.json"
         ).read_text(encoding="utf-8")
-    )["candidates"][0]["run"]["training"]
+    )
+    run_file = walk_forward_config["candidates"][0]["run_file"]
+    walk_forward = json.loads(
+        (repository_root / "examples/binance-multitimeframe" / run_file).read_text(
+            encoding="utf-8"
+        )
+    )["training"]
 
     for training in (direct, walk_forward):
         assert training["sequence_compile"] is False

@@ -330,11 +330,11 @@ def build_postgres_market_dataset(
     slot_symbols: Sequence[str] | None = None,
     symbol_triplet_provenance: Mapping[str, object] | None = None,
 ) -> MarketDataset:
-    """Build one identity-free three-slot dataset from selected market symbols."""
+    """Build one identity-free one- or three-symbol market dataset."""
 
     selected = _ordered_unique(symbols, field="symbols")
-    if len(selected) != 3:
-        raise ValueError("dynamic training datasets require exactly three symbols")
+    if len(selected) not in {1, 3}:
+        raise ValueError("training datasets require one or three symbols")
     vocabulary = _ordered_unique(symbol_vocabulary, field="symbol_vocabulary")
     if not set(selected) <= set(vocabulary):
         raise ValueError("selected symbols must belong to symbol_vocabulary")
@@ -519,6 +519,11 @@ def build_postgres_market_dataset(
         feature_config_digest=feature_config_digest,
         normalization_digest=normalization_digest,
     )
+    identity_schema = (
+        "postgres_single_symbol_dataset_v1"
+        if len(selected) == 1
+        else "postgres_dynamic_triplet_dataset_v2"
+    )
     return dataset.with_content_identity(
         {
             "indicator_artifact_digests": tuple(
@@ -530,7 +535,7 @@ def build_postgres_market_dataset(
             "metadata_evidence_digest": metadata_evidence_digest,
             "policy_asset_identity_mode": POLICY_ASSET_IDENTITY_MODE,
             "range": (start.isoformat(), end.isoformat()),
-            "schema_version": "postgres_dynamic_triplet_dataset_v2",
+            "schema_version": identity_schema,
             "selected_symbols": selected,
             "slot_symbols": resolved_slots,
             "symbol_triplet": dict(symbol_triplet_provenance or {}),

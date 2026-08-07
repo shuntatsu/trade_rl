@@ -23,7 +23,7 @@ from trade_rl.workflows.binance_metadata_modes import (
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_ROOT = ROOT / "examples" / "binance-multitimeframe"
-SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT")
+SYMBOLS = ("BTCUSDT",)
 
 
 def _namespace() -> dict[str, Any]:
@@ -131,8 +131,7 @@ def test_runner_frozen_mode_does_not_require_signed_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("TRADE_RL_FROZEN_METADATA_CACHE_ROOT", raising=False)
-    namespace = _namespace()
-    resolve = namespace["_resolve_metadata"]
+    resolve = _namespace()["_resolve_metadata"]
     monkeypatch.setitem(
         resolve.__globals__,
         "_load_rule_history",
@@ -149,6 +148,7 @@ def test_runner_frozen_mode_does_not_require_signed_history(
     assert transport.calls == 1
     assert result.mode is BinanceMetadataMode.FROZEN_SNAPSHOT
     assert result.execution_rule_histories is None
+    assert tuple(result.metadata) == SYMBOLS
 
 
 def test_runner_frozen_mode_reuses_persistent_snapshot(
@@ -183,8 +183,7 @@ def test_runner_frozen_mode_reuses_persistent_snapshot(
 def test_runner_historical_mode_accepts_only_verified_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    namespace = _namespace()
-    resolve = namespace["_resolve_metadata"]
+    resolve = _namespace()["_resolve_metadata"]
     verified = _verified_history()
     calls = 0
 
@@ -242,7 +241,6 @@ def test_develop_accepts_supervised_bootstrap_evidence(
         Namespace(
             cache_root=tmp_path / "cache",
             conservative_static_path=None,
-            dynamic_symbol_triplets=False,
             metadata_mode="frozen_snapshot",
         )
     )
@@ -263,7 +261,6 @@ def test_develop_rejects_prior_research_artifacts_without_deleting_them(
         Namespace(
             cache_root=tmp_path / "cache",
             conservative_static_path=None,
-            dynamic_symbol_triplets=False,
             metadata_mode="frozen_snapshot",
         )
     )
@@ -278,7 +275,12 @@ def test_develop_rejects_prior_research_artifacts_without_deleting_them(
 
 def test_runner_source_uses_typed_state_and_public_key_verification() -> None:
     state = (EXAMPLE_ROOT / "run_full_research_state.py").read_text(encoding="utf-8")
-    pipeline = (EXAMPLE_ROOT / "full_research_pipeline.py").read_text(encoding="utf-8")
+    maintained = (EXAMPLE_ROOT / "full_research_pipeline.py").read_text(
+        encoding="utf-8"
+    )
+    legacy = (EXAMPLE_ROOT / "full_research_pipeline_legacy.py").read_text(
+        encoding="utf-8"
+    )
     launchers = "\n".join(
         (EXAMPLE_ROOT / name).read_text(encoding="utf-8")
         for name in ("run_full_research.py", "run_full_research_hardened.py")
@@ -286,16 +288,17 @@ def test_runner_source_uses_typed_state_and_public_key_verification() -> None:
 
     assert "SelectionProposal.create" in state
     assert "SelectionAuthorization.authorize" not in state
-    assert "load_verified_binance_rule_history" in pipeline
-    assert "TRADE_RL_METADATA_PUBLIC_KEYS" in pipeline
+    assert "load_verified_binance_rule_history" in legacy
+    assert "TRADE_RL_METADATA_PUBLIC_KEYS" in legacy
+    assert '_SYMBOLS = ("BTCUSDT",)' in maintained
+    assert "dynamic_symbol_triplets" not in state
     assert "runpy" not in launchers
 
 
 def test_runner_requires_identity_verified_execution_sensitivity_gate(
     tmp_path: Path,
 ) -> None:
-    namespace = _namespace()
-    load_gate = namespace["_execution_sensitivity_gate"]
+    load_gate = _namespace()["_execution_sensitivity_gate"]
     payload = {
         "dataset_id": "a" * 64,
         "experiment_plan_digest": "b" * 64,
@@ -351,8 +354,7 @@ def test_runner_skips_execution_sensitivity_when_not_configured(tmp_path: Path) 
 
 
 def test_runner_rejects_execution_sensitivity_identity_mismatch(tmp_path: Path) -> None:
-    namespace = _namespace()
-    load_gate = namespace["_execution_sensitivity_gate"]
+    load_gate = _namespace()["_execution_sensitivity_gate"]
     payload = {
         "dataset_id": "a" * 64,
         "experiment_plan_digest": "b" * 64,

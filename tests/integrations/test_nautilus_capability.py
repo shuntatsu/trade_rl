@@ -14,5 +14,6 @@ def test_exact_nautilus_wheel_supports_required_backtest_primitives() -> None:
     assert report.runtime.package_version == "1.230.0"
     assert report.engine_constructed is True
     assert report.binance_margin_venue_added is True
+    assert report.instrument_registered is True
     assert report.engine_disposed is True
     assert report.errors == ()

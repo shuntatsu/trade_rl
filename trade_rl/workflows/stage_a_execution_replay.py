@@ -463,7 +463,9 @@ class StageAExecutionReplayArtifact:
         elif any(value is not None for value in funding_values) and not all(
             value is not None for value in funding_values
         ):
-            raise ValueError("Stage A replay v4 funding evidence identity is incomplete")
+            raise ValueError(
+                "Stage A replay v4 funding evidence identity is incomplete"
+            )
 
         if funding_digest is not None:
             assert funding_sha256 is not None

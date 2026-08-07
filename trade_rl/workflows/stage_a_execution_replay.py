@@ -124,6 +124,14 @@ def _terminal_portfolio_value(artifact: ExecutionEventArtifact) -> float:
     return value
 
 
+def _terminal_symbol_count(artifact: ExecutionEventArtifact) -> int:
+    book = _mapping(artifact.terminal_book, field="terminal_book")
+    quantities = _sequence(book.get("quantities"), field="terminal_book.quantities")
+    if not quantities:
+        raise ValueError("Stage A terminal book vector closure mismatch")
+    return len(quantities)
+
+
 def _load_execution_evidence_bytes(raw: bytes) -> ExecutionEvidence:
     try:
         value = json.loads(raw)
@@ -626,6 +634,7 @@ def _validate_funding_bytes(
     *,
     request: StageAEvaluationCellRequest,
     funding_evidence_bytes: bytes,
+    expected_symbol_count: int,
 ) -> tuple[str, str, int]:
     try:
         funding = load_funding_evidence_artifact_bytes(funding_evidence_bytes)
@@ -635,6 +644,8 @@ def _validate_funding_bytes(
         raise ValueError("Stage A funding evidence dataset identity mismatch")
     if funding.execution_policy_digest != request.execution_identity:
         raise ValueError("Stage A funding evidence execution identity mismatch")
+    if funding.symbol_count != expected_symbol_count:
+        raise ValueError("Stage A funding evidence symbol count mismatch")
     return (
         funding.digest,
         hashlib.sha256(funding_evidence_bytes).hexdigest(),
@@ -681,6 +692,7 @@ def build_stage_a_execution_replay_artifact(
         funding_digest, funding_sha256, funding_size = _validate_funding_bytes(
             request=request,
             funding_evidence_bytes=funding_evidence_bytes,
+            expected_symbol_count=_terminal_symbol_count(event_artifact),
         )
         schema = STAGE_A_EXECUTION_REPLAY_SCHEMA_V3
     artifact = StageAExecutionReplayArtifact(
@@ -724,7 +736,7 @@ def validate_stage_a_execution_replay_sources(
     """Rebuild one replay from source bytes and require exact equality."""
 
     request = artifact.cell_identity.to_request()
-    evidence, _ = _validate_promotion_bytes(
+    evidence, event_artifact = _validate_promotion_bytes(
         request=request,
         candidate_config_digest=artifact.cell_identity.candidate_config_digest,
         event_artifact_bytes=event_artifact_bytes,
@@ -736,6 +748,7 @@ def validate_stage_a_execution_replay_sources(
         _validate_funding_bytes(
             request=request,
             funding_evidence_bytes=funding_evidence_bytes,
+            expected_symbol_count=_terminal_symbol_count(event_artifact),
         )
     elif funding_evidence_bytes is not None:
         raise ValueError("Stage A replay v2 must not bind funding evidence")

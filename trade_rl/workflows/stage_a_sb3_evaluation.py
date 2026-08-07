@@ -410,6 +410,7 @@ class StageASB3EvaluationEpisodeExecutor:
         equity: list[float] = []
         events: list[OrderEvent] = []
         funding_evidence: list[FundingBoundaryEvidence] = []
+        transition_end_indices: list[int] = []
         try:
             observation, _ = environment.reset(
                 seed=request.seed,
@@ -447,6 +448,7 @@ class StageASB3EvaluationEpisodeExecutor:
                     raise ValueError(
                         "Stage A environment advanced beyond authorized stop"
                     )
+                transition_end_indices.append(environment.current_index)
                 events.extend(_events_from_info(info))
                 funding_evidence.extend(collect_stage_a_funding_evidence(info))
                 observations.append(stage_a_observation_digest(observation))
@@ -490,6 +492,7 @@ class StageASB3EvaluationEpisodeExecutor:
                 terminal_book=environment.hybrid,
                 terminal_order_book=environment.hybrid_order_book,
                 funding_evidence=normalized_funding_evidence,
+                transition_end_indices=tuple(transition_end_indices),
             )
             return result.validate_against(
                 request,

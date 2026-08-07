@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 import gymnasium as gym
@@ -11,6 +10,7 @@ from gymnasium import spaces
 from trade_rl.rl.algorithm_configs import build_algorithm_config
 from trade_rl.rl.observations import ObservationLayout
 from trade_rl.rl.training import ResidualTrainingConfig
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 
 
 class _Probe(gym.Env[np.ndarray, np.ndarray]):
@@ -202,7 +202,7 @@ def test_rollout_budget_remains_fail_closed() -> None:
 
 
 def test_model_assembly_dependency_boundary() -> None:
-    source = Path("trade_rl/integrations/sb3_model_assembly.py").read_text(
+    source = (PYTHON_SOURCE_ROOT / "integrations/sb3_model_assembly.py").read_text(
         encoding="utf-8"
     )
     forbidden = (

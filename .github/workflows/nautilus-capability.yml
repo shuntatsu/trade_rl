@@ -8,6 +8,7 @@ on:
       - "uv.lock"
       - "trade_rl/integrations/nautilus/**"
       - "tests/integrations/test_nautilus_*.py"
+      - "tools/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
   push:
     branches: [main]
@@ -16,6 +17,7 @@ on:
       - "uv.lock"
       - "trade_rl/integrations/nautilus/**"
       - "tests/integrations/test_nautilus_*.py"
+      - "tools/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
 
 permissions:
@@ -64,3 +66,16 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
       - name: Exercise funding settlement in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_funding_settlement.py
+      - name: Record execution accounting in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
+      - name: Verify deterministic execution digest across fresh processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          first="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
+          second="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
+          third="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
+          test "$first" = "$second"
+          test "$second" = "$third"
+          test "${#first}" -eq 64
+          printf 'execution_digest=%s\n' "$first"

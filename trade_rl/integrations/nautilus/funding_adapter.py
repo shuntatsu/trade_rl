@@ -138,7 +138,9 @@ def canonicalize_funding_settlement_record(
 
     if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence <= 0:
         raise ValueError("sequence must be a positive integer")
-    if isinstance(equity_before_minor, bool) or not isinstance(equity_before_minor, int):
+    if isinstance(equity_before_minor, bool) or not isinstance(
+        equity_before_minor, int
+    ):
         raise ValueError("equity_before_minor must be an integer")
 
     price_ticks = _exact_grid_units(
@@ -174,7 +176,11 @@ def _exact_grid_units(
     value_name: str,
     increment_name: str,
 ) -> int:
-    if not isinstance(increment, Decimal) or not increment.is_finite() or increment <= 0:
+    if (
+        not isinstance(increment, Decimal)
+        or not increment.is_finite()
+        or increment <= 0
+    ):
         raise ValueError(f"{increment_name} must be a finite positive Decimal")
     if not isinstance(value, Decimal) or not value.is_finite():
         raise ValueError(f"{value_name} must be a finite Decimal")

@@ -180,13 +180,17 @@ def run_flat_long_flat_execution_probe(
 
         commission_values = tuple(
             _decimal_text(value.as_decimal())
-            for value in sorted(position.commissions(), key=lambda item: item.currency.code)
+            for value in sorted(
+                position.commissions(), key=lambda item: item.currency.code
+            )
         )
         return NautilusExecutionProbeResult(
             runtime_version=runtime.package_version or "",
             orders_closed=len(engine.cache.orders_closed(instrument_id=instrument.id)),
             positions_closed=len(closed),
-            open_positions=len(engine.cache.positions_open(instrument_id=instrument.id)),
+            open_positions=len(
+                engine.cache.positions_open(instrument_id=instrument.id)
+            ),
             avg_px_open=_float_text(position.avg_px_open),
             avg_px_close=_float_text(position.avg_px_close),
             realized_pnl=_decimal_text(realized.as_decimal()),

@@ -94,9 +94,7 @@ def test_small_change_inside_no_trade_band_does_not_emit_order() -> None:
 def test_emergency_flatten_bypasses_band_and_never_opens() -> None:
     controller = TargetExposureController(no_trade_band=0.05)
 
-    plan = controller.plan(
-        _input(target=0.52, realized=5.0, emergency_flatten=True)
-    )
+    plan = controller.plan(_input(target=0.52, realized=5.0, emergency_flatten=True))
 
     assert plan.effective_target_exposure == 0.0
     assert plan.phase is ControllerPhase.REDUCING

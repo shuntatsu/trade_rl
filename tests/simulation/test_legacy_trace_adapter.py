@@ -30,10 +30,14 @@ def _event(
             OrderStatus.FILLED if event_type == "filled" else OrderStatus.ELIGIBLE
         ),
         requested_quantity=1.0 if filled_quantity >= 0.0 else -1.0,
-        remaining_quantity=0.0 if event_type == "filled" else (1.0 if filled_quantity >= 0.0 else -1.0),
+        remaining_quantity=0.0
+        if event_type == "filled"
+        else (1.0 if filled_quantity >= 0.0 else -1.0),
         filled_quantity=filled_quantity,
         execution_price=execution_price,
-        filled_notional=0.0 if execution_price is None else abs(filled_quantity * execution_price),
+        filled_notional=0.0
+        if execution_price is None
+        else abs(filled_quantity * execution_price),
         capacity_before=10.0,
         capacity_after=9.0,
         participation_rate=0.1 if filled_quantity else 0.0,

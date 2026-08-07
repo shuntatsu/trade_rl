@@ -139,7 +139,9 @@ def _validate_bar(bar: SourceBar) -> None:
 def _assert_strict_event_order(events: list[ProjectedMarketEvent]) -> None:
     timestamps = [event.timestamp_ns for event in events]
     if any(left >= right for left, right in zip(timestamps, timestamps[1:])):
-        raise RuntimeError("projected market events must have strictly increasing timestamps")
+        raise RuntimeError(
+            "projected market events must have strictly increasing timestamps"
+        )
 
 
 __all__ = [

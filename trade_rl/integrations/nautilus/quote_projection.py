@@ -32,7 +32,9 @@ def build_quote_tick(
 
     require_nautilus_runtime()
     if event.phase not in _PRICE_PHASES or event.price is None:
-        raise ValueError("Nautilus quote projection requires a price-bearing market phase")
+        raise ValueError(
+            "Nautilus quote projection requires a price-bearing market phase"
+        )
     if (
         isinstance(half_spread_ticks, bool)
         or not isinstance(half_spread_ticks, int)

@@ -24,7 +24,9 @@ def _fill(
     )
 
 
-def _economics(*, fee_minor: int = 100, funding_minor: int = 0) -> CanonicalEconomicClosure:
+def _economics(
+    *, fee_minor: int = 100, funding_minor: int = 0
+) -> CanonicalEconomicClosure:
     return CanonicalEconomicClosure(
         fee_minor=fee_minor,
         funding_minor=funding_minor,

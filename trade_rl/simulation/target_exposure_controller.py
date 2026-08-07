@@ -89,9 +89,7 @@ class TargetExposureController:
         committed = float(state.realized_quantity) + math.fsum(
             state.working_remaining_quantities
         )
-        quantity_scale = (
-            float(state.reference_price) * float(state.contract_multiplier)
-        )
+        quantity_scale = float(state.reference_price) * float(state.contract_multiplier)
         committed_exposure = committed * quantity_scale / float(state.allocated_equity)
 
         if state.halted:
@@ -113,11 +111,7 @@ class TargetExposureController:
         ):
             effective_target = committed_exposure
 
-        desired = (
-            effective_target
-            * float(state.allocated_equity)
-            / quantity_scale
-        )
+        desired = effective_target * float(state.allocated_equity) / quantity_scale
 
         if state.working_remaining_quantities:
             if math.isclose(
@@ -219,7 +213,9 @@ class TargetExposureController:
             raise ValueError("contract_multiplier must be finite and positive")
         if not math.isfinite(state.realized_quantity):
             raise ValueError("realized_quantity must be finite")
-        if any(not math.isfinite(value) for value in state.working_remaining_quantities):
+        if any(
+            not math.isfinite(value) for value in state.working_remaining_quantities
+        ):
             raise ValueError("working_remaining_quantities must be finite")
 
 

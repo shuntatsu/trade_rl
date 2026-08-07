@@ -82,7 +82,10 @@ class CanonicalFundingLedger:
     def settle(self, value: FundingSettlementInput) -> CanonicalFundingSettlement:
         if value.boundary_ns in self._settled_boundaries:
             raise ValueError(f"funding boundary {value.boundary_ns} already settled")
-        if self._settled_boundaries and value.boundary_ns < self._settled_boundaries[-1]:
+        if (
+            self._settled_boundaries
+            and value.boundary_ns < self._settled_boundaries[-1]
+        ):
             raise ValueError("funding boundaries must be strictly increasing")
 
         notional = (

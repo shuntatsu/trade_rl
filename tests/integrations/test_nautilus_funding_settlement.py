@@ -63,7 +63,9 @@ class _FundingProbe(Strategy):
 
 
 @pytest.mark.nautilus
-def test_python_backtest_engine_1_230_does_not_dispatch_native_funding_settlement() -> None:
+def test_python_backtest_engine_1_230_does_not_dispatch_native_funding_settlement() -> (
+    None
+):
     """Lock the exact-wheel limitation that requires our canonical adapter.
 
     NautilusTrader v1.230.0 contains funding settlement in the Rust simulated

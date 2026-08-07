@@ -117,7 +117,7 @@ jobs:
           if-no-files-found: error
 
       - name: Dead-code report
-        run: uv run vulture src/trade_rl tests --min-confidence 100
+        run: uv run vulture trade_rl tests --min-confidence 100
 
       - name: Recovery and structured serving smoke
         run: >-
@@ -203,7 +203,7 @@ jobs:
         run: |
           set -euo pipefail
           commit="$(git rev-parse HEAD)"
-          source_digest="$(PYTHONPATH=src python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          source_digest="$(PYTHONPATH=. python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
           lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
           docker build \
             --build-arg TRADE_RL_GIT_COMMIT="$commit" \
@@ -219,7 +219,7 @@ jobs:
         run: |
           set -euo pipefail
           commit="$(git rev-parse HEAD)"
-          source_digest="$(PYTHONPATH=src python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          source_digest="$(PYTHONPATH=. python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
           lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
           image_id="$(docker image inspect --format '{{.Id}}' trade-rl-training:ci)"
           repo_digests="$(docker image inspect --format '{{json .RepoDigests}}' trade-rl-training:ci)"

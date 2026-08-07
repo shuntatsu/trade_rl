@@ -37,9 +37,7 @@ def _common_contract(
 ) -> None:
     assert config.action.mode.value == "target_weight"
     assert config.action.target_weight_count == 1
-    assert config.action.names_for_symbols(("BTCUSDT",)) == (
-        "target_weight:BTCUSDT",
-    )
+    assert config.action.names_for_symbols(("BTCUSDT",)) == ("target_weight:BTCUSDT",)
     assert config.action.alpha_enabled is False
     assert config.action.risk_tilt_enabled is False
     assert config.reward.is_pure_net_log_growth() is True

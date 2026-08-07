@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75.0"]
+requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,8 @@ name = "trade-rl"
 dynamic = ["version"]
 description = "Baseline-anchored residual reinforcement learning for portfolio research"
 readme = "README.md"
+license = "LGPL-3.0-or-later"
+license-files = ["LICENSE", "LICENSES/*", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=1.26.0,<2.0.0",

@@ -10,14 +10,14 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_repository_uses_flat_responsibility_roots() -> None:
     required = (
         ROOT / "frontend",
-        ROOT / "src" / "trade_rl",
+        ROOT / "trade_rl",
         ROOT / "scripts",
         ROOT / "tests",
         ROOT / "docs",
         ROOT / "examples",
     )
     forbidden = (
-        ROOT / "trade_rl",
+        ROOT / "src",
         ROOT / "studio",
         ROOT / "apps",
         ROOT / "tools",

@@ -51,6 +51,10 @@ def project_historical_source_bar(
     timestamps_ns = market.timestamps.astype("datetime64[ns]").astype(np.int64)
     cadence_ns = int(timestamps_ns[1] - timestamps_ns[0])
     close_ns = int(timestamps_ns[processing_index])
+    mark_price = market.mark_price
+    index_price = market.index_price
+    if mark_price is None or index_price is None:
+        raise ValueError("validated market datasets require mark and index prices")
 
     return HistoricalSourceBar(
         open_ns=close_ns - cadence_ns,
@@ -59,6 +63,6 @@ def project_historical_source_bar(
         high_price=float(market.high[processing_index, 0]),
         low_price=float(market.low[processing_index, 0]),
         close_price=float(market.close[processing_index, 0]),
-        mark_price=float(market.mark_price[processing_index, 0]),
-        index_price=float(market.index_price[processing_index, 0]),
+        mark_price=float(mark_price[processing_index, 0]),
+        index_price=float(index_price[processing_index, 0]),
     )

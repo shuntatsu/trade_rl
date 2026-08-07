@@ -4,7 +4,6 @@ import json
 import tomllib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SPDX_ID = "LGPL-3.0-or-later"
 

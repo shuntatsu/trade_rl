@@ -63,7 +63,16 @@ class _FundingProbe(Strategy):
 
 
 @pytest.mark.nautilus
-def test_positive_funding_debits_long_without_changing_quantity() -> None:
+def test_python_backtest_engine_1_230_does_not_dispatch_native_funding_settlement() -> None:
+    """Lock the exact-wheel limitation that requires our canonical adapter.
+
+    NautilusTrader v1.230.0 contains funding settlement in the Rust simulated
+    exchange, but the Python low-level BacktestEngine data loop used here does not
+    dispatch FundingRateUpdate/MarkPriceUpdate to that exchange. A future Nautilus
+    upgrade that closes this gap should make this test fail and trigger a deliberate
+    migration back to native settlement.
+    """
+
     engine = BacktestEngine()
     try:
         engine.add_venue(
@@ -102,8 +111,6 @@ def test_positive_funding_debits_long_without_changing_quantity() -> None:
             displayed_size=10.0,
         )
 
-        # BacktestEngine.add_data is homogeneous by batch. Register each data type
-        # separately so the engine can merge them by ts_event across sources.
         engine.add_data([open_quote, close_quote], sort=True)
         engine.add_data([funding], sort=True)
         engine.add_data([mark], sort=True)
@@ -117,10 +124,6 @@ def test_positive_funding_debits_long_without_changing_quantity() -> None:
             for adjustment in closed[0].adjustments
             if str(adjustment.adjustment_type).endswith("FUNDING")
         ]
-        assert len(funding_adjustments) == 1
-        adjustment = funding_adjustments[0]
-        assert adjustment.quantity_change is None
-        assert adjustment.pnl_change is not None
-        assert adjustment.pnl_change.as_decimal() < 0
+        assert funding_adjustments == []
     finally:
         engine.dispose()

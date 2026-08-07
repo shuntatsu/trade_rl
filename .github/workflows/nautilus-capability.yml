@@ -75,7 +75,17 @@ jobs:
       - name: Record execution accounting in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
       - name: Compare legacy and Nautilus conformance in isolated process
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_dual_shadow.py
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q -m nautilus tests/integrations/test_nautilus_dual_shadow.py 2>&1 | tee nautilus-dual-shadow.log
+      - name: Upload dual-shadow diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nautilus-dual-shadow-diagnostics
+          path: nautilus-dual-shadow.log
+          if-no-files-found: error
       - name: Verify deterministic execution digest across fresh processes
         shell: bash
         run: |

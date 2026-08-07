@@ -171,11 +171,13 @@ def test_three_symbol_checkpoint_is_incompatible_with_one_symbol_policy() -> Non
         _assembly(("BTCUSDT", "ETHUSDT", "BNBUSDT")),
     )
 
-    assert one_symbol_identity["sequence_architecture_digest"] != (
-        three_symbol_identity["sequence_architecture_digest"]
+    assert (
+        one_symbol_identity["sequence_architecture_digest"]
+        != (three_symbol_identity["sequence_architecture_digest"])
     )
-    assert one_symbol_identity["asset_binding_digest"] != (
-        three_symbol_identity["asset_binding_digest"]
+    assert (
+        one_symbol_identity["asset_binding_digest"]
+        != (three_symbol_identity["asset_binding_digest"])
     )
     with pytest.raises(ValueError, match="architecture compatibility"):
         validate_sb3_policy_architecture_compatibility(

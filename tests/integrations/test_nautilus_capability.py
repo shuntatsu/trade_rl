@@ -7,6 +7,7 @@ pytest.importorskip("nautilus_trader")
 from trade_rl.integrations.nautilus.capability import run_nautilus_capability_probe
 
 
+@pytest.mark.nautilus
 def test_exact_nautilus_wheel_supports_required_backtest_primitives() -> None:
     report = run_nautilus_capability_probe()
 

@@ -49,5 +49,5 @@ jobs:
           print(f"python={platform.python_version()}")
           print(f"platform={sys.platform}-{platform.machine().lower()}")
           PY
-      - name: Exercise required BacktestEngine primitives
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_capability.py
+      - name: Exercise Nautilus integration contract
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_*.py

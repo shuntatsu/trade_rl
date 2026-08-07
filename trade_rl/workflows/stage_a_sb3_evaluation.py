@@ -17,12 +17,17 @@ from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageAZeroShotEvaluationPlan,
 )
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
 from trade_rl.simulation.orders import OrderBookState, OrderEvent
 from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
     StageAEvaluationDatasetManifest,
 )
 from trade_rl.workflows.stage_a_execution_producer import (
     StageAEvaluationEpisodeResult,
+)
+from trade_rl.workflows.stage_a_funding_evidence import (
+    collect_stage_a_funding_evidence,
+    validate_stage_a_funding_evidence,
 )
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
@@ -404,6 +409,7 @@ class StageASB3EvaluationEpisodeExecutor:
         observations: list[str] = []
         equity: list[float] = []
         events: list[OrderEvent] = []
+        funding_evidence: list[FundingBoundaryEvidence] = []
         try:
             observation, _ = environment.reset(
                 seed=request.seed,
@@ -442,6 +448,7 @@ class StageASB3EvaluationEpisodeExecutor:
                         "Stage A environment advanced beyond authorized stop"
                     )
                 events.extend(_events_from_info(info))
+                funding_evidence.extend(collect_stage_a_funding_evidence(info))
                 observations.append(stage_a_observation_digest(observation))
                 equity.append(
                     _finite_positive_equity(
@@ -467,6 +474,11 @@ class StageASB3EvaluationEpisodeExecutor:
                 request=request,
                 dataset=dataset,
             )
+            normalized_funding_evidence = validate_stage_a_funding_evidence(
+                tuple(funding_evidence),
+                request=request,
+                dataset=dataset,
+            )
             result = StageAEvaluationEpisodeResult(
                 request_digest=request.digest,
                 policy_source_digest=policy_source_digest,
@@ -477,6 +489,7 @@ class StageASB3EvaluationEpisodeExecutor:
                 order_events=normalized_events,
                 terminal_book=environment.hybrid,
                 terminal_order_book=environment.hybrid_order_book,
+                funding_evidence=normalized_funding_evidence,
             )
             return result.validate_against(
                 request,

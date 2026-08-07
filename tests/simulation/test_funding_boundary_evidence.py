@@ -31,8 +31,7 @@ def _dataset(*, second_boundary: bool = False) -> MarketDataset:
     return MarketDataset(
         dataset_id="e" * 64,
         symbols=("BTCUSDT",),
-        timestamps=np.datetime64("2026-01-01", "ns")
-        + np.arange(n_bars) * _HOUR,
+        timestamps=np.datetime64("2026-01-01", "ns") + np.arange(n_bars) * _HOUR,
         features=np.zeros((n_bars, 1, 1), dtype=np.float32),
         global_features=np.zeros((n_bars, 1), dtype=np.float32),
         open=open_price,

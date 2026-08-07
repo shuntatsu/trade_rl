@@ -10,6 +10,7 @@ import numpy as np
 
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.bar_path import BarPath
+from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.orders import (
     OrderBookState,
@@ -38,6 +39,7 @@ class StatefulExecutionRuntime:
     order_book: OrderBookState
     events: list[OrderEvent]
     capacities: list[SymbolCapacityEvidence]
+    funding_evidence: list[FundingBoundaryEvidence]
     starting_value: float
     starting_rebalance_events: int
     requested_notional: float
@@ -73,6 +75,7 @@ class StatefulExecutionRuntime:
             order_book=order_book,
             events=[],
             capacities=[],
+            funding_evidence=[],
             starting_value=0.0,
             starting_rebalance_events=result_book.rebalance_events,
             requested_notional=0.0,
@@ -124,6 +127,50 @@ class StatefulExecutionRuntime:
             )
             self.requested_notional += order_notional
             self.requested_by_symbol[symbol] += order_notional
+
+    def record_funding_boundary(
+        self,
+        *,
+        processing_index: int,
+        funding_amount: float,
+    ) -> None:
+        dataset = self.executor.dataset
+        funding_due_array = np.asarray(
+            dataset.resolved_array("funding_due")[processing_index],
+            dtype=np.bool_,
+        )
+        if not np.any(funding_due_array):
+            return
+
+        mark_prices = np.asarray(
+            dataset.resolved_array("mark_price")[processing_index],
+            dtype=np.float64,
+        )
+        contract_multipliers = np.asarray(
+            dataset.resolved_array("contract_multipliers"),
+            dtype=np.float64,
+        )
+        funding_rates = np.asarray(
+            dataset.funding_rate[processing_index],
+            dtype=np.float64,
+        )
+        equity_after_funding = float(self.book.portfolio_value)
+        self.funding_evidence.append(
+            FundingBoundaryEvidence(
+                processing_index=processing_index,
+                timestamp_ns=_timestamp_ns(self.executor, processing_index),
+                funding_due=tuple(bool(value) for value in funding_due_array),
+                signed_quantities=tuple(float(value) for value in self.book.quantities),
+                mark_prices=tuple(float(value) for value in mark_prices),
+                contract_multipliers=tuple(
+                    float(value) for value in contract_multipliers
+                ),
+                funding_rates=tuple(float(value) for value in funding_rates),
+                funding_amount=float(funding_amount),
+                equity_before_funding=equity_after_funding - float(funding_amount),
+                equity_after_funding=equity_after_funding,
+            )
+        )
 
     def append_event(
         self,
@@ -235,6 +282,7 @@ class StatefulExecutionRuntime:
             "bars_advanced": bars,
             "order_events": tuple(self.events),
             "capacity_evidence": tuple(self.capacities),
+            "funding_evidence": tuple(self.funding_evidence),
             "interval_cost": self.total_cost,
             "interval_funding": self.total_funding,
             "interval_borrow_cost": self.total_borrow,

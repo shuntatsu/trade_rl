@@ -22,4 +22,11 @@ def test_execution_probe_closes_position_and_records_accounting() -> None:
     assert result.realized_pnl
     assert result.commissions
     assert result.final_balance
+    assert [fill.price_ticks for fill in result.fills] == [1001, 1049]
+    assert [fill.quantity_lots for fill in result.fills] == [1000, -1000]
+    assert [fill.position_lots for fill in result.fills] == [1000, 0]
+    assert result.economics.fee_minor > 0
+    assert result.economics.funding_minor == 0
+    assert result.economics.terminal_position_lots == 0
+    assert result.economics.terminal_open_orders == 0
     assert len(result.digest()) == 64

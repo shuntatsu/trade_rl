@@ -102,7 +102,11 @@ def test_positive_funding_debits_long_without_changing_quantity() -> None:
             displayed_size=10.0,
         )
 
-        engine.add_data([open_quote, funding, mark, close_quote], sort=True)
+        # BacktestEngine.add_data is homogeneous by batch. Register each data type
+        # separately so the engine can merge them by ts_event across sources.
+        engine.add_data([open_quote, close_quote], sort=True)
+        engine.add_data([funding], sort=True)
+        engine.add_data([mark], sort=True)
         engine.add_strategy(_FundingProbe(instrument.id))
         engine.run()
 

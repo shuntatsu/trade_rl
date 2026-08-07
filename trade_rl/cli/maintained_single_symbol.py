@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from trade_rl.data.market import MarketDataset
+    from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
+    from trade_rl.workflows.training_run import TrainingRunConfig
 
 _MAINTAINED_SYMBOLS = ("BTCUSDT",)
 
@@ -24,13 +26,29 @@ def _argument_value(arguments: Sequence[str], name: str) -> str | None:
     return None
 
 
+def _load_dataset(path: Path) -> MarketDataset:
+    from trade_rl.data import load_market_dataset_artifact
+
+    return load_market_dataset_artifact(path)
+
+
+def _load_training_config(path: Path) -> TrainingRunConfig:
+    from trade_rl.workflows.training_run import TrainingRunConfig
+
+    return TrainingRunConfig.from_json(path)
+
+
+def _load_walk_forward_config(path: Path, *, n_bars: int) -> MarketWalkForwardConfig:
+    from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
+
+    return MarketWalkForwardConfig.from_json(path, n_bars=n_bars)
+
+
 def _require_dataset(arguments: Sequence[str]) -> MarketDataset | None:
     raw = _argument_value(arguments, "--dataset")
     if raw is None:
         return None
-    from trade_rl.data import load_market_dataset_artifact
-
-    dataset = load_market_dataset_artifact(Path(raw))
+    dataset = _load_dataset(Path(raw))
     if dataset.symbols != _MAINTAINED_SYMBOLS:
         raise ValueError(
             "maintained training requires exactly BTCUSDT as the single symbol"
@@ -42,9 +60,7 @@ def _require_training_config(arguments: Sequence[str]) -> None:
     raw = _argument_value(arguments, "--config")
     if raw is None:
         return
-    from trade_rl.workflows.training_run import TrainingRunConfig
-
-    config = TrainingRunConfig.from_json(Path(raw))
+    config = _load_training_config(Path(raw))
     if (
         config.action.mode.value != "target_weight"
         or config.action.target_weight_count != 1
@@ -60,9 +76,7 @@ def _require_walk_forward_config(arguments: Sequence[str], *, n_bars: int) -> No
     raw = _argument_value(arguments, "--config")
     if raw is None:
         return
-    from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
-
-    config = MarketWalkForwardConfig.from_json(Path(raw), n_bars=n_bars)
+    config = _load_walk_forward_config(Path(raw), n_bars=n_bars)
     if not config.candidates:
         raise ValueError("maintained walk-forward requires at least one candidate")
     for candidate in config.candidates:

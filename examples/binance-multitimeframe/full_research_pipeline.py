@@ -8,14 +8,34 @@ does not expose triplet-selection APIs.
 
 from __future__ import annotations
 
-import importlib
+import importlib.util
+import sys
 from pathlib import Path
+from types import ModuleType
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.observations import ObservationBuilder
 from trade_rl.rl.sequence_observations import SequenceObservationBuilder
 
-_legacy = importlib.import_module("full_research_pipeline_legacy")
+_RUNTIME_MODULE_NAME = "_trade_rl_single_symbol_full_research_pipeline_runtime"
+
+
+def _load_legacy_runtime() -> ModuleType:
+    path = Path(__file__).with_name("full_research_pipeline_legacy.py")
+    spec = importlib.util.spec_from_file_location(_RUNTIME_MODULE_NAME, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("single-symbol pipeline legacy runtime could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[_RUNTIME_MODULE_NAME] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(_RUNTIME_MODULE_NAME, None)
+        raise
+    return module
+
+
+_legacy = _load_legacy_runtime()
 
 _SYMBOLS = ("BTCUSDT",)
 _NATIVE_TIMEFRAMES = ("15m", "1h", "4h", "1d")
@@ -26,9 +46,8 @@ _EXPECTED_15M_BARS = _legacy._EXPECTED_15M_BARS
 _TRAIN_RUN_COMMAND = _legacy._TRAIN_RUN_COMMAND
 _WALK_FORWARD_RUN_COMMAND = _legacy._WALK_FORWARD_RUN_COMMAND
 
-# The legacy implementation resolves these globals at call time. Bind them to
-# the maintained one-instrument contract before reusing its stable IO, evidence,
-# metadata and research-gate helpers.
+# Only the private runtime copy is rebound. Importing the historical module by
+# its public name continues to expose the original three-symbol state.
 _legacy._SYMBOLS = _SYMBOLS
 _legacy._SLOT_SYMBOLS = _SYMBOLS
 _legacy._SYMBOL_POOL = _SYMBOLS

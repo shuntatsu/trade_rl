@@ -52,10 +52,11 @@ def build_mark_price_update(event: ProjectedMarketEvent, *, instrument: Any) -> 
     _validate_price_phase(event, expected=MarketPhase.MARK)
     require_nautilus_runtime()
     from nautilus_trader.model.data import MarkPriceUpdate
+    from nautilus_trader.model.objects import Price
 
     return MarkPriceUpdate(
         instrument_id=instrument.id,
-        value=instrument.make_price(event.price),
+        value=Price.from_str(_price_text(event.price)),
         ts_event=event.timestamp_ns,
         ts_init=event.timestamp_ns,
     )
@@ -67,10 +68,11 @@ def build_index_price_update(event: ProjectedMarketEvent, *, instrument: Any) ->
     _validate_price_phase(event, expected=MarketPhase.INDEX)
     require_nautilus_runtime()
     from nautilus_trader.model.data import IndexPriceUpdate
+    from nautilus_trader.model.objects import Price
 
     return IndexPriceUpdate(
         instrument_id=instrument.id,
-        value=instrument.make_price(event.price),
+        value=Price.from_str(_price_text(event.price)),
         ts_event=event.timestamp_ns,
         ts_init=event.timestamp_ns,
     )
@@ -90,6 +92,12 @@ def build_funding_rate_update(point: FundingPoint, *, instrument: Any) -> Any:
         interval=point.interval_minutes,
         next_funding_ns=point.next_funding_ns,
     )
+
+
+def _price_text(value: float | None) -> str:
+    if value is None:
+        raise ValueError("price is required")
+    return format(value, ".16g")
 
 
 def _validate_price_phase(

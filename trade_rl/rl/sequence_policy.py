@@ -316,13 +316,17 @@ class MultiTimeframeAssetEncoder(nn.Module):
             dropout=architecture.dropout,
             gate_bias=architecture.timeframe_gate_bias,
         )
-        self.cross_asset = GatedTransformerStack(
-            d_model=architecture.d_model,
-            heads=architecture.asset_attention_heads,
-            layers=architecture.asset_attention_layers,
-            ffn_multiplier=architecture.asset_ffn_multiplier,
-            dropout=architecture.dropout,
-            gate_bias=architecture.asset_gate_bias,
+        self.cross_asset: GatedTransformerStack | None = (
+            None
+            if architecture.n_symbols == 1
+            else GatedTransformerStack(
+                d_model=architecture.d_model,
+                heads=architecture.asset_attention_heads,
+                layers=architecture.asset_attention_layers,
+                ffn_multiplier=architecture.asset_ffn_multiplier,
+                dropout=architecture.dropout,
+                gate_bias=architecture.asset_gate_bias,
+            )
         )
 
     def forward(
@@ -407,6 +411,8 @@ class MultiTimeframeAssetEncoder(nn.Module):
         if self.architecture.n_symbols == 1:
             contextual = fused * safe_mask.unsqueeze(-1).to(dtype=fused.dtype)
         else:
+            if self.cross_asset is None:
+                raise RuntimeError("multi-symbol architecture lacks cross-asset fusion")
             contextual = self.cross_asset(fused, valid=safe_mask)
         contextual = torch.where(
             active_mask.unsqueeze(-1), contextual, torch.zeros_like(contextual)

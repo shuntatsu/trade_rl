@@ -49,5 +49,15 @@ jobs:
           print(f"python={platform.python_version()}")
           print(f"platform={sys.platform}-{platform.machine().lower()}")
           PY
-      - name: Exercise Nautilus integration contract
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_*.py
+      - name: Exercise import-safe Nautilus adapters
+        run: |
+          uv run pytest -q -m nautilus \
+            tests/integrations/test_nautilus_instrument.py \
+            tests/integrations/test_nautilus_quote_projection.py \
+            tests/integrations/test_nautilus_order_adapter.py
+      - name: Probe BacktestEngine in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_capability.py
+      - name: Replay projected quotes in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_quote_replay.py
+      - name: Exercise order lifecycle in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_order_lifecycle.py

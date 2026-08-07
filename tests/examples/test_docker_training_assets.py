@@ -4,7 +4,9 @@ import os
 import subprocess
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
+
+ROOT = REPOSITORY_ROOT
 
 
 def test_training_compose_requests_gpu_and_uses_named_runtime_plus_read_only_evidence() -> (
@@ -134,7 +136,7 @@ def test_training_dockerfile_keeps_heavy_dependencies_out_of_late_layers() -> No
     dependency_sync = runtime.index(
         "uv sync --frozen --extra train-sb3 --extra postgres --no-dev --no-install-project"
     )
-    source_copy = runtime.index("COPY --chown=trainer:trainer trade_rl ./trade_rl")
+    source_copy = runtime.index("COPY --chown=trainer:trainer src ./src")
     project_sync = runtime.index(
         "uv sync --frozen --extra train-sb3 --extra postgres --no-dev", source_copy
     )
@@ -156,7 +158,7 @@ def test_training_image_build_checks_non_root_runtime_contract() -> None:
     runtime_contract = dockerfile.index('test "$(id -u)" -ne 0', user)
 
     assert "test -w /workspace/var" in dockerfile[runtime_contract:]
-    assert "test -r /workspace/trade_rl/__init__.py" in dockerfile[runtime_contract:]
+    assert "test -r /workspace/src/trade_rl/__init__.py" in dockerfile[runtime_contract:]
     assert "test -r /workspace/examples" in dockerfile[runtime_contract:]
     assert "cat /provenance.valid" in dockerfile[runtime_contract:]
 
@@ -242,11 +244,11 @@ def test_gpu_nightly_contract_measures_vram_throughput_and_resume() -> None:
     reusable = (
         ROOT / ".github" / "workflows" / "reusable-gpu-training-verification.yml"
     ).read_text(encoding="utf-8")
-    facade = (ROOT / "trade_rl" / "operations" / "gpu_training_smoke.py").read_text(
+    facade = (PYTHON_SOURCE_ROOT / "operations" / "gpu_training_smoke.py").read_text(
         encoding="utf-8"
     )
     implementation = (
-        ROOT / "trade_rl" / "operations" / "_gpu_training_smoke_impl.py"
+        PYTHON_SOURCE_ROOT / "operations" / "_gpu_training_smoke_impl.py"
     ).read_text(encoding="utf-8")
 
     assert "workflow_dispatch:" in caller

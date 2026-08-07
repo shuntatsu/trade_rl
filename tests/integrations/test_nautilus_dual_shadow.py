@@ -27,6 +27,14 @@ def test_flat_long_flat_conformance_fixture_has_exact_dual_shadow_parity() -> No
         candidate_economics=candidate.economics,
     )
 
-    assert report.fill_parity is True, report.mismatches
-    assert report.economic_parity is True, report.mismatches
+    assert report.fill_parity is True, (
+        report.mismatches,
+        legacy.fills,
+        candidate.fills,
+    )
+    assert report.economic_parity is True, (
+        report.mismatches,
+        legacy.economics,
+        candidate.economics,
+    )
     assert report.exact_parity is True, report.mismatches

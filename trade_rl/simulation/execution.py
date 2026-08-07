@@ -69,7 +69,7 @@ class ExecutionRuleStress:
         return {
             "adverse_tick_rounding": self.adverse_tick_rounding,
             "lot_size_factor": self.lot_size_factor,
-            "minimum_notional_ratio": self.minimum_notional_factor,
+            "minimum_notional_factor": self.minimum_notional_factor,
             "name": self.name,
             "schema_version": "execution_rule_stress_v1",
             "tick_size_factor": self.tick_size_factor,

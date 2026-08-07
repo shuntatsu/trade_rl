@@ -16,6 +16,11 @@ from trade_rl.integrations.nautilus.instrument import (
 )
 from trade_rl.integrations.nautilus.quote_projection import build_quote_tick
 from trade_rl.integrations.nautilus.runtime_identity import require_nautilus_runtime
+from trade_rl.integrations.nautilus.trace_adapter import canonicalize_nautilus_fill_events
+from trade_rl.simulation.execution_canonicalization import (
+    CanonicalEconomicClosure,
+    CanonicalFillSignature,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +36,8 @@ class NautilusExecutionProbeResult:
     realized_pnl: str
     commissions: tuple[str, ...]
     final_balance: str
+    fills: tuple[CanonicalFillSignature, ...]
+    economics: CanonicalEconomicClosure
 
     def digest(self) -> str:
         payload = json.dumps(
@@ -64,6 +71,7 @@ def run_flat_long_flat_execution_probe() -> NautilusExecutionProbeResult:
             super().__init__()
             self.instrument_id = instrument_id
             self.quote_count = 0
+            self.filled_events: list[object] = []
 
         def on_start(self) -> None:
             self.subscribe_quote_ticks(self.instrument_id)
@@ -92,6 +100,9 @@ def run_flat_long_flat_execution_probe() -> NautilusExecutionProbeResult:
                     )
                 )
 
+        def on_order_filled(self, event: object) -> None:
+            self.filled_events.append(event)
+
     engine = BacktestEngine()
     try:
         engine.add_venue(
@@ -117,7 +128,8 @@ def run_flat_long_flat_execution_probe() -> NautilusExecutionProbeResult:
             for event in events
         ]
         engine.add_data(quotes, sort=True)
-        engine.add_strategy(ProbeStrategy(instrument.id))
+        strategy = ProbeStrategy(instrument.id)
+        engine.add_strategy(strategy)
         engine.run()
 
         closed = engine.cache.positions_closed(instrument_id=instrument.id)
@@ -134,6 +146,29 @@ def run_flat_long_flat_execution_probe() -> NautilusExecutionProbeResult:
         if realized is None:
             raise RuntimeError("expected realized PnL on closed position")
 
+        canonical = canonicalize_nautilus_fill_events(
+            strategy.filled_events,
+            price_tick=instrument.price_increment.as_decimal(),
+            lot_size=instrument.size_increment.as_decimal(),
+            currency_precision=USDT.precision,
+        )
+        scale = Decimal(10) ** USDT.precision
+        realized_minor = _minor_units(realized.as_decimal(), scale=scale, name="realized_pnl")
+        final_balance_minor = _minor_units(
+            balance.as_decimal(),
+            scale=scale,
+            name="final_balance",
+        )
+        open_orders = engine.cache.orders_open(instrument_id=instrument.id)
+        economics = CanonicalEconomicClosure(
+            fee_minor=canonical.fee_minor,
+            funding_minor=0,
+            realized_pnl_minor=realized_minor,
+            final_equity_minor=final_balance_minor,
+            terminal_position_lots=0,
+            terminal_open_orders=len(open_orders),
+        )
+
         commission_values = tuple(
             _decimal_text(value.as_decimal())
             for value in sorted(position.commissions(), key=lambda item: item.currency.code)
@@ -148,9 +183,19 @@ def run_flat_long_flat_execution_probe() -> NautilusExecutionProbeResult:
             realized_pnl=_decimal_text(realized.as_decimal()),
             commissions=commission_values,
             final_balance=_decimal_text(balance.as_decimal()),
+            fills=canonical.fills,
+            economics=economics,
         )
     finally:
         engine.dispose()
+
+
+def _minor_units(value: Decimal, *, scale: Decimal, name: str) -> int:
+    scaled = value * scale
+    integral = scaled.to_integral_value()
+    if scaled != integral:
+        raise RuntimeError(f"{name} is not aligned to settlement minor unit")
+    return int(integral)
 
 
 def _decimal_text(value: Decimal) -> str:

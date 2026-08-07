@@ -32,9 +32,12 @@ def test_flat_long_flat_conformance_fixture_has_exact_dual_shadow_parity() -> No
         legacy.fills,
         candidate.fills,
     )
-    assert report.economic_parity is True, (
-        report.mismatches,
-        legacy.economics,
-        candidate.economics,
+    economics = (
+        f"fee={legacy.economics.fee_minor}/{candidate.economics.fee_minor} "
+        f"pnl={legacy.economics.realized_pnl_minor}/"
+        f"{candidate.economics.realized_pnl_minor} "
+        f"equity={legacy.economics.final_equity_minor}/"
+        f"{candidate.economics.final_equity_minor}"
     )
+    assert report.economic_parity is True, economics
     assert report.exact_parity is True, report.mismatches

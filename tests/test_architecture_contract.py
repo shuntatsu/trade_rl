@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import tomllib
-from pathlib import Path
 
-ROOT = Path(__file__).parents[1]
-PYTHON_ROOT = ROOT / "src" / "trade_rl"
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
+
+ROOT = REPOSITORY_ROOT
+PYTHON_ROOT = PYTHON_SOURCE_ROOT
 
 
 def test_legacy_execution_trees_are_absent() -> None:
@@ -23,8 +24,7 @@ def test_only_trade_rl_is_packaged() -> None:
 
 def test_source_contains_maintained_direct_target_mode_without_legacy_env() -> None:
     source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted(PYTHON_ROOT.rglob("*.py"))
+        path.read_text(encoding="utf-8") for path in sorted(PYTHON_ROOT.rglob("*.py"))
     )
     actions = (PYTHON_ROOT / "rl" / "actions.py").read_text(encoding="utf-8")
     assert 'TARGET_WEIGHT = "target_weight"' in actions

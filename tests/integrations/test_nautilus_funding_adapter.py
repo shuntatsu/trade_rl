@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 
+import trade_rl.integrations.nautilus.funding_adapter as funding_adapter
 from trade_rl.integrations.nautilus.funding_adapter import (
     CanonicalFundingLedger,
     FundingSettlementInput,
@@ -105,4 +106,57 @@ def test_invalid_precision_or_nonfinite_inputs_fail_closed() -> None:
             contract_multiplier=Decimal("1"),
             funding_rate=Decimal("0.0001"),
             boundary_ns=120,
+        )
+
+
+def test_funding_settlement_becomes_canonical_equity_trace_record() -> None:
+    ledger = CanonicalFundingLedger()
+    settlement = ledger.settle(_settlement())
+
+    record = funding_adapter.canonicalize_funding_settlement_record(
+        settlement,
+        sequence=3,
+        price_tick=Decimal("0.01"),
+        lot_size=Decimal("0.001"),
+        equity_before_minor=10_000_000_000,
+    )
+
+    assert record.sequence == 3
+    assert record.event_type == "funding"
+    assert record.timestamp_ns == 120
+    assert record.price_ticks == 10_200
+    assert record.quantity_lots == 0
+    assert record.fee_minor == 0
+    assert record.funding_minor == -1_020_000
+    assert record.position_lots == 1_000
+    assert record.equity_minor == 9_998_980_000
+    assert record.terminal_reason is None
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"sequence": 0}, "sequence"),
+        ({"price_tick": Decimal("0.03")}, "price"),
+        ({"lot_size": Decimal("0.003")}, "quantity"),
+        ({"equity_before_minor": 1.5}, "equity_before_minor"),
+    ],
+)
+def test_funding_trace_record_rejects_invalid_canonical_identity(
+    kwargs: dict[str, object], message: str
+) -> None:
+    ledger = CanonicalFundingLedger()
+    settlement = ledger.settle(_settlement())
+    arguments: dict[str, object] = {
+        "sequence": 1,
+        "price_tick": Decimal("0.01"),
+        "lot_size": Decimal("0.001"),
+        "equity_before_minor": 10_000_000_000,
+    }
+    arguments.update(kwargs)
+
+    with pytest.raises(ValueError, match=message):
+        funding_adapter.canonicalize_funding_settlement_record(
+            settlement,
+            **arguments,
         )

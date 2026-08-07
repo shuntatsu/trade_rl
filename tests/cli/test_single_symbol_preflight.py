@@ -25,7 +25,7 @@ def test_top_level_cli_rejects_non_btc_dataset_before_dispatch(
 ) -> None:
     monkeypatch.setattr(
         preflight,
-        "load_market_dataset_artifact",
+        "_load_dataset",
         lambda path: SimpleNamespace(symbols=("ETHUSDT",), n_bars=100),
     )
     output = io.StringIO()
@@ -61,13 +61,13 @@ def test_top_level_cli_dispatches_valid_btc_training(
 ) -> None:
     monkeypatch.setattr(
         preflight,
-        "load_market_dataset_artifact",
+        "_load_dataset",
         lambda path: SimpleNamespace(symbols=("BTCUSDT",), n_bars=100),
     )
     monkeypatch.setattr(
         preflight,
-        "TrainingRunConfig",
-        SimpleNamespace(from_json=lambda path: SimpleNamespace(action=_action())),
+        "_load_training_config",
+        lambda path: SimpleNamespace(action=_action()),
     )
     import trade_rl.cli.extended as extended
 
@@ -114,13 +114,13 @@ def test_training_preflight_rejects_three_action_config(
 ) -> None:
     monkeypatch.setattr(
         preflight,
-        "load_market_dataset_artifact",
+        "_load_dataset",
         lambda path: SimpleNamespace(symbols=("BTCUSDT",), n_bars=100),
     )
     monkeypatch.setattr(
         preflight,
-        "TrainingRunConfig",
-        SimpleNamespace(from_json=lambda path: SimpleNamespace(action=_action(count=3))),
+        "_load_training_config",
+        lambda path: SimpleNamespace(action=_action(count=3)),
     )
 
     with pytest.raises(ValueError, match="one BTCUSDT target-weight action"):
@@ -141,7 +141,7 @@ def test_walk_forward_preflight_checks_every_candidate(
 ) -> None:
     monkeypatch.setattr(
         preflight,
-        "load_market_dataset_artifact",
+        "_load_dataset",
         lambda path: SimpleNamespace(symbols=("BTCUSDT",), n_bars=100),
     )
     candidates = (
@@ -150,10 +150,8 @@ def test_walk_forward_preflight_checks_every_candidate(
     )
     monkeypatch.setattr(
         preflight,
-        "MarketWalkForwardConfig",
-        SimpleNamespace(
-            from_json=lambda path, n_bars: SimpleNamespace(candidates=candidates)
-        ),
+        "_load_walk_forward_config",
+        lambda path, *, n_bars: SimpleNamespace(candidates=candidates),
     )
 
     with pytest.raises(ValueError, match="one BTCUSDT target-weight action"):

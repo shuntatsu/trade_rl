@@ -111,7 +111,10 @@ def _materialize_candidate_run_files(
             if not isinstance(run_file, str) or not run_file:
                 raise ValueError("walk-forward candidate run_file must be a path")
             resolved = (template_path.parent / run_file).resolve()
-            if resolved.parent != template_path.parent.resolve() or not resolved.is_file():
+            if (
+                resolved.parent != template_path.parent.resolve()
+                or not resolved.is_file()
+            ):
                 raise ValueError("walk-forward candidate run_file is not maintained")
             run = _legacy._load_json(resolved)
             candidate.pop("run_file", None)

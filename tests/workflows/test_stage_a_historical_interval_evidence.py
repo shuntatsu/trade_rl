@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from tests.workflows.test_stage_a_execution_replay import _digest, _request
-from trade_rl.workflows import stage_a_execution_replay
 from trade_rl.workflows.stage_a_execution_replay import (
     STAGE_A_EXECUTION_REPLAY_SCHEMA_V4,
     StageAExecutionCellIdentity,
     StageAExecutionReplayArtifact,
+)
+from trade_rl.workflows.stage_a_historical_interval_evidence import (
+    build_stage_a_historical_interval_evidence,
 )
 
 
@@ -38,17 +40,11 @@ def _two_transition_replay() -> StageAExecutionReplayArtifact:
 
 
 def test_historical_intervals_bind_step_end_indices_to_equity_curve() -> None:
-    builder = getattr(
-        stage_a_execution_replay,
-        "build_stage_a_historical_interval_evidence",
-        None,
-    )
-    assert callable(builder), "historical interval evidence builder must exist"
     replay = _two_transition_replay()
     start = replay.cell_identity.evaluation_range.start
     stop = replay.cell_identity.evaluation_range.stop
 
-    intervals = builder(replay)
+    intervals = build_stage_a_historical_interval_evidence(replay)
 
     assert [
         (

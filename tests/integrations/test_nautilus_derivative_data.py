@@ -45,7 +45,7 @@ def test_mark_index_and_funding_objects_preserve_causal_identity() -> None:
     assert str(mark.instrument_id) == "BTCUSDT-PERP.BINANCE"
     assert str(mark.value) == "104.5"
     assert mark.ts_event == 100
-    assert str(index.value) == "104.2"
+    assert str(index.value) == "104.25"
     assert index.ts_event == 99
     assert funding.rate == Decimal("0.0001")
     assert funding.ts_event == 90

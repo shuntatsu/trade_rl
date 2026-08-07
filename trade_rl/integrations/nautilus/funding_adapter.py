@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
+from trade_rl.simulation.execution_parity import CanonicalExecutionRecord
+
 
 @dataclass(frozen=True, slots=True)
 class FundingSettlementInput:
@@ -124,8 +126,68 @@ class CanonicalFundingLedger:
         )
 
 
+def canonicalize_funding_settlement_record(
+    settlement: CanonicalFundingSettlement,
+    *,
+    sequence: int,
+    price_tick: Decimal,
+    lot_size: Decimal,
+    equity_before_minor: int,
+) -> CanonicalExecutionRecord:
+    """Project one settled funding boundary into the canonical execution trace."""
+
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence <= 0:
+        raise ValueError("sequence must be a positive integer")
+    if isinstance(equity_before_minor, bool) or not isinstance(equity_before_minor, int):
+        raise ValueError("equity_before_minor must be an integer")
+
+    price_ticks = _exact_grid_units(
+        settlement.settlement_price,
+        price_tick,
+        value_name="price",
+        increment_name="price_tick",
+    )
+    position_lots = _exact_grid_units(
+        settlement.signed_quantity,
+        lot_size,
+        value_name="quantity",
+        increment_name="lot_size",
+    )
+    return CanonicalExecutionRecord(
+        sequence=sequence,
+        event_type="funding",
+        timestamp_ns=settlement.boundary_ns,
+        price_ticks=price_ticks,
+        quantity_lots=0,
+        fee_minor=0,
+        funding_minor=settlement.amount_minor,
+        position_lots=position_lots,
+        equity_minor=equity_before_minor + settlement.amount_minor,
+        terminal_reason=None,
+    )
+
+
+def _exact_grid_units(
+    value: Decimal,
+    increment: Decimal,
+    *,
+    value_name: str,
+    increment_name: str,
+) -> int:
+    if not isinstance(increment, Decimal) or not increment.is_finite() or increment <= 0:
+        raise ValueError(f"{increment_name} must be a finite positive Decimal")
+    if not isinstance(value, Decimal) or not value.is_finite():
+        raise ValueError(f"{value_name} must be a finite Decimal")
+    units = value / increment
+    integral = units.to_integral_value()
+    if units != integral:
+        raise ValueError(f"{value_name} must align exactly to {increment_name}")
+    return int(integral)
+
+
 __all__ = [
     "CanonicalFundingLedger",
     "CanonicalFundingSettlement",
     "FundingSettlementInput",
+    "canonicalize_funding_settlement_record",
 ]

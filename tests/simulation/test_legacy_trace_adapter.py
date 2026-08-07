@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import trade_rl.simulation.legacy_trace_adapter as legacy_trace_adapter
+from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
 from trade_rl.simulation.legacy_trace_adapter import canonicalize_legacy_fill_events
 from trade_rl.simulation.orders import ORDER_EVENT_SCHEMA, OrderEvent, OrderStatus
 
@@ -84,3 +86,38 @@ def test_legacy_adapter_keeps_only_fills_and_tracks_signed_position() -> None:
     assert [fill.quantity_lots for fill in fills] == [1000, -1000]
     assert [fill.position_lots for fill in fills] == [1000, 0]
     assert [fill.timestamp_ns for fill in fills] == [10, 200]
+
+
+def test_legacy_funding_boundary_becomes_single_instrument_canonical_record() -> None:
+    boundary = FundingBoundaryEvidence(
+        processing_index=1,
+        timestamp_ns=3_600_000_000_000,
+        funding_due=(True,),
+        signed_quantities=(10.0,),
+        mark_prices=(120.0,),
+        contract_multipliers=(1.0,),
+        funding_rates=(0.001,),
+        funding_amount=-1.2,
+        equity_before_funding=1_200.0,
+        equity_after_funding=1_198.8,
+    )
+
+    record = legacy_trace_adapter.canonicalize_legacy_funding_boundary_record(
+        boundary,
+        sequence=2,
+        price_tick=0.1,
+        lot_size=0.001,
+        currency_precision=8,
+        equity_before_minor=120_000_000_000,
+    )
+
+    assert record.sequence == 2
+    assert record.event_type == "funding"
+    assert record.timestamp_ns == boundary.timestamp_ns
+    assert record.price_ticks == 1_200
+    assert record.quantity_lots == 0
+    assert record.fee_minor == 0
+    assert record.funding_minor == -120_000_000
+    assert record.position_lots == 10_000
+    assert record.equity_minor == 119_880_000_000
+    assert record.terminal_reason is None

@@ -1,3 +1,5 @@
+"""Repository-root contract independent of the installed ``trade_rl`` namespace."""
+
 from __future__ import annotations
 
 from pathlib import Path

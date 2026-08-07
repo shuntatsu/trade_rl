@@ -34,9 +34,7 @@ def test_package_metadata_uses_same_spdx_license() -> None:
         "THIRD_PARTY_NOTICES.md",
     }
 
-    package_json = json.loads(
-        (ROOT / "apps" / "studio-web" / "package.json").read_text(encoding="utf-8")
-    )
+    package_json = json.loads((ROOT / "studio" / "package.json").read_text(encoding="utf-8"))
     assert package_json["license"] == SPDX_ID
 
 

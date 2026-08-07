@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from trade_rl.artifacts.hashing import content_digest
 
@@ -14,7 +14,7 @@ _TIMEFRAMES = ("15m", "1h", "4h", "1d")
 _ARCHITECTURE_SCHEMA = "hierarchical_sequence_policy_v4"
 _ASSET_BINDING_SCHEMA = "sequence_asset_binding_v1"
 _ASSET_IDENTITY_MODE = "identity_free_v1"
-_SINGLE_SYMBOL_FUSION = "single_symbol_bypass_v1"
+SINGLE_SYMBOL_ASSET_FUSION_MODE: Final = "single_symbol_bypass_v1"
 
 
 def _required_dilations(window_length: int) -> tuple[int, ...]:
@@ -83,7 +83,7 @@ class SequenceArchitectureIdentity:
         if isinstance(self.n_symbols, bool) or self.n_symbols <= 0:
             raise ValueError("n_symbols must be a positive integer")
         if self.n_symbols == 1:
-            if self.asset_fusion_mode != _SINGLE_SYMBOL_FUSION:
+            if self.asset_fusion_mode != SINGLE_SYMBOL_ASSET_FUSION_MODE:
                 raise ValueError("single-symbol architecture requires bypass identity")
         elif self.asset_fusion_mode is not None:
             raise ValueError("multi-symbol architecture cannot use single-symbol fusion")
@@ -200,7 +200,7 @@ def sequence_architecture_identity(
         asset_gate_bias=architecture.asset_gate_bias,
         dropout=architecture.dropout,
         asset_fusion_mode=(
-            _SINGLE_SYMBOL_FUSION if architecture.n_symbols == 1 else None
+            SINGLE_SYMBOL_ASSET_FUSION_MODE if architecture.n_symbols == 1 else None
         ),
     )
 
@@ -221,6 +221,7 @@ def sequence_asset_binding_identity(
 
 
 __all__ = [
+    "SINGLE_SYMBOL_ASSET_FUSION_MODE",
     "SequenceArchitectureIdentity",
     "SequenceAssetBindingIdentity",
     "sequence_architecture_identity",

@@ -93,10 +93,6 @@ class SequenceArchitectureIdentity:
 
     def digest_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
-            "asset_attention_heads": self.asset_attention_heads,
-            "asset_attention_layers": self.asset_attention_layers,
-            "asset_ffn_multiplier": self.asset_ffn_multiplier,
-            "asset_gate_bias": self.asset_gate_bias,
             "asset_identity_mode": self.asset_identity_mode,
             "asset_state_width": self.asset_state_width,
             "d_model": self.d_model,
@@ -117,6 +113,15 @@ class SequenceArchitectureIdentity:
         }
         if self.asset_fusion_mode is not None:
             payload["asset_fusion_mode"] = self.asset_fusion_mode
+        else:
+            payload.update(
+                {
+                    "asset_attention_heads": self.asset_attention_heads,
+                    "asset_attention_layers": self.asset_attention_layers,
+                    "asset_ffn_multiplier": self.asset_ffn_multiplier,
+                    "asset_gate_bias": self.asset_gate_bias,
+                }
+            )
         return payload
 
     @property

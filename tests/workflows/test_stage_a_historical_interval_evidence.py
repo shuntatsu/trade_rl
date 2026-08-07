@@ -118,3 +118,29 @@ def test_historical_intervals_assign_funding_boundaries_without_overlap() -> Non
         (start, shared),
         (stop,),
     ]
+
+
+def test_historical_intervals_reject_funding_outside_replay_range() -> None:
+    replay = _two_transition_replay()
+    stop = replay.cell_identity.evaluation_range.stop
+
+    with pytest.raises(ValueError, match="outside replay range"):
+        build_stage_a_historical_interval_evidence(
+            replay,
+            funding_evidence=(_funding_boundary(stop + 1, timestamp_ns=1),),
+        )
+
+
+def test_historical_intervals_reject_nonincreasing_funding_boundaries() -> None:
+    replay = _two_transition_replay()
+    start = replay.cell_identity.evaluation_range.start
+    funding = (
+        _funding_boundary(start + 1, timestamp_ns=2),
+        _funding_boundary(start, timestamp_ns=1),
+    )
+
+    with pytest.raises(ValueError, match="must increase"):
+        build_stage_a_historical_interval_evidence(
+            replay,
+            funding_evidence=funding,
+        )

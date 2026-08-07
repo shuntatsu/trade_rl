@@ -203,6 +203,23 @@ def test_serialized_single_symbol_identity_requires_bypass_mode() -> None:
         validated_sb3_policy_identity(tampered)
 
 
+def test_serialized_single_symbol_identity_rejects_asset_attention_fields() -> None:
+    identity = bind_sb3_policy_identity(
+        _model(_architecture(n_symbols=1)),
+        _assembly(("BTCUSDT",)),
+    )
+    tampered = dict(identity)
+    raw_architecture = tampered["sequence_architecture"]
+    assert isinstance(raw_architecture, dict)
+    architecture = dict(raw_architecture)
+    architecture["asset_attention_heads"] = 4
+    tampered["sequence_architecture"] = architecture
+    tampered["sequence_architecture_digest"] = content_digest(architecture)
+
+    with pytest.raises(ValueError, match="cannot declare asset attention fields"):
+        validated_sb3_policy_identity(tampered)
+
+
 def test_serialized_multi_symbol_identity_rejects_bypass_mode() -> None:
     identity = bind_sb3_policy_identity(
         _model(_architecture(n_symbols=3)),

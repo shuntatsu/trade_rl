@@ -12,7 +12,7 @@ from trade_rl.cli import maintained_single_symbol as preflight
 
 def _action(*, count: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
-        mode=SimpleNamespace(value="target_weight"),
+        mode="target_weight",
         target_weight_count=count,
         names_for_symbols=lambda symbols: tuple(
             f"target_weight:{symbol}" for symbol in symbols

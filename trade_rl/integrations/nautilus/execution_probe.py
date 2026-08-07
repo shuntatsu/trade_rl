@@ -22,6 +22,8 @@ from trade_rl.simulation.execution_canonicalization import (
     CanonicalFillSignature,
 )
 
+_HOUR_NS = 60 * 60 * 1_000_000_000
+
 
 @dataclass(frozen=True, slots=True)
 class NautilusExecutionProbeResult:
@@ -120,8 +122,8 @@ def run_flat_long_flat_execution_probe(
         instrument = build_maintained_btcusdt_perpetual()
         engine.add_instrument(instrument)
         events = (
-            ProjectedMarketEvent(MarketPhase.OPEN_QUOTE, 10, 100.0),
-            ProjectedMarketEvent(MarketPhase.CLOSE_QUOTE, 200, 105.0),
+            ProjectedMarketEvent(MarketPhase.OPEN_QUOTE, _HOUR_NS, 100.0),
+            ProjectedMarketEvent(MarketPhase.CLOSE_QUOTE, 2 * _HOUR_NS, 105.0),
         )
         quotes = [
             build_quote_tick(

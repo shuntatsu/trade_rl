@@ -51,7 +51,9 @@ def test_project_historical_source_bar_uses_close_timestamp_and_fixed_cadence() 
     assert bar.index_price == pytest.approx(market.index_price[index, 0])
 
 
-def test_project_historical_source_bar_rejects_non_single_symbol_or_session_data() -> None:
+def test_project_historical_source_bar_rejects_non_single_symbol_or_session_data() -> (
+    None
+):
     project = _projector()
 
     with pytest.raises(ValueError, match="single-symbol"):

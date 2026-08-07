@@ -544,12 +544,16 @@ class StageAExecutionReplayArtifact:
                 field="execution_evidence_size_bytes",
             ),
             funding_evidence_digest=(
-                _string(value["funding_evidence_digest"], field="funding_evidence_digest")
+                _string(
+                    value["funding_evidence_digest"], field="funding_evidence_digest"
+                )
                 if schema == STAGE_A_EXECUTION_REPLAY_SCHEMA_V3
                 else None
             ),
             funding_evidence_sha256=(
-                _string(value["funding_evidence_sha256"], field="funding_evidence_sha256")
+                _string(
+                    value["funding_evidence_sha256"], field="funding_evidence_sha256"
+                )
                 if schema == STAGE_A_EXECUTION_REPLAY_SCHEMA_V3
                 else None
             ),

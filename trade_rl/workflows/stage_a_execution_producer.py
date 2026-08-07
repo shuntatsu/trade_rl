@@ -23,6 +23,10 @@ from trade_rl.simulation.execution_replay import (
     build_execution_event_artifact,
     write_execution_event_artifact,
 )
+from trade_rl.simulation.funding_evidence import (
+    FundingBoundaryEvidence,
+    build_funding_evidence_artifact,
+)
 from trade_rl.simulation.orders import OrderBookState, OrderEvent
 from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
     StageAEvaluationDatasetManifest,
@@ -88,6 +92,8 @@ class StageAEvaluationEpisodeResult:
     order_events: tuple[OrderEvent, ...]
     terminal_book: BookState
     terminal_order_book: OrderBookState
+    funding_evidence: tuple[FundingBoundaryEvidence, ...] = ()
+    transition_end_indices: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         require_sha256(
@@ -139,6 +145,27 @@ class StageAEvaluationEpisodeResult:
         if any(value <= 0.0 for value in equity):
             raise ValueError("Stage A episode equity curve must be positive")
 
+        transition_end_indices = tuple(self.transition_end_indices)
+        if transition_end_indices:
+            if len(transition_end_indices) != len(actions):
+                raise ValueError(
+                    "Stage A episode transition end indices must match actions"
+                )
+            previous_transition_end: int | None = None
+            for value in transition_end_indices:
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    raise ValueError(
+                        "Stage A episode transition end indices must be non-negative integers"
+                    )
+                if (
+                    previous_transition_end is not None
+                    and value <= previous_transition_end
+                ):
+                    raise ValueError(
+                        "Stage A episode transition end indices must be strictly increasing"
+                    )
+                previous_transition_end = value
+
         events = tuple(self.order_events)
         if not events:
             raise ValueError("Stage A episode order events must not be empty")
@@ -146,6 +173,24 @@ class StageAEvaluationEpisodeResult:
             raise ValueError(
                 "Stage A episode order events must contain OrderEvent values"
             )
+        funding = tuple(self.funding_evidence)
+        previous_index: int | None = None
+        previous_timestamp: int | None = None
+        for index, boundary in enumerate(funding):
+            if not isinstance(boundary, FundingBoundaryEvidence):
+                raise ValueError(
+                    f"Stage A episode funding_evidence[{index}] is invalid"
+                )
+            if previous_index is not None and (
+                boundary.processing_index <= previous_index
+                or previous_timestamp is None
+                or boundary.timestamp_ns <= previous_timestamp
+            ):
+                raise ValueError(
+                    "Stage A episode funding evidence must be strictly increasing"
+                )
+            previous_index = boundary.processing_index
+            previous_timestamp = boundary.timestamp_ns
         if not isinstance(self.terminal_book, BookState):
             raise ValueError("Stage A episode terminal book must be BookState")
         if not isinstance(self.terminal_order_book, OrderBookState):
@@ -169,7 +214,9 @@ class StageAEvaluationEpisodeResult:
         object.__setattr__(self, "actions", tuple(actions))
         object.__setattr__(self, "observation_digests", observations)
         object.__setattr__(self, "equity_curve", equity)
+        object.__setattr__(self, "transition_end_indices", transition_end_indices)
         object.__setattr__(self, "order_events", events)
+        object.__setattr__(self, "funding_evidence", funding)
 
     def validate_against(
         self,
@@ -215,6 +262,17 @@ class StageAEvaluationEpisodeResult:
                 raise ValueError("Stage A episode order event dataset mismatch")
             if event.execution_policy_digest != request.execution_identity:
                 raise ValueError("Stage A episode order event execution mismatch")
+        start = request.evaluation_range.start
+        stop = request.evaluation_range.stop
+        if any(value > stop for value in self.transition_end_indices):
+            raise ValueError(
+                "Stage A episode transition end index outside request range"
+            )
+        if any(
+            boundary.processing_index < start or boundary.processing_index > stop
+            for boundary in self.funding_evidence
+        ):
+            raise ValueError("Stage A episode funding evidence outside request range")
         return self
 
 
@@ -258,6 +316,7 @@ class StageAExecutionArtifactStore(Protocol):
         equity_curve: tuple[float, ...],
         event_artifact_path: str | Path,
         execution_evidence_path: str | Path,
+        funding_evidence_path: str | Path | None = None,
     ) -> StoredStageAExecutionReplay: ...
 
     def load(self, request_digest: str) -> StoredStageAExecutionReplay: ...
@@ -407,6 +466,14 @@ class StageAExecutionArtifactProducer:
             )
             evidence_path = source_root / "execution-evidence.json"
             write_execution_evidence(evidence_path, evidence)
+            funding = build_funding_evidence_artifact(
+                dataset_id=request.dataset_id,
+                execution_policy_digest=request.execution_identity,
+                symbol_count=len(result.terminal_book.quantities),
+                boundaries=result.funding_evidence,
+            )
+            funding_path = source_root / "funding-evidence.json"
+            funding_path.write_bytes(funding.raw_bytes)
             published = self.execution_store.publish(
                 request=request,
                 candidate_config_digest=candidate_config_digest,
@@ -415,6 +482,7 @@ class StageAExecutionArtifactProducer:
                 equity_curve=result.equity_curve,
                 event_artifact_path=event_path,
                 execution_evidence_path=evidence_path,
+                funding_evidence_path=funding_path,
             )
         loaded = self.execution_store.load(request.digest)
         if loaded != published:

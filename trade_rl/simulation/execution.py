@@ -727,14 +727,14 @@ class MarketExecutor:
         )
 
     def _charge_carry(self, book: BookState, *, index: int) -> tuple[float, float]:
-        funding_return = -float(
+        funding_notional = self.dataset.quantity_notional(index, book.quantities)
+        funding_amount = -float(
             np.dot(
-                book.weights,
+                funding_notional,
                 self.dataset.funding_rate[index]
                 * self.dataset.resolved_array("funding_due")[index].astype(np.float64),
             )
         )
-        funding_amount = book.portfolio_value * funding_return
         short_values = np.maximum(-book.position_values, 0.0)
         previous_index = max(0, index - 1)
         year_fraction = self.dataset.elapsed_year_fraction(previous_index, index)

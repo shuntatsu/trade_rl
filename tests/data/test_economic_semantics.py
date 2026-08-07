@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import numpy as np
 
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 from trade_rl.data.contracts import InstrumentContract, InstrumentExecutionRule
 from trade_rl.data.economic_semantics import build_market_economic_semantics
 
@@ -61,12 +61,11 @@ def test_economic_semantics_are_explicit_point_in_time_and_immutable() -> None:
 
 
 def test_vision_and_postgres_use_the_same_constructor() -> None:
-    root = Path(__file__).resolve().parents[2]
     assert (
         "build_market_economic_semantics"
-        in (root / "trade_rl/data/builder.py").read_text()
+        in (PYTHON_SOURCE_ROOT / "data/builder.py").read_text()
     )
     assert (
         "build_market_economic_semantics"
-        in (root / "trade_rl/integrations/postgres_market_dataset.py").read_text()
+        in (PYTHON_SOURCE_ROOT / "integrations/postgres_market_dataset.py").read_text()
     )

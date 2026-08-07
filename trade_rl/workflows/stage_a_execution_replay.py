@@ -24,12 +24,14 @@ from trade_rl.simulation.execution_replay import (
     ExecutionEventArtifact,
     load_execution_event_artifact_bytes,
 )
+from trade_rl.simulation.funding_evidence import load_funding_evidence_artifact_bytes
 from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
     StageAEvaluationCellRequest,
 )
 
 STAGE_A_EXECUTION_CELL_IDENTITY_SCHEMA = "stage_a_execution_cell_identity_v2"
 STAGE_A_EXECUTION_REPLAY_SCHEMA = "stage_a_execution_replay_v2"
+STAGE_A_EXECUTION_REPLAY_SCHEMA_V3 = "stage_a_execution_replay_v3"
 _SPLITS = frozenset({"validation", "test"})
 
 
@@ -120,6 +122,14 @@ def _terminal_portfolio_value(artifact: ExecutionEventArtifact) -> float:
     if not math.isfinite(value) or value <= 0.0:
         raise ValueError("Stage A terminal portfolio value must be positive and finite")
     return value
+
+
+def _terminal_symbol_count(artifact: ExecutionEventArtifact) -> int:
+    book = _mapping(artifact.terminal_book, field="terminal_book")
+    quantities = _sequence(book.get("quantities"), field="terminal_book.quantities")
+    if not quantities:
+        raise ValueError("Stage A terminal book vector closure mismatch")
+    return len(quantities)
 
 
 def _load_execution_evidence_bytes(raw: bytes) -> ExecutionEvidence:
@@ -355,11 +365,17 @@ class StageAExecutionReplayArtifact:
     execution_evidence_digest: str
     execution_evidence_sha256: str
     execution_evidence_size_bytes: int
+    funding_evidence_digest: str | None = None
+    funding_evidence_sha256: str | None = None
+    funding_evidence_size_bytes: int | None = None
     schema_version: str = STAGE_A_EXECUTION_REPLAY_SCHEMA
     digest: str = ""
 
     def __post_init__(self) -> None:
-        if self.schema_version != STAGE_A_EXECUTION_REPLAY_SCHEMA:
+        if self.schema_version not in {
+            STAGE_A_EXECUTION_REPLAY_SCHEMA,
+            STAGE_A_EXECUTION_REPLAY_SCHEMA_V3,
+        }:
             raise ValueError("unsupported Stage A execution replay schema")
         if not isinstance(self.cell_identity, StageAExecutionCellIdentity):
             raise ValueError("Stage A execution replay cell identity is invalid")
@@ -396,11 +412,38 @@ class StageAExecutionReplayArtifact:
             self.execution_evidence_size_bytes,
             field="stage_a_execution_replay.execution_evidence_size_bytes",
         )
+
+        funding_digest = self.funding_evidence_digest
+        funding_sha256 = self.funding_evidence_sha256
+        funding_size = self.funding_evidence_size_bytes
+        if self.schema_version == STAGE_A_EXECUTION_REPLAY_SCHEMA:
+            if any(
+                value is not None
+                for value in (funding_digest, funding_sha256, funding_size)
+            ):
+                raise ValueError("Stage A replay v2 must not bind funding evidence")
+        else:
+            if funding_digest is None or funding_sha256 is None or funding_size is None:
+                raise ValueError("Stage A replay v3 requires funding evidence identity")
+            require_sha256(
+                funding_digest,
+                field="stage_a_execution_replay.funding_evidence_digest",
+            )
+            require_sha256(
+                funding_sha256,
+                field="stage_a_execution_replay.funding_evidence_sha256",
+            )
+            funding_size = _positive_int(
+                funding_size,
+                field="stage_a_execution_replay.funding_evidence_size_bytes",
+            )
+
         object.__setattr__(self, "actions", actions)
         object.__setattr__(self, "observation_digests", observations)
         object.__setattr__(self, "equity_curve", equity)
         object.__setattr__(self, "event_artifact_size_bytes", event_size)
         object.__setattr__(self, "execution_evidence_size_bytes", evidence_size)
+        object.__setattr__(self, "funding_evidence_size_bytes", funding_size)
         expected = content_digest(self.digest_payload())
         if self.digest and self.digest != expected:
             raise ValueError("Stage A execution replay digest mismatch")
@@ -411,7 +454,7 @@ class StageAExecutionReplayArtifact:
         return math.log(self.equity_curve[-1] / self.equity_curve[0])
 
     def digest_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "actions": self.actions,
             "cell_identity": self.cell_identity.to_json_dict(),
             "equity_curve": self.equity_curve,
@@ -423,6 +466,15 @@ class StageAExecutionReplayArtifact:
             "observation_digests": self.observation_digests,
             "schema_version": self.schema_version,
         }
+        if self.schema_version == STAGE_A_EXECUTION_REPLAY_SCHEMA_V3:
+            payload.update(
+                {
+                    "funding_evidence_digest": self.funding_evidence_digest,
+                    "funding_evidence_sha256": self.funding_evidence_sha256,
+                    "funding_evidence_size_bytes": self.funding_evidence_size_bytes,
+                }
+            )
+        return payload
 
     def to_json_dict(self) -> dict[str, object]:
         return {"digest": self.digest, **self.digest_payload()}
@@ -446,6 +498,17 @@ class StageAExecutionReplayArtifact:
             "observation_digests",
             "schema_version",
         }
+        if not required.issubset(value):
+            raise ValueError("Stage A execution replay field closure mismatch")
+        schema = _string(value["schema_version"], field="schema_version")
+        if schema == STAGE_A_EXECUTION_REPLAY_SCHEMA_V3:
+            required = required | {
+                "funding_evidence_digest",
+                "funding_evidence_sha256",
+                "funding_evidence_size_bytes",
+            }
+        elif schema != STAGE_A_EXECUTION_REPLAY_SCHEMA:
+            raise ValueError("unsupported Stage A execution replay schema")
         if set(value) != required:
             raise ValueError("Stage A execution replay field closure mismatch")
         actions = tuple(
@@ -490,7 +553,29 @@ class StageAExecutionReplayArtifact:
                 value["execution_evidence_size_bytes"],
                 field="execution_evidence_size_bytes",
             ),
-            schema_version=_string(value["schema_version"], field="schema_version"),
+            funding_evidence_digest=(
+                _string(
+                    value["funding_evidence_digest"], field="funding_evidence_digest"
+                )
+                if schema == STAGE_A_EXECUTION_REPLAY_SCHEMA_V3
+                else None
+            ),
+            funding_evidence_sha256=(
+                _string(
+                    value["funding_evidence_sha256"], field="funding_evidence_sha256"
+                )
+                if schema == STAGE_A_EXECUTION_REPLAY_SCHEMA_V3
+                else None
+            ),
+            funding_evidence_size_bytes=(
+                _positive_int(
+                    value["funding_evidence_size_bytes"],
+                    field="funding_evidence_size_bytes",
+                )
+                if schema == STAGE_A_EXECUTION_REPLAY_SCHEMA_V3
+                else None
+            ),
+            schema_version=schema,
             digest=_string(value["digest"], field="digest"),
         )
 
@@ -545,6 +630,36 @@ def _validate_promotion_bytes(
     return evidence, event_artifact
 
 
+def _validate_funding_bytes(
+    *,
+    request: StageAEvaluationCellRequest,
+    funding_evidence_bytes: bytes,
+    expected_symbol_count: int,
+) -> tuple[str, str, int]:
+    try:
+        funding = load_funding_evidence_artifact_bytes(funding_evidence_bytes)
+    except ValueError as error:
+        raise ValueError(f"Stage A funding evidence is invalid: {error}") from error
+    if funding.dataset_id != request.dataset_id:
+        raise ValueError("Stage A funding evidence dataset identity mismatch")
+    if funding.execution_policy_digest != request.execution_identity:
+        raise ValueError("Stage A funding evidence execution identity mismatch")
+    if funding.symbol_count != expected_symbol_count:
+        raise ValueError("Stage A funding evidence symbol count mismatch")
+    evaluation_range = request.evaluation_range
+    if any(
+        boundary.processing_index < evaluation_range.start
+        or boundary.processing_index > evaluation_range.stop
+        for boundary in funding.boundaries
+    ):
+        raise ValueError("Stage A funding evidence boundary outside evaluation range")
+    return (
+        funding.digest,
+        hashlib.sha256(funding_evidence_bytes).hexdigest(),
+        len(funding_evidence_bytes),
+    )
+
+
 def _validate_embedded_traces(
     artifact: StageAExecutionReplayArtifact,
     event_artifact: ExecutionEventArtifact,
@@ -566,6 +681,7 @@ def build_stage_a_execution_replay_artifact(
     equity_curve: Sequence[float],
     event_artifact_bytes: bytes,
     execution_evidence_bytes: bytes,
+    funding_evidence_bytes: bytes | None = None,
 ) -> StageAExecutionReplayArtifact:
     """Build one replay only after validating the bound promotion bytes."""
 
@@ -575,6 +691,17 @@ def build_stage_a_execution_replay_artifact(
         event_artifact_bytes=event_artifact_bytes,
         execution_evidence_bytes=execution_evidence_bytes,
     )
+    funding_digest: str | None = None
+    funding_sha256: str | None = None
+    funding_size: int | None = None
+    schema = STAGE_A_EXECUTION_REPLAY_SCHEMA
+    if funding_evidence_bytes is not None:
+        funding_digest, funding_sha256, funding_size = _validate_funding_bytes(
+            request=request,
+            funding_evidence_bytes=funding_evidence_bytes,
+            expected_symbol_count=_terminal_symbol_count(event_artifact),
+        )
+        schema = STAGE_A_EXECUTION_REPLAY_SCHEMA_V3
     artifact = StageAExecutionReplayArtifact(
         cell_identity=StageAExecutionCellIdentity.from_request(
             request,
@@ -588,6 +715,10 @@ def build_stage_a_execution_replay_artifact(
         execution_evidence_digest=evidence.digest,
         execution_evidence_sha256=hashlib.sha256(execution_evidence_bytes).hexdigest(),
         execution_evidence_size_bytes=len(execution_evidence_bytes),
+        funding_evidence_digest=funding_digest,
+        funding_evidence_sha256=funding_sha256,
+        funding_evidence_size_bytes=funding_size,
+        schema_version=schema,
     )
     terminal_value = _terminal_portfolio_value(event_artifact)
     tolerance = max(1e-12, abs(terminal_value) * 1e-12)
@@ -607,16 +738,27 @@ def validate_stage_a_execution_replay_sources(
     *,
     event_artifact_bytes: bytes,
     execution_evidence_bytes: bytes,
+    funding_evidence_bytes: bytes | None = None,
 ) -> ExecutionEvidence:
     """Rebuild one replay from source bytes and require exact equality."""
 
     request = artifact.cell_identity.to_request()
-    evidence, _ = _validate_promotion_bytes(
+    evidence, event_artifact = _validate_promotion_bytes(
         request=request,
         candidate_config_digest=artifact.cell_identity.candidate_config_digest,
         event_artifact_bytes=event_artifact_bytes,
         execution_evidence_bytes=execution_evidence_bytes,
     )
+    if artifact.schema_version == STAGE_A_EXECUTION_REPLAY_SCHEMA_V3:
+        if funding_evidence_bytes is None:
+            raise ValueError("Stage A replay v3 funding evidence is required")
+        _validate_funding_bytes(
+            request=request,
+            funding_evidence_bytes=funding_evidence_bytes,
+            expected_symbol_count=_terminal_symbol_count(event_artifact),
+        )
+    elif funding_evidence_bytes is not None:
+        raise ValueError("Stage A replay v2 must not bind funding evidence")
     rebuilt = build_stage_a_execution_replay_artifact(
         request=request,
         candidate_config_digest=artifact.cell_identity.candidate_config_digest,
@@ -625,6 +767,7 @@ def validate_stage_a_execution_replay_sources(
         equity_curve=artifact.equity_curve,
         event_artifact_bytes=event_artifact_bytes,
         execution_evidence_bytes=execution_evidence_bytes,
+        funding_evidence_bytes=funding_evidence_bytes,
     )
     if rebuilt != artifact:
         raise ValueError("Stage A execution replay source identity mismatch")
@@ -634,6 +777,7 @@ def validate_stage_a_execution_replay_sources(
 __all__ = [
     "STAGE_A_EXECUTION_CELL_IDENTITY_SCHEMA",
     "STAGE_A_EXECUTION_REPLAY_SCHEMA",
+    "STAGE_A_EXECUTION_REPLAY_SCHEMA_V3",
     "StageAExecutionCellIdentity",
     "StageAExecutionReplayArtifact",
     "build_stage_a_execution_replay_artifact",

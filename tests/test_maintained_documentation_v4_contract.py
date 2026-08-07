@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from test_support.training_config import complete_execution_config
+from tests.support.training_config import complete_execution_config
 
 
 def test_docs_match_maintained_schemas_and_boundaries() -> None:

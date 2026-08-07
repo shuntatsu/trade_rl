@@ -12,14 +12,15 @@ from trade_rl.artifacts.provenance import (
 
 
 def _source_tree(root: Path, *, marker: str = "same") -> None:
-    (root / "trade_rl").mkdir(parents=True)
+    package_root = root / "trade_rl"
+    package_root.mkdir(parents=True)
     (root / "examples").mkdir()
     (root / "pyproject.toml").write_text(
         "[project]\nname='trade-rl'\n", encoding="utf-8"
     )
     (root / "uv.lock").write_text("same-lock", encoding="utf-8")
     (root / "uv.toml").write_text('required-version = "==0.10.0"\n', encoding="utf-8")
-    (root / "trade_rl" / "module.py").write_text(marker, encoding="utf-8")
+    (package_root / "module.py").write_text(marker, encoding="utf-8")
     (root / "examples" / "runner.py").write_text("runner", encoding="utf-8")
 
 

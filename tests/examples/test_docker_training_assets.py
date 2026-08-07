@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 import subprocess
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
+
+ROOT = REPOSITORY_ROOT
 
 
 def test_training_compose_requests_gpu_and_uses_named_runtime_plus_read_only_evidence() -> (
@@ -242,11 +243,11 @@ def test_gpu_nightly_contract_measures_vram_throughput_and_resume() -> None:
     reusable = (
         ROOT / ".github" / "workflows" / "reusable-gpu-training-verification.yml"
     ).read_text(encoding="utf-8")
-    facade = (ROOT / "trade_rl" / "operations" / "gpu_training_smoke.py").read_text(
+    facade = (PYTHON_SOURCE_ROOT / "operations" / "gpu_training_smoke.py").read_text(
         encoding="utf-8"
     )
     implementation = (
-        ROOT / "trade_rl" / "operations" / "_gpu_training_smoke_impl.py"
+        PYTHON_SOURCE_ROOT / "operations" / "_gpu_training_smoke_impl.py"
     ).read_text(encoding="utf-8")
 
     assert "workflow_dispatch:" in caller

@@ -134,6 +134,10 @@ class StatefulBarLifecycle:
             funding_amount=funding_amount,
             period_start_value=context.period_start_value,
         )
+        runtime.record_funding_boundary(
+            processing_index=processing_index,
+            funding_amount=funding_amount,
+        )
         executor._update_margin(runtime.book)
         if runtime.book.insolvent:
             runtime.cancel_active_orders(

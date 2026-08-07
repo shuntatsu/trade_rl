@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p var
-          uv run python tools/run_training_capability_audit.py \
+          uv run python scripts/run_training_capability_audit.py \
             --output var/training-capability-audit \
             2>&1 | tee var/training-capability-audit.log
       - name: Run loophole, workflow, and serving regression matrix

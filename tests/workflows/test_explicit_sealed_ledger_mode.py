@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from test_support.training_config import complete_execution_config
+from tests.support.training_config import complete_execution_config
 from trade_rl.evaluation.walk_forward.sealed_test import SealedTestLedger
 from trade_rl.workflows import market_walk_forward as workflow_module
 from trade_rl.workflows._market_walk_forward_core import _experiment_plan_digest

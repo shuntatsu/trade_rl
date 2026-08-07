@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from trade_rl.simulation.execution_canonicalization import (
-    CanonicalFillSignature,
     CanonicalEconomicClosure,
+    CanonicalFillSignature,
     compare_dual_shadow_execution,
 )
 

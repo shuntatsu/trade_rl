@@ -25,9 +25,7 @@ WALK_FORWARD_PROFILES = (
 def _assert_single_symbol_run(config: TrainingRunConfig) -> None:
     assert config.schema_version == "training_run_config_v4"
     assert config.action.target_weight_count == 1
-    assert config.action.names_for_symbols(("BTCUSDT",)) == (
-        "target_weight:BTCUSDT",
-    )
+    assert config.action.names_for_symbols(("BTCUSDT",)) == ("target_weight:BTCUSDT",)
     assert config.risk.max_gross == pytest.approx(1.0)
     assert config.risk.max_abs_weight == pytest.approx(1.0)
     assert config.portfolio_risk.max_abs_weight == pytest.approx(1.0)

@@ -7,15 +7,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_repository_uses_explicit_source_app_and_script_roots() -> None:
+def test_repository_uses_explicit_source_studio_and_script_roots() -> None:
     required = (
         ROOT / "src" / "trade_rl",
-        ROOT / "apps" / "studio-web",
+        ROOT / "studio",
         ROOT / "scripts" / "ci",
     )
     forbidden = (
         ROOT / "trade_rl",
-        ROOT / "studio",
+        ROOT / "apps",
         ROOT / "tools",
     )
 

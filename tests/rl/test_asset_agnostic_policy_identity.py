@@ -4,12 +4,15 @@ from types import SimpleNamespace
 
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.rl.policy_identity import (
     bind_sb3_policy_identity,
     validate_model_sb3_policy_identity,
     validate_sb3_policy_architecture_compatibility,
+    validated_sb3_policy_identity,
 )
 from trade_rl.rl.sequence_architecture import (
+    SINGLE_SYMBOL_ASSET_FUSION_MODE,
     sequence_architecture_identity,
     sequence_asset_binding_identity,
 )
@@ -70,6 +73,16 @@ def test_sequence_architecture_digest_does_not_bind_symbol_names() -> None:
     assert first.digest == repeated.digest
     assert "symbols" not in first.digest_payload()
     assert "action_names" not in first.digest_payload()
+    assert "asset_fusion_mode" not in first.digest_payload()
+
+
+def test_single_symbol_architecture_binds_bypass_mode() -> None:
+    identity = sequence_architecture_identity(_architecture(n_symbols=1))
+
+    assert identity.asset_fusion_mode == SINGLE_SYMBOL_ASSET_FUSION_MODE
+    assert identity.digest_payload()["asset_fusion_mode"] == (
+        SINGLE_SYMBOL_ASSET_FUSION_MODE
+    )
 
 
 def test_asset_binding_is_separate_and_symbol_specific() -> None:
@@ -153,6 +166,40 @@ def test_three_symbol_checkpoint_is_incompatible_with_one_symbol_policy() -> Non
         )
     with pytest.raises(ValueError, match="architecture identity mismatch"):
         validate_model_sb3_policy_identity(three_symbol_model, one_symbol_identity)
+
+
+def test_serialized_single_symbol_identity_requires_bypass_mode() -> None:
+    identity = bind_sb3_policy_identity(
+        _model(_architecture(n_symbols=1)),
+        _assembly(("BTCUSDT",)),
+    )
+    tampered = dict(identity)
+    raw_architecture = tampered["sequence_architecture"]
+    assert isinstance(raw_architecture, dict)
+    architecture = dict(raw_architecture)
+    architecture.pop("asset_fusion_mode")
+    tampered["sequence_architecture"] = architecture
+    tampered["sequence_architecture_digest"] = content_digest(architecture)
+
+    with pytest.raises(ValueError, match="fusion identity mismatch"):
+        validated_sb3_policy_identity(tampered)
+
+
+def test_serialized_multi_symbol_identity_rejects_bypass_mode() -> None:
+    identity = bind_sb3_policy_identity(
+        _model(_architecture(n_symbols=3)),
+        _assembly(("BTCUSDT", "ETHUSDT", "BNBUSDT")),
+    )
+    tampered = dict(identity)
+    raw_architecture = tampered["sequence_architecture"]
+    assert isinstance(raw_architecture, dict)
+    architecture = dict(raw_architecture)
+    architecture["asset_fusion_mode"] = SINGLE_SYMBOL_ASSET_FUSION_MODE
+    tampered["sequence_architecture"] = architecture
+    tampered["sequence_architecture_digest"] = content_digest(architecture)
+
+    with pytest.raises(ValueError, match="cannot declare asset fusion mode"):
+        validated_sb3_policy_identity(tampered)
 
 
 def test_asset_binding_rejects_non_target_weight_action_names() -> None:

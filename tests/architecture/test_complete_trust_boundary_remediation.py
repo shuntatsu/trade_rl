@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
 from trade_rl.release.asymmetric import (
@@ -18,7 +19,6 @@ from trade_rl.workflows.selection_authorization import (
     SelectionAuthorization,
     SelectionProposal,
 )
-from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 
 NOW = datetime(2026, 7, 18, 1, 0, tzinfo=UTC)
 PRIVATE_KEY = generate_private_key()

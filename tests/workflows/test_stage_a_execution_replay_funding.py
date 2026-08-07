@@ -6,10 +6,11 @@ from pathlib import Path
 import pytest
 
 from tests.evaluation.replay_support import execution_episode
-from tests.stage_a_helpers import stage_a_test_manifest_for_plan
+from tests.stage_a_helpers import stage_a_test_manifest, stage_a_test_manifest_for_plan
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.evaluation.stage_a_zero_shot_contracts import (
     StageACandidate,
+    StageAZeroShotEvaluationPlan,
     build_stage_a_zero_shot_evaluation_plan,
 )
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -32,10 +33,19 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _request() -> tuple[object, StageAEvaluationCellRequest]:
-    execution_identity = ExecutionCostConfig(
-        path_mode="conservative"
-    ).execution_policy_digest
+def _manifest():
+    return stage_a_test_manifest(
+        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
+        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
+        feature_identity=_digest("features"),
+        validation_triplet_ids=(_digest("validation-triplet"),),
+        test_triplet_ids=(_digest("test-triplet"),),
+        folds=(0,),
+    )
+
+
+def _plan() -> StageAZeroShotEvaluationPlan:
+    manifest = _manifest()
     candidate = StageACandidate.create(
         candidate_id="candidate-a",
         candidate_config_digest=_digest("candidate-config"),
@@ -43,12 +53,16 @@ def _request() -> tuple[object, StageAEvaluationCellRequest]:
         policy_identity=_digest("policy"),
         checkpoint_digests=((0, _digest("checkpoint")),),
     )
-    seed_plan = build_stage_a_zero_shot_evaluation_plan(
-        symbol_disjoint_manifest_digest=_digest("symbol-manifest"),
-        symbol_disjoint_triplet_manifest_digest=_digest("triplet-manifest"),
-        evaluation_dataset_manifest_digest=_digest("placeholder-manifest"),
-        feature_identity=_digest("features"),
-        execution_identity=execution_identity,
+    return build_stage_a_zero_shot_evaluation_plan(
+        symbol_disjoint_manifest_digest=manifest.symbol_disjoint_manifest_digest,
+        symbol_disjoint_triplet_manifest_digest=(
+            manifest.symbol_disjoint_triplet_manifest_digest
+        ),
+        evaluation_dataset_manifest_digest=manifest.digest,
+        feature_identity=manifest.feature_identity,
+        execution_identity=ExecutionCostConfig(
+            path_mode="conservative"
+        ).execution_policy_digest,
         evaluation_identity=_digest("evaluation"),
         candidates=(candidate,),
         seeds=(0,),
@@ -67,41 +81,12 @@ def _request() -> tuple[object, StageAEvaluationCellRequest]:
         minimum_validation_triplet_pass_fraction=1.0,
         minimum_test_triplet_pass_fraction=1.0,
     )
-    manifest = stage_a_test_manifest_for_plan(seed_plan)
-    plan = build_stage_a_zero_shot_evaluation_plan(
-        symbol_disjoint_manifest_digest=seed_plan.symbol_disjoint_manifest_digest,
-        symbol_disjoint_triplet_manifest_digest=(
-            seed_plan.symbol_disjoint_triplet_manifest_digest
-        ),
-        evaluation_dataset_manifest_digest=manifest.digest,
-        feature_identity=seed_plan.feature_identity,
-        execution_identity=seed_plan.execution_identity,
-        evaluation_identity=seed_plan.evaluation_identity,
-        candidates=seed_plan.candidates,
-        seeds=seed_plan.seeds,
-        folds=seed_plan.folds,
-        validation_triplet_ids=seed_plan.validation_triplet_ids,
-        test_triplet_ids=seed_plan.test_triplet_ids,
-        bootstrap_confidence_level=seed_plan.bootstrap_confidence_level,
-        bootstrap_resamples=seed_plan.bootstrap_resamples,
-        bootstrap_seed=seed_plan.bootstrap_seed,
-        minimum_validation_lower_bound=seed_plan.minimum_validation_lower_bound,
-        minimum_test_lower_bound=seed_plan.minimum_test_lower_bound,
-        minimum_validation_worst_triplet_excess=(
-            seed_plan.minimum_validation_worst_triplet_excess
-        ),
-        minimum_test_worst_triplet_excess=seed_plan.minimum_test_worst_triplet_excess,
-        minimum_validation_worst_seed_excess=(
-            seed_plan.minimum_validation_worst_seed_excess
-        ),
-        minimum_test_worst_seed_excess=seed_plan.minimum_test_worst_seed_excess,
-        minimum_validation_triplet_pass_fraction=(
-            seed_plan.minimum_validation_triplet_pass_fraction
-        ),
-        minimum_test_triplet_pass_fraction=seed_plan.minimum_test_triplet_pass_fraction,
-    )
+
+
+def _request() -> tuple[StageAZeroShotEvaluationPlan, StageAEvaluationCellRequest]:
+    plan = _plan()
     manifest = stage_a_test_manifest_for_plan(plan)
-    request = StageAEvaluationCellRequest(
+    return plan, StageAEvaluationCellRequest(
         plan_digest=plan.digest,
         split="validation",
         triplet_id=plan.validation_triplet_ids[0],
@@ -116,7 +101,6 @@ def _request() -> tuple[object, StageAEvaluationCellRequest]:
         execution_identity=plan.execution_identity,
         evaluation_identity=plan.evaluation_identity,
     )
-    return plan, request
 
 
 def _source_bytes(

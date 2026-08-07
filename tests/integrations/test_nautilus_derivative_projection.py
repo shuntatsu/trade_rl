@@ -6,7 +6,6 @@ import pytest
 
 from trade_rl.integrations.nautilus.derivative_projection import (
     FundingPoint,
-    build_funding_rate_update,
     build_index_price_update,
     build_mark_price_update,
 )

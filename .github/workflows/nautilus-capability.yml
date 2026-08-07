@@ -7,11 +7,13 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "trade_rl/integrations/nautilus/**"
+      - "trade_rl/simulation/execution.py"
       - "trade_rl/simulation/execution_canonicalization.py"
       - "trade_rl/simulation/execution_parity.py"
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
+      - "tests/simulation/test_funding_mark_price.py"
       - "tools/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
   push:
@@ -20,11 +22,13 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "trade_rl/integrations/nautilus/**"
+      - "trade_rl/simulation/execution.py"
       - "trade_rl/simulation/execution_canonicalization.py"
       - "trade_rl/simulation/execution_parity.py"
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
+      - "tests/simulation/test_funding_mark_price.py"
       - "tools/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
 
@@ -74,6 +78,8 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
       - name: Exercise partial-fill stale-cancel lifecycle in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_partial_fill_cancel.py
+      - name: Lock Binance funding reference to mark-price notional
+        run: uv run pytest -q tests/simulation/test_funding_mark_price.py
       - name: Exercise canonical funding evidence and lock native limitation
         run: |
           uv run pytest -q \

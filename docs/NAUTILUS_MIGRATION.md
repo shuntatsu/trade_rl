@@ -30,6 +30,7 @@ Current migration slices cover:
 - exact-wheel partial-fill stale-working cancellation evidence: a passive GTC limit fixture creates a real `PARTIALLY_FILLED` remainder under `liquidity_consumption=True`, a changed target produces `CANCELING_STALE`, no replacement is submitted in the cancellation phase, and the maintained Market IOC replacement is submitted only after terminal `OrderCanceled` evidence;
 - exact canonical fill/economic closure and integer-valued execution trace types;
 - canonical funding settlement records with exact tick/lot identity, integer funding minor units, preserved signed position lots, and post-settlement equity evidence;
+- Binance USDⓈ-M funding reference accounting based on signed position notional at the funding-boundary mark price, including contract multipliers, rather than pre-mark/open-price portfolio weights;
 - legacy-versus-Nautilus dual-shadow conformance for Flat → Long → Flat, safe Flat → Long → Flat → Short → Flat sign reversal, and same-side target increases/reductions to Flat;
 - fresh-process deterministic execution digests.
 
@@ -41,7 +42,7 @@ The legacy high-level target reconciler is not the migration authority for sign 
 
 NautilusTrader v1.230.0 contains funding-settlement logic in the Rust simulated exchange, including pending funding rates and `FundingSettlement` processing. The Python low-level `BacktestEngine` used by the current Trade RL integration, however, does not dispatch `FundingRateUpdate`, `MarkPriceUpdate`, or `IndexPriceUpdate` into that simulated exchange. Exact-wheel testing confirms that those data objects can be added to the backtest data stream but no native funding adjustment is produced on the position.
 
-Trade RL therefore does **not** claim native Nautilus funding support for this pinned Python runtime. Funding is settled at the Trade RL Nautilus integration boundary by `CanonicalFundingLedger` using an explicit settlement boundary, signed position quantity, mark/settlement price, contract multiplier, and funding rate. The adapter:
+Trade RL therefore does **not** claim native Nautilus funding support for this pinned Python runtime. Funding is settled at the Trade RL Nautilus integration boundary by `CanonicalFundingLedger` using an explicit settlement boundary, signed position quantity, mark/settlement price, contract multiplier, and funding rate. The legacy/reference executor uses the same economic meaning: funding is derived from signed position quantity × funding-boundary mark price × contract multiplier × funding rate. The adapter:
 
 - settles each boundary exactly once;
 - requires strictly increasing boundaries;

@@ -18,6 +18,7 @@ from trade_rl.simulation.execution_canonicalization import (
 from trade_rl.simulation.legacy_trace_adapter import canonicalize_legacy_fill_events
 from trade_rl.simulation.orders import (
     OrderBookState,
+    OrderEvent,
     OrderIntent,
     OrderType,
     TimeInForce,
@@ -84,7 +85,7 @@ def run_legacy_flat_long_flat_short_flat_probe() -> LegacyExecutionProbeResult:
     initial_capital = 1_000.0
     book = BookState.zero(1, initial_capital, dataset.close[0])
     order_book = OrderBookState.empty()
-    events = []
+    events: list[OrderEvent] = []
 
     for submit_index, quantity in enumerate((1.0, -1.0, -1.0, 1.0)):
         intent = OrderIntent.create(

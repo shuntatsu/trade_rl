@@ -305,8 +305,6 @@ def run_flat_long_flat_short_flat_execution_probe(
 
         closed = engine.cache.positions_closed(instrument_id=instrument.id)
         open_positions = engine.cache.positions_open(instrument_id=instrument.id)
-        if len(closed) != 2:
-            raise RuntimeError(f"expected two closed positions, got {len(closed)}")
         if open_positions:
             raise RuntimeError("safe sign-flip probe must terminate flat")
         account = engine.cache.account_for_venue(BINANCE_VENUE)
@@ -322,8 +320,10 @@ def run_flat_long_flat_short_flat_execution_probe(
             lot_size=instrument.size_increment.as_decimal(),
             currency_precision=USDT.precision,
         )
-        if not canonical.fills:
-            raise RuntimeError("safe sign-flip probe produced no canonical fills")
+        if len(canonical.fills) != 4:
+            raise RuntimeError(
+                f"expected four canonical fills, got {len(canonical.fills)}"
+            )
         scale = Decimal(10) ** USDT.precision
         final_balance = balance.as_decimal()
         economics = CanonicalEconomicClosure(

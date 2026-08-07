@@ -184,7 +184,7 @@ def test_stage_a_rejects_funding_evidence_at_half_open_stop() -> None:
     forged = FundingBoundaryEvidence(
         processing_index=stop,
         timestamp_ns=int(dataset.timestamps[stop].astype(np.int64)),
-        funding_due=(False,),
+        funding_due=(True,),
         signed_quantities=(0.0,),
         mark_prices=(100.0,),
         contract_multipliers=(1.0,),

@@ -52,7 +52,10 @@ def _validate_manifest_policy_identity(manifest: StructuredExportManifest) -> No
     current_weight = identity.get("current_weight_observation")
     if not isinstance(current_weight, Mapping):
         raise ValueError("structured manifest current-weight identity is missing")
-    if tuple(current_weight.get("shape", ())) != (manifest.action_size,):
+    raw_shape = current_weight.get("shape")
+    if not isinstance(raw_shape, (list, tuple)) or tuple(raw_shape) != (
+        manifest.action_size,
+    ):
         raise ValueError("structured manifest action size identity mismatch")
 
 

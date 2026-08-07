@@ -14,7 +14,7 @@ on:
       - "src/trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
       - "tests/simulation/test_funding_mark_price.py"
-      - "scripts/ci/nautilus_execution_probe_digest.py"
+      - "scripts/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
   push:
     branches: [main]
@@ -29,7 +29,7 @@ on:
       - "src/trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
       - "tests/simulation/test_funding_mark_price.py"
-      - "scripts/ci/nautilus_execution_probe_digest.py"
+      - "scripts/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
 
 permissions:
@@ -113,9 +113,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          first="$(uv run python scripts/ci/nautilus_execution_probe_digest.py | tail -n 1)"
-          second="$(uv run python scripts/ci/nautilus_execution_probe_digest.py | tail -n 1)"
-          third="$(uv run python scripts/ci/nautilus_execution_probe_digest.py | tail -n 1)"
+          first="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
+          second="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
+          third="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
           test "$first" = "$second"
           test "$second" = "$third"
           test "${#first}" -eq 64

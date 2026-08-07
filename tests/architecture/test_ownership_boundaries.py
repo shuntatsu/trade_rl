@@ -8,9 +8,10 @@ from tests.architecture.import_references import (
     module_name_from_path,
     scan_import_references,
 )
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 
-ROOT = Path(__file__).resolve().parents[2]
-PACKAGE_ROOT = ROOT / "trade_rl"
+ROOT = REPOSITORY_ROOT
+PACKAGE_ROOT = PYTHON_SOURCE_ROOT
 
 
 def _tree(path: Path) -> ast.Module:

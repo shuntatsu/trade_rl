@@ -27,3 +27,24 @@ def test_repository_uses_flat_responsibility_roots() -> None:
 
     assert all(path.is_dir() for path in required)
     assert all(not path.exists() for path in forbidden)
+
+
+def test_active_repository_contracts_do_not_reference_src_package() -> None:
+    forbidden = "src" + "/trade_rl"
+    targets = [
+        ROOT / "pyproject.toml",
+        ROOT / "Dockerfile.training",
+        ROOT / "README.md",
+        ROOT / "START.md",
+    ]
+    targets.extend(sorted((ROOT / ".github" / "workflows").glob("*.yml")))
+    targets.extend(sorted((ROOT / "scripts").rglob("*.py")))
+    targets.extend(sorted((ROOT / "tests").rglob("*.py")))
+
+    violations = [
+        path.relative_to(ROOT).as_posix()
+        for path in targets
+        if path.is_file() and forbidden in path.read_text(encoding="utf-8")
+    ]
+
+    assert violations == []

@@ -54,7 +54,9 @@ def _event() -> OrderEvent:
     )
 
 
-def _result(*, transition_end_indices: tuple[int, ...]) -> StageAEvaluationEpisodeResult:
+def _result(
+    *, transition_end_indices: tuple[int, ...]
+) -> StageAEvaluationEpisodeResult:
     return StageAEvaluationEpisodeResult(
         request_digest=_DIGEST,
         policy_source_digest=None,

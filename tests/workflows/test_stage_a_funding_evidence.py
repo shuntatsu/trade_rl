@@ -175,3 +175,28 @@ def test_stage_a_rejects_funding_evidence_not_bound_to_dataset(
             request=request,
             dataset=dataset,
         )
+
+
+def test_stage_a_rejects_funding_evidence_at_half_open_stop() -> None:
+    dataset = _dataset()
+    request = _request(dataset.dataset_id)
+    stop = request.evaluation_range.stop
+    forged = FundingBoundaryEvidence(
+        processing_index=stop,
+        timestamp_ns=int(dataset.timestamps[stop].astype(np.int64)),
+        funding_due=(False,),
+        signed_quantities=(0.0,),
+        mark_prices=(100.0,),
+        contract_multipliers=(1.0,),
+        funding_rates=(0.0,),
+        funding_amount=0.0,
+        equity_before_funding=1_000.0,
+        equity_after_funding=1_000.0,
+    )
+
+    with pytest.raises(ValueError, match="outside authorized range"):
+        validate_stage_a_funding_evidence(
+            (forged,),
+            request=request,
+            dataset=dataset,
+        )

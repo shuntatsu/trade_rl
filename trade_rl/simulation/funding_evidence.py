@@ -28,16 +28,22 @@ class FundingBoundaryEvidence:
             or self.processing_index < 0
         ):
             raise ValueError("processing_index must be a non-negative integer")
-        if isinstance(self.timestamp_ns, bool) or not isinstance(self.timestamp_ns, int):
+        if isinstance(self.timestamp_ns, bool) or not isinstance(
+            self.timestamp_ns, int
+        ):
             raise ValueError("timestamp_ns must be an integer")
 
         size = len(self.funding_due)
         if size == 0:
-            raise ValueError("funding boundary evidence must contain at least one symbol")
+            raise ValueError(
+                "funding boundary evidence must contain at least one symbol"
+            )
         if not all(isinstance(value, bool) for value in self.funding_due):
             raise ValueError("funding_due values must be booleans")
         if not any(self.funding_due):
-            raise ValueError("funding boundary evidence requires at least one due symbol")
+            raise ValueError(
+                "funding boundary evidence requires at least one due symbol"
+            )
         if any(
             len(values) != size
             for values in (
@@ -50,9 +56,7 @@ class FundingBoundaryEvidence:
             raise ValueError("funding boundary evidence vectors must have equal length")
         if any(not math.isfinite(value) for value in self.signed_quantities):
             raise ValueError("signed_quantities must be finite")
-        if any(
-            not math.isfinite(value) or value <= 0.0 for value in self.mark_prices
-        ):
+        if any(not math.isfinite(value) or value <= 0.0 for value in self.mark_prices):
             raise ValueError("mark_prices must be finite and positive")
         if any(
             not math.isfinite(value) or value <= 0.0

@@ -1,0 +1,46 @@
+name: Refresh migration locks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/refresh-migration-locks.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.event.pull_request.head.ref == 'agent/lgpl-nautilus-migration'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Regenerate lock files
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock
+          npm install --package-lock-only --prefix studio --ignore-scripts --no-audit --no-fund
+      - name: Commit lock files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "trade-rl lock refresh"
+          git config user.email "actions@users.noreply.github.com"
+          git add uv.lock studio/package-lock.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "chore: refresh migration lock files"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

@@ -23,7 +23,10 @@ from trade_rl.simulation.execution_replay import (
     build_execution_event_artifact,
     write_execution_event_artifact,
 )
-from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
+from trade_rl.simulation.funding_evidence import (
+    FundingBoundaryEvidence,
+    build_funding_evidence_artifact,
+)
 from trade_rl.simulation.orders import OrderBookState, OrderEvent
 from trade_rl.workflows.stage_a_evaluation_dataset_manifest import (
     StageAEvaluationDatasetManifest,
@@ -286,6 +289,7 @@ class StageAExecutionArtifactStore(Protocol):
         equity_curve: tuple[float, ...],
         event_artifact_path: str | Path,
         execution_evidence_path: str | Path,
+        funding_evidence_path: str | Path | None = None,
     ) -> StoredStageAExecutionReplay: ...
 
     def load(self, request_digest: str) -> StoredStageAExecutionReplay: ...
@@ -435,6 +439,14 @@ class StageAExecutionArtifactProducer:
             )
             evidence_path = source_root / "execution-evidence.json"
             write_execution_evidence(evidence_path, evidence)
+            funding = build_funding_evidence_artifact(
+                dataset_id=request.dataset_id,
+                execution_policy_digest=request.execution_identity,
+                symbol_count=len(result.terminal_book.quantities),
+                boundaries=result.funding_evidence,
+            )
+            funding_path = source_root / "funding-evidence.json"
+            funding_path.write_bytes(funding.raw_bytes)
             published = self.execution_store.publish(
                 request=request,
                 candidate_config_digest=candidate_config_digest,
@@ -443,6 +455,7 @@ class StageAExecutionArtifactProducer:
                 equity_curve=result.equity_curve,
                 event_artifact_path=event_path,
                 execution_evidence_path=evidence_path,
+                funding_evidence_path=funding_path,
             )
         loaded = self.execution_store.load(request.digest)
         if loaded != published:

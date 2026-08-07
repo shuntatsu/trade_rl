@@ -27,8 +27,9 @@ Current migration slices cover:
 - deterministic L1 quote projection and replay;
 - Market IOC open and reduce-only close lifecycle;
 - framework-neutral TargetExposureController with working-order commitment, cancel-before-replace, no-trade band, sign-flip reduce-to-flat, emergency flatten, and HALT behavior;
-- exact canonical fill/economic closure types;
-- legacy-versus-Nautilus dual-shadow conformance for both Flat → Long → Flat and the safe Flat → Long → Flat → Short → Flat sign-reversal child-order lifecycle;
+- exact canonical fill/economic closure and integer-valued execution trace types;
+- canonical funding settlement records with exact tick/lot identity, integer funding minor units, preserved signed position lots, and post-settlement equity evidence;
+- legacy-versus-Nautilus dual-shadow conformance for Flat → Long → Flat, safe Flat → Long → Flat → Short → Flat sign reversal, and same-side target increases/reductions to Flat;
 - fresh-process deterministic execution digests.
 
 The legacy high-level target reconciler is not the migration authority for sign reversals because it can represent a positive-to-negative target change as one cross-through-flat delta order. The maintained migration contract instead uses `TargetExposureController`: first reduce the realized position to flat with a reduce-only child order, wait for terminal execution evidence, and only then open the opposite side. Dual-shadow sign-reversal conformance therefore compares the resulting safe child-order lifecycle rather than preserving the legacy cross-through behavior.
@@ -44,7 +45,8 @@ Trade RL therefore does **not** claim native Nautilus funding support for this p
 - debits positive-rate longs and credits positive-rate shorts;
 - never changes position quantity;
 - performs conservative settlement-currency rounding;
-- emits integer minor-unit evidence.
+- emits integer minor-unit evidence;
+- projects an already-settled boundary into a canonical `funding` execution record with exact price ticks, signed position lots, zero fill quantity, zero fee, and post-settlement equity.
 
 The exact-wheel test deliberately locks the absence of native Python-engine funding settlement. If a future Nautilus release closes the dispatch gap, that test must fail and trigger a reviewed migration from the adapter back to native settlement rather than silently double-settling funding.
 
@@ -62,8 +64,8 @@ Passing capability or conformance fixtures does not automatically change the run
 
 ## Remaining work before authority promotion
 
-- connect canonical funding settlements into complete interval/equity evidence;
-- extend conformance beyond the maintained flat and safe sign-reversal fixtures to partial fills, target changes, stale working orders, funding, and terminal settlement;
+- integrate canonical funding records into complete historical interval replay/equity traces and downstream promotion evidence;
+- extend conformance beyond the maintained flat, safe sign-reversal, and same-side target-change fixtures to partial fills, stale working orders, funding, and terminal settlement;
 - run differential dual-shadow replay on representative maintained historical windows;
 - add the subprocess execution runtime used by RL environments;
 - complete 3-step PPO/Lagrangian smoke on that runtime;

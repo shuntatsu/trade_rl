@@ -8,6 +8,7 @@ on:
       - "uv.lock"
       - "trade_rl/integrations/nautilus/**"
       - "trade_rl/simulation/execution_canonicalization.py"
+      - "trade_rl/simulation/execution_parity.py"
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
@@ -20,6 +21,7 @@ on:
       - "uv.lock"
       - "trade_rl/integrations/nautilus/**"
       - "trade_rl/simulation/execution_canonicalization.py"
+      - "trade_rl/simulation/execution_parity.py"
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
@@ -70,8 +72,11 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_quote_replay.py
       - name: Exercise order lifecycle in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
-      - name: Lock native funding limitation in isolated process
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_funding_settlement.py
+      - name: Exercise canonical funding evidence and lock native limitation
+        run: |
+          uv run pytest -q \
+            tests/integrations/test_nautilus_funding_adapter.py \
+            tests/integrations/test_nautilus_funding_settlement.py
       - name: Record execution accounting in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
       - name: Compare flat legacy and Nautilus conformance in isolated process

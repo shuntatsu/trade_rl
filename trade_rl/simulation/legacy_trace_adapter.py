@@ -6,9 +6,9 @@ import math
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Iterable
 
+from trade_rl.simulation.execution_canonicalization import CanonicalFillSignature
 from trade_rl.simulation.execution_parity import CanonicalExecutionRecord
 from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
-from trade_rl.simulation.execution_canonicalization import CanonicalFillSignature
 from trade_rl.simulation.orders import OrderEvent
 
 

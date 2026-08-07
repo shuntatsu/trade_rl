@@ -16,8 +16,8 @@ uv run trade-rl studio start --project-root .
 別ターミナル:
 
 ```bash
-npm ci --prefix studio
-npm run dev --prefix studio
+npm ci --prefix frontend
+npm run dev --prefix frontend
 ```
 
 `http://127.0.0.1:5173`を開きます。Viteは`/api`を`127.0.0.1:8765`へ転送します。
@@ -162,10 +162,10 @@ Paper snapshot: var/studio/paper-inference.json
 
 ```bash
 uv run pytest -q tests/telemetry tests/integrations/test_training_telemetry.py tests/studio
-npm test --prefix studio -- --run
-npm run typecheck --prefix studio
-npm run build --prefix studio
-npm run check:layout --prefix studio
+npm test --prefix frontend -- --run
+npm run typecheck --prefix frontend
+npm run build --prefix frontend
+npm run check:layout --prefix frontend
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .

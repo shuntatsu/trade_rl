@@ -63,7 +63,7 @@ trade-rl = "trade_rl.cli:main"
 version = {attr = "trade_rl._version.__version__"}
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["trade_rl*"]
 
 [tool.setuptools.package-data]
@@ -82,11 +82,11 @@ known-first-party = ["trade_rl", "tests"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["trade_rl"]
+files = ["src/trade_rl"]
 exclude = [
     "^tests/",
     "^examples/",
-    "^studio/",
+    "^apps/studio-web/",
 ]
 check_untyped_defs = true
 disallow_untyped_defs = true
@@ -115,7 +115,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = ["src", "."]
 addopts = "--strict-markers --strict-config"
 markers = [
     "postgres: requires a live PostgreSQL test database",
@@ -136,66 +136,66 @@ metric = "branch"
 target = 90.0
 
 [tool.trade_rl.critical_coverage.files]
-"trade_rl/simulation/accounting.py" = 93.0
-"trade_rl/simulation/execution.py" = 90.0
-"trade_rl/risk/pretrade.py" = 90.0
-"trade_rl/rl/rewards.py" = 97.0
-"trade_rl/evaluation/gates.py" = 100.0
-"trade_rl/evaluation/perfect_information_bound.py" = 100.0
-"trade_rl/evaluation/_perfect_information_lp.py" = 100.0
-"trade_rl/telemetry/_indexed_storage.py" = 72.1
-"trade_rl/rl/training_telemetry.py" = 78.5
-"trade_rl/rl/environment.py" = 85.0
-"trade_rl/rl/environment_observation_contract.py" = 100.0
-"trade_rl/rl/environment_provider_contract.py" = 100.0
-"trade_rl/rl/environment_runtime_services.py" = 100.0
-"trade_rl/rl/environment_portfolio_risk_contract.py" = 100.0
-"trade_rl/rl/environment_policy_schedule_contract.py" = 100.0
-"trade_rl/rl/environment_initial_state.py" = 100.0
-"trade_rl/rl/environment_reward_execution_resources.py" = 100.0
-"trade_rl/workflows/release_packaging.py" = 90.0
-"trade_rl/serving/training_environment.py" = 100.0
+"src/trade_rl/simulation/accounting.py" = 93.0
+"src/trade_rl/simulation/execution.py" = 90.0
+"src/trade_rl/risk/pretrade.py" = 90.0
+"src/trade_rl/rl/rewards.py" = 97.0
+"src/trade_rl/evaluation/gates.py" = 100.0
+"src/trade_rl/evaluation/perfect_information_bound.py" = 100.0
+"src/trade_rl/evaluation/_perfect_information_lp.py" = 100.0
+"src/trade_rl/telemetry/_indexed_storage.py" = 72.1
+"src/trade_rl/rl/training_telemetry.py" = 78.5
+"src/trade_rl/rl/environment.py" = 85.0
+"src/trade_rl/rl/environment_observation_contract.py" = 100.0
+"src/trade_rl/rl/environment_provider_contract.py" = 100.0
+"src/trade_rl/rl/environment_runtime_services.py" = 100.0
+"src/trade_rl/rl/environment_portfolio_risk_contract.py" = 100.0
+"src/trade_rl/rl/environment_policy_schedule_contract.py" = 100.0
+"src/trade_rl/rl/environment_initial_state.py" = 100.0
+"src/trade_rl/rl/environment_reward_execution_resources.py" = 100.0
+"src/trade_rl/workflows/release_packaging.py" = 90.0
+"src/trade_rl/serving/training_environment.py" = 100.0
 
 [tool.trade_rl.critical_coverage.groups.artifacts]
 minimum = 90.0
 paths = [
-    "trade_rl/artifacts/codec.py",
-    "trade_rl/artifacts/run_manifest.py",
-    "trade_rl/artifacts/signals.py",
-    "trade_rl/artifacts/store.py",
+    "src/trade_rl/artifacts/codec.py",
+    "src/trade_rl/artifacts/run_manifest.py",
+    "src/trade_rl/artifacts/signals.py",
+    "src/trade_rl/artifacts/store.py",
 ]
 
 [tool.trade_rl.critical_coverage.groups.serving]
 minimum = 90.0
 paths = [
-    "trade_rl/serving/bundle.py",
-    "trade_rl/serving/registry.py",
-    "trade_rl/serving/runtime.py",
+    "src/trade_rl/serving/bundle.py",
+    "src/trade_rl/serving/registry.py",
+    "src/trade_rl/serving/runtime.py",
 ]
 
 [tool.trade_rl.critical_coverage.groups.environment_runtime]
 minimum = 64.0
 paths = [
-    "trade_rl/rl/environment_episode.py",
-    "trade_rl/rl/environment_execution.py",
-    "trade_rl/rl/environment_observation.py",
-    "trade_rl/rl/environment_transition.py",
+    "src/trade_rl/rl/environment_episode.py",
+    "src/trade_rl/rl/environment_execution.py",
+    "src/trade_rl/rl/environment_observation.py",
+    "src/trade_rl/rl/environment_transition.py",
 ]
 
 [tool.trade_rl.critical_coverage.groups.environment_step_services]
 minimum = 86.8
 paths = [
-    "trade_rl/rl/environment_decision.py",
-    "trade_rl/rl/environment_risk.py",
-    "trade_rl/rl/environment_reward.py",
-    "trade_rl/rl/environment_info.py",
+    "src/trade_rl/rl/environment_decision.py",
+    "src/trade_rl/rl/environment_risk.py",
+    "src/trade_rl/rl/environment_reward.py",
+    "src/trade_rl/rl/environment_info.py",
 ]
 
 [tool.trade_rl.critical_coverage.groups.stateful_execution_services]
 minimum = 93.0
 paths = [
-    "trade_rl/simulation/stateful_runtime.py",
-    "trade_rl/simulation/stateful_bar_lifecycle.py",
-    "trade_rl/simulation/stateful_order_transitions.py",
-    "trade_rl/simulation/stateful_symbol_fills.py",
+    "src/trade_rl/simulation/stateful_runtime.py",
+    "src/trade_rl/simulation/stateful_bar_lifecycle.py",
+    "src/trade_rl/simulation/stateful_order_transitions.py",
+    "src/trade_rl/simulation/stateful_symbol_fills.py",
 ]

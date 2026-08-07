@@ -6,30 +6,30 @@ on:
     paths:
       - "pyproject.toml"
       - "uv.lock"
-      - "trade_rl/integrations/nautilus/**"
-      - "trade_rl/simulation/execution.py"
-      - "trade_rl/simulation/execution_canonicalization.py"
-      - "trade_rl/simulation/execution_parity.py"
-      - "trade_rl/simulation/legacy_execution_probe.py"
-      - "trade_rl/simulation/legacy_trace_adapter.py"
+      - "src/trade_rl/integrations/nautilus/**"
+      - "src/trade_rl/simulation/execution.py"
+      - "src/trade_rl/simulation/execution_canonicalization.py"
+      - "src/trade_rl/simulation/execution_parity.py"
+      - "src/trade_rl/simulation/legacy_execution_probe.py"
+      - "src/trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
       - "tests/simulation/test_funding_mark_price.py"
-      - "tools/nautilus_execution_probe_digest.py"
+      - "scripts/ci/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
   push:
     branches: [main]
     paths:
       - "pyproject.toml"
       - "uv.lock"
-      - "trade_rl/integrations/nautilus/**"
-      - "trade_rl/simulation/execution.py"
-      - "trade_rl/simulation/execution_canonicalization.py"
-      - "trade_rl/simulation/execution_parity.py"
-      - "trade_rl/simulation/legacy_execution_probe.py"
-      - "trade_rl/simulation/legacy_trace_adapter.py"
+      - "src/trade_rl/integrations/nautilus/**"
+      - "src/trade_rl/simulation/execution.py"
+      - "src/trade_rl/simulation/execution_canonicalization.py"
+      - "src/trade_rl/simulation/execution_parity.py"
+      - "src/trade_rl/simulation/legacy_execution_probe.py"
+      - "src/trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
       - "tests/simulation/test_funding_mark_price.py"
-      - "tools/nautilus_execution_probe_digest.py"
+      - "scripts/ci/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
 
 permissions:
@@ -113,9 +113,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          first="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
-          second="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
-          third="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
+          first="$(uv run python scripts/ci/nautilus_execution_probe_digest.py | tail -n 1)"
+          second="$(uv run python scripts/ci/nautilus_execution_probe_digest.py | tail -n 1)"
+          third="$(uv run python scripts/ci/nautilus_execution_probe_digest.py | tail -n 1)"
           test "$first" = "$second"
           test "$second" = "$third"
           test "${#first}" -eq 64

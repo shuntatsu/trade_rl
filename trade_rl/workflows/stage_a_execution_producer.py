@@ -264,6 +264,8 @@ class StageAEvaluationEpisodeResult:
                 raise ValueError("Stage A episode order event execution mismatch")
         start = request.evaluation_range.start
         stop = request.evaluation_range.stop
+        if any(value > stop for value in self.transition_end_indices):
+            raise ValueError("Stage A episode transition end index outside request range")
         if any(
             boundary.processing_index < start or boundary.processing_index > stop
             for boundary in self.funding_evidence

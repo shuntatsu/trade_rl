@@ -62,7 +62,7 @@ def _require_training_config(arguments: Sequence[str]) -> None:
         return
     config = _load_training_config(Path(raw))
     if (
-        config.action.mode.value != "target_weight"
+        config.action.mode != "target_weight"
         or config.action.target_weight_count != 1
         or config.action.names_for_symbols(_MAINTAINED_SYMBOLS)
         != ("target_weight:BTCUSDT",)
@@ -82,7 +82,7 @@ def _require_walk_forward_config(arguments: Sequence[str], *, n_bars: int) -> No
     for candidate in config.candidates:
         run = candidate.run
         if (
-            run.action.mode.value != "target_weight"
+            run.action.mode != "target_weight"
             or run.action.target_weight_count != 1
             or run.action.names_for_symbols(_MAINTAINED_SYMBOLS)
             != ("target_weight:BTCUSDT",)

@@ -40,25 +40,25 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: apps/studio-web/package-lock.json
+          cache-dependency-path: studio/package-lock.json
 
       - name: Install Studio frontend
-        run: npm ci --prefix apps/studio-web --no-audit --no-fund
+        run: npm ci --prefix studio --no-audit --no-fund
 
       - name: Verify Studio frontend
         shell: bash
         run: |
           set -o pipefail
           {
-            npm test --prefix apps/studio-web -- --run
-            npm run typecheck --prefix apps/studio-web
-            npm run build --prefix apps/studio-web
+            npm test --prefix studio -- --run
+            npm run typecheck --prefix studio
+            npm run build --prefix studio
           } 2>&1 | tee studio-frontend.log
 
       - name: Verify Studio fixed viewport layout
         env:
-          STUDIO_QA_OUTPUT_DIR: apps/studio-web/qa-screenshots
-        run: npm run check:layout --prefix apps/studio-web
+          STUDIO_QA_OUTPUT_DIR: studio/qa-screenshots
+        run: npm run check:layout --prefix studio
 
       - name: Upload Studio layout diagnostics
         if: always()
@@ -67,7 +67,7 @@ jobs:
           name: studio-layout-diagnostics
           path: |
             studio-frontend.log
-            apps/studio-web/qa-screenshots
+            studio/qa-screenshots
           if-no-files-found: error
 
       - name: Workflow security

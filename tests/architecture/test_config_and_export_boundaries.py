@@ -4,8 +4,7 @@ import ast
 from pathlib import Path
 
 from tests.architecture.import_references import scan_import_references
-
-ROOT = Path(__file__).resolve().parents[2]
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 
 
 def _defined_names(path: Path) -> frozenset[str]:
@@ -32,9 +31,9 @@ def _imports_prefix(targets: frozenset[str], prefix: str) -> bool:
 
 
 def test_training_run_config_contract_lives_below_workflows() -> None:
-    contract = ROOT / "trade_rl/rl/training_run_config.py"
-    workflow = ROOT / "trade_rl/workflows/training_run.py"
-    studio = ROOT / "trade_rl/studio/config_catalog.py"
+    contract = PYTHON_SOURCE_ROOT / "rl/training_run_config.py"
+    workflow = PYTHON_SOURCE_ROOT / "workflows/training_run.py"
+    studio = PYTHON_SOURCE_ROOT / "studio/config_catalog.py"
 
     assert contract.is_file()
     assert "TrainingRunConfig" in _defined_names(contract)
@@ -58,8 +57,8 @@ def test_training_run_config_contract_lives_below_workflows() -> None:
 
 
 def test_generic_config_field_validation_lives_in_domain() -> None:
-    domain_helper = ROOT / "trade_rl/domain/config_fields.py"
-    compatibility = ROOT / "trade_rl/workflows/config_fields.py"
+    domain_helper = PYTHON_SOURCE_ROOT / "domain/config_fields.py"
+    compatibility = PYTHON_SOURCE_ROOT / "workflows/config_fields.py"
 
     assert domain_helper.is_file()
     assert {
@@ -78,9 +77,9 @@ def test_generic_config_field_validation_lives_in_domain() -> None:
 
 
 def test_selection_authorization_lives_in_release_with_workflow_facade() -> None:
-    release_contract = ROOT / "trade_rl/release/selection_authorization.py"
-    compatibility = ROOT / "trade_rl/workflows/selection_authorization.py"
-    studio = ROOT / "trade_rl/studio/evidence.py"
+    release_contract = PYTHON_SOURCE_ROOT / "release/selection_authorization.py"
+    compatibility = PYTHON_SOURCE_ROOT / "workflows/selection_authorization.py"
+    studio = PYTHON_SOURCE_ROOT / "studio/evidence.py"
 
     assert release_contract.is_file()
     assert {
@@ -113,15 +112,15 @@ def test_selection_authorization_lives_in_release_with_workflow_facade() -> None
 
 
 def test_structured_policy_contract_is_neutral_and_serving_owned() -> None:
-    contract = ROOT / "trade_rl/artifacts/structured_policy_contract.py"
-    exporter = ROOT / "trade_rl/rl/structured_export.py"
+    contract = PYTHON_SOURCE_ROOT / "artifacts/structured_policy_contract.py"
+    exporter = PYTHON_SOURCE_ROOT / "rl/structured_export.py"
     serving_paths = (
         (
-            ROOT / "trade_rl/serving/policy_loader.py",
+            PYTHON_SOURCE_ROOT / "serving/policy_loader.py",
             "trade_rl.serving.policy_loader",
         ),
         (
-            ROOT / "trade_rl/serving/structured_policy.py",
+            PYTHON_SOURCE_ROOT / "serving/structured_policy.py",
             "trade_rl.serving.structured_policy",
         ),
     )
@@ -158,8 +157,10 @@ def test_structured_policy_contract_is_neutral_and_serving_owned() -> None:
 
 
 def test_future_stage_b_market_roles_are_explicit_but_not_claimed_complete() -> None:
-    architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
-    status = (ROOT / "docs/RESEARCH_STATUS.md").read_text(encoding="utf-8")
+    architecture = (REPOSITORY_ROOT / "docs/ARCHITECTURE.md").read_text(
+        encoding="utf-8"
+    )
+    status = (REPOSITORY_ROOT / "docs/RESEARCH_STATUS.md").read_text(encoding="utf-8")
 
     for text in (architecture, status):
         assert "SpotLongBook: FUTURE_LONG_ONLY_ROLE" in text

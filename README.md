@@ -28,15 +28,15 @@ one maintained run
 ### Repository map
 
 ```text
-src/trade_rl/    Python engine/backend package。import名は trade_rl.* のまま
-studio/          React/Viteの研究用Web UI
-scripts/ci/      CI・検証専用スクリプト
-tests/           Pythonの契約・単体・統合・E2Eテスト
-docs/            Architecture、運用、研究・移行ドキュメント
+frontend/        React/Vite研究UI
+src/trade_rl/    Python本体。import名は trade_rl.*
+scripts/         CI・検証・運用補助スクリプト
+tests/           契約・単体・統合・E2Eテスト
+docs/            Architecture・運用・研究ドキュメント
 examples/        Quickstartと再現可能な実行例
 ```
 
-`studio/`と`src/trade_rl/studio/`は別責務です。前者はブラウザUI、後者はPython側のStudio API/backendです。不要な中間`apps/`階層は置かず、役割が一意なトップレベルDirectoryをそのまま使います。Python import namespaceは`trade_rl.*`のまま維持します。
+`frontend/`とPython側のStudio APIは別責務です。不要な`apps/`や`scripts/ci/`のような単一用途の中間階層は置きません。Pythonの内部構造も責務単位で段階的に整理しますが、Artifactや金融計算の意味を暗黙には変更しません。
 
 ## 最短で試す
 
@@ -130,15 +130,15 @@ uv sync --extra studio --extra train-sb3
 uv run trade-rl studio start --project-root .
 
 # 別ターミナル
-npm ci --prefix studio
-npm run dev --prefix studio
+npm ci --prefix frontend
+npm run dev --prefix frontend
 ```
 
 Live Trainingは`not exchange activity`、`not model-selection evidence`、`not sealed evaluation`、`not profitability evidence`です。LONG／SHORT／CLOSE表示はTarget exposureの変化であり、取引所注文ではありません。
 
 TensorBoard診断では、損失やKLに加えて、時間足Attention比率、Attention entropy、Gate飽和、欠損率、系列BlockのGradient normを確認できます。Maintained one-symbolではAsset-Attention指標を非適用の`0.0`として記録します。診断値は選択Evidenceとして使用しません。
 
-詳細は[Studio README](studio/README.md)を参照してください。
+詳細は[Frontend README](frontend/README.md)を参照してください。
 
 ## ServingとExport
 
@@ -156,7 +156,7 @@ Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学
 - [研究状態とProduction gate](docs/RESEARCH_STATUS.md)
 - [Binance Public Data](docs/BINANCE.md)
 - [Docker GPU運用](docs/operations/docker-gpu-full-training.md)
-- [Trade RL Studio](studio/README.md)
+- [Trade RL Frontend](frontend/README.md)
 - [Licensing](docs/LICENSING.md)
 - [Licensing provenance](docs/LICENSING_PROVENANCE.md)
 
@@ -168,10 +168,10 @@ uv run ruff format --check .
 uv run mypy src/trade_rl
 uv run lint-imports
 uv run pytest --cov=trade_rl --cov-branch
-npm test --prefix studio -- --run
-npm run typecheck --prefix studio
-npm run build --prefix studio
-npm run check:layout --prefix studio
+npm test --prefix frontend -- --run
+npm run typecheck --prefix frontend
+npm run build --prefix frontend
+npm run check:layout --prefix frontend
 ```
 
 ## 非対応範囲

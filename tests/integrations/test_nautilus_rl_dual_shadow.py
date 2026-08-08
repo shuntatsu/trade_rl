@@ -10,13 +10,13 @@ from trade_rl.integrations.nautilus.rl_dual_shadow import NautilusEnvironmentDua
 from trade_rl.rl.environment_execution import ExecutionDualShadowRequest
 
 
-def _market() -> MarketDataset:
+def _market(*, symbol: str = "BTCUSDT") -> MarketDataset:
     n_bars = 6
     shape = (n_bars, 1)
     close = np.full(shape, 100.0)
     return MarketDataset(
         dataset_id="e" * 64,
-        symbols=("BTCUSDT",),
+        symbols=(symbol,),
         timestamps=np.datetime64("2026-01-01T01:00:00", "ns")
         + np.arange(n_bars) * np.timedelta64(1, "h"),
         features=np.zeros((n_bars, 1, 1), dtype=np.float32),
@@ -35,6 +35,11 @@ def _market() -> MarketDataset:
         mark_price=close.copy(),
         index_price=close.copy(),
     )
+
+
+def test_rl_dual_shadow_rejects_non_maintained_symbol() -> None:
+    with pytest.raises(ValueError, match="BTCUSDT"):
+        NautilusEnvironmentDualShadow(_market(symbol="ETHUSDT"))
 
 
 @pytest.mark.nautilus

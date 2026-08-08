@@ -48,7 +48,9 @@ def build_stage_a_nautilus_historical_differential_evidence(
     if event_artifact.dataset_id != stored.artifact.cell_identity.dataset_id:
         raise ValueError("persisted historical differential dataset identity mismatch")
 
-    legacy_terminal_position_lots = _legacy_terminal_position_lots(event_artifact.terminal_book)
+    legacy_terminal_position_lots = _legacy_terminal_position_lots(
+        event_artifact.terminal_book
+    )
     candidate_terminal_position_lots = candidate.execution.terminal_position_lots
     terminal_position_matches = (
         legacy_terminal_position_lots == candidate_terminal_position_lots
@@ -98,10 +100,15 @@ def _legacy_funding_records(
     funding = load_funding_evidence_artifact_bytes(stored.funding_path.read_bytes())
     if funding.dataset_id != stored.artifact.cell_identity.dataset_id:
         raise ValueError("persisted historical funding dataset identity mismatch")
-    if funding.execution_policy_digest != stored.artifact.cell_identity.execution_identity:
+    if (
+        funding.execution_policy_digest
+        != stored.artifact.cell_identity.execution_identity
+    ):
         raise ValueError("persisted historical funding execution identity mismatch")
     if funding.symbol_count != 1:
-        raise ValueError("persisted historical differential requires one funding symbol")
+        raise ValueError(
+            "persisted historical differential requires one funding symbol"
+        )
 
     spec = MAINTAINED_BTCUSDT_PERPETUAL
     ledger = CanonicalFundingLedger()

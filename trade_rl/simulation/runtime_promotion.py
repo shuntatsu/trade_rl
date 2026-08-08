@@ -58,7 +58,9 @@ class ExecutionPromotionReport:
             evidence=self.evidence,
         )
         if self.decision != expected_decision:
-            raise ValueError("execution promotion report decision does not match evidence")
+            raise ValueError(
+                "execution promotion report decision does not match evidence"
+            )
         if self.digest != content_digest(self.digest_payload()):
             raise ValueError("execution promotion report digest mismatch")
 

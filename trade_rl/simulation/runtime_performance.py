@@ -249,6 +249,7 @@ class RuntimePerformanceEvidence:
     platform: str
     algorithm: str
     dataset_kind: str
+    source_digest: str
     workloads: tuple[RuntimePerformanceWorkload, ...]
     performance_approved: bool
     approval_policy_digest: str | None
@@ -260,6 +261,7 @@ class RuntimePerformanceEvidence:
         _string(self.platform, field="platform")
         _string(self.algorithm, field="algorithm")
         _string(self.dataset_kind, field="dataset_kind")
+        require_sha256(self.source_digest, field="source_digest")
         if not self.workloads:
             raise ValueError("runtime performance evidence requires workloads")
         timesteps = tuple(workload.timesteps for workload in self.workloads)
@@ -301,6 +303,7 @@ class RuntimePerformanceEvidence:
             "platform": self.platform,
             "runtime_version": self.runtime_version,
             "schema_version": self.schema_version,
+            "source_digest": self.source_digest,
             "timesteps": self.timesteps,
             "workloads": tuple(workload.to_mapping() for workload in self.workloads),
             "worst_elapsed_slowdown_ratio": self.worst_elapsed_slowdown_ratio,
@@ -320,6 +323,7 @@ class RuntimePerformanceEvidence:
             "platform",
             "runtime_version",
             "schema_version",
+            "source_digest",
             "timesteps",
             "workloads",
             "worst_elapsed_slowdown_ratio",
@@ -332,6 +336,7 @@ class RuntimePerformanceEvidence:
             platform=_string(value["platform"], field="platform"),
             algorithm=_string(value["algorithm"], field="algorithm"),
             dataset_kind=_string(value["dataset_kind"], field="dataset_kind"),
+            source_digest=_string(value["source_digest"], field="source_digest"),
             workloads=tuple(
                 RuntimePerformanceWorkload.from_mapping(
                     _mapping(item, field="workloads[]")

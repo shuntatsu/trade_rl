@@ -108,7 +108,7 @@ class NautilusHistoricalStreamingWorker:
     def __enter__(self) -> NautilusHistoricalStreamingWorker:
         return self
 
-    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+    def __exit__(self, _exc_type: object, exc: object, _traceback: object) -> None:
         self.close()
 
     def execute(

@@ -10,7 +10,7 @@ from typing import Any
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.release.selection_authorization import load_selection_proposal
-from trade_rl.serving.bundle import load_serving_bundle
+from trade_rl.serving.bundle import ServingBundleManifest, load_serving_bundle
 from trade_rl.simulation.runtime_promotion import load_execution_promotion_report
 from trade_rl.studio.contracts import (
     PaperInferenceSnapshot,
@@ -95,8 +95,24 @@ def _paper_snapshot(
     )
 
 
-def _runtime_promotion_check(bundle_path: Path, *, run_kind: str) -> ServingCheck:
-    if run_kind != "research_selected_final":
+def _runtime_promotion_check(
+    bundle_path: Path,
+    *,
+    manifest: ServingBundleManifest,
+) -> ServingCheck:
+    proposal_path = bundle_path / "selection-proposal.json"
+    report_path = bundle_path / "runtime-promotion-report.json"
+    proposal_present = proposal_path.is_file()
+    report_present = report_path.is_file()
+
+    if manifest.run_kind != "research_selected_final":
+        if report_present:
+            return ServingCheck(
+                key="runtime_promotion",
+                label="Runtime promotion evidence",
+                status="FAIL",
+                detail="runtime promotion evidence is present without a selected-final proposal",
+            )
         return ServingCheck(
             key="runtime_promotion",
             label="Runtime promotion evidence",
@@ -104,12 +120,40 @@ def _runtime_promotion_check(bundle_path: Path, *, run_kind: str) -> ServingChec
             detail="runtime promotion evidence is not required for this bundle kind",
         )
 
-    proposal_path = bundle_path / "selection-proposal.json"
-    report_path = bundle_path / "runtime-promotion-report.json"
+    if not proposal_present and not report_present:
+        return ServingCheck(
+            key="runtime_promotion",
+            label="Runtime promotion evidence",
+            status="WARN",
+            detail="legacy selected-final bundle has no runtime promotion sidecars",
+        )
+
+    if not proposal_present:
+        return ServingCheck(
+            key="runtime_promotion",
+            label="Runtime promotion evidence",
+            status="FAIL",
+            detail="runtime promotion evidence is present without a selection proposal",
+        )
+
     try:
         proposal = load_selection_proposal(proposal_path)
+        if proposal.digest != manifest.selection_proposal_digest:
+            raise ValueError("selection proposal digest differs from serving bundle")
+        if proposal.dataset_id != manifest.dataset_id:
+            raise ValueError(
+                "selection proposal dataset identity differs from serving bundle"
+            )
+        if proposal.walk_forward_run_digest != manifest.walk_forward_run_digest:
+            raise ValueError(
+                "selection proposal walk-forward identity differs from serving bundle"
+            )
+        if proposal.gate_evidence_digest != manifest.gate_evidence_digest:
+            raise ValueError(
+                "selection proposal gate evidence identity differs from serving bundle"
+            )
+
         expected_digest = proposal.runtime_promotion_report_digest
-        report_present = report_path.is_file()
         if expected_digest is None:
             if report_present:
                 raise ValueError(
@@ -228,7 +272,7 @@ def inspect_serving(settings: StudioSettings) -> ServingMonitorReport:
         )
         runtime_promotion = _runtime_promotion_check(
             bundle_path,
-            run_kind=manifest.run_kind,
+            manifest=manifest,
         )
         checks.append(runtime_promotion)
         paper = None

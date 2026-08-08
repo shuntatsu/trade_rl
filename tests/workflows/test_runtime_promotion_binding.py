@@ -28,7 +28,11 @@ def _report(*, requested: RuntimeMode, allowed: bool):
     )
 
 
-def _proposal(execution_evidence_digest: str) -> SelectionProposal:
+def _proposal(
+    *,
+    execution_evidence_digest: str,
+    runtime_promotion_report_digest: str,
+) -> SelectionProposal:
     return SelectionProposal.create(
         walk_forward_run_digest="1" * 64,
         gate_evidence_digest="2" * 64,
@@ -41,12 +45,16 @@ def _proposal(execution_evidence_digest: str) -> SelectionProposal:
         dependency_digest="6" * 64,
         resume_checkpoint_digests=(),
         execution_evidence_digest=execution_evidence_digest,
+        runtime_promotion_report_digest=runtime_promotion_report_digest,
     )
 
 
 def test_selection_binding_accepts_exact_allowed_promotion_report() -> None:
     report = _report(requested=RuntimeMode.NAUTILUS_AUTHORITATIVE, allowed=True)
-    proposal = _proposal(report.digest)
+    proposal = _proposal(
+        execution_evidence_digest="e" * 64,
+        runtime_promotion_report_digest=report.digest,
+    )
 
     require_selection_execution_promotion(
         proposal=proposal,
@@ -57,7 +65,10 @@ def test_selection_binding_accepts_exact_allowed_promotion_report() -> None:
 
 def test_selection_binding_rejects_denied_promotion_report() -> None:
     report = _report(requested=RuntimeMode.NAUTILUS_AUTHORITATIVE, allowed=False)
-    proposal = _proposal(report.digest)
+    proposal = _proposal(
+        execution_evidence_digest="e" * 64,
+        runtime_promotion_report_digest=report.digest,
+    )
 
     with pytest.raises(ValueError, match="execution promotion is not allowed"):
         require_selection_execution_promotion(
@@ -69,7 +80,10 @@ def test_selection_binding_rejects_denied_promotion_report() -> None:
 
 def test_selection_binding_rejects_wrong_mode_or_digest() -> None:
     dual_shadow = _report(requested=RuntimeMode.DUAL_SHADOW, allowed=True)
-    proposal = _proposal(dual_shadow.digest)
+    proposal = _proposal(
+        execution_evidence_digest="e" * 64,
+        runtime_promotion_report_digest=dual_shadow.digest,
+    )
 
     with pytest.raises(ValueError, match="execution promotion mode mismatch"):
         require_selection_execution_promotion(
@@ -84,7 +98,7 @@ def test_selection_binding_rejects_wrong_mode_or_digest() -> None:
     )
     with pytest.raises(
         ValueError,
-        match="selection proposal execution evidence digest mismatch",
+        match="selection proposal runtime promotion report digest mismatch",
     ):
         require_selection_execution_promotion(
             proposal=proposal,

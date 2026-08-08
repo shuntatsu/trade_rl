@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+from tests.workflows.test_stage_a_nautilus_historical_replay import (
+    _replay_for_market,
+    _single_symbol_market,
+)
 from trade_rl.integrations.nautilus.event_projection import MarketPhase
 from trade_rl.workflows.stage_a_nautilus_historical_replay import (
     StageANautilusHistoricalReplayInterval,
     project_stage_a_nautilus_historical_interval_events,
-)
-
-from tests.workflows.test_stage_a_nautilus_historical_replay import (
-    _replay_for_market,
-    _single_symbol_market,
 )
 
 

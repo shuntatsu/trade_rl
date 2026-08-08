@@ -90,7 +90,10 @@ class NautilusEnvironmentDualShadow:
         self._intervals.clear()
         self._step_count = 0
 
-    def observe(self, request: ExecutionDualShadowRequest) -> ExecutionDualShadowSnapshot:
+    def observe(
+        self,
+        request: ExecutionDualShadowRequest,
+    ) -> ExecutionDualShadowSnapshot:
         if self._initial_capital is None or self._next_start_index is None:
             raise RuntimeError("Nautilus RL dual shadow must be reset before observation")
         if len(request.target) != 1 or len(request.legacy_terminal_quantities) != 1:

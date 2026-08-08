@@ -26,7 +26,9 @@ def test_historical_interval_activates_target_once_after_first_open_quote() -> N
 
     phases = tuple(event.phase for event in events)
     activation_positions = tuple(
-        index for index, phase in enumerate(phases) if phase is MarketPhase.TARGET_ACTIVATION
+        index
+        for index, phase in enumerate(phases)
+        if phase is MarketPhase.TARGET_ACTIVATION
     )
     assert len(activation_positions) == 1
     activation = activation_positions[0]

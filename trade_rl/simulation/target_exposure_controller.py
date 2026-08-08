@@ -122,9 +122,7 @@ class TargetExposureController:
             quantity_increment=float(state.quantity_increment),
         )
         if state.quantity_increment > 0.0:
-            effective_target = (
-                desired * quantity_scale / float(state.allocated_equity)
-            )
+            effective_target = desired * quantity_scale / float(state.allocated_equity)
 
         if state.working_remaining_quantities:
             if math.isclose(

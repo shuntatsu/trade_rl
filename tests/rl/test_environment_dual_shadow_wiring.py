@@ -19,6 +19,7 @@ class _Observer:
 
     def __post_init__(self) -> None:
         self.resets: list[tuple[int, float, tuple[float, ...]]] = []
+        self.close_calls = 0
 
     def reset(
         self,
@@ -39,6 +40,9 @@ class _Observer:
             candidate_terminal_quantities=request.legacy_terminal_quantities,
             legacy_terminal_quantities=request.legacy_terminal_quantities,
         )
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 def _environment(observer: _Observer) -> ExecutionDualShadowResidualMarketEnv:
@@ -75,3 +79,12 @@ def test_environment_identity_includes_dual_shadow_identity() -> None:
     second = _environment(_Observer("b" * 64))
 
     assert first.environment_digest != second.environment_digest
+
+
+def test_environment_close_releases_dual_shadow_runtime() -> None:
+    observer = _Observer("c" * 64)
+    env = _environment(observer)
+
+    env.close()
+
+    assert observer.close_calls == 1

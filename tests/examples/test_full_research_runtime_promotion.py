@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import sys
 from pathlib import Path
 
@@ -143,3 +144,11 @@ def test_full_research_source_binds_and_rechecks_runtime_promotion() -> None:
     assert "runtime_promotion_report_digest=" in state
     assert "_require_retained_runtime_promotion(proposal" in state
     assert 'parser.add_argument("--runtime-promotion-report")' in state
+
+
+def test_finalize_rechecks_signed_runtime_promotion_before_release_approval() -> None:
+    module = _state_module()
+    finalize_source = inspect.getsource(module.BinanceFullResearchStages._finalize)
+
+    assert "load_selection_proposal" in finalize_source
+    assert "_require_retained_runtime_promotion" in finalize_source

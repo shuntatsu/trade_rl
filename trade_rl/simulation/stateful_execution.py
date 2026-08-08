@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Sequence
 import numpy as np
 
 from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
 from trade_rl.simulation.liquidity import SymbolCapacityEvidence
 from trade_rl.simulation.orders import (
     OrderBookState,
@@ -35,6 +36,7 @@ class StatefulExecutionResult:
     bars_advanced: int
     order_events: tuple[OrderEvent, ...]
     capacity_evidence: tuple[SymbolCapacityEvidence, ...]
+    funding_evidence: tuple[FundingBoundaryEvidence, ...]
     interval_cost: float
     interval_funding: float
     interval_borrow_cost: float

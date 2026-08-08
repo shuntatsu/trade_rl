@@ -81,6 +81,7 @@ class SelectionProposal:
     dependency_digest: str
     resume_checkpoint_digests: tuple[tuple[int, str], ...]
     execution_evidence_digest: str | None = None
+    runtime_promotion_report_digest: str | None = None
     schema_version: str = SELECTION_PROPOSAL_SCHEMA
 
     def __post_init__(self) -> None:
@@ -98,6 +99,11 @@ class SelectionProposal:
             require_sha256(
                 self.execution_evidence_digest,
                 field="execution_evidence_digest",
+            )
+        if self.runtime_promotion_report_digest is not None:
+            require_sha256(
+                self.runtime_promotion_report_digest,
+                field="runtime_promotion_report_digest",
             )
         require_git_sha(self.git_commit)
         object.__setattr__(
@@ -135,6 +141,10 @@ class SelectionProposal:
         }
         if self.execution_evidence_digest is not None:
             payload["execution_evidence_digest"] = self.execution_evidence_digest
+        if self.runtime_promotion_report_digest is not None:
+            payload["runtime_promotion_report_digest"] = (
+                self.runtime_promotion_report_digest
+            )
         return payload
 
     def require_execution_evidence_digest(self, evidence_digest: str) -> None:
@@ -145,6 +155,19 @@ class SelectionProposal:
             raise ValueError("selection proposal lacks execution evidence identity")
         if self.execution_evidence_digest != evidence_digest:
             raise ValueError("selection proposal execution evidence digest mismatch")
+
+    def require_runtime_promotion_report_digest(self, report_digest: str) -> None:
+        """Require runtime-promotion evidence to match the signed proposal exactly."""
+
+        require_sha256(report_digest, field="runtime_promotion_report_digest")
+        if self.runtime_promotion_report_digest is None:
+            raise ValueError(
+                "selection proposal lacks runtime promotion report identity"
+            )
+        if self.runtime_promotion_report_digest != report_digest:
+            raise ValueError(
+                "selection proposal runtime promotion report digest mismatch"
+            )
 
     @classmethod
     def create(
@@ -161,6 +184,7 @@ class SelectionProposal:
         dependency_digest: str,
         resume_checkpoint_digests: tuple[tuple[int, str], ...],
         execution_evidence_digest: str | None = None,
+        runtime_promotion_report_digest: str | None = None,
     ) -> SelectionProposal:
         resolved_seeds = _seeds(seeds)
         resolved_resume = _resume_digests(resume_checkpoint_digests)
@@ -168,6 +192,11 @@ class SelectionProposal:
             require_sha256(
                 execution_evidence_digest,
                 field="execution_evidence_digest",
+            )
+        if runtime_promotion_report_digest is not None:
+            require_sha256(
+                runtime_promotion_report_digest,
+                field="runtime_promotion_report_digest",
             )
         payload = {
             "candidate_config_digest": candidate_config_digest,
@@ -184,6 +213,8 @@ class SelectionProposal:
         }
         if execution_evidence_digest is not None:
             payload["execution_evidence_digest"] = execution_evidence_digest
+        if runtime_promotion_report_digest is not None:
+            payload["runtime_promotion_report_digest"] = runtime_promotion_report_digest
         return cls(
             digest=content_digest(payload),
             walk_forward_run_digest=walk_forward_run_digest,
@@ -197,6 +228,7 @@ class SelectionProposal:
             dependency_digest=dependency_digest,
             resume_checkpoint_digests=resolved_resume,
             execution_evidence_digest=execution_evidence_digest,
+            runtime_promotion_report_digest=runtime_promotion_report_digest,
             schema_version=SELECTION_PROPOSAL_SCHEMA,
         )
 
@@ -204,6 +236,8 @@ class SelectionProposal:
         payload = asdict(self)
         if self.execution_evidence_digest is None:
             payload.pop("execution_evidence_digest")
+        if self.runtime_promotion_report_digest is None:
+            payload.pop("runtime_promotion_report_digest")
         return payload
 
     @classmethod
@@ -229,6 +263,10 @@ class SelectionProposal:
                 execution_evidence_digest=_optional_string(
                     raw,
                     "execution_evidence_digest",
+                ),
+                runtime_promotion_report_digest=_optional_string(
+                    raw,
+                    "runtime_promotion_report_digest",
                 ),
                 schema_version=_string(raw, "schema_version"),
             )

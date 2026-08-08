@@ -1,0 +1,190 @@
+name: Nautilus Capability
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+      - "trade_rl/integrations/nautilus/**"
+      - "trade_rl/workflows/stage_a_historical_interval_evidence.py"
+      - "trade_rl/workflows/stage_a_nautilus_historical_replay.py"
+      - "trade_rl/workflows/stage_a_nautilus_historical_differential.py"
+      - "trade_rl/workflows/stage_a_nautilus_economic_comparison.py"
+      - "trade_rl/rl/environment_execution.py"
+      - "trade_rl/rl/environment_runtime_services.py"
+      - "trade_rl/rl/environment.py"
+      - "trade_rl/rl/dual_shadow_environment.py"
+      - "trade_rl/simulation/execution.py"
+      - "trade_rl/simulation/execution_canonicalization.py"
+      - "trade_rl/simulation/execution_parity.py"
+      - "trade_rl/simulation/legacy_execution_probe.py"
+      - "trade_rl/simulation/legacy_trace_adapter.py"
+      - "trade_rl/simulation/runtime_performance.py"
+      - "tests/fixtures/nautilus/**"
+      - "tests/integrations/test_nautilus_*.py"
+      - "tests/workflows/test_stage_a_nautilus_historical_*.py"
+      - "tests/rl/test_environment_execution_dual_shadow.py"
+      - "tests/rl/test_environment_dual_shadow_wiring.py"
+      - "tests/simulation/test_funding_mark_price.py"
+      - "tests/simulation/test_runtime_performance.py"
+      - "tools/nautilus_execution_probe_digest.py"
+      - "tools/nautilus_training_throughput_benchmark.py"
+      - ".github/workflows/nautilus-capability.yml"
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+      - "trade_rl/integrations/nautilus/**"
+      - "trade_rl/workflows/stage_a_historical_interval_evidence.py"
+      - "trade_rl/workflows/stage_a_nautilus_historical_replay.py"
+      - "trade_rl/workflows/stage_a_nautilus_historical_differential.py"
+      - "trade_rl/workflows/stage_a_nautilus_economic_comparison.py"
+      - "trade_rl/rl/environment_execution.py"
+      - "trade_rl/rl/environment_runtime_services.py"
+      - "trade_rl/rl/environment.py"
+      - "trade_rl/rl/dual_shadow_environment.py"
+      - "trade_rl/simulation/execution.py"
+      - "trade_rl/simulation/execution_canonicalization.py"
+      - "trade_rl/simulation/execution_parity.py"
+      - "trade_rl/simulation/legacy_execution_probe.py"
+      - "trade_rl/simulation/legacy_trace_adapter.py"
+      - "trade_rl/simulation/runtime_performance.py"
+      - "tests/fixtures/nautilus/**"
+      - "tests/integrations/test_nautilus_*.py"
+      - "tests/workflows/test_stage_a_nautilus_historical_*.py"
+      - "tests/rl/test_environment_execution_dual_shadow.py"
+      - "tests/rl/test_environment_dual_shadow_wiring.py"
+      - "tests/simulation/test_funding_mark_price.py"
+      - "tests/simulation/test_runtime_performance.py"
+      - "tools/nautilus_execution_probe_digest.py"
+      - "tools/nautilus_training_throughput_benchmark.py"
+      - ".github/workflows/nautilus-capability.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  capability:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install exact Nautilus and training runtimes
+        run: uv sync --extra dev --extra nautilus --extra train-sb3 --frozen
+      - name: Record runtime identity
+        run: |
+          uv run python - <<'PY'
+          import importlib.metadata
+          import platform
+          import sys
+
+          version = importlib.metadata.version("nautilus_trader")
+          assert version == "1.230.0", version
+          print(f"nautilus_trader={version}")
+          print(f"python={platform.python_version()}")
+          print(f"platform={sys.platform}-{platform.machine().lower()}")
+          PY
+      - name: Exercise import-safe Nautilus adapters
+        run: |
+          uv run pytest -q -m nautilus \
+            tests/integrations/test_nautilus_instrument.py \
+            tests/integrations/test_nautilus_quote_projection.py \
+            tests/integrations/test_nautilus_derivative_data.py \
+            tests/integrations/test_nautilus_order_adapter.py
+      - name: Probe BacktestEngine in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_capability.py
+      - name: Replay projected quotes in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_quote_replay.py
+      - name: Exercise order lifecycle in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
+      - name: Probe streaming execution state across batches
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_streaming_execution.py
+      - name: Prove persistent streaming worker parity
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_streaming_worker.py
+      - name: Exercise partial-fill stale-cancel lifecycle in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_partial_fill_cancel.py
+      - name: Lock Binance funding reference to mark-price notional
+        run: uv run pytest -q tests/simulation/test_funding_mark_price.py
+      - name: Exercise canonical funding evidence and lock native limitation
+        run: |
+          uv run pytest -q \
+            tests/integrations/test_nautilus_funding_adapter.py \
+            tests/integrations/test_nautilus_funding_settlement.py
+      - name: Bind factual Stage A historical replay intervals
+        run: |
+          uv run pytest -q \
+            tests/workflows/test_stage_a_nautilus_historical_replay.py \
+            tests/workflows/test_stage_a_nautilus_historical_timeline.py \
+            tests/workflows/test_stage_a_nautilus_historical_differential.py
+      - name: Record execution accounting in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
+      - name: Replay historical targets in isolated process
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_historical_execution.py
+      - name: Replay representative real BTCUSDT windows in fresh children
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_real_market_windows.py
+      - name: Execute factual Stage A historical replay in isolated process
+        run: uv run pytest -q -m nautilus tests/workflows/test_stage_a_nautilus_historical_execution.py
+      - name: Exercise RL dual-shadow observer contract
+        run: |
+          uv run pytest -q \
+            tests/rl/test_environment_execution_dual_shadow.py \
+            tests/rl/test_environment_dual_shadow_wiring.py
+      - name: Stream RL dual-shadow through one episode child
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_rl_dual_shadow.py
+      - name: Run three-step PPO and Lagrangian smokes on dual-shadow runtime
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_training_smoke.py
+      - name: Record isolated legacy versus streaming throughput and memory
+        run: |
+          uv run python tools/nautilus_training_throughput_benchmark.py \
+            --timesteps 8 \
+            --timesteps 32 \
+            --output nautilus-training-throughput.json
+      - name: Upload training throughput evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nautilus-training-throughput
+          path: nautilus-training-throughput.json
+          if-no-files-found: ignore
+      - name: Compare flat legacy and Nautilus conformance in isolated process
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q -m nautilus tests/integrations/test_nautilus_dual_shadow.py 2>&1 | tee nautilus-dual-shadow.log
+      - name: Compare safe sign reversal in isolated process
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q -m nautilus tests/integrations/test_nautilus_sign_flip_conformance.py 2>&1 | tee -a nautilus-dual-shadow.log
+      - name: Compare same-side target changes in isolated process
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q -m nautilus tests/integrations/test_nautilus_target_change_conformance.py 2>&1 | tee -a nautilus-dual-shadow.log
+      - name: Upload dual-shadow diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nautilus-dual-shadow-diagnostics
+          path: nautilus-dual-shadow.log
+          if-no-files-found: ignore
+      - name: Verify deterministic execution digest across fresh processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          first="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
+          second="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
+          third="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
+          test "$first" = "$second"
+          test "$second" = "$third"
+          test "${#first}" -eq 64
+          printf 'execution_digest=%s\n' "$first"

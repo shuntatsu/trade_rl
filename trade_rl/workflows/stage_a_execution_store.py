@@ -25,6 +25,7 @@ from trade_rl.workflows.stage_a_zero_shot_runner_contracts import (
 STAGE_A_EXECUTION_REQUEST_INDEX_SCHEMA: Final = "stage_a_execution_request_index_v1"
 _EVENT_SUFFIX: Final = ".order-events.json"
 _EVIDENCE_SUFFIX: Final = ".execution-evidence.json"
+_FUNDING_SUFFIX: Final = ".funding-evidence.json"
 _CELL_SUFFIX: Final = ".stage-a-cell.json"
 
 
@@ -93,6 +94,7 @@ class StoredStageAExecutionReplay:
     event_path: Path
     evidence_path: Path
     index_path: Path
+    funding_path: Path | None = None
 
     def __post_init__(self) -> None:
         root = Path(self.root)
@@ -110,6 +112,12 @@ class StoredStageAExecutionReplay:
             / "evidence"
             / f"{self.artifact.execution_evidence_digest}{_EVIDENCE_SUFFIX}"
         )
+        funding_digest = self.artifact.funding_evidence_digest
+        expected_funding = (
+            None
+            if funding_digest is None
+            else root / "funding" / f"{funding_digest}{_FUNDING_SUFFIX}"
+        )
         expected_index = (
             root / "by-request" / f"{self.artifact.cell_identity.request_digest}.json"
         )
@@ -119,12 +127,18 @@ class StoredStageAExecutionReplay:
             raise ValueError("Stage A execution event path is not canonical")
         if Path(self.evidence_path) != expected_evidence:
             raise ValueError("Stage A execution evidence path is not canonical")
+        if expected_funding is None:
+            if self.funding_path is not None:
+                raise ValueError("Stage A funding evidence path must be absent")
+        elif self.funding_path is None or Path(self.funding_path) != expected_funding:
+            raise ValueError("Stage A funding evidence path is not canonical")
         if Path(self.index_path) != expected_index:
             raise ValueError("Stage A execution request index path is not canonical")
         object.__setattr__(self, "root", root)
         object.__setattr__(self, "artifact_path", expected_artifact)
         object.__setattr__(self, "event_path", expected_event)
         object.__setattr__(self, "evidence_path", expected_evidence)
+        object.__setattr__(self, "funding_path", expected_funding)
         object.__setattr__(self, "index_path", expected_index)
 
 
@@ -152,6 +166,12 @@ class StageAExecutionPromotionStore:
         index_path = self.root / "by-request" / f"{request_digest}.json"
         return artifact_path, event_path, evidence_path, index_path
 
+    def _funding_path(self, artifact: StageAExecutionReplayArtifact) -> Path | None:
+        digest = artifact.funding_evidence_digest
+        if digest is None:
+            return None
+        return self.root / "funding" / f"{digest}{_FUNDING_SUFFIX}"
+
     @staticmethod
     def _index_bytes(
         *, request_digest: str, artifact: StageAExecutionReplayArtifact, root: Path
@@ -177,8 +197,10 @@ class StageAExecutionPromotionStore:
         actions: tuple[tuple[float, ...], ...],
         observation_digests: tuple[str, ...],
         equity_curve: tuple[float, ...],
+        transition_end_indices: tuple[int, ...] | None = None,
         event_artifact_path: str | Path,
         execution_evidence_path: str | Path,
+        funding_evidence_path: str | Path | None = None,
     ) -> StoredStageAExecutionReplay:
         """Publish one request exactly once, accepting only identical retries."""
 
@@ -189,16 +211,27 @@ class StageAExecutionPromotionStore:
             Path(execution_evidence_path),
             field="Stage A source execution evidence artifact",
         )
+        funding_bytes = (
+            None
+            if funding_evidence_path is None
+            else _read_regular_bytes(
+                Path(funding_evidence_path),
+                field="Stage A source funding evidence artifact",
+            )
+        )
         artifact = build_stage_a_execution_replay_artifact(
             request=request,
             candidate_config_digest=candidate_config_digest,
             actions=actions,
             observation_digests=observation_digests,
             equity_curve=equity_curve,
+            transition_end_indices=transition_end_indices,
             event_artifact_bytes=event_bytes,
             execution_evidence_bytes=evidence_bytes,
+            funding_evidence_bytes=funding_bytes,
         )
         artifact_path, event_path, evidence_path, index_path = self._paths(artifact)
+        funding_path = self._funding_path(artifact)
         index_bytes = self._index_bytes(
             request_digest=request.digest, artifact=artifact, root=self.root
         )
@@ -222,6 +255,14 @@ class StageAExecutionPromotionStore:
             evidence_bytes,
             field="Stage A execution evidence artifact",
         )
+        if funding_path is not None:
+            if funding_bytes is None:  # pragma: no cover - replay v3 enforces closure
+                raise RuntimeError("Stage A replay funding evidence bytes are missing")
+            _write_idempotent(
+                funding_path,
+                funding_bytes,
+                field="Stage A funding evidence artifact",
+            )
         _write_idempotent(
             artifact_path,
             artifact.raw_bytes,
@@ -297,6 +338,7 @@ class StageAExecutionPromotionStore:
             raise ValueError("Stage A execution replay request identity mismatch")
 
         _, event_path, evidence_path, canonical_index = self._paths(artifact)
+        funding_path = self._funding_path(artifact)
         if canonical_index != index_path:
             raise ValueError("Stage A execution request index path mismatch")
         event_bytes = _read_regular_bytes(
@@ -316,10 +358,27 @@ class StageAExecutionPromotionStore:
             != artifact.execution_evidence_sha256
         ):
             raise ValueError("Stage A execution evidence artifact digest mismatch")
+
+        funding_bytes: bytes | None = None
+        if funding_path is not None:
+            funding_bytes = _read_regular_bytes(
+                funding_path, field="Stage A funding evidence artifact"
+            )
+            funding_size = artifact.funding_evidence_size_bytes
+            funding_sha256 = artifact.funding_evidence_sha256
+            if funding_size is None or funding_sha256 is None:
+                raise ValueError("Stage A funding evidence identity is incomplete")
+            if (
+                len(funding_bytes) != funding_size
+                or hashlib.sha256(funding_bytes).hexdigest() != funding_sha256
+            ):
+                raise ValueError("Stage A funding evidence artifact digest mismatch")
+
         validate_stage_a_execution_replay_sources(
             artifact,
             event_artifact_bytes=event_bytes,
             execution_evidence_bytes=evidence_bytes,
+            funding_evidence_bytes=funding_bytes,
         )
         return StoredStageAExecutionReplay(
             root=self.root,
@@ -328,6 +387,7 @@ class StageAExecutionPromotionStore:
             event_path=event_path,
             evidence_path=evidence_path,
             index_path=index_path,
+            funding_path=funding_path,
         )
 
 

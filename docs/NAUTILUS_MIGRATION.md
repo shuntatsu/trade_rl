@@ -31,6 +31,8 @@ Current migration slices cover:
 - exact canonical fill/economic closure and integer-valued execution trace types;
 - canonical funding settlement records with exact tick/lot identity, integer funding minor units, preserved signed position lots, and post-settlement equity evidence;
 - Binance USDⓈ-M funding reference accounting based on signed position notional at the funding-boundary mark price, including contract multipliers, rather than pre-mark/open-price portfolio weights;
+- Stage A replay-v4 historical interval evidence binding each factual action and before/after equity observation to its exact consumed `(start, end]` source bars and non-overlapping funding boundaries, without synthesizing fill-level equity;
+- causal historical interval timelines where the queued Stage A target activates exactly once after the first consumed open quote, while adjacent bar close/open timestamps may share the same physical boundary;
 - legacy-versus-Nautilus dual-shadow conformance for Flat → Long → Flat, safe Flat → Long → Flat → Short → Flat sign reversal, and same-side target increases/reductions to Flat;
 - fresh-process deterministic execution digests.
 
@@ -68,7 +70,7 @@ Passing capability or conformance fixtures does not automatically change the run
 
 ## Remaining work before authority promotion
 
-- integrate canonical funding records into complete historical interval replay/equity traces and downstream promotion evidence;
+- execute the factual Stage A historical intervals through the pinned Nautilus `BacktestEngine`, canonicalize their fill/funding/equity output, and persist the complete historical replay trace for downstream promotion evidence;
 - extend conformance beyond the maintained flat, safe sign-reversal, same-side target-change, and partial-fill stale-cancel fixtures to funding within full replay and terminal settlement;
 - run differential dual-shadow replay on representative maintained historical windows;
 - add the subprocess execution runtime used by RL environments;

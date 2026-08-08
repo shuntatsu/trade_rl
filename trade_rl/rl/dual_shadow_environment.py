@@ -57,5 +57,13 @@ class ExecutionDualShadowResidualMarketEnv(ResidualMarketEnv):
         )
         return observation, info
 
+    def close(self) -> None:
+        """Release candidate execution resources before closing the base environment."""
+
+        try:
+            self._execution_dual_shadow.close()
+        finally:
+            super().close()
+
 
 __all__ = ["ExecutionDualShadowResidualMarketEnv"]

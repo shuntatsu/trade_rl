@@ -59,7 +59,11 @@ def test_run_and_persist_representative_evidence_uses_all_quantiles_in_order(
         calls.append(quantile)
         return _window(quantile)
 
-    monkeypatch.setattr(runner, "run_representative_nautilus_window", fake_window_runner)
+    monkeypatch.setattr(
+        runner,
+        "run_representative_nautilus_window",
+        fake_window_runner,
+    )
     output_path = tmp_path / "representative-evidence.json"
 
     evidence = runner.run_and_persist_representative_nautilus_evidence(
@@ -87,7 +91,11 @@ def test_run_and_persist_representative_evidence_rejects_missing_window_before_r
         called = True
         return _window(float(kwargs["time_quantile"]))
 
-    monkeypatch.setattr(runner, "run_representative_nautilus_window", fake_window_runner)
+    monkeypatch.setattr(
+        runner,
+        "run_representative_nautilus_window",
+        fake_window_runner,
+    )
 
     with pytest.raises(ValueError, match="exactly the 0.1, 0.5, and 0.9 windows"):
         runner.run_and_persist_representative_nautilus_evidence(

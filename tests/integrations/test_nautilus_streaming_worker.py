@@ -147,7 +147,9 @@ def test_streaming_worker_matches_full_prefix_execution_in_one_child(
 
 
 @pytest.mark.nautilus
-def test_close_tolerates_transport_reset_after_child_failure_and_is_idempotent() -> None:
+def test_close_tolerates_transport_reset_after_child_failure_and_is_idempotent() -> (
+    None
+):
     process = _FakeProcess()
     connection = _ResetConnection()
     worker = _uninitialized_worker(process=process, connection=connection)

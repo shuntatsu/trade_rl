@@ -26,6 +26,7 @@ on:
       - "tests/rl/test_environment_dual_shadow_wiring.py"
       - "tests/simulation/test_funding_mark_price.py"
       - "tools/nautilus_execution_probe_digest.py"
+      - "tools/nautilus_training_throughput_benchmark.py"
       - ".github/workflows/nautilus-capability.yml"
   push:
     branches: [main]
@@ -52,6 +53,7 @@ on:
       - "tests/rl/test_environment_dual_shadow_wiring.py"
       - "tests/simulation/test_funding_mark_price.py"
       - "tools/nautilus_execution_probe_digest.py"
+      - "tools/nautilus_training_throughput_benchmark.py"
       - ".github/workflows/nautilus-capability.yml"
 
 permissions:
@@ -128,10 +130,22 @@ jobs:
           uv run pytest -q \
             tests/rl/test_environment_execution_dual_shadow.py \
             tests/rl/test_environment_dual_shadow_wiring.py
-      - name: Replay RL dual-shadow prefixes through fresh children
+      - name: Stream RL dual-shadow through one episode child
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_rl_dual_shadow.py
       - name: Run three-step PPO and Lagrangian smokes on dual-shadow runtime
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_training_smoke.py
+      - name: Record legacy versus streaming training throughput
+        run: |
+          uv run python tools/nautilus_training_throughput_benchmark.py \
+            --timesteps 8 \
+            --output nautilus-training-throughput.json
+      - name: Upload training throughput evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nautilus-training-throughput
+          path: nautilus-training-throughput.json
+          if-no-files-found: ignore
       - name: Compare flat legacy and Nautilus conformance in isolated process
         shell: bash
         run: |

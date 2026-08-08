@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import tempfile
-from dataclasses import replace
 from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
 
@@ -25,7 +24,8 @@ from trade_rl.simulation.execution_replay import (
     write_execution_event_artifact,
 )
 from trade_rl.simulation.funding_evidence import build_funding_evidence_artifact
-from trade_rl.simulation.orders import OrderBookState, OrderEvent
+from trade_rl.simulation.order_event_batches import merge_order_event_batches
+from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.target_execution import execute_target_statefully
 from trade_rl.workflows.stage_a_execution_store import StageAExecutionPromotionStore
 from trade_rl.workflows.stage_a_nautilus_economic_comparison import (
@@ -108,7 +108,9 @@ def run_representative_nautilus_window(
         _decision_boundary_digest(market, index=index)
         for index in (0, *transition_end_indices)
     )
-    order_events = _normalize_order_events((*first.order_events, *second.order_events))
+    order_events = merge_order_event_batches(
+        (first.order_events, second.order_events)
+    )
     funding_boundaries = (*first.funding_evidence, *second.funding_evidence)
 
     with tempfile.TemporaryDirectory(
@@ -283,10 +285,6 @@ def _decision_boundary_digest(market: MarketDataset, *, index: int) -> str:
             "timestamp_ns": int(market.timestamps[index].astype(np.int64)),
         }
     )
-
-
-def _normalize_order_events(events: tuple[OrderEvent, ...]) -> tuple[OrderEvent, ...]:
-    return tuple(replace(event, sequence=sequence) for sequence, event in enumerate(events))
 
 
 def _minor_units(value: float) -> int:

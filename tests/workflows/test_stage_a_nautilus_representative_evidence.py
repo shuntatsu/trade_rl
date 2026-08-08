@@ -95,13 +95,16 @@ def test_representative_evidence_fails_closed_on_one_window_mismatch() -> None:
 
 
 def test_representative_evidence_rejects_wrong_quantiles_and_identity_drift() -> None:
+    with pytest.raises(ValueError, match="unsupported representative time quantile"):
+        _window(0.4, "4" * 64)
+
     with pytest.raises(ValueError, match="representative time quantiles"):
         build_representative_nautilus_evidence(
             source_digest="a" * 64,
             windows=(
                 _window(0.1, "1" * 64),
-                _window(0.4, "2" * 64),
-                _window(0.9, "3" * 64),
+                _window(0.9, "2" * 64),
+                _window(0.5, "3" * 64),
             ),
         )
 

@@ -52,7 +52,9 @@ def _window(time_quantile: float, replay_digest: str):
     )
 
 
-def test_representative_evidence_round_trips_and_requires_all_three_windows(tmp_path) -> None:
+def test_representative_evidence_round_trips_and_requires_all_three_windows(
+    tmp_path,
+) -> None:
     evidence = build_representative_nautilus_evidence(
         source_digest="a" * 64,
         windows=(

@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.simulation.runtime_performance import (
     RuntimePerformanceEvidence,
     RuntimePerformanceMeasurement,
@@ -24,11 +25,16 @@ from trade_rl.simulation.runtime_performance import (
 _RUNTIME_VERSION = "1.230.0"
 _DEFAULT_TIMESTEPS = (8, 32)
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+_BENCHMARK_SOURCE_SCHEMA = "nautilus_training_performance_source_v1"
 _WorkerMode = Literal["legacy", "streaming"]
 
 
 def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:
-    raw = (value,) if isinstance(value, int) and not isinstance(value, bool) else tuple(value)
+    raw = (
+        (value,)
+        if isinstance(value, int) and not isinstance(value, bool)
+        else tuple(value)
+    )
     if not raw:
         raise ValueError("benchmark requires at least one timestep workload")
     if any(isinstance(item, bool) or not isinstance(item, int) for item in raw):
@@ -39,12 +45,64 @@ def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:
     return normalized
 
 
+def _benchmark_source_digest(workloads: tuple[int, ...]) -> str:
+    """Bind measurements to the exact deterministic benchmark workload contract."""
+
+    return content_digest(
+        {
+            "algorithm": "ppo",
+            "dataset": {
+                "close_end": 101.0,
+                "close_start": 100.0,
+                "dataset_id": "7" * 64,
+                "feature_names": ("ret",),
+                "global_feature_names": ("regime",),
+                "interval": "1h",
+                "n_bars_rule": "max(80,timesteps+32)",
+                "periods_per_year": 8_760,
+                "quote_volume": 1_000_000.0,
+                "start": "2026-01-01T00:00:00",
+                "symbol": "BTCUSDT",
+            },
+            "dataset_kind": "deterministic_synthetic_btcusdt",
+            "environment": {
+                "decision_every": 1,
+                "episode_bars": "timesteps",
+                "execution_cost": "zero",
+                "initial_capital": 1_000.0,
+                "initial_state_modes": ("cash",),
+                "no_trade_band": 0.0,
+                "target_weight_count": 1,
+                "trend_lookbacks": (2, 4, 8),
+            },
+            "schema_version": _BENCHMARK_SOURCE_SCHEMA,
+            "training": {
+                "batch_size": "timesteps",
+                "device": "cpu",
+                "gamma": 0.99,
+                "n_envs": 1,
+                "n_epochs": 1,
+                "n_steps": "timesteps",
+                "observation_encoder": "flat_mlp",
+                "policy_net_arch": (16, 8),
+                "seeds": (0,),
+                "value_net_arch": (16, 8),
+            },
+            "workloads": workloads,
+        }
+    )
+
+
 def _linux_status(pid: int) -> tuple[int, int] | None:
     try:
-        lines = (Path("/proc") / str(pid) / "status").read_text(
-            encoding="utf-8",
-            errors="replace",
-        ).splitlines()
+        lines = (
+            (Path("/proc") / str(pid) / "status")
+            .read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+            .splitlines()
+        )
     except (FileNotFoundError, PermissionError, ProcessLookupError):
         return None
     parent_pid: int | None = None
@@ -127,7 +185,9 @@ def _run_worker_subprocess(
     try:
         payload = json.loads(measurement_path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError) as error:
-        raise RuntimeError(f"{mode} benchmark worker did not emit valid evidence") from error
+        raise RuntimeError(
+            f"{mode} benchmark worker did not emit valid evidence"
+        ) from error
     if not isinstance(payload, dict):
         raise RuntimeError(f"{mode} benchmark worker evidence must be an object")
     expected = {
@@ -160,7 +220,9 @@ def _run_worker_subprocess(
 def run_benchmark(*, timesteps: int | Sequence[int]) -> dict[str, Any]:
     workloads = _normalize_timesteps(timesteps)
     if not sys.platform.startswith("linux") or not Path("/proc").is_dir():
-        raise RuntimeError("benchmark process-tree RSS measurement requires Linux /proc")
+        raise RuntimeError(
+            "benchmark process-tree RSS measurement requires Linux /proc"
+        )
     runtime_version = importlib.metadata.version("nautilus_trader")
     if runtime_version != _RUNTIME_VERSION:
         raise RuntimeError(
@@ -195,6 +257,7 @@ def run_benchmark(*, timesteps: int | Sequence[int]) -> dict[str, Any]:
         platform=f"{sys.platform}-{platform.machine().lower()}",
         algorithm="ppo",
         dataset_kind="deterministic_synthetic_btcusdt",
+        source_digest=_benchmark_source_digest(workloads),
         workloads=tuple(paired),
         performance_approved=False,
         approval_policy_digest=None,
@@ -343,7 +406,11 @@ def _worker_training_measurement(
 
 
 def _run_worker_from_args(args: argparse.Namespace) -> None:
-    if args.worker_mode is None or args.worker_timesteps is None or args.worker_output is None:
+    if (
+        args.worker_mode is None
+        or args.worker_timesteps is None
+        or args.worker_output is None
+    ):
         raise SystemExit("worker mode requires --worker-timesteps and --worker-output")
     measurement = _worker_training_measurement(
         mode=args.worker_mode,

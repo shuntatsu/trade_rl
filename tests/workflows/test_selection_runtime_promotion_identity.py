@@ -45,7 +45,9 @@ def _proposal(*, execution_digest: str, runtime_digest: str) -> SelectionProposa
     )
 
 
-def test_selection_proposal_keeps_execution_and_runtime_promotion_evidence_distinct() -> None:
+def test_selection_proposal_keeps_execution_and_runtime_promotion_evidence_distinct() -> (
+    None
+):
     report = _allowed_report()
     execution_digest = "e" * 64
     proposal = _proposal(

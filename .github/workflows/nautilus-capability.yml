@@ -98,6 +98,8 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_quote_replay.py
       - name: Exercise order lifecycle in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
+      - name: Probe streaming execution state across batches
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_streaming_execution.py
       - name: Exercise partial-fill stale-cancel lifecycle in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_partial_fill_cancel.py
       - name: Lock Binance funding reference to mark-price notional

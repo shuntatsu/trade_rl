@@ -66,6 +66,7 @@ def _evidence() -> RuntimePerformanceEvidence:
         platform="linux-x86_64",
         algorithm="ppo",
         dataset_kind="deterministic_synthetic_btcusdt",
+        source_digest="a" * 64,
         workloads=(
             _workload(
                 timesteps=8,

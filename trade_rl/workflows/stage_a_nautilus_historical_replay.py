@@ -36,6 +36,7 @@ from trade_rl.workflows.stage_a_historical_interval_evidence import (
 )
 
 _SETTLEMENT_CURRENCY_PRECISION = 8
+_FUNDING_REFERENCE_PRICE_INCREMENT = Decimal("0.00000001")
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,7 +173,7 @@ def execute_stage_a_nautilus_historical_replay(
         record = canonicalize_funding_settlement_record(
             settlement,
             sequence=sequence,
-            price_tick=Decimal(spec.price_increment),
+            price_tick=_FUNDING_REFERENCE_PRICE_INCREMENT,
             lot_size=Decimal(spec.size_increment),
             equity_before_minor=_currency_minor_units(
                 boundary.equity_before_funding,

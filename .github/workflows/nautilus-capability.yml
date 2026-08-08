@@ -100,6 +100,8 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
       - name: Replay historical targets in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_historical_execution.py
+      - name: Execute factual Stage A historical replay in isolated process
+        run: uv run pytest -q -m nautilus tests/workflows/test_stage_a_nautilus_historical_execution.py
       - name: Compare flat legacy and Nautilus conformance in isolated process
         shell: bash
         run: |

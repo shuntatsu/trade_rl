@@ -9,8 +9,8 @@ from typing import Any
 
 from trade_rl.integrations.nautilus.event_projection import (
     MarketPhase,
-    project_bar_events,
     SourceBar,
+    project_bar_events,
 )
 from trade_rl.integrations.nautilus.instrument import build_maintained_btcusdt_perpetual
 from trade_rl.integrations.nautilus.order_adapter import submit_target_exposure_plan

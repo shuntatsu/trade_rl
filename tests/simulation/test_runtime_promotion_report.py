@@ -2,6 +2,7 @@ import pytest
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.release.selection_authorization import SelectionProposal
+from trade_rl.simulation import runtime_promotion
 from trade_rl.simulation.runtime_promotion import (
     EXECUTION_PROMOTION_REPORT_SCHEMA,
     ExecutionPromotionEvidence,
@@ -83,7 +84,6 @@ def test_promotion_report_round_trips_mapping_and_rejects_tampering() -> None:
         evidence=_evidence(performance_approved=False),
     )
 
-    assert hasattr(ExecutionPromotionReport, "from_mapping")
     loaded = ExecutionPromotionReport.from_mapping(report.to_mapping())
     assert loaded == report
 
@@ -91,6 +91,29 @@ def test_promotion_report_round_trips_mapping_and_rejects_tampering() -> None:
     tampered["allowed"] = True
     with pytest.raises(ValueError, match="promotion report is invalid"):
         ExecutionPromotionReport.from_mapping(tampered)
+
+
+def test_promotion_report_persists_immutably(tmp_path) -> None:
+    report = build_execution_promotion_report(
+        requested=RuntimeMode.NAUTILUS_AUTHORITATIVE,
+        evidence=_evidence(performance_approved=False),
+    )
+    path = tmp_path / "execution-promotion.json"
+
+    assert hasattr(runtime_promotion, "write_execution_promotion_report")
+    assert hasattr(runtime_promotion, "load_execution_promotion_report")
+    runtime_promotion.write_execution_promotion_report(path, report)
+    assert runtime_promotion.load_execution_promotion_report(path) == report
+
+    same_path = runtime_promotion.write_execution_promotion_report(path, report)
+    assert same_path == path
+
+    different = build_execution_promotion_report(
+        requested=RuntimeMode.DUAL_SHADOW,
+        evidence=_evidence(performance_approved=False),
+    )
+    with pytest.raises(FileExistsError, match="refusing to overwrite immutable evidence"):
+        runtime_promotion.write_execution_promotion_report(path, different)
 
 
 def test_selection_proposal_binds_exact_promotion_report_digest() -> None:

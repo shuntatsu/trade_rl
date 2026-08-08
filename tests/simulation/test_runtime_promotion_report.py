@@ -1,7 +1,13 @@
+import pytest
+
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.release.selection_authorization import SelectionProposal
 from trade_rl.simulation.runtime_promotion import (
+    EXECUTION_PROMOTION_REPORT_SCHEMA,
     ExecutionPromotionEvidence,
+    ExecutionPromotionReport,
     RuntimeMode,
+    RuntimePromotionDecision,
     build_execution_promotion_report,
 )
 
@@ -37,6 +43,38 @@ def test_promotion_report_is_deterministic_and_fail_closed() -> None:
     )
     assert first.to_mapping()["requested_mode"] == "nautilus_authoritative"
     assert first.to_mapping()["allowed"] is False
+
+
+def test_promotion_report_rejects_decision_inconsistent_with_evidence() -> None:
+    evidence = _evidence(performance_approved=False)
+    forged_decision = RuntimePromotionDecision(
+        requested=RuntimeMode.NAUTILUS_AUTHORITATIVE,
+        allowed=True,
+        missing=(),
+    )
+    forged_payload = {
+        "allowed": True,
+        "evidence": {
+            "capability_passed": True,
+            "causal_bridge_passed": True,
+            "funding_passed": True,
+            "terminal_flat_passed": True,
+            "exact_parity_passed": False,
+            "determinism_passed": True,
+            "performance_approved": False,
+        },
+        "missing": (),
+        "requested_mode": "nautilus_authoritative",
+        "schema_version": EXECUTION_PROMOTION_REPORT_SCHEMA,
+    }
+
+    with pytest.raises(ValueError, match="decision does not match evidence"):
+        ExecutionPromotionReport(
+            digest=content_digest(forged_payload),
+            requested_mode=RuntimeMode.NAUTILUS_AUTHORITATIVE,
+            evidence=evidence,
+            decision=forged_decision,
+        )
 
 
 def test_selection_proposal_binds_exact_promotion_report_digest() -> None:

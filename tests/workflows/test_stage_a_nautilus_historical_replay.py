@@ -48,7 +48,9 @@ def _timestamp_ns(market: MarketDataset, index: int) -> int:
     return int(market.timestamps[index].astype("datetime64[ns]").astype(np.int64))
 
 
-def test_historical_replay_bridge_binds_exact_source_bars_and_interval_evidence() -> None:
+def test_historical_replay_bridge_binds_exact_source_bars_and_interval_evidence() -> (
+    None
+):
     build = _builder()
     market = _single_symbol_market()
     replay = _replay_for_market(market)
@@ -65,10 +67,14 @@ def test_historical_replay_bridge_binds_exact_source_bars_and_interval_evidence(
 
     assert tuple(item.evidence.action for item in intervals) == replay.actions
     assert tuple(
-        tuple(boundary.processing_index for boundary in item.evidence.funding_boundaries)
+        tuple(
+            boundary.processing_index for boundary in item.evidence.funding_boundaries
+        )
         for item in intervals
     ) == ((start, shared), (stop,))
-    assert tuple(tuple(bar.close_ns for bar in item.source_bars) for item in intervals) == (
+    assert tuple(
+        tuple(bar.close_ns for bar in item.source_bars) for item in intervals
+    ) == (
         tuple(_timestamp_ns(market, index) for index in range(start + 1, shared + 1)),
         tuple(_timestamp_ns(market, index) for index in range(shared + 1, stop + 1)),
     )

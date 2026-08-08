@@ -59,16 +59,11 @@ class ExecutionPromotionReport:
     def digest_payload(self) -> dict[str, object]:
         """Return canonical decision evidence excluding the self-referential digest."""
 
-        return {
-            "allowed": self.decision.allowed,
-            "evidence": {
-                field.name: getattr(self.evidence, field.name)
-                for field in fields(ExecutionPromotionEvidence)
-            },
-            "missing": self.decision.missing,
-            "requested_mode": self.requested_mode.value,
-            "schema_version": self.schema_version,
-        }
+        return _promotion_report_payload(
+            requested=self.requested_mode,
+            evidence=self.evidence,
+            decision=self.decision,
+        )
 
     def to_mapping(self) -> dict[str, object]:
         """Return the immutable report payload suitable for persisted evidence."""
@@ -111,6 +106,24 @@ def assess_runtime_promotion(
     )
 
 
+def _promotion_report_payload(
+    *,
+    requested: RuntimeMode,
+    evidence: ExecutionPromotionEvidence,
+    decision: RuntimePromotionDecision,
+) -> dict[str, object]:
+    return {
+        "allowed": decision.allowed,
+        "evidence": {
+            field.name: getattr(evidence, field.name)
+            for field in fields(ExecutionPromotionEvidence)
+        },
+        "missing": decision.missing,
+        "requested_mode": requested.value,
+        "schema_version": EXECUTION_PROMOTION_REPORT_SCHEMA,
+    }
+
+
 def build_execution_promotion_report(
     *,
     requested: RuntimeMode,
@@ -119,19 +132,13 @@ def build_execution_promotion_report(
     """Build signed-selection-ready evidence without changing runtime authority."""
 
     decision = assess_runtime_promotion(requested=requested, evidence=evidence)
-    report_without_digest = ExecutionPromotionReport.__new__(ExecutionPromotionReport)
-    object.__setattr__(report_without_digest, "digest", "")
-    object.__setattr__(report_without_digest, "requested_mode", requested)
-    object.__setattr__(report_without_digest, "evidence", evidence)
-    object.__setattr__(report_without_digest, "decision", decision)
-    object.__setattr__(
-        report_without_digest,
-        "schema_version",
-        EXECUTION_PROMOTION_REPORT_SCHEMA,
+    payload = _promotion_report_payload(
+        requested=requested,
+        evidence=evidence,
+        decision=decision,
     )
-    digest = content_digest(report_without_digest.digest_payload())
     return ExecutionPromotionReport(
-        digest=digest,
+        digest=content_digest(payload),
         requested_mode=requested,
         evidence=evidence,
         decision=decision,

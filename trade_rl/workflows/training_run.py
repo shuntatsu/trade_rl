@@ -78,6 +78,7 @@ from trade_rl.workflows.training_execution_evidence import (
     resolve_training_execution_inputs,
 )
 from trade_rl.workflows.training_runtime_promotion import (
+    RUNTIME_PROMOTION_REPORT_NAME,
     stage_training_runtime_promotion,
 )
 
@@ -526,6 +527,18 @@ def execute_training_run(
         config=config,
         trusted_at=resolved_created_at,
     )
+    resolved_runtime_promotion_report_path = runtime_promotion_report_path
+    if (
+        resolved_runtime_promotion_report_path is None
+        and proposal is not None
+        and proposal.runtime_promotion_report_digest is not None
+        and selection_proposal_path is not None
+    ):
+        adjacent_report = selection_proposal_path.with_name(
+            RUNTIME_PROMOTION_REPORT_NAME
+        )
+        if adjacent_report.is_file():
+            resolved_runtime_promotion_report_path = adjacent_report
     run_kind = (
         "research_selected_final"
         if authorization is not None
@@ -606,7 +619,7 @@ def execute_training_run(
     try:
         runtime_promotion_report = stage_training_runtime_promotion(
             proposal=proposal,
-            report_path=runtime_promotion_report_path,
+            report_path=resolved_runtime_promotion_report_path,
             stage=stage,
         )
         training_config_digest = content_digest(config.digest_payload())

@@ -392,8 +392,8 @@ def _streaming_worker_main(connection: Connection) -> None:
         if initialize.get("command") != "initialize":
             raise RuntimeError("streaming worker expected initialize command")
         session = _StreamingSession(
-            starting_balance=Decimal(str(initialize.get("starting_balance"))),
-            no_trade_band=float(initialize.get("no_trade_band")),
+            starting_balance=Decimal(_required_str(initialize, "starting_balance")),
+            no_trade_band=_required_float(initialize, "no_trade_band"),
         )
         _send_message(
             connection,
@@ -570,6 +570,23 @@ def _minor_units(value: Decimal, *, currency_precision: int, name: str) -> int:
     if scaled != integral:
         raise RuntimeError(f"{name} is not aligned to settlement minor unit")
     return int(integral)
+
+
+def _required_float(payload: dict[str, Any], field: str) -> float:
+    value = payload.get(field)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RuntimeError(f"streaming Nautilus response field {field!r} is invalid")
+    result = float(value)
+    if not math.isfinite(result):
+        raise RuntimeError(f"streaming Nautilus response field {field!r} is not finite")
+    return result
+
+
+def _required_str(payload: dict[str, Any], field: str) -> str:
+    value = payload.get(field)
+    if not isinstance(value, str) or not value:
+        raise RuntimeError(f"streaming Nautilus response field {field!r} is invalid")
+    return value
 
 
 def _required_int(payload: dict[str, Any], field: str) -> int:

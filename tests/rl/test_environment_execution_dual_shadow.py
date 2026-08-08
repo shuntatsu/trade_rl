@@ -11,6 +11,7 @@ from trade_rl.rl.environment_execution import (
     ExecutionDualShadowSnapshot,
     TargetExecutionRequest,
 )
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.simulation.orders import OrderBookState
 
 
@@ -47,7 +48,7 @@ def test_execution_coordinator_observes_only_hybrid_target_without_changing_resu
     observer = _FakeDualShadow()
     coordinator = EnvironmentExecutionCoordinator(
         dataset,
-        _executor(dataset).config,
+        ExecutionCostConfig.zero(),
         initial_capital=1_000.0,
         dual_shadow=observer,
     )

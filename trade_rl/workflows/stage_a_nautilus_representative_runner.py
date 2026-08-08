@@ -36,7 +36,7 @@ from trade_rl.workflows.stage_a_nautilus_historical_differential import (
     build_stage_a_nautilus_historical_differential_evidence,
 )
 from trade_rl.workflows.stage_a_nautilus_historical_replay import (
-    execute_stage_a_nautilus_historical_replay,
+    execute_stage_a_nautilus_historical_replay_subprocess,
 )
 from trade_rl.workflows.stage_a_nautilus_representative_evidence import (
     RepresentativeNautilusWindowEvidence,
@@ -161,7 +161,7 @@ def run_representative_nautilus_window(
             funding_evidence_path=funding_path,
         )
 
-    candidate = execute_stage_a_nautilus_historical_replay(
+    candidate = execute_stage_a_nautilus_historical_replay_subprocess(
         stored.artifact,
         market,
         funding_evidence=funding_boundaries,

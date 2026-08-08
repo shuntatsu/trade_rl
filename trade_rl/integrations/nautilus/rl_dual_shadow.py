@@ -84,20 +84,25 @@ class NautilusEnvironmentDualShadow:
         if len(initial_quantities) != 1:
             raise ValueError("Nautilus RL dual shadow requires one initial quantity")
         if abs(initial_quantities[0]) > _QUANTITY_TOLERANCE:
-            raise ValueError("Nautilus RL dual shadow currently requires a cash-only reset")
+            raise ValueError(
+                "Nautilus RL dual shadow currently requires a cash-only reset"
+            )
         self._initial_capital = Decimal(str(initial_capital))
         self._next_start_index = start_index
         self._intervals.clear()
         self._step_count = 0
 
     def observe(
-        self,
-        request: ExecutionDualShadowRequest,
+        self, request: ExecutionDualShadowRequest
     ) -> ExecutionDualShadowSnapshot:
         if self._initial_capital is None or self._next_start_index is None:
-            raise RuntimeError("Nautilus RL dual shadow must be reset before observation")
+            raise RuntimeError(
+                "Nautilus RL dual shadow must be reset before observation"
+            )
         if len(request.target) != 1 or len(request.legacy_terminal_quantities) != 1:
-            raise ValueError("Nautilus RL dual shadow requires single-instrument evidence")
+            raise ValueError(
+                "Nautilus RL dual shadow requires single-instrument evidence"
+            )
         if request.start_index != self._next_start_index:
             raise ValueError("Nautilus RL dual-shadow step boundary is not contiguous")
         if request.end_index <= request.start_index:
@@ -123,9 +128,9 @@ class NautilusEnvironmentDualShadow:
             timeout_seconds=self.timeout_seconds,
         )
         lot_size = Decimal(MAINTAINED_BTCUSDT_PERPETUAL.size_increment)
-        candidate_quantity = Decimal(
-            subprocess_result.execution.terminal_position_lots
-        ) * lot_size
+        candidate_quantity = (
+            Decimal(subprocess_result.execution.terminal_position_lots) * lot_size
+        )
         legacy_quantity = Decimal(str(request.legacy_terminal_quantities[0]))
         structural_parity = math.isclose(
             float(candidate_quantity),

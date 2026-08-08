@@ -55,7 +55,9 @@ def _proposal(*, runtime_digest: str | None) -> SelectionProposal:
     )
 
 
-def test_retain_runtime_promotion_report_copies_allowed_evidence(tmp_path: Path) -> None:
+def test_retain_runtime_promotion_report_copies_allowed_evidence(
+    tmp_path: Path,
+) -> None:
     module = _state_module()
     report = _report()
     source = write_execution_promotion_report(tmp_path / "source.json", report)
@@ -73,7 +75,9 @@ def test_retain_runtime_promotion_report_copies_allowed_evidence(tmp_path: Path)
     assert load_execution_promotion_report(retained_path) == report
 
 
-def test_retain_runtime_promotion_report_rejects_denied_evidence(tmp_path: Path) -> None:
+def test_retain_runtime_promotion_report_rejects_denied_evidence(
+    tmp_path: Path,
+) -> None:
     module = _state_module()
     report = _report(allowed=False)
     source = write_execution_promotion_report(tmp_path / "source.json", report)

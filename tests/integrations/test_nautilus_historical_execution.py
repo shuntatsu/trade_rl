@@ -11,6 +11,9 @@ from trade_rl.integrations.nautilus.historical_execution import (
     NautilusHistoricalTargetInterval,
     run_historical_target_intervals,
 )
+from trade_rl.integrations.nautilus.historical_subprocess import (
+    run_historical_target_intervals_subprocess,
+)
 
 _HOUR_NS = 60 * 60 * 1_000_000_000
 
@@ -25,6 +28,23 @@ def _flat_bar(open_ns: int) -> SourceBar:
         close_price=100.0,
         mark_price=100.0,
         index_price=100.0,
+    )
+
+
+def _flat_round_trip_intervals() -> tuple[NautilusHistoricalTargetInterval, ...]:
+    return (
+        NautilusHistoricalTargetInterval(
+            sequence=1,
+            target_exposure=0.1,
+            allocated_equity=1_000.0,
+            source_bars=(_flat_bar(0),),
+        ),
+        NautilusHistoricalTargetInterval(
+            sequence=2,
+            target_exposure=0.0,
+            allocated_equity=1_000.0,
+            source_bars=(_flat_bar(_HOUR_NS),),
+        ),
     )
 
 
@@ -74,3 +94,25 @@ def test_historical_targets_reconcile_sign_flip_and_capture_boundaries() -> None
     ]
     assert result.terminal_position_lots == 0
     assert result.terminal_open_orders == 0
+
+
+@pytest.mark.nautilus
+def test_historical_subprocess_runtime_uses_a_fresh_child_per_replay() -> None:
+    intervals = _flat_round_trip_intervals()
+
+    first = run_historical_target_intervals_subprocess(
+        intervals,
+        starting_balance=Decimal("1000"),
+        no_trade_band=0.0,
+    )
+    second = run_historical_target_intervals_subprocess(
+        intervals,
+        starting_balance=Decimal("1000"),
+        no_trade_band=0.0,
+    )
+
+    assert first.worker_pid != second.worker_pid
+    assert first.execution == second.execution
+    assert first.execution.runtime_version == "1.230.0"
+    assert first.execution.terminal_position_lots == 0
+    assert first.execution.terminal_open_orders == 0

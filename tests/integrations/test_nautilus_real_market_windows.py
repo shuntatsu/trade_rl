@@ -53,7 +53,9 @@ def _source_bars(rows: list[list[object]]) -> tuple[SourceBar, ...]:
     return tuple(bars)
 
 
-def _round_trip_intervals(rows: list[list[object]]) -> tuple[NautilusHistoricalTargetInterval, ...]:
+def _round_trip_intervals(
+    rows: list[list[object]],
+) -> tuple[NautilusHistoricalTargetInterval, ...]:
     bars = _source_bars(rows)
     assert len(bars) == 16
     return (
@@ -99,7 +101,7 @@ def test_representative_fixture_is_time_selected_real_binance_data() -> None:
         assert all(isinstance(value, int) for value in open_times)
         assert all(
             right - left == _BAR_SPAN_MS
-            for left, right in zip(open_times, open_times[1:], strict=True)
+            for left, right in zip(open_times, open_times[1:])
         )
 
     assert payload["windows"][2]["funding"] == [

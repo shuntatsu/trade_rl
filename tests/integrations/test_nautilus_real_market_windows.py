@@ -26,6 +26,9 @@ from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
 from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.target_execution import execute_target_statefully
+from trade_rl.workflows.stage_a_nautilus_representative_runner import (
+    run_representative_nautilus_window,
+)
 
 _FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "nautilus"
 _FIXTURE = _FIXTURE_ROOT / "btcusdt-usdsm-representative-15m.json"
@@ -270,6 +273,26 @@ def test_real_funding_boundary_matches_legacy_and_nautilus_actual_position() -> 
     snapshot = candidate.execution.position_snapshots[0]
     assert snapshot.timestamp_ns == boundary.timestamp_ns
     assert float(snapshot.signed_quantity) == pytest.approx(boundary.signed_quantities[0])
+
+
+@pytest.mark.nautilus
+def test_real_window_persists_stage_a_structural_and_economic_evidence(
+    tmp_path: Path,
+) -> None:
+    window = run_representative_nautilus_window(
+        market=_real_funding_dataset(),
+        time_quantile=0.9,
+        store_root=tmp_path / "stage-a",
+        target_exposure=0.10,
+    )
+
+    assert window.structural.candidate_runtime_version == "1.230.0"
+    assert window.structural.terminal_position_matches is True
+    assert window.structural.terminal_open_orders_passed is True
+    assert window.structural.funding_matches is True
+    assert window.structural.structural_passed is True
+    assert window.economic.replay_digest == window.structural.replay_digest
+    assert isinstance(window.economic.normalized_equity_delta_minor, int)
 
 
 @pytest.mark.nautilus

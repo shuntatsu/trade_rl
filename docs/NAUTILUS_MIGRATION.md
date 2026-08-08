@@ -43,7 +43,8 @@ Current migration slices cover:
 - legacy-versus-Nautilus dual-shadow conformance for Flat → Long → Flat, safe Flat → Long → Flat → Short → Flat sign reversal, and same-side target increases/reductions to Flat;
 - fresh-process deterministic execution digests;
 - fail-closed RL dual-shadow symbol validation for the maintained `BTCUSDT` dataset symbol;
-- persisted Stage A historical structural differential evidence that binds the authoritative replay/request/dataset identities and compares exact terminal position lots, zero candidate open orders, and canonical funding records without claiming economic fill equivalence.
+- persisted Stage A historical structural differential evidence that binds the authoritative replay/request/dataset identities and compares exact terminal position lots, zero candidate open orders, and canonical funding records without claiming economic fill equivalence;
+- exact historical economic normalization that adds each runtime's own non-funding execution-cost burden back to final equity in integer settlement minor units, compares the resulting cost-neutral equity exactly, and never allows that normalization to override structural or funding mismatch.
 
 The passive GTC limit used by the partial-fill capability test is a fixture only. It exists to create an authentic Nautilus working remainder and does not add Limit/GTC as a maintained Trade RL child-order type. Maintained target replacement and flattening continue to use the existing Market IOC adapter.
 
@@ -86,7 +87,7 @@ Passing capability, historical synthetic evidence, persisted structural comparis
 ## Remaining work before authority promotion
 
 - run differential dual-shadow replay on representative maintained BTCUSDT historical windows using the persisted structural differential contract and factual market/replay evidence rather than synthetic fixtures;
-- define and verify the historical economic comparison contract where Nautilus L1 one-tick spread execution and the accelerated legacy cost model differ, without weakening structural or funding parity checks;
+- bind those representative windows to factual legacy and Nautilus final-equity plus total non-funding execution-cost minor-unit closures so the implemented exact economic-normalization contract can be evaluated without approximating spread, impact, slippage, or fee representation;
 - replace or optimize the current per-step prefix subprocess replay only after an exact `nautilus_trader==1.230.0` streaming/persistent-worker capability test proves the lifecycle safe;
 - benchmark memory and throughput against the accelerated legacy training backend before any performance approval;
 - persist full historical differential evidence and wire promotion evidence into walk-forward, selected-final, sealed-test, export, and Studio runtime reporting;

@@ -97,7 +97,7 @@ jobs:
             tests/workflows/test_stage_a_nautilus_historical_replay.py \
             tests/workflows/test_stage_a_nautilus_historical_timeline.py
       - name: Record execution accounting in isolated process
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_*execution*.py
       - name: Compare flat legacy and Nautilus conformance in isolated process
         shell: bash
         run: |

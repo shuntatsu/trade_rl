@@ -13,8 +13,8 @@ from trade_rl.integrations.nautilus.historical_execution import (
 from trade_rl.integrations.nautilus.historical_projection import (
     project_historical_interval_source_bars,
 )
-from trade_rl.integrations.nautilus.historical_subprocess import (
-    run_historical_target_intervals_subprocess,
+from trade_rl.integrations.nautilus.historical_streaming import (
+    NautilusHistoricalStreamingWorker,
 )
 from trade_rl.integrations.nautilus.instrument import MAINTAINED_BTCUSDT_PERPETUAL
 from trade_rl.rl.environment_execution import (
@@ -27,7 +27,7 @@ _MAINTAINED_DATASET_SYMBOL = "BTCUSDT"
 
 
 class NautilusEnvironmentDualShadow:
-    """Replay the authoritative hybrid target prefix in a fresh child each step."""
+    """Stream authoritative hybrid targets through one Nautilus child per episode."""
 
     def __init__(
         self,
@@ -52,12 +52,11 @@ class NautilusEnvironmentDualShadow:
                 "dataset_id": dataset.dataset_id,
                 "instrument_id": MAINTAINED_BTCUSDT_PERPETUAL.instrument_id,
                 "no_trade_band": self.no_trade_band,
-                "runtime_contract": "nautilus_rl_dual_shadow_v1",
+                "runtime_contract": "nautilus_rl_dual_shadow_streaming_v2",
             }
         )
-        self._initial_capital: Decimal | None = None
         self._next_start_index: int | None = None
-        self._intervals: list[NautilusHistoricalTargetInterval] = []
+        self._worker: NautilusHistoricalStreamingWorker | None = None
         self._step_count = 0
 
     @property
@@ -87,15 +86,21 @@ class NautilusEnvironmentDualShadow:
             raise ValueError(
                 "Nautilus RL dual shadow currently requires a cash-only reset"
             )
-        self._initial_capital = Decimal(str(initial_capital))
+
+        self.close()
+        self._worker = NautilusHistoricalStreamingWorker(
+            starting_balance=Decimal(str(initial_capital)),
+            no_trade_band=self.no_trade_band,
+            timeout_seconds=self.timeout_seconds,
+        )
         self._next_start_index = start_index
-        self._intervals.clear()
         self._step_count = 0
 
     def observe(
         self, request: ExecutionDualShadowRequest
     ) -> ExecutionDualShadowSnapshot:
-        if self._initial_capital is None or self._next_start_index is None:
+        worker = self._worker
+        if worker is None or self._next_start_index is None:
             raise RuntimeError(
                 "Nautilus RL dual shadow must be reset before observation"
             )
@@ -111,7 +116,7 @@ class NautilusEnvironmentDualShadow:
             raise ValueError("Nautilus RL dual-shadow interval exceeds the dataset")
 
         interval = NautilusHistoricalTargetInterval(
-            sequence=len(self._intervals) + 1,
+            sequence=self._step_count + 1,
             target_exposure=request.target[0],
             allocated_equity=request.allocated_equity,
             source_bars=project_historical_interval_source_bars(
@@ -120,16 +125,10 @@ class NautilusEnvironmentDualShadow:
                 end_index=request.end_index,
             ),
         )
-        candidate_prefix = (*self._intervals, interval)
-        subprocess_result = run_historical_target_intervals_subprocess(
-            candidate_prefix,
-            starting_balance=self._initial_capital,
-            no_trade_band=self.no_trade_band,
-            timeout_seconds=self.timeout_seconds,
-        )
+        streaming_result = worker.execute(interval)
         lot_size = Decimal(MAINTAINED_BTCUSDT_PERPETUAL.size_increment)
         candidate_quantity = (
-            Decimal(subprocess_result.execution.terminal_position_lots) * lot_size
+            Decimal(streaming_result.execution.terminal_position_lots) * lot_size
         )
         legacy_quantity = Decimal(str(request.legacy_terminal_quantities[0]))
         structural_parity = math.isclose(
@@ -139,19 +138,27 @@ class NautilusEnvironmentDualShadow:
             abs_tol=max(float(lot_size) / 2.0, _QUANTITY_TOLERANCE),
         )
 
-        self._intervals.append(interval)
         self._next_start_index = request.end_index
         self._step_count += 1
         return ExecutionDualShadowSnapshot(
             runtime_identity=(
-                f"nautilus_trader=={subprocess_result.execution.runtime_version}/"
-                "historical_subprocess_v1"
+                f"nautilus_trader=={streaming_result.execution.runtime_version}/"
+                "historical_streaming_v1"
             ),
-            worker_pid=subprocess_result.worker_pid,
+            worker_pid=streaming_result.worker_pid,
             structural_parity=structural_parity,
             candidate_terminal_quantities=(float(candidate_quantity),),
             legacy_terminal_quantities=request.legacy_terminal_quantities,
         )
+
+    def close(self) -> None:
+        """Release the episode-owned child process if one is active."""
+
+        worker = self._worker
+        self._worker = None
+        self._next_start_index = None
+        if worker is not None:
+            worker.close()
 
 
 __all__ = ["NautilusEnvironmentDualShadow"]

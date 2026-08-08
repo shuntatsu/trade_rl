@@ -215,7 +215,9 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
         "partial_fill",
         "no_fill",
     ]
-    assert [event.reason for event in result.order_events if event.event_type == "filled"] == [
+    assert [
+        event.reason for event in result.order_events if event.event_type == "filled"
+    ] == [
         "filled",
         "filled",
     ]

@@ -12,6 +12,7 @@ on:
       - "trade_rl/rl/environment_execution.py"
       - "trade_rl/rl/environment_runtime_services.py"
       - "trade_rl/rl/environment.py"
+      - "trade_rl/rl/dual_shadow_environment.py"
       - "trade_rl/simulation/execution.py"
       - "trade_rl/simulation/execution_canonicalization.py"
       - "trade_rl/simulation/execution_parity.py"
@@ -35,6 +36,7 @@ on:
       - "trade_rl/rl/environment_execution.py"
       - "trade_rl/rl/environment_runtime_services.py"
       - "trade_rl/rl/environment.py"
+      - "trade_rl/rl/dual_shadow_environment.py"
       - "trade_rl/simulation/execution.py"
       - "trade_rl/simulation/execution_canonicalization.py"
       - "trade_rl/simulation/execution_parity.py"
@@ -64,8 +66,8 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Install exact Nautilus runtime
-        run: uv sync --extra dev --extra nautilus --frozen
+      - name: Install exact Nautilus and training runtimes
+        run: uv sync --extra dev --extra nautilus --extra train-sb3 --frozen
       - name: Record runtime identity
         run: |
           uv run python - <<'PY'
@@ -119,6 +121,8 @@ jobs:
             tests/rl/test_environment_dual_shadow_wiring.py
       - name: Replay RL dual-shadow prefixes through fresh children
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_rl_dual_shadow.py
+      - name: Run three-step PPO and Lagrangian smokes on dual-shadow runtime
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_training_smoke.py
       - name: Compare flat legacy and Nautilus conformance in isolated process
         shell: bash
         run: |

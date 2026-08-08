@@ -77,6 +77,9 @@ from trade_rl.workflows.selection_authorization import (
 from trade_rl.workflows.training_execution_evidence import (
     resolve_training_execution_inputs,
 )
+from trade_rl.workflows.training_runtime_promotion import (
+    stage_training_runtime_promotion,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -502,6 +505,7 @@ def execute_training_run(
     selection_authorization_path: Path | None = None,
     selection_public_keys_path: Path | None = None,
     require_selection_authorization: bool = False,
+    runtime_promotion_report_path: Path | None = None,
     execution_evidence_path: Path | None = None,
     execution_event_artifact_path: Path | None = None,
     execution_promotion_root: Path | None = None,
@@ -600,6 +604,11 @@ def execute_training_run(
     store = ArtifactStore(store_root)
     stage = store.stage_run(resolved_run_id)
     try:
+        runtime_promotion_report = stage_training_runtime_promotion(
+            proposal=proposal,
+            report_path=runtime_promotion_report_path,
+            stage=stage,
+        )
         training_config_digest = content_digest(config.digest_payload())
         provenance = capture_runtime_provenance(
             Path(__file__).resolve().parents[2],
@@ -640,6 +649,16 @@ def execute_training_run(
             stage / "training-purpose.json",
             {
                 "run_kind": run_kind,
+                "runtime_promotion_report_digest": (
+                    None
+                    if runtime_promotion_report is None
+                    else runtime_promotion_report.digest
+                ),
+                "runtime_promotion_requested_mode": (
+                    None
+                    if runtime_promotion_report is None
+                    else runtime_promotion_report.requested_mode.value
+                ),
                 "schema_version": "training_purpose_v1",
                 "selection_authorization_digest": (
                     None

@@ -35,9 +35,19 @@ def _payload() -> dict[str, Any]:
 def _source_bars(rows: list[list[object]]) -> tuple[SourceBar, ...]:
     bars: list[SourceBar] = []
     for row in rows:
-        assert len(row) == 7
-        open_time_ms, open_price, high_price, low_price, close_price, mark, index = row
+        assert len(row) == 8
+        (
+            open_time_ms,
+            open_price,
+            high_price,
+            low_price,
+            close_price,
+            quote_volume,
+            mark,
+            index,
+        ) = row
         assert isinstance(open_time_ms, int)
+        assert float(quote_volume) > 0.0
         bars.append(
             SourceBar(
                 open_ns=open_time_ms * 1_000_000,
@@ -78,7 +88,7 @@ def _round_trip_intervals(
 def test_representative_fixture_is_time_selected_real_binance_data() -> None:
     payload = _payload()
 
-    assert payload["schema_version"] == "btc_usdsm_representative_windows_v1"
+    assert payload["schema_version"] == "btc_usdsm_representative_windows_v2"
     assert payload["symbol"] == "BTCUSDT"
     assert payload["interval"] == "15m"
     assert payload["canonical_range"] == [
@@ -89,6 +99,16 @@ def test_representative_fixture_is_time_selected_real_binance_data() -> None:
     assert payload["selection"]["method"] == "time_quantiles_floor_15m"
     assert payload["selection"]["quantiles"] == [0.1, 0.5, 0.9]
     assert payload["selection"]["window_bars"] == 16
+    assert payload["bar_columns"] == [
+        "open_time_ms",
+        "open",
+        "high",
+        "low",
+        "close",
+        "quote_volume",
+        "mark_close",
+        "index_close",
+    ]
     assert [window["time_quantile"] for window in payload["windows"]] == [
         0.1,
         0.5,
@@ -97,6 +117,8 @@ def test_representative_fixture_is_time_selected_real_binance_data() -> None:
     assert all(len(window["rows"]) == 16 for window in payload["windows"])
 
     for window in payload["windows"]:
+        assert all(len(row) == 8 for row in window["rows"])
+        assert all(float(row[5]) > 0.0 for row in window["rows"])
         open_times = [row[0] for row in window["rows"]]
         assert all(isinstance(value, int) for value in open_times)
         assert all(

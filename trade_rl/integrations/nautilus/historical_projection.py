@@ -66,6 +66,9 @@ def project_historical_interval_source_bars(
     executor's ``previous_index + 1`` processing convention.
     """
 
+    if start_index >= end_index:
+        raise ValueError("historical interval boundaries must be strictly ordered")
+
     return tuple(
         project_historical_source_bar(market, processing_index=index)
         for index in range(start_index + 1, end_index + 1)

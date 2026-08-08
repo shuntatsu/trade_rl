@@ -112,7 +112,10 @@ def run_historical_target_intervals(
                     if event.phase not in _PRICE_PHASES:
                         continue
                     quote_index = len(quotes)
-                    if first_quote_index is None and event.phase is MarketPhase.OPEN_QUOTE:
+                    if (
+                        first_quote_index is None
+                        and event.phase is MarketPhase.OPEN_QUOTE
+                    ):
                         first_quote_index = quote_index
                     if (
                         event.phase is MarketPhase.CLOSE_QUOTE
@@ -238,7 +241,9 @@ def run_historical_target_intervals(
         terminal_position_lots = (
             canonical.fills[-1].position_lots if canonical.fills else 0
         )
-        terminal_open_orders = len(engine.cache.orders_open(instrument_id=instrument.id))
+        terminal_open_orders = len(
+            engine.cache.orders_open(instrument_id=instrument.id)
+        )
         return NautilusHistoricalExecutionResult(
             runtime_version=runtime.package_version or "",
             fills=canonical.fills,
@@ -252,7 +257,9 @@ def run_historical_target_intervals(
         engine.dispose()
 
 
-def _validate_intervals(intervals: tuple[NautilusHistoricalTargetInterval, ...]) -> None:
+def _validate_intervals(
+    intervals: tuple[NautilusHistoricalTargetInterval, ...],
+) -> None:
     if not intervals:
         raise ValueError("historical target intervals must be non-empty")
     for expected_sequence, interval in enumerate(intervals, start=1):

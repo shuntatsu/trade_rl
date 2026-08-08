@@ -112,7 +112,9 @@ def test_promotion_report_persists_immutably(tmp_path) -> None:
         requested=RuntimeMode.DUAL_SHADOW,
         evidence=_evidence(performance_approved=False),
     )
-    with pytest.raises(FileExistsError, match="refusing to overwrite immutable evidence"):
+    with pytest.raises(
+        FileExistsError, match="refusing to overwrite immutable evidence"
+    ):
         runtime_promotion.write_execution_promotion_report(path, different)
 
 

@@ -166,7 +166,7 @@ def test_runtime_performance_evidence_loader_rejects_tampered_summary(tmp_path) 
     evidence = _evidence()
     path = tmp_path / "runtime-performance-evidence.json"
     write_runtime_performance_evidence(path, evidence)
-    payload = evidence.to_mapping()
+    payload = {"evidence_digest": evidence.digest, **evidence.to_mapping()}
     payload["worst_elapsed_slowdown_ratio"] = 999.0
     path.write_text(json.dumps(payload), encoding="utf-8")
 

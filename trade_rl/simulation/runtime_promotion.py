@@ -76,7 +76,10 @@ class ExecutionPromotionReport:
                 and self.representative_evidence_digest is None
             ):
                 raise ValueError("representative evidence digest is required")
-            if self.evidence.performance_approved and self.performance_evidence_digest is None:
+            if (
+                self.evidence.performance_approved
+                and self.performance_evidence_digest is None
+            ):
                 raise ValueError("performance evidence digest is required")
         expected_decision = assess_runtime_promotion(
             requested=self.requested_mode,

@@ -21,6 +21,7 @@ on:
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
       - "trade_rl/simulation/runtime_performance.py"
+      - "trade_rl/simulation/runtime_performance_io.py"
       - "tests/fixtures/nautilus/**"
       - "tests/integrations/test_nautilus_*.py"
       - "tests/workflows/test_stage_a_nautilus_historical_*.py"
@@ -28,6 +29,7 @@ on:
       - "tests/rl/test_environment_dual_shadow_wiring.py"
       - "tests/simulation/test_funding_mark_price.py"
       - "tests/simulation/test_runtime_performance.py"
+      - "tests/simulation/test_runtime_performance_artifact_identity.py"
       - "tools/nautilus_execution_probe_digest.py"
       - "tools/nautilus_training_throughput_benchmark.py"
       - ".github/workflows/nautilus-capability.yml"
@@ -51,6 +53,7 @@ on:
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
       - "trade_rl/simulation/runtime_performance.py"
+      - "trade_rl/simulation/runtime_performance_io.py"
       - "tests/fixtures/nautilus/**"
       - "tests/integrations/test_nautilus_*.py"
       - "tests/workflows/test_stage_a_nautilus_historical_*.py"
@@ -58,6 +61,7 @@ on:
       - "tests/rl/test_environment_dual_shadow_wiring.py"
       - "tests/simulation/test_funding_mark_price.py"
       - "tests/simulation/test_runtime_performance.py"
+      - "tests/simulation/test_runtime_performance_artifact_identity.py"
       - "tools/nautilus_execution_probe_digest.py"
       - "tools/nautilus_training_throughput_benchmark.py"
       - ".github/workflows/nautilus-capability.yml"
@@ -70,7 +74,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout exact head
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5a
         with:
           persist-credentials: false
       - name: Set up uv

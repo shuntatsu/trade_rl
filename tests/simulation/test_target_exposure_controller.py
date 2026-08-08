@@ -14,6 +14,7 @@ def _input(
     target: float,
     realized: float = 0.0,
     working: tuple[float, ...] = (),
+    quantity_increment: float = 0.0,
     emergency_flatten: bool = False,
     halted: bool = False,
 ) -> TargetExposureInput:
@@ -24,6 +25,7 @@ def _input(
         contract_multiplier=1.0,
         realized_quantity=realized,
         working_remaining_quantities=working,
+        quantity_increment=quantity_increment,
         emergency_flatten=emergency_flatten,
         halted=halted,
     )
@@ -91,6 +93,71 @@ def test_small_change_inside_no_trade_band_does_not_emit_order() -> None:
     assert plan.child_order is None
 
 
+def test_target_quantity_is_rounded_toward_zero_to_executable_increment() -> None:
+    controller = TargetExposureController(no_trade_band=0.0)
+
+    plan = controller.plan(
+        _input(
+            target=-0.39736594653926315,
+            realized=-3.974,
+            quantity_increment=0.001,
+        )
+    )
+
+    assert plan.desired_quantity == pytest.approx(-3.973)
+    assert plan.effective_target_exposure == pytest.approx(-0.3973)
+    assert plan.phase is ControllerPhase.REDUCING
+    assert plan.child_order is not None
+    assert plan.child_order.quantity == pytest.approx(0.001)
+    assert plan.child_order.reduce_only is True
+
+
+def test_sub_increment_target_from_flat_does_not_emit_zero_rounded_child() -> None:
+    controller = TargetExposureController(no_trade_band=0.0)
+
+    plan = controller.plan(
+        _input(
+            target=0.00005,
+            realized=0.0,
+            quantity_increment=0.001,
+        )
+    )
+
+    assert plan.desired_quantity == 0.0
+    assert plan.effective_target_exposure == 0.0
+    assert plan.phase is ControllerPhase.IDLE
+    assert plan.child_order is None
+
+
+def test_sign_flip_keeps_flat_first_and_quantizes_deferred_target() -> None:
+    controller = TargetExposureController(no_trade_band=0.0)
+
+    reducing = controller.plan(
+        _input(
+            target=-0.39736594653926315,
+            realized=2.0,
+            quantity_increment=0.001,
+        )
+    )
+    opening = controller.plan(
+        _input(
+            target=-0.39736594653926315,
+            realized=0.0,
+            quantity_increment=0.001,
+        )
+    )
+
+    assert reducing.phase is ControllerPhase.REDUCING
+    assert reducing.child_order is not None
+    assert reducing.child_order.quantity == pytest.approx(-2.0)
+    assert reducing.child_order.reduce_only is True
+    assert reducing.deferred_target_quantity == pytest.approx(-3.973)
+    assert opening.phase is ControllerPhase.OPENING
+    assert opening.child_order is not None
+    assert opening.child_order.quantity == pytest.approx(-3.973)
+    assert opening.child_order.reduce_only is False
+
+
 def test_emergency_flatten_bypasses_band_and_never_opens() -> None:
     controller = TargetExposureController(no_trade_band=0.05)
 
@@ -129,3 +196,5 @@ def test_invalid_target_or_market_state_fails_closed() -> None:
                 working_remaining_quantities=(),
             )
         )
+    with pytest.raises(ValueError, match="quantity_increment"):
+        controller.plan(_input(target=0.5, quantity_increment=-0.001))

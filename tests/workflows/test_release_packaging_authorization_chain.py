@@ -54,13 +54,11 @@ def test_release_packaging_rechecks_runtime_promotion_binding(
         release_packaging,
         "load_selection_proposal",
         lambda _path: proposal,
-        raising=False,
     )
     monkeypatch.setattr(
         release_packaging,
         "load_execution_promotion_report",
         lambda _path: report,
-        raising=False,
     )
 
     def reject_mismatched_report(**kwargs: object) -> None:
@@ -75,7 +73,6 @@ def test_release_packaging_rechecks_runtime_promotion_binding(
         release_packaging,
         "require_selection_execution_promotion",
         reject_mismatched_report,
-        raising=False,
     )
 
     with pytest.raises(ValueError, match="runtime promotion report digest mismatch"):
@@ -99,11 +96,54 @@ def test_release_packaging_rejects_unbound_runtime_promotion_sidecar(
         release_packaging,
         "load_selection_proposal",
         lambda _path: proposal,
-        raising=False,
     )
     (tmp_path / "runtime-promotion-report.json").write_text("{}", encoding="utf-8")
 
     with pytest.raises(ValueError, match="does not authorize runtime promotion evidence"):
+        release_packaging._require_runtime_promotion_binding(
+            training_root=tmp_path,
+            manifest=manifest,
+        )
+
+
+def test_release_packaging_accepts_legacy_proposal_without_promotion_sidecar(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proposal_digest = "7" * 64
+    manifest = SimpleNamespace(selection_proposal_digest=proposal_digest)
+    proposal = SimpleNamespace(
+        digest=proposal_digest,
+        runtime_promotion_report_digest=None,
+    )
+    monkeypatch.setattr(
+        release_packaging,
+        "load_selection_proposal",
+        lambda _path: proposal,
+    )
+
+    release_packaging._require_runtime_promotion_binding(
+        training_root=tmp_path,
+        manifest=manifest,
+    )
+
+
+def test_release_packaging_rejects_proposal_identity_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = SimpleNamespace(selection_proposal_digest="8" * 64)
+    proposal = SimpleNamespace(
+        digest="9" * 64,
+        runtime_promotion_report_digest=None,
+    )
+    monkeypatch.setattr(
+        release_packaging,
+        "load_selection_proposal",
+        lambda _path: proposal,
+    )
+
+    with pytest.raises(ValueError, match="selection proposal digest"):
         release_packaging._require_runtime_promotion_binding(
             training_root=tmp_path,
             manifest=manifest,

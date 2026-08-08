@@ -152,7 +152,9 @@ class NautilusHistoricalStreamingWorker:
                 self._receive_response(expected_event="closed")
                 self._process.join(timeout=self._timeout_seconds)
                 if self._process.is_alive():
-                    raise RuntimeError("streaming Nautilus child did not exit after close")
+                    raise RuntimeError(
+                        "streaming Nautilus child did not exit after close"
+                    )
                 if self._process.exitcode != 0:
                     raise RuntimeError(
                         "streaming Nautilus child exited unsuccessfully: "
@@ -232,9 +234,16 @@ class _StreamingSession:
             def on_start(self) -> None:
                 self.subscribe_quote_ticks(instrument.id)
 
-            def queue_interval(self, interval: NautilusHistoricalTargetInterval) -> None:
-                if self.queued_interval is not None or self.pending_interval is not None:
-                    raise RuntimeError("streaming target strategy already has pending work")
+            def queue_interval(
+                self, interval: NautilusHistoricalTargetInterval
+            ) -> None:
+                if (
+                    self.queued_interval is not None
+                    or self.pending_interval is not None
+                ):
+                    raise RuntimeError(
+                        "streaming target strategy already has pending work"
+                    )
                 self.queued_interval = interval
 
             def on_quote_tick(self, tick: object) -> None:
@@ -401,7 +410,9 @@ def _streaming_worker_main(connection: Connection) -> None:
             if command == "execute":
                 interval_payload = request.get("interval")
                 if not isinstance(interval_payload, dict):
-                    raise RuntimeError("streaming worker received invalid interval payload")
+                    raise RuntimeError(
+                        "streaming worker received invalid interval payload"
+                    )
                 execution = session.execute(_interval_from_payload(interval_payload))
                 _send_message(
                     connection,

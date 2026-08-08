@@ -172,12 +172,12 @@ def run_benchmark(*, timesteps: int) -> dict[str, Any]:
         legacy = _measure(
             _legacy_factory(dataset, timesteps=timesteps),
             timesteps=timesteps,
-            output_path=root_path / "legacy-policy.zip",
+            output_path=root_path / "legacy" / "policy.zip",
         )
         streaming = _measure(
             _streaming_factory(dataset, timesteps=timesteps),
             timesteps=timesteps,
-            output_path=root_path / "streaming-policy.zip",
+            output_path=root_path / "streaming" / "policy.zip",
         )
 
     legacy_elapsed = float(legacy["elapsed_seconds"])

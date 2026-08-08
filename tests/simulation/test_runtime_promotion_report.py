@@ -77,6 +77,22 @@ def test_promotion_report_rejects_decision_inconsistent_with_evidence() -> None:
         )
 
 
+def test_promotion_report_round_trips_mapping_and_rejects_tampering() -> None:
+    report = build_execution_promotion_report(
+        requested=RuntimeMode.NAUTILUS_AUTHORITATIVE,
+        evidence=_evidence(performance_approved=False),
+    )
+
+    assert hasattr(ExecutionPromotionReport, "from_mapping")
+    loaded = ExecutionPromotionReport.from_mapping(report.to_mapping())
+    assert loaded == report
+
+    tampered = report.to_mapping()
+    tampered["allowed"] = True
+    with pytest.raises(ValueError, match="promotion report is invalid"):
+        ExecutionPromotionReport.from_mapping(tampered)
+
+
 def test_selection_proposal_binds_exact_promotion_report_digest() -> None:
     report = build_execution_promotion_report(
         requested=RuntimeMode.NAUTILUS_AUTHORITATIVE,

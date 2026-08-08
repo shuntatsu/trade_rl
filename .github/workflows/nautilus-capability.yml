@@ -15,7 +15,7 @@ on:
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
-      - "tests/workflows/test_stage_a_nautilus_historical_replay.py"
+      - "tests/workflows/test_stage_a_nautilus_historical_*.py"
       - "tests/simulation/test_funding_mark_price.py"
       - "tools/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
@@ -33,7 +33,7 @@ on:
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
       - "tests/integrations/test_nautilus_*.py"
-      - "tests/workflows/test_stage_a_nautilus_historical_replay.py"
+      - "tests/workflows/test_stage_a_nautilus_historical_*.py"
       - "tests/simulation/test_funding_mark_price.py"
       - "tools/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
@@ -92,7 +92,10 @@ jobs:
             tests/integrations/test_nautilus_funding_adapter.py \
             tests/integrations/test_nautilus_funding_settlement.py
       - name: Bind factual Stage A historical replay intervals
-        run: uv run pytest -q tests/workflows/test_stage_a_nautilus_historical_replay.py
+        run: |
+          uv run pytest -q \
+            tests/workflows/test_stage_a_nautilus_historical_replay.py \
+            tests/workflows/test_stage_a_nautilus_historical_timeline.py
       - name: Record execution accounting in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
       - name: Compare flat legacy and Nautilus conformance in isolated process

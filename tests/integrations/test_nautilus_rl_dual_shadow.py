@@ -37,6 +37,7 @@ def _market(*, symbol: str = "BTCUSDT") -> MarketDataset:
     )
 
 
+@pytest.mark.nautilus
 def test_rl_dual_shadow_rejects_non_maintained_symbol() -> None:
     with pytest.raises(ValueError, match="BTCUSDT"):
         NautilusEnvironmentDualShadow(_market(symbol="ETHUSDT"))

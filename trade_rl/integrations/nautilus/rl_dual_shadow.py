@@ -23,6 +23,7 @@ from trade_rl.rl.environment_execution import (
 )
 
 _QUANTITY_TOLERANCE = 1e-12
+_MAINTAINED_DATASET_SYMBOL = "BTCUSDT"
 
 
 class NautilusEnvironmentDualShadow:
@@ -35,8 +36,10 @@ class NautilusEnvironmentDualShadow:
         no_trade_band: float = 0.05,
         timeout_seconds: float = 60.0,
     ) -> None:
-        if dataset.n_symbols != 1:
-            raise ValueError("Nautilus RL dual shadow requires one dataset symbol")
+        if dataset.symbols != (_MAINTAINED_DATASET_SYMBOL,):
+            raise ValueError(
+                "Nautilus RL dual shadow requires maintained symbol BTCUSDT"
+            )
         if not math.isfinite(no_trade_band) or no_trade_band < 0.0:
             raise ValueError("no_trade_band must be finite and non-negative")
         if not math.isfinite(timeout_seconds) or timeout_seconds <= 0.0:

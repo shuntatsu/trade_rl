@@ -20,10 +20,12 @@ jobs:
           fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
-      - name: Format exact failing file
-        run: uvx ruff format trade_rl/integrations/nautilus/historical_streaming.py
-      - name: Verify repository formatting
-        run: uvx ruff format --check .
+      - name: Install project tooling
+        run: uv sync --extra dev
+      - name: Format exact failing file with project lock
+        run: uv run ruff format trade_rl/integrations/nautilus/historical_streaming.py
+      - name: Verify exact file with project lock
+        run: uv run ruff format --check --diff trade_rl/integrations/nautilus/historical_streaming.py
       - name: Commit repair and remove temporary workflow
         run: |
           rm .github/workflows/agent-nautilus-format-repair.yml

@@ -67,7 +67,9 @@ class EnvironmentExecutionDualShadow(Protocol):
         initial_quantities: tuple[float, ...],
     ) -> None: ...
 
-    def observe(self, request: ExecutionDualShadowRequest) -> ExecutionDualShadowSnapshot: ...
+    def observe(
+        self, request: ExecutionDualShadowRequest
+    ) -> ExecutionDualShadowSnapshot: ...
 
 
 class EnvironmentExecutionCoordinator:
@@ -101,7 +103,9 @@ class EnvironmentExecutionCoordinator:
         if self.dual_shadow is None:
             return
         if len(initial_quantities) != self.dataset.n_symbols:
-            raise ValueError("initial dual-shadow quantities do not match dataset symbols")
+            raise ValueError(
+                "initial dual-shadow quantities do not match dataset symbols"
+            )
         self.dual_shadow.reset(
             start_index=start_index,
             initial_capital=self.initial_capital,

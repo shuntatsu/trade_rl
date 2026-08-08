@@ -48,6 +48,8 @@ Current migration slices cover:
 - fail-closed RL dual-shadow symbol validation for the maintained `BTCUSDT` dataset symbol;
 - persisted Stage A historical structural differential evidence that binds the authoritative replay/request/dataset identities and compares exact terminal position lots, zero candidate open orders, and canonical funding records without claiming economic fill equivalence;
 - exact historical economic normalization that adds each runtime's own non-funding execution-cost burden back to final equity in integer settlement minor units, compares the resulting cost-neutral equity exactly, and never allows that normalization to override structural or funding mismatch;
+- checked-in factual Binance USDⓈ-M BTCUSDT 15-minute representative windows selected at time quantiles `0.1`, `0.5`, and `0.9` from the canonical `2021-01-01T00:00:00Z` to `2026-07-01T00:00:00Z` / 192,672-bar range. The fixtures bind OHLC, mark/index close values, quote-notional volume, and factual funding data and are replayed through fresh Nautilus children;
+- factual representative-window Stage A evidence persisted through the content-addressed promotion store, including exact structural closure, funding closure from actual candidate position snapshots, cost-neutral economic comparison, source identity, and an aggregate evidence artifact over all three time-quantile windows;
 - an observational CI throughput artifact comparing the accelerated legacy environment with the streaming Nautilus dual-shadow path on the same deterministic synthetic BTCUSDT eight-step CPU PPO fixture. The verified run recorded about `11.47 step/s` for legacy and `1.275 step/s` for streaming dual-shadow, an elapsed-time slowdown ratio of about `8.99x`. This evidence explicitly records `performance_approved=false` and does not define a production promotion threshold;
 - immutable runtime-promotion reports whose digest is separately bound into the signed `SelectionProposal` alongside the walk-forward and gate-evidence identities. The proposal is the cryptographic join point; the runtime report is not injected into the generic walk-forward or sealed-test APIs;
 - selected-final training that revalidates the signed proposal and retained runtime-promotion report, preserves both inside the training artifact, and binds exported model artifacts into the same `TrainingRunManifest` file closure;
@@ -94,17 +96,15 @@ Trade RL recognizes three execution authority modes:
 
 `legacy_authoritative` remains the fail-closed default. `dual_shadow` requires successful capability, causal bridge, funding, and terminal-flat evidence. `nautilus_authoritative` additionally requires representative historical parity, deterministic replay, and explicit performance approval.
 
-Passing capability, historical synthetic evidence, persisted structural/economic comparison contracts, streaming parity, training smoke, or a signed promotion-report chain does not automatically change the runtime mode. The evidence chain authorizes only what its persisted decision permits; production authority remains separately gated.
+Passing capability, historical synthetic evidence, factual representative-window differential evidence, persisted structural/economic comparison contracts, streaming parity, training smoke, or a signed promotion-report chain does not automatically change the runtime mode. The evidence chain authorizes only what its persisted decision permits; production authority remains separately gated.
 
 ## Remaining work before authority promotion
 
-- run differential dual-shadow replay on persisted representative **real** maintained BTCUSDT historical windows using factual market/replay evidence rather than synthetic fixtures;
-- evaluate the implemented structural, funding, and cost-neutral economic comparison contracts on those representative windows and persist the resulting evidence;
 - benchmark memory and broader representative training throughput, define an explicit reviewed performance threshold, and keep `performance_approved=false` until that review is complete;
-- execute and retain the now-wired signed promotion chain on representative persisted data, including reviewed authorization/confirmation artifacts. The code path already spans the sealed walk-forward identity, signed proposal, selected-final training and export closure, release packaging, Studio Evidence Explorer, and Studio Serving Monitor;
+- execute and retain the now-wired signed promotion chain on a reviewed representative persisted/catalog dataset, including reviewed authorization/confirmation artifacts. The code path already spans the sealed walk-forward identity, signed proposal, selected-final training and export closure, release packaging, Studio Evidence Explorer, and Studio Serving Monitor;
 - retain `NO-GO` until production execution, reconciliation, secrets, kill switch, and operational controls are separately implemented and authorized.
 
-The repository intentionally excludes local runtime data and generated artifacts (`/data/`, `/var/`, and `*.npz`). Representative persisted-market validation must therefore use an explicitly supplied local/catalog dataset rather than a synthetic or invented replacement.
+The repository still intentionally excludes local runtime data and generated artifacts (`/data/`, `/var/`, and `*.npz`). The checked-in factual three-window Binance fixtures are bounded deterministic CI evidence for the representative differential/evidence pipeline; they do not replace a reviewed representative local/catalog run or signed authorization/confirmation artifacts for authority promotion.
 
 ## Upstream relationship
 

@@ -75,8 +75,7 @@ def test_authoritative_report_binds_representative_and_performance_evidence() ->
     assert report.representative_evidence_digest == representative_digest
     assert report.performance_evidence_digest == performance_digest
     assert (
-        report.to_mapping()["representative_evidence_digest"]
-        == representative_digest
+        report.to_mapping()["representative_evidence_digest"] == representative_digest
     )
     assert report.to_mapping()["performance_evidence_digest"] == performance_digest
     assert ExecutionPromotionReport.from_mapping(report.to_mapping()) == report

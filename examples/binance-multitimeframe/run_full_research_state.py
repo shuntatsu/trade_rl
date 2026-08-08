@@ -25,6 +25,11 @@ from trade_rl.release.asymmetric import load_public_verification_keys
 from trade_rl.rl.observations import ObservationBuilder
 from trade_rl.rl.sequence_observations import SequenceObservationBuilder
 from trade_rl.workflows.binance_metadata_modes import BinanceMetadataMode
+from trade_rl.workflows.full_research_runtime_promotion import (
+    RUNTIME_PROMOTION_REPORT_NAME,
+    require_retained_runtime_promotion as _require_retained_runtime_promotion,
+    retain_runtime_promotion_report as _retain_runtime_promotion_report,
+)
 from trade_rl.workflows.full_research_state import (
     FullResearchStatus,
     ResearchPhase,
@@ -154,6 +159,17 @@ class BinanceFullResearchStages:
 
     def _develop(self, work_root: Path) -> ResearchPhaseOutcome:
         _require_fresh_develop_root(work_root)
+        runtime_promotion_report = _retain_runtime_promotion_report(
+            (
+                None
+                if not self.args.runtime_promotion_report
+                else _required_path(
+                    self.args.runtime_promotion_report,
+                    field="runtime promotion report",
+                )
+            ),
+            work_root=work_root,
+        )
         cache_root = self.args.cache_root
         if not cache_root.is_absolute():
             cache_root = _ROOT / cache_root
@@ -346,6 +362,11 @@ class BinanceFullResearchStages:
             git_commit=selected_config.git_commit,
             dependency_digest=_lockfile_digest(),
             resume_checkpoint_digests=(),
+            runtime_promotion_report_digest=(
+                None
+                if runtime_promotion_report is None
+                else runtime_promotion_report.digest
+            ),
         )
         proposal_path = write_selection_proposal(
             work_root / "selection-proposal.json", proposal
@@ -362,6 +383,18 @@ class BinanceFullResearchStages:
                 "walk_forward_run_digest": walk_forward_manifest.digest,
             }
         )
+        if runtime_promotion_report is not None:
+            summary.update(
+                {
+                    "runtime_promotion_report_digest": runtime_promotion_report.digest,
+                    "runtime_promotion_report_path": str(
+                        work_root / RUNTIME_PROMOTION_REPORT_NAME
+                    ),
+                    "runtime_promotion_requested_mode": (
+                        runtime_promotion_report.requested_mode.value
+                    ),
+                }
+            )
         return ResearchPhaseOutcome(
             status=FullResearchStatus.AWAITING_SELECTION_AUTHORIZATION,
             summary=summary,
@@ -388,6 +421,7 @@ class BinanceFullResearchStages:
             trusted_keys=load_public_verification_keys(public_keys_path),
             trusted_at=self.args.trusted_now or datetime.now(UTC),
         )
+        _require_retained_runtime_promotion(proposal, work_root=work_root)
         selected_config_path = _required_path(
             str(summary.get("selected_training_config_path", "")),
             field="selected training config",
@@ -529,6 +563,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--conservative-static-path", type=Path)
     parser.add_argument("--selection-authorization")
     parser.add_argument("--selection-public-keys")
+    parser.add_argument("--runtime-promotion-report")
     parser.add_argument("--confirmation")
     parser.add_argument("--confirmation-public-keys")
     parser.add_argument("--trusted-now", type=_parse_datetime)

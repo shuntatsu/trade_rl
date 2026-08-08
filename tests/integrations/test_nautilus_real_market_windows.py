@@ -32,9 +32,7 @@ from trade_rl.workflows.stage_a_nautilus_representative_runner import (
 
 _FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "nautilus"
 _FIXTURE = _FIXTURE_ROOT / "btcusdt-usdsm-representative-15m.json"
-_VOLUME_FIXTURE = (
-    _FIXTURE_ROOT / "btcusdt-usdsm-representative-15m-quote-volume.json"
-)
+_VOLUME_FIXTURE = _FIXTURE_ROOT / "btcusdt-usdsm-representative-15m-quote-volume.json"
 _BAR_SPAN_MS = 15 * 60 * 1000
 
 
@@ -272,7 +270,9 @@ def test_real_funding_boundary_matches_legacy_and_nautilus_actual_position() -> 
     assert len(candidate.execution.position_snapshots) == 1
     snapshot = candidate.execution.position_snapshots[0]
     assert snapshot.timestamp_ns == boundary.timestamp_ns
-    assert float(snapshot.signed_quantity) == pytest.approx(boundary.signed_quantities[0])
+    assert float(snapshot.signed_quantity) == pytest.approx(
+        boundary.signed_quantities[0]
+    )
 
 
 @pytest.mark.nautilus

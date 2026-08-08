@@ -161,7 +161,9 @@ class SelectionProposal:
 
         require_sha256(report_digest, field="runtime_promotion_report_digest")
         if self.runtime_promotion_report_digest is None:
-            raise ValueError("selection proposal lacks runtime promotion report identity")
+            raise ValueError(
+                "selection proposal lacks runtime promotion report identity"
+            )
         if self.runtime_promotion_report_digest != report_digest:
             raise ValueError(
                 "selection proposal runtime promotion report digest mismatch"

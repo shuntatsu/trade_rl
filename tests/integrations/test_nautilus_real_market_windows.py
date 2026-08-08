@@ -5,17 +5,27 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 pytest.importorskip("nautilus_trader")
 
+from trade_rl.data.contracts import VolumeUnit
+from trade_rl.data.market import MarketDataset
 from trade_rl.integrations.nautilus.event_projection import SourceBar
 from trade_rl.integrations.nautilus.historical_execution import (
     NautilusHistoricalTargetInterval,
 )
+from trade_rl.integrations.nautilus.historical_projection import (
+    project_historical_interval_source_bars,
+)
 from trade_rl.integrations.nautilus.historical_subprocess import (
     run_historical_target_intervals_subprocess,
 )
+from trade_rl.simulation.accounting import BookState
+from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation.orders import OrderBookState
+from trade_rl.simulation.target_execution import execute_target_statefully
 
 _FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "nautilus"
 _FIXTURE = _FIXTURE_ROOT / "btcusdt-usdsm-representative-15m.json"
@@ -74,6 +84,65 @@ def _round_trip_intervals(
             allocated_equity=100_000.0,
             source_bars=bars[8:],
         ),
+    )
+
+
+def _real_funding_dataset() -> MarketDataset:
+    payload = _payload()
+    volume_payload = _read_payload(_VOLUME_FIXTURE)
+    price_window = payload["windows"][2]
+    volume_window = volume_payload["windows"][2]
+    rows = price_window["rows"]
+    volume_rows = volume_window["rows"]
+    assert len(rows) == len(volume_rows) == 16
+    assert [row[0] for row in rows] == [row[0] for row in volume_rows]
+
+    open_times_ms = np.asarray([int(row[0]) for row in rows], dtype=np.int64)
+    close_times_ms = open_times_ms + _BAR_SPAN_MS
+    timestamps = close_times_ms.astype("datetime64[ms]").astype("datetime64[ns]")
+    shape = (len(rows), 1)
+
+    funding_rate = np.zeros(shape, dtype=np.float64)
+    funding_event_count = np.zeros(shape, dtype=np.int32)
+    funding_due = np.zeros(shape, dtype=np.bool_)
+    funding = price_window["funding"]
+    assert funding == [["1765526400007", "0.00004698", "92392.37302174", "Regular"]]
+    funding_time_ms = int(funding[0][0])
+    funding_index = int(np.searchsorted(close_times_ms, funding_time_ms, side="left"))
+    assert funding_index == 4
+    funding_rate[funding_index, 0] = float(funding[0][1])
+    funding_event_count[funding_index, 0] = 1
+    funding_due[funding_index, 0] = True
+
+    def column(index: int) -> np.ndarray:
+        return np.asarray([[float(row[index])] for row in rows], dtype=np.float64)
+
+    return MarketDataset(
+        dataset_id="9" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=timestamps,
+        features=np.zeros((len(rows), 1, 1), dtype=np.float32),
+        global_features=np.zeros((len(rows), 1), dtype=np.float32),
+        open=column(1),
+        high=column(2),
+        low=column(3),
+        close=column(4),
+        volume=np.asarray([[float(row[1])] for row in volume_rows], dtype=np.float64),
+        funding_rate=funding_rate,
+        tradable=np.ones(shape, dtype=np.bool_),
+        feature_available=np.ones((len(rows), 1, 1), dtype=np.bool_),
+        feature_names=("probe",),
+        global_feature_names=("probe",),
+        periods_per_year=35_040,
+        funding_event_count=funding_event_count,
+        funding_due=funding_due,
+        minimum_notional=np.full(shape, 5.0, dtype=np.float64),
+        lot_size=np.full(shape, 0.001, dtype=np.float64),
+        tick_size=np.full(shape, 0.1, dtype=np.float64),
+        mark_price=column(5),
+        index_price=column(6),
+        volume_units=(VolumeUnit.QUOTE_NOTIONAL,),
+        contract_multipliers=np.array([1.0], dtype=np.float64),
     )
 
 
@@ -146,6 +215,61 @@ def test_quote_volume_sidecar_matches_representative_price_windows() -> None:
             row[0] for row in price_window["rows"]
         ]
         assert all(float(row[1]) > 0.0 for row in volume_window["rows"])
+
+
+@pytest.mark.nautilus
+def test_real_funding_boundary_matches_legacy_and_nautilus_actual_position() -> None:
+    dataset = _real_funding_dataset()
+    executor = MarketExecutor(dataset, ExecutionCostConfig.zero())
+    book = BookState.zero(
+        dataset.n_symbols,
+        100_000.0,
+        initial_prices=dataset.close[0],
+        contract_multipliers=dataset.resolved_array("contract_multipliers"),
+    )
+
+    legacy = execute_target_statefully(
+        executor,
+        book,
+        OrderBookState.empty(),
+        np.array([0.10], dtype=np.float64),
+        start_index=0,
+        bars=4,
+        target_identity="representative-real-funding",
+    )
+
+    assert len(legacy.funding_evidence) == 1
+    boundary = legacy.funding_evidence[0]
+    assert boundary.processing_index == 4
+    assert boundary.timestamp_ns == int(dataset.timestamps[4].astype(np.int64))
+    assert boundary.mark_prices == pytest.approx((92_374.51554348,))
+    assert boundary.funding_rates == pytest.approx((0.00004698,))
+    assert boundary.signed_quantities == pytest.approx((0.108,))
+    assert boundary.funding_amount == pytest.approx(-0.4686935119451306)
+
+    candidate = run_historical_target_intervals_subprocess(
+        (
+            NautilusHistoricalTargetInterval(
+                sequence=1,
+                target_exposure=0.10,
+                allocated_equity=100_000.0,
+                source_bars=project_historical_interval_source_bars(
+                    dataset,
+                    start_index=0,
+                    end_index=4,
+                ),
+            ),
+        ),
+        snapshot_timestamps_ns=(boundary.timestamp_ns,),
+        starting_balance=Decimal("100000"),
+        no_trade_band=0.0,
+    )
+
+    assert candidate.execution.runtime_version == "1.230.0"
+    assert len(candidate.execution.position_snapshots) == 1
+    snapshot = candidate.execution.position_snapshots[0]
+    assert snapshot.timestamp_ns == boundary.timestamp_ns
+    assert float(snapshot.signed_quantity) == pytest.approx(boundary.signed_quantities[0])
 
 
 @pytest.mark.nautilus

@@ -113,11 +113,11 @@ def test_historical_target_is_quantized_to_maintained_lot_increment() -> None:
         ),
     )
 
-    result = run_historical_target_intervals(
+    result = run_historical_target_intervals_subprocess(
         intervals,
         starting_balance=Decimal("1000"),
         no_trade_band=0.0,
-    )
+    ).execution
 
     assert [fill.quantity_lots for fill in result.fills] == [-3973, 3973]
     assert [fill.position_lots for fill in result.fills] == [-3973, 0]

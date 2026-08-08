@@ -123,7 +123,9 @@ def _real_dataset_for_quantile(time_quantile: float) -> MarketDataset:
     funding = price_window["funding"]
     for funding_row in funding:
         funding_time_ms = int(funding_row[0])
-        funding_index = int(np.searchsorted(close_times_ms, funding_time_ms, side="left"))
+        funding_index = int(
+            np.searchsorted(close_times_ms, funding_time_ms, side="left")
+        )
         assert 0 <= funding_index < len(rows)
         funding_rate[funding_index, 0] = float(funding_row[1])
         funding_event_count[funding_index, 0] += 1

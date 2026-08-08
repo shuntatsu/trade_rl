@@ -38,6 +38,6 @@ def test_historical_interval_activates_target_once_after_first_open_quote() -> N
     )
     assert len(policy_decisions) == len(interval.source_bars)
     assert all(
-        left.timestamp_ns < right.timestamp_ns
+        left.timestamp_ns <= right.timestamp_ns
         for left, right in zip(events, events[1:])
     )

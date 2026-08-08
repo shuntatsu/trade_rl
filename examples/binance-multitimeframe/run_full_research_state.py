@@ -490,6 +490,8 @@ class BinanceFullResearchStages:
             != FullResearchStatus.AWAITING_FRESH_CONFIRMATION.value
         ):
             raise ValueError("generation is not awaiting fresh confirmation")
+        proposal = load_selection_proposal(work_root / "selection-proposal.json")
+        _require_retained_runtime_promotion(proposal, work_root=work_root)
         confirmation_path = _required_path(
             self.args.confirmation, field="fresh confirmation evidence"
         )

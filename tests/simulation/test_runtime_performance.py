@@ -98,6 +98,36 @@ def test_runtime_performance_evidence_reports_worst_ratios_and_stable_digest() -
     assert RuntimePerformanceEvidence.from_mapping(evidence.to_mapping()) == evidence
 
 
+def test_runtime_performance_evidence_binds_workload_source_identity() -> None:
+    evidence = RuntimePerformanceEvidence(
+        runtime_version="1.230.0",
+        platform="linux-x86_64",
+        algorithm="ppo",
+        dataset_kind="deterministic_synthetic_btcusdt",
+        source_digest="a" * 64,
+        workloads=(
+            _workload(
+                timesteps=8,
+                legacy_elapsed=4.0,
+                nautilus_elapsed=8.0,
+                legacy_tree_rss=100,
+                nautilus_tree_rss=180,
+            ),
+        ),
+        performance_approved=False,
+        approval_policy_digest=None,
+        approval_note="Observational evidence only.",
+    )
+
+    mapping = evidence.to_mapping()
+    assert mapping["source_digest"] == "a" * 64
+    assert RuntimePerformanceEvidence.from_mapping(mapping) == evidence
+
+    tampered = dict(mapping)
+    tampered["source_digest"] = "b" * 64
+    assert RuntimePerformanceEvidence.from_mapping(tampered).digest != evidence.digest
+
+
 def test_runtime_performance_policy_must_be_reviewed_before_approval() -> None:
     evidence = _evidence()
     policy = RuntimePerformanceApprovalPolicy(

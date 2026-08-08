@@ -81,6 +81,21 @@ def test_project_historical_interval_source_bars_excludes_start_boundary() -> No
     )
 
 
+@pytest.mark.parametrize(("start_index", "end_index"), ((2, 2), (3, 2)))
+def test_project_historical_interval_source_bars_rejects_empty_or_reversed_range(
+    start_index: int,
+    end_index: int,
+) -> None:
+    project_interval = _interval_projector()
+
+    with pytest.raises(ValueError, match="ordered"):
+        project_interval(
+            _single_symbol_market(),
+            start_index=start_index,
+            end_index=end_index,
+        )
+
+
 def test_project_historical_source_bar_rejects_non_single_symbol_or_session_data() -> (
     None
 ):

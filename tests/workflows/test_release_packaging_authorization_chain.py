@@ -36,3 +36,75 @@ def test_release_packaging_rejects_selected_final_without_authorization_chain(
             trusted_confirmation_keys={},
             trusted_now=datetime(2026, 8, 1, tzinfo=UTC),
         )
+
+
+def test_release_packaging_rechecks_runtime_promotion_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proposal_digest = "4" * 64
+    promotion_digest = "5" * 64
+    manifest = SimpleNamespace(selection_proposal_digest=proposal_digest)
+    proposal = SimpleNamespace(
+        digest=proposal_digest,
+        runtime_promotion_report_digest=promotion_digest,
+    )
+    report = SimpleNamespace(requested_mode="nautilus_authoritative")
+    monkeypatch.setattr(
+        release_packaging,
+        "load_selection_proposal",
+        lambda _path: proposal,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        release_packaging,
+        "load_execution_promotion_report",
+        lambda _path: report,
+        raising=False,
+    )
+
+    def reject_mismatched_report(**kwargs: object) -> None:
+        assert kwargs == {
+            "proposal": proposal,
+            "report": report,
+            "required_mode": report.requested_mode,
+        }
+        raise ValueError("runtime promotion report digest mismatch")
+
+    monkeypatch.setattr(
+        release_packaging,
+        "require_selection_execution_promotion",
+        reject_mismatched_report,
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="runtime promotion report digest mismatch"):
+        release_packaging._require_runtime_promotion_binding(
+            training_root=tmp_path,
+            manifest=manifest,
+        )
+
+
+def test_release_packaging_rejects_unbound_runtime_promotion_sidecar(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    proposal_digest = "6" * 64
+    manifest = SimpleNamespace(selection_proposal_digest=proposal_digest)
+    proposal = SimpleNamespace(
+        digest=proposal_digest,
+        runtime_promotion_report_digest=None,
+    )
+    monkeypatch.setattr(
+        release_packaging,
+        "load_selection_proposal",
+        lambda _path: proposal,
+        raising=False,
+    )
+    (tmp_path / "runtime-promotion-report.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not authorize runtime promotion evidence"):
+        release_packaging._require_runtime_promotion_binding(
+            training_root=tmp_path,
+            manifest=manifest,
+        )

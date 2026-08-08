@@ -125,7 +125,9 @@ def _execution_to_payload(
     }
 
 
-def _execution_from_payload(payload: dict[str, Any]) -> NautilusHistoricalExecutionResult:
+def _execution_from_payload(
+    payload: dict[str, Any],
+) -> NautilusHistoricalExecutionResult:
     return NautilusHistoricalExecutionResult(
         runtime_version=str(payload["runtime_version"]),
         fills=tuple(CanonicalFillSignature(**fill) for fill in payload["fills"]),
@@ -143,7 +145,9 @@ def _execution_from_payload(payload: dict[str, Any]) -> NautilusHistoricalExecut
     )
 
 
-def _subprocess_result_from_payload(payload: dict[str, Any]) -> NautilusHistoricalSubprocessResult:
+def _subprocess_result_from_payload(
+    payload: dict[str, Any],
+) -> NautilusHistoricalSubprocessResult:
     return NautilusHistoricalSubprocessResult(
         worker_pid=int(payload["worker_pid"]),
         execution=_execution_from_payload(payload["execution"]),

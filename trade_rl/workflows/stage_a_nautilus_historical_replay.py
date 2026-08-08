@@ -1,12 +1,18 @@
-"""Replay persisted Stage A evidence through the isolated Nautilus runtime."""
+"""Bind Stage A historical interval evidence to Nautilus source bars."""
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 
-from trade_rl.integrations.nautilus.event_projection import ProjectedMarketEvent, project_bar_events
+from trade_rl.data.market import MarketDataset
+from trade_rl.integrations.nautilus.event_projection import (
+    ProjectedMarketEvent,
+    SourceBar,
+    project_bar_events,
+)
 from trade_rl.integrations.nautilus.funding_adapter import (
     CanonicalFundingLedger,
     FundingSettlementInput,
@@ -15,96 +21,107 @@ from trade_rl.integrations.nautilus.funding_adapter import (
 from trade_rl.integrations.nautilus.historical_execution import (
     NautilusHistoricalExecutionResult,
     NautilusHistoricalTargetInterval,
+    run_historical_target_intervals,
 )
 from trade_rl.integrations.nautilus.historical_projection import (
     project_historical_interval_source_bars,
 )
-from trade_rl.integrations.nautilus.historical_subprocess import (
-    run_historical_target_intervals_subprocess,
-)
 from trade_rl.integrations.nautilus.instrument import MAINTAINED_BTCUSDT_PERPETUAL
 from trade_rl.simulation.execution_parity import CanonicalExecutionRecord
 from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
-from trade_rl.workflows.stage_a_execution_store import StageAStoredExecutionEvidence
+from trade_rl.workflows.stage_a_execution_replay import StageAExecutionReplayArtifact
+from trade_rl.workflows.stage_a_historical_interval_evidence import (
+    StageAHistoricalIntervalEvidence,
+    build_stage_a_historical_interval_evidence,
+)
 
 _SETTLEMENT_CURRENCY_PRECISION = 8
 
 
 @dataclass(frozen=True, slots=True)
 class StageANautilusHistoricalReplayInterval:
-    sequence: int
-    target_exposure: float
-    allocated_equity: float
-    start_index: int
-    end_index: int
-    source_bars: tuple
+    """One factual Stage A interval paired with exactly its consumed source bars."""
+
+    evidence: StageAHistoricalIntervalEvidence
+    source_bars: tuple[SourceBar, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class StageANautilusHistoricalExecutionResult:
+    """Actual Nautilus execution plus separately canonicalized funding evidence."""
+
     execution: NautilusHistoricalExecutionResult
     funding_records: tuple[CanonicalExecutionRecord, ...]
 
 
 def build_stage_a_nautilus_historical_replay_intervals(
-    stored: StageAStoredExecutionEvidence,
-    market,
+    artifact: StageAExecutionReplayArtifact,
+    market: MarketDataset,
+    *,
+    funding_evidence: Sequence[FundingBoundaryEvidence] = (),
 ) -> tuple[StageANautilusHistoricalReplayInterval, ...]:
-    artifact = stored.artifact
-    evaluation_start = artifact.evaluation_range.start
-    previous_end = evaluation_start
-    intervals: list[StageANautilusHistoricalReplayInterval] = []
-    for sequence, (action, end_index) in enumerate(
-        zip(artifact.actions, artifact.transition_end_indices, strict=True), start=1
-    ):
-        if len(action) != 1:
-            raise ValueError("Stage A Nautilus replay requires single-symbol actions")
-        intervals.append(
-            StageANautilusHistoricalReplayInterval(
-                sequence=sequence,
-                target_exposure=float(action[0]),
-                allocated_equity=float(artifact.equity_curve[sequence - 1]),
-                start_index=previous_end,
-                end_index=end_index,
-                source_bars=project_historical_interval_source_bars(
-                    market,
-                    start_index=previous_end,
-                    end_index=end_index,
-                ),
-            )
+    """Build replay inputs without inventing fill-level equity observations."""
+
+    if artifact.cell_identity.dataset_id != market.dataset_id:
+        raise ValueError("Stage A Nautilus historical replay dataset identity mismatch")
+
+    evidence = build_stage_a_historical_interval_evidence(
+        artifact,
+        funding_evidence=funding_evidence,
+    )
+    return tuple(
+        StageANautilusHistoricalReplayInterval(
+            evidence=interval,
+            source_bars=project_historical_interval_source_bars(
+                market,
+                start_index=interval.start_index,
+                end_index=interval.end_index,
+            ),
         )
-        previous_end = end_index
-    return tuple(intervals)
+        for interval in evidence
+    )
 
 
 def execute_stage_a_nautilus_historical_replay(
-    artifact,
-    market,
+    artifact: StageAExecutionReplayArtifact,
+    market: MarketDataset,
     *,
-    funding_evidence: tuple[FundingBoundaryEvidence, ...] = (),
+    funding_evidence: Sequence[FundingBoundaryEvidence] = (),
     no_trade_band: float = 0.05,
 ) -> StageANautilusHistoricalExecutionResult:
-    intervals = build_stage_a_nautilus_historical_replay_intervals(artifact, market)
-    historical_intervals = tuple(
-        NautilusHistoricalTargetInterval(
-            sequence=interval.sequence,
-            target_exposure=interval.target_exposure,
-            allocated_equity=interval.allocated_equity,
-            source_bars=interval.source_bars,
-        )
-        for interval in intervals
-    )
-    evaluation_start = artifact.artifact.evaluation_range.start
+    """Execute factual Stage A targets and settle funding from actual positions."""
+
     funding = tuple(funding_evidence)
-    snapshot_timestamps_ns = tuple(
+    replay_intervals = build_stage_a_nautilus_historical_replay_intervals(
+        artifact,
+        market,
+        funding_evidence=funding,
+    )
+    target_intervals: list[NautilusHistoricalTargetInterval] = []
+    for interval in replay_intervals:
+        if len(interval.evidence.action) != 1:
+            raise ValueError(
+                "Stage A Nautilus historical execution requires one action value"
+            )
+        target_intervals.append(
+            NautilusHistoricalTargetInterval(
+                sequence=interval.evidence.sequence,
+                target_exposure=interval.evidence.action[0],
+                allocated_equity=interval.evidence.equity_before,
+                source_bars=interval.source_bars,
+            )
+        )
+
+    evaluation_start = artifact.cell_identity.evaluation_range.start
+    snapshot_timestamps = tuple(
         boundary.timestamp_ns
         for boundary in funding
         if boundary.processing_index != evaluation_start
     )
-    execution = run_historical_target_intervals_subprocess(
-        historical_intervals,
-        snapshot_timestamps_ns=snapshot_timestamps_ns,
-        starting_balance=Decimal(str(artifact.artifact.equity_curve[0])),
+    execution = run_historical_target_intervals(
+        tuple(target_intervals),
+        snapshot_timestamps_ns=snapshot_timestamps,
+        starting_balance=Decimal(str(replay_intervals[0].evidence.equity_before)),
         no_trade_band=no_trade_band,
     )
     snapshot_by_timestamp = {

@@ -100,6 +100,7 @@ def run_historical_target_intervals(
         )
         instrument = build_maintained_btcusdt_perpetual()
         engine.add_instrument(instrument)
+        quantity_increment = float(instrument.size_increment.as_decimal())
 
         requested_snapshots = frozenset(snapshot_timestamps_ns)
         quotes: list[Any] = []
@@ -196,6 +197,7 @@ def run_historical_target_intervals(
                         contract_multiplier=1.0,
                         realized_quantity=float(self.realized_quantity),
                         working_remaining_quantities=(),
+                        quantity_increment=quantity_increment,
                     )
                 )
                 if plan.cancel_working_orders:

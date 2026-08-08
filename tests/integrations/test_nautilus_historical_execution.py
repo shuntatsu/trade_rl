@@ -97,6 +97,35 @@ def test_historical_targets_reconcile_sign_flip_and_capture_boundaries() -> None
 
 
 @pytest.mark.nautilus
+def test_historical_target_is_quantized_to_maintained_lot_increment() -> None:
+    intervals = (
+        NautilusHistoricalTargetInterval(
+            sequence=1,
+            target_exposure=-0.39736594653926315,
+            allocated_equity=1_000.0,
+            source_bars=(_flat_bar(0),),
+        ),
+        NautilusHistoricalTargetInterval(
+            sequence=2,
+            target_exposure=0.0,
+            allocated_equity=1_000.0,
+            source_bars=(_flat_bar(_HOUR_NS),),
+        ),
+    )
+
+    result = run_historical_target_intervals(
+        intervals,
+        starting_balance=Decimal("1000"),
+        no_trade_band=0.0,
+    )
+
+    assert [fill.quantity_lots for fill in result.fills] == [-3973, 3973]
+    assert [fill.position_lots for fill in result.fills] == [-3973, 0]
+    assert result.terminal_position_lots == 0
+    assert result.terminal_open_orders == 0
+
+
+@pytest.mark.nautilus
 def test_historical_subprocess_runtime_uses_a_fresh_child_per_replay() -> None:
     intervals = _flat_round_trip_intervals()
 

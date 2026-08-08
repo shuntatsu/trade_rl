@@ -20,12 +20,14 @@ on:
       - "trade_rl/simulation/execution_parity.py"
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
+      - "trade_rl/simulation/runtime_performance.py"
       - "tests/fixtures/nautilus/**"
       - "tests/integrations/test_nautilus_*.py"
       - "tests/workflows/test_stage_a_nautilus_historical_*.py"
       - "tests/rl/test_environment_execution_dual_shadow.py"
       - "tests/rl/test_environment_dual_shadow_wiring.py"
       - "tests/simulation/test_funding_mark_price.py"
+      - "tests/simulation/test_runtime_performance.py"
       - "tools/nautilus_execution_probe_digest.py"
       - "tools/nautilus_training_throughput_benchmark.py"
       - ".github/workflows/nautilus-capability.yml"
@@ -48,12 +50,14 @@ on:
       - "trade_rl/simulation/execution_parity.py"
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
+      - "trade_rl/simulation/runtime_performance.py"
       - "tests/fixtures/nautilus/**"
       - "tests/integrations/test_nautilus_*.py"
       - "tests/workflows/test_stage_a_nautilus_historical_*.py"
       - "tests/rl/test_environment_execution_dual_shadow.py"
       - "tests/rl/test_environment_dual_shadow_wiring.py"
       - "tests/simulation/test_funding_mark_price.py"
+      - "tests/simulation/test_runtime_performance.py"
       - "tools/nautilus_execution_probe_digest.py"
       - "tools/nautilus_training_throughput_benchmark.py"
       - ".github/workflows/nautilus-capability.yml"
@@ -138,10 +142,11 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_rl_dual_shadow.py
       - name: Run three-step PPO and Lagrangian smokes on dual-shadow runtime
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_training_smoke.py
-      - name: Record legacy versus streaming training throughput
+      - name: Record isolated legacy versus streaming throughput and memory
         run: |
           uv run python tools/nautilus_training_throughput_benchmark.py \
             --timesteps 8 \
+            --timesteps 32 \
             --output nautilus-training-throughput.json
       - name: Upload training throughput evidence
         if: always()

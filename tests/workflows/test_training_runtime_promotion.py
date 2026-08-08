@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,11 @@ from trade_rl.simulation.runtime_promotion import (
     load_execution_promotion_report,
     write_execution_promotion_report,
 )
+
+
+def _stage_training_runtime_promotion():
+    module = importlib.import_module("trade_rl.workflows.training_runtime_promotion")
+    return module.stage_training_runtime_promotion
 
 
 def _report():
@@ -46,10 +52,7 @@ def _proposal(*, runtime_digest: str | None) -> SelectionProposal:
 
 
 def test_legacy_training_requires_no_runtime_promotion_artifact(tmp_path: Path) -> None:
-    from trade_rl.workflows.training_runtime_promotion import (
-        stage_training_runtime_promotion,
-    )
-
+    stage_training_runtime_promotion = _stage_training_runtime_promotion()
     stage = tmp_path / "stage"
     stage.mkdir()
 
@@ -65,10 +68,7 @@ def test_legacy_training_requires_no_runtime_promotion_artifact(tmp_path: Path) 
 
 
 def test_runtime_promotion_report_requires_selection_proposal(tmp_path: Path) -> None:
-    from trade_rl.workflows.training_runtime_promotion import (
-        stage_training_runtime_promotion,
-    )
-
+    stage_training_runtime_promotion = _stage_training_runtime_promotion()
     report = _report()
     report_path = write_execution_promotion_report(tmp_path / "report.json", report)
     stage = tmp_path / "stage"
@@ -86,10 +86,7 @@ def test_runtime_promotion_report_requires_selection_proposal(tmp_path: Path) ->
 
 
 def test_unsigned_runtime_promotion_report_is_rejected(tmp_path: Path) -> None:
-    from trade_rl.workflows.training_runtime_promotion import (
-        stage_training_runtime_promotion,
-    )
-
+    stage_training_runtime_promotion = _stage_training_runtime_promotion()
     report = _report()
     report_path = write_execution_promotion_report(tmp_path / "report.json", report)
     stage = tmp_path / "stage"
@@ -107,10 +104,7 @@ def test_unsigned_runtime_promotion_report_is_rejected(tmp_path: Path) -> None:
 
 
 def test_runtime_bound_proposal_requires_report(tmp_path: Path) -> None:
-    from trade_rl.workflows.training_runtime_promotion import (
-        stage_training_runtime_promotion,
-    )
-
+    stage_training_runtime_promotion = _stage_training_runtime_promotion()
     stage = tmp_path / "stage"
     stage.mkdir()
 
@@ -126,10 +120,7 @@ def test_runtime_bound_proposal_requires_report(tmp_path: Path) -> None:
 
 
 def test_matching_runtime_promotion_is_staged_content_addressed(tmp_path: Path) -> None:
-    from trade_rl.workflows.training_runtime_promotion import (
-        stage_training_runtime_promotion,
-    )
-
+    stage_training_runtime_promotion = _stage_training_runtime_promotion()
     report = _report()
     report_path = write_execution_promotion_report(tmp_path / "report.json", report)
     stage = tmp_path / "stage"
@@ -142,14 +133,14 @@ def test_matching_runtime_promotion_is_staged_content_addressed(tmp_path: Path) 
     )
 
     assert staged == report
-    assert load_execution_promotion_report(stage / "runtime-promotion-report.json") == report
+    assert (
+        load_execution_promotion_report(stage / "runtime-promotion-report.json")
+        == report
+    )
 
 
 def test_mismatched_runtime_promotion_report_is_rejected(tmp_path: Path) -> None:
-    from trade_rl.workflows.training_runtime_promotion import (
-        stage_training_runtime_promotion,
-    )
-
+    stage_training_runtime_promotion = _stage_training_runtime_promotion()
     report = _report()
     report_path = write_execution_promotion_report(tmp_path / "report.json", report)
     stage = tmp_path / "stage"

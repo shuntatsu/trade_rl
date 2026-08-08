@@ -13,7 +13,10 @@ from trade_rl.rl.actions import ActionSpec, BaselineResidualComposer
 from trade_rl.rl.environment_config import ResidualMarketEnvConfig
 from trade_rl.rl.environment_decision import EnvironmentDecisionPlanner
 from trade_rl.rl.environment_episode import EpisodeContractSampler
-from trade_rl.rl.environment_execution import EnvironmentExecutionCoordinator
+from trade_rl.rl.environment_execution import (
+    EnvironmentExecutionCoordinator,
+    EnvironmentExecutionDualShadow,
+)
 from trade_rl.rl.environment_info import EnvironmentInfoBuilder
 from trade_rl.rl.environment_observation import EnvironmentObservationAssembler
 from trade_rl.rl.environment_observation_contract import EnvironmentObservationContract
@@ -62,6 +65,7 @@ class EnvironmentRuntimeServicesBuilder:
         reward_tracker: RewardTracker,
         hybrid_executor: MarketExecutor,
         shadow_executor: MarketExecutor,
+        execution_dual_shadow: EnvironmentExecutionDualShadow | None = None,
     ) -> None:
         self.dataset = dataset
         self.config = config
@@ -79,6 +83,7 @@ class EnvironmentRuntimeServicesBuilder:
         self.reward_tracker = reward_tracker
         self.hybrid_executor = hybrid_executor
         self.shadow_executor = shadow_executor
+        self.execution_dual_shadow = execution_dual_shadow
 
     def build(self) -> EnvironmentRuntimeServices:
         episode_sampler = EpisodeContractSampler(
@@ -90,6 +95,7 @@ class EnvironmentRuntimeServicesBuilder:
             self.dataset,
             self.config.execution_cost,
             initial_capital=self.config.initial_capital,
+            dual_shadow=self.execution_dual_shadow,
         )
         observation_assembler = EnvironmentObservationAssembler(
             self.dataset,

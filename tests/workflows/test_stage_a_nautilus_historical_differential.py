@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from tests.workflows.test_stage_a_execution_store_funding import (
@@ -12,6 +13,10 @@ from trade_rl.integrations.nautilus.historical_execution import (
     NautilusHistoricalExecutionResult,
 )
 from trade_rl.workflows.stage_a_execution_store import StageAExecutionPromotionStore
+from trade_rl.workflows.stage_a_nautilus_economic_comparison import (
+    StageANautilusHistoricalEconomicClosure,
+    compare_stage_a_nautilus_historical_economics,
+)
 from trade_rl.workflows.stage_a_nautilus_historical_differential import (
     build_stage_a_nautilus_historical_differential_evidence,
 )
@@ -97,3 +102,83 @@ def test_persisted_historical_differential_reports_terminal_position_mismatch(
     assert evidence.candidate_terminal_position_lots == 0
     assert evidence.terminal_position_matches is False
     assert evidence.structural_passed is False
+
+
+def test_historical_economic_comparison_normalizes_only_execution_cost_representation(
+    tmp_path: Path,
+) -> None:
+    stored = _stored_replay(tmp_path)
+    structural = build_stage_a_nautilus_historical_differential_evidence(
+        stored,
+        _candidate(terminal_position_lots=1_000),
+    )
+
+    evidence = compare_stage_a_nautilus_historical_economics(
+        structural=structural,
+        legacy=StageANautilusHistoricalEconomicClosure(
+            final_equity_minor=99_900,
+            execution_cost_minor=100,
+        ),
+        candidate=StageANautilusHistoricalEconomicClosure(
+            final_equity_minor=99_800,
+            execution_cost_minor=200,
+        ),
+    )
+
+    assert evidence.legacy_cost_neutral_equity_minor == 100_000
+    assert evidence.candidate_cost_neutral_equity_minor == 100_000
+    assert evidence.execution_cost_representation_delta_minor == 100
+    assert evidence.normalized_equity_delta_minor == 0
+    assert evidence.economic_passed is True
+
+
+def test_historical_economic_comparison_cannot_hide_structural_mismatch(
+    tmp_path: Path,
+) -> None:
+    stored = _stored_replay(tmp_path)
+    structural = build_stage_a_nautilus_historical_differential_evidence(
+        stored,
+        _candidate(terminal_position_lots=0),
+    )
+
+    evidence = compare_stage_a_nautilus_historical_economics(
+        structural=structural,
+        legacy=StageANautilusHistoricalEconomicClosure(
+            final_equity_minor=99_900,
+            execution_cost_minor=100,
+        ),
+        candidate=StageANautilusHistoricalEconomicClosure(
+            final_equity_minor=99_800,
+            execution_cost_minor=200,
+        ),
+    )
+
+    assert evidence.normalized_equity_delta_minor == 0
+    assert evidence.economic_passed is False
+
+
+def test_historical_economic_comparison_cannot_hide_funding_mismatch(
+    tmp_path: Path,
+) -> None:
+    stored = _stored_replay(tmp_path)
+    structural = build_stage_a_nautilus_historical_differential_evidence(
+        stored,
+        _candidate(terminal_position_lots=1_000),
+    )
+    structural = replace(structural, funding_matches=False, structural_passed=False)
+
+    evidence = compare_stage_a_nautilus_historical_economics(
+        structural=structural,
+        legacy=StageANautilusHistoricalEconomicClosure(
+            final_equity_minor=99_900,
+            execution_cost_minor=100,
+        ),
+        candidate=StageANautilusHistoricalEconomicClosure(
+            final_equity_minor=99_800,
+            execution_cost_minor=200,
+        ),
+    )
+
+    assert evidence.normalized_equity_delta_minor == 0
+    assert evidence.funding_matches is False
+    assert evidence.economic_passed is False

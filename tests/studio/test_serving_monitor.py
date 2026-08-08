@@ -4,6 +4,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.selection import PolicyMode
 from trade_rl.release.selection_authorization import (
@@ -89,6 +91,11 @@ def build_selected_final_bundle(
     *,
     bind_runtime_report: bool,
     include_runtime_report: bool,
+    include_selection_proposal: bool = True,
+    proposal_dataset_id: str = "a" * 64,
+    manifest_selection_proposal_digest: str | None = None,
+    manifest_walk_forward_run_digest: str | None = None,
+    manifest_gate_evidence_digest: str | None = None,
 ) -> tuple[ServingBundleManifest, SelectionProposal]:
     bundle_root = root / "serving" / "versions" / ("f" * 64)
     bundle_root.mkdir(parents=True)
@@ -98,7 +105,7 @@ def build_selected_final_bundle(
         walk_forward_run_digest="1" * 64,
         gate_evidence_digest="2" * 64,
         execution_sensitivity_digest="3" * 64,
-        dataset_id="a" * 64,
+        dataset_id=proposal_dataset_id,
         selected_configuration="candidate-a",
         candidate_config_digest="4" * 64,
         seeds=(7, 11),
@@ -109,8 +116,10 @@ def build_selected_final_bundle(
             report.digest if bind_runtime_report else None
         ),
     )
-    write_selection_proposal(bundle_root / "selection-proposal.json", proposal)
-    artifact_paths = ["policy.bin", "selection-proposal.json"]
+    artifact_paths = ["policy.bin"]
+    if include_selection_proposal:
+        write_selection_proposal(bundle_root / "selection-proposal.json", proposal)
+        artifact_paths.append("selection-proposal.json")
     if include_runtime_report:
         write_execution_promotion_report(
             bundle_root / "runtime-promotion-report.json",
@@ -136,10 +145,22 @@ def build_selected_final_bundle(
         action_spec_digest="e" * 64,
         training_run_digest="8" * 64,
         run_kind="research_selected_final",
-        selection_proposal_digest=proposal.digest,
+        selection_proposal_digest=(
+            proposal.digest
+            if manifest_selection_proposal_digest is None
+            else manifest_selection_proposal_digest
+        ),
         selection_authorization_digest="9" * 64,
-        walk_forward_run_digest=proposal.walk_forward_run_digest,
-        gate_evidence_digest=proposal.gate_evidence_digest,
+        walk_forward_run_digest=(
+            proposal.walk_forward_run_digest
+            if manifest_walk_forward_run_digest is None
+            else manifest_walk_forward_run_digest
+        ),
+        gate_evidence_digest=(
+            proposal.gate_evidence_digest
+            if manifest_gate_evidence_digest is None
+            else manifest_gate_evidence_digest
+        ),
         confirmation_evidence_digest="0" * 64,
     )
     write_serving_bundle_manifest(bundle_root, manifest)
@@ -205,6 +226,24 @@ def test_selected_final_serving_reports_bound_runtime_promotion(
     assert "authority remains external" in runtime.detail
 
 
+def test_selected_final_serving_accepts_legacy_bundle_without_promotion_sidecars(
+    tmp_path: Path,
+) -> None:
+    build_selected_final_bundle(
+        tmp_path,
+        bind_runtime_report=False,
+        include_runtime_report=False,
+        include_selection_proposal=False,
+    )
+
+    report = inspect_serving(settings_for(tmp_path))
+
+    runtime = next(check for check in report.checks if check.key == "runtime_promotion")
+    assert report.state == "VALID"
+    assert runtime.status == "WARN"
+    assert "legacy" in runtime.detail
+
+
 def test_selected_final_serving_rejects_missing_bound_runtime_promotion(
     tmp_path: Path,
 ) -> None:
@@ -237,6 +276,35 @@ def test_selected_final_serving_rejects_unbound_runtime_promotion(
     assert report.state == "INVALID"
     assert runtime.status == "FAIL"
     assert "does not authorize" in runtime.detail
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"manifest_selection_proposal_digest": "a" * 64}, "proposal digest"),
+        ({"proposal_dataset_id": "b" * 64}, "dataset identity"),
+        ({"manifest_walk_forward_run_digest": "c" * 64}, "walk-forward identity"),
+        ({"manifest_gate_evidence_digest": "d" * 64}, "gate evidence identity"),
+    ],
+)
+def test_selected_final_serving_rejects_proposal_manifest_identity_drift(
+    tmp_path: Path,
+    overrides: dict[str, str],
+    message: str,
+) -> None:
+    build_selected_final_bundle(
+        tmp_path,
+        bind_runtime_report=True,
+        include_runtime_report=True,
+        **overrides,
+    )
+
+    report = inspect_serving(settings_for(tmp_path))
+
+    runtime = next(check for check in report.checks if check.key == "runtime_promotion")
+    assert report.state == "INVALID"
+    assert runtime.status == "FAIL"
+    assert message in runtime.detail
 
 
 def test_invalid_pointer_or_bundle_fails_closed(tmp_path: Path) -> None:

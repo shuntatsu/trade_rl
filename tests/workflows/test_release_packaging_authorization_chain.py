@@ -99,7 +99,9 @@ def test_release_packaging_rejects_unbound_runtime_promotion_sidecar(
     )
     (tmp_path / "runtime-promotion-report.json").write_text("{}", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="does not authorize runtime promotion evidence"):
+    with pytest.raises(
+        ValueError, match="does not authorize runtime promotion evidence"
+    ):
         release_packaging._require_runtime_promotion_binding(
             training_root=tmp_path,
             manifest=manifest,

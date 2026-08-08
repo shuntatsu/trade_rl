@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.workflows import stage_a_nautilus_representative_batch as runner
 from trade_rl.workflows.stage_a_nautilus_economic_comparison import (
     StageANautilusHistoricalEconomicEvidence,
@@ -15,6 +17,11 @@ from trade_rl.workflows.stage_a_nautilus_representative_evidence import (
     RepresentativeNautilusWindowEvidence,
     load_representative_nautilus_evidence,
 )
+
+
+@dataclass(frozen=True)
+class _MarketRef:
+    dataset_id: str
 
 
 def _window(time_quantile: float) -> RepresentativeNautilusWindowEvidence:
@@ -48,6 +55,29 @@ def _window(time_quantile: float) -> RepresentativeNautilusWindowEvidence:
     )
 
 
+def _markets() -> dict[float, _MarketRef]:
+    return {
+        0.1: _MarketRef("1" * 64),
+        0.5: _MarketRef("2" * 64),
+        0.9: _MarketRef("3" * 64),
+    }
+
+
+def _source_digest(markets: dict[float, _MarketRef]) -> str:
+    return content_digest(
+        {
+            "schema_version": "stage_a_nautilus_representative_source_v1",
+            "windows": [
+                {
+                    "dataset_id": markets[time_quantile].dataset_id,
+                    "time_quantile": time_quantile,
+                }
+                for time_quantile in (0.1, 0.5, 0.9)
+            ],
+        }
+    )
+
+
 def test_run_and_persist_representative_evidence_uses_all_quantiles_in_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -65,10 +95,11 @@ def test_run_and_persist_representative_evidence_uses_all_quantiles_in_order(
         fake_window_runner,
     )
     output_path = tmp_path / "representative-evidence.json"
+    markets = _markets()
 
     evidence = runner.run_and_persist_representative_nautilus_evidence(
-        markets={0.9: object(), 0.1: object(), 0.5: object()},
-        source_digest="f" * 64,
+        markets=markets,  # type: ignore[arg-type]
+        source_digest=_source_digest(markets),
         store_root=tmp_path / "stage-a",
         output_path=output_path,
         target_exposure=0.10,
@@ -99,7 +130,36 @@ def test_run_and_persist_representative_evidence_rejects_missing_window_before_r
 
     with pytest.raises(ValueError, match="exactly the 0.1, 0.5, and 0.9 windows"):
         runner.run_and_persist_representative_nautilus_evidence(
-            markets={0.1: object(), 0.9: object()},
+            markets={0.1: _MarketRef("1" * 64), 0.9: _MarketRef("3" * 64)},  # type: ignore[arg-type]
+            source_digest="f" * 64,
+            store_root=tmp_path / "stage-a",
+            output_path=tmp_path / "representative-evidence.json",
+        )
+
+    assert called is False
+
+
+def test_run_and_persist_representative_evidence_rejects_unbound_source_digest_before_replay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def fake_window_runner(**kwargs: object) -> RepresentativeNautilusWindowEvidence:
+        nonlocal called
+        called = True
+        return _window(float(kwargs["time_quantile"]))
+
+    monkeypatch.setattr(
+        runner,
+        "run_representative_nautilus_window",
+        fake_window_runner,
+    )
+    markets = _markets()
+
+    with pytest.raises(ValueError, match="source digest does not match representative markets"):
+        runner.run_and_persist_representative_nautilus_evidence(
+            markets=markets,  # type: ignore[arg-type]
             source_digest="f" * 64,
             store_root=tmp_path / "stage-a",
             output_path=tmp_path / "representative-evidence.json",

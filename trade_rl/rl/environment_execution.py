@@ -71,6 +71,8 @@ class EnvironmentExecutionDualShadow(Protocol):
         self, request: ExecutionDualShadowRequest
     ) -> ExecutionDualShadowSnapshot: ...
 
+    def close(self) -> None: ...
+
 
 class EnvironmentExecutionCoordinator:
     """Reconcile targets and execute them through the maintained order engine."""

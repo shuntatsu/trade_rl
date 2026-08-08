@@ -9,6 +9,7 @@ on:
       - "trade_rl/integrations/nautilus/**"
       - "trade_rl/workflows/stage_a_historical_interval_evidence.py"
       - "trade_rl/workflows/stage_a_nautilus_historical_replay.py"
+      - "trade_rl/workflows/stage_a_nautilus_historical_differential.py"
       - "trade_rl/rl/environment_execution.py"
       - "trade_rl/rl/environment_runtime_services.py"
       - "trade_rl/rl/environment.py"
@@ -33,6 +34,7 @@ on:
       - "trade_rl/integrations/nautilus/**"
       - "trade_rl/workflows/stage_a_historical_interval_evidence.py"
       - "trade_rl/workflows/stage_a_nautilus_historical_replay.py"
+      - "trade_rl/workflows/stage_a_nautilus_historical_differential.py"
       - "trade_rl/rl/environment_execution.py"
       - "trade_rl/rl/environment_runtime_services.py"
       - "trade_rl/rl/environment.py"
@@ -107,7 +109,8 @@ jobs:
         run: |
           uv run pytest -q \
             tests/workflows/test_stage_a_nautilus_historical_replay.py \
-            tests/workflows/test_stage_a_nautilus_historical_timeline.py
+            tests/workflows/test_stage_a_nautilus_historical_timeline.py \
+            tests/workflows/test_stage_a_nautilus_historical_differential.py
       - name: Record execution accounting in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
       - name: Replay historical targets in isolated process

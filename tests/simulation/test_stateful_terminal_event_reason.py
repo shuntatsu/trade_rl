@@ -78,7 +78,9 @@ def test_filled_event_preserves_terminal_order_reason() -> None:
     )
 
     terminal = result.order_book.terminal_orders[-1]
-    filled = next(event for event in result.order_events if event.event_type == "filled")
+    filled = next(
+        event for event in result.order_events if event.event_type == "filled"
+    )
     assert terminal.status is OrderStatus.FILLED
     assert terminal.terminal_reason == "filled"
     assert filled.new_status is OrderStatus.FILLED

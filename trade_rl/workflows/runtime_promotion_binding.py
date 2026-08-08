@@ -19,7 +19,7 @@ def require_selection_execution_promotion(
 
     if report.requested_mode != required_mode:
         raise ValueError("execution promotion mode mismatch")
-    proposal.require_execution_evidence_digest(report.digest)
+    proposal.require_runtime_promotion_report_digest(report.digest)
     if not report.decision.allowed:
         raise ValueError("execution promotion is not allowed")
 

@@ -130,7 +130,10 @@ def test_run_and_persist_representative_evidence_rejects_missing_window_before_r
 
     with pytest.raises(ValueError, match="exactly the 0.1, 0.5, and 0.9 windows"):
         runner.run_and_persist_representative_nautilus_evidence(
-            markets={0.1: _MarketRef("1" * 64), 0.9: _MarketRef("3" * 64)},  # type: ignore[arg-type]
+            markets={
+                0.1: _MarketRef("1" * 64),
+                0.9: _MarketRef("3" * 64),
+            },  # type: ignore[arg-type]
             source_digest="f" * 64,
             store_root=tmp_path / "stage-a",
             output_path=tmp_path / "representative-evidence.json",
@@ -157,7 +160,10 @@ def test_run_and_persist_representative_evidence_rejects_unbound_source_digest_b
     )
     markets = _markets()
 
-    with pytest.raises(ValueError, match="source digest does not match representative markets"):
+    with pytest.raises(
+        ValueError,
+        match="source digest does not match representative markets",
+    ):
         runner.run_and_persist_representative_nautilus_evidence(
             markets=markets,  # type: ignore[arg-type]
             source_digest="f" * 64,

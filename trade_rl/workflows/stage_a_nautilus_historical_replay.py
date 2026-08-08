@@ -26,6 +26,9 @@ from trade_rl.integrations.nautilus.historical_execution import (
 from trade_rl.integrations.nautilus.historical_projection import (
     project_historical_interval_source_bars,
 )
+from trade_rl.integrations.nautilus.historical_subprocess import (
+    run_historical_target_intervals_subprocess,
+)
 from trade_rl.integrations.nautilus.instrument import MAINTAINED_BTCUSDT_PERPETUAL
 from trade_rl.simulation.execution_parity import CanonicalExecutionRecord
 from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
@@ -90,8 +93,43 @@ def execute_stage_a_nautilus_historical_replay(
     funding_evidence: Sequence[FundingBoundaryEvidence] = (),
     no_trade_band: float = 0.05,
 ) -> StageANautilusHistoricalExecutionResult:
-    """Execute factual Stage A targets and settle funding from actual positions."""
+    """Execute one factual Stage A replay in the current Nautilus process."""
 
+    return _execute_stage_a_nautilus_historical_replay(
+        artifact,
+        market,
+        funding_evidence=funding_evidence,
+        no_trade_band=no_trade_band,
+        isolated_process=False,
+    )
+
+
+def execute_stage_a_nautilus_historical_replay_subprocess(
+    artifact: StageAExecutionReplayArtifact,
+    market: MarketDataset,
+    *,
+    funding_evidence: Sequence[FundingBoundaryEvidence] = (),
+    no_trade_band: float = 0.05,
+) -> StageANautilusHistoricalExecutionResult:
+    """Execute one factual Stage A replay in a fresh Nautilus child process."""
+
+    return _execute_stage_a_nautilus_historical_replay(
+        artifact,
+        market,
+        funding_evidence=funding_evidence,
+        no_trade_band=no_trade_band,
+        isolated_process=True,
+    )
+
+
+def _execute_stage_a_nautilus_historical_replay(
+    artifact: StageAExecutionReplayArtifact,
+    market: MarketDataset,
+    *,
+    funding_evidence: Sequence[FundingBoundaryEvidence],
+    no_trade_band: float,
+    isolated_process: bool,
+) -> StageANautilusHistoricalExecutionResult:
     funding = tuple(funding_evidence)
     replay_intervals = build_stage_a_nautilus_historical_replay_intervals(
         artifact,
@@ -119,12 +157,21 @@ def execute_stage_a_nautilus_historical_replay(
         for boundary in funding
         if boundary.processing_index != evaluation_start
     )
-    execution = run_historical_target_intervals(
-        tuple(target_intervals),
-        snapshot_timestamps_ns=snapshot_timestamps,
-        starting_balance=Decimal(str(replay_intervals[0].evidence.equity_before)),
-        no_trade_band=no_trade_band,
-    )
+    starting_balance = Decimal(str(replay_intervals[0].evidence.equity_before))
+    if isolated_process:
+        execution = run_historical_target_intervals_subprocess(
+            tuple(target_intervals),
+            snapshot_timestamps_ns=snapshot_timestamps,
+            starting_balance=starting_balance,
+            no_trade_band=no_trade_band,
+        ).execution
+    else:
+        execution = run_historical_target_intervals(
+            tuple(target_intervals),
+            snapshot_timestamps_ns=snapshot_timestamps,
+            starting_balance=starting_balance,
+            no_trade_band=no_trade_band,
+        )
     snapshot_by_timestamp = {
         snapshot.timestamp_ns: snapshot.signed_quantity
         for snapshot in execution.position_snapshots
@@ -239,5 +286,6 @@ __all__ = [
     "StageANautilusHistoricalReplayInterval",
     "build_stage_a_nautilus_historical_replay_intervals",
     "execute_stage_a_nautilus_historical_replay",
+    "execute_stage_a_nautilus_historical_replay_subprocess",
     "project_stage_a_nautilus_historical_interval_events",
 ]

@@ -158,7 +158,7 @@ def run_historical_target_intervals(
                 self.realized_quantity += _signed_fill_quantity(event)
 
         strategy = HistoricalTargetStrategy()
-        engine.add_data(quotes, sort=False)
+        engine.add_data(quotes, sort=True)
         engine.add_strategy(strategy)
         engine.run()
 
@@ -179,7 +179,9 @@ def run_historical_target_intervals(
             currency_precision=USDT.precision,
             name="final_balance",
         )
-        terminal_position_lots = canonical.fills[-1].position_lots if canonical.fills else 0
+        terminal_position_lots = (
+            canonical.fills[-1].position_lots if canonical.fills else 0
+        )
         terminal_open_orders = len(engine.cache.orders_open(instrument_id=instrument.id))
         return NautilusHistoricalExecutionResult(
             runtime_version=runtime.package_version or "",
@@ -200,9 +202,17 @@ def _validate_intervals(intervals: tuple[NautilusHistoricalTargetInterval, ...])
     for expected_sequence, interval in enumerate(intervals, start=1):
         if interval.sequence != expected_sequence:
             raise ValueError("historical target interval sequence must be contiguous")
-        if not math.isfinite(interval.target_exposure) or not -1.0 <= interval.target_exposure <= 1.0:
-            raise ValueError("historical target exposure must be finite and within [-1, 1]")
-        if not math.isfinite(interval.allocated_equity) or interval.allocated_equity <= 0.0:
+        if (
+            not math.isfinite(interval.target_exposure)
+            or not -1.0 <= interval.target_exposure <= 1.0
+        ):
+            raise ValueError(
+                "historical target exposure must be finite and within [-1, 1]"
+            )
+        if (
+            not math.isfinite(interval.allocated_equity)
+            or interval.allocated_equity <= 0.0
+        ):
             raise ValueError("historical allocated equity must be finite and positive")
         if not interval.source_bars:
             raise ValueError("historical target interval must contain source bars")

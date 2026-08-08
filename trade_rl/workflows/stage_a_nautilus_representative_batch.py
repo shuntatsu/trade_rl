@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.common import require_sha256
 from trade_rl.workflows.stage_a_nautilus_representative_evidence import (
@@ -36,6 +37,8 @@ def run_and_persist_representative_nautilus_evidence(
         raise ValueError(
             "representative Nautilus evidence requires exactly the 0.1, 0.5, and 0.9 windows"
         )
+    if source_digest != _representative_source_digest(markets):
+        raise ValueError("source digest does not match representative markets")
 
     windows = tuple(
         run_representative_nautilus_window(
@@ -52,6 +55,21 @@ def run_and_persist_representative_nautilus_evidence(
     )
     write_representative_nautilus_evidence(output_path, evidence)
     return evidence
+
+
+def _representative_source_digest(markets: Mapping[float, MarketDataset]) -> str:
+    return content_digest(
+        {
+            "schema_version": "stage_a_nautilus_representative_source_v1",
+            "windows": [
+                {
+                    "dataset_id": markets[time_quantile].dataset_id,
+                    "time_quantile": time_quantile,
+                }
+                for time_quantile in _REPRESENTATIVE_TIME_QUANTILES
+            ],
+        }
+    )
 
 
 __all__ = ["run_and_persist_representative_nautilus_evidence"]

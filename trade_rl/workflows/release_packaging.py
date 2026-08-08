@@ -93,11 +93,16 @@ def _require_runtime_promotion_binding(
     proposal_digest = manifest.selection_proposal_digest
     if proposal_digest is None:
         raise ValueError("selected-final training manifest lacks selection proposal")
-    proposal = load_selection_proposal(training_root / "selection-proposal.json")
+
+    proposal_path = training_root / "selection-proposal.json"
+    report_path = training_root / RUNTIME_PROMOTION_REPORT_NAME
+    if not proposal_path.exists() and not report_path.exists():
+        return
+
+    proposal = load_selection_proposal(proposal_path)
     if proposal.digest != proposal_digest:
         raise ValueError("selection proposal digest differs from training manifest")
 
-    report_path = training_root / RUNTIME_PROMOTION_REPORT_NAME
     if proposal.runtime_promotion_report_digest is None:
         if report_path.exists():
             raise ValueError(

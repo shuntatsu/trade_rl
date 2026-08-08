@@ -193,7 +193,7 @@ def run_historical_target_intervals(
                         working_remaining_quantities=(),
                     )
                 )
-                if plan.cancel_client_order_ids:
+                if plan.cancel_working_orders:
                     raise RuntimeError(
                         "historical Market IOC replay must not retain stale orders"
                     )

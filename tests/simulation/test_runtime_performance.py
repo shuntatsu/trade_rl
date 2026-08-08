@@ -143,7 +143,9 @@ def test_runtime_performance_evidence_persists_immutably(tmp_path) -> None:
     assert load_runtime_performance_evidence(path) == evidence
     assert write_runtime_performance_evidence(path, evidence) == path
 
-    with pytest.raises(FileExistsError, match="refusing to overwrite immutable evidence"):
+    with pytest.raises(
+        FileExistsError, match="refusing to overwrite immutable evidence"
+    ):
         write_runtime_performance_evidence(
             path,
             RuntimePerformanceEvidence(

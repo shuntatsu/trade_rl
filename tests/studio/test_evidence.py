@@ -72,9 +72,7 @@ def build_run(
             dependency_digest="9" * 64,
             resume_checkpoint_digests=(),
             runtime_promotion_report_digest=(
-                None
-                if report is None or unbound_runtime_sidecar
-                else report.digest
+                None if report is None or unbound_runtime_sidecar else report.digest
             ),
         )
         approved = datetime(2026, 7, 19, 12, 0, tzinfo=UTC)

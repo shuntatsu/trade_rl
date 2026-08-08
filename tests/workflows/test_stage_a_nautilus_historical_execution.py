@@ -30,7 +30,9 @@ def _timestamp_ns(market: MarketDataset, index: int) -> int:
 
 
 @pytest.mark.nautilus
-def test_stage_a_historical_execution_uses_actual_boundary_position_for_funding() -> None:
+def test_stage_a_historical_execution_uses_actual_boundary_position_for_funding() -> (
+    None
+):
     market = _aligned_single_symbol_market()
     replay = _replay_for_market(market)
     start = replay.cell_identity.evaluation_range.start

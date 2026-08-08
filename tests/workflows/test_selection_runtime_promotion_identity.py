@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from trade_rl.release.selection_authorization import SelectionProposal
@@ -60,7 +62,8 @@ def test_selection_proposal_keeps_execution_and_runtime_promotion_evidence_disti
     proposal.require_execution_evidence_digest(execution_digest)
     proposal.require_runtime_promotion_report_digest(report.digest)
 
-    restored = SelectionProposal.from_mapping(proposal.to_mapping())
+    serialized = json.loads(json.dumps(proposal.to_mapping()))
+    restored = SelectionProposal.from_mapping(serialized)
     assert restored == proposal
 
 

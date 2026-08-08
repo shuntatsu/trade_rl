@@ -74,8 +74,7 @@ def run_historical_target_intervals(
     """Replay target intervals after each interval's first open quote is observed."""
 
     _validate_intervals(intervals)
-    if snapshot_timestamps_ns:
-        raise NotImplementedError("historical position snapshots are not implemented yet")
+    _validate_snapshot_timestamps(snapshot_timestamps_ns)
     if not starting_balance.is_finite() or starting_balance <= 0:
         raise ValueError("starting_balance must be finite and positive")
     runtime = require_nautilus_runtime()
@@ -100,16 +99,28 @@ def run_historical_target_intervals(
         instrument = build_maintained_btcusdt_perpetual()
         engine.add_instrument(instrument)
 
+        requested_snapshots = frozenset(snapshot_timestamps_ns)
         quotes: list[Any] = []
         activation_by_quote_index: dict[int, NautilusHistoricalTargetInterval] = {}
+        snapshot_by_quote_index: dict[int, int] = {}
         for interval in intervals:
             first_quote_index: int | None = None
             for bar in interval.source_bars:
                 for event in project_bar_events(bar, activate_queued_target=False):
                     if event.phase not in _PRICE_PHASES:
                         continue
+                    quote_index = len(quotes)
                     if first_quote_index is None and event.phase is MarketPhase.OPEN_QUOTE:
-                        first_quote_index = len(quotes)
+                        first_quote_index = quote_index
+                    if (
+                        event.phase is MarketPhase.CLOSE_QUOTE
+                        and event.timestamp_ns in requested_snapshots
+                    ):
+                        if event.timestamp_ns in snapshot_by_quote_index.values():
+                            raise ValueError(
+                                "historical snapshot boundary must map to one close quote"
+                            )
+                        snapshot_by_quote_index[quote_index] = event.timestamp_ns
                     quotes.append(
                         build_quote_tick(
                             event,
@@ -122,19 +133,54 @@ def run_historical_target_intervals(
                 raise RuntimeError("historical interval did not project an open quote")
             activation_by_quote_index[first_quote_index] = interval
 
+        if frozenset(snapshot_by_quote_index.values()) != requested_snapshots:
+            raise ValueError(
+                "historical snapshot timestamp must match a consumed bar close"
+            )
+
         class HistoricalTargetStrategy(Strategy):
             def __init__(self) -> None:
                 super().__init__()
                 self.quote_index = 0
-                self.realized_quantity = 0.0
+                self.realized_quantity = Decimal("0")
+                self.pending_interval: NautilusHistoricalTargetInterval | None = None
                 self.filled_events: list[object] = []
+                self.position_snapshots: list[NautilusHistoricalPositionSnapshot] = []
 
             def on_start(self) -> None:
                 self.subscribe_quote_ticks(instrument.id)
 
             def on_quote_tick(self, tick: object) -> None:
-                interval = activation_by_quote_index.get(self.quote_index)
+                quote_index = self.quote_index
                 self.quote_index += 1
+
+                snapshot_timestamp_ns = snapshot_by_quote_index.get(quote_index)
+                if snapshot_timestamp_ns is not None:
+                    self.position_snapshots.append(
+                        NautilusHistoricalPositionSnapshot(
+                            timestamp_ns=snapshot_timestamp_ns,
+                            signed_quantity=self.realized_quantity,
+                        )
+                    )
+
+                if self.pending_interval is not None:
+                    self._reconcile_pending()
+                interval = activation_by_quote_index.get(quote_index)
+                if interval is None:
+                    return
+                if self.pending_interval is not None:
+                    raise RuntimeError(
+                        "previous historical target was not reconciled before next interval"
+                    )
+                self.pending_interval = interval
+                self._reconcile_pending()
+
+            def on_order_filled(self, event: object) -> None:
+                self.filled_events.append(event)
+                self.realized_quantity += _signed_fill_quantity(event)
+
+            def _reconcile_pending(self) -> None:
+                interval = self.pending_interval
                 if interval is None:
                     return
                 plan = controller.plan(
@@ -143,25 +189,33 @@ def run_historical_target_intervals(
                         allocated_equity=interval.allocated_equity,
                         reference_price=interval.source_bars[0].open_price,
                         contract_multiplier=1.0,
-                        realized_quantity=self.realized_quantity,
+                        realized_quantity=float(self.realized_quantity),
                         working_remaining_quantities=(),
                     )
                 )
+                if plan.cancel_client_order_ids:
+                    raise RuntimeError(
+                        "historical Market IOC replay must not retain stale orders"
+                    )
+                if plan.child_order is None:
+                    self.pending_interval = None
+                    return
+                deferred_replan = plan.deferred_target_quantity is not None
                 submit_target_exposure_plan(
                     strategy=self,
                     instrument=instrument,
                     plan=plan,
                 )
-
-            def on_order_filled(self, event: object) -> None:
-                self.filled_events.append(event)
-                self.realized_quantity += _signed_fill_quantity(event)
+                if not deferred_replan:
+                    self.pending_interval = None
 
         strategy = HistoricalTargetStrategy()
         engine.add_data(quotes, sort=True)
         engine.add_strategy(strategy)
         engine.run()
 
+        if strategy.pending_interval is not None:
+            raise RuntimeError("historical target remained pending after replay")
         canonical = canonicalize_nautilus_fill_events(
             strategy.filled_events,
             price_tick=instrument.price_increment.as_decimal(),
@@ -190,7 +244,7 @@ def run_historical_target_intervals(
             final_balance_minor=final_balance_minor,
             terminal_position_lots=terminal_position_lots,
             terminal_open_orders=terminal_open_orders,
-            position_snapshots=(),
+            position_snapshots=tuple(strategy.position_snapshots),
         )
     finally:
         engine.dispose()
@@ -218,14 +272,28 @@ def _validate_intervals(intervals: tuple[NautilusHistoricalTargetInterval, ...])
             raise ValueError("historical target interval must contain source bars")
 
 
-def _signed_fill_quantity(event: object) -> float:
+def _validate_snapshot_timestamps(snapshot_timestamps_ns: tuple[int, ...]) -> None:
+    previous: int | None = None
+    for timestamp_ns in snapshot_timestamps_ns:
+        if isinstance(timestamp_ns, bool) or not isinstance(timestamp_ns, int):
+            raise TypeError("historical snapshot timestamp must be an integer")
+        if timestamp_ns < 0:
+            raise ValueError("historical snapshot timestamp must be non-negative")
+        if previous is not None and timestamp_ns <= previous:
+            raise ValueError(
+                "historical snapshot timestamps must be strictly increasing"
+            )
+        previous = timestamp_ns
+
+
+def _signed_fill_quantity(event: object) -> Decimal:
     quantity = _as_decimal(getattr(event, "last_qty", None), name="last_qty")
     side = getattr(event, "order_side", None)
     side_name = getattr(side, "name", str(side)).upper()
     if side_name.endswith("BUY"):
-        return float(quantity)
+        return quantity
     if side_name.endswith("SELL"):
-        return -float(quantity)
+        return -quantity
     raise ValueError(f"unsupported Nautilus order side: {side!r}")
 
 

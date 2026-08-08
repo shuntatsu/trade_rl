@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 
@@ -30,6 +31,45 @@ class TargetExecutionRequest:
     book_kind: str
 
 
+@dataclass(frozen=True, slots=True)
+class ExecutionDualShadowRequest:
+    """Framework-neutral inputs emitted after one authoritative hybrid execution."""
+
+    target: tuple[float, ...]
+    start_index: int
+    end_index: int
+    allocated_equity: float
+    legacy_terminal_quantities: tuple[float, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionDualShadowSnapshot:
+    """Candidate structural evidence attached to one hybrid execution step."""
+
+    runtime_identity: str
+    worker_pid: int
+    structural_parity: bool
+    candidate_terminal_quantities: tuple[float, ...]
+    legacy_terminal_quantities: tuple[float, ...]
+
+
+class EnvironmentExecutionDualShadow(Protocol):
+    """Optional execution observer implemented above the RL architecture layer."""
+
+    @property
+    def identity_digest(self) -> str: ...
+
+    def reset(
+        self,
+        *,
+        start_index: int,
+        initial_capital: float,
+        initial_quantities: tuple[float, ...],
+    ) -> None: ...
+
+    def observe(self, request: ExecutionDualShadowRequest) -> ExecutionDualShadowSnapshot: ...
+
+
 class EnvironmentExecutionCoordinator:
     """Reconcile targets and execute them through the maintained order engine."""
 
@@ -39,12 +79,34 @@ class EnvironmentExecutionCoordinator:
         execution_cost: ExecutionCostConfig,
         *,
         initial_capital: float,
+        dual_shadow: EnvironmentExecutionDualShadow | None = None,
     ) -> None:
         if initial_capital <= 0.0:
             raise ValueError("initial_capital must be positive")
         self.dataset = dataset
         self.execution_cost = execution_cost
         self.initial_capital = float(initial_capital)
+        self.dual_shadow = dual_shadow
+        self.latest_dual_shadow_snapshot: ExecutionDualShadowSnapshot | None = None
+
+    def reset_dual_shadow(
+        self,
+        *,
+        start_index: int,
+        initial_quantities: tuple[float, ...],
+    ) -> None:
+        """Synchronize an optional candidate observer to a new episode boundary."""
+
+        self.latest_dual_shadow_snapshot = None
+        if self.dual_shadow is None:
+            return
+        if len(initial_quantities) != self.dataset.n_symbols:
+            raise ValueError("initial dual-shadow quantities do not match dataset symbols")
+        self.dual_shadow.reset(
+            start_index=start_index,
+            initial_capital=self.initial_capital,
+            initial_quantities=initial_quantities,
+        )
 
     def execute_target(
         self,
@@ -69,7 +131,8 @@ class EnvironmentExecutionCoordinator:
                 "schema_version": "environment_order_target_v1",
             }
         )
-        return execute_target_statefully(
+        allocated_equity = float(book.portfolio_value)
+        result = execute_target_statefully(
             executor,
             book,
             order_book,
@@ -78,6 +141,19 @@ class EnvironmentExecutionCoordinator:
             bars=request.bars,
             target_identity=target_identity,
         )
+        if request.book_kind == "hybrid" and self.dual_shadow is not None:
+            self.latest_dual_shadow_snapshot = self.dual_shadow.observe(
+                ExecutionDualShadowRequest(
+                    target=tuple(float(value) for value in target_vector),
+                    start_index=request.start_index,
+                    end_index=result.next_index,
+                    allocated_equity=allocated_equity,
+                    legacy_terminal_quantities=tuple(
+                        float(value) for value in result.book.quantities
+                    ),
+                )
+            )
+        return result
 
     @staticmethod
     def merge_liquidation_return(liquidation: ExecutionResult) -> BookState:

@@ -10,7 +10,11 @@ from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 
-from trade_rl.artifacts.run_manifest import RunFile, validate_training_run_directory
+from trade_rl.artifacts.run_manifest import (
+    RunFile,
+    TrainingRunManifest,
+    validate_training_run_directory,
+)
 from trade_rl.data.metadata_promotion import (
     METADATA_PROMOTION_FILE_NAME,
     load_metadata_promotion_evidence,
@@ -39,6 +43,12 @@ from trade_rl.simulation.execution_promotion import (
     validate_execution_promotion,
 )
 from trade_rl.simulation.execution_replay import EXECUTION_EVENT_ARTIFACT_FILE_NAME
+from trade_rl.simulation.runtime_promotion import load_execution_promotion_report
+from trade_rl.workflows.runtime_promotion_binding import (
+    require_selection_execution_promotion,
+)
+from trade_rl.workflows.selection_authorization import load_selection_proposal
+from trade_rl.workflows.training_runtime_promotion import RUNTIME_PROMOTION_REPORT_NAME
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
@@ -73,6 +83,34 @@ def _number(value: object, *, field: str) -> float:
 
 def _execution_cost(training_root: Path) -> ExecutionCostConfig:
     return load_training_execution_cost(training_root / "environment.json")
+
+
+def _require_runtime_promotion_binding(
+    *,
+    training_root: Path,
+    manifest: TrainingRunManifest,
+) -> None:
+    proposal_digest = manifest.selection_proposal_digest
+    if proposal_digest is None:
+        raise ValueError("selected-final training manifest lacks selection proposal")
+    proposal = load_selection_proposal(training_root / "selection-proposal.json")
+    if proposal.digest != proposal_digest:
+        raise ValueError("selection proposal digest differs from training manifest")
+
+    report_path = training_root / RUNTIME_PROMOTION_REPORT_NAME
+    if proposal.runtime_promotion_report_digest is None:
+        if report_path.exists():
+            raise ValueError(
+                "selection proposal does not authorize runtime promotion evidence"
+            )
+        return
+
+    report = load_execution_promotion_report(report_path)
+    require_selection_execution_promotion(
+        proposal=proposal,
+        report=report,
+        required_mode=report.requested_mode,
+    )
 
 
 def _file_digest(path: Path) -> str:
@@ -161,6 +199,10 @@ def package_selected_training_run(
         )
     ):
         raise ValueError("selected-final training manifest lacks authorization chain")
+    _require_runtime_promotion_binding(
+        training_root=training_root,
+        manifest=manifest,
+    )
     metadata_promotion = load_metadata_promotion_evidence(
         training_root / METADATA_PROMOTION_FILE_NAME
     )

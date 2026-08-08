@@ -44,7 +44,7 @@ def test_rl_dual_shadow_rejects_non_maintained_symbol() -> None:
 
 
 @pytest.mark.nautilus
-def test_rl_dual_shadow_replays_prefixes_in_fresh_children() -> None:
+def test_rl_dual_shadow_streams_steps_through_one_episode_child() -> None:
     runtime = NautilusEnvironmentDualShadow(_market(), no_trade_band=0.0)
     runtime.reset(
         start_index=0,
@@ -71,7 +71,8 @@ def test_rl_dual_shadow_replays_prefixes_in_fresh_children() -> None:
         )
     )
 
-    assert first.worker_pid != second.worker_pid
+    assert first.worker_pid == second.worker_pid
+    assert first.runtime_identity.endswith("/historical_streaming_v1")
     assert first.structural_parity is True
     assert first.candidate_terminal_quantities == (1.0,)
     assert second.structural_parity is True

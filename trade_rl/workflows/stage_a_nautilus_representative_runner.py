@@ -108,9 +108,7 @@ def run_representative_nautilus_window(
         _decision_boundary_digest(market, index=index)
         for index in (0, *transition_end_indices)
     )
-    order_events = merge_order_event_batches(
-        (first.order_events, second.order_events)
-    )
+    order_events = merge_order_event_batches((first.order_events, second.order_events))
     funding_boundaries = (*first.funding_evidence, *second.funding_evidence)
 
     with tempfile.TemporaryDirectory(
@@ -290,7 +288,9 @@ def _decision_boundary_digest(market: MarketDataset, *, index: int) -> str:
 def _minor_units(value: float) -> int:
     decimal_value = Decimal(str(float(value)))
     if not decimal_value.is_finite() or decimal_value < 0:
-        raise ValueError("representative economic value must be finite and non-negative")
+        raise ValueError(
+            "representative economic value must be finite and non-negative"
+        )
     scaled = decimal_value * (Decimal(10) ** _SETTLEMENT_CURRENCY_PRECISION)
     return int(scaled.quantize(Decimal("1"), rounding=ROUND_HALF_EVEN))
 

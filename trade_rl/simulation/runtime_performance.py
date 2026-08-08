@@ -91,7 +91,9 @@ class RuntimePerformanceMeasurement:
             rel_tol=1e-12,
             abs_tol=1e-12,
         ):
-            raise ValueError("steps_per_second is inconsistent with timesteps and elapsed")
+            raise ValueError(
+                "steps_per_second is inconsistent with timesteps and elapsed"
+            )
         self_rss = _positive_int(self.peak_self_rss_bytes, field="peak_self_rss_bytes")
         children_rss = _non_negative_int(
             self.peak_children_rss_bytes,
@@ -401,7 +403,9 @@ class RuntimePerformanceApprovalPolicy:
         if self.reviewed:
             _string(self.review_reference, field="review_reference")
         elif self.review_reference is not None:
-            raise ValueError("unreviewed performance policy cannot have review reference")
+            raise ValueError(
+                "unreviewed performance policy cannot have review reference"
+            )
         if self.schema_version != RUNTIME_PERFORMANCE_POLICY_SCHEMA:
             raise ValueError("unsupported runtime performance policy schema")
 
@@ -429,7 +433,6 @@ class RuntimePerformanceApprovalDecision:
     reasons: tuple[str, ...]
     evidence_digest: str
     policy_digest: str
-
 
 
 def assess_runtime_performance(

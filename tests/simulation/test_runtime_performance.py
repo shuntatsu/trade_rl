@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from trade_rl.simulation.runtime_performance import (
@@ -8,6 +10,8 @@ from trade_rl.simulation.runtime_performance import (
     RuntimePerformanceMeasurement,
     RuntimePerformanceWorkload,
     assess_runtime_performance,
+)
+from trade_rl.simulation.runtime_performance_io import (
     load_runtime_performance_evidence,
     write_runtime_performance_evidence,
 )
@@ -162,8 +166,6 @@ def test_runtime_performance_evidence_loader_rejects_tampered_summary(tmp_path) 
     write_runtime_performance_evidence(path, evidence)
     payload = evidence.to_mapping()
     payload["worst_elapsed_slowdown_ratio"] = 999.0
-    import json
-
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match="summary mismatch"):

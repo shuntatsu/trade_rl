@@ -14,6 +14,12 @@ from trade_rl.workflows.runtime_promotion_binding import (
 
 
 def _report(*, requested: RuntimeMode, allowed: bool):
+    kwargs: dict[str, str] = {}
+    if requested is RuntimeMode.NAUTILUS_AUTHORITATIVE and allowed:
+        kwargs = {
+            "representative_evidence_digest": "8" * 64,
+            "performance_evidence_digest": "9" * 64,
+        }
     return build_execution_promotion_report(
         requested=requested,
         evidence=ExecutionPromotionEvidence(
@@ -25,6 +31,7 @@ def _report(*, requested: RuntimeMode, allowed: bool):
             determinism_passed=True,
             performance_approved=allowed,
         ),
+        **kwargs,
     )
 
 

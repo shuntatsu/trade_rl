@@ -180,3 +180,11 @@ def test_finalize_fails_closed_when_signed_promotion_report_is_missing(
 
     with pytest.raises(FileNotFoundError, match="runtime promotion report is missing"):
         stages._finalize(work_root)
+
+
+def test_finalize_binds_generation_proposal_to_selected_training_manifest() -> None:
+    module = _state_module()
+    finalize_source = inspect.getsource(module.BinanceFullResearchStages._finalize)
+
+    assert "training_manifest.selection_proposal_digest != proposal.digest" in finalize_source
+    assert "finalization selection proposal identity mismatch" in finalize_source

@@ -92,14 +92,16 @@ Implemented in `trade_rl/integrations/nautilus/historical_streaming.py` with exa
 - [x] Verified eight-step CI observation: legacy about `11.47 step/s`, streaming dual-shadow about `1.275 step/s`, elapsed slowdown about `8.99x`.
 - [ ] Benchmark memory behavior and broader representative workloads.
 - [ ] Define and review an explicit performance-approval threshold before `performance_approved` may become true.
-- [ ] Run differential dual-shadow replay on persisted representative **real** BTCUSDT historical windows.
-- [ ] Evaluate and persist structural, funding, and cost-neutral economic evidence on those representative windows.
-- [ ] Connect persisted promotion evidence to walk-forward, selected-final, sealed-test, export, and Studio reporting without silently changing the fail-closed authority default.
+- [x] Run differential dual-shadow replay on persisted representative **real** BTCUSDT historical windows.
+- [x] Evaluate and persist structural, funding, and cost-neutral economic evidence on those representative windows.
+- [x] Connect persisted promotion evidence to walk-forward, selected-final, sealed-test, export, and Studio reporting without silently changing the fail-closed authority default.
 - [ ] Keep production `NO-GO` until reconciliation, secrets, kill switch, live controls, and authorization are implemented.
+
+The checked-in representative CI evidence uses factual Binance USDⓈ-M BTCUSDT 15-minute windows selected at time quantiles `0.1`, `0.5`, and `0.9`, with quote-notional volume and factual funding-boundary evidence. These bounded CI fixtures prove the differential/evidence pipeline deterministically; they do not by themselves authorize production authority or replace a reviewed representative catalog run and signed authorization/confirmation artifacts.
 
 ### Final verification gate
 
-The final PR head must satisfy all of the following after the last implementation/documentation change:
+The final PR head must satisfy all of the following after the last implementation/documentation change. These boxes are gate conditions rather than a mutable completion record; verification is reported from the exact final Git commit so marking the checklist itself does not create a new unverified head.
 
 - [ ] Ruff and format.
 - [ ] MyPy and Import Linter.

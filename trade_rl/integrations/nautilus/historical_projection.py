@@ -2,32 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 
 from trade_rl.data.market import MarketCalendarKind, MarketDataset
-
-
-@dataclass(frozen=True, slots=True)
-class HistoricalSourceBar:
-    """One single-symbol continuous-market bar at integer nanosecond boundaries."""
-
-    open_ns: int
-    close_ns: int
-    open_price: float
-    high_price: float
-    low_price: float
-    close_price: float
-    mark_price: float
-    index_price: float
+from trade_rl.integrations.nautilus.event_projection import SourceBar
 
 
 def project_historical_source_bar(
     market: MarketDataset,
     *,
     processing_index: int,
-) -> HistoricalSourceBar:
+) -> SourceBar:
     """Project one source row without introducing a synthetic timing convention.
 
     ``MarketDataset.timestamps`` are bar-close timestamps. For the continuous
@@ -56,7 +41,7 @@ def project_historical_source_bar(
     if mark_price is None or index_price is None:
         raise ValueError("validated market datasets require mark and index prices")
 
-    return HistoricalSourceBar(
+    return SourceBar(
         open_ns=close_ns - cadence_ns,
         close_ns=close_ns,
         open_price=float(market.open[processing_index, 0]),

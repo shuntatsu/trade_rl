@@ -148,18 +148,25 @@ class NautilusHistoricalStreamingWorker:
         self._closed = True
         try:
             if self._process.is_alive():
-                _send_message(self._connection, {"command": "close"})
-                self._receive_response(expected_event="closed")
-                self._process.join(timeout=self._timeout_seconds)
-                if self._process.is_alive():
-                    raise RuntimeError(
-                        "streaming Nautilus child did not exit after close"
-                    )
-                if self._process.exitcode != 0:
-                    raise RuntimeError(
-                        "streaming Nautilus child exited unsuccessfully: "
-                        f"{self._process.exitcode}"
-                    )
+                try:
+                    _send_message(self._connection, {"command": "close"})
+                    self._receive_response(expected_event="closed")
+                except (BrokenPipeError, ConnectionResetError, EOFError, OSError):
+                    pass
+                except RuntimeError as exc:
+                    if not isinstance(exc.__cause__, EOFError) and self._process.is_alive():
+                        raise
+                else:
+                    self._process.join(timeout=self._timeout_seconds)
+                    if self._process.is_alive():
+                        raise RuntimeError(
+                            "streaming Nautilus child did not exit after close"
+                        )
+                    if self._process.exitcode != 0:
+                        raise RuntimeError(
+                            "streaming Nautilus child exited unsuccessfully: "
+                            f"{self._process.exitcode}"
+                        )
         finally:
             if self._process.is_alive():
                 self._process.terminate()
@@ -222,6 +229,7 @@ class _StreamingSession:
         )
         instrument = build_maintained_btcusdt_perpetual()
         engine.add_instrument(instrument)
+        quantity_increment = float(instrument.size_increment.as_decimal())
 
         class StreamingTargetStrategy(Strategy):
             def __init__(self) -> None:
@@ -275,6 +283,7 @@ class _StreamingSession:
                         contract_multiplier=1.0,
                         realized_quantity=float(self.realized_quantity),
                         working_remaining_quantities=(),
+                        quantity_increment=quantity_increment,
                     )
                 )
                 if plan.cancel_working_orders:

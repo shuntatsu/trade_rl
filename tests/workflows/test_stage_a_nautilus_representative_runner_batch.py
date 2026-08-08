@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.workflows import stage_a_nautilus_representative_runner as runner
+from trade_rl.workflows import stage_a_nautilus_representative_batch as runner
 from trade_rl.workflows.stage_a_nautilus_economic_comparison import (
     StageANautilusHistoricalEconomicEvidence,
 )

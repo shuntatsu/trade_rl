@@ -24,12 +24,8 @@ from trade_rl.integrations.binance import BinancePublicTransport
 from trade_rl.release.asymmetric import load_public_verification_keys
 from trade_rl.rl.observations import ObservationBuilder
 from trade_rl.rl.sequence_observations import SequenceObservationBuilder
+from trade_rl.workflows import full_research_runtime_promotion
 from trade_rl.workflows.binance_metadata_modes import BinanceMetadataMode
-from trade_rl.workflows.full_research_runtime_promotion import (
-    RUNTIME_PROMOTION_REPORT_NAME,
-    require_retained_runtime_promotion as _require_retained_runtime_promotion,
-    retain_runtime_promotion_report as _retain_runtime_promotion_report,
-)
 from trade_rl.workflows.full_research_state import (
     FullResearchStatus,
     ResearchPhase,
@@ -57,6 +53,15 @@ import full_research_pipeline as pipeline  # noqa: E402
 _ROOT = Path(__file__).resolve().parents[2]
 _SUPERVISED_BOOTSTRAP_ARTIFACTS = frozenset(
     {"cuda-preflight.json", "entrypoint-provenance.json", "heartbeat.json"}
+)
+RUNTIME_PROMOTION_REPORT_NAME = (
+    full_research_runtime_promotion.RUNTIME_PROMOTION_REPORT_NAME
+)
+_retain_runtime_promotion_report = (
+    full_research_runtime_promotion.retain_runtime_promotion_report
+)
+_require_retained_runtime_promotion = (
+    full_research_runtime_promotion.require_retained_runtime_promotion
 )
 
 
@@ -159,12 +164,17 @@ class BinanceFullResearchStages:
 
     def _develop(self, work_root: Path) -> ResearchPhaseOutcome:
         _require_fresh_develop_root(work_root)
+        requested_runtime_promotion = getattr(
+            self.args,
+            "runtime_promotion_report",
+            None,
+        )
         runtime_promotion_report = _retain_runtime_promotion_report(
             (
                 None
-                if not self.args.runtime_promotion_report
+                if not requested_runtime_promotion
                 else _required_path(
-                    self.args.runtime_promotion_report,
+                    requested_runtime_promotion,
                     field="runtime promotion report",
                 )
             ),

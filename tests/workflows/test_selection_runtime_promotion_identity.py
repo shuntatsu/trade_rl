@@ -27,6 +27,8 @@ def _allowed_report():
             determinism_passed=True,
             performance_approved=True,
         ),
+        representative_evidence_digest="8" * 64,
+        performance_evidence_digest="9" * 64,
     )
 
 

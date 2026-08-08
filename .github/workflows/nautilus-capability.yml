@@ -1,4 +1,4 @@
-name: NautilusTrader Capability
+name: Nautilus Capability
 
 on:
   pull_request:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from decimal import ROUND_DOWN, Decimal
 from enum import Enum
 
 _QUANTITY_TOLERANCE = 1e-12
@@ -36,6 +37,7 @@ class TargetExposureInput:
     contract_multiplier: float
     realized_quantity: float
     working_remaining_quantities: tuple[float, ...]
+    quantity_increment: float = 0.0
     emergency_flatten: bool = False
     halted: bool = False
 
@@ -81,6 +83,9 @@ class TargetExposureController:
         longer matches that commitment, cancellation is always a separate phase. A
         sign reversal is also split: first reduce the realized position to flat,
         then a later invocation may open the opposite side after terminal evidence.
+        When an instrument quantity increment is supplied, the desired position is
+        rounded toward zero before reconciliation so the controller never increases
+        risk merely to satisfy venue lot precision and never emits sub-lot children.
         """
 
         self._validate_input(state)
@@ -112,6 +117,14 @@ class TargetExposureController:
             effective_target = committed_exposure
 
         desired = effective_target * float(state.allocated_equity) / quantity_scale
+        desired = self._quantize_toward_zero(
+            desired,
+            quantity_increment=float(state.quantity_increment),
+        )
+        if state.quantity_increment > 0.0:
+            effective_target = (
+                desired * quantity_scale / float(state.allocated_equity)
+            )
 
         if state.working_remaining_quantities:
             if math.isclose(
@@ -171,7 +184,21 @@ class TargetExposureController:
                 deferred_target_quantity=desired,
             )
 
-        delta = desired - realized
+        delta = self._quantity_difference(
+            desired,
+            realized,
+            quantity_increment=float(state.quantity_increment),
+        )
+        if math.isclose(delta, 0.0, rel_tol=0.0, abs_tol=_QUANTITY_TOLERANCE):
+            return TargetExposurePlan(
+                phase=ControllerPhase.IDLE,
+                raw_target_exposure=raw_target,
+                effective_target_exposure=effective_target,
+                desired_quantity=desired,
+                committed_quantity=committed,
+                cancel_working_orders=False,
+                child_order=None,
+            )
         reducing = (
             not math.isclose(realized, 0.0, abs_tol=_QUANTITY_TOLERANCE)
             and abs(desired) < abs(realized) - _QUANTITY_TOLERANCE
@@ -188,6 +215,32 @@ class TargetExposureController:
                 reduce_only=reducing,
             ),
         )
+
+    @staticmethod
+    def _quantize_toward_zero(
+        quantity: float,
+        *,
+        quantity_increment: float,
+    ) -> float:
+        if quantity_increment == 0.0:
+            return float(quantity)
+        increment = Decimal(str(quantity_increment))
+        units = (Decimal(str(quantity)) / increment).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+        result = float(units * increment)
+        return 0.0 if abs(result) <= _QUANTITY_TOLERANCE else result
+
+    @staticmethod
+    def _quantity_difference(
+        desired: float,
+        realized: float,
+        *,
+        quantity_increment: float,
+    ) -> float:
+        if quantity_increment == 0.0:
+            return desired - realized
+        return float(Decimal(str(desired)) - Decimal(str(realized)))
 
     @staticmethod
     def _opposite_sign(left: float, right: float) -> bool:
@@ -217,6 +270,11 @@ class TargetExposureController:
             not math.isfinite(value) for value in state.working_remaining_quantities
         ):
             raise ValueError("working_remaining_quantities must be finite")
+        if (
+            not math.isfinite(state.quantity_increment)
+            or state.quantity_increment < 0.0
+        ):
+            raise ValueError("quantity_increment must be finite and non-negative")
 
 
 __all__ = [

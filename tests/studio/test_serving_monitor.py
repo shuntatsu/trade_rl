@@ -105,7 +105,9 @@ def build_selected_final_bundle(
         git_commit="5" * 40,
         dependency_digest="6" * 64,
         resume_checkpoint_digests=(),
-        runtime_promotion_report_digest=(report.digest if bind_runtime_report else None),
+        runtime_promotion_report_digest=(
+            report.digest if bind_runtime_report else None
+        ),
     )
     write_selection_proposal(bundle_root / "selection-proposal.json", proposal)
     artifact_paths = ["policy.bin", "selection-proposal.json"]

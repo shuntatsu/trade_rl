@@ -1,4 +1,4 @@
-name: Nautilus Capability
+name: NautilusTrader Capability
 
 on:
   pull_request:
@@ -20,6 +20,7 @@ on:
       - "trade_rl/simulation/execution_parity.py"
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
+      - "tests/fixtures/nautilus/**"
       - "tests/integrations/test_nautilus_*.py"
       - "tests/workflows/test_stage_a_nautilus_historical_*.py"
       - "tests/rl/test_environment_execution_dual_shadow.py"
@@ -47,6 +48,7 @@ on:
       - "trade_rl/simulation/execution_parity.py"
       - "trade_rl/simulation/legacy_execution_probe.py"
       - "trade_rl/simulation/legacy_trace_adapter.py"
+      - "tests/fixtures/nautilus/**"
       - "tests/integrations/test_nautilus_*.py"
       - "tests/workflows/test_stage_a_nautilus_historical_*.py"
       - "tests/rl/test_environment_execution_dual_shadow.py"
@@ -123,6 +125,8 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
       - name: Replay historical targets in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_historical_execution.py
+      - name: Replay representative real BTCUSDT windows in fresh children
+        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_real_market_windows.py
       - name: Execute factual Stage A historical replay in isolated process
         run: uv run pytest -q -m nautilus tests/workflows/test_stage_a_nautilus_historical_execution.py
       - name: Exercise RL dual-shadow observer contract

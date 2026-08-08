@@ -8,6 +8,8 @@ from trade_rl.simulation.runtime_performance import (
     RuntimePerformanceMeasurement,
     RuntimePerformanceWorkload,
     assess_runtime_performance,
+    load_runtime_performance_evidence,
+    write_runtime_performance_evidence,
 )
 
 
@@ -127,6 +129,45 @@ def test_runtime_performance_evidence_binds_workload_source_identity() -> None:
     tampered = dict(mapping)
     tampered["source_digest"] = "b" * 64
     assert RuntimePerformanceEvidence.from_mapping(tampered).digest != evidence.digest
+
+
+def test_runtime_performance_evidence_persists_immutably(tmp_path) -> None:
+    evidence = _evidence()
+    path = tmp_path / "runtime-performance-evidence.json"
+
+    assert write_runtime_performance_evidence(path, evidence) == path
+    assert load_runtime_performance_evidence(path) == evidence
+    assert write_runtime_performance_evidence(path, evidence) == path
+
+    with pytest.raises(FileExistsError, match="refusing to overwrite immutable evidence"):
+        write_runtime_performance_evidence(
+            path,
+            RuntimePerformanceEvidence(
+                runtime_version=evidence.runtime_version,
+                platform=evidence.platform,
+                algorithm=evidence.algorithm,
+                dataset_kind=evidence.dataset_kind,
+                source_digest="b" * 64,
+                workloads=evidence.workloads,
+                performance_approved=evidence.performance_approved,
+                approval_policy_digest=evidence.approval_policy_digest,
+                approval_note=evidence.approval_note,
+            ),
+        )
+
+
+def test_runtime_performance_evidence_loader_rejects_tampered_summary(tmp_path) -> None:
+    evidence = _evidence()
+    path = tmp_path / "runtime-performance-evidence.json"
+    write_runtime_performance_evidence(path, evidence)
+    payload = evidence.to_mapping()
+    payload["worst_elapsed_slowdown_ratio"] = 999.0
+    import json
+
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="summary mismatch"):
+        load_runtime_performance_evidence(path)
 
 
 def test_runtime_performance_policy_must_be_reviewed_before_approval() -> None:

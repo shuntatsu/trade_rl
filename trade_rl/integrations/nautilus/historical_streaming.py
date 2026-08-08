@@ -154,7 +154,10 @@ class NautilusHistoricalStreamingWorker:
                 except (BrokenPipeError, ConnectionResetError, EOFError, OSError):
                     pass
                 except RuntimeError as exc:
-                    if not isinstance(exc.__cause__, EOFError) and self._process.is_alive():
+                    if (
+                        not isinstance(exc.__cause__, EOFError)
+                        and self._process.is_alive()
+                    ):
                         raise
                 else:
                     self._process.join(timeout=self._timeout_seconds)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from enum import Enum
 
@@ -78,6 +79,41 @@ class ExecutionPromotionReport:
 
         return {"digest": self.digest, **self.digest_payload()}
 
+    @classmethod
+    def from_mapping(cls, raw: Mapping[str, object]) -> ExecutionPromotionReport:
+        """Restore persisted promotion evidence and validate it fail-closed."""
+
+        try:
+            requested = RuntimeMode(_require_string(raw, "requested_mode"))
+            evidence_raw = raw["evidence"]
+            if not isinstance(evidence_raw, Mapping):
+                raise ValueError("promotion evidence must be an object")
+            evidence = ExecutionPromotionEvidence(
+                **{
+                    field.name: _require_bool(evidence_raw, field.name)
+                    for field in fields(ExecutionPromotionEvidence)
+                }
+            )
+            missing_raw = raw["missing"]
+            if not isinstance(missing_raw, (list, tuple)) or any(
+                not isinstance(item, str) for item in missing_raw
+            ):
+                raise ValueError("promotion report missing fields must be strings")
+            decision = RuntimePromotionDecision(
+                requested=requested,
+                allowed=_require_bool(raw, "allowed"),
+                missing=tuple(missing_raw),
+            )
+            return cls(
+                digest=_require_string(raw, "digest"),
+                requested_mode=requested,
+                evidence=evidence,
+                decision=decision,
+                schema_version=_require_string(raw, "schema_version"),
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("promotion report is invalid") from error
+
 
 _DUAL_SHADOW_REQUIRED = (
     "capability_passed",
@@ -130,6 +166,20 @@ def _promotion_report_payload(
         "requested_mode": requested.value,
         "schema_version": EXECUTION_PROMOTION_REPORT_SCHEMA,
     }
+
+
+def _require_string(raw: Mapping[str, object], name: str) -> str:
+    value = raw[name]
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string")
+    return value
+
+
+def _require_bool(raw: Mapping[str, object], name: str) -> bool:
+    value = raw[name]
+    if type(value) is not bool:
+        raise ValueError(f"{name} must be a boolean")
+    return value
 
 
 def build_execution_promotion_report(

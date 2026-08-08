@@ -29,7 +29,9 @@ class _Observer:
     ) -> None:
         self.resets.append((start_index, initial_capital, initial_quantities))
 
-    def observe(self, request: ExecutionDualShadowRequest) -> ExecutionDualShadowSnapshot:
+    def observe(
+        self, request: ExecutionDualShadowRequest
+    ) -> ExecutionDualShadowSnapshot:
         return ExecutionDualShadowSnapshot(
             runtime_identity="fake",
             worker_pid=1,

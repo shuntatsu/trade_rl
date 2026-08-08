@@ -32,7 +32,9 @@ class _FakeDualShadow:
     ) -> None:
         self.resets.append((start_index, initial_capital, initial_quantities))
 
-    def observe(self, request: ExecutionDualShadowRequest) -> ExecutionDualShadowSnapshot:
+    def observe(
+        self, request: ExecutionDualShadowRequest
+    ) -> ExecutionDualShadowSnapshot:
         self.requests.append(request)
         return ExecutionDualShadowSnapshot(
             runtime_identity="fake",
@@ -43,8 +45,9 @@ class _FakeDualShadow:
         )
 
 
-def test_execution_coordinator_observes_only_hybrid_target_without_changing_result(
-) -> None:
+def test_execution_coordinator_observes_only_hybrid_target_without_changing_result() -> (
+    None
+):
     dataset = _market()
     observer = _FakeDualShadow()
     coordinator = EnvironmentExecutionCoordinator(

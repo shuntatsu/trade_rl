@@ -46,6 +46,44 @@ def test_promotion_report_is_deterministic_and_fail_closed() -> None:
     assert first.to_mapping()["allowed"] is False
 
 
+def test_authoritative_report_binds_representative_and_performance_evidence() -> None:
+    evidence = ExecutionPromotionEvidence(
+        capability_passed=True,
+        causal_bridge_passed=True,
+        funding_passed=True,
+        terminal_flat_passed=True,
+        exact_parity_passed=True,
+        determinism_passed=True,
+        performance_approved=True,
+    )
+
+    with pytest.raises(ValueError, match="representative evidence digest is required"):
+        build_execution_promotion_report(
+            requested=RuntimeMode.NAUTILUS_AUTHORITATIVE,
+            evidence=evidence,
+        )
+
+    representative_digest = "8" * 64
+    performance_digest = "9" * 64
+    report = build_execution_promotion_report(
+        requested=RuntimeMode.NAUTILUS_AUTHORITATIVE,
+        evidence=evidence,
+        representative_evidence_digest=representative_digest,
+        performance_evidence_digest=performance_digest,
+    )
+
+    assert report.representative_evidence_digest == representative_digest
+    assert report.performance_evidence_digest == performance_digest
+    assert report.to_mapping()["representative_evidence_digest"] == representative_digest
+    assert report.to_mapping()["performance_evidence_digest"] == performance_digest
+    assert ExecutionPromotionReport.from_mapping(report.to_mapping()) == report
+
+    tampered = report.to_mapping()
+    tampered["representative_evidence_digest"] = "a" * 64
+    with pytest.raises(ValueError, match="promotion report is invalid"):
+        ExecutionPromotionReport.from_mapping(tampered)
+
+
 def test_promotion_report_rejects_decision_inconsistent_with_evidence() -> None:
     evidence = _evidence(performance_approved=False)
     forged_decision = RuntimePromotionDecision(

@@ -514,6 +514,8 @@ class BinanceFullResearchStages:
             field="training artifact",
         )
         training_manifest = validate_training_run_directory(training_path)
+        if training_manifest.selection_proposal_digest != proposal.digest:
+            raise ValueError("finalization selection proposal identity mismatch")
         ensemble = pipeline.load_json(training_path / "ensemble.json")
         walk_forward_path = _required_path(
             str(summary.get("walk_forward_artifact_path", "")),

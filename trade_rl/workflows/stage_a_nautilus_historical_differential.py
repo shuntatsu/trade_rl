@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 
 from trade_rl.integrations.nautilus.funding_adapter import (
     CanonicalFundingLedger,
@@ -20,6 +20,7 @@ from trade_rl.workflows.stage_a_nautilus_historical_replay import (
 )
 
 _SETTLEMENT_CURRENCY_PRECISION = 8
+_FUNDING_REFERENCE_PRICE_INCREMENT = Decimal("0.00000001")
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +143,7 @@ def _legacy_funding_records(
             canonicalize_funding_settlement_record(
                 settlement,
                 sequence=sequence,
-                price_tick=Decimal(spec.price_increment),
+                price_tick=_FUNDING_REFERENCE_PRICE_INCREMENT,
                 lot_size=Decimal(spec.size_increment),
                 equity_before_minor=_currency_minor_units(
                     boundary.equity_before_funding,
@@ -154,13 +155,11 @@ def _legacy_funding_records(
 
 
 def _currency_minor_units(value: float, *, field: str) -> int:
-    scaled = Decimal(str(value)) * (Decimal(10) ** _SETTLEMENT_CURRENCY_PRECISION)
-    integral = scaled.to_integral_value()
-    if scaled != integral:
-        raise ValueError(
-            f"persisted historical {field} must align to settlement currency precision"
-        )
-    return int(integral)
+    decimal_value = Decimal(str(value))
+    if not decimal_value.is_finite():
+        raise ValueError(f"persisted historical {field} must be finite")
+    scaled = decimal_value * (Decimal(10) ** _SETTLEMENT_CURRENCY_PRECISION)
+    return int(scaled.quantize(Decimal("1"), rounding=ROUND_HALF_EVEN))
 
 
 def _exact_grid_units(value: Decimal, increment: Decimal, *, field: str) -> int:

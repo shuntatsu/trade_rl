@@ -20,6 +20,7 @@ on:
       - "tests/integrations/test_nautilus_*.py"
       - "tests/workflows/test_stage_a_nautilus_historical_*.py"
       - "tests/rl/test_environment_execution_dual_shadow.py"
+      - "tests/rl/test_environment_dual_shadow_wiring.py"
       - "tests/simulation/test_funding_mark_price.py"
       - "tools/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
@@ -42,6 +43,7 @@ on:
       - "tests/integrations/test_nautilus_*.py"
       - "tests/workflows/test_stage_a_nautilus_historical_*.py"
       - "tests/rl/test_environment_execution_dual_shadow.py"
+      - "tests/rl/test_environment_dual_shadow_wiring.py"
       - "tests/simulation/test_funding_mark_price.py"
       - "tools/nautilus_execution_probe_digest.py"
       - ".github/workflows/nautilus-capability.yml"
@@ -111,7 +113,10 @@ jobs:
       - name: Execute factual Stage A historical replay in isolated process
         run: uv run pytest -q -m nautilus tests/workflows/test_stage_a_nautilus_historical_execution.py
       - name: Exercise RL dual-shadow observer contract
-        run: uv run pytest -q tests/rl/test_environment_execution_dual_shadow.py
+        run: |
+          uv run pytest -q \
+            tests/rl/test_environment_execution_dual_shadow.py \
+            tests/rl/test_environment_dual_shadow_wiring.py
       - name: Replay RL dual-shadow prefixes through fresh children
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_rl_dual_shadow.py
       - name: Compare flat legacy and Nautilus conformance in isolated process
@@ -135,7 +140,7 @@ jobs:
         with:
           name: nautilus-dual-shadow-diagnostics
           path: nautilus-dual-shadow.log
-          if-no-files-found: error
+          if-no-files-found: ignore
       - name: Verify deterministic execution digest across fresh processes
         shell: bash
         run: |

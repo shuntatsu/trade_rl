@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import json
 import sys
 from pathlib import Path
 
 import pytest
 
-from trade_rl.release.selection_authorization import SelectionProposal
+from trade_rl.release.selection_authorization import (
+    SelectionProposal,
+    write_selection_proposal,
+)
 from trade_rl.simulation.runtime_promotion import (
     ExecutionPromotionEvidence,
     RuntimeMode,
@@ -152,3 +156,27 @@ def test_finalize_rechecks_signed_runtime_promotion_before_release_approval() ->
 
     assert "load_selection_proposal" in finalize_source
     assert "_require_retained_runtime_promotion" in finalize_source
+
+
+def test_finalize_fails_closed_when_signed_promotion_report_is_missing(
+    tmp_path: Path,
+) -> None:
+    module = _state_module()
+    work_root = tmp_path / "generation"
+    work_root.mkdir()
+    (work_root / "summary.json").write_text(
+        json.dumps(
+            {
+                "status": module.FullResearchStatus.AWAITING_FRESH_CONFIRMATION.value,
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_selection_proposal(
+        work_root / "selection-proposal.json",
+        _proposal(runtime_digest="f" * 64),
+    )
+    stages = module.BinanceFullResearchStages(module.argparse.Namespace())
+
+    with pytest.raises(FileNotFoundError, match="runtime promotion report is missing"):
+        stages._finalize(work_root)

@@ -30,11 +30,13 @@ _WorkerMode = Literal["legacy", "streaming"]
 
 
 def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:
-    raw = (
-        (value,)
-        if isinstance(value, int) and not isinstance(value, bool)
-        else tuple(value)
-    )
+    if isinstance(value, bool):
+        raise TypeError("timesteps must contain integers")
+    raw: tuple[int, ...]
+    if isinstance(value, int):
+        raw = (value,)
+    else:
+        raw = tuple(value)
     if not raw:
         raise ValueError("benchmark requires at least one timestep workload")
     if any(isinstance(item, bool) or not isinstance(item, int) for item in raw):

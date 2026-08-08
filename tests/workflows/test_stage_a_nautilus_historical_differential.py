@@ -30,7 +30,7 @@ def _stored_replay(tmp_path: Path):
         candidate_config_digest=candidate_config_digest,
     )
     store = StageAExecutionPromotionStore(tmp_path / "store")
-    stored = store.publish(
+    store.publish(
         request=request,
         candidate_config_digest=candidate_config_digest,
         actions=((0.4,),),

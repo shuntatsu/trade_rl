@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tests.rl.test_environment_identity import market
-from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.rl.dual_shadow_environment import ExecutionDualShadowResidualMarketEnv
+from trade_rl.rl.environment import ResidualMarketEnvConfig
 from trade_rl.rl.environment_execution import (
     ExecutionDualShadowRequest,
     ExecutionDualShadowSnapshot,
@@ -38,8 +39,8 @@ class _Observer:
         )
 
 
-def _environment(observer: _Observer | None) -> ResidualMarketEnv:
-    return ResidualMarketEnv(
+def _environment(observer: _Observer) -> ExecutionDualShadowResidualMarketEnv:
+    return ExecutionDualShadowResidualMarketEnv(
         market(),
         trend_strategy=TrendStrategy(
             TrendConfig(fast_lookback=2, base_lookback=4, slow_lookback=8)
@@ -70,7 +71,5 @@ def test_environment_resets_dual_shadow_from_actual_initial_book() -> None:
 def test_environment_identity_includes_dual_shadow_identity() -> None:
     first = _environment(_Observer("a" * 64))
     second = _environment(_Observer("b" * 64))
-    disabled = _environment(None)
 
     assert first.environment_digest != second.environment_digest
-    assert first.environment_digest != disabled.environment_digest

@@ -186,5 +186,8 @@ def test_finalize_binds_generation_proposal_to_selected_training_manifest() -> N
     module = _state_module()
     finalize_source = inspect.getsource(module.BinanceFullResearchStages._finalize)
 
-    assert "training_manifest.selection_proposal_digest != proposal.digest" in finalize_source
+    assert (
+        "training_manifest.selection_proposal_digest != proposal.digest"
+        in finalize_source
+    )
     assert "finalization selection proposal identity mismatch" in finalize_source

@@ -16,7 +16,7 @@ The Nautilus dependency is optional. Importing the Trade RL core, read-only serv
 
 ## Implemented evidence
 
-The dedicated `Nautilus Capability` workflow exercises each direct `BacktestEngine` test in an isolated Python process because the pinned runtime has process-global kernel state which does not permit multiple independent engines in one process.
+The dedicated `Nautilus Capability` workflow exercises direct `BacktestEngine` tests in isolated Python processes because the pinned runtime has process-global kernel state which does not permit multiple independent engines in one process. RL dual-shadow execution uses a spawned episode worker which owns exactly one `BacktestEngine`; the parent process does not construct Nautilus engine state.
 
 Current migration slices cover:
 
@@ -36,15 +36,19 @@ Current migration slices cover:
 - actual historical `BacktestEngine` target replay over the Stage A source-bar contract, including same-side changes and safe sign reversal through an explicit flat state;
 - candidate position snapshots taken from actual Nautilus fills at requested factual boundaries;
 - Stage A funding settlement that requires actual candidate position quantity to match the factual funding-boundary quantity before canonical funding evidence is emitted;
-- fresh-process historical execution via a JSON request/result subprocess boundary, allowing repeated replays from one parent process without violating the pinned kernel constraint;
-- an opt-in RL dual-shadow execution observer that leaves legacy reward/execution authority unchanged, replays each authoritative hybrid target prefix in a fresh Nautilus child, and records structural terminal-position parity;
-- a dedicated dual-shadow residual-environment wrapper whose environment identity includes the candidate runtime identity and whose reset synchronizes the candidate from the actual initial book;
-- exact-wheel three-step SB3 PPO and Lagrangian PPO training smokes on the single-BTCUSDT dual-shadow runtime;
+- fresh-process full-prefix historical execution via a JSON request/result subprocess boundary, retained as the deterministic reference implementation for differential checks;
+- exact pinned-runtime streaming lifecycle evidence using one `BacktestEngine` across successive `run(streaming=True)` batches with `clear_data()` and final `end()`;
+- a persistent spawned historical worker which keeps one child PID and one `BacktestEngine` for an episode-like stream while receiving only the new target interval on each step;
+- exact cumulative streaming-versus-full-prefix parity for round trip, safe sign reversal, and same-side target changes, including terminal-flat and zero-open-order closure;
+- an opt-in RL dual-shadow execution observer that leaves legacy reward/execution authority unchanged and streams authoritative hybrid targets through one Nautilus child per episode;
+- a dedicated dual-shadow residual-environment wrapper whose environment identity includes the candidate runtime identity, whose reset synchronizes the candidate from the actual initial book, and whose `close()` releases the episode worker;
+- exact-wheel three-step SB3 PPO and Lagrangian PPO training smokes on the single-BTCUSDT streaming dual-shadow runtime;
 - legacy-versus-Nautilus dual-shadow conformance for Flat → Long → Flat, safe Flat → Long → Flat → Short → Flat sign reversal, and same-side target increases/reductions to Flat;
 - fresh-process deterministic execution digests;
 - fail-closed RL dual-shadow symbol validation for the maintained `BTCUSDT` dataset symbol;
 - persisted Stage A historical structural differential evidence that binds the authoritative replay/request/dataset identities and compares exact terminal position lots, zero candidate open orders, and canonical funding records without claiming economic fill equivalence;
-- exact historical economic normalization that adds each runtime's own non-funding execution-cost burden back to final equity in integer settlement minor units, compares the resulting cost-neutral equity exactly, and never allows that normalization to override structural or funding mismatch.
+- exact historical economic normalization that adds each runtime's own non-funding execution-cost burden back to final equity in integer settlement minor units, compares the resulting cost-neutral equity exactly, and never allows that normalization to override structural or funding mismatch;
+- an observational CI throughput artifact comparing the accelerated legacy environment with the streaming Nautilus dual-shadow path on the same deterministic synthetic BTCUSDT eight-step CPU PPO fixture. The verified run recorded about `11.47 step/s` for legacy and `1.275 step/s` for streaming dual-shadow, an elapsed-time slowdown ratio of about `8.99x`. This evidence explicitly records `performance_approved=false` and does not define a production promotion threshold.
 
 The passive GTC limit used by the partial-fill capability test is a fixture only. It exists to create an authentic Nautilus working remainder and does not add Limit/GTC as a maintained Trade RL child-order type. Maintained target replacement and flattening continue to use the existing Market IOC adapter.
 
@@ -66,11 +70,11 @@ Trade RL therefore does **not** claim native Nautilus funding support for this p
 
 The exact-wheel test deliberately locks the absence of native Python-engine funding settlement. If a future Nautilus release closes the dispatch gap, that test must fail and trigger a reviewed migration from the adapter back to native settlement rather than silently double-settling funding.
 
-## RL dual-shadow runtime limitation
+## RL dual-shadow runtime
 
-The current RL observer replays the complete target prefix in a fresh child process on every authoritative hybrid step. This is deliberately conservative and solves the pinned Nautilus process-global kernel constraint, but its work grows quadratically with the number of decision steps in an episode. The three-step PPO/Lagrangian smoke proves functional integration only; it is not a throughput or memory approval.
+The maintained RL observer no longer replays the complete target prefix on every step. A reset creates one spawned child for the episode; that child owns one pinned `BacktestEngine` and receives only the newly executed interval. The parent remains free of Nautilus engine state. The full-prefix fresh-process runner remains available as a reference implementation, and exact-wheel tests require the streaming worker's cumulative execution to equal that reference across round-trip, safe sign-flip, and same-side target-change scenarios.
 
-The maintained execution authority therefore remains legacy. A persistent or streaming episode worker may replace prefix replay only after that exact pinned-runtime capability is separately verified and deterministic parity is preserved.
+This removes the previous prefix-replay work-growth pattern from the RL observer, but it does not by itself constitute performance approval. The current eight-step CPU PPO microbenchmark is intentionally observational and shows substantial overhead relative to legacy execution. Memory behavior, representative workloads, and an explicit reviewed performance threshold remain required before authority promotion.
 
 ## Authority modes
 
@@ -82,15 +86,14 @@ Trade RL recognizes three execution authority modes:
 
 `legacy_authoritative` remains the fail-closed default. `dual_shadow` requires successful capability, causal bridge, funding, and terminal-flat evidence. `nautilus_authoritative` additionally requires representative historical parity, deterministic replay, and explicit performance approval.
 
-Passing capability, historical synthetic evidence, persisted structural comparison contracts, or three-step training smoke does not automatically change the runtime mode. Selected-final and sealed-test authority must not switch until all promotion evidence is persisted and the workflow integration enforces the promotion decision.
+Passing capability, historical synthetic evidence, persisted structural/economic comparison contracts, streaming parity, or training smoke does not automatically change the runtime mode. Selected-final and sealed-test authority must not switch until all promotion evidence is persisted and the workflow integration enforces the promotion decision.
 
 ## Remaining work before authority promotion
 
-- run differential dual-shadow replay on representative maintained BTCUSDT historical windows using the persisted structural differential contract and factual market/replay evidence rather than synthetic fixtures;
-- bind those representative windows to factual legacy and Nautilus final-equity plus total non-funding execution-cost minor-unit closures so the implemented exact economic-normalization contract can be evaluated without approximating spread, impact, slippage, or fee representation;
-- replace or optimize the current per-step prefix subprocess replay only after an exact `nautilus_trader==1.230.0` streaming/persistent-worker capability test proves the lifecycle safe;
-- benchmark memory and throughput against the accelerated legacy training backend before any performance approval;
-- persist full historical differential evidence and wire promotion evidence into walk-forward, selected-final, sealed-test, export, and Studio runtime reporting;
+- run differential dual-shadow replay on persisted representative **real** maintained BTCUSDT historical windows using factual market/replay evidence rather than synthetic fixtures;
+- evaluate the implemented structural, funding, and cost-neutral economic comparison contracts on those representative windows and persist the resulting evidence;
+- benchmark memory and broader representative training throughput, define an explicit reviewed performance threshold, and keep `performance_approved=false` until that review is complete;
+- connect persisted promotion evidence to walk-forward, selected-final, sealed-test, export, and Studio runtime reporting without silently changing the fail-closed authority default;
 - retain `NO-GO` until production execution, reconciliation, secrets, kill switch, and operational controls are separately implemented and authorized.
 
 ## Upstream relationship

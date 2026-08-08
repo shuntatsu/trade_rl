@@ -43,7 +43,8 @@ class _FakeDualShadow:
         )
 
 
-def test_execution_coordinator_observes_only_hybrid_target_without_changing_result() -> None:
+def test_execution_coordinator_observes_only_hybrid_target_without_changing_result(
+) -> None:
     dataset = _market()
     observer = _FakeDualShadow()
     coordinator = EnvironmentExecutionCoordinator(

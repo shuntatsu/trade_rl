@@ -50,6 +50,7 @@ def test_release_packaging_rechecks_runtime_promotion_binding(
         runtime_promotion_report_digest=promotion_digest,
     )
     report = SimpleNamespace(requested_mode="nautilus_authoritative")
+    (tmp_path / "selection-proposal.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
         release_packaging,
         "load_selection_proposal",
@@ -129,6 +130,7 @@ def test_release_packaging_accepts_legacy_proposal_without_promotion_sidecar(
         digest=proposal_digest,
         runtime_promotion_report_digest=None,
     )
+    (tmp_path / "selection-proposal.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
         release_packaging,
         "load_selection_proposal",
@@ -150,6 +152,7 @@ def test_release_packaging_rejects_proposal_identity_drift(
         digest="9" * 64,
         runtime_promotion_report_digest=None,
     )
+    (tmp_path / "selection-proposal.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
         release_packaging,
         "load_selection_proposal",

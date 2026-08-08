@@ -1,0 +1,35 @@
+name: Agent Nautilus Format Repair
+
+on:
+  push:
+    branches:
+      - agent/lgpl-nautilus-migration
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/lgpl-nautilus-migration
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - name: Format exact failing file
+        run: uvx ruff format trade_rl/integrations/nautilus/historical_streaming.py
+      - name: Verify repository formatting
+        run: uvx ruff format --check .
+      - name: Commit repair and remove temporary workflow
+        run: |
+          rm .github/workflows/agent-nautilus-format-repair.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/integrations/nautilus/historical_streaming.py .github/workflows/agent-nautilus-format-repair.yml
+          git diff --cached --check
+          git commit -m "style: format Nautilus streaming runtime"
+          git push origin HEAD:agent/lgpl-nautilus-migration

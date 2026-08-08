@@ -44,7 +44,9 @@ def _stored_replay(tmp_path: Path):
     return store.load(request.digest)
 
 
-def _candidate(*, terminal_position_lots: int) -> StageANautilusHistoricalExecutionResult:
+def _candidate(
+    *, terminal_position_lots: int
+) -> StageANautilusHistoricalExecutionResult:
     return StageANautilusHistoricalExecutionResult(
         execution=NautilusHistoricalExecutionResult(
             runtime_version="1.230.0",

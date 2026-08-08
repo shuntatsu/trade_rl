@@ -18,7 +18,7 @@ RUNTIME_PROMOTION_REPORT_NAME = "runtime-promotion-report.json"
 
 
 def retain_runtime_promotion_report(
-    source: Path | None,
+    source: str | Path | None,
     *,
     work_root: Path,
 ) -> ExecutionPromotionReport | None:

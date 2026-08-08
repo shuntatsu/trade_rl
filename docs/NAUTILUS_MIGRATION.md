@@ -42,7 +42,8 @@ Current migration slices cover:
 - exact-wheel three-step SB3 PPO and Lagrangian PPO training smokes on the single-BTCUSDT dual-shadow runtime;
 - legacy-versus-Nautilus dual-shadow conformance for Flat → Long → Flat, safe Flat → Long → Flat → Short → Flat sign reversal, and same-side target increases/reductions to Flat;
 - fresh-process deterministic execution digests;
-- fail-closed RL dual-shadow symbol validation for the maintained `BTCUSDT` dataset symbol.
+- fail-closed RL dual-shadow symbol validation for the maintained `BTCUSDT` dataset symbol;
+- persisted Stage A historical structural differential evidence that binds the authoritative replay/request/dataset identities and compares exact terminal position lots, zero candidate open orders, and canonical funding records without claiming economic fill equivalence.
 
 The passive GTC limit used by the partial-fill capability test is a fixture only. It exists to create an authentic Nautilus working remainder and does not add Limit/GTC as a maintained Trade RL child-order type. Maintained target replacement and flattening continue to use the existing Market IOC adapter.
 
@@ -80,11 +81,11 @@ Trade RL recognizes three execution authority modes:
 
 `legacy_authoritative` remains the fail-closed default. `dual_shadow` requires successful capability, causal bridge, funding, and terminal-flat evidence. `nautilus_authoritative` additionally requires representative historical parity, deterministic replay, and explicit performance approval.
 
-Passing capability, historical synthetic evidence, or three-step training smoke does not automatically change the runtime mode. Selected-final and sealed-test authority must not switch until all promotion evidence is persisted and the workflow integration enforces the promotion decision.
+Passing capability, historical synthetic evidence, persisted structural comparison contracts, or three-step training smoke does not automatically change the runtime mode. Selected-final and sealed-test authority must not switch until all promotion evidence is persisted and the workflow integration enforces the promotion decision.
 
 ## Remaining work before authority promotion
 
-- run differential dual-shadow replay on representative maintained BTCUSDT historical windows using persisted market/replay evidence rather than synthetic fixtures;
+- run differential dual-shadow replay on representative maintained BTCUSDT historical windows using the persisted structural differential contract and factual market/replay evidence rather than synthetic fixtures;
 - define and verify the historical economic comparison contract where Nautilus L1 one-tick spread execution and the accelerated legacy cost model differ, without weakening structural or funding parity checks;
 - replace or optimize the current per-step prefix subprocess replay only after an exact `nautilus_trader==1.230.0` streaming/persistent-worker capability test proves the lifecycle safe;
 - benchmark memory and throughput against the accelerated legacy training backend before any performance approval;

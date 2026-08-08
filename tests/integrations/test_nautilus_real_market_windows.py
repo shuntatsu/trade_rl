@@ -17,37 +17,30 @@ from trade_rl.integrations.nautilus.historical_subprocess import (
     run_historical_target_intervals_subprocess,
 )
 
-_FIXTURE = (
-    Path(__file__).resolve().parents[1]
-    / "fixtures"
-    / "nautilus"
-    / "btcusdt-usdsm-representative-15m.json"
+_FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "nautilus"
+_FIXTURE = _FIXTURE_ROOT / "btcusdt-usdsm-representative-15m.json"
+_VOLUME_FIXTURE = (
+    _FIXTURE_ROOT / "btcusdt-usdsm-representative-15m-quote-volume.json"
 )
 _BAR_SPAN_MS = 15 * 60 * 1000
 
 
-def _payload() -> dict[str, Any]:
-    raw = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+def _read_payload(path: Path) -> dict[str, Any]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
     return raw
+
+
+def _payload() -> dict[str, Any]:
+    return _read_payload(_FIXTURE)
 
 
 def _source_bars(rows: list[list[object]]) -> tuple[SourceBar, ...]:
     bars: list[SourceBar] = []
     for row in rows:
-        assert len(row) == 8
-        (
-            open_time_ms,
-            open_price,
-            high_price,
-            low_price,
-            close_price,
-            quote_volume,
-            mark,
-            index,
-        ) = row
+        assert len(row) == 7
+        open_time_ms, open_price, high_price, low_price, close_price, mark, index = row
         assert isinstance(open_time_ms, int)
-        assert float(quote_volume) > 0.0
         bars.append(
             SourceBar(
                 open_ns=open_time_ms * 1_000_000,
@@ -88,7 +81,7 @@ def _round_trip_intervals(
 def test_representative_fixture_is_time_selected_real_binance_data() -> None:
     payload = _payload()
 
-    assert payload["schema_version"] == "btc_usdsm_representative_windows_v2"
+    assert payload["schema_version"] == "btc_usdsm_representative_windows_v1"
     assert payload["symbol"] == "BTCUSDT"
     assert payload["interval"] == "15m"
     assert payload["canonical_range"] == [
@@ -105,7 +98,6 @@ def test_representative_fixture_is_time_selected_real_binance_data() -> None:
         "high",
         "low",
         "close",
-        "quote_volume",
         "mark_close",
         "index_close",
     ]
@@ -117,8 +109,7 @@ def test_representative_fixture_is_time_selected_real_binance_data() -> None:
     assert all(len(window["rows"]) == 16 for window in payload["windows"])
 
     for window in payload["windows"]:
-        assert all(len(row) == 8 for row in window["rows"])
-        assert all(float(row[5]) > 0.0 for row in window["rows"])
+        assert all(len(row) == 7 for row in window["rows"])
         open_times = [row[0] for row in window["rows"]]
         assert all(isinstance(value, int) for value in open_times)
         assert all(
@@ -129,6 +120,32 @@ def test_representative_fixture_is_time_selected_real_binance_data() -> None:
     assert payload["windows"][2]["funding"] == [
         ["1765526400007", "0.00004698", "92392.37302174", "Regular"]
     ]
+
+
+@pytest.mark.nautilus
+def test_quote_volume_sidecar_matches_representative_price_windows() -> None:
+    payload = _payload()
+    volume = _read_payload(_VOLUME_FIXTURE)
+
+    assert volume["schema_version"] == "btc_usdsm_representative_quote_volume_v1"
+    assert volume["symbol"] == payload["symbol"]
+    assert volume["interval"] == payload["interval"]
+    assert volume["volume_unit"] == "quote_notional"
+    assert [window["time_quantile"] for window in volume["windows"]] == [
+        0.1,
+        0.5,
+        0.9,
+    ]
+
+    for price_window, volume_window in zip(
+        payload["windows"], volume["windows"], strict=True
+    ):
+        assert volume_window["time_quantile"] == price_window["time_quantile"]
+        assert len(volume_window["rows"]) == len(price_window["rows"]) == 16
+        assert [row[0] for row in volume_window["rows"]] == [
+            row[0] for row in price_window["rows"]
+        ]
+        assert all(float(row[1]) > 0.0 for row in volume_window["rows"])
 
 
 @pytest.mark.nautilus

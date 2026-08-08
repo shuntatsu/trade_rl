@@ -1,0 +1,80 @@
+name: Agent Nautilus Mypy Repair V3
+
+on:
+  push:
+    branches:
+      - agent/lgpl-nautilus-migration
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/lgpl-nautilus-migration
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Install project tooling
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+      - name: Apply bool-safe timestep normalization
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/nautilus_training_throughput_benchmark.py")
+          text = path.read_text(encoding="utf-8")
+          old = "def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:\n    raw = (\n        (value,)\n        if isinstance(value, int) and not isinstance(value, bool)\n        else tuple(value)\n    )\n"
+          new = "def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:\n    if isinstance(value, bool):\n        raise TypeError(\"timesteps must contain integers\")\n    if isinstance(value, int):\n        raw = (value,)\n    else:\n        raw = tuple(value)\n"
+          if old not in text:
+              raise SystemExit("expected _normalize_timesteps block not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+      - name: Add regression tests
+        run: |
+          cat > tests/test_nautilus_training_throughput_benchmark.py <<'PYTEST'
+          from __future__ import annotations
+
+          import pytest
+
+          from tools.nautilus_training_throughput_benchmark import _normalize_timesteps
+
+
+          def test_normalize_timesteps_accepts_scalar_and_canonicalizes_sequence() -> None:
+              assert _normalize_timesteps(8) == (8,)
+              assert _normalize_timesteps([32, 8, 32]) == (8, 32)
+
+
+          def test_normalize_timesteps_rejects_bool_values_explicitly() -> None:
+              with pytest.raises(TypeError, match="timesteps must contain integers"):
+                  _normalize_timesteps(True)
+              with pytest.raises(TypeError, match="timesteps must contain integers"):
+                  _normalize_timesteps([8, True])
+          PYTEST
+      - name: Format changed Python files
+        run: uv run ruff format tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Verify focused repair
+        run: |
+          uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py tests/simulation/test_runtime_performance.py
+          uv run mypy tools/nautilus_training_throughput_benchmark.py
+          uv run ruff check tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+          uv run ruff format --check --diff tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Verify whole-project mypy
+        run: uv run mypy .
+      - name: Commit repair and remove temporary workflow
+        run: |
+          rm .github/workflows/agent-nautilus-mypy-repair-v3.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py .github/workflows/agent-nautilus-mypy-repair-v3.yml
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "fix: validate Nautilus benchmark timesteps"
+          git push origin HEAD:agent/lgpl-nautilus-migration

@@ -10,6 +10,7 @@ import pytest
 
 pytest.importorskip("nautilus_trader")
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.market import MarketDataset
 from trade_rl.integrations.nautilus.event_projection import SourceBar
@@ -26,6 +27,12 @@ from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig, MarketExecutor
 from trade_rl.simulation.orders import OrderBookState
 from trade_rl.simulation.target_execution import execute_target_statefully
+from trade_rl.workflows.stage_a_nautilus_representative_batch import (
+    run_and_persist_representative_nautilus_evidence,
+)
+from trade_rl.workflows.stage_a_nautilus_representative_evidence import (
+    load_representative_nautilus_evidence,
+)
 from trade_rl.workflows.stage_a_nautilus_representative_runner import (
     run_representative_nautilus_window,
 )
@@ -34,6 +41,7 @@ _FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "nautilus"
 _FIXTURE = _FIXTURE_ROOT / "btcusdt-usdsm-representative-15m.json"
 _VOLUME_FIXTURE = _FIXTURE_ROOT / "btcusdt-usdsm-representative-15m-quote-volume.json"
 _BAR_SPAN_MS = 15 * 60 * 1000
+_REPRESENTATIVE_TIME_QUANTILES = (0.1, 0.5, 0.9)
 
 
 def _read_payload(path: Path) -> dict[str, Any]:
@@ -88,11 +96,17 @@ def _round_trip_intervals(
     )
 
 
-def _real_funding_dataset() -> MarketDataset:
+def _real_dataset_for_quantile(time_quantile: float) -> MarketDataset:
     payload = _payload()
     volume_payload = _read_payload(_VOLUME_FIXTURE)
-    price_window = payload["windows"][2]
-    volume_window = volume_payload["windows"][2]
+    price_windows = {
+        float(window["time_quantile"]): window for window in payload["windows"]
+    }
+    volume_windows = {
+        float(window["time_quantile"]): window for window in volume_payload["windows"]
+    }
+    price_window = price_windows[time_quantile]
+    volume_window = volume_windows[time_quantile]
     rows = price_window["rows"]
     volume_rows = volume_window["rows"]
     assert len(rows) == len(volume_rows) == 16
@@ -107,19 +121,28 @@ def _real_funding_dataset() -> MarketDataset:
     funding_event_count = np.zeros(shape, dtype=np.int32)
     funding_due = np.zeros(shape, dtype=np.bool_)
     funding = price_window["funding"]
-    assert funding == [["1765526400007", "0.00004698", "92392.37302174", "Regular"]]
-    funding_time_ms = int(funding[0][0])
-    funding_index = int(np.searchsorted(close_times_ms, funding_time_ms, side="left"))
-    assert funding_index == 4
-    funding_rate[funding_index, 0] = float(funding[0][1])
-    funding_event_count[funding_index, 0] = 1
-    funding_due[funding_index, 0] = True
+    for funding_row in funding:
+        funding_time_ms = int(funding_row[0])
+        funding_index = int(np.searchsorted(close_times_ms, funding_time_ms, side="left"))
+        assert 0 <= funding_index < len(rows)
+        funding_rate[funding_index, 0] = float(funding_row[1])
+        funding_event_count[funding_index, 0] += 1
+        funding_due[funding_index, 0] = True
 
     def column(index: int) -> np.ndarray:
         return np.asarray([[float(row[index])] for row in rows], dtype=np.float64)
 
+    dataset_id = content_digest(
+        {
+            "interval": payload["interval"],
+            "price_window": price_window,
+            "schema_version": "btc_usdsm_representative_market_dataset_v1",
+            "symbol": payload["symbol"],
+            "volume_window": volume_window,
+        }
+    )
     return MarketDataset(
-        dataset_id="9" * 64,
+        dataset_id=dataset_id,
         symbols=("BTCUSDT",),
         timestamps=timestamps,
         features=np.zeros((len(rows), 1, 1), dtype=np.float32),
@@ -144,6 +167,32 @@ def _real_funding_dataset() -> MarketDataset:
         index_price=column(6),
         volume_units=(VolumeUnit.QUOTE_NOTIONAL,),
         contract_multipliers=np.array([1.0], dtype=np.float64),
+    )
+
+
+def _real_funding_dataset() -> MarketDataset:
+    dataset = _real_dataset_for_quantile(0.9)
+    assert dataset.funding_rate is not None
+    assert dataset.funding_event_count is not None
+    assert dataset.funding_due is not None
+    assert dataset.funding_rate[4, 0] == pytest.approx(0.00004698)
+    assert dataset.funding_event_count[4, 0] == 1
+    assert bool(dataset.funding_due[4, 0]) is True
+    return dataset
+
+
+def _representative_source_digest(markets: dict[float, MarketDataset]) -> str:
+    return content_digest(
+        {
+            "schema_version": "stage_a_nautilus_representative_source_v1",
+            "windows": [
+                {
+                    "dataset_id": markets[time_quantile].dataset_id,
+                    "time_quantile": time_quantile,
+                }
+                for time_quantile in _REPRESENTATIVE_TIME_QUANTILES
+            ],
+        }
     )
 
 
@@ -293,6 +342,38 @@ def test_real_window_persists_stage_a_structural_and_economic_evidence(
     assert window.structural.structural_passed is True
     assert window.economic.replay_digest == window.structural.replay_digest
     assert isinstance(window.economic.normalized_equity_delta_minor, int)
+
+
+@pytest.mark.nautilus
+def test_real_representative_windows_persist_one_bound_aggregate_evidence(
+    tmp_path: Path,
+) -> None:
+    markets = {
+        time_quantile: _real_dataset_for_quantile(time_quantile)
+        for time_quantile in _REPRESENTATIVE_TIME_QUANTILES
+    }
+    output_path = tmp_path / "representative-evidence.json"
+    source_digest = _representative_source_digest(markets)
+
+    evidence = run_and_persist_representative_nautilus_evidence(
+        markets=markets,
+        source_digest=source_digest,
+        store_root=tmp_path / "stage-a",
+        output_path=output_path,
+        target_exposure=0.10,
+    )
+
+    assert evidence.source_digest == source_digest
+    assert evidence.time_quantiles == _REPRESENTATIVE_TIME_QUANTILES
+    assert [window.structural.dataset_id for window in evidence.windows] == [
+        markets[time_quantile].dataset_id
+        for time_quantile in _REPRESENTATIVE_TIME_QUANTILES
+    ]
+    assert all(
+        window.structural.candidate_runtime_version == "1.230.0"
+        for window in evidence.windows
+    )
+    assert load_representative_nautilus_evidence(output_path) == evidence
 
 
 @pytest.mark.nautilus

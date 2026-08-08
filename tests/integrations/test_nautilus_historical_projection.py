@@ -22,6 +22,15 @@ def _projector():
     return project
 
 
+def _interval_projector():
+    spec = importlib.util.find_spec(_MODULE)
+    assert spec is not None, "historical source-bar projection module must exist"
+    module = importlib.import_module(_MODULE)
+    project = getattr(module, "project_historical_interval_source_bars", None)
+    assert callable(project), "historical interval source-bar projector must exist"
+    return project
+
+
 def _single_symbol_market() -> MarketDataset:
     values = kwargs(n_symbols=1)
     close = np.asarray(values["close"], dtype=np.float64)
@@ -51,6 +60,25 @@ def test_project_historical_source_bar_uses_existing_source_bar_contract() -> No
     assert bar.close_price == pytest.approx(market.close[index, 0])
     assert bar.mark_price == pytest.approx(market.mark_price[index, 0])
     assert bar.index_price == pytest.approx(market.index_price[index, 0])
+
+
+def test_project_historical_interval_source_bars_excludes_start_boundary() -> None:
+    project_interval = _interval_projector()
+    market = _single_symbol_market()
+    start_index = 1
+    end_index = 3
+
+    bars = project_interval(
+        market,
+        start_index=start_index,
+        end_index=end_index,
+    )
+
+    assert len(bars) == end_index - start_index
+    assert tuple(bar.close_ns for bar in bars) == tuple(
+        int(market.timestamps[index].astype("datetime64[ns]").astype(np.int64))
+        for index in range(start_index + 1, end_index + 1)
+    )
 
 
 def test_project_historical_source_bar_rejects_non_single_symbol_or_session_data() -> (

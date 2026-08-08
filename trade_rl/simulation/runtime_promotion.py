@@ -53,6 +53,12 @@ class ExecutionPromotionReport:
             raise ValueError("unsupported execution promotion report schema")
         if self.decision.requested is not self.requested_mode:
             raise ValueError("execution promotion report requested mode mismatch")
+        expected_decision = assess_runtime_promotion(
+            requested=self.requested_mode,
+            evidence=self.evidence,
+        )
+        if self.decision != expected_decision:
+            raise ValueError("execution promotion report decision does not match evidence")
         if self.digest != content_digest(self.digest_payload()):
             raise ValueError("execution promotion report digest mismatch")
 

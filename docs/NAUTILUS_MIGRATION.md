@@ -48,7 +48,15 @@ Current migration slices cover:
 - fail-closed RL dual-shadow symbol validation for the maintained `BTCUSDT` dataset symbol;
 - persisted Stage A historical structural differential evidence that binds the authoritative replay/request/dataset identities and compares exact terminal position lots, zero candidate open orders, and canonical funding records without claiming economic fill equivalence;
 - exact historical economic normalization that adds each runtime's own non-funding execution-cost burden back to final equity in integer settlement minor units, compares the resulting cost-neutral equity exactly, and never allows that normalization to override structural or funding mismatch;
-- an observational CI throughput artifact comparing the accelerated legacy environment with the streaming Nautilus dual-shadow path on the same deterministic synthetic BTCUSDT eight-step CPU PPO fixture. The verified run recorded about `11.47 step/s` for legacy and `1.275 step/s` for streaming dual-shadow, an elapsed-time slowdown ratio of about `8.99x`. This evidence explicitly records `performance_approved=false` and does not define a production promotion threshold.
+- an observational CI throughput artifact comparing the accelerated legacy environment with the streaming Nautilus dual-shadow path on the same deterministic synthetic BTCUSDT eight-step CPU PPO fixture. The verified run recorded about `11.47 step/s` for legacy and `1.275 step/s` for streaming dual-shadow, an elapsed-time slowdown ratio of about `8.99x`. This evidence explicitly records `performance_approved=false` and does not define a production promotion threshold;
+- immutable runtime-promotion reports whose digest is separately bound into the signed `SelectionProposal` alongside the walk-forward and gate-evidence identities. The proposal is the cryptographic join point; the runtime report is not injected into the generic walk-forward or sealed-test APIs;
+- selected-final training that revalidates the signed proposal and retained runtime-promotion report, preserves both inside the training artifact, and binds exported model artifacts into the same `TrainingRunManifest` file closure;
+- finalization and release packaging that re-read and revalidate the proposal/runtime-report binding before approval or serving-bundle materialization. New artifact generations fail closed on missing, mismatched, or unauthorized sidecars while sidecar-less historical selected-final artifacts retain explicit backward compatibility;
+- serving bundles whose existing file-closure digest carries the retained proposal, runtime-promotion report, export artifacts, and selected-final training evidence without introducing a second execution-authority field in the serving schema;
+- Studio Evidence Explorer read-only reporting for runtime-promotion evidence at the research-run level, including required/missing/unbound evidence states;
+- Studio Serving Monitor read-only revalidation of the proposal digest, dataset identity, walk-forward identity, gate-evidence identity, and proposal-to-runtime-report digest against the serving bundle before showing the promotion evidence as verified. Legacy sidecar-less selected-final bundles are surfaced as a warning rather than being falsely promoted.
+
+The sealed outer-test remains controlled by the existing one-shot walk-forward ledger and is closed into the walk-forward run identity. The signed `SelectionProposal` joins that walk-forward identity to the gate evidence and runtime-promotion report digest; selected-final training then rechecks its execution replay against the proposal's walk-forward digest. This preserves one evidence chain without making the generic walk-forward implementation depend on NautilusTrader.
 
 The passive GTC limit used by the partial-fill capability test is a fixture only. It exists to create an authentic Nautilus working remainder and does not add Limit/GTC as a maintained Trade RL child-order type. Maintained target replacement and flattening continue to use the existing Market IOC adapter.
 
@@ -86,15 +94,17 @@ Trade RL recognizes three execution authority modes:
 
 `legacy_authoritative` remains the fail-closed default. `dual_shadow` requires successful capability, causal bridge, funding, and terminal-flat evidence. `nautilus_authoritative` additionally requires representative historical parity, deterministic replay, and explicit performance approval.
 
-Passing capability, historical synthetic evidence, persisted structural/economic comparison contracts, streaming parity, or training smoke does not automatically change the runtime mode. Selected-final and sealed-test authority must not switch until all promotion evidence is persisted and the workflow integration enforces the promotion decision.
+Passing capability, historical synthetic evidence, persisted structural/economic comparison contracts, streaming parity, training smoke, or a signed promotion-report chain does not automatically change the runtime mode. The evidence chain authorizes only what its persisted decision permits; production authority remains separately gated.
 
 ## Remaining work before authority promotion
 
 - run differential dual-shadow replay on persisted representative **real** maintained BTCUSDT historical windows using factual market/replay evidence rather than synthetic fixtures;
 - evaluate the implemented structural, funding, and cost-neutral economic comparison contracts on those representative windows and persist the resulting evidence;
 - benchmark memory and broader representative training throughput, define an explicit reviewed performance threshold, and keep `performance_approved=false` until that review is complete;
-- connect persisted promotion evidence to walk-forward, selected-final, sealed-test, export, and Studio runtime reporting without silently changing the fail-closed authority default;
+- execute and retain the now-wired signed promotion chain on representative persisted data, including reviewed authorization/confirmation artifacts. The code path already spans the sealed walk-forward identity, signed proposal, selected-final training and export closure, release packaging, Studio Evidence Explorer, and Studio Serving Monitor;
 - retain `NO-GO` until production execution, reconciliation, secrets, kill switch, and operational controls are separately implemented and authorized.
+
+The repository intentionally excludes local runtime data and generated artifacts (`/data/`, `/var/`, and `*.npz`). Representative persisted-market validation must therefore use an explicitly supplied local/catalog dataset rather than a synthetic or invented replacement.
 
 ## Upstream relationship
 

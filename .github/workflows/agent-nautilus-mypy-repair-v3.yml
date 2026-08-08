@@ -32,7 +32,7 @@ jobs:
           path = Path("tools/nautilus_training_throughput_benchmark.py")
           text = path.read_text(encoding="utf-8")
           old = "def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:\n    raw = (\n        (value,)\n        if isinstance(value, int) and not isinstance(value, bool)\n        else tuple(value)\n    )\n"
-          new = "def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:\n    if isinstance(value, bool):\n        raise TypeError(\"timesteps must contain integers\")\n    if isinstance(value, int):\n        raw = (value,)\n    else:\n        raw = tuple(value)\n"
+          new = "def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:\n    if isinstance(value, bool):\n        raise TypeError(\"timesteps must contain integers\")\n    raw: tuple[int, ...]\n    if isinstance(value, int):\n        raw = (value,)\n    else:\n        raw = tuple(value)\n"
           if old not in text:
               raise SystemExit("expected _normalize_timesteps block not found")
           path.write_text(text.replace(old, new, 1), encoding="utf-8")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from trade_rl.simulation.execution_replay import validate_order_event_stream
 from trade_rl.simulation.orders import OrderEvent, OrderStatus
 
@@ -46,7 +48,7 @@ def _event(
     )
 
 
-def test_order_event_stream_accepts_rejected_partial_fill_remainder() -> None:
+def test_order_event_stream_rejects_rejection_after_partial_fill() -> None:
     events = (
         _event(
             sequence=0,
@@ -86,4 +88,5 @@ def test_order_event_stream_accepts_rejected_partial_fill_remainder() -> None:
         ),
     )
 
-    assert validate_order_event_stream(events) == events
+    with pytest.raises(ValueError, match="event transition"):
+        validate_order_event_stream(events)

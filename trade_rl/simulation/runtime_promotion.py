@@ -10,6 +10,7 @@ from pathlib import Path
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.domain.common import require_sha256
 
 EXECUTION_PROMOTION_REPORT_SCHEMA = "execution_promotion_report_v1"
 
@@ -51,12 +52,32 @@ class ExecutionPromotionReport:
     evidence: ExecutionPromotionEvidence
     decision: RuntimePromotionDecision
     schema_version: str = EXECUTION_PROMOTION_REPORT_SCHEMA
+    representative_evidence_digest: str | None = None
+    performance_evidence_digest: str | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != EXECUTION_PROMOTION_REPORT_SCHEMA:
             raise ValueError("unsupported execution promotion report schema")
         if self.decision.requested is not self.requested_mode:
             raise ValueError("execution promotion report requested mode mismatch")
+        if self.representative_evidence_digest is not None:
+            require_sha256(
+                self.representative_evidence_digest,
+                field="representative_evidence_digest",
+            )
+        if self.performance_evidence_digest is not None:
+            require_sha256(
+                self.performance_evidence_digest,
+                field="performance_evidence_digest",
+            )
+        if self.requested_mode is RuntimeMode.NAUTILUS_AUTHORITATIVE:
+            if (
+                self.evidence.exact_parity_passed
+                and self.representative_evidence_digest is None
+            ):
+                raise ValueError("representative evidence digest is required")
+            if self.evidence.performance_approved and self.performance_evidence_digest is None:
+                raise ValueError("performance evidence digest is required")
         expected_decision = assess_runtime_promotion(
             requested=self.requested_mode,
             evidence=self.evidence,
@@ -75,6 +96,8 @@ class ExecutionPromotionReport:
             requested=self.requested_mode,
             evidence=self.evidence,
             decision=self.decision,
+            representative_evidence_digest=self.representative_evidence_digest,
+            performance_evidence_digest=self.performance_evidence_digest,
         )
 
     def to_mapping(self) -> dict[str, object]:
@@ -113,6 +136,14 @@ class ExecutionPromotionReport:
                 evidence=evidence,
                 decision=decision,
                 schema_version=_require_string(raw, "schema_version"),
+                representative_evidence_digest=_optional_sha256(
+                    raw,
+                    "representative_evidence_digest",
+                ),
+                performance_evidence_digest=_optional_sha256(
+                    raw,
+                    "performance_evidence_digest",
+                ),
             )
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("promotion report is invalid") from error
@@ -158,8 +189,10 @@ def _promotion_report_payload(
     requested: RuntimeMode,
     evidence: ExecutionPromotionEvidence,
     decision: RuntimePromotionDecision,
+    representative_evidence_digest: str | None = None,
+    performance_evidence_digest: str | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "allowed": decision.allowed,
         "evidence": {
             field.name: getattr(evidence, field.name)
@@ -169,6 +202,11 @@ def _promotion_report_payload(
         "requested_mode": requested.value,
         "schema_version": EXECUTION_PROMOTION_REPORT_SCHEMA,
     }
+    if representative_evidence_digest is not None:
+        payload["representative_evidence_digest"] = representative_evidence_digest
+    if performance_evidence_digest is not None:
+        payload["performance_evidence_digest"] = performance_evidence_digest
+    return payload
 
 
 def _require_string(raw: Mapping[str, object], name: str) -> str:
@@ -182,6 +220,16 @@ def _require_bool(raw: Mapping[str, object], name: str) -> bool:
     value = raw[name]
     if type(value) is not bool:
         raise ValueError(f"{name} must be a boolean")
+    return value
+
+
+def _optional_sha256(raw: Mapping[str, object], name: str) -> str | None:
+    value = raw.get(name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string")
+    require_sha256(value, field=name)
     return value
 
 
@@ -205,6 +253,8 @@ def build_execution_promotion_report(
     *,
     requested: RuntimeMode,
     evidence: ExecutionPromotionEvidence,
+    representative_evidence_digest: str | None = None,
+    performance_evidence_digest: str | None = None,
 ) -> ExecutionPromotionReport:
     """Build signed-selection-ready evidence without changing runtime authority."""
 
@@ -213,12 +263,16 @@ def build_execution_promotion_report(
         requested=requested,
         evidence=evidence,
         decision=decision,
+        representative_evidence_digest=representative_evidence_digest,
+        performance_evidence_digest=performance_evidence_digest,
     )
     return ExecutionPromotionReport(
         digest=content_digest(payload),
         requested_mode=requested,
         evidence=evidence,
         decision=decision,
+        representative_evidence_digest=representative_evidence_digest,
+        performance_evidence_digest=performance_evidence_digest,
     )
 
 

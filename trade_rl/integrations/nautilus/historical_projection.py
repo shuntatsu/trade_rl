@@ -51,3 +51,22 @@ def project_historical_source_bar(
         mark_price=float(mark_price[processing_index, 0]),
         index_price=float(index_price[processing_index, 0]),
     )
+
+
+def project_historical_interval_source_bars(
+    market: MarketDataset,
+    *,
+    start_index: int,
+    end_index: int,
+) -> tuple[SourceBar, ...]:
+    """Project the processing bars consumed by one Stage A step interval.
+
+    ``start_index`` is the factual pre-step boundary. Execution starts on the next
+    processing row and includes ``end_index``, matching the maintained legacy
+    executor's ``previous_index + 1`` processing convention.
+    """
+
+    return tuple(
+        project_historical_source_bar(market, processing_index=index)
+        for index in range(start_index + 1, end_index + 1)
+    )

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from enum import Enum
+from pathlib import Path
 
+from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 
 EXECUTION_PROMOTION_REPORT_SCHEMA = "execution_promotion_report_v1"
@@ -182,6 +185,22 @@ def _require_bool(raw: Mapping[str, object], name: str) -> bool:
     return value
 
 
+def _write_once(path: Path, payload: object) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = canonical_json_bytes(payload)
+    if path.exists():
+        if path.read_bytes() != encoded:
+            raise FileExistsError(f"refusing to overwrite immutable evidence: {path}")
+        return path
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_bytes(encoded)
+    try:
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return path
+
+
 def build_execution_promotion_report(
     *,
     requested: RuntimeMode,
@@ -203,6 +222,24 @@ def build_execution_promotion_report(
     )
 
 
+def write_execution_promotion_report(
+    path: str | Path,
+    report: ExecutionPromotionReport,
+) -> Path:
+    """Persist one immutable execution promotion report."""
+
+    return _write_once(Path(path), report.to_mapping())
+
+
+def load_execution_promotion_report(path: str | Path) -> ExecutionPromotionReport:
+    """Load persisted execution promotion evidence with full validation."""
+
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("promotion report must be an object")
+    return ExecutionPromotionReport.from_mapping(raw)
+
+
 __all__ = [
     "EXECUTION_PROMOTION_REPORT_SCHEMA",
     "ExecutionPromotionEvidence",
@@ -211,4 +248,6 @@ __all__ = [
     "RuntimePromotionDecision",
     "assess_runtime_promotion",
     "build_execution_promotion_report",
+    "load_execution_promotion_report",
+    "write_execution_promotion_report",
 ]

@@ -108,6 +108,17 @@ def test_release_packaging_rejects_unbound_runtime_promotion_sidecar(
         )
 
 
+def test_release_packaging_accepts_legacy_artifact_without_proposal_or_promotion_sidecars(
+    tmp_path: Path,
+) -> None:
+    manifest = SimpleNamespace(selection_proposal_digest="7" * 64)
+
+    release_packaging._require_runtime_promotion_binding(
+        training_root=tmp_path,
+        manifest=manifest,
+    )
+
+
 def test_release_packaging_accepts_legacy_proposal_without_promotion_sidecar(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

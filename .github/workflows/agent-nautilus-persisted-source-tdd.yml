@@ -1,0 +1,102 @@
+name: Agent Nautilus Persisted Source TDD
+
+on:
+  push:
+    branches:
+      - agent/lgpl-nautilus-migration
+    paths:
+      - .github/workflows/agent-nautilus-persisted-source-tdd.yml
+
+permissions:
+  contents: write
+
+jobs:
+  tdd:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/lgpl-nautilus-migration
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Install focused test dependencies
+        run: uv sync --extra dev
+      - name: Verify RED for persisted dataset source identity
+        run: |
+          set +e
+          uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py > /tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          test "$status" -ne 0
+          grep -F "unexpected keyword argument 'dataset_source_digest'" /tmp/red.log
+      - name: Apply minimal source-digest binding
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/nautilus_training_throughput_benchmark.py")
+          text = path.read_text(encoding="utf-8")
+          old_import = "from trade_rl.artifacts.hashing import content_digest\n"
+          new_import = old_import + "from trade_rl.domain.common import require_sha256\n"
+          if old_import not in text:
+              raise SystemExit("expected hashing import not found")
+          text = text.replace(old_import, new_import, 1)
+
+          old_signature = "def _benchmark_source_digest(workloads: tuple[int, ...]) -> str:\n"
+          new_signature = (
+              "def _benchmark_source_digest(\n"
+              "    workloads: tuple[int, ...],\n"
+              "    *,\n"
+              "    dataset_source_digest: str | None = None,\n"
+              ") -> str:\n"
+          )
+          if old_signature not in text:
+              raise SystemExit("expected benchmark source signature not found")
+          text = text.replace(old_signature, new_signature, 1)
+
+          marker = '            "dataset_kind": "deterministic_synthetic_btcusdt",\n'
+          replacement = (
+              marker
+              + "            **(\n"
+              + "                {\n"
+              + '                    "dataset_source_digest": _validated_dataset_source_digest(\n'
+              + "                        dataset_source_digest\n"
+              + "                    )\n"
+              + "                }\n"
+              + "                if dataset_source_digest is not None\n"
+              + "                else {}\n"
+              + "            ),\n"
+          )
+          if marker not in text:
+              raise SystemExit("expected dataset_kind marker not found")
+          text = text.replace(marker, replacement, 1)
+
+          helper_anchor = "\ndef _benchmark_source_digest(\n"
+          helper = '''\ndef _validated_dataset_source_digest(value: str) -> str:\n    try:\n        return require_sha256(value, field="dataset_source_digest")\n    except ValueError as error:\n        raise ValueError("dataset_source_digest must be a SHA-256 digest") from error\n\n\n'''
+          if helper_anchor not in text:
+              raise SystemExit("expected helper anchor not found")
+          text = text.replace(helper_anchor, helper + "def _benchmark_source_digest(\n", 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Verify GREEN and static contracts
+        run: |
+          uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py tests/simulation/test_runtime_performance.py tests/simulation/test_runtime_performance_artifact_identity.py
+          uv run mypy tools/nautilus_training_throughput_benchmark.py
+          uv run ruff check tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+          uv run ruff format --check --diff tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Commit minimal implementation and remove TDD workflow
+        run: |
+          rm .github/workflows/agent-nautilus-persisted-source-tdd.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/nautilus_training_throughput_benchmark.py .github/workflows/agent-nautilus-persisted-source-tdd.yml
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "feat: bind Nautilus benchmark to dataset source"
+          git push origin HEAD:agent/lgpl-nautilus-migration

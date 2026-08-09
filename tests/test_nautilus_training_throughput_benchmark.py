@@ -12,6 +12,7 @@ from tools.nautilus_training_throughput_benchmark import (
     _benchmark_source_digest,
     _load_worker_benchmark_dataset,
     _normalize_timesteps,
+    _parse_args,
     _resolve_benchmark_dataset_source,
     _worker_command,
 )
@@ -219,3 +220,14 @@ def test_run_benchmark_binds_persisted_source_to_workers_and_evidence(
         ("legacy", root.resolve()),
         ("streaming", root.resolve()),
     ]
+
+
+def test_parse_args_preserves_synthetic_default_and_accepts_dataset_artifact(
+    tmp_path: Path,
+) -> None:
+    default_args = _parse_args([])
+    artifact_root = tmp_path / "artifact"
+    persisted_args = _parse_args(["--dataset-artifact", str(artifact_root)])
+
+    assert default_args.dataset_artifact is None
+    assert persisted_args.dataset_artifact == artifact_root

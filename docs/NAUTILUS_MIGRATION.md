@@ -51,6 +51,7 @@ Current migration slices cover:
 - checked-in factual Binance USDⓈ-M BTCUSDT 15-minute representative windows selected at time quantiles `0.1`, `0.5`, and `0.9` from the canonical `2021-01-01T00:00:00Z` to `2026-07-01T00:00:00Z` / 192,672-bar range. The fixtures bind OHLC, mark/index close values, quote-notional volume, and factual funding data and are replayed through fresh Nautilus children;
 - factual representative-window Stage A evidence persisted through the content-addressed promotion store, including exact structural closure, funding closure from actual candidate position snapshots, cost-neutral economic comparison, source identity, and an aggregate evidence artifact over all three time-quantile windows;
 - canonical isolated-process runtime-performance evidence over deterministic synthetic BTCUSDT CPU PPO workloads of `8`, `32`, and `128` timesteps. The artifact binds the benchmark source digest, legacy and streaming-Nautilus elapsed throughput, self/child/process-tree peak RSS, and process count. A verified CI run recorded a worst elapsed slowdown ratio of about `3.62x` and a worst process-tree RSS ratio of about `1.55x`. The artifact remains explicitly `performance_approved=false` because no reviewed production threshold is bound to it;
+- an explicit representative persisted-artifact benchmark path. The parent accepts only an already-published canonical market dataset artifact, validates its file closure, exact `BTCUSDT` symbol, and minimum bar count, binds the published artifact digest into the benchmark source identity, and passes only the resolved artifact root across the isolated worker boundary. Each legacy and streaming worker revalidates and reloads that same canonical artifact before training. The no-argument synthetic CI benchmark remains unchanged, and no reviewed representative persisted run is claimed by this implementation alone;
 - immutable runtime-performance evidence and approval-policy sidecars with content digests, deterministic threshold assessment, and explicit review references. Approved evidence can only be materialized from observational evidence after a reviewed policy passes; already-approved evidence is rejected rather than rebound to a different policy;
 - immutable runtime-promotion reports whose digest is separately bound into the signed `SelectionProposal` alongside the walk-forward and gate-evidence identities. The proposal is the cryptographic join point; the runtime report is not injected into the generic walk-forward or sealed-test APIs;
 - selected-final training that revalidates the signed proposal and retained runtime-promotion report, preserves both inside the training artifact, and binds exported model artifacts into the same `TrainingRunManifest` file closure;
@@ -86,7 +87,24 @@ The exact-wheel test deliberately locks the absence of native Python-engine fund
 
 The maintained RL observer no longer replays the complete target prefix on every step. A reset creates one spawned child for the episode; that child owns one pinned `BacktestEngine` and receives only the newly executed interval. The parent remains free of Nautilus engine state. The full-prefix fresh-process runner remains available as a reference implementation, and exact-wheel tests require the streaming worker's cumulative execution to equal that reference across round-trip, safe sign-flip, and same-side target-change scenarios.
 
-This removes the previous prefix-replay work-growth pattern from the RL observer, but it does not by itself constitute performance approval. CI now records isolated legacy-versus-streaming measurements across `8`, `32`, and `128` deterministic synthetic BTCUSDT CPU PPO workloads, including process-tree memory rather than parent-only RSS. The current broader artifact is still observational; a reviewed representative persisted/catalog workload and an explicit reviewed threshold remain required before authority promotion.
+This removes the previous prefix-replay work-growth pattern from the RL observer, but it does not by itself constitute performance approval. CI now records isolated legacy-versus-streaming measurements across `8`, `32`, and `128` deterministic synthetic BTCUSDT CPU PPO workloads, including process-tree memory rather than parent-only RSS. A canonical persisted-artifact benchmark path is now implemented as a separate explicit opt-in. Authority promotion still requires a retained run on a reviewed representative persisted/catalog artifact plus an explicit reviewed slowdown/process-tree-memory threshold policy; implementing the path itself does not satisfy either requirement.
+
+## Representative persisted performance benchmark
+
+The parent benchmark can now measure the same isolated legacy-versus-streaming training path against an already-published canonical market dataset artifact:
+
+```bash
+uv run python tools/nautilus_training_throughput_benchmark.py \
+  --dataset-artifact /path/to/published-market-dataset \
+  --timesteps 8 \
+  --timesteps 32 \
+  --timesteps 128 \
+  --output var/nautilus/representative-performance.json
+```
+
+`--dataset-artifact` accepts the directory produced by the canonical market-dataset artifact publisher, not a raw NPZ/JSON file or an arbitrary digest. The artifact must validate successfully, contain exactly `BTCUSDT`, and contain at least `max(80, max(requested_timesteps) + 32)` bars. The parent binds the published artifact digest into `source_digest`; each isolated worker receives only the resolved directory path and revalidates/reloads the artifact itself before the training timer starts. The emitted runtime-performance evidence remains `performance_approved=false`; a reviewed policy must independently pass before approved evidence may be materialized through the existing approval path.
+
+The repository does not retain a reviewed representative persisted/catalog benchmark artifact or result yet. The command above documents the implemented execution path only and must not be read as evidence that the representative authority-promotion run has occurred.
 
 ## Authority modes
 
@@ -102,7 +120,7 @@ Passing capability, historical synthetic evidence, factual representative-window
 
 ## Remaining work before authority promotion
 
-- run runtime-performance measurement on a reviewed representative persisted/catalog workload, define and externally review an explicit slowdown/process-tree-memory threshold policy, retain that policy beside the observational evidence, and keep `performance_approved=false` until the reviewed policy passes and approved evidence is materialized through the fail-closed approval path;
+- execute the now-implemented `--dataset-artifact` runtime-performance benchmark on a reviewed representative persisted/catalog artifact, retain the resulting observational evidence, define and externally review an explicit slowdown/process-tree-memory threshold policy, retain that policy beside the evidence, and keep `performance_approved=false` until the reviewed policy passes and approved evidence is materialized through the fail-closed approval path;
 - execute and retain the now-wired signed promotion chain on the same reviewed representative persisted/catalog dataset, including reviewed authorization/confirmation artifacts. The code path already spans the sealed walk-forward identity, signed proposal, selected-final training and export closure, release packaging, Studio Evidence Explorer, and Studio Serving Monitor;
 - retain `NO-GO` until production execution, reconciliation, secrets, kill switch, and operational controls are separately implemented and authorized.
 

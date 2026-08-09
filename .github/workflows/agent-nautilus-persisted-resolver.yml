@@ -108,8 +108,10 @@ jobs:
           text = text.replace(anchor, resolver + anchor, 1)
           path.write_text(text, encoding="utf-8")
           PY
-      - name: Format changed Python files
-        run: uv run ruff format tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Normalize changed Python files
+        run: |
+          uv run ruff check --fix tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+          uv run ruff format tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
       - name: Focused persisted benchmark tests
         run: uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py tests/data/test_market_artifact.py
       - name: Targeted mypy

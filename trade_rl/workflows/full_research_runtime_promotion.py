@@ -5,6 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from trade_rl.release.selection_authorization import SelectionProposal
+from trade_rl.simulation.runtime_performance_io import (
+    load_runtime_performance_evidence,
+    write_runtime_performance_evidence,
+)
 from trade_rl.simulation.runtime_promotion import (
     ExecutionPromotionReport,
     load_execution_promotion_report,
@@ -15,6 +19,25 @@ from trade_rl.workflows.runtime_promotion_binding import (
 )
 
 RUNTIME_PROMOTION_REPORT_NAME = "runtime-promotion-report.json"
+RUNTIME_PERFORMANCE_EVIDENCE_NAME = "runtime-performance-evidence.json"
+
+
+def _load_bound_performance_evidence(
+    report: ExecutionPromotionReport,
+    *,
+    root: Path,
+):
+    if not report.evidence.performance_approved:
+        return None
+    path = root / RUNTIME_PERFORMANCE_EVIDENCE_NAME
+    if not path.is_file():
+        raise FileNotFoundError(f"runtime performance evidence is missing: {path}")
+    evidence = load_runtime_performance_evidence(path)
+    if not evidence.performance_approved:
+        raise ValueError("runtime performance evidence is not approved")
+    if evidence.digest != report.performance_evidence_digest:
+        raise ValueError("runtime performance evidence digest mismatch")
+    return evidence
 
 
 def retain_runtime_promotion_report(
@@ -26,9 +49,19 @@ def retain_runtime_promotion_report(
 
     if source is None:
         return None
-    report = load_execution_promotion_report(source)
+    source_path = Path(source)
+    report = load_execution_promotion_report(source_path)
     if not report.decision.allowed:
         raise ValueError("runtime promotion report is not allowed")
+    performance_evidence = _load_bound_performance_evidence(
+        report,
+        root=source_path.parent,
+    )
+    if performance_evidence is not None:
+        write_runtime_performance_evidence(
+            work_root / RUNTIME_PERFORMANCE_EVIDENCE_NAME,
+            performance_evidence,
+        )
     write_execution_promotion_report(
         work_root / RUNTIME_PROMOTION_REPORT_NAME,
         report,
@@ -58,10 +91,12 @@ def require_retained_runtime_promotion(
         report=report,
         required_mode=report.requested_mode,
     )
+    _load_bound_performance_evidence(report, root=work_root)
     return report
 
 
 __all__ = [
+    "RUNTIME_PERFORMANCE_EVIDENCE_NAME",
     "RUNTIME_PROMOTION_REPORT_NAME",
     "require_retained_runtime_promotion",
     "retain_runtime_promotion_report",

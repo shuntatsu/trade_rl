@@ -30,8 +30,8 @@ on:
       - "tests/simulation/test_funding_mark_price.py"
       - "tests/simulation/test_runtime_performance.py"
       - "tests/simulation/test_runtime_performance_artifact_identity.py"
-      - "tools/nautilus_execution_probe_digest.py"
-      - "tools/nautilus_training_throughput_benchmark.py"
+      - "scripts/nautilus_execution_probe_digest.py"
+      - "scripts/nautilus_training_throughput_benchmark.py"
       - ".github/workflows/nautilus-capability.yml"
   push:
     branches: [main]
@@ -62,8 +62,8 @@ on:
       - "tests/simulation/test_funding_mark_price.py"
       - "tests/simulation/test_runtime_performance.py"
       - "tests/simulation/test_runtime_performance_artifact_identity.py"
-      - "tools/nautilus_execution_probe_digest.py"
-      - "tools/nautilus_training_throughput_benchmark.py"
+      - "scripts/nautilus_execution_probe_digest.py"
+      - "scripts/nautilus_training_throughput_benchmark.py"
       - ".github/workflows/nautilus-capability.yml"
 
 permissions:
@@ -148,7 +148,7 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_training_smoke.py
       - name: Record isolated legacy versus streaming throughput and memory
         run: |
-          uv run python tools/nautilus_training_throughput_benchmark.py \
+          uv run python scripts/nautilus_training_throughput_benchmark.py \
             --timesteps 8 \
             --timesteps 32 \
             --timesteps 128 \
@@ -186,9 +186,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          first="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
-          second="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
-          third="$(uv run python tools/nautilus_execution_probe_digest.py | tail -n 1)"
+          first="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
+          second="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
+          third="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
           test "$first" = "$second"
           test "$second" = "$third"
           test "${#first}" -eq 64

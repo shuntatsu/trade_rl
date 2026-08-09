@@ -19,13 +19,14 @@ from typing import Any, Callable
 
 import numpy as np
 
+from trade_rl._source_checkout import source_checkout_root
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import MarketDataset, write_market_dataset_files
 from trade_rl.integrations.binance import binance_multitimeframe_feature_specs
 from trade_rl.rl.training import gamma_from_half_life
 from trade_rl.workflows.training_run import TrainingRunConfig
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = source_checkout_root()
 _TEMPLATE = ROOT / "examples" / "quickstart" / "training.json"
 _GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 

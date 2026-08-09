@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PYTHON_SOURCE_ROOT = ROOT / "trade_rl"
+FRONTEND_ROOT = ROOT / "frontend"
 
 MAINTAINED_DOCUMENTS = (
     ROOT / "README.md",
@@ -18,7 +20,7 @@ MAINTAINED_DOCUMENTS = (
     ROOT / "docs" / "operations" / "docker-gpu-full-training.md",
     ROOT / "docs" / "operations" / "causal-scenario-c3-execution.md",
     ROOT / "docs" / "performance" / "4070ti-super-full-training.md",
-    ROOT / "studio" / "README.md",
+    FRONTEND_ROOT / "README.md",
 )
 
 REMOVED_HISTORY_PATHS = (
@@ -57,7 +59,7 @@ def _all_markdown() -> tuple[Path, ...]:
     paths = {
         ROOT / "README.md",
         ROOT / "START.md",
-        ROOT / "studio" / "README.md",
+        FRONTEND_ROOT / "README.md",
         *ROOT.joinpath("docs").rglob("*.md"),
     }
     return tuple(sorted((path for path in paths if path.is_file()), key=str))
@@ -83,10 +85,10 @@ def test_historical_documentation_clutter_is_removed() -> None:
 
 def test_current_schema_contracts_are_documented() -> None:
     observation_schema = _constant(
-        ROOT / "trade_rl" / "rl" / "observations.py", "OBSERVATION_SCHEMA"
+        PYTHON_SOURCE_ROOT / "rl" / "observations.py", "OBSERVATION_SCHEMA"
     )
     bundle_schema = _constant(
-        ROOT / "trade_rl" / "serving" / "bundle.py", "SERVING_BUNDLE_SCHEMA"
+        PYTHON_SOURCE_ROOT / "serving" / "bundle.py", "SERVING_BUNDLE_SCHEMA"
     )
     readme = _text(ROOT / "README.md")
     architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
@@ -184,7 +186,7 @@ def test_architecture_layer_order_matches_import_linter() -> None:
 
 def test_live_training_boundary_is_explicit() -> None:
     readme = _text(ROOT / "README.md").lower()
-    studio = _text(ROOT / "studio" / "README.md")
+    frontend = _text(FRONTEND_ROOT / "README.md")
     for phrase in (
         "not exchange activity",
         "not model-selection evidence",
@@ -199,7 +201,7 @@ def test_live_training_boundary_is_explicit() -> None:
         "収益性",
         "NO-GO",
     ):
-        assert phrase in studio
+        assert phrase in frontend
 
 
 def test_postgres_is_described_as_metadata_catalog() -> None:

@@ -33,5 +33,7 @@ def test_benchmark_source_digest_binds_persisted_dataset_identity() -> None:
 
 
 def test_benchmark_source_digest_rejects_invalid_persisted_dataset_identity() -> None:
-    with pytest.raises(ValueError, match="dataset_source_digest must be a SHA-256 digest"):
+    with pytest.raises(
+        ValueError, match="dataset_source_digest must be a SHA-256 digest"
+    ):
         _benchmark_source_digest((8,), dataset_source_digest="not-a-digest")

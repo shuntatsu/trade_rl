@@ -7,11 +7,17 @@ from typing import cast
 import pytest
 
 import trade_rl.simulation.runtime_performance as runtime_performance
+import trade_rl.simulation.runtime_performance_io as runtime_performance_io
 from trade_rl.simulation.runtime_performance import (
     RuntimePerformanceApprovalPolicy,
     RuntimePerformanceEvidence,
     RuntimePerformanceMeasurement,
     RuntimePerformanceWorkload,
+)
+from trade_rl.simulation.runtime_performance_io import (
+    load_runtime_performance_evidence,
+    write_runtime_performance_evidence,
+    write_runtime_performance_policy,
 )
 
 
@@ -76,6 +82,16 @@ def _approval_function() -> Callable[..., RuntimePerformanceEvidence]:
     return cast(Callable[..., RuntimePerformanceEvidence], approve)
 
 
+def _materialize_function() -> Callable[..., RuntimePerformanceEvidence]:
+    materialize = getattr(
+        runtime_performance_io,
+        "materialize_runtime_performance_approval",
+        None,
+    )
+    assert callable(materialize), "runtime performance approval persistence is not implemented"
+    return cast(Callable[..., RuntimePerformanceEvidence], materialize)
+
+
 def test_reviewed_policy_materializes_approved_evidence_without_measurement_drift() -> (
     None
 ):
@@ -138,3 +154,29 @@ def test_performance_approval_refuses_rebinding_already_approved_evidence() -> N
             policy=replace(policy, max_elapsed_slowdown_ratio=3.2),
             approval_note="Must not rebind approval provenance.",
         )
+
+
+def test_materialized_runtime_performance_approval_is_persisted_and_revalidated(
+    tmp_path,
+) -> None:
+    evidence = _observational_evidence()
+    policy = _policy()
+    evidence_path = tmp_path / "observational.json"
+    policy_path = tmp_path / "policy.json"
+    approved_path = tmp_path / "approved.json"
+    write_runtime_performance_evidence(evidence_path, evidence)
+    write_runtime_performance_policy(policy_path, policy)
+
+    approved = _materialize_function()(
+        evidence_path=evidence_path,
+        policy_path=policy_path,
+        output_path=approved_path,
+        approval_note="Reviewed representative performance approval.",
+    )
+
+    reloaded = load_runtime_performance_evidence(approved_path)
+    assert reloaded == approved
+    assert approved.performance_approved is True
+    assert approved.approval_policy_digest == policy.digest
+    assert approved.source_digest == evidence.source_digest
+    assert approved.workloads == evidence.workloads

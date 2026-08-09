@@ -132,7 +132,9 @@ def _hierarchical_batch_losses(
     positive_class_weight: float,
     device: torch.device,
 ) -> tuple[Any, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    method = getattr(policy, "hierarchical_actor_outputs", None)
+    method = getattr(policy, "hierarchical_behavior_cloning_outputs", None)
+    if not callable(method):
+        method = getattr(policy, "hierarchical_actor_outputs", None)
     if not callable(method):
         raise ValueError("hierarchical BC requires policy hierarchical_actor_outputs")
     outputs = method(observations)
@@ -282,6 +284,10 @@ def pretrain_policy(
     all_indices = np.arange(sample_count, dtype=np.int64)
     train_indices = all_indices[:train_count]
     validation_indices = all_indices[train_count:]
+    # Teacher targets and their reconstruction gates are deterministic contracts.
+    # Eval mode disables stochastic regularizers while preserving autograd, so
+    # both optimization and metrics fit the exact function deployed to PPO.
+    policy.train(False)
     initial_mse = _mean_squared_error(
         policy,
         dataset,
@@ -433,6 +439,7 @@ def pretrain_policy(
         if should_stop:
             break
     policy.load_state_dict(best_state)
+    policy.train(False)
 
     final_mse = _mean_squared_error(
         policy,

@@ -67,13 +67,19 @@ def import_legacy_cache(*, source_root: Path, destination_root: Path) -> int:
     copied = 0
     for source in sorted(source_root.rglob("*.bin")):
         relative = source.relative_to(source_root)
-        if not _is_cache_payload(relative) or source.stat().st_size <= 0:
+        evidence_source = source.with_suffix(".json")
+        if (
+            not _is_cache_payload(relative)
+            or source.stat().st_size <= 0
+            or not evidence_source.is_file()
+        ):
             continue
         destination = destination_root / relative
         if destination.exists():
             continue
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+        shutil.copy2(evidence_source, destination.with_suffix(".json"))
         copied += 1
     return copied
 

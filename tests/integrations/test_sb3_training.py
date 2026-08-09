@@ -22,6 +22,8 @@ from trade_rl.integrations.sb3_training import (
     _compact_training_info,
     _configure_torch_cuda_runtime,
     _oracle_solver_config,
+    _resolve_behavior_cloning_seed,
+    _restore_member_seed_after_behavior_cloning,
     _teacher_worker_count,
 )
 from trade_rl.learning import OracleTeacherConfig
@@ -229,6 +231,47 @@ def _training_config(
         observation_encoder=observation_encoder,
         device="cpu",
     )
+
+
+def test_fixed_behavior_cloning_seed_is_resolved_and_member_rng_is_restored() -> None:
+    config = replace(
+        _training_config(),
+        behavior_cloning_epochs=1,
+        behavior_cloning_seed=0,
+    )
+
+    assert _resolve_behavior_cloning_seed(config, member_seed=2) == 0
+
+    class Model:
+        def __init__(self) -> None:
+            self.seeds: list[int] = []
+
+        def set_random_seed(self, seed: int) -> None:
+            self.seeds.append(seed)
+
+    model = Model()
+    _restore_member_seed_after_behavior_cloning(
+        model,
+        behavior_cloning_seed=0,
+        member_seed=2,
+    )
+
+    assert model.seeds == [2]
+
+
+def test_member_seed_behavior_cloning_resets_rng_consumed_by_pretraining() -> None:
+    config = replace(_training_config(), behavior_cloning_epochs=1)
+    observed: list[int] = []
+    model = SimpleNamespace(set_random_seed=observed.append)
+
+    assert _resolve_behavior_cloning_seed(config, member_seed=2) == 2
+    _restore_member_seed_after_behavior_cloning(
+        model,
+        behavior_cloning_seed=2,
+        member_seed=2,
+    )
+
+    assert observed == [2]
 
 
 def test_build_training_environment_returns_direct_environment_for_width_one() -> None:

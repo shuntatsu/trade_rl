@@ -83,3 +83,16 @@ def test_behavior_cloning_teacher_and_quality_gate_are_validated_and_digested() 
         _base(behavior_cloning_required_relative_improvement=1.0)
     with pytest.raises(ValueError, match="gate_prediction_threshold"):
         _base(behavior_cloning_gate_prediction_threshold=1.0)
+
+
+def test_behavior_cloning_seed_is_optional_validated_and_digested() -> None:
+    inherited = _base(behavior_cloning_epochs=1)
+    fixed = _base(behavior_cloning_epochs=1, behavior_cloning_seed=0)
+
+    assert inherited.behavior_cloning_seed is None
+    assert inherited.digest_payload()["behavior_cloning_seed"] is None
+    assert fixed.behavior_cloning_seed == 0
+    assert fixed.digest_payload()["behavior_cloning_seed"] == 0
+
+    with pytest.raises(ValueError, match="behavior_cloning_seed"):
+        _base(behavior_cloning_epochs=1, behavior_cloning_seed=-1)

@@ -34,9 +34,14 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.timesteps >= 524_288
     assert config.training.n_steps == 256
     assert config.training.batch_size == 256
-    assert config.training.behavior_cloning_epochs == 15
+    assert config.training.behavior_cloning_epochs == 30
     assert config.training.behavior_cloning_teacher == "oracle"
+    assert config.training.behavior_cloning_seed == 0
+    assert config.training.behavior_cloning_learning_rate == pytest.approx(1e-4)
+    assert config.training.behavior_cloning_composed_loss_weight == pytest.approx(4.0)
+    assert config.training.behavior_cloning_gate_loss_weight == pytest.approx(4.0)
     assert config.training.behavior_cloning_validation_fraction == pytest.approx(0.1)
+    assert config.training.learning_rate == pytest.approx(1e-6)
     assert config.training.n_epochs == 10
     assert config.training.ent_coef == 0.0
     assert config.training.log_std_init == pytest.approx(-2.3)
@@ -124,11 +129,15 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
     oracle = next(
         item.run for item in config.candidates if item.name == "residual-ppo-15m"
     )
-    assert oracle.training.behavior_cloning_epochs == 15
+    assert oracle.training.behavior_cloning_epochs == 30
     assert oracle.training.behavior_cloning_teacher == "oracle"
+    assert oracle.training.behavior_cloning_learning_rate == pytest.approx(1e-4)
+    assert oracle.training.behavior_cloning_composed_loss_weight == pytest.approx(4.0)
+    assert oracle.training.behavior_cloning_gate_loss_weight == pytest.approx(4.0)
     assert oracle.training.behavior_cloning_validation_fraction == pytest.approx(0.1)
     assert oracle.training.learning_rate_schedule == "linear"
     assert oracle.training.learning_rate_final_ratio == pytest.approx(0.1)
+    assert oracle.training.learning_rate == pytest.approx(1e-6)
     assert oracle.training.tensorboard_enabled
     assert oracle.export_structured_torchscript
     assert oracle == TrainingRunConfig.from_json(EXAMPLE_ROOT / "training-full.json")

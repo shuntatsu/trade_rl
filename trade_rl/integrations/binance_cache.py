@@ -12,7 +12,9 @@ from typing import Protocol
 from trade_rl.integrations.binance import (
     BinanceMarket,
     BinancePublicTransport,
+    BinanceTransportError,
     plan_vision_kline_urls,
+    validate_cached_vision_payload,
     vision_funding_url,
 )
 
@@ -53,10 +55,11 @@ class BinanceVisionCacheReport:
     downloaded_count: int
     missing_urls: tuple[str, ...]
     empty_urls: tuple[str, ...]
+    invalid_urls: tuple[str, ...]
 
     @property
     def complete(self) -> bool:
-        return not self.missing_urls and not self.empty_urls
+        return not self.missing_urls and not self.empty_urls and not self.invalid_urls
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -65,6 +68,7 @@ class BinanceVisionCacheReport:
             "complete": self.complete,
             "downloaded_count": self.downloaded_count,
             "empty_count": len(self.empty_urls),
+            "invalid_count": len(self.invalid_urls),
             "missing_count": len(self.missing_urls),
             "planned_count": self.planned_count,
         }
@@ -155,6 +159,7 @@ def inspect_binance_vision_cache(
     cached: list[str] = []
     missing: list[str] = []
     empty: list[str] = []
+    invalid: list[str] = []
     for url in plan.urls:
         path = vision_cache_path(root, url)
         if not path.is_file():
@@ -162,7 +167,12 @@ def inspect_binance_vision_cache(
         elif path.stat().st_size <= 0:
             empty.append(url)
         else:
-            cached.append(url)
+            try:
+                validate_cached_vision_payload(url, path)
+            except (BinanceTransportError, OSError):
+                invalid.append(url)
+            else:
+                cached.append(url)
     return BinanceVisionCacheReport(
         cache_root=root,
         planned_count=len(plan.urls),
@@ -170,6 +180,7 @@ def inspect_binance_vision_cache(
         downloaded_count=0,
         missing_urls=tuple(missing),
         empty_urls=tuple(empty),
+        invalid_urls=tuple(invalid),
     )
 
 
@@ -182,7 +193,8 @@ def require_complete_binance_vision_cache(
     if not report.complete:
         raise FileNotFoundError(
             "incomplete Binance Vision cache: "
-            f"missing={len(report.missing_urls)} empty={len(report.empty_urls)}"
+            f"missing={len(report.missing_urls)} empty={len(report.empty_urls)} "
+            f"invalid={len(report.invalid_urls)}"
         )
     return report
 
@@ -198,13 +210,16 @@ def sync_binance_vision_cache(
         raise ValueError("transport cache_root is required for Vision synchronization")
     root = Path(transport.cache_root)
     before = inspect_binance_vision_cache(plan, cache_root=root)
-    required = set(before.missing_urls) | set(before.empty_urls)
+    required = (
+        set(before.missing_urls) | set(before.empty_urls) | set(before.invalid_urls)
+    )
     targets = tuple(url for url in plan.urls if url in required)
 
     for url in targets:
         path = vision_cache_path(root, url)
-        if path.exists() and path.stat().st_size <= 0:
+        if path.exists():
             path.unlink()
+        path.with_suffix(".json").unlink(missing_ok=True)
         payload = transport._request_bytes(url)
         if not payload:
             raise RuntimeError(f"downloaded empty Binance Vision archive: {url}")
@@ -217,7 +232,8 @@ def sync_binance_vision_cache(
     if not after.complete:
         raise FileNotFoundError(
             "Binance Vision synchronization incomplete: "
-            f"missing={len(after.missing_urls)} empty={len(after.empty_urls)}"
+            f"missing={len(after.missing_urls)} empty={len(after.empty_urls)} "
+            f"invalid={len(after.invalid_urls)}"
         )
     return BinanceVisionCacheReport(
         cache_root=root,
@@ -226,4 +242,5 @@ def sync_binance_vision_cache(
         downloaded_count=len(targets),
         missing_urls=after.missing_urls,
         empty_urls=after.empty_urls,
+        invalid_urls=after.invalid_urls,
     )

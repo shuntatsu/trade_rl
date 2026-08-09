@@ -450,6 +450,7 @@ def test_hierarchical_head_composes_gate_target_and_distribution_logits() -> Non
     )
 
     outputs = head.outputs(latent)
+    policy_distribution_action = torch.tanh(head(latent))
 
     expected_gate = torch.full_like(current, 0.5)
     expected_target = torch.full_like(current, torch.tanh(torch.tensor(0.5)))
@@ -457,6 +458,10 @@ def test_hierarchical_head_composes_gate_target_and_distribution_logits() -> Non
     torch.testing.assert_close(outputs.gate_probabilities, expected_gate)
     torch.testing.assert_close(outputs.target_actions, expected_target)
     torch.testing.assert_close(outputs.composed_actions, expected)
+    torch.testing.assert_close(
+        policy_distribution_action,
+        current + 0.5 * (expected_target - current),
+    )
     torch.testing.assert_close(
         torch.tanh(outputs.mean_logits), outputs.composed_actions, atol=1e-6, rtol=1e-6
     )
@@ -544,6 +549,34 @@ def test_hierarchical_hard_change_has_minimum_deterministic_weight_delta() -> No
         atol=1e-6,
         rtol=0.0,
     )
+
+
+def test_hierarchical_minimum_change_stays_within_action_bounds() -> None:
+    from trade_rl.rl.policies import SharedPerAssetGateTargetHead
+
+    head = SharedPerAssetGateTargetHead(
+        n_symbols=1,
+        token_dim=2,
+        context_dim=6,
+        hidden_dims=(3,),
+        minimum_deterministic_change=0.01,
+    ).eval()
+    current = torch.tensor([[0.999]])
+    with torch.no_grad():
+        for parameter in head.parameters():
+            parameter.zero_()
+        head.gate_head.bias.fill_(1.0)
+        head.target_head.bias.fill_(torch.atanh(torch.tensor(0.9995)))
+
+    outputs = head.outputs(
+        _hierarchical_contexts(
+            current_weights=current,
+            active=torch.ones_like(current),
+            context_dim=6,
+        )
+    )
+
+    assert outputs.composed_actions.item() == 1.0
 
 
 def test_hierarchical_hard_change_uses_operational_thresholds() -> None:
@@ -811,6 +844,21 @@ def test_hierarchical_policy_distribution_mode_matches_composed_actions() -> Non
     )
 
     torch.testing.assert_close(deterministic, outputs.composed_actions)
+    policy.set_training_mode(False)
+    operational_outputs = policy.hierarchical_actor_outputs(observations)
+    cloning_outputs = policy.hierarchical_behavior_cloning_outputs(observations)
+    operational_prediction = policy._predict(observations, deterministic=True)
+    torch.testing.assert_close(
+        operational_prediction,
+        operational_outputs.composed_actions,
+    )
+    smooth_distribution = policy.get_distribution(observations).get_actions(
+        deterministic=True
+    )
+    torch.testing.assert_close(
+        cloning_outputs.composed_actions,
+        smooth_distribution,
+    )
     constructor = policy._get_constructor_parameters()
     assert constructor["shared_actor_head"] == "hierarchical_gate_target_v1"
     assert constructor["shared_actor_gate_temperature"] == 0.75
@@ -949,12 +997,13 @@ def test_shared_sequence_policy_uses_squashed_target_weight_distribution() -> No
             "asset_attention_heads": 4,
             "timeframe_attention_layers": 1,
             "asset_attention_layers": 1,
-            "dropout": 0.0,
+            "dropout": 0.05,
         },
         shared_actor_n_symbols=n_symbols,
         shared_actor_d_model=16,
         shared_actor_global_dim=128,
         shared_actor_net_arch=(11,),
+        shared_actor_head="hierarchical_gate_target_v1",
         log_std_init=-0.5,
     )
     assert isinstance(policy.action_dist, SquashedDiagGaussianDistribution)
@@ -966,6 +1015,8 @@ def test_shared_sequence_policy_uses_squashed_target_weight_distribution() -> No
         array = np.zeros((batch, *space.shape), dtype=space.dtype)
         if key == "active" or key.endswith("_available"):
             array.fill(1)
+        elif np.issubdtype(space.dtype, np.floating):
+            array.fill(0.25)
         observations[key] = torch.as_tensor(array)
 
     distribution = policy.get_distribution(observations)
@@ -984,3 +1035,55 @@ def test_shared_sequence_policy_uses_squashed_target_weight_distribution() -> No
     assert torch.isfinite(values).all()
     assert torch.isfinite(log_prob).all()
     assert entropy is None
+
+    policy.set_training_mode(False)
+    rollout_distribution = policy.get_distribution(observations)
+    rollout_actions = rollout_distribution.get_actions(deterministic=False)
+    rollout_log_prob = rollout_distribution.log_prob(rollout_actions)
+    policy.set_training_mode(True)
+    first_training_features = policy.extract_features(observations)
+    second_training_features = policy.extract_features(observations)
+    torch.testing.assert_close(
+        second_training_features,
+        first_training_features,
+        rtol=0.0,
+        atol=0.0,
+    )
+    _, training_log_prob, _ = policy.evaluate_actions(observations, rollout_actions)
+
+    # PPO reevaluates rollout actions before the first optimizer step. Dropout
+    # must not turn that unchanged policy into a different stochastic function.
+    torch.testing.assert_close(training_log_prob, rollout_log_prob, rtol=0.0, atol=0.0)
+    assert policy.action_net.training is True
+    policy.zero_grad(set_to_none=True)
+    (-training_log_prob.mean()).backward()
+    gate_gradients = [
+        parameter.grad
+        for parameter in policy.action_net.gate_head.parameters()
+        if parameter.grad is not None
+    ]
+    assert gate_gradients
+    assert any(torch.count_nonzero(gradient).item() > 0 for gradient in gate_gradients)
+
+
+def test_masked_squashed_distribution_recomputes_saturated_rollout_log_prob() -> None:
+    from trade_rl.rl.policies import MaskedSharedSquashedDiagGaussianDistribution
+
+    batch_size = 8
+    distribution = MaskedSharedSquashedDiagGaussianDistribution(action_dim=2)
+    active_mask = torch.ones((batch_size, 2), dtype=torch.bool)
+    saturated_mean = torch.full((batch_size, 2), 10.0)
+    log_std = torch.tensor([-2.3])
+
+    distribution.set_active_mask(active_mask)
+    actions, rollout_log_prob = distribution.log_prob_from_params(
+        saturated_mean,
+        log_std,
+    )
+    distribution.set_active_mask(active_mask)
+    distribution.proba_distribution(saturated_mean, log_std)
+    reevaluated_log_prob = distribution.log_prob(actions)
+
+    # PPO stores only the bounded action. The rollout and training paths must use
+    # the same inverse-tanh representation even when float32 rounds tanh to 1.
+    torch.testing.assert_close(reevaluated_log_prob, rollout_log_prob)

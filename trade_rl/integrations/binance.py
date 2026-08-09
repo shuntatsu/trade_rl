@@ -86,6 +86,46 @@ class BinanceTransportError(RuntimeError):
     """Public Binance transport failed after bounded retries."""
 
 
+def validate_cached_vision_payload(url: str, cache_path: Path) -> bytes:
+    """Load one Vision archive only when its sidecar proves exact content."""
+
+    evidence_path = cache_path.with_suffix(".json")
+    if not evidence_path.is_file():
+        raise BinanceTransportError(
+            f"cached Binance Vision archive lacks content evidence: {cache_path}"
+        )
+    try:
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BinanceTransportError(
+            "cached Binance Vision evidence is invalid"
+        ) from error
+    expected = {
+        "acquired_at",
+        "downloader",
+        "etag",
+        "last_modified",
+        "schema_version",
+        "sha256",
+        "size_bytes",
+        "url",
+    }
+    if not isinstance(evidence, dict) or set(evidence) != expected:
+        raise BinanceTransportError("cached Binance Vision evidence fields are invalid")
+    payload = cache_path.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    if (
+        evidence.get("schema_version") != "binance_vision_raw_cache_v1"
+        or evidence.get("url") != url
+        or evidence.get("size_bytes") != len(payload)
+        or evidence.get("sha256") != digest
+    ):
+        raise BinanceTransportError(
+            f"cached Binance Vision archive content digest or size mismatch: {cache_path}"
+        )
+    return payload
+
+
 class BinanceUnsupportedContractError(ValueError):
     """Requested instrument cannot be represented by the current accounting model."""
 
@@ -399,43 +439,7 @@ class BinancePublicTransport:
         return self.cache_root / digest[:2] / f"{digest}.bin"
 
     def _validated_cached_vision_payload(self, url: str, cache_path: Path) -> bytes:
-        evidence_path = cache_path.with_suffix(".json")
-        if not evidence_path.is_file():
-            raise BinanceTransportError(
-                f"cached Binance Vision archive lacks content evidence: {cache_path}"
-            )
-        try:
-            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            raise BinanceTransportError(
-                "cached Binance Vision evidence is invalid"
-            ) from error
-        expected = {
-            "acquired_at",
-            "downloader",
-            "etag",
-            "last_modified",
-            "schema_version",
-            "sha256",
-            "size_bytes",
-            "url",
-        }
-        if not isinstance(evidence, dict) or set(evidence) != expected:
-            raise BinanceTransportError(
-                "cached Binance Vision evidence fields are invalid"
-            )
-        payload = cache_path.read_bytes()
-        digest = hashlib.sha256(payload).hexdigest()
-        if (
-            evidence.get("schema_version") != "binance_vision_raw_cache_v1"
-            or evidence.get("url") != url
-            or evidence.get("size_bytes") != len(payload)
-            or evidence.get("sha256") != digest
-        ):
-            raise BinanceTransportError(
-                f"cached Binance Vision archive content digest or size mismatch: {cache_path}"
-            )
-        return payload
+        return validate_cached_vision_payload(url, cache_path)
 
     def _write_vision_cache(
         self,

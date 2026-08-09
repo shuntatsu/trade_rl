@@ -132,6 +132,7 @@ class ResidualTrainingConfig:
     behavior_cloning_patience: int = 3
     behavior_cloning_minimum_improvement: float = 0.0
     behavior_cloning_teacher: str = "oracle"
+    behavior_cloning_seed: int | None = None
     behavior_cloning_required_relative_improvement: float = 0.0
     behavior_cloning_gate_loss_weight: float = 1.0
     behavior_cloning_target_loss_weight: float = 1.0
@@ -212,6 +213,14 @@ class ResidualTrainingConfig:
         if self.behavior_cloning_teacher not in {"oracle", "trend_baseline"}:
             raise ValueError(
                 "behavior_cloning_teacher must be oracle or trend_baseline"
+            )
+        if self.behavior_cloning_seed is not None and (
+            isinstance(self.behavior_cloning_seed, bool)
+            or not isinstance(self.behavior_cloning_seed, int)
+            or self.behavior_cloning_seed < 0
+        ):
+            raise ValueError(
+                "behavior_cloning_seed must be a non-negative integer or null"
             )
         if (
             not math.isfinite(self.behavior_cloning_required_relative_improvement)
@@ -912,6 +921,7 @@ class ResidualTrainingConfig:
                         self.behavior_cloning_teacher,
                         "oracle",
                     ),
+                    ("behavior_cloning_seed", self.behavior_cloning_seed, None),
                     (
                         "behavior_cloning_required_relative_improvement",
                         self.behavior_cloning_required_relative_improvement,
@@ -1024,6 +1034,7 @@ class ResidualTrainingConfig:
             "behavior_cloning_patience": self.behavior_cloning_patience,
             "behavior_cloning_minimum_improvement": self.behavior_cloning_minimum_improvement,
             "behavior_cloning_teacher": self.behavior_cloning_teacher,
+            "behavior_cloning_seed": self.behavior_cloning_seed,
             "behavior_cloning_required_relative_improvement": (
                 self.behavior_cloning_required_relative_improvement
             ),

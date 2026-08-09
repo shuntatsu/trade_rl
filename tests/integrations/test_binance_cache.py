@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -58,8 +59,27 @@ class _FakeTransport:
         payload = f"payload:{url}".encode()
         path = vision_cache_path(self.cache_root, url)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(payload)
+        _publish_cache_entry(path, url=url, payload=payload)
         return payload
+
+
+def _publish_cache_entry(path: Path, *, url: str, payload: bytes) -> None:
+    path.write_bytes(payload)
+    path.with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "acquired_at": "2026-08-09T00:00:00+00:00",
+                "downloader": "test",
+                "etag": None,
+                "last_modified": None,
+                "schema_version": "binance_vision_raw_cache_v1",
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "size_bytes": len(payload),
+                "url": url,
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_sync_downloads_only_missing_archives(tmp_path: Path) -> None:
@@ -73,7 +93,7 @@ def test_sync_downloads_only_missing_archives(tmp_path: Path) -> None:
     first_url, second_url = plan.urls
     first_path = vision_cache_path(tmp_path, first_url)
     first_path.parent.mkdir(parents=True)
-    first_path.write_bytes(b"already-cached")
+    _publish_cache_entry(first_path, url=first_url, payload=b"already-cached")
     transport = _FakeTransport(tmp_path)
 
     report = sync_binance_vision_cache(plan, transport=transport)
@@ -84,6 +104,28 @@ def test_sync_downloads_only_missing_archives(tmp_path: Path) -> None:
     assert report.downloaded_count == 1
     assert report.missing_urls == ()
     assert report.empty_urls == ()
+
+
+def test_sync_redownloads_archive_without_content_evidence(tmp_path: Path) -> None:
+    plan = plan_binance_vision_cache(
+        market="spot",
+        symbols=("BTCUSDT",),
+        intervals=("1h",),
+        start_time=_utc(2026, 1, 1),
+        end_time=_utc(2026, 2, 1),
+    )
+    url = plan.urls[0]
+    cache_path = vision_cache_path(tmp_path, url)
+    cache_path.parent.mkdir(parents=True)
+    cache_path.write_bytes(b"legacy-without-evidence")
+    transport = _FakeTransport(tmp_path)
+
+    report = sync_binance_vision_cache(plan, transport=transport)
+
+    assert transport.calls == [url]
+    assert report.cached_count == 0
+    assert report.downloaded_count == 1
+    assert report.complete is True
 
 
 def test_complete_check_rejects_empty_cache_file(tmp_path: Path) -> None:

@@ -182,6 +182,36 @@ def test_structured_policy_observation_splits_current_state_and_sequences() -> N
     assert structured["sequence_1h_staleness"].dtype == np.float16
 
 
+def test_structured_action_head_clips_effective_weight_drift_to_action_bounds() -> None:
+    from trade_rl.rl.observations import observation_layout
+    from trade_rl.rl.sequence_observations import build_structured_current_observation
+
+    dataset = _dataset()
+    layout = observation_layout(
+        dataset, action_size=2, n_factors=0, finite_horizon=True
+    )
+    flat = np.zeros(layout.size, dtype=np.float32)
+    per_asset = flat[: layout.n_symbols * layout.per_symbol_width].reshape(
+        layout.n_symbols, layout.per_symbol_width
+    )
+    drifted = np.asarray((1.02, -1.03), dtype=np.float32)
+    per_asset[:, layout.current_weight_column] = drifted
+
+    structured = build_structured_current_observation(
+        current_flat=flat,
+        layout=layout,
+        n_features=dataset.n_features,
+    )
+
+    np.testing.assert_array_equal(
+        structured["current_weights"], np.asarray((1.0, -1.0), dtype=np.float32)
+    )
+    asset_state_weight_column = layout.current_weight_column - 4 * dataset.n_features
+    np.testing.assert_array_equal(
+        structured["asset_state"][:, asset_state_weight_column], drifted
+    )
+
+
 def test_sequence_observation_schema_is_index_backed() -> None:
     from trade_rl.rl.sequence_observations import SEQUENCE_OBSERVATION_SCHEMA
 

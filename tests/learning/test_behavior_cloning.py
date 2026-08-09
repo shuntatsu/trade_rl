@@ -239,6 +239,21 @@ class _HierarchicalPolicy(torch.nn.Module):
         )
 
 
+class _ModeTrackingHierarchicalPolicy(_HierarchicalPolicy):
+    def __init__(self) -> None:
+        super().__init__()
+        self.dropout = torch.nn.Dropout(0.5)
+        self.mode_calls: list[tuple[bool, bool]] = []
+
+    def hierarchical_actor_outputs(
+        self, observations: dict[str, torch.Tensor]
+    ) -> _HierarchicalOutputs:
+        self.mode_calls.append((self.training, torch.is_grad_enabled()))
+        dropped = dict(observations)
+        dropped["feature"] = self.dropout(observations["feature"])
+        return super().hierarchical_actor_outputs(dropped)
+
+
 def _hierarchical_case() -> tuple[SupervisedPolicyDataset, object]:
     from trade_rl.learning.hierarchical_teacher_labels import (
         build_hierarchical_teacher_labels,
@@ -300,6 +315,28 @@ def test_hierarchical_behavior_cloning_trains_component_losses_and_metrics() -> 
     assert result.final_hierarchical_metrics.positive_support == 4
     assert result.final_hierarchical_metrics.all_hold_collapse is False
     assert result.hierarchical_label_digest == labels.label_config_digest
+
+
+def test_behavior_cloning_disables_dropout_for_training_and_evaluation() -> None:
+    dataset, labels = _hierarchical_case()
+    policy = _ModeTrackingHierarchicalPolicy()
+
+    pretrain_policy(
+        policy,
+        dataset,
+        config=BehaviorCloningConfig(
+            epochs=2,
+            learning_rate=0.01,
+            batch_size=4,
+            validation_fraction=0.25,
+        ),
+        seed=17,
+        hierarchical_labels=labels,
+    )
+
+    assert any(gradients for _, gradients in policy.mode_calls)
+    assert all(not training for training, _ in policy.mode_calls)
+    assert policy.training is False
 
 
 def test_hierarchical_behavior_cloning_reports_hold_collapse_without_events() -> None:

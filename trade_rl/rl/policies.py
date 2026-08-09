@@ -477,7 +477,12 @@ class SharedPerAssetGateTargetHead(nn.Module):
     def current_weights(self, actor_latent: torch.Tensor) -> torch.Tensor:
         return self._contexts(actor_latent)[:, :, -2]
 
-    def outputs(self, actor_latent: torch.Tensor) -> HierarchicalActorOutputs:
+    def outputs(
+        self,
+        actor_latent: torch.Tensor,
+        *,
+        operational: bool | None = None,
+    ) -> HierarchicalActorOutputs:
         contexts = self._contexts(actor_latent)
         active_mask = contexts[:, :, -1] > 0.5
         current_weights = contexts[:, :, -2]
@@ -492,7 +497,8 @@ class SharedPerAssetGateTargetHead(nn.Module):
         # every bar; those are subsequently suppressed by exchange lot/notional
         # limits even when the diagnostic gate correctly predicts a change.
         target_delta = target_actions - current_weights
-        if self.training:
+        operational_mode = not self.training if operational is None else operational
+        if not operational_mode:
             effective_gate = gate_probabilities
             effective_delta = target_delta
         else:
@@ -522,7 +528,10 @@ class SharedPerAssetGateTargetHead(nn.Module):
                 target_delta.sign() * minimum,
                 target_delta,
             )
-        composed_actions = current_weights + effective_gate * effective_delta
+        composed_actions = (current_weights + effective_gate * effective_delta).clamp(
+            min=-1.0,
+            max=1.0,
+        )
         mask = active_mask.to(dtype=composed_actions.dtype)
         current_weights = current_weights * mask
         gate_logits = raw_gate_logits * mask
@@ -545,7 +554,10 @@ class SharedPerAssetGateTargetHead(nn.Module):
         )
 
     def forward(self, actor_latent: torch.Tensor) -> torch.Tensor:
-        return self.outputs(actor_latent).mean_logits
+        # PPO rollout collection and loss reevaluation must share a smooth,
+        # continuous distribution. Operational prediction remains available via
+        # outputs(..., operational=True) and the policy's _predict path.
+        return self.outputs(actor_latent, operational=False).mean_logits
 
 
 class MaskedSharedSquashedDiagGaussianDistribution(SquashedDiagGaussianDistribution):
@@ -581,8 +593,12 @@ class MaskedSharedSquashedDiagGaussianDistribution(SquashedDiagGaussianDistribut
     ) -> torch.Tensor:
         if self.active_mask is None:
             raise RuntimeError("active action mask is not configured")
-        if gaussian_actions is None:
-            gaussian_actions = TanhBijector.inverse(actions)
+        # PPO persists only the bounded actions in its rollout buffer. Always
+        # reconstruct their Gaussian representation here so collection and
+        # reevaluation use identical float32 numerics. Using the pre-tanh sample
+        # during collection makes the stored log probability irreproducible when
+        # tanh saturates to exactly +/-1, causing false KL early stops.
+        gaussian_actions = TanhBijector.inverse(actions)
         distribution = self.distribution
         if distribution is None:
             raise RuntimeError("masked action distribution is not initialized")
@@ -715,6 +731,43 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
         mean_actions = self.action_net(latent_pi)
         return self.action_dist.proba_distribution(mean_actions, self.log_std)
 
+    def set_training_mode(self, mode: bool) -> None:
+        """Enable gradients while keeping rollout features deterministic."""
+
+        super().set_training_mode(mode)
+        if mode:
+            # PPO compares stored rollout log probabilities with a fresh forward
+            # pass before updating. Sequence dropout would otherwise turn that
+            # unchanged policy into a different stochastic function and trigger a
+            # false target-KL early stop. The hierarchical distribution remains
+            # smooth in both rollout and training modes.
+            self.features_extractor.eval()
+
+    def _predict(
+        self,
+        observation: Any,
+        deterministic: bool = False,
+    ) -> torch.Tensor:
+        """Use operational hard-gate semantics only for serving prediction."""
+
+        if not isinstance(self.action_net, SharedPerAssetGateTargetHead):
+            return super()._predict(observation, deterministic=deterministic)
+        features = self.extract_features(observation)
+        if isinstance(features, tuple):
+            features = features[0]
+        latent_pi = self.mlp_extractor.forward_actor(features)
+        outputs = self.action_net.outputs(latent_pi, operational=True)
+        if not isinstance(
+            self.action_dist, MaskedSharedSquashedDiagGaussianDistribution
+        ):
+            raise RuntimeError("shared policy action distribution is invalid")
+        self.action_dist.set_active_mask(outputs.active_mask)
+        distribution = self.action_dist.proba_distribution(
+            outputs.mean_logits,
+            self.log_std,
+        )
+        return distribution.get_actions(deterministic=deterministic)
+
     def action_stage_outputs(
         self, observations: dict[str, torch.Tensor]
     ) -> ActionStageOutputs:
@@ -763,6 +816,19 @@ class SharedPerAssetActorCriticPolicy(MultiInputActorCriticPolicy):
             features = features[0]
         latent_pi = self.mlp_extractor.forward_actor(features)
         return self.action_net.outputs(latent_pi)
+
+    def hierarchical_behavior_cloning_outputs(
+        self, observations: dict[str, torch.Tensor]
+    ) -> HierarchicalActorOutputs:
+        """Expose the smooth composition used by BC with dropout disabled."""
+
+        if not isinstance(self.action_net, SharedPerAssetGateTargetHead):
+            raise RuntimeError("policy does not use hierarchical_gate_target_v1")
+        features = self.extract_features(observations)
+        if isinstance(features, tuple):
+            features = features[0]
+        latent_pi = self.mlp_extractor.forward_actor(features)
+        return self.action_net.outputs(latent_pi, operational=False)
 
     def _get_constructor_parameters(self) -> dict[str, Any]:
         data = super()._get_constructor_parameters()

@@ -498,8 +498,12 @@ def build_structured_current_observation(
         per_asset[:, layout.current_weight_column],
         dtype=np.float32,
     ).copy(order="C")
-    if not np.isfinite(current_weights).all() or np.any(np.abs(current_weights) > 1.0):
-        raise ValueError("effective current weights must be finite and within [-1, 1]")
+    if not np.isfinite(current_weights).all():
+        raise ValueError("effective current weights must be finite")
+    # Mark-to-market movement can push an effective book weight just beyond the
+    # target-action range between rebalances. The full value remains present in
+    # asset_state for risk awareness; only the bounded action-head input is clipped.
+    current_weights = np.clip(current_weights, -1.0, 1.0)
     result: dict[str, np.ndarray] = {
         "current_snapshot": np.asarray(per_asset[:, :snapshot_width], dtype=np.float32),
         "asset_state": np.asarray(per_asset[:, snapshot_width:], dtype=np.float32),

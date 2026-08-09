@@ -367,6 +367,28 @@ def _behavior_cloning_quality(
     )
 
 
+def _resolve_behavior_cloning_seed(
+    config: ResidualTrainingConfig,
+    *,
+    member_seed: int,
+) -> int:
+    """Keep supervised initialization stable without removing PPO diversity."""
+
+    configured = config.behavior_cloning_seed
+    return member_seed if configured is None else configured
+
+
+def _restore_member_seed_after_behavior_cloning(
+    model: Any,
+    *,
+    behavior_cloning_seed: int,
+    member_seed: int,
+) -> None:
+    """Restore the member RNG after deterministic supervised pretraining."""
+
+    model.set_random_seed(member_seed)
+
+
 _HEAVY_TRAINING_INFO_KEYS = (
     "hybrid_execution",
     "shadow_execution",
@@ -1177,6 +1199,10 @@ class StableBaselines3Backend:
                 and resume_root is None
                 and transfer_root is None
             )
+            behavior_cloning_seed = _resolve_behavior_cloning_seed(
+                config,
+                member_seed=seed,
+            )
             prefetched_episode_batch: EpisodeOracleBatch | None = None
             prefetched_episode_teacher: EpisodeSupervisedPolicyDataset | None = None
             prefetched_oracle_config: OracleTeacherConfig | None = None
@@ -1211,7 +1237,7 @@ class StableBaselines3Backend:
                 sampling_config = _oracle_episode_sampling_config(
                     unwrapped_probe,
                     train_range=probe_train_range,
-                    seed=seed,
+                    seed=behavior_cloning_seed,
                 )
                 oracle_solver_config = _oracle_solver_config()
                 teacher_workers = _teacher_worker_count(
@@ -1285,7 +1311,7 @@ class StableBaselines3Backend:
                 environment = build_parallel_environment()
             model = build_sb3_model(
                 environment=environment,
-                seed=seed,
+                seed=(behavior_cloning_seed if fresh_behavior_cloning else seed),
                 config=config,
                 algorithm_config=algorithm_config,
                 policy=policy,
@@ -1631,6 +1657,7 @@ class StableBaselines3Backend:
                     behavior_cloning_progress_state: dict[str, object] = {
                         "phase": "training",
                         "seed": seed,
+                        "behavior_cloning_seed": behavior_cloning_seed,
                     }
 
                     def write_behavior_cloning_progress(
@@ -1652,7 +1679,7 @@ class StableBaselines3Backend:
                         model.policy,
                         teacher_dataset,
                         config=cloning_config,
-                        seed=seed,
+                        seed=behavior_cloning_seed,
                         observation_provider=observation_provider,
                         hierarchical_labels=hierarchical_labels,
                         progress_callback=write_behavior_cloning_progress,
@@ -1734,6 +1761,8 @@ class StableBaselines3Backend:
                         quality_passed = gate_evaluation.passed
                     cloning_payload = {
                         "artifact_digest": teacher_digest,
+                        "behavior_cloning_seed": behavior_cloning_seed,
+                        "member_seed": seed,
                         "behavior_cloning_digest": cloning.digest,
                         "behavior_cloning_gate_digest": gate_evaluation_digest,
                         "behavior_cloning_gates": (
@@ -1811,6 +1840,12 @@ class StableBaselines3Backend:
             if environment_suspended_for_teacher:
                 environment = build_parallel_environment()
                 model.set_env(environment)
+            if fresh_behavior_cloning:
+                _restore_member_seed_after_behavior_cloning(
+                    model,
+                    behavior_cloning_seed=behavior_cloning_seed,
+                    member_seed=seed,
+                )
             from trade_rl.rl.checkpointing import build_checkpoint_callback
 
             if self.resume_replay_artifact is not None:

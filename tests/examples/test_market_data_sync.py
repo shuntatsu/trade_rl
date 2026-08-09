@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -48,14 +49,21 @@ def test_import_legacy_cache_copies_only_missing_nonempty_payloads(
     empty_payload = legacy / "cd" / ("cd" + "2" * 62 + ".bin")
     existing_payload = destination / "ef" / ("ef" + "3" * 62 + ".bin")
     replacement_source = legacy / "ef" / ("ef" + "3" * 62 + ".bin")
+    unverified_payload = legacy / "12" / ("12" + "4" * 62 + ".bin")
     source_payload.parent.mkdir(parents=True)
     empty_payload.parent.mkdir(parents=True)
     existing_payload.parent.mkdir(parents=True)
     replacement_source.parent.mkdir(parents=True, exist_ok=True)
+    unverified_payload.parent.mkdir(parents=True, exist_ok=True)
     source_payload.write_bytes(b"legacy")
+    source_payload.with_suffix(".json").write_text(
+        json.dumps({"schema_version": "binance_vision_raw_cache_v1"}),
+        encoding="utf-8",
+    )
     empty_payload.write_bytes(b"")
     existing_payload.write_bytes(b"new")
     replacement_source.write_bytes(b"old")
+    unverified_payload.write_bytes(b"no evidence")
 
     copied = module.import_legacy_cache(
         source_root=legacy,
@@ -66,3 +74,4 @@ def test_import_legacy_cache_copies_only_missing_nonempty_payloads(
     assert (destination / source_payload.relative_to(legacy)).read_bytes() == b"legacy"
     assert existing_payload.read_bytes() == b"new"
     assert not (destination / empty_payload.relative_to(legacy)).exists()
+    assert not (destination / unverified_payload.relative_to(legacy)).exists()

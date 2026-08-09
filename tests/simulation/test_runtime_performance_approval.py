@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -117,3 +118,23 @@ def test_performance_approval_refuses_policy_that_does_not_approve_measurements(
 
     assert evidence.performance_approved is False
     assert evidence.approval_policy_digest is None
+
+
+def test_performance_approval_refuses_rebinding_already_approved_evidence() -> None:
+    policy = _policy()
+    already_approved = replace(
+        _observational_evidence(),
+        performance_approved=True,
+        approval_policy_digest=policy.digest,
+        approval_note="Already reviewed.",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="runtime performance approval requires observational evidence",
+    ):
+        _approval_function()(
+            evidence=already_approved,
+            policy=replace(policy, max_elapsed_slowdown_ratio=3.2),
+            approval_note="Must not rebind approval provenance.",
+        )

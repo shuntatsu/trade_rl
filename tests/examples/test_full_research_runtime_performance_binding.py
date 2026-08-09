@@ -2,19 +2,23 @@ from __future__ import annotations
 
 import importlib
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from trade_rl.release.selection_authorization import SelectionProposal
 from trade_rl.simulation.runtime_performance import (
+    RuntimePerformanceApprovalPolicy,
     RuntimePerformanceEvidence,
     RuntimePerformanceMeasurement,
     RuntimePerformanceWorkload,
 )
 from trade_rl.simulation.runtime_performance_io import (
     load_runtime_performance_evidence,
+    load_runtime_performance_policy,
     write_runtime_performance_evidence,
+    write_runtime_performance_policy,
 )
 from trade_rl.simulation.runtime_promotion import (
     ExecutionPromotionEvidence,
@@ -26,12 +30,24 @@ from trade_rl.simulation.runtime_promotion import (
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_ROOT = ROOT / "examples" / "binance-multitimeframe"
 PERFORMANCE_NAME = "runtime-performance-evidence.json"
+POLICY_NAME = "runtime-performance-policy.json"
 REPORT_NAME = "runtime-promotion-report.json"
 
 
 def _state_module():
     sys.path.insert(0, str(EXAMPLE_ROOT))
     return importlib.import_module("run_full_research_state")
+
+
+def _performance_policy() -> RuntimePerformanceApprovalPolicy:
+    return RuntimePerformanceApprovalPolicy(
+        max_elapsed_slowdown_ratio=3.75,
+        max_peak_process_tree_rss_ratio=2.1,
+        minimum_workloads=1,
+        minimum_max_timesteps=8,
+        reviewed=True,
+        review_reference="test-reviewed-policy",
+    )
 
 
 def _performance_evidence() -> RuntimePerformanceEvidence:
@@ -67,9 +83,16 @@ def _performance_evidence() -> RuntimePerformanceEvidence:
             ),
         ),
         performance_approved=True,
-        approval_policy_digest="b" * 64,
+        approval_policy_digest=_performance_policy().digest,
         approval_note="Reviewed test policy.",
     )
+
+
+def _write_performance_bundle(root: Path) -> RuntimePerformanceEvidence:
+    performance = _performance_evidence()
+    write_runtime_performance_evidence(root / PERFORMANCE_NAME, performance)
+    write_runtime_performance_policy(root / POLICY_NAME, _performance_policy())
+    return performance
 
 
 def _report(*, performance_digest: str):
@@ -121,12 +144,28 @@ def test_retain_authoritative_promotion_requires_performance_sidecar(
         module._retain_runtime_promotion_report(str(source), work_root=work_root)
 
 
-def test_retain_authoritative_promotion_copies_bound_performance_sidecar(
+def test_retain_authoritative_promotion_requires_performance_policy(
     tmp_path: Path,
 ) -> None:
     module = _state_module()
     performance = _performance_evidence()
     write_runtime_performance_evidence(tmp_path / PERFORMANCE_NAME, performance)
+    report = _report(performance_digest=performance.digest)
+    source = write_execution_promotion_report(tmp_path / REPORT_NAME, report)
+    work_root = tmp_path / "generation"
+    work_root.mkdir()
+
+    with pytest.raises(
+        FileNotFoundError, match="runtime performance policy is missing"
+    ):
+        module._retain_runtime_promotion_report(str(source), work_root=work_root)
+
+
+def test_retain_authoritative_promotion_copies_bound_performance_bundle(
+    tmp_path: Path,
+) -> None:
+    module = _state_module()
+    performance = _write_performance_bundle(tmp_path)
     report = _report(performance_digest=performance.digest)
     source = write_execution_promotion_report(tmp_path / REPORT_NAME, report)
     work_root = tmp_path / "generation"
@@ -138,12 +177,39 @@ def test_retain_authoritative_promotion_copies_bound_performance_sidecar(
     assert (
         load_runtime_performance_evidence(work_root / PERFORMANCE_NAME) == performance
     )
+    assert load_runtime_performance_policy(
+        work_root / POLICY_NAME
+    ) == _performance_policy()
+
+
+def test_retain_authoritative_promotion_rejects_ineffective_policy(
+    tmp_path: Path,
+) -> None:
+    module = _state_module()
+    policy = replace(
+        _performance_policy(),
+        max_peak_process_tree_rss_ratio=1.9,
+    )
+    performance = replace(
+        _performance_evidence(),
+        approval_policy_digest=policy.digest,
+    )
+    write_runtime_performance_evidence(tmp_path / PERFORMANCE_NAME, performance)
+    write_runtime_performance_policy(tmp_path / POLICY_NAME, policy)
+    report = _report(performance_digest=performance.digest)
+    source = write_execution_promotion_report(tmp_path / REPORT_NAME, report)
+    work_root = tmp_path / "generation"
+    work_root.mkdir()
+
+    with pytest.raises(
+        ValueError, match="runtime performance policy does not approve evidence"
+    ):
+        module._retain_runtime_promotion_report(str(source), work_root=work_root)
 
 
 def test_finalize_recheck_requires_retained_performance_sidecar(tmp_path: Path) -> None:
     module = _state_module()
-    performance = _performance_evidence()
-    write_runtime_performance_evidence(tmp_path / PERFORMANCE_NAME, performance)
+    performance = _write_performance_bundle(tmp_path)
     report = _report(performance_digest=performance.digest)
     source = write_execution_promotion_report(tmp_path / REPORT_NAME, report)
     work_root = tmp_path / "generation"
@@ -153,6 +219,25 @@ def test_finalize_recheck_requires_retained_performance_sidecar(tmp_path: Path) 
 
     with pytest.raises(
         FileNotFoundError, match="runtime performance evidence is missing"
+    ):
+        module._require_retained_runtime_promotion(
+            _proposal(report_digest=report.digest),
+            work_root=work_root,
+        )
+
+
+def test_finalize_recheck_requires_retained_performance_policy(tmp_path: Path) -> None:
+    module = _state_module()
+    performance = _write_performance_bundle(tmp_path)
+    report = _report(performance_digest=performance.digest)
+    source = write_execution_promotion_report(tmp_path / REPORT_NAME, report)
+    work_root = tmp_path / "generation"
+    work_root.mkdir()
+    module._retain_runtime_promotion_report(str(source), work_root=work_root)
+    (work_root / POLICY_NAME).unlink()
+
+    with pytest.raises(
+        FileNotFoundError, match="runtime performance policy is missing"
     ):
         module._require_retained_runtime_promotion(
             _proposal(report_digest=report.digest),

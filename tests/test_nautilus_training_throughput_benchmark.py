@@ -22,3 +22,10 @@ def test_normalize_timesteps_rejects_bool_values_explicitly() -> None:
         _normalize_timesteps(True)
     with pytest.raises(TypeError, match="timesteps must contain integers"):
         _normalize_timesteps([8, True])
+
+
+def test_persisted_catalog_workload_requires_source_identity() -> None:
+    from tools.nautilus_training_throughput_benchmark import _benchmark_source_digest
+
+    synthetic = _benchmark_source_digest((8, 32, 128))
+    assert len(synthetic) == 64

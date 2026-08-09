@@ -115,7 +115,9 @@ def test_retain_authoritative_promotion_requires_performance_sidecar(
     work_root = tmp_path / "generation"
     work_root.mkdir()
 
-    with pytest.raises(FileNotFoundError, match="runtime performance evidence is missing"):
+    with pytest.raises(
+        FileNotFoundError, match="runtime performance evidence is missing"
+    ):
         module._retain_runtime_promotion_report(str(source), work_root=work_root)
 
 
@@ -133,7 +135,9 @@ def test_retain_authoritative_promotion_copies_bound_performance_sidecar(
     retained = module._retain_runtime_promotion_report(str(source), work_root=work_root)
 
     assert retained == report
-    assert load_runtime_performance_evidence(work_root / PERFORMANCE_NAME) == performance
+    assert (
+        load_runtime_performance_evidence(work_root / PERFORMANCE_NAME) == performance
+    )
 
 
 def test_finalize_recheck_requires_retained_performance_sidecar(tmp_path: Path) -> None:
@@ -147,7 +151,9 @@ def test_finalize_recheck_requires_retained_performance_sidecar(tmp_path: Path) 
     module._retain_runtime_promotion_report(str(source), work_root=work_root)
     (work_root / PERFORMANCE_NAME).unlink()
 
-    with pytest.raises(FileNotFoundError, match="runtime performance evidence is missing"):
+    with pytest.raises(
+        FileNotFoundError, match="runtime performance evidence is missing"
+    ):
         module._require_retained_runtime_promotion(
             _proposal(report_digest=report.digest),
             work_root=work_root,

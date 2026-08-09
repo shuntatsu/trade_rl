@@ -141,7 +141,9 @@ def test_performance_artifact_digest_mismatch_is_rejected(tmp_path: Path) -> Non
     stage = tmp_path / "stage"
     stage.mkdir()
 
-    with pytest.raises(ValueError, match="runtime performance evidence digest mismatch"):
+    with pytest.raises(
+        ValueError, match="runtime performance evidence digest mismatch"
+    ):
         stage_training_runtime_promotion(
             proposal=_proposal(report_digest=report.digest),
             report_path=report_path,
@@ -170,7 +172,9 @@ def test_unapproved_performance_artifact_cannot_back_approved_report(
     stage = tmp_path / "stage"
     stage.mkdir()
 
-    with pytest.raises(ValueError, match="runtime performance evidence is not approved"):
+    with pytest.raises(
+        ValueError, match="runtime performance evidence is not approved"
+    ):
         stage_training_runtime_promotion(
             proposal=_proposal(report_digest=report.digest),
             report_path=report_path,

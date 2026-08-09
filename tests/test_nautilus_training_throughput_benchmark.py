@@ -4,6 +4,7 @@ import pytest
 
 from tools.nautilus_training_throughput_benchmark import (
     _DEFAULT_TIMESTEPS,
+    _benchmark_source_digest,
     _normalize_timesteps,
 )
 
@@ -24,8 +25,13 @@ def test_normalize_timesteps_rejects_bool_values_explicitly() -> None:
         _normalize_timesteps([8, True])
 
 
-def test_persisted_catalog_workload_requires_source_identity() -> None:
-    from tools.nautilus_training_throughput_benchmark import _benchmark_source_digest
+def test_benchmark_source_digest_binds_persisted_dataset_identity() -> None:
+    first = _benchmark_source_digest((8, 32, 128), dataset_source_digest="a" * 64)
+    second = _benchmark_source_digest((8, 32, 128), dataset_source_digest="b" * 64)
 
-    synthetic = _benchmark_source_digest((8, 32, 128))
-    assert len(synthetic) == 64
+    assert first != second
+
+
+def test_benchmark_source_digest_rejects_invalid_persisted_dataset_identity() -> None:
+    with pytest.raises(ValueError, match="dataset_source_digest must be a SHA-256 digest"):
+        _benchmark_source_digest((8,), dataset_source_digest="not-a-digest")

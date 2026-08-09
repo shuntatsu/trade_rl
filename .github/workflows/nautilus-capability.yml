@@ -114,7 +114,7 @@ jobs:
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_streaming_execution.py
       - name: Prove persistent streaming worker parity
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_streaming_worker.py
-      - name: Exercise partial-fill stale-cancel lifecycle in isolated process
+      - name: Exercise partial-fill stale-working cancellation evidence in isolated process
         run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_partial_fill_cancel.py
       - name: Lock Binance funding reference to mark-price notional
         run: uv run pytest -q tests/simulation/test_funding_mark_price.py
@@ -151,6 +151,7 @@ jobs:
           uv run python tools/nautilus_training_throughput_benchmark.py \
             --timesteps 8 \
             --timesteps 32 \
+            --timesteps 128 \
             --output nautilus-training-throughput.json
       - name: Upload training throughput evidence
         if: always()

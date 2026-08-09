@@ -177,9 +177,10 @@ def test_retain_authoritative_promotion_copies_bound_performance_bundle(
     assert (
         load_runtime_performance_evidence(work_root / PERFORMANCE_NAME) == performance
     )
-    assert load_runtime_performance_policy(
-        work_root / POLICY_NAME
-    ) == _performance_policy()
+    assert (
+        load_runtime_performance_policy(work_root / POLICY_NAME)
+        == _performance_policy()
+    )
 
 
 def test_retain_authoritative_promotion_rejects_ineffective_policy(

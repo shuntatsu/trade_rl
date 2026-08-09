@@ -21,6 +21,7 @@ from trade_rl.data import (
     inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
 )
+from trade_rl.data.market import MarketDataset
 from trade_rl.domain.common import require_sha256
 from trade_rl.simulation.runtime_performance import (
     RuntimePerformanceEvidence,
@@ -213,14 +214,57 @@ def _sample_linux_process_tree(root_pid: int) -> tuple[int, int]:
     return rss_bytes, present_count
 
 
-def _run_worker_subprocess(
+def _synthetic_benchmark_dataset(*, timesteps: int) -> MarketDataset:
+    import numpy as np
+
+    n_bars = max(80, timesteps + 32)
+    close = np.linspace(100.0, 101.0, n_bars, dtype=np.float64)[:, None]
+    return MarketDataset(
+        dataset_id="7" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=np.zeros((n_bars, 1, 1), dtype=np.float32),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=np.vstack([close[0], close[:-1]]),
+        high=close + 0.1,
+        low=close - 0.1,
+        close=close,
+        volume=np.full((n_bars, 1), 1_000_000.0),
+        funding_rate=np.zeros_like(close),
+        tradable=np.ones_like(close, dtype=np.bool_),
+        feature_available=np.ones((n_bars, 1, 1), dtype=np.bool_),
+        feature_names=("ret",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+        mark_price=close.copy(),
+        index_price=close.copy(),
+    )
+
+
+def _load_worker_benchmark_dataset(
+    dataset_artifact: Path | None,
+    *,
+    timesteps: int,
+) -> MarketDataset:
+    if dataset_artifact is None:
+        return _synthetic_benchmark_dataset(timesteps=timesteps)
+    source = _resolve_benchmark_dataset_source(
+        dataset_artifact,
+        workloads=(timesteps,),
+    )
+    if source.artifact_root is None:
+        raise RuntimeError("persisted benchmark source lost artifact root")
+    return load_market_dataset_artifact(source.artifact_root)
+
+
+def _worker_command(
     *,
     mode: _WorkerMode,
     timesteps: int,
-    root: Path,
-) -> RuntimePerformanceMeasurement:
-    measurement_path = root / f"{mode}-{timesteps}-measurement.json"
-    log_path = root / f"{mode}-{timesteps}.log"
+    measurement_path: Path,
+    dataset_artifact: Path | None,
+) -> tuple[str, ...]:
     command = (
         sys.executable,
         str(Path(__file__).resolve()),
@@ -230,6 +274,30 @@ def _run_worker_subprocess(
         str(timesteps),
         "--worker-output",
         str(measurement_path),
+    )
+    if dataset_artifact is None:
+        return command
+    return (
+        *command,
+        "--worker-dataset-artifact",
+        str(dataset_artifact),
+    )
+
+
+def _run_worker_subprocess(
+    *,
+    mode: _WorkerMode,
+    timesteps: int,
+    root: Path,
+    dataset_artifact: Path | None = None,
+) -> RuntimePerformanceMeasurement:
+    measurement_path = root / f"{mode}-{timesteps}-measurement.json"
+    log_path = root / f"{mode}-{timesteps}.log"
+    command = _worker_command(
+        mode=mode,
+        timesteps=timesteps,
+        measurement_path=measurement_path,
+        dataset_artifact=dataset_artifact,
     )
     peak_tree_rss_bytes = 0
     peak_process_count = 0
@@ -287,8 +355,16 @@ def _run_worker_subprocess(
     )
 
 
-def run_benchmark(*, timesteps: int | Sequence[int]) -> dict[str, Any]:
+def run_benchmark(
+    *,
+    timesteps: int | Sequence[int],
+    dataset_artifact: Path | None = None,
+) -> dict[str, Any]:
     workloads = _normalize_timesteps(timesteps)
+    source = _resolve_benchmark_dataset_source(
+        dataset_artifact,
+        workloads=workloads,
+    )
     if not sys.platform.startswith("linux") or not Path("/proc").is_dir():
         raise RuntimeError(
             "benchmark process-tree RSS measurement requires Linux /proc"
@@ -308,11 +384,13 @@ def run_benchmark(*, timesteps: int | Sequence[int]) -> dict[str, Any]:
                 mode="legacy",
                 timesteps=workload_timesteps,
                 root=root_path,
+                dataset_artifact=source.artifact_root,
             )
             streaming = _run_worker_subprocess(
                 mode="streaming",
                 timesteps=workload_timesteps,
                 root=root_path,
+                dataset_artifact=source.artifact_root,
             )
             paired.append(
                 RuntimePerformanceWorkload(
@@ -326,8 +404,11 @@ def run_benchmark(*, timesteps: int | Sequence[int]) -> dict[str, Any]:
         runtime_version=runtime_version,
         platform=f"{sys.platform}-{platform.machine().lower()}",
         algorithm="ppo",
-        dataset_kind="deterministic_synthetic_btcusdt",
-        source_digest=_benchmark_source_digest(workloads),
+        dataset_kind=source.dataset_kind,
+        source_digest=_benchmark_source_digest(
+            workloads,
+            dataset_source_digest=source.dataset_source_digest,
+        ),
         workloads=tuple(paired),
         performance_approved=False,
         approval_policy_digest=None,
@@ -344,13 +425,11 @@ def _worker_training_measurement(
     *,
     mode: _WorkerMode,
     timesteps: int,
+    dataset_artifact: Path | None = None,
 ) -> dict[str, float | int]:
     import resource
     from collections.abc import Callable
 
-    import numpy as np
-
-    from trade_rl.data.market import MarketDataset
     from trade_rl.integrations.nautilus.rl_dual_shadow import (
         NautilusEnvironmentDualShadow,
     )
@@ -371,28 +450,9 @@ def _worker_training_measurement(
             f"found {runtime_version}"
         )
 
-    n_bars = max(80, timesteps + 32)
-    close = np.linspace(100.0, 101.0, n_bars, dtype=np.float64)[:, None]
-    dataset = MarketDataset(
-        dataset_id="7" * 64,
-        symbols=("BTCUSDT",),
-        timestamps=np.datetime64("2026-01-01", "ns")
-        + np.arange(n_bars) * np.timedelta64(1, "h"),
-        features=np.zeros((n_bars, 1, 1), dtype=np.float32),
-        global_features=np.zeros((n_bars, 1), dtype=np.float32),
-        open=np.vstack([close[0], close[:-1]]),
-        high=close + 0.1,
-        low=close - 0.1,
-        close=close,
-        volume=np.full((n_bars, 1), 1_000_000.0),
-        funding_rate=np.zeros_like(close),
-        tradable=np.ones_like(close, dtype=np.bool_),
-        feature_available=np.ones((n_bars, 1, 1), dtype=np.bool_),
-        feature_names=("ret",),
-        global_feature_names=("regime",),
-        periods_per_year=8_760,
-        mark_price=close.copy(),
-        index_price=close.copy(),
+    dataset = _load_worker_benchmark_dataset(
+        dataset_artifact,
+        timesteps=timesteps,
     )
 
     common_environment_kwargs: dict[str, Any] = {
@@ -485,6 +545,7 @@ def _run_worker_from_args(args: argparse.Namespace) -> None:
     measurement = _worker_training_measurement(
         mode=args.worker_mode,
         timesteps=args.worker_timesteps,
+        dataset_artifact=args.worker_dataset_artifact,
     )
     rendered = json.dumps(measurement, sort_keys=True, separators=(",", ":")) + "\n"
     args.worker_output.parent.mkdir(parents=True, exist_ok=True)
@@ -498,6 +559,7 @@ def main() -> None:
     parser.add_argument("--worker-mode", choices=("legacy", "streaming"))
     parser.add_argument("--worker-timesteps", type=int)
     parser.add_argument("--worker-output", type=Path)
+    parser.add_argument("--worker-dataset-artifact", type=Path)
     args = parser.parse_args()
 
     if args.worker_mode is not None:

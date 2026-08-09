@@ -6,608 +6,1076 @@ Scope: `frontend/` only unless an explicitly required read-only Studio API contr
 
 ## 1. Decision
 
-Trade RL Studio will be redesigned as **Research Cockpit 2.0**.
+Trade RL Studio will be redesigned as **Research Cockpit 2.0**, organized around the research lifecycle rather than the current page/file boundaries.
 
-The redesign will preserve the existing research and evidence contracts while replacing page-by-page visual conventions with one operational workspace model:
+The primary navigation becomes:
 
-- a compact global navigation rail,
-- a context bar for current run/source identity,
-- one dominant primary evidence viewport,
-- a synchronized inspector for committed selection,
-- a compact status/transport region,
-- progressive disclosure for secondary diagnostics.
+- Home
+- Data
+- Runs
+- Compare
+- Evidence
+- Serving
+- Settings as a separated utility destination
 
-The redesign is not a new trading terminal. Production remains `NO-GO`. The Studio remains local-first and read-only with respect to checkpoint selection, sealed-test opening, release approval, bundle activation, credentials, and exchange orders.
+The current Experiments, Run Center, and Live Training workflows become views under **Runs**:
 
-## 2. Motivation
+- New
+- Overview
+- Replay
+- Diagnostics
+- Logs
 
-The current frontend already contains substantial high-value behavior:
+The user's main object is a Research Run, not an implementation page. The redesign therefore keeps run identity and research context continuous while the user creates a job, observes execution, inspects market behavior, diagnoses optimization, compares results, audits evidence, and inspects paper serving.
 
-- Dashboard is decision-oriented rather than a generic KPI page.
-- Live Training uses `lightweight-charts` with synchronized panes, zoom/pan, crosshair preview, replay controls, chart-click commit, current-episode isolation, and bounded telemetry buffering.
-- Live Training distinguishes target/executed exposure and preserves trade lifecycle bands such as `ENTRY -> REDUCE -> EXIT`.
-- Compare has an interactive ordinal workspace rather than a static card grid.
-- Evidence and Serving surfaces enforce read-only identity and validation semantics.
-- URL state restores important analytical selections.
-- fixed-viewport layout checks protect the desktop research workflow.
+The redesign is not a trading terminal. Production remains `NO-GO`. The Studio does not gain exchange credentials, order placement, release approval, sealed-test opening, bundle activation, or other production authorization actions.
 
-The main remaining weakness is not lack of features. It is inconsistency of information hierarchy and interaction grammar across workspaces. Different pages currently decide independently where identity, status, controls, evidence, details, and errors live. As functionality grows, this increases cognitive load and encourages repeated one-off CSS and component patterns.
+## 2. Why this replaces the previous draft
 
-Research Cockpit 2.0 therefore standardizes the shell and interaction model while reusing the strongest existing feature implementations.
+The previous ADR correctly emphasized evidence-first visualization and a shared operational shell, but it over-standardized the product around page composition. Further review of the actual workflow and current code exposed five stronger product constraints:
 
-## 3. Goals
+1. Maintained research is now single-instrument: one maintained run equals one instrument, one target-weight action, and one checkpoint/evidence chain.
+2. Experiments, Run Center, and Live Training are not independent user jobs. They are consecutive states of one Run workflow.
+3. The existing Dashboard and Compare implementations are already strong and should be preserved rather than rebuilt.
+4. The existing synchronized Replay uses a strong three-pane model. Adding a fourth learning pane would mix optimizer-step and market-time semantics and reduce the dominant market viewport.
+5. Evidence API nodes do not expose authoritative lineage edges. The UI must not invent a graph or tree relationship that the backend does not state.
 
-### 3.1 Primary goals
+Research Cockpit 2.0 therefore standardizes interaction grammar and research identity, but not by forcing every view into the same visual skeleton.
 
-1. Make the primary evidence visually dominant on every analytical workspace.
-2. Make run/source identity, freshness, and `NO-GO` state continuously understandable without decorative status cards.
-3. Standardize preview versus committed selection semantics.
-4. Keep controls next to the evidence they affect.
-5. Make Dashboard answer one question first: **what is the next research blocker or action?**
-6. Make Live Training answer: **what did the policy do, why, and what happened next?**
-7. Make Compare answer: **where do two runs/folds materially differ and why?**
-8. Make Evidence answer: **can this artifact and its lineage be trusted?**
-9. Preserve fail-closed evidence behavior and existing research isolation contracts.
-10. Reduce CSS and component duplication without introducing a large design-system dependency.
+## 3. Product mental model
 
-### 3.2 Secondary goals
+The product lifecycle is:
 
-- Improve keyboard navigation and focus visibility.
-- Make loading, stale, partial, offline, and invalid states visually distinct.
-- Keep screenshots analytically meaningful without requiring hover.
-- Retain bounded browser memory and predictable rendering cost.
-- Keep the implementation compatible with the existing Vite/React/TypeScript stack.
+```text
+Data quality / identity
+        |
+        v
+Create Research Run
+        |
+        v
+Execution / observation / diagnosis
+        |
+        +--------> Compare runs
+        |
+        +--------> Audit evidence
+        |
+        v
+Inspect paper serving
+```
 
-## 4. Non-goals
+Each primary workspace answers one question:
+
+- **Home:** What requires my attention next?
+- **Data:** Can this Dataset be trusted as research input?
+- **Runs:** What is this Run doing, and what did the policy do?
+- **Compare:** Where do two Runs materially differ?
+- **Evidence:** Is the result's required evidence complete and valid?
+- **Serving:** What identity is paper inference using, and is it valid?
+
+A workspace must not become a warehouse for unrelated metrics merely because the data is available.
+
+## 4. Goals
+
+### 4.1 Primary goals
+
+1. Make the researcher's next decision obvious within the first few seconds of each workspace.
+2. Keep the dominant evidence surface larger than supporting chrome.
+3. Preserve authoritative identity, validation, and fail-closed behavior.
+4. Unify preview/commit/reset interaction semantics across analytical views.
+5. Reduce navigation caused by implementation boundaries.
+6. Make maintained single-instrument identity explicit in the UI.
+7. Preserve existing high-value Dashboard, Replay, and Compare behavior.
+8. Keep URL-restorable analytical state deterministic and workspace-scoped.
+9. Distinguish execution success, connection freshness, validation, and production authorization.
+10. Keep the desktop research workflow usable at 1440x900 and 1180x800.
+
+### 4.2 Secondary goals
+
+- improve keyboard and focus behavior;
+- reduce decorative gradients, repeated red warnings, and equal-weight card grids;
+- avoid unnecessary polling for hidden views;
+- keep last-known-good evidence visible on recoverable transport failures;
+- reduce CSS duplication only where semantics are actually shared.
+
+## 5. Non-goals
 
 The redesign will not:
 
-- add order placement or exchange credential entry,
-- add release or promotion approval actions,
-- weaken `NO-GO` or evidence validation rules,
-- replace `lightweight-charts` merely for visual novelty,
-- rewrite the Studio backend unless a missing read-only field blocks a defined UI requirement,
-- introduce a general-purpose state-management framework unless existing local/URL state becomes demonstrably insufficient,
-- support mobile or tablet layouts in this phase,
-- create a user-customizable dashboard builder,
-- add decorative animation, 3D, particles, or ambient effects,
-- perform unrelated repository restructuring.
+- add exchange orders, credentials, or broker actions;
+- add production approval or bundle activation;
+- make training completion imply profitability or release readiness;
+- add a visual strategy builder;
+- make training configuration fully editable from the UI unless a separate product requirement is approved;
+- invent Dataset quality metrics absent from authoritative API/artifacts;
+- invent Evidence lineage edges absent from the API;
+- replace `lightweight-charts` without a measured rendering requirement;
+- introduce a global state library by default;
+- add mobile/tablet support in this phase;
+- introduce decorative 3D, particles, ambient animation, or novelty rendering;
+- perform unrelated backend or repository restructuring.
 
-## 5. Design principles
+## 6. State semantics
 
-### 5.1 Evidence first
+No single badge represents overall system goodness. The UI separates four state axes.
 
-Every workspace gets one dominant evidence surface. Supporting metadata and diagnostics are subordinate.
+| Axis | Examples | Question |
+| --- | --- | --- |
+| Execution | QUEUED, RUNNING, SUCCEEDED, FAILED | Did the process execute? |
+| Connection | CONNECTED, LIVE, DELAYED, STALE, OFFLINE | Is current data arriving? |
+| Validation | VALID, INVALID, VERIFIED, INCOMPLETE | Can this artifact/evidence be trusted? |
+| Authorization | NO-GO | Is production use authorized? |
 
-Avoid equal-weight card grids when the user is trying to make a single analytical decision.
+`SUCCEEDED` must not be styled as equivalent to `VALID`, and neither implies production approval.
 
-### 5.2 Preview is temporary; selection is committed
+`DEMO` is data provenance/mode, not a connection state.
 
-The interaction grammar is shared across analytical views:
+### 6.1 Color semantics
 
-- hover/focus: preview only,
-- click/Enter: commit selection,
-- committed selection drives the inspector and URL state where appropriate,
-- Escape/reset clears or restores the defined default state,
-- telemetry refresh must not silently overwrite a committed analytical selection.
+- neutral: structure and inactive context;
+- cyan/blue: selected, informational focus, running/current state;
+- green: verified or validated evidence only;
+- amber: attention, delayed, stale, incomplete;
+- red: invalid evidence, explicit risk/failure, destructive action, `NO-GO`.
 
-Live Training's existing preview/commit model is the reference behavior.
+`RUNNING` is informational, not green. `SUCCEEDED` is execution completion, not evidence validation.
 
-### 5.3 Controls belong to their evidence
+## 7. Global application shell
 
-Global identity controls belong in the context bar. Chart-only controls belong immediately above the chart. Replay controls belong with replay state. Evidence filters belong with the evidence tree/list.
+### 7.1 Desktop layout
 
-A distant generic control panel must not become the default dumping ground for unrelated toggles.
-
-### 5.4 Color is semantic
-
-The visual system uses restrained semantic roles:
-
-- neutral surfaces for structure,
-- cyan/blue for selection and informational focus,
-- green for validated/success state,
-- amber for warning/stale/attention,
-- red for invalid/risk/`NO-GO`/failure.
-
-Gradients, glows, and accent borders are not used as decoration where a neutral surface communicates hierarchy more clearly.
-
-### 5.5 Last-known-good evidence remains visible when safe
-
-For polling or streaming surfaces, a transient fetch failure should not erase previously validated evidence. The UI will distinguish:
-
-- `LIVE`: current data is arriving within expected cadence,
-- `STALE`: previously valid data exists but freshness is outside the expected window,
-- `PARTIAL`: some required subresources are unavailable while the visible subset remains valid,
-- `OFFLINE`: the Studio API cannot currently be reached and no current refresh is possible,
-- `INVALID`: received evidence failed a contract/identity/digest/schema check.
-
-`INVALID` is not softened into stale or partial. It fails closed.
-
-## 6. Global application shell
-
-### 6.1 Layout
-
-Desktop target: 1440 x 900 baseline, with a minimum supported width consistent with the current desktop-only contract.
-
-The shell becomes:
+Baseline: 1440x900. Supported compact desktop target: 1180x800.
 
 ```text
-+------------------------------------------------------------------------+
-| Trade RL | Workspace / context identity | freshness | GPU | NO-GO      |
-+--------+-----------------------------------------------+----------------+
-|        |                                               |                |
-| Nav    |              PRIMARY WORKSPACE                |   INSPECTOR    |
-| rail   |                                               |                |
-|        |                                               |                |
-|        |                                               |                |
-+--------+-----------------------------------------------+----------------+
-| contextual status / replay / cursor / timestamp                        |
-+------------------------------------------------------------------------+
++---------+--------------------------------------------------------------+
+|         | Runs / selected context   BTCUSDT   RUNNING   CONNECTED NO-GO|
+| Nav     +--------------------------------------------------------------+
+| rail    |                                                              |
+|         |                    ACTIVE WORKSPACE                           |
+|         |                                                              |
+|         |                                                              |
++---------+--------------------------------------------------------------+
 ```
 
-The inspector is persistent only on workspaces where committed selection is central. On simpler pages it may collapse or be omitted so the main evidence surface retains priority.
+There is no persistent global bottom status bar. Replay owns a local transport region when Replay is active.
 
-### 6.2 Navigation
+### 7.2 Navigation rail
 
-The current nine-item navigation remains functionally available, but the visual grouping becomes task-oriented:
-
-- **Decide**: Dashboard
-- **Research**: Data Lab, Experiments, Run Center
-- **Analyze**: Live Training, Compare
-- **Trust**: Evidence Explorer, Serving Monitor
-- **System**: Settings
-
-This is a visual grouping, not a route migration. Existing workspace IDs and deep links remain compatible unless a later implementation step proves a migration is necessary.
-
-### 6.3 Context bar
-
-The global context bar may show only globally meaningful identity/state:
-
-- active workspace,
-- current run/job identity when the workspace has one,
-- source freshness,
-- `NO-GO`,
-- compact runtime environment summary when useful.
-
-Seed, environment, symbol, timeframe, fold, and checkpoint do not automatically become global state. They stay feature-scoped unless two or more workspaces have a real shared contract for the same identity.
-
-## 7. Workspace designs
-
-## 7.1 Dashboard: decision cockpit
-
-Primary question: **What is the single most important blocker or next action?**
-
-The existing decision model is retained. The visual structure becomes:
-
-1. decision headline/ribbon,
-2. readiness pipeline,
-3. ranked blocker/action queue,
-4. compact latest-result context,
-5. inspector/detail only for the committed blocker or stage.
-
-Environment details move out of a prominent page-specific control unless they are required to interpret the selected decision.
-
-The Dashboard must not regress into generic metric tiles. Metrics are shown only when they explain the decision.
-
-## 7.2 Live Training: primary research workspace
-
-Live Training remains the flagship visualization.
-
-### Main structure
+Primary items:
 
 ```text
-context + replay transport
-symbol / timeframe / range / layers
--------------------------------------------------
-Market pane      candles + trade lifecycle + risk
-Policy pane      target / executed exposure
-Learning pane    reward / interval cost
-Performance pane RL equity / baseline / drawdown
--------------------------------------------------
-replay scrubber
--------------------------------------------------
-right inspector: committed record / checkpoint evidence
+Home
+Data
+Runs
+Compare
+Evidence
+Serving
+-------
+Settings
 ```
 
-### Preserved contracts
+At compact desktop width the rail may collapse to icons/short labels, but navigation remains keyboard operable and uses `aria-current`.
 
-The redesign must preserve:
+### 7.3 Top context bar
 
-- synchronized time scale and crosshair,
-- mouse-wheel zoom and drag pan,
-- manual navigation disabling follow-latest,
-- programmatic range changes not being misclassified as manual navigation,
-- hover as preview only,
-- chart click as commit and replay pause,
-- bounded telemetry cache,
-- current seed/environment/current-episode isolation,
-- nanosecond timestamp normalization and invalid timestamp rejection,
-- timeframe aggregation semantics,
-- target/executed weight distinction,
-- LONG/SHORT/CLOSE plus increase/reduce/rebuy/flip semantics,
-- independent RISK and END events,
-- `ENTRY -> REDUCE -> EXIT` and open-trade lifecycle bands,
-- checkpoint evidence being explicitly selected rather than silently score-maximized.
+The default context bar shows only research-relevant global context:
 
-### Changes
+- workspace;
+- selected Job/Run identity where applicable;
+- maintained instrument identity where authoritative;
+- execution state where applicable;
+- source/freshness state;
+- one persistent `NO-GO` production-boundary indicator.
 
-- The chart gains more visual area by removing redundant page chrome.
-- The inspector becomes a real synchronized side panel instead of details being treated as a secondary document block.
-- Replay identity and chart controls are visually separated by responsibility.
-- Layer toggles use compact grouped disclosure rather than always consuming top-level space.
-- Empty training state prioritizes Behavior Cloning progress or a precise no-record reason.
-- Diagnostics remain a sibling analysis mode, not an unrelated page.
+CUDA, GPU name, Python version, and other environment details move to an Environment utility surface. They are not continuously given the same visual priority as research identity.
 
-## 7.3 Compare: explain differences, not just show two runs
+### 7.4 Global `NO-GO`
 
-The existing interactive ordinal comparison remains the foundation.
+`NO-GO` appears persistently once in the global shell. Workspaces repeat it only when authorization itself is the subject of the view, such as Evidence or Serving.
 
-The workspace standardizes:
+This avoids turning red production-boundary styling into decorative background noise.
 
-- explicit left/right or baseline/candidate identity,
-- a dominant comparison plot,
-- linked fold/metric selection,
-- committed selection reflected in an inspector,
-- direct visibility of return, drawdown, cost, constraint, and eligibility differences where supported by authoritative data,
-- invalid/ineligible comparisons failing closed instead of being normalized into ordinary rows.
+### 7.5 Current fixed StatusBar
 
-The main view should answer: **where is the material difference?** The inspector answers: **what data/config/evidence explains it?**
+The current fixed statement that all services are healthy must be removed or replaced with authoritative runtime state. No static message may claim health independently of actual source state.
 
-## 7.4 Evidence Explorer: lineage-oriented explorer
+## 8. URL and navigation contract
 
-Evidence becomes an explorer model rather than a set of equal-weight cards.
+### 8.1 Canonical workspaces
+
+Canonical workspace IDs become:
+
+- `dashboard` (display label Home; ID may remain for backward compatibility)
+- `data`
+- `runs`
+- `compare`
+- `evidence`
+- `serving`
+- `settings`
+
+### 8.2 Legacy route migration
+
+Old links remain readable:
+
+- `workspace=experiments` -> `workspace=runs&view=new`
+- `workspace=runs` -> `workspace=runs&view=overview` when no view exists
+- `workspace=live` -> `workspace=runs&view=replay`
+
+After interpretation, the browser URL is replaced with canonical state.
+
+### 8.3 Workspace-scoped parameter allowlists
+
+Navigation must remove parameters belonging to another workspace.
+
+Examples:
 
 ```text
-Evidence outline/tree -> primary evidence view -> inspector
+Home:
+workspace=dashboard&stage=...&decision=...
+
+Data:
+workspace=data&dataset=...
+
+Runs replay:
+workspace=runs&job=...&view=replay&seed=7&env=2&timeframe=15m&range=24h
+
+Compare:
+workspace=compare&left=...&right=...&comparePoint=...
+
+Evidence:
+workspace=evidence&evidenceRun=...&node=...
 ```
 
-The outline groups authoritative artifacts by identity and lineage. The selected artifact view shows validation state and meaningful fields. The inspector emphasizes:
+Playback state, hover state, crosshair state, open popovers, and temporary previews do not belong in the URL.
 
-- identity,
-- digest,
-- source/parent relationships,
-- authorization/closure state,
-- reason for invalidity when rejected.
+### 8.4 Job identity and Run artifact identity
 
-No UI inference may repair missing identity, digest, or lineage fields.
+The frontend must not equate `JobSummary.id`, `runId`, and `RunSummary.id` merely because strings look related.
 
-## 7.5 Data Lab
+- execution views use authoritative Job resource identity;
+- completed research artifact views use authoritative Run resource identity;
+- the frontend may join them only through an explicit backend contract or a deterministic identity rule already defined and tested by the API.
 
-Data Lab is reorganized around dataset identity and quality evidence:
+## 9. Shared interaction grammar
 
-- dataset catalog/list,
-- selected dataset summary,
-- coverage/quality visualization when authoritative data exists,
-- provenance/contract inspector,
-- deep-link compatibility retained.
-
-The redesign does not invent analytical charts for fields the API does not actually provide.
-
-## 7.6 Experiments
-
-Experiments remains an exploratory configuration surface. It should visually separate:
-
-- immutable selected dataset/config identity,
-- editable exploratory parameters,
-- validation/error state,
-- launch/result navigation.
-
-This phase does not expand the experiment API or introduce a visual strategy builder.
-
-## 7.7 Run Center
-
-Run Center becomes an operational list/detail workspace:
-
-- run/job list or compact outline,
-- selected run status and progress,
-- logs/artifact links in the main or inspector region,
-- clear running/completed/failed/stale distinctions.
-
-It must not imply that a completed training job is approved for production.
-
-## 7.8 Serving Monitor
-
-Serving remains read-only and trust-oriented. It distinguishes:
-
-- active bundle identity,
-- bundle validity,
-- paper inference state,
-- stale/offline state,
-- production `NO-GO`.
-
-No activation control is added.
-
-## 8. Component and module boundaries
-
-The implementation will avoid a full directory rewrite. Existing feature folders such as `live/`, `compare/`, `dashboard/`, `pages/`, `api/`, and `state/` remain valid.
-
-Introduce only reusable boundaries that have at least two real consumers.
-
-Suggested structure:
+Analytical views use:
 
 ```text
-frontend/src/
-  components/
-    workspace/
-      WorkspaceHeader.tsx
-      WorkspaceContextBar.tsx
-      WorkspaceInspector.tsx
-      WorkspaceStatus.tsx
-    ui/
-      SegmentedControl.tsx
-      SelectField.tsx
-      EmptyState.tsx
-      ErrorState.tsx
-      FreshnessBadge.tsx
-  styles/
-    tokens.css
-    shell.css
-    workspace.css
+DEFAULT
+  -> hover/focus = PREVIEW
+  -> click/Enter = COMMITTED
+  -> committed selection drives inspector and optional URL state
+  -> Escape/reset = DEFAULT
 ```
 
-Feature-specific controls remain in their feature folders. For example, ReplayToolbar stays under `live/` rather than being generalized into an abstract command framework.
+A refresh preserves a committed selection if the same authoritative identity still exists.
 
-A component is promoted to shared UI only when its semantics are actually shared, not merely because two pieces look similar.
+If the selected identity disappears, clear it according to a deterministic tested rule. Do not silently substitute a highest-score checkpoint or a semantically different artifact.
 
-## 9. State model
+Overlay inspectors restore focus to their trigger when closed.
 
-State is divided intentionally:
+## 10. Home
 
-### 9.1 URL-restorable analytical state
+Primary question: **What requires attention next?**
 
-Use URL state for selections that a researcher reasonably expects to deep-link or restore, such as workspace, committed dashboard decision, selected comparison identity, or selected evidence artifact where the current API identity is stable.
+The current decision-cockpit model remains the foundation.
 
-### 9.2 Local interaction state
+### 10.1 Reading order
 
-Keep ephemeral state local:
+1. current research context when available;
+2. primary attention/decision ribbon;
+3. Data -> Training -> Evaluation -> Evidence -> Release readiness pipeline;
+4. ranked secondary decisions;
+5. compact latest validated result context.
 
-- hover preview,
-- open/closed menus,
-- temporary layer popovers,
-- crosshair preview,
-- playback timer internals.
+The page does not become a generic KPI dashboard.
 
-### 9.3 Streaming state
+### 10.2 Preserve
 
-Polling hooks own network freshness, generation/cursor continuity, and stale request protection. Rendering components receive normalized state and must not independently refetch the same resource.
+- deterministic primary decision;
+- preview versus committed selection;
+- URL-backed stage/decision state;
+- browser history restoration;
+- drill-through actions;
+- keyboard-safe Environment shortcut behavior.
 
-### 9.4 No new global store by default
+### 10.3 Remove/de-emphasize
 
-React state, existing hooks, and URL state remain the default. A new store library is allowed only if implementation evidence shows that cross-workspace synchronization creates brittle prop/state ownership that cannot be solved cleanly with the existing architecture.
+- duplicate `NO-GO` if global shell already shows it;
+- prominent environment details unrelated to the selected decision;
+- decorative metric cards not required to explain the next action.
 
-## 10. Data flow
+### 10.4 Acceptance
 
-The preferred flow is:
+A screenshot without hover must answer:
+
+- what is currently happening;
+- what the highest-priority attention item is;
+- which research stage blocks progress;
+- where the user can drill through next.
+
+## 11. Data
+
+Primary question: **Can this Dataset be trusted as research input?**
+
+### 11.1 Layout
+
+Two-column desktop workspace:
+
+- left: searchable/paged Dataset catalog;
+- right: selected Dataset identity and validation evidence.
+
+### 11.2 Default-visible fields
+
+Only authoritative fields currently available through the Dataset contract are used initially:
+
+- status;
+- name;
+- instrument/symbol list;
+- market;
+- timeframes;
+- range;
+- bar count;
+- feature count;
+- Dataset identity;
+- artifact path;
+- updated time;
+- validation error.
+
+Feature count is not a hero-quality metric. A larger feature count is not presented as better.
+
+### 11.3 Quality visualization rule
+
+Missingness, timestamp gaps, coverage percentages, quality scores, or similar charts appear only after an authoritative contract provides them. The frontend must not infer or fabricate such values from incomplete metadata.
+
+### 11.4 INVALID state
+
+If selected Dataset status is INVALID, validation failure and reason outrank normal metadata. The UI must not visually present an invalid Dataset as ordinary input with a small warning badge.
+
+### 11.5 URL
+
+`workspace=data&dataset=<resource-id>` restores the selected Dataset and opens the page containing it.
+
+## 12. Runs information architecture
+
+Runs is the center of Research Cockpit 2.0.
+
+Subviews:
+
+- New
+- Overview
+- Replay
+- Diagnostics
+- Logs
+
+A selected execution Job remains selected while switching between Overview, Replay, Diagnostics, and Logs.
+
+### 12.1 Run selector rail
+
+When needed, a secondary Run/Job rail shows compact rows:
+
+- run ID truncated visually but available in full accessibly;
+- maintained instrument if authoritative;
+- execution state;
+- current phase if authoritative;
+- invalid/error indication when applicable.
+
+The secondary rail may collapse in chart-heavy Replay so the market viewport remains dominant.
+
+## 13. Runs / New
+
+Primary question: **What exactly will this research job execute?**
+
+### 13.1 Inputs
+
+The existing training request contract remains authoritative:
+
+- Config resource;
+- Dataset resource;
+- Run ID.
+
+Research Cockpit 2.0 does not add ad-hoc editable optimizer parameters to this page.
+
+### 13.2 Preview
+
+Show authoritative derived identity only where available:
+
+- selected Dataset identity/status;
+- instrument from Dataset;
+- selected Config identity/status;
+- algorithm;
+- Run ID validation;
+- maintained single-instrument preflight when supported by the existing contract.
+
+Do not expose steps, seeds, folds, learning rate, or other values unless the Config API explicitly provides them.
+
+### 13.3 Preflight
+
+The launch button is enabled only when required existing validations pass. UI preflight is explanatory; server-side validation remains authoritative.
+
+### 13.4 Submission transition
+
+On successful Job creation, navigate to the created Job's Overview using its authoritative resource ID.
+
+## 14. Runs / Overview
+
+Primary question: **What is this Job/Run doing now, and what evidence is available to inspect?**
+
+### 14.1 Default-visible sections
+
+- execution state;
+- submitted/started/completed timestamps where available;
+- process ownership/cancellability where relevant;
+- Dataset identity;
+- Config identity;
+- artifact root;
+- available analytical views/evidence state.
+
+### 14.2 Progress truthfulness
+
+Do not invent a generalized percentage from unrelated overview data. `JobSummary` does not itself define a generic progress contract. Progress is shown only if an authoritative Job-specific API provides it.
+
+### 14.3 Completion semantics
+
+`SUCCEEDED` means the process exited successfully. It does not imply:
+
+- artifact validity;
+- checkpoint eligibility;
+- profitability;
+- Evidence completeness;
+- production approval.
+
+## 15. Runs / Replay
+
+Primary question: **What did the policy do in market context, and what happened around that decision?**
+
+Replay remains the flagship interactive visualization.
+
+### 15.1 Preserve current three-pane architecture
+
+Do not replace it with a four-pane design.
+
+Recommended visual ratios:
+
+- Price & Execution: 55-60%;
+- Exposure / Portfolio: 22-27%;
+- State & Risk: 16-20%.
+
+Exact values are measured during browser QA and encoded as stretch factors rather than brittle fixed pixel heights.
+
+### 15.2 Why learning metrics stay out of Replay
+
+Market replay is indexed by market/event time. Optimization metrics are indexed by optimizer/training step. Combining them as equal synchronized panes would imply a stronger shared axis than the evidence supports.
+
+Learning metrics remain in Diagnostics.
+
+### 15.3 Preserve Replay behavior
+
+The redesign must retain:
+
+- synchronized time scale and crosshair;
+- wheel zoom and drag pan;
+- manual navigation disabling follow-latest;
+- programmatic range changes not being classified as manual navigation;
+- hover preview;
+- chart click commit and replay pause;
+- bounded telemetry buffer;
+- seed/environment/current-episode isolation;
+- nanosecond timestamp normalization and rejection of invalid timestamps;
+- timeframe aggregation semantics;
+- target versus executed exposure distinction;
+- LONG/SHORT/CLOSE and increase/reduce/rebuy/flip event semantics;
+- independent RISK and END events;
+- trade lifecycle background bands;
+- explicit checkpoint evidence selection, with no score-max auto-selection.
+
+### 15.4 Trade lifecycle is a locked contract
+
+The following behavior must remain:
 
 ```text
-Studio API
-  -> runtime guards / authoritative validation
-  -> feature polling/load hook
-  -> feature view model / visualization model
-  -> committed + preview interaction state
-  -> primary visualization + inspector
+ENTRY #1 ---- REDUCE #1 ---- EXIT #1
+ENTRY #2 -------------------- OPEN #2
 ```
 
-JSX should not repeatedly reinterpret raw API shapes. Complex transformation stays in tested model functions such as the existing research chart and comparison models.
+Entry, reduction, exit/open markers remain visible, while events belonging to one position lifecycle remain connected by the same background Trade band.
 
-## 11. Visualization architecture
+A reduction must not split the lifecycle into a new Trade.
 
-### 11.1 Renderer choice
+### 15.5 Maintained single-instrument behavior
 
-Keep `lightweight-charts` for synchronized market/time-series work. It already fits the current density, direct manipulation, and maintenance requirements.
+For maintained one-instrument Runs, instrument is identity, not a normal interactive selector.
 
-Use DOM/SVG/simple CSS graphics for small categorical/status views where semantics and accessibility matter more than mark count.
+Example:
 
-Do not introduce WebGL or another chart library without a measured requirement the existing stack cannot satisfy.
+```text
+Instrument  BTCUSDT
+```
 
-### 11.2 Rendering budget
+A symbol selector appears only for compatible historical/legacy multi-symbol artifacts.
 
-- One dominant heavyweight interactive chart workspace per analytical page.
-- Secondary charts should be limited and lazy/hidden when not visible.
-- Streaming transforms must remain bounded by the existing cache/window contracts.
-- Avoid full React rerenders of the chart tree for crosshair-only preview where imperative chart APIs already own rendering.
+### 15.6 Control placement
 
-### 11.3 Screenshot legibility
+Run selection is outside Replay and is removed from ReplayToolbar.
 
-Critical state must remain understandable without hover:
+Top-local controls contain analytical source/view choices such as:
 
-- current identity,
-- selected/committed state,
-- lifecycle bands and event markers,
-- direct series keys/labels,
-- risk/invalid state,
-- axes and units.
+- Seed / Environment;
+- timeframe;
+- range;
+- Layers.
 
-## 12. Accessibility and keyboard contract
+Playback transport belongs below or immediately adjacent to the replay scrubber:
 
-The desktop application must support:
+- first;
+- previous event;
+- play/pause;
+- next event;
+- latest;
+- speed;
+- follow latest.
 
-- visible focus indicators,
-- keyboard activation of nav and committed selections,
-- Escape/reset paths for overlays and committed selections where defined,
-- semantic buttons instead of clickable generic containers,
-- `aria-current` for navigation,
-- `aria-pressed` for persistent toggles,
-- text/status cues in addition to color,
-- `prefers-reduced-motion` support,
-- no critical evidence available only through hover.
+### 15.7 Inspector
 
-Dense chart inspection may remain pointer-optimized, but the surrounding controls and selection lists must remain keyboard operable.
+The Replay Inspector is closed by default.
 
-## 13. Failure behavior
+A committed Trade/point opens a 320-360px overlay inspector. Opening or closing it must not resize the chart canvas or alter analytical geometry.
 
-### Fetch failure
+Inspector content may include only available authoritative fields:
 
-Keep the last known valid view when available and surface freshness/error state without destroying analytical context.
+- selected timestamp/step;
+- target/executed exposure;
+- portfolio/risk values;
+- event interpretation;
+- explicitly selected checkpoint evidence identity.
 
-### Contract failure
+### 15.8 Empty states
 
-If a runtime guard, identity, digest, or schema check fails, show `INVALID` and do not render guessed replacement values.
+Empty Replay states state the reason when known, for example:
 
-### Empty state
+- Behavior Cloning still running;
+- no telemetry for selected Seed/Environment;
+- telemetry not yet initialized;
+- source unavailable.
 
-State why no evidence exists when known: no jobs, no telemetry for selected seed/environment, behavior cloning still running, missing artifact, or unsupported authoritative field.
+Generic `No data` is insufficient where a more precise state is known.
 
-### Stale selection
+## 16. Runs / Diagnostics
 
-If a refreshed dataset no longer contains a committed selection, clear or migrate it only according to a tested deterministic rule. Never silently select the highest-scoring checkpoint or a semantically different artifact merely to keep the panel populated.
+Primary question: **Does optimization/training behavior require attention?**
 
-## 14. Styling system
+Diagnostics is not profitability evidence.
 
-Create a small token layer for:
+### 16.1 Preserve metric groups
 
-- background/surface elevations,
-- semantic text,
-- borders,
-- selection,
-- success/warning/danger,
-- spacing,
-- radius,
-- focus ring,
-- typography sizes,
-- control heights.
+Retain the existing groups:
 
-The goal is consistency, not a general design system. Existing feature CSS is migrated incrementally as each workspace is redesigned.
+- Optimization;
+- Policy;
+- Value;
+- Trading / Risk.
 
-Avoid CSS churn unrelated to a workspace currently being migrated.
+### 16.2 Diagnostic language
 
-## 15. Implementation order
+Diagnostic thresholds such as Approx KL guidance are presented as **ATTENTION**, not production failure or model invalidity, unless a separate authoritative gate says otherwise.
 
-Implementation will proceed in vertical slices so the application remains usable:
+Use states such as:
 
-1. shell tokens and workspace primitives,
-2. AppShell/navigation/context/status integration,
-3. Live Training migration while preserving all chart contracts,
-4. Dashboard migration,
-5. Compare migration,
-6. Evidence Explorer migration,
-7. Data Lab / Run Center / Experiments / Serving alignment,
-8. settings and remaining shared polish,
-9. documentation and full verification.
+- NO ATTENTION;
+- ATTENTION;
+- UNAVAILABLE.
 
-Each slice includes its relevant tests before moving to the next.
+Avoid a green `HEALTHY` label that could be mistaken for profitability or approval.
 
-## 16. Test strategy
+### 16.3 Polling ownership
 
-### 16.1 TDD sequence
+Hidden Diagnostics must not continue polling merely because CSS `hidden` is applied.
 
-For each slice:
+- Replay active: Diagnostics component/hook is not polling.
+- Diagnostics active: metric polling is enabled.
 
-1. add/adjust a focused failing behavioral or layout regression test,
-2. implement the minimum behavior,
-3. run the nearest Vitest tests,
-4. refactor only after green,
-5. expand to related frontend tests.
+The same principle applies to other expensive hidden analytical views.
 
-### 16.2 Required regression contracts
+### 16.4 Charts
 
-Do not weaken tests covering:
+Charts remain step-indexed and directly labeled. Threshold guides are visually subordinate and explicitly described as diagnostic guidance, not release gates.
 
-- telemetry environment/current-episode isolation,
-- bounded replay semantics,
-- synchronized chart panes,
-- crosshair preview,
-- chart-click commit,
-- manual viewport preservation,
-- programmatic range notifications,
-- event navigation,
-- lifecycle bands including `ENTRY -> REDUCE -> EXIT`,
-- explicit checkpoint selection,
-- URL restoration/deep links,
-- comparison eligibility/identity,
-- runtime guards,
-- fixed viewport/no browser page scroll.
+## 17. Runs / Logs
 
-### 16.3 New tests
+Primary question: **What is the owned process doing, and can I safely stop it?**
 
-Add focused coverage for:
+### 17.1 Preserve
 
-- shell navigation grouping without route breakage,
-- context bar source/freshness/NO-GO states,
-- inspector preview-versus-commit behavior,
-- stale/partial/offline/invalid visual distinctions,
-- keyboard focus/activation for new shared primitives,
-- workspace layout at 1440 x 900,
-- Live Training chart area not shrinking when inspector/detail state changes.
+- selected Job log;
+- Run ID;
+- PID;
+- process ownership;
+- execution state;
+- stale-request protection;
+- initial log load for the selected Job.
 
-### 16.4 Final verification
+### 17.2 Log following
 
-At the final implementation head run at minimum:
+Default follows latest log output.
 
-```bash
+If the user manually scrolls away from the bottom, automatic following pauses. A `Jump to latest` action restores it. New log lines must not steal the user's scroll position.
+
+### 17.3 Stop action
+
+Stop is visible only for Jobs where the existing `cancellable` and state contract permits cancellation.
+
+Stopping requires explicit confirmation containing the selected Run/Job identity and clarifying that existing artifacts are not deleted.
+
+Destructive-action red is reserved for this type of operation, not used decoratively.
+
+## 18. Compare
+
+Primary question: **Where does the right Run differ materially from the left Run?**
+
+The current interactive ordinal comparison is retained as the foundation.
+
+### 18.1 Preserve
+
+- Left/Right Run identity;
+- comparison eligibility;
+- ordinal evaluation axis without invented timestamps;
+- cumulative comparison pane;
+- Right-minus-Left difference pane;
+- pan/zoom/range selection;
+- click/keyboard selection;
+- URL restoration;
+- Metrics/Config inspector;
+- stale-request exclusion;
+- explicit `no automatic winner` semantics.
+
+### 18.2 Summary language
+
+Show preference-aware counts and differences, not a single winner badge.
+
+Example:
+
+```text
+3 improved · 2 worse · 1 tie
+No automatic winner
+```
+
+### 18.3 Cross-workspace actions
+
+Inspector/context may expose `Open Left Run` and `Open Right Run`, linking to Runs with the correct authoritative resource identity.
+
+## 19. Evidence
+
+Primary question: **Are the required evidence artifacts present and valid?**
+
+### 19.1 Closure path, not invented lineage graph
+
+Current Evidence nodes expose status, required, digest, path, label, and detail, but not authoritative parent/edge relationships.
+
+Therefore the default visualization is an **Evidence Closure Path** or ordered audit list, not a graph/tree that implies backend lineage.
+
+Connector lines, if used, represent reading/audit order only.
+
+### 19.2 Default view
+
+Show:
+
+- Run identity;
+- required/verified summary;
+- ordered Evidence nodes;
+- required versus optional;
+- status.
+
+### 19.3 Committed node inspector
+
+A committed node opens an overlay with available fields:
+
+- status;
+- required/optional;
+- path;
+- digest;
+- interpretation/detail;
+- file integrity context where supported.
+
+INVALID status and validation reason take visual priority.
+
+### 19.4 Future lineage
+
+Only if the backend later returns explicit lineage edges may the UI promote the closure path into a real dependency graph.
+
+## 20. Serving
+
+Primary question: **What is paper inference using now, and is the identity valid?**
+
+Serving remains read-only.
+
+### 20.1 Reading order
+
+1. runtime/paper state;
+2. active Bundle/Run/Dataset/Policy identity;
+3. latest paper decision;
+4. validation checks;
+5. production `NO-GO`.
+
+Do not use four equal-weight panels when the information has a natural dependency order.
+
+### 20.2 Single-instrument decision view
+
+For maintained one-instrument bundles, visualize target exposure on one signed, zero-centered scale.
+
+For historical multi-symbol data, retain an accessible multi-weight fallback.
+
+### 20.3 Validation semantics
+
+A release attestation warning must not overwrite otherwise-valid identity checks, and valid identity checks must not imply production approval.
+
+If identity/schema validation fails, Serving is INVALID and fails closed.
+
+## 21. Settings and Environment
+
+Settings is visually separated from the primary research workflow.
+
+Until real settings justify a larger surface, it may contain only actual utility functions such as:
+
+- environment/runtime information;
+- local appearance/preferences if implemented;
+- Studio information.
+
+Remove placeholder `FOUNDATION READY` content from primary navigation prominence.
+
+GPU, CUDA, Python, and similar environment metadata belong here or in an Environment drawer rather than the persistent top bar.
+
+## 22. Failure, freshness, and last-known-good behavior
+
+### 22.1 Recoverable fetch failure
+
+When a previously validated view exists and a refresh fails, keep the last-known-good evidence visible and mark source freshness/error explicitly.
+
+Example:
+
+```text
+STALE
+Last validated telemetry remains visible.
+Refresh failed at <timestamp>.
+```
+
+### 22.2 Contract failure
+
+Schema, identity, digest, generation, or other contract failures are `INVALID`, not `STALE`.
+
+Do not keep rendering data as trustworthy when its contract has failed.
+
+### 22.3 Partial state
+
+Use `PARTIAL` only where the visible subset remains valid but an independent subresource is unavailable. Missing required evidence is not silently treated as ordinary success.
+
+### 22.4 Empty states
+
+Empty states explain the known reason and next action where possible.
+
+Examples:
+
+- no validated Dataset;
+- Behavior Cloning in progress;
+- no telemetry for selected source;
+- no Evidence report produced;
+- no active paper bundle.
+
+## 23. State ownership
+
+### 23.1 URL-restorable state
+
+Persist analytical identity/navigation that a researcher may reasonably share or restore:
+
+- workspace;
+- selected Dataset;
+- selected Job/Run;
+- Runs view;
+- Replay Seed/Environment/timeframe/range;
+- committed Dashboard selection;
+- Compare pair/selection;
+- Evidence Run/node selection.
+
+### 23.2 Local ephemeral state
+
+Keep local:
+
+- hover preview;
+- crosshair preview;
+- playback running/paused timer state;
+- playback speed unless a later preference contract is added;
+- open menus/popovers;
+- temporary layer menus;
+- drag gesture internals.
+
+### 23.3 No new global store by default
+
+Use React state, feature hooks, and URL state until a concrete cross-workspace ownership problem proves a store is necessary.
+
+## 24. Component boundaries
+
+Do not perform a directory rewrite.
+
+Keep established feature folders such as:
+
+- `dashboard/`;
+- `live/`;
+- `compare/`;
+- `pages/`;
+- `api/`;
+- `state/`.
+
+Create shared UI only after at least two real consumers share semantics, not merely appearance.
+
+Likely shared candidates:
+
+```text
+components/workspace/
+  WorkspaceContextBar
+  OverlayInspector
+  FreshnessStatus
+  EmptyState
+  ErrorState
+
+runs/
+  RunsWorkspace
+  RunsNavigation
+  RunOverview
+  NewRun
+```
+
+ReplayToolbar remains feature-specific, but loses Run selection after Runs owns the selected Job.
+
+## 25. Rendering and performance
+
+### 25.1 Renderer ownership
+
+- keep `lightweight-charts` for Replay market/time-series visualization;
+- retain existing SVG/DOM comparison implementation unless measured scale demands otherwise;
+- use DOM/SVG/CSS for small categorical/status graphics;
+- no WebGL/new chart dependency without evidence.
+
+### 25.2 Streaming bounds
+
+Preserve bounded telemetry buffers and generation/cursor protection.
+
+Hidden views must not continue unnecessary polling.
+
+Crosshair-only interaction should avoid full React chart-tree rerenders where the chart library can own imperative rendering.
+
+### 25.3 Inspector geometry
+
+Analytical inspectors overlay the evidence viewport. Opening them must not resize the underlying chart/comparison geometry.
+
+## 26. Accessibility and keyboard contract
+
+Required:
+
+- visible focus indicators;
+- semantic buttons and form controls;
+- `aria-current` for navigation;
+- `aria-pressed` for persistent toggles;
+- keyboard activation for list/selection controls;
+- Escape closes overlays and restores trigger focus;
+- text plus color for state;
+- no critical evidence available only by hover;
+- `prefers-reduced-motion` support;
+- current chart controls remain keyboard reachable even if dense chart inspection is pointer-optimized.
+
+Do not add global shortcuts that steal browser/OS-modified keys.
+
+## 27. Desktop layout acceptance
+
+Required browser QA:
+
+- 1440x900;
+- 1180x800;
+- no whole-page overflow;
+- primary evidence remains visible without scrolling chrome off-screen;
+- compact navigation remains usable;
+- overlay inspector does not alter chart dimensions;
+- focused control is not clipped;
+- important state is understandable in a screenshot without hover.
+
+## 28. Test contract
+
+### 28.1 Navigation and URL
+
+- legacy `experiments` URL resolves to Runs/New;
+- legacy `live` URL resolves to Runs/Replay;
+- Runs without view resolves to Overview;
+- cross-workspace navigation removes unrelated query parameters;
+- browser history restores canonical analytical state.
+
+### 28.2 Shell
+
+- no static `all services healthy` assertion;
+- one global `NO-GO` is visible;
+- GPU/CUDA/Python are available through Environment/Settings rather than consuming normal top-bar priority.
+
+### 28.3 Runs
+
+- successful New submission opens the created Job Overview;
+- Job/Run are not joined solely by `runId`;
+- non-cancellable Job has no Stop action;
+- Stop requires confirmation;
+- hidden Diagnostics does not poll.
+
+### 28.4 Replay
+
+Preserve all existing regressions plus:
+
+- maintained single-symbol Run has no ordinary Symbol dropdown;
+- compatible legacy multi-symbol data can expose a selector;
+- `ENTRY -> REDUCE -> EXIT` remains one closed Trade band;
+- later open position remains a separate open Trade band;
+- event markers remain visible with background bands;
+- manual pan disables Follow latest;
+- committed click pauses Replay;
+- hover remains preview only;
+- opening inspector preserves chart geometry.
+
+### 28.5 Diagnostics
+
+- metrics poll only while Diagnostics is active;
+- diagnostic threshold attention is not rendered as profitability/release failure;
+- unavailable metrics explain why.
+
+### 28.6 Data
+
+- Dataset deep link restores selection;
+- INVALID Dataset is visually fail-closed;
+- no unsupported quality metrics are fabricated.
+
+### 28.7 Compare
+
+Preserve current interaction and fail-closed tests:
+
+- eligibility;
+- URL restore;
+- range/point selection;
+- pan/zoom/reset;
+- keyboard navigation;
+- no automatic winner;
+- stale request exclusion;
+- inspector geometry stability.
+
+### 28.8 Evidence
+
+- required missing evidence remains visible;
+- INVALID evidence fails closed;
+- UI does not assert lineage edges absent from backend contract;
+- committed node inspector restores focus.
+
+### 28.9 Serving
+
+- maintained single-instrument exposure uses signed zero-centered semantics;
+- validation failure produces INVALID;
+- release-attestation absence does not imply unrelated identity checks failed;
+- valid identity does not remove `NO-GO`.
+
+## 29. Implementation order
+
+Implementation proceeds incrementally and keeps the application usable between commits.
+
+1. Shell truthfulness and canonical navigation foundation.
+2. Runs information architecture and legacy-route compatibility.
+3. Runs/New and Runs/Overview.
+4. Move existing Replay under Runs without changing chart semantics.
+5. Replay chrome, single-instrument behavior, overlay inspector, and polling cleanup.
+6. Runs/Diagnostics and Runs/Logs integration.
+7. Data hierarchy improvements using only existing authoritative fields.
+8. Evidence closure-path redesign.
+9. Serving reading-order redesign.
+10. Home visual integration with minimal behavioral change.
+11. Compare visual integration with minimal behavioral change.
+12. CSS/token cleanup limited to proven shared semantics.
+
+For every step:
+
+1. characterize current behavior with tests;
+2. add the new failing acceptance test;
+3. implement the smallest change;
+4. run focused tests;
+5. run TypeScript typecheck/build as appropriate;
+6. run fixed-viewport browser checks for affected workspaces;
+7. refactor only after green.
+
+## 30. Verification before completion
+
+Final verification must include at least:
+
+```text
 npm test --prefix frontend -- --run
 npm run typecheck --prefix frontend
 npm run build --prefix frontend
 npm run check:layout --prefix frontend
 ```
 
-Then run repository-required Python/static/architecture checks affected by any Studio API or documentation changes. If backend code is untouched, still run the repository's required final CI-equivalent checks before declaring the branch complete.
+Then run the broader repository checks required by the repository CI for the exact final PR head, including architecture/import checks and relevant Python tests.
 
-## 17. Migration and compatibility
+Existing Dashboard, Replay lifecycle, Compare, URL restoration, and fail-closed regressions must remain green.
 
-This is an incremental migration on one feature branch.
+## 31. Definition of done
 
-Compatibility requirements:
+Research Cockpit 2.0 is complete only when:
 
-- existing backend read-only contracts remain valid,
-- existing workspace IDs remain stable unless an explicit migration is documented and tested,
-- existing deep links are preserved where their identity remains meaningful,
-- existing chart interaction contracts remain preserved,
-- no production or order capability is introduced,
-- no evidence validation is relaxed.
+- primary navigation reflects the six research decisions rather than implementation pages;
+- Experiments, Run Center, and Live Training are coherently represented under Runs;
+- current research identity is understandable without repeated selectors;
+- maintained single-instrument Runs do not present misleading normal Symbol selection;
+- Replay preserves its three-pane synchronized market-first model and lifecycle bands;
+- optimizer metrics remain in Diagnostics;
+- hidden analytical views do not perform unnecessary polling;
+- Data does not invent quality metrics;
+- Evidence does not invent lineage edges;
+- Compare remains no-automatic-winner and fail-closed;
+- Serving clearly separates identity validity from production authorization;
+- the static false health StatusBar is gone;
+- one global `NO-GO` remains continuously visible;
+- URL migration and workspace parameter scoping are tested;
+- 1440x900 and 1180x800 fixed-viewport checks pass;
+- frontend tests, typecheck, build, and layout checks pass;
+- broader repository CI is green on the exact PR head;
+- no new dependency is introduced without a measured requirement.
 
-Temporary compatibility wrappers should be avoided. Prefer direct migration of one workspace at a time with tests that lock the externally observable behavior.
+## 32. Risks and mitigations
 
-## 18. Success criteria
+### Risk: Runs integration becomes a big-bang rewrite
 
-Research Cockpit 2.0 is complete when:
+Mitigation: preserve existing feature components and migrate composition/selection ownership before changing visualization internals.
 
-1. all maintained workspaces use the shared shell hierarchy,
-2. Live Training remains fully interactive with preserved lifecycle and replay semantics,
-3. Dashboard presents one dominant decision path instead of equal-weight dashboard chrome,
-4. Compare uses linked selection + inspector semantics,
-5. Evidence Explorer exposes lineage and validation without guessed values,
-6. source states are consistently represented across relevant workspaces,
-7. keyboard and focus behavior works for the redesigned controls,
-8. 1440 x 900 fixed-viewport checks pass without browser page scroll,
-9. frontend tests/typecheck/build/layout checks pass,
-10. repository-wide required final verification passes on the same final head,
-11. no new live-order, release-approval, or credential capability exists.
+### Risk: Job and Run identity are accidentally conflated
 
-## 19. Rejected alternatives
+Mitigation: keep resource IDs distinct and require an explicit tested join contract.
 
-### Cosmetic-only redesign
+### Risk: Replay regresses while moving under Runs
 
-Rejected because it would leave inconsistent interaction and state semantics in place while spending effort on styling.
+Mitigation: treat existing synchronized panes, viewport behavior, source isolation, timestamps, and lifecycle tests as locked characterization tests.
 
-### Full frontend rewrite
+### Risk: Shared components over-abstract feature behavior
 
-Rejected because the current Live Training, Compare, runtime guards, telemetry isolation, and evidence behavior already represent significant validated functionality. Rewriting them would create risk without corresponding analytical value.
+Mitigation: require at least two semantic consumers before promotion to shared UI.
 
-### New chart framework or WebGL-first architecture
+### Risk: New status system becomes cosmetic complexity
 
-Rejected because the current renderer already supports the required direct-manipulation time-series workload. No measured scale requirement currently justifies the maintenance and regression cost.
+Mitigation: status labels must map to existing authoritative contracts; no synthetic overall-health score is added.
 
-### Generic global state store
+### Risk: Evidence closure path visually implies lineage
 
-Rejected as a default because current URL state and feature hooks already define useful ownership boundaries. It can be reconsidered only from concrete implementation pressure.
+Mitigation: documentation and accessible labels define connectors as audit order only until explicit backend edges exist.
 
-## 20. Consequences
+### Risk: compact desktop loses chart space
 
-Positive consequences:
+Mitigation: collapse navigation/secondary run rail before shrinking the dominant evidence viewport; use overlay inspectors.
 
-- a clearer research workflow,
-- less visual and interaction inconsistency,
-- stronger reuse of proven chart behavior,
-- easier extension of future analytical views,
-- more explicit failure/freshness semantics,
-- improved regression-test ownership.
+## 33. Deferred questions
 
-Costs and risks:
+The following are implementation-measurement questions, not design blockers:
 
-- shell changes touch every workspace and therefore require staged migration,
-- CSS migration can create fixed-viewport regressions if done too broadly,
-- moving details into synchronized inspectors can accidentally change selection ownership,
-- shared primitives can become over-generalized if promoted before two real consumers exist.
+- exact Run rail width at 1440x900 and 1180x800;
+- exact Replay pane stretch factors within the approved ranges;
+- exact overlay inspector width within 320-360px;
+- whether an explicit backend Job-to-Run relationship already exists but is not exposed by the current frontend contract;
+- whether future Dataset QA artifacts justify a dedicated coverage/missingness visualization;
+- whether future Evidence contracts provide authoritative lineage edges.
 
-These risks are controlled by vertical-slice TDD, preserving feature-level models, and refusing unrelated refactoring.
+If a required authoritative field is absent, implementation records the limitation rather than inferring the value in the frontend.

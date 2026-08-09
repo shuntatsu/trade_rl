@@ -50,7 +50,7 @@
 - Produce `_resolve_benchmark_dataset_source(dataset_artifact: Path | None, *, workloads: tuple[int, ...])`.
 - Persisted source resolution must call `inspect_published_market_dataset_artifact` and `load_market_dataset_artifact`, require `dataset.symbols == ("BTCUSDT",)`, and require at least `max(80, max(workloads) + 32)` bars.
 
-- [ ] **Step 1: Write a failing test using a real canonical temporary market artifact.**
+- [x] **Step 1: Write a failing test using a real canonical temporary market artifact.**
 
 ```python
 source = _resolve_benchmark_dataset_source(root, workloads=(8, 32))
@@ -61,7 +61,7 @@ assert source.dataset_source_digest == published.artifact_digest
 
 Also assert that a non-canonical/missing artifact, a non-BTCUSDT artifact, and an artifact shorter than the workload requirement fail closed.
 
-- [ ] **Step 2: Run the focused test and verify it fails because the resolver does not exist.**
+- [x] **Step 2: Run the focused test and verify it fails because the resolver does not exist.**
 
 Run:
 
@@ -69,7 +69,7 @@ Run:
 uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py
 ```
 
-- [ ] **Step 3: Implement the source resolver with no PostgreSQL or catalog dependency.**
+- [x] **Step 3: Implement the source resolver with no PostgreSQL or catalog dependency.**
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -84,7 +84,7 @@ class _BenchmarkDatasetSource:
 
 The synthetic branch returns the existing kind with both optional fields `None`. The persisted branch derives its digest only from the validated `PublishedDatasetArtifact`.
 
-- [ ] **Step 4: Run focused pytest, mypy, Ruff and format checks.**
+- [x] **Step 4: Run focused pytest, mypy, Ruff and format checks.**
 
 ```bash
 uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py tests/data/test_market_artifact.py
@@ -93,7 +93,7 @@ uv run ruff check tools/nautilus_training_throughput_benchmark.py tests/test_nau
 uv run ruff format --check --diff tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
 ```
 
-- [ ] **Step 5: Commit the resolver and tests.**
+- [x] **Step 5: Commit the resolver and tests.**
 
 ```bash
 git add tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
@@ -112,21 +112,21 @@ git commit -m "feat: resolve persisted Nautilus benchmark dataset"
 - Extend `_worker_training_measurement(..., dataset_artifact: Path | None = None)`.
 - Workers must reload the canonical artifact themselves; the parent must not serialize a `MarketDataset` through the process boundary.
 
-- [ ] **Step 1: Write failing command-propagation and worker-dataset tests.**
+- [x] **Step 1: Write failing command-propagation and worker-dataset tests.**
 
 Test that an artifact root appears exactly once in the worker command when configured and is absent for the synthetic default. Test that the worker loader returns the persisted dataset identity instead of rebuilding the synthetic fixture.
 
-- [ ] **Step 2: Verify RED for the missing `dataset_artifact` parameters.**
+- [x] **Step 2: Verify RED for the missing `dataset_artifact` parameters.**
 
 ```bash
 uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py
 ```
 
-- [ ] **Step 3: Refactor synthetic dataset construction into a helper and add persisted loading.**
+- [x] **Step 3: Refactor synthetic dataset construction into a helper and add persisted loading.**
 
 Use one helper for dataset selection so legacy and streaming workers receive identical data. Revalidate the canonical artifact in the child and preserve the existing synthetic dataset byte-for-byte when no artifact is provided.
 
-- [ ] **Step 4: Bind the resolved source into `RuntimePerformanceEvidence`.**
+- [x] **Step 4: Bind the resolved source into `RuntimePerformanceEvidence`.**
 
 For persisted runs:
 
@@ -140,7 +140,7 @@ source_digest=_benchmark_source_digest(
 
 Keep `performance_approved=False` and do not attach an approval policy automatically.
 
-- [ ] **Step 5: Run focused runtime tests and static analysis.**
+- [x] **Step 5: Run focused runtime tests and static analysis.**
 
 ```bash
 uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py tests/simulation/test_runtime_performance.py tests/simulation/test_runtime_performance_artifact_identity.py
@@ -149,7 +149,7 @@ uv run ruff check tools/nautilus_training_throughput_benchmark.py tests/test_nau
 uv run ruff format --check --diff tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
 ```
 
-- [ ] **Step 6: Commit the worker propagation.**
+- [x] **Step 6: Commit the worker propagation.**
 
 ```bash
 git add tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
@@ -167,9 +167,9 @@ git commit -m "feat: benchmark persisted dataset with Nautilus workers"
 - Add CLI option `--dataset-artifact PATH` for parent benchmark mode only.
 - `--dataset-artifact` must identify an already-published canonical artifact directory; it must never accept raw NPZ/JSON or an arbitrary source digest.
 
-- [ ] **Step 1: Add a CLI parsing test that preserves the existing no-argument synthetic behavior and accepts `--dataset-artifact`.**
-- [ ] **Step 2: Implement the CLI plumbing to `run_benchmark` and document the representative-run command.**
-- [ ] **Step 3: Update migration status to distinguish “persisted benchmark path implemented” from “representative reviewed run retained”.**
+- [x] **Step 1: Add a CLI parsing test that preserves the existing no-argument synthetic behavior and accepts `--dataset-artifact`.**
+- [x] **Step 2: Implement the CLI plumbing to `run_benchmark` and document the representative-run command.**
+- [x] **Step 3: Update migration status to distinguish “persisted benchmark path implemented” from “representative reviewed run retained”.**
 - [ ] **Step 4: Run focused tests, full mypy/Ruff/format, architecture checks, and the complete test suite on the same head.**
 
 ```bash

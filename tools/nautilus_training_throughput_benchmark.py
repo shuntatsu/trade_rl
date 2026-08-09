@@ -103,17 +103,13 @@ def _validated_dataset_source_digest(value: str) -> str:
         raise ValueError("dataset_source_digest must be a SHA-256 digest") from error
 
 
-def _benchmark_source_digest(
-    workloads: tuple[int, ...],
-    *,
-    dataset_source_digest: str | None = None,
-) -> str:
-    """Bind measurements to the exact deterministic benchmark workload contract."""
-
-    return content_digest(
-        {
-            "algorithm": "ppo",
-            "dataset": {
+def _benchmark_dataset_source_contract(
+    dataset_source_digest: str | None,
+) -> tuple[_DatasetKind, dict[str, Any]]:
+    if dataset_source_digest is None:
+        return (
+            "deterministic_synthetic_btcusdt",
+            {
                 "close_end": 101.0,
                 "close_start": 100.0,
                 "dataset_id": "7" * 64,
@@ -126,16 +122,31 @@ def _benchmark_source_digest(
                 "start": "2026-01-01T00:00:00",
                 "symbol": "BTCUSDT",
             },
-            "dataset_kind": "deterministic_synthetic_btcusdt",
-            **(
-                {
-                    "dataset_source_digest": _validated_dataset_source_digest(
-                        dataset_source_digest
-                    )
-                }
-                if dataset_source_digest is not None
-                else {}
-            ),
+        )
+    return (
+        "persisted_market_dataset_artifact",
+        {
+            "artifact_digest": _validated_dataset_source_digest(dataset_source_digest),
+            "symbol": "BTCUSDT",
+        },
+    )
+
+
+def _benchmark_source_digest(
+    workloads: tuple[int, ...],
+    *,
+    dataset_source_digest: str | None = None,
+) -> str:
+    """Bind measurements to the exact deterministic benchmark workload contract."""
+
+    dataset_kind, dataset_contract = _benchmark_dataset_source_contract(
+        dataset_source_digest
+    )
+    return content_digest(
+        {
+            "algorithm": "ppo",
+            "dataset": dataset_contract,
+            "dataset_kind": dataset_kind,
             "environment": {
                 "decision_every": 1,
                 "episode_bars": "timesteps",
@@ -413,9 +424,13 @@ def run_benchmark(
         performance_approved=False,
         approval_policy_digest=None,
         approval_note=(
-            "Observational isolated-process CI evidence only. Process-tree RSS is "
-            "sampled from Linux /proc at 50 ms intervals; no reviewed production "
-            "promotion threshold is bound to this evidence."
+            (
+                "Observational isolated-process CI evidence only. "
+                if source.dataset_kind == "deterministic_synthetic_btcusdt"
+                else "Observational isolated-process persisted-dataset evidence only. "
+            )
+            + "Process-tree RSS is sampled from Linux /proc at 50 ms intervals; "
+            "no reviewed production promotion threshold is bound to this evidence."
         ),
     )
     return {"evidence_digest": evidence.digest, **evidence.to_mapping()}

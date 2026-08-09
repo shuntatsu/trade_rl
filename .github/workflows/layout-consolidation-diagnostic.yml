@@ -1,4 +1,4 @@
-name: Layout Consolidation Diagnostic
+name: Layout Consolidation Integration
 
 on:
   push:
@@ -6,35 +6,124 @@ on:
       - integration/layout-consolidation
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose-merge:
+  integrate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Diagnose merge conflicts
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Merge layout v2 and preserve latest migration behavior
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin refactor/root-package-layout-v2
+          benchmark_tmp="$(mktemp)"
+          git show HEAD:tools/nautilus_training_throughput_benchmark.py > "$benchmark_tmp"
           set +e
           git merge --no-commit --no-ff origin/refactor/root-package-layout-v2
-          status=$?
+          merge_status=$?
           set -e
-          echo "merge_status=$status"
-          echo "--- unmerged paths ---"
-          git diff --name-only --diff-filter=U || true
-          for path in .github/workflows/nautilus-capability.yml trade_rl/workflows/stage_a_execution_producer.py; do
-            echo "===== $path : OURS vs THEIRS ====="
-            git diff --no-index <(git show ":2:$path") <(git show ":3:$path") || true
-          done
-          echo "===== benchmark current-main source ====="
-          git show HEAD:tools/nautilus_training_throughput_benchmark.py | sed -n '1,260p'
-          echo "--- status ---"
-          git status --short
-          git merge --abort || true
+          test "$merge_status" -eq 1
+          expected="$(printf '%s\n' '.github/workflows/nautilus-capability.yml' 'scripts/nautilus_training_throughput_benchmark.py' 'trade_rl/workflows/stage_a_execution_producer.py')"
+          actual="$(git diff --name-only --diff-filter=U | sort)"
+          test "$actual" = "$expected"
+
+          git checkout --ours .github/workflows/nautilus-capability.yml
+          git checkout --ours trade_rl/workflows/stage_a_execution_producer.py
+          cp "$benchmark_tmp" scripts/nautilus_training_throughput_benchmark.py
+          git rm -f --ignore-unmatch tools/nautilus_training_throughput_benchmark.py
+          git add scripts/nautilus_training_throughput_benchmark.py
+
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path('.github/workflows/nautilus-capability.yml'): (
+                  ('tools/nautilus_execution_probe_digest.py', 'scripts/nautilus_execution_probe_digest.py'),
+                  ('tools/nautilus_training_throughput_benchmark.py', 'scripts/nautilus_training_throughput_benchmark.py'),
+              ),
+              Path('tests/test_nautilus_training_throughput_benchmark.py'): (
+                  ('tools.nautilus_training_throughput_benchmark', 'scripts.nautilus_training_throughput_benchmark'),
+              ),
+              Path('docs/NAUTILUS_MIGRATION.md'): (
+                  ('tools/nautilus_training_throughput_benchmark.py', 'scripts/nautilus_training_throughput_benchmark.py'),
+              ),
+              Path('tests/test_architecture_contract.py'): (
+                  ('assert package_find["where"] == ["src"]', 'assert package_find["where"] == ["."]'),
+              ),
+              Path('tests/test_current_documentation_contract.py'): (
+                  ('PYTHON_SOURCE_ROOT = ROOT / "src" / "trade_rl"', 'PYTHON_SOURCE_ROOT = ROOT / "trade_rl"'),
+              ),
+              Path('tests/test_package_toolchain_identity.py'): (
+                  ('package_root = root / "src" / "trade_rl"', 'package_root = root / "trade_rl"'),
+              ),
+              Path('tests/workflows/test_walk_forward_manifest_provenance.py'): (
+                  ('package_root = root / "src" / "trade_rl"', 'package_root = root / "trade_rl"'),
+              ),
+          }
+          for path, pairs in replacements.items():
+              text = path.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  if old not in text:
+                      raise SystemExit(f'missing expected text in {path}: {old}')
+                  text = text.replace(old, new)
+              path.write_text(text, encoding='utf-8')
+          PY
+
+          git add .github/workflows/nautilus-capability.yml \
+            trade_rl/workflows/stage_a_execution_producer.py \
+            tests/test_nautilus_training_throughput_benchmark.py \
+            docs/NAUTILUS_MIGRATION.md \
+            tests/test_architecture_contract.py \
+            tests/test_current_documentation_contract.py \
+            tests/test_package_toolchain_identity.py \
+            tests/workflows/test_walk_forward_manifest_provenance.py
+
+          test -z "$(git diff --name-only --diff-filter=U)"
+          test -d frontend
+          test -d trade_rl
+          test ! -d studio
+          test ! -d src/trade_rl
+          if git grep -n -E 'tools/(nautilus_execution_probe_digest|nautilus_training_throughput_benchmark|run_training_capability_audit)\.py|tools\.nautilus_training_throughput_benchmark' -- ':!docs/implementation/**'; then
+            echo 'stale moved-script reference found' >&2
+            exit 1
+          fi
+      - name: Install integration dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio --extra nautilus --frozen
+      - name: Run focused layout and migration verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            tests/test_architecture_contract.py \
+            tests/test_current_documentation_contract.py \
+            tests/test_package_toolchain_identity.py \
+            tests/workflows/test_walk_forward_manifest_provenance.py \
+            tests/test_nautilus_training_throughput_benchmark.py \
+            scripts/nautilus_training_throughput_benchmark.py \
+            trade_rl/workflows/stage_a_execution_producer.py
+          uv run pytest -q \
+            tests/architecture/test_repository_layout.py \
+            tests/architecture/test_source_checkout.py \
+            tests/test_architecture_contract.py \
+            tests/test_current_documentation_contract.py \
+            tests/test_package_toolchain_identity.py \
+            tests/workflows/test_walk_forward_manifest_provenance.py \
+            tests/test_nautilus_training_throughput_benchmark.py
+      - name: Commit integrated tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/layout-consolidation-diagnostic.yml
+          git add -A
+          git commit -m "refactor: consolidate repository root layout"
+          git push origin HEAD:integration/layout-consolidation

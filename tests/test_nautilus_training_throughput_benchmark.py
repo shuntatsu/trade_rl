@@ -9,6 +9,7 @@ import pytest
 import tools.nautilus_training_throughput_benchmark as benchmark
 from tools.nautilus_training_throughput_benchmark import (
     _DEFAULT_TIMESTEPS,
+    _benchmark_dataset_source_contract,
     _benchmark_source_digest,
     _load_worker_benchmark_dataset,
     _normalize_timesteps,
@@ -93,6 +94,26 @@ def test_normalize_timesteps_rejects_bool_values_explicitly() -> None:
         _normalize_timesteps(True)
     with pytest.raises(TypeError, match="timesteps must contain integers"):
         _normalize_timesteps([8, True])
+
+
+def test_benchmark_dataset_source_contract_preserves_synthetic_fixture() -> None:
+    dataset_kind, dataset_contract = _benchmark_dataset_source_contract(None)
+
+    assert dataset_kind == "deterministic_synthetic_btcusdt"
+    assert dataset_contract["dataset_id"] == "7" * 64
+    assert dataset_contract["symbol"] == "BTCUSDT"
+
+
+def test_benchmark_dataset_source_contract_uses_persisted_artifact_identity() -> None:
+    digest = "a" * 64
+
+    dataset_kind, dataset_contract = _benchmark_dataset_source_contract(digest)
+
+    assert dataset_kind == "persisted_market_dataset_artifact"
+    assert dataset_contract == {
+        "artifact_digest": digest,
+        "symbol": "BTCUSDT",
+    }
 
 
 def test_benchmark_source_digest_binds_persisted_dataset_identity() -> None:
@@ -216,6 +237,8 @@ def test_run_benchmark_binds_persisted_source_to_workers_and_evidence(
         dataset_source_digest=published.artifact_digest,
     )
     assert evidence["performance_approved"] is False
+    assert "persisted-dataset evidence" in evidence["approval_note"]
+    assert "CI evidence" not in evidence["approval_note"]
     assert calls == [
         ("legacy", root.resolve()),
         ("streaming", root.resolve()),

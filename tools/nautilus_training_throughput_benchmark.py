@@ -552,15 +552,20 @@ def _run_worker_from_args(args: argparse.Namespace) -> None:
     args.worker_output.write_text(rendered, encoding="utf-8")
 
 
-def main() -> None:
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--timesteps", type=int, action="append")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--dataset-artifact", type=Path)
     parser.add_argument("--worker-mode", choices=("legacy", "streaming"))
     parser.add_argument("--worker-timesteps", type=int)
     parser.add_argument("--worker-output", type=Path)
     parser.add_argument("--worker-dataset-artifact", type=Path)
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main() -> None:
+    args = _parse_args()
 
     if args.worker_mode is not None:
         _run_worker_from_args(args)
@@ -569,7 +574,10 @@ def main() -> None:
     requested_timesteps = (
         _DEFAULT_TIMESTEPS if args.timesteps is None else tuple(args.timesteps)
     )
-    evidence = run_benchmark(timesteps=requested_timesteps)
+    evidence = run_benchmark(
+        timesteps=requested_timesteps,
+        dataset_artifact=args.dataset_artifact,
+    )
     rendered = json.dumps(evidence, sort_keys=True, indent=2) + "\n"
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)

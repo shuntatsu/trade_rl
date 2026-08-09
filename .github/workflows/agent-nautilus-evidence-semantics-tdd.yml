@@ -8,21 +8,121 @@ on:
       - .github/workflows/agent-nautilus-evidence-semantics-tdd.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  red:
+  green:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: agent/lgpl-nautilus-migration
+          fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: '3.12'
       - name: Install project dependencies
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
-      - name: Verify evidence semantics RED
-        run: uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py
+      - name: Fix persisted evidence semantics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/nautilus_training_throughput_benchmark.py")
+          text = path.read_text(encoding="utf-8")
+
+          benchmark_start = text.index("def _benchmark_source_digest(\n")
+          helper = '''def _benchmark_dataset_source_contract(
+              dataset_source_digest: str | None,
+          ) -> tuple[_DatasetKind, dict[str, Any]]:
+              if dataset_source_digest is None:
+                  return (
+                      "deterministic_synthetic_btcusdt",
+                      {
+                          "close_end": 101.0,
+                          "close_start": 100.0,
+                          "dataset_id": "7" * 64,
+                          "feature_names": ("ret",),
+                          "global_feature_names": ("regime",),
+                          "interval": "1h",
+                          "n_bars_rule": "max(80,timesteps+32)",
+                          "periods_per_year": 8_760,
+                          "quote_volume": 1_000_000.0,
+                          "start": "2026-01-01T00:00:00",
+                          "symbol": "BTCUSDT",
+                      },
+                  )
+              return (
+                  "persisted_market_dataset_artifact",
+                  {
+                      "artifact_digest": _validated_dataset_source_digest(
+                          dataset_source_digest
+                      ),
+                      "symbol": "BTCUSDT",
+                  },
+              )
+
+
+          '''
+          text = text[:benchmark_start] + helper + text[benchmark_start:]
+
+          benchmark_start = text.index("def _benchmark_source_digest(\n")
+          return_start = text.index("    return content_digest(\n", benchmark_start)
+          environment_anchor = text.index('            "environment": {\n', return_start)
+          replacement = '''    dataset_kind, dataset_contract = _benchmark_dataset_source_contract(
+              dataset_source_digest
+          )
+              return content_digest(
+                  {
+                      "algorithm": "ppo",
+                      "dataset": dataset_contract,
+                      "dataset_kind": dataset_kind,
+          '''
+          text = text[:return_start] + replacement + text[environment_anchor:]
+
+          old_note = '''        approval_note=(
+                      "Observational isolated-process CI evidence only. Process-tree RSS is "
+                      "sampled from Linux /proc at 50 ms intervals; no reviewed production "
+                      "promotion threshold is bound to this evidence."
+                  ),
+          '''
+          new_note = '''        approval_note=(
+                      (
+                          "Observational isolated-process CI evidence only. "
+                          if source.dataset_kind == "deterministic_synthetic_btcusdt"
+                          else "Observational isolated-process persisted-dataset evidence only. "
+                      )
+                      + "Process-tree RSS is sampled from Linux /proc at 50 ms intervals; "
+                      "no reviewed production promotion threshold is bound to this evidence."
+                  ),
+          '''
+          if old_note not in text:
+              raise SystemExit("expected approval note block not found")
+          text = text.replace(old_note, new_note, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Normalize changed Python files
+        run: |
+          uv run ruff check --fix tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+          uv run ruff format tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Verify focused evidence semantics
+        run: uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py tests/simulation/test_runtime_performance.py tests/simulation/test_runtime_performance_artifact_identity.py
+      - name: Verify targeted mypy
+        run: uv run mypy tools/nautilus_training_throughput_benchmark.py
+      - name: Verify targeted Ruff
+        run: uv run ruff check tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Verify targeted format
+        run: uv run ruff format --check --diff tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Commit semantics fix and remove temporary workflow
+        run: |
+          rm .github/workflows/agent-nautilus-evidence-semantics-tdd.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py .github/workflows/agent-nautilus-evidence-semantics-tdd.yml
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "fix: distinguish persisted benchmark evidence"
+          git push origin HEAD:agent/lgpl-nautilus-migration

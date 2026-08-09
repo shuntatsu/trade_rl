@@ -29,6 +29,12 @@ jobs:
           echo "merge_status=$status"
           echo "--- unmerged paths ---"
           git diff --name-only --diff-filter=U || true
+          for path in .github/workflows/nautilus-capability.yml trade_rl/workflows/stage_a_execution_producer.py; do
+            echo "===== $path : OURS vs THEIRS ====="
+            git diff --no-index <(git show ":2:$path") <(git show ":3:$path") || true
+          done
+          echo "===== benchmark current-main source ====="
+          git show HEAD:tools/nautilus_training_throughput_benchmark.py | sed -n '1,260p'
           echo "--- status ---"
           git status --short
           git merge --abort || true

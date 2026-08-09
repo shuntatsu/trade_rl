@@ -93,7 +93,7 @@ jobs:
           test -d trade_rl
           test ! -d studio
           test ! -d src/trade_rl
-          if git grep -n -E 'tools/(nautilus_execution_probe_digest|nautilus_training_throughput_benchmark|run_training_capability_audit)\.py|tools\.nautilus_training_throughput_benchmark' -- ':!docs/implementation/**'; then
+          if git grep -n -E 'tools/(nautilus_execution_probe_digest|nautilus_training_throughput_benchmark|run_training_capability_audit)\.py|tools\.nautilus_training_throughput_benchmark' -- ':!docs/implementation/**' ':!.github/workflows/layout-consolidation-diagnostic.yml'; then
             echo 'stale moved-script reference found' >&2
             exit 1
           fi

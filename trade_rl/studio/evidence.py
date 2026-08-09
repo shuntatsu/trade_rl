@@ -12,9 +12,11 @@ from trade_rl.artifacts.run_manifest import (
     validate_training_run_directory,
 )
 from trade_rl.release.selection_authorization import (
+    SelectionProposal,
     load_selection_authorization,
     load_selection_proposal,
 )
+from trade_rl.simulation.runtime_promotion import load_execution_promotion_report
 from trade_rl.studio.contracts import EvidenceNode, EvidenceReport, FileIntegritySummary
 
 
@@ -90,7 +92,7 @@ def _selection_nodes(
     manifest: TrainingRunManifest | None,
     *,
     required: bool,
-) -> tuple[EvidenceNode, EvidenceNode, bool]:
+) -> tuple[EvidenceNode, EvidenceNode, SelectionProposal | None, bool]:
     proposal_path = root / "selection-proposal.json"
     authorization_path = root / "selection-authorization.json"
     if not proposal_path.is_file():
@@ -187,8 +189,86 @@ def _selection_nodes(
     return (
         proposal_node,
         authorization_node,
+        proposal,
         proposal is not None and authorization_valid,
     )
+
+
+def _runtime_promotion_node(
+    root: Path,
+    proposal: SelectionProposal | None,
+    *,
+    selected_final: bool,
+) -> EvidenceNode:
+    report_path = root / "runtime-promotion-report.json"
+    report_present = report_path.is_file()
+    expected_digest = (
+        None if proposal is None else proposal.runtime_promotion_report_digest
+    )
+    required = selected_final and (expected_digest is not None or report_present)
+
+    if proposal is None:
+        return EvidenceNode(
+            key="runtime_promotion",
+            label="Runtime promotion evidence",
+            status="INVALID" if required else "ABSENT",
+            required=required,
+            path=report_path.name if report_present else None,
+            detail=(
+                "runtime promotion sidecar is present without a verified selection proposal"
+                if report_present
+                else "optional runtime promotion evidence is absent"
+            ),
+        )
+
+    if expected_digest is None:
+        return EvidenceNode(
+            key="runtime_promotion",
+            label="Runtime promotion evidence",
+            status="INVALID" if report_present else "ABSENT",
+            required=required,
+            path=report_path.name if report_present else None,
+            detail=(
+                "selection proposal does not authorize runtime promotion evidence"
+                if report_present
+                else "optional runtime promotion evidence is absent"
+            ),
+        )
+
+    if not report_present:
+        return EvidenceNode(
+            key="runtime_promotion",
+            label="Runtime promotion evidence",
+            status="INVALID",
+            required=True,
+            digest=expected_digest,
+            detail="required runtime promotion evidence is missing",
+        )
+
+    try:
+        report = load_execution_promotion_report(report_path)
+        proposal.require_runtime_promotion_report_digest(report.digest)
+        if not report.decision.allowed:
+            raise ValueError("execution promotion is not allowed")
+        return EvidenceNode(
+            key="runtime_promotion",
+            label="Runtime promotion evidence",
+            status="VERIFIED",
+            required=True,
+            digest=report.digest,
+            path=report_path.name,
+            detail="promotion evidence binding verified; execution authority remains external",
+        )
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+        return EvidenceNode(
+            key="runtime_promotion",
+            label="Runtime promotion evidence",
+            status="INVALID",
+            required=True,
+            digest=expected_digest,
+            path=report_path.name,
+            detail=str(error),
+        )
 
 
 def inspect_run_evidence(root: Path, *, run_resource_id: str) -> EvidenceReport:
@@ -213,10 +293,15 @@ def inspect_run_evidence(root: Path, *, run_resource_id: str) -> EvidenceReport:
     selected_final = run_kind == "research_selected_final"
     declared = _declared_files(raw)
 
-    proposal_node, authorization_node, selection_valid = _selection_nodes(
+    proposal_node, authorization_node, proposal, selection_valid = _selection_nodes(
         root,
         manifest,
         required=selected_final,
+    )
+    runtime_promotion_node = _runtime_promotion_node(
+        root,
+        proposal,
+        selected_final=selected_final,
     )
     walk_digest = None if manifest is None else manifest.walk_forward_run_digest
     gate_digest = None if manifest is None else manifest.gate_evidence_digest
@@ -269,6 +354,7 @@ def inspect_run_evidence(root: Path, *, run_resource_id: str) -> EvidenceReport:
         ),
         proposal_node,
         authorization_node,
+        runtime_promotion_node,
         EvidenceNode(
             key="walk_forward",
             label="Walk-forward evidence",

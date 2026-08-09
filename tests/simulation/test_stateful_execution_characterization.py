@@ -21,7 +21,7 @@ from trade_rl.simulation.orders import (
 )
 
 _EXPECTED_BASELINE_SHA256 = (
-    "3f88b8802db74a7a4fe2f81d8c822dff2d85caee9c798deac6d96d76948d4e74"
+    "ad16d97eaf5e1e6bb3f87fa7c91ba630ed5f6e04b5a3ecc5ef0902f3867ecddf"
 )
 
 
@@ -214,6 +214,12 @@ def test_stateful_execution_matches_pre_refactor_mixed_order_baseline() -> None:
         "filled",
         "partial_fill",
         "no_fill",
+    ]
+    assert [
+        event.reason for event in result.order_events if event.event_type == "filled"
+    ] == [
+        "filled",
+        "filled",
     ]
     assert len(result.capacity_evidence) == 3
     assert result.requested_notional == pytest.approx(500.0)

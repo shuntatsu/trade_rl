@@ -298,6 +298,7 @@ class StatefulSymbolFillProcessor:
                         None if trigger.segment is None else trigger.segment.value
                     ),
                     available_volume_fraction=(trigger.available_volume_fraction),
+                    reason=updated.terminal_reason,
                     path=order_path,
                 )
                 runtime.total_cost += cost_amount

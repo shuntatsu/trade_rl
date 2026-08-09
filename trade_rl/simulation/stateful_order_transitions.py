@@ -97,16 +97,29 @@ class StatefulOrderTransitionProcessor:
                 reference_prices=context.open_prices,
             )
             if not decision.accepted:
-                updated = order.reject(
-                    processing_index=processing_index,
-                    reason=decision.reason or "admission_rejected",
-                )
+                reason = decision.reason or "admission_rejected"
+                if order.status in {
+                    OrderStatus.TRIGGERED,
+                    OrderStatus.PARTIALLY_FILLED,
+                }:
+                    updated = order.expire(
+                        processing_index=processing_index,
+                        reason=reason,
+                    )
+                    runtime.expired_count += 1
+                    event_type = "expired"
+                else:
+                    updated = order.reject(
+                        processing_index=processing_index,
+                        reason=reason,
+                    )
+                    runtime.rejected_count += 1
+                    event_type = "rejected"
                 runtime.order_book = runtime.order_book.replace(updated)
-                runtime.rejected_count += 1
                 runtime.append_event(
                     previous=order,
                     updated=updated,
-                    event_type="rejected",
+                    event_type=event_type,
                     processing_index=processing_index,
                     reason=updated.terminal_reason,
                 )

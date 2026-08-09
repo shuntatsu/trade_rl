@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-ENVIRONMENT = ROOT / "trade_rl" / "rl" / "environment.py"
-RUNTIME_SERVICES = ROOT / "trade_rl" / "rl" / "environment_runtime_services.py"
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
+
+ENVIRONMENT = PYTHON_SOURCE_ROOT / "rl" / "environment.py"
+RUNTIME_SERVICES = PYTHON_SOURCE_ROOT / "rl" / "environment_runtime_services.py"
 SERVICE_PATHS = (
-    ROOT / "trade_rl" / "rl" / "environment_decision.py",
-    ROOT / "trade_rl" / "rl" / "environment_risk.py",
-    ROOT / "trade_rl" / "rl" / "environment_reward.py",
-    ROOT / "trade_rl" / "rl" / "environment_info.py",
+    PYTHON_SOURCE_ROOT / "rl" / "environment_decision.py",
+    PYTHON_SOURCE_ROOT / "rl" / "environment_risk.py",
+    PYTHON_SOURCE_ROOT / "rl" / "environment_reward.py",
+    PYTHON_SOURCE_ROOT / "rl" / "environment_info.py",
 )
 SERVICE_ATTRIBUTES = (
     ("EnvironmentDecisionPlanner", "self._decision_planner"),
@@ -25,7 +26,7 @@ def _source(path: Path) -> str:
 
 def test_environment_step_services_have_dedicated_modules() -> None:
     missing = [
-        path.relative_to(ROOT).as_posix()
+        path.relative_to(REPOSITORY_ROOT).as_posix()
         for path in SERVICE_PATHS
         if not path.is_file()
     ]

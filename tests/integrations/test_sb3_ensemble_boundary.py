@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
+
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 
 
 def _tree(path: str) -> ast.Module:
-    return ast.parse(Path(path).read_text(encoding="utf-8"))
+    return ast.parse((PYTHON_SOURCE_ROOT / path).read_text(encoding="utf-8"))
 
 
 def _imports(tree: ast.AST) -> dict[str, str]:
@@ -54,8 +55,8 @@ def _numpy_aggregation_calls(tree: ast.AST) -> set[str]:
 
 
 def test_serving_and_walk_forward_share_ensemble_aggregation() -> None:
-    serving = _tree("trade_rl/integrations/sb3_serving.py")
-    walk_forward = _tree("trade_rl/workflows/_market_walk_forward_core.py")
+    serving = _tree("integrations/sb3_serving.py")
+    walk_forward = _tree("workflows/_market_walk_forward_core.py")
 
     expected = "trade_rl.integrations.sb3_ensemble.predict_deterministic_mean_action"
     assert _imports(serving)["predict_deterministic_mean_action"] == expected
@@ -71,8 +72,8 @@ def test_serving_and_walk_forward_share_ensemble_aggregation() -> None:
 
 
 def test_wrapper_predict_methods_do_not_reimplement_numpy_mean_aggregation() -> None:
-    serving = _tree("trade_rl/integrations/sb3_serving.py")
-    walk_forward = _tree("trade_rl/workflows/_market_walk_forward_core.py")
+    serving = _tree("integrations/sb3_serving.py")
+    walk_forward = _tree("workflows/_market_walk_forward_core.py")
     wrappers = (
         _class_method(serving, "_SB3EnsemblePolicy", "predict"),
         _class_method(serving, "_SB3StructuredSequenceEnsemblePolicy", "predict"),
@@ -84,7 +85,7 @@ def test_wrapper_predict_methods_do_not_reimplement_numpy_mean_aggregation() -> 
 
 
 def test_ensemble_helper_does_not_depend_on_serving_or_workflows() -> None:
-    tree = _tree("trade_rl/integrations/sb3_ensemble.py")
+    tree = _tree("integrations/sb3_ensemble.py")
     modules = {
         node.module
         for node in ast.walk(tree)

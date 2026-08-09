@@ -94,7 +94,7 @@ This removes the previous prefix-replay work-growth pattern from the RL observer
 The parent benchmark can now measure the same isolated legacy-versus-streaming training path against an already-published canonical market dataset artifact:
 
 ```bash
-uv run python tools/nautilus_training_throughput_benchmark.py \
+uv run python scripts/nautilus_training_throughput_benchmark.py \
   --dataset-artifact /path/to/published-market-dataset \
   --timesteps 8 \
   --timesteps 32 \

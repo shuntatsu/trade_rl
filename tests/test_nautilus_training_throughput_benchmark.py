@@ -6,8 +6,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import tools.nautilus_training_throughput_benchmark as benchmark
-from tools.nautilus_training_throughput_benchmark import (
+import scripts.nautilus_training_throughput_benchmark as benchmark
+from scripts.nautilus_training_throughput_benchmark import (
     _DEFAULT_TIMESTEPS,
     _benchmark_dataset_source_contract,
     _benchmark_source_digest,

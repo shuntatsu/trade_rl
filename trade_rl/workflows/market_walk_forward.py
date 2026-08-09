@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import trade_rl.workflows._market_walk_forward_core as _core
+from trade_rl._source_checkout import source_checkout_root
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.provenance import capture_runtime_provenance
 from trade_rl.artifacts.run_manifest import (
@@ -89,7 +90,7 @@ def execute_market_walk_forward(
     config = replace(config, signal_digest=resolved_signal)
     config_digest = content_digest(config.digest_payload())
     provenance = capture_runtime_provenance(
-        Path(__file__).resolve().parents[2],
+        source_checkout_root(),
         git_commit=config.candidates[0].run.git_commit,
         git_dirty=config.candidates[0].run.git_dirty,
         deterministic_seed_config={

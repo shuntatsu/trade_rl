@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from test_support.training_config import complete_execution_config
+from tests.support.training_config import complete_execution_config
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
 from trade_rl.simulation.execution_promotion import load_execution_evidence

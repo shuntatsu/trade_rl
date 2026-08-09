@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 
+from trade_rl._source_checkout import source_checkout_root
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.provenance import capture_runtime_provenance
@@ -419,7 +420,7 @@ def normalize_training_run_config(config: TrainingRunConfig) -> TrainingRunConfi
 
 
 def _lockfile_digest() -> str:
-    path = Path(__file__).resolve().parents[2] / "uv.lock"
+    path = source_checkout_root() / "uv.lock"
     if not path.is_file():
         raise ValueError("selected final training requires uv.lock")
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -624,7 +625,7 @@ def execute_training_run(
         )
         training_config_digest = content_digest(config.digest_payload())
         provenance = capture_runtime_provenance(
-            Path(__file__).resolve().parents[2],
+            source_checkout_root(),
             git_commit=config.git_commit,
             git_dirty=config.git_dirty,
             deterministic_seed_config={

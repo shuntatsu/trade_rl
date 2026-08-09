@@ -6,7 +6,7 @@ from threading import Barrier, Thread
 
 import pytest
 
-from test_support.training_config import complete_execution_config
+from tests.support.training_config import complete_execution_config
 from trade_rl.rl.checkpointing import (
     CHECKPOINT_MANIFEST_NAME,
     load_checkpoint_manifest,

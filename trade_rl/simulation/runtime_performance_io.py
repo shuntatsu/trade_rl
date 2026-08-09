@@ -11,6 +11,7 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.simulation.runtime_performance import (
     RuntimePerformanceApprovalPolicy,
     RuntimePerformanceEvidence,
+    approve_runtime_performance_evidence,
 )
 
 
@@ -126,9 +127,30 @@ def load_runtime_performance_policy(
     return policy
 
 
+def materialize_runtime_performance_approval(
+    *,
+    evidence_path: str | Path,
+    policy_path: str | Path,
+    output_path: str | Path,
+    approval_note: str,
+) -> RuntimePerformanceEvidence:
+    """Approve retained observational evidence and persist the revalidated result."""
+
+    evidence = load_runtime_performance_evidence(evidence_path)
+    policy = load_runtime_performance_policy(policy_path)
+    approved = approve_runtime_performance_evidence(
+        evidence=evidence,
+        policy=policy,
+        approval_note=approval_note,
+    )
+    target = write_runtime_performance_evidence(output_path, approved)
+    return load_runtime_performance_evidence(target)
+
+
 __all__ = [
     "load_runtime_performance_evidence",
     "load_runtime_performance_policy",
+    "materialize_runtime_performance_approval",
     "write_runtime_performance_evidence",
     "write_runtime_performance_policy",
 ]

@@ -7,13 +7,16 @@ import pytest
 
 from trade_rl.release.selection_authorization import SelectionProposal
 from trade_rl.simulation.runtime_performance import (
+    RuntimePerformanceApprovalPolicy,
     RuntimePerformanceEvidence,
     RuntimePerformanceMeasurement,
     RuntimePerformanceWorkload,
 )
 from trade_rl.simulation.runtime_performance_io import (
     load_runtime_performance_evidence,
+    load_runtime_performance_policy,
     write_runtime_performance_evidence,
+    write_runtime_performance_policy,
 )
 from trade_rl.simulation.runtime_promotion import (
     ExecutionPromotionEvidence,
@@ -25,6 +28,19 @@ from trade_rl.workflows.training_runtime_promotion import (
     RUNTIME_PERFORMANCE_EVIDENCE_NAME,
     stage_training_runtime_promotion,
 )
+
+RUNTIME_PERFORMANCE_POLICY_NAME = "runtime-performance-policy.json"
+
+
+def _performance_policy() -> RuntimePerformanceApprovalPolicy:
+    return RuntimePerformanceApprovalPolicy(
+        max_elapsed_slowdown_ratio=3.75,
+        max_peak_process_tree_rss_ratio=1.6,
+        minimum_workloads=1,
+        minimum_max_timesteps=8,
+        reviewed=True,
+        review_reference="test-reviewed-policy",
+    )
 
 
 def _performance_evidence() -> RuntimePerformanceEvidence:
@@ -60,7 +76,7 @@ def _performance_evidence() -> RuntimePerformanceEvidence:
             ),
         ),
         performance_approved=True,
-        approval_policy_digest="b" * 64,
+        approval_policy_digest=_performance_policy().digest,
         approval_note="Reviewed test policy.",
     )
 
@@ -102,9 +118,14 @@ def test_matching_performance_artifact_is_staged_content_addressed(
     tmp_path: Path,
 ) -> None:
     performance = _performance_evidence()
+    policy = _performance_policy()
     write_runtime_performance_evidence(
         tmp_path / RUNTIME_PERFORMANCE_EVIDENCE_NAME,
         performance,
+    )
+    write_runtime_performance_policy(
+        tmp_path / RUNTIME_PERFORMANCE_POLICY_NAME,
+        policy,
     )
     report = _report(performance_evidence_digest=performance.digest)
     report_path = write_execution_promotion_report(
@@ -125,6 +146,61 @@ def test_matching_performance_artifact_is_staged_content_addressed(
         load_runtime_performance_evidence(stage / RUNTIME_PERFORMANCE_EVIDENCE_NAME)
         == performance
     )
+    assert load_runtime_performance_policy(
+        stage / RUNTIME_PERFORMANCE_POLICY_NAME
+    ) == policy
+
+
+def test_approved_performance_artifact_requires_retained_policy(tmp_path: Path) -> None:
+    performance = _performance_evidence()
+    write_runtime_performance_evidence(
+        tmp_path / RUNTIME_PERFORMANCE_EVIDENCE_NAME,
+        performance,
+    )
+    report = _report(performance_evidence_digest=performance.digest)
+    report_path = write_execution_promotion_report(
+        tmp_path / "runtime-promotion-report.json",
+        report,
+    )
+    stage = tmp_path / "stage"
+    stage.mkdir()
+
+    with pytest.raises(FileNotFoundError, match="runtime performance policy is missing"):
+        stage_training_runtime_promotion(
+            proposal=_proposal(report_digest=report.digest),
+            report_path=report_path,
+            stage=stage,
+        )
+
+
+def test_performance_policy_digest_mismatch_is_rejected(tmp_path: Path) -> None:
+    performance = _performance_evidence()
+    mismatched_policy = replace(
+        _performance_policy(),
+        max_elapsed_slowdown_ratio=4.0,
+    )
+    write_runtime_performance_evidence(
+        tmp_path / RUNTIME_PERFORMANCE_EVIDENCE_NAME,
+        performance,
+    )
+    write_runtime_performance_policy(
+        tmp_path / RUNTIME_PERFORMANCE_POLICY_NAME,
+        mismatched_policy,
+    )
+    report = _report(performance_evidence_digest=performance.digest)
+    report_path = write_execution_promotion_report(
+        tmp_path / "runtime-promotion-report.json",
+        report,
+    )
+    stage = tmp_path / "stage"
+    stage.mkdir()
+
+    with pytest.raises(ValueError, match="runtime performance policy digest mismatch"):
+        stage_training_runtime_promotion(
+            proposal=_proposal(report_digest=report.digest),
+            report_path=report_path,
+            stage=stage,
+        )
 
 
 def test_performance_artifact_digest_mismatch_is_rejected(tmp_path: Path) -> None:

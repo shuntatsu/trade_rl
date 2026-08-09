@@ -35,7 +35,7 @@ RUNTIME_PERFORMANCE_POLICY_NAME = "runtime-performance-policy.json"
 def _performance_policy() -> RuntimePerformanceApprovalPolicy:
     return RuntimePerformanceApprovalPolicy(
         max_elapsed_slowdown_ratio=3.75,
-        max_peak_process_tree_rss_ratio=1.6,
+        max_peak_process_tree_rss_ratio=2.1,
         minimum_workloads=1,
         minimum_max_timesteps=8,
         reviewed=True,
@@ -146,9 +146,10 @@ def test_matching_performance_artifact_is_staged_content_addressed(
         load_runtime_performance_evidence(stage / RUNTIME_PERFORMANCE_EVIDENCE_NAME)
         == performance
     )
-    assert load_runtime_performance_policy(
-        stage / RUNTIME_PERFORMANCE_POLICY_NAME
-    ) == policy
+    assert (
+        load_runtime_performance_policy(stage / RUNTIME_PERFORMANCE_POLICY_NAME)
+        == policy
+    )
 
 
 def test_approved_performance_artifact_requires_retained_policy(tmp_path: Path) -> None:
@@ -165,7 +166,9 @@ def test_approved_performance_artifact_requires_retained_policy(tmp_path: Path) 
     stage = tmp_path / "stage"
     stage.mkdir()
 
-    with pytest.raises(FileNotFoundError, match="runtime performance policy is missing"):
+    with pytest.raises(
+        FileNotFoundError, match="runtime performance policy is missing"
+    ):
         stage_training_runtime_promotion(
             proposal=_proposal(report_digest=report.digest),
             report_path=report_path,
@@ -196,6 +199,41 @@ def test_performance_policy_digest_mismatch_is_rejected(tmp_path: Path) -> None:
     stage.mkdir()
 
     with pytest.raises(ValueError, match="runtime performance policy digest mismatch"):
+        stage_training_runtime_promotion(
+            proposal=_proposal(report_digest=report.digest),
+            report_path=report_path,
+            stage=stage,
+        )
+
+
+def test_performance_policy_must_actually_approve_evidence(tmp_path: Path) -> None:
+    failing_policy = replace(
+        _performance_policy(),
+        max_peak_process_tree_rss_ratio=1.9,
+    )
+    performance = replace(
+        _performance_evidence(),
+        approval_policy_digest=failing_policy.digest,
+    )
+    write_runtime_performance_evidence(
+        tmp_path / RUNTIME_PERFORMANCE_EVIDENCE_NAME,
+        performance,
+    )
+    write_runtime_performance_policy(
+        tmp_path / RUNTIME_PERFORMANCE_POLICY_NAME,
+        failing_policy,
+    )
+    report = _report(performance_evidence_digest=performance.digest)
+    report_path = write_execution_promotion_report(
+        tmp_path / "runtime-promotion-report.json",
+        report,
+    )
+    stage = tmp_path / "stage"
+    stage.mkdir()
+
+    with pytest.raises(
+        ValueError, match="runtime performance policy does not approve evidence"
+    ):
         stage_training_runtime_promotion(
             proposal=_proposal(report_digest=report.digest),
             report_path=report_path,

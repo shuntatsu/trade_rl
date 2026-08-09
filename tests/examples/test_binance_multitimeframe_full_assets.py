@@ -36,7 +36,7 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.batch_size == 256
     assert config.training.behavior_cloning_epochs == 30
     assert config.training.behavior_cloning_teacher == "oracle"
-    assert config.training.behavior_cloning_seed == 0
+    assert config.training.behavior_cloning_seed == 1
     assert config.training.behavior_cloning_learning_rate == pytest.approx(1e-4)
     assert config.training.behavior_cloning_composed_loss_weight == pytest.approx(4.0)
     assert config.training.behavior_cloning_gate_loss_weight == pytest.approx(4.0)
@@ -54,7 +54,10 @@ def test_full_training_config_is_not_a_smoke_run() -> None:
     assert config.training.decision_hours == 0.25
     assert config.environment.decision_hours == 0.25
     assert config.reward.projection_penalty_weight == 0.0
-    assert config.risk.max_turnover is None
+    assert config.risk.max_turnover == pytest.approx(
+        config.environment.decision_hours / 24.0
+    )
+    assert config.training.behavior_cloning_gate_change_threshold == pytest.approx(0.05)
     assert config.environment.episode_hours >= 720.0
     assert not config.action.risk_tilt_enabled
     assert config.action.mode.value == "target_weight"
@@ -166,7 +169,11 @@ def test_full_walk_forward_config_has_six_material_folds() -> None:
         ("4h", 120),
         ("1d", 60),
     )
-    assert oracle.risk.max_turnover is None
+    assert oracle.training.behavior_cloning_seed == 1
+    assert oracle.risk.max_turnover == pytest.approx(
+        oracle.environment.decision_hours / 24.0
+    )
+    assert oracle.training.behavior_cloning_gate_change_threshold == pytest.approx(0.05)
     assert not oracle.action.risk_tilt_enabled
     assert oracle.action.mode.value == "target_weight"
     assert oracle.action.residual_scale == pytest.approx(1.0)

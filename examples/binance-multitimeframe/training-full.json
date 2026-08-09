@@ -117,7 +117,7 @@
     "exit_threshold": 0.03,
     "max_abs_weight": 1.0,
     "max_gross": 1.0,
-    "max_turnover": null,
+    "max_turnover": 0.010416666666666666,
     "no_trade_band": 0.05
   },
   "schema_version": "training_run_config_v4",
@@ -130,7 +130,7 @@
     "behavior_cloning_gate_change_threshold": 0.05,
     "behavior_cloning_gate_loss_weight": 4.0,
     "behavior_cloning_learning_rate": 0.0001,
-    "behavior_cloning_seed": 0,
+    "behavior_cloning_seed": 1,
     "behavior_cloning_max_active_target_rmse": 1.0,
     "behavior_cloning_max_activity_ratio": 4.0,
     "behavior_cloning_max_causal_holdout_regret": 0.2,

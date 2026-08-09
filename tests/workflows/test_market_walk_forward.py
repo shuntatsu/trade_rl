@@ -8,9 +8,13 @@ import numpy as np
 import pytest
 
 from tests.support.training_config import complete_execution_config
+from trade_rl.artifacts.verified_file import file_digest
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
-from trade_rl.workflows._market_walk_forward_core import _experiment_plan_digest
+from trade_rl.workflows._market_walk_forward_core import (
+    _behavior_cloning_policy_candidate,
+    _experiment_plan_digest,
+)
 from trade_rl.workflows.market_walk_forward import execute_market_walk_forward
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 
@@ -236,6 +240,35 @@ def test_market_walk_forward_trains_selects_and_evaluates_sealed_test_once(
     assert normalizer["absolute_train_range"][0] > 0
     assert normalizer["dataset_id"] == _dataset().dataset_id
     assert (published / "run.json").is_file()
+
+
+def test_behavior_cloning_policy_is_a_verified_checkpoint_candidate(
+    tmp_path: Path,
+) -> None:
+    member_root = tmp_path / "member-000"
+    member_root.mkdir()
+    policy = member_root / "behavior-cloning-policy.zip"
+    policy.write_bytes(b"bc-policy")
+    digest = file_digest(policy)
+    (member_root / "behavior-cloning.json").write_text(
+        json.dumps(
+            {
+                "behavior_cloning_policy_digest": digest,
+                "behavior_cloning_policy_file": policy.name,
+                "behavior_cloning_seed": 0,
+                "member_seed": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    candidate = _behavior_cloning_policy_candidate(member_root, member_seed=1)
+
+    assert candidate == (1, digest, policy)
+
+    policy.write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="behavior cloning policy digest"):
+        _behavior_cloning_policy_candidate(member_root, member_seed=1)
 
 
 def _sequence_dataset() -> MarketDataset:

@@ -24,6 +24,7 @@ from trade_rl.integrations.sb3_training import (
     _oracle_solver_config,
     _resolve_behavior_cloning_seed,
     _restore_member_seed_after_behavior_cloning,
+    _save_behavior_cloning_policy_candidate,
     _teacher_worker_count,
 )
 from trade_rl.learning import OracleTeacherConfig
@@ -272,6 +273,25 @@ def test_member_seed_behavior_cloning_resets_rng_consumed_by_pretraining() -> No
     )
 
     assert observed == [2]
+
+
+def test_behavior_cloning_policy_candidate_is_saved_before_ppo(
+    tmp_path: Path,
+) -> None:
+    class Model:
+        rollout_buffer_kwargs: dict[str, object] = {}
+
+        def save(self, target: str) -> None:
+            Path(target).with_suffix(".zip").write_bytes(b"stable-bc-policy")
+
+    path, digest = _save_behavior_cloning_policy_candidate(
+        Model(),
+        output_dir=tmp_path,
+    )
+
+    assert path == tmp_path / "behavior-cloning-policy.zip"
+    assert path.read_bytes() == b"stable-bc-policy"
+    assert len(digest) == 64
 
 
 def test_build_training_environment_returns_direct_environment_for_width_one() -> None:

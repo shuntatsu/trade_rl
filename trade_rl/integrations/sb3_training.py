@@ -18,6 +18,7 @@ import numpy as np
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import file_digest
 from trade_rl.catalog.contracts import ArtifactKind
 from trade_rl.catalog.reusable_artifacts import ReusableArtifactIndex
 from trade_rl.integrations.behavior_cloning import pretrain_policy
@@ -90,6 +91,7 @@ from trade_rl.rl.algorithm_configs import (
     LagrangianPPOConfig,
     build_algorithm_config,
 )
+from trade_rl.rl.checkpointing import save_policy_without_runtime_state
 from trade_rl.rl.replay import (
     load_replay_buffer_artifact,
     verified_replay_buffer_copy,
@@ -376,6 +378,24 @@ def _resolve_behavior_cloning_seed(
 
     configured = config.behavior_cloning_seed
     return member_seed if configured is None else configured
+
+
+def _save_behavior_cloning_policy_candidate(
+    model: Any,
+    *,
+    output_dir: Path,
+) -> tuple[Path, str]:
+    """Persist the pre-PPO policy so selection can reject harmful fine-tuning."""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    save_target = output_dir / "behavior-cloning-policy"
+    save_policy_without_runtime_state(model, str(save_target))
+    policy_path = save_target.with_suffix(".zip")
+    if not policy_path.is_file():
+        raise FileNotFoundError(
+            "behavior cloning model save did not create behavior-cloning-policy.zip"
+        )
+    return policy_path, file_digest(policy_path, field="behavior cloning policy")
 
 
 def _restore_member_seed_after_behavior_cloning(
@@ -1759,11 +1779,24 @@ class StableBaselines3Backend:
                             gate_evaluation,
                         )
                         quality_passed = gate_evaluation.passed
+                    (
+                        behavior_cloning_policy_path,
+                        behavior_cloning_policy_digest,
+                    ) = _save_behavior_cloning_policy_candidate(
+                        model,
+                        output_dir=output_path.parent,
+                    )
                     cloning_payload = {
                         "artifact_digest": teacher_digest,
                         "behavior_cloning_seed": behavior_cloning_seed,
                         "member_seed": seed,
                         "behavior_cloning_digest": cloning.digest,
+                        "behavior_cloning_policy_digest": (
+                            behavior_cloning_policy_digest
+                        ),
+                        "behavior_cloning_policy_file": (
+                            behavior_cloning_policy_path.name
+                        ),
                         "behavior_cloning_gate_digest": gate_evaluation_digest,
                         "behavior_cloning_gates": (
                             None

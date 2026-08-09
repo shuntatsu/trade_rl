@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import multiprocessing
 import os
@@ -24,6 +25,7 @@ from trade_rl.artifacts.run_manifest import (
     write_walk_forward_run_manifest,
 )
 from trade_rl.artifacts.store import ArtifactStore
+from trade_rl.artifacts.verified_file import file_digest
 from trade_rl.catalog.contracts import ArtifactKind
 from trade_rl.catalog.postgres_sealed_test import (
     PostgresSealedTestReservationStore,
@@ -202,6 +204,37 @@ def _write_json(path: Path, payload: object) -> None:
     temporary = path.with_name(f".{path.name}.tmp")
     temporary.write_bytes(canonical_json_bytes(payload))
     temporary.replace(path)
+
+
+def _behavior_cloning_policy_candidate(
+    member_root: Path,
+    *,
+    member_seed: int,
+) -> tuple[int, str, Path] | None:
+    """Load and verify the pre-PPO policy candidate when a run provides one."""
+
+    policy_path = member_root / "behavior-cloning-policy.zip"
+    if not policy_path.exists():
+        return None
+    evidence_path = member_root / "behavior-cloning.json"
+    if not evidence_path.is_file():
+        raise FileNotFoundError(
+            "behavior cloning policy requires behavior-cloning.json evidence"
+        )
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("behavior cloning evidence must be a JSON object")
+    if payload.get("behavior_cloning_policy_file") != policy_path.name:
+        raise ValueError("behavior cloning policy file does not match evidence")
+    if payload.get("member_seed") != member_seed:
+        raise ValueError("behavior cloning policy member seed does not match")
+    expected_digest = payload.get("behavior_cloning_policy_digest")
+    if not isinstance(expected_digest, str) or len(expected_digest) != 64:
+        raise ValueError("behavior cloning policy digest is invalid")
+    actual_digest = file_digest(policy_path, field="behavior cloning policy")
+    if actual_digest != expected_digest:
+        raise ValueError("behavior cloning policy digest does not match evidence")
+    return member_seed, expected_digest, policy_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -739,8 +772,17 @@ class MarketCandidateTrainer(CandidateTrainer):
         scored: list[CheckpointPolicyEvaluation] = []
         for index, member in enumerate(ensemble.members):
             member_root = candidate_root / "members" / f"member-{index:03d}"
+            behavior_cloning_candidate = _behavior_cloning_policy_candidate(
+                member_root,
+                member_seed=member.seed,
+            )
             candidates = [
                 (member.seed, member.checkpoint_digest, member_root / "policy.zip"),
+                *(
+                    ()
+                    if behavior_cloning_candidate is None
+                    else (behavior_cloning_candidate,)
+                ),
                 *(
                     (checkpoint.seed, checkpoint.policy_digest, checkpoint.policy_path)
                     for checkpoint in checkpoint_manifests(member_root / "checkpoints")

@@ -32,6 +32,7 @@ from trade_rl.learning.episode_teacher_artifact import (
 from trade_rl.learning.oracle_bellman_contracts import OracleSolverConfig
 from trade_rl.learning.oracle_teacher import OracleTeacherConfig
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
+from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -70,7 +71,7 @@ def _market(n_bars: int = 512) -> MarketDataset:
     )
 
 
-def _environment() -> ResidualMarketEnv:
+def _environment(*, max_turnover: float | None = None) -> ResidualMarketEnv:
     return ResidualMarketEnv(
         _market(),
         trend_strategy=TrendStrategy(
@@ -81,6 +82,11 @@ def _environment() -> ResidualMarketEnv:
             alpha_enabled=False,
             risk_tilt_enabled=False,
             target_weight_count=1,
+        ),
+        pre_trade_risk=(
+            None
+            if max_turnover is None
+            else PreTradeRisk(PreTradeRiskConfig(max_turnover=max_turnover))
         ),
         config=ResidualMarketEnvConfig(
             initial_capital=100_000.0,
@@ -185,6 +191,40 @@ def test_episode_teacher_rollout_round_trip_preserves_boundaries(
     np.testing.assert_array_equal(loaded.decision_indices, supervised.decision_indices)
     assert loaded.episode_ids.flags.writeable is False
     assert loaded.decision_indices.flags.writeable is False
+
+
+def test_episode_teacher_labels_submitted_targets_before_risk() -> None:
+    environment = _environment(max_turnover=0.1)
+    contract = _episode_batch(environment).contracts[0]
+    raw_targets = np.asarray([[1.0], [-1.0], [1.0], [-1.0]], dtype=np.float64)
+    batch = EpisodeOracleBatch(
+        dataset_id=environment.dataset.dataset_id,
+        teacher_config_digest="d" * 64,
+        sampling_config_digest="e" * 64,
+        contracts=(contract,),
+        targets=(raw_targets,),
+    )
+
+    supervised = collect_episode_teacher_rollout(
+        environment,
+        batch,
+        teacher_config_digest=batch.teacher_config_digest,
+    )
+
+    constrained: list[np.ndarray] = []
+    replay = _environment(max_turnover=0.1)
+    replay.reset(
+        options={
+            "start_idx": contract.start,
+            "episode_bars": len(raw_targets),
+            "initial_state_mode": contract.initial_state_mode,
+        }
+    )
+    for target in raw_targets:
+        _, _, _, _, info = replay.step(target)
+        constrained.append(np.asarray(info["hybrid_risk"].weights, dtype=np.float32))
+    np.testing.assert_allclose(supervised.actions, raw_targets)
+    assert not np.allclose(supervised.actions, np.stack(constrained))
 
 
 def test_parallel_episode_teacher_rollout_matches_serial_dataset() -> None:

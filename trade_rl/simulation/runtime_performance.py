@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 
 from trade_rl.artifacts.hashing import content_digest
@@ -470,6 +470,27 @@ def assess_runtime_performance(
     )
 
 
+def approve_runtime_performance_evidence(
+    *,
+    evidence: RuntimePerformanceEvidence,
+    policy: RuntimePerformanceApprovalPolicy,
+    approval_note: str,
+) -> RuntimePerformanceEvidence:
+    """Materialize approval only after a retained reviewed policy passes exactly."""
+
+    note = _string(approval_note, field="approval_note")
+    decision = assess_runtime_performance(evidence=evidence, policy=policy)
+    if not decision.approved:
+        reasons = ",".join(decision.reasons)
+        raise ValueError(f"runtime performance policy does not approve evidence: {reasons}")
+    return replace(
+        evidence,
+        performance_approved=True,
+        approval_policy_digest=policy.digest,
+        approval_note=note,
+    )
+
+
 __all__ = [
     "RUNTIME_PERFORMANCE_EVIDENCE_SCHEMA",
     "RUNTIME_PERFORMANCE_POLICY_SCHEMA",
@@ -478,5 +499,6 @@ __all__ = [
     "RuntimePerformanceEvidence",
     "RuntimePerformanceMeasurement",
     "RuntimePerformanceWorkload",
+    "approve_runtime_performance_evidence",
     "assess_runtime_performance",
 ]

@@ -6,11 +6,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import tools.nautilus_training_throughput_benchmark as benchmark
 from tools.nautilus_training_throughput_benchmark import (
     _DEFAULT_TIMESTEPS,
     _benchmark_source_digest,
+    _load_worker_benchmark_dataset,
     _normalize_timesteps,
     _resolve_benchmark_dataset_source,
+    _worker_command,
 )
 from trade_rl.data import PublishedDatasetArtifact, publish_market_dataset_artifact
 from trade_rl.data.builder import MarketDatasetBuilder
@@ -21,6 +24,7 @@ from trade_rl.data.contracts import (
     MarketBuildConfig,
 )
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
+from trade_rl.simulation.runtime_performance import RuntimePerformanceMeasurement
 
 
 def _publish_benchmark_dataset(
@@ -60,6 +64,18 @@ def _publish_benchmark_dataset(
     )
     root = tmp_path / f"{symbol.lower()}-{n_bars}"
     return root, publish_market_dataset_artifact(root, dataset)
+
+
+def _measurement(timesteps: int) -> RuntimePerformanceMeasurement:
+    return RuntimePerformanceMeasurement(
+        timesteps=timesteps,
+        elapsed_seconds=1.0,
+        steps_per_second=float(timesteps),
+        peak_self_rss_bytes=100,
+        peak_children_rss_bytes=0,
+        peak_process_tree_rss_bytes=100,
+        peak_process_count=1,
+    )
 
 
 def test_default_timesteps_cover_broader_performance_workloads() -> None:
@@ -126,3 +142,80 @@ def test_resolve_benchmark_dataset_source_rejects_short_artifact(
 
     with pytest.raises(ValueError, match="at least 80 bars"):
         _resolve_benchmark_dataset_source(root, workloads=(8, 32))
+
+
+def test_worker_command_preserves_synthetic_default(tmp_path: Path) -> None:
+    command = _worker_command(
+        mode="legacy",
+        timesteps=8,
+        measurement_path=tmp_path / "measurement.json",
+        dataset_artifact=None,
+    )
+
+    assert "--worker-dataset-artifact" not in command
+
+
+def test_worker_command_propagates_persisted_artifact(tmp_path: Path) -> None:
+    artifact_root = (tmp_path / "artifact").resolve()
+    command = _worker_command(
+        mode="streaming",
+        timesteps=8,
+        measurement_path=tmp_path / "measurement.json",
+        dataset_artifact=artifact_root,
+    )
+
+    flag_index = command.index("--worker-dataset-artifact")
+    assert command[flag_index + 1] == str(artifact_root)
+
+
+def test_worker_dataset_loader_preserves_synthetic_fixture() -> None:
+    dataset = _load_worker_benchmark_dataset(None, timesteps=8)
+
+    assert dataset.dataset_id == "7" * 64
+    assert dataset.symbols == ("BTCUSDT",)
+    assert dataset.n_bars == 80
+
+
+def test_worker_dataset_loader_revalidates_persisted_artifact(tmp_path: Path) -> None:
+    root, _ = _publish_benchmark_dataset(tmp_path)
+
+    dataset = _load_worker_benchmark_dataset(root, timesteps=8)
+
+    assert dataset.symbols == ("BTCUSDT",)
+    assert dataset.n_bars == 96
+    assert dataset.identity_verified is True
+
+
+def test_run_benchmark_binds_persisted_source_to_workers_and_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, published = _publish_benchmark_dataset(tmp_path)
+    calls: list[tuple[str, Path | None]] = []
+
+    def fake_worker(
+        *,
+        mode: str,
+        timesteps: int,
+        root: Path,
+        dataset_artifact: Path | None,
+    ) -> RuntimePerformanceMeasurement:
+        del root
+        calls.append((mode, dataset_artifact))
+        return _measurement(timesteps)
+
+    monkeypatch.setattr(benchmark.importlib.metadata, "version", lambda _: "1.230.0")
+    monkeypatch.setattr(benchmark, "_run_worker_subprocess", fake_worker)
+
+    evidence = benchmark.run_benchmark(timesteps=(8,), dataset_artifact=root)
+
+    assert evidence["dataset_kind"] == "persisted_market_dataset_artifact"
+    assert evidence["source_digest"] == _benchmark_source_digest(
+        (8,),
+        dataset_source_digest=published.artifact_digest,
+    )
+    assert evidence["performance_approved"] is False
+    assert calls == [
+        ("legacy", root.resolve()),
+        ("streaming", root.resolve()),
+    ]

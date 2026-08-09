@@ -23,7 +23,7 @@ from trade_rl.simulation.runtime_performance import (
 )
 
 _RUNTIME_VERSION = "1.230.0"
-_DEFAULT_TIMESTEPS = (8, 32)
+_DEFAULT_TIMESTEPS = (8, 32, 128)
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _BENCHMARK_SOURCE_SCHEMA = "nautilus_training_performance_source_v1"
 _WorkerMode = Literal["legacy", "streaming"]

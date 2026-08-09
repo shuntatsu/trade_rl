@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.domain.common import require_sha256
 from trade_rl.simulation.runtime_performance import (
     RuntimePerformanceEvidence,
     RuntimePerformanceMeasurement,
@@ -47,7 +48,18 @@ def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:
     return normalized
 
 
-def _benchmark_source_digest(workloads: tuple[int, ...]) -> str:
+def _validated_dataset_source_digest(value: str) -> str:
+    try:
+        return require_sha256(value, field="dataset_source_digest")
+    except ValueError as error:
+        raise ValueError("dataset_source_digest must be a SHA-256 digest") from error
+
+
+def _benchmark_source_digest(
+    workloads: tuple[int, ...],
+    *,
+    dataset_source_digest: str | None = None,
+) -> str:
     """Bind measurements to the exact deterministic benchmark workload contract."""
 
     return content_digest(
@@ -67,6 +79,15 @@ def _benchmark_source_digest(workloads: tuple[int, ...]) -> str:
                 "symbol": "BTCUSDT",
             },
             "dataset_kind": "deterministic_synthetic_btcusdt",
+            **(
+                {
+                    "dataset_source_digest": _validated_dataset_source_digest(
+                        dataset_source_digest
+                    )
+                }
+                if dataset_source_digest is not None
+                else {}
+            ),
             "environment": {
                 "decision_every": 1,
                 "episode_bars": "timesteps",

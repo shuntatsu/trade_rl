@@ -6,6 +6,11 @@ from pathlib import Path
 import pytest
 
 from trade_rl.release.selection_authorization import SelectionProposal
+from trade_rl.simulation.runtime_performance import (
+    RuntimePerformanceEvidence,
+    RuntimePerformanceMeasurement,
+    RuntimePerformanceWorkload,
+)
 from trade_rl.simulation.runtime_promotion import (
     ExecutionPromotionEvidence,
     RuntimeMode,
@@ -32,6 +37,62 @@ def _report():
             determinism_passed=False,
             performance_approved=False,
         ),
+    )
+
+
+def _approved_performance_evidence() -> RuntimePerformanceEvidence:
+    timesteps = 8
+    legacy = RuntimePerformanceMeasurement(
+        timesteps=timesteps,
+        elapsed_seconds=4.0,
+        steps_per_second=2.0,
+        peak_self_rss_bytes=100,
+        peak_children_rss_bytes=0,
+        peak_process_tree_rss_bytes=100,
+        peak_process_count=1,
+    )
+    nautilus = RuntimePerformanceMeasurement(
+        timesteps=timesteps,
+        elapsed_seconds=4.0,
+        steps_per_second=2.0,
+        peak_self_rss_bytes=100,
+        peak_children_rss_bytes=100,
+        peak_process_tree_rss_bytes=200,
+        peak_process_count=2,
+    )
+    return RuntimePerformanceEvidence(
+        runtime_version="1.230.0",
+        platform="linux-x86_64",
+        algorithm="ppo",
+        dataset_kind="deterministic_synthetic_btcusdt",
+        source_digest="a" * 64,
+        workloads=(
+            RuntimePerformanceWorkload(
+                timesteps=timesteps,
+                legacy_authoritative=legacy,
+                nautilus_dual_shadow_streaming=nautilus,
+            ),
+        ),
+        performance_approved=True,
+        approval_policy_digest="b" * 64,
+        approval_note="Reviewed test policy.",
+    )
+
+
+def _authoritative_report(*, performance_evidence_digest: str):
+    return build_execution_promotion_report(
+        requested=RuntimeMode.NAUTILUS_AUTHORITATIVE,
+        evidence=ExecutionPromotionEvidence(
+            capability_passed=True,
+            causal_bridge_passed=True,
+            funding_passed=True,
+            terminal_flat_passed=True,
+            exact_parity_passed=True,
+            determinism_passed=True,
+            performance_approved=True,
+        ),
+        representative_evidence_digest="8" * 64,
+        performance_evidence_digest=performance_evidence_digest,
     )
 
 
@@ -152,6 +213,26 @@ def test_mismatched_runtime_promotion_report_is_rejected(tmp_path: Path) -> None
     ):
         stage_training_runtime_promotion(
             proposal=_proposal(runtime_digest="f" * 64),
+            report_path=report_path,
+            stage=stage,
+        )
+
+
+def test_authoritative_runtime_promotion_requires_persisted_performance_evidence(
+    tmp_path: Path,
+) -> None:
+    stage_training_runtime_promotion = _stage_training_runtime_promotion()
+    performance_evidence = _approved_performance_evidence()
+    report = _authoritative_report(
+        performance_evidence_digest=performance_evidence.digest,
+    )
+    report_path = write_execution_promotion_report(tmp_path / "report.json", report)
+    stage = tmp_path / "stage"
+    stage.mkdir()
+
+    with pytest.raises(FileNotFoundError, match="runtime performance evidence is missing"):
+        stage_training_runtime_promotion(
+            proposal=_proposal(runtime_digest=report.digest),
             report_path=report_path,
             stage=stage,
         )

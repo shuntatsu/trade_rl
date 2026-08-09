@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -157,7 +158,7 @@ def test_performance_approval_refuses_rebinding_already_approved_evidence() -> N
 
 
 def test_materialized_runtime_performance_approval_is_persisted_and_revalidated(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     evidence = _observational_evidence()
     policy = _policy()

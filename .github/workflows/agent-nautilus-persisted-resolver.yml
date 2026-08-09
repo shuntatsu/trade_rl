@@ -10,22 +10,111 @@ on:
       - tests/test_nautilus_training_throughput_benchmark.py
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   focused:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: agent/lgpl-nautilus-migration
+          fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: '3.12'
       - name: Install project dependencies
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+      - name: Apply persisted dataset source resolver
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/nautilus_training_throughput_benchmark.py")
+          text = path.read_text(encoding="utf-8")
+
+          old = "from collections.abc import Sequence\nfrom pathlib import Path\n"
+          new = "from collections.abc import Sequence\nfrom dataclasses import dataclass\nfrom pathlib import Path\n"
+          if old not in text:
+              raise SystemExit("expected import anchor not found")
+          text = text.replace(old, new, 1)
+
+          old = "from trade_rl.artifacts.hashing import content_digest\nfrom trade_rl.domain.common import require_sha256\n"
+          new = (
+              "from trade_rl.artifacts.hashing import content_digest\n"
+              "from trade_rl.data import (\n"
+              "    inspect_published_market_dataset_artifact,\n"
+              "    load_market_dataset_artifact,\n"
+              ")\n"
+              "from trade_rl.domain.common import require_sha256\n"
+          )
+          if old not in text:
+              raise SystemExit("expected data import anchor not found")
+          text = text.replace(old, new, 1)
+
+          old = '_WorkerMode = Literal["legacy", "streaming"]\n\n\n'
+          new = '''_WorkerMode = Literal["legacy", "streaming"]
+_DatasetKind = Literal[
+    "deterministic_synthetic_btcusdt",
+    "persisted_market_dataset_artifact",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class _BenchmarkDatasetSource:
+    dataset_kind: _DatasetKind
+    artifact_root: Path | None
+    dataset_source_digest: str | None
+
+
+'''
+          if old not in text:
+              raise SystemExit("expected worker-mode anchor not found")
+          text = text.replace(old, new, 1)
+
+          anchor = "def _validated_dataset_source_digest(value: str) -> str:\n"
+          resolver = '''def _resolve_benchmark_dataset_source(
+    dataset_artifact: Path | None,
+    *,
+    workloads: tuple[int, ...],
+) -> _BenchmarkDatasetSource:
+    normalized_workloads = _normalize_timesteps(workloads)
+    if dataset_artifact is None:
+        return _BenchmarkDatasetSource(
+            dataset_kind="deterministic_synthetic_btcusdt",
+            artifact_root=None,
+            dataset_source_digest=None,
+        )
+
+    artifact_root = dataset_artifact.expanduser().resolve()
+    published = inspect_published_market_dataset_artifact(artifact_root)
+    dataset = load_market_dataset_artifact(artifact_root)
+    if dataset.symbols != ("BTCUSDT",):
+        raise ValueError("persisted benchmark dataset must contain exactly BTCUSDT")
+    minimum_bars = max(80, max(normalized_workloads) + 32)
+    if dataset.n_bars < minimum_bars:
+        raise ValueError(
+            "persisted benchmark dataset must contain at least "
+            f"{minimum_bars} bars; found {dataset.n_bars}"
+        )
+    return _BenchmarkDatasetSource(
+        dataset_kind="persisted_market_dataset_artifact",
+        artifact_root=artifact_root,
+        dataset_source_digest=published.artifact_digest,
+    )
+
+
+'''
+          if anchor not in text:
+              raise SystemExit("expected digest helper anchor not found")
+          text = text.replace(anchor, resolver + anchor, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Format changed Python files
+        run: uv run ruff format tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
       - name: Focused persisted benchmark tests
         run: uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py tests/data/test_market_artifact.py
       - name: Targeted mypy
@@ -34,3 +123,13 @@ jobs:
         run: uv run ruff check tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
       - name: Targeted format
         run: uv run ruff format --check --diff tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Commit resolver and remove temporary workflow
+        run: |
+          rm .github/workflows/agent-nautilus-persisted-resolver.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py .github/workflows/agent-nautilus-persisted-resolver.yml
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "feat: resolve persisted Nautilus benchmark dataset"
+          git push origin HEAD:agent/lgpl-nautilus-migration

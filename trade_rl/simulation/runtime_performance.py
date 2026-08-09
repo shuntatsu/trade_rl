@@ -478,11 +478,15 @@ def approve_runtime_performance_evidence(
 ) -> RuntimePerformanceEvidence:
     """Materialize approval only after a retained reviewed policy passes exactly."""
 
+    if evidence.performance_approved or evidence.approval_policy_digest is not None:
+        raise ValueError("runtime performance approval requires observational evidence")
     note = _string(approval_note, field="approval_note")
     decision = assess_runtime_performance(evidence=evidence, policy=policy)
     if not decision.approved:
         reasons = ",".join(decision.reasons)
-        raise ValueError(f"runtime performance policy does not approve evidence: {reasons}")
+        raise ValueError(
+            f"runtime performance policy does not approve evidence: {reasons}"
+        )
     return replace(
         evidence,
         performance_approved=True,

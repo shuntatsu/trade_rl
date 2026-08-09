@@ -89,7 +89,9 @@ def _materialize_function() -> Callable[..., RuntimePerformanceEvidence]:
         "materialize_runtime_performance_approval",
         None,
     )
-    assert callable(materialize), "runtime performance approval persistence is not implemented"
+    assert callable(materialize), (
+        "runtime performance approval persistence is not implemented"
+    )
     return cast(Callable[..., RuntimePerformanceEvidence], materialize)
 
 

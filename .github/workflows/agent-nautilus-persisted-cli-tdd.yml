@@ -8,21 +8,81 @@ on:
       - .github/workflows/agent-nautilus-persisted-cli-tdd.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  red:
+  green:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: agent/lgpl-nautilus-migration
+          fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: '3.12'
       - name: Install project dependencies
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
-      - name: Verify CLI RED
-        run: uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py
+      - name: Apply persisted benchmark CLI
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/nautilus_training_throughput_benchmark.py")
+          text = path.read_text(encoding="utf-8")
+          start = text.index("def main() -> None:\n")
+          args_end_marker = "    args = parser.parse_args()\n"
+          args_end = text.index(args_end_marker, start) + len(args_end_marker)
+          replacement = (
+              "def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:\n"
+              "    parser = argparse.ArgumentParser()\n"
+              "    parser.add_argument(\"--timesteps\", type=int, action=\"append\")\n"
+              "    parser.add_argument(\"--output\", type=Path)\n"
+              "    parser.add_argument(\"--dataset-artifact\", type=Path)\n"
+              "    parser.add_argument(\"--worker-mode\", choices=(\"legacy\", \"streaming\"))\n"
+              "    parser.add_argument(\"--worker-timesteps\", type=int)\n"
+              "    parser.add_argument(\"--worker-output\", type=Path)\n"
+              "    parser.add_argument(\"--worker-dataset-artifact\", type=Path)\n"
+              "    return parser.parse_args(argv)\n\n\n"
+              "def main() -> None:\n"
+              "    args = _parse_args()\n"
+          )
+          text = text[:start] + replacement + text[args_end:]
+
+          old = "    evidence = run_benchmark(timesteps=requested_timesteps)\n"
+          new = (
+              "    evidence = run_benchmark(\n"
+              "        timesteps=requested_timesteps,\n"
+              "        dataset_artifact=args.dataset_artifact,\n"
+              "    )\n"
+          )
+          if old not in text:
+              raise SystemExit("expected parent benchmark call not found")
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Normalize changed Python files
+        run: |
+          uv run ruff check --fix tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+          uv run ruff format tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Verify focused CLI contracts
+        run: uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py tests/simulation/test_runtime_performance.py tests/simulation/test_runtime_performance_artifact_identity.py
+      - name: Verify targeted mypy
+        run: uv run mypy tools/nautilus_training_throughput_benchmark.py
+      - name: Verify targeted Ruff
+        run: uv run ruff check tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Verify targeted format
+        run: uv run ruff format --check --diff tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Commit CLI and remove temporary workflow
+        run: |
+          rm .github/workflows/agent-nautilus-persisted-cli-tdd.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py .github/workflows/agent-nautilus-persisted-cli-tdd.yml
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "feat: expose persisted Nautilus benchmark CLI"
+          git push origin HEAD:agent/lgpl-nautilus-migration

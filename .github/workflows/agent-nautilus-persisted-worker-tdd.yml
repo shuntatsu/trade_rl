@@ -8,21 +8,266 @@ on:
       - .github/workflows/agent-nautilus-persisted-worker-tdd.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  red:
+  green:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: agent/lgpl-nautilus-migration
+          fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: '3.12'
       - name: Install project dependencies
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
-      - name: Verify persisted worker RED
-        run: uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py
+      - name: Apply persisted worker propagation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tools/nautilus_training_throughput_benchmark.py")
+          text = path.read_text(encoding="utf-8")
+
+          old = (
+              "from trade_rl.data import (\n"
+              "    inspect_published_market_dataset_artifact,\n"
+              "    load_market_dataset_artifact,\n"
+              ")\n"
+          )
+          new = old + "from trade_rl.data.market import MarketDataset\n"
+          if old not in text:
+              raise SystemExit("expected market-data import anchor not found")
+          text = text.replace(old, new, 1)
+
+          helper_anchor = "def _run_worker_subprocess(\n"
+          helpers = (
+              "def _synthetic_benchmark_dataset(*, timesteps: int) -> MarketDataset:\n"
+              "    import numpy as np\n\n"
+              "    n_bars = max(80, timesteps + 32)\n"
+              "    close = np.linspace(100.0, 101.0, n_bars, dtype=np.float64)[:, None]\n"
+              "    return MarketDataset(\n"
+              "        dataset_id=\"7\" * 64,\n"
+              "        symbols=(\"BTCUSDT\",),\n"
+              "        timestamps=np.datetime64(\"2026-01-01\", \"ns\")\n"
+              "        + np.arange(n_bars) * np.timedelta64(1, \"h\"),\n"
+              "        features=np.zeros((n_bars, 1, 1), dtype=np.float32),\n"
+              "        global_features=np.zeros((n_bars, 1), dtype=np.float32),\n"
+              "        open=np.vstack([close[0], close[:-1]]),\n"
+              "        high=close + 0.1,\n"
+              "        low=close - 0.1,\n"
+              "        close=close,\n"
+              "        volume=np.full((n_bars, 1), 1_000_000.0),\n"
+              "        funding_rate=np.zeros_like(close),\n"
+              "        tradable=np.ones_like(close, dtype=np.bool_),\n"
+              "        feature_available=np.ones((n_bars, 1, 1), dtype=np.bool_),\n"
+              "        feature_names=(\"ret\",),\n"
+              "        global_feature_names=(\"regime\",),\n"
+              "        periods_per_year=8_760,\n"
+              "        mark_price=close.copy(),\n"
+              "        index_price=close.copy(),\n"
+              "    )\n\n\n"
+              "def _load_worker_benchmark_dataset(\n"
+              "    dataset_artifact: Path | None,\n"
+              "    *,\n"
+              "    timesteps: int,\n"
+              ") -> MarketDataset:\n"
+              "    if dataset_artifact is None:\n"
+              "        return _synthetic_benchmark_dataset(timesteps=timesteps)\n"
+              "    source = _resolve_benchmark_dataset_source(\n"
+              "        dataset_artifact,\n"
+              "        workloads=(timesteps,),\n"
+              "    )\n"
+              "    if source.artifact_root is None:\n"
+              "        raise RuntimeError(\"persisted benchmark source lost artifact root\")\n"
+              "    return load_market_dataset_artifact(source.artifact_root)\n\n\n"
+              "def _worker_command(\n"
+              "    *,\n"
+              "    mode: _WorkerMode,\n"
+              "    timesteps: int,\n"
+              "    measurement_path: Path,\n"
+              "    dataset_artifact: Path | None,\n"
+              ") -> tuple[str, ...]:\n"
+              "    command = (\n"
+              "        sys.executable,\n"
+              "        str(Path(__file__).resolve()),\n"
+              "        \"--worker-mode\",\n"
+              "        mode,\n"
+              "        \"--worker-timesteps\",\n"
+              "        str(timesteps),\n"
+              "        \"--worker-output\",\n"
+              "        str(measurement_path),\n"
+              "    )\n"
+              "    if dataset_artifact is None:\n"
+              "        return command\n"
+              "    return (\n"
+              "        *command,\n"
+              "        \"--worker-dataset-artifact\",\n"
+              "        str(dataset_artifact),\n"
+              "    )\n\n\n"
+          )
+          if helper_anchor not in text:
+              raise SystemExit("expected worker helper anchor not found")
+          text = text.replace(helper_anchor, helpers + helper_anchor, 1)
+
+          old_signature = (
+              "def _run_worker_subprocess(\n"
+              "    *,\n"
+              "    mode: _WorkerMode,\n"
+              "    timesteps: int,\n"
+              "    root: Path,\n"
+              ") -> RuntimePerformanceMeasurement:\n"
+          )
+          new_signature = (
+              "def _run_worker_subprocess(\n"
+              "    *,\n"
+              "    mode: _WorkerMode,\n"
+              "    timesteps: int,\n"
+              "    root: Path,\n"
+              "    dataset_artifact: Path | None = None,\n"
+              ") -> RuntimePerformanceMeasurement:\n"
+          )
+          if old_signature not in text:
+              raise SystemExit("expected worker subprocess signature not found")
+          text = text.replace(old_signature, new_signature, 1)
+
+          command_start = text.index("    command = (\n", text.index("def _run_worker_subprocess"))
+          command_end = text.index("    peak_tree_rss_bytes = 0\n", command_start)
+          command_replacement = (
+              "    command = _worker_command(\n"
+              "        mode=mode,\n"
+              "        timesteps=timesteps,\n"
+              "        measurement_path=measurement_path,\n"
+              "        dataset_artifact=dataset_artifact,\n"
+              "    )\n"
+          )
+          text = text[:command_start] + command_replacement + text[command_end:]
+
+          old_run = "def run_benchmark(*, timesteps: int | Sequence[int]) -> dict[str, Any]:\n    workloads = _normalize_timesteps(timesteps)\n"
+          new_run = (
+              "def run_benchmark(\n"
+              "    *,\n"
+              "    timesteps: int | Sequence[int],\n"
+              "    dataset_artifact: Path | None = None,\n"
+              ") -> dict[str, Any]:\n"
+              "    workloads = _normalize_timesteps(timesteps)\n"
+              "    source = _resolve_benchmark_dataset_source(\n"
+              "        dataset_artifact,\n"
+              "        workloads=workloads,\n"
+              "    )\n"
+          )
+          if old_run not in text:
+              raise SystemExit("expected run_benchmark signature not found")
+          text = text.replace(old_run, new_run, 1)
+
+          call_anchor = "                root=root_path,\n            )"
+          call_replacement = (
+              "                root=root_path,\n"
+              "                dataset_artifact=source.artifact_root,\n"
+              "            )"
+          )
+          if text.count(call_anchor) < 2:
+              raise SystemExit("expected two worker call anchors")
+          text = text.replace(call_anchor, call_replacement, 2)
+
+          old_evidence = (
+              "        dataset_kind=\"deterministic_synthetic_btcusdt\",\n"
+              "        source_digest=_benchmark_source_digest(workloads),\n"
+          )
+          new_evidence = (
+              "        dataset_kind=source.dataset_kind,\n"
+              "        source_digest=_benchmark_source_digest(\n"
+              "            workloads,\n"
+              "            dataset_source_digest=source.dataset_source_digest,\n"
+              "        ),\n"
+          )
+          if old_evidence not in text:
+              raise SystemExit("expected performance evidence source anchor not found")
+          text = text.replace(old_evidence, new_evidence, 1)
+
+          old_worker_signature = (
+              "def _worker_training_measurement(\n"
+              "    *,\n"
+              "    mode: _WorkerMode,\n"
+              "    timesteps: int,\n"
+              ") -> dict[str, float | int]:\n"
+          )
+          new_worker_signature = (
+              "def _worker_training_measurement(\n"
+              "    *,\n"
+              "    mode: _WorkerMode,\n"
+              "    timesteps: int,\n"
+              "    dataset_artifact: Path | None = None,\n"
+              ") -> dict[str, float | int]:\n"
+          )
+          if old_worker_signature not in text:
+              raise SystemExit("expected training worker signature not found")
+          text = text.replace(old_worker_signature, new_worker_signature, 1)
+
+          old_local_imports = "    import numpy as np\n\n    from trade_rl.data.market import MarketDataset\n"
+          if old_local_imports not in text:
+              raise SystemExit("expected worker local data imports not found")
+          text = text.replace(old_local_imports, "", 1)
+
+          dataset_start = text.index("    n_bars = max(80, timesteps + 32)\n", text.index("def _worker_training_measurement"))
+          dataset_end = text.index("\n\n    common_environment_kwargs:", dataset_start)
+          dataset_replacement = (
+              "    dataset = _load_worker_benchmark_dataset(\n"
+              "        dataset_artifact,\n"
+              "        timesteps=timesteps,\n"
+              "    )"
+          )
+          text = text[:dataset_start] + dataset_replacement + text[dataset_end:]
+
+          old_measurement_call = (
+              "    measurement = _worker_training_measurement(\n"
+              "        mode=args.worker_mode,\n"
+              "        timesteps=args.worker_timesteps,\n"
+              "    )\n"
+          )
+          new_measurement_call = (
+              "    measurement = _worker_training_measurement(\n"
+              "        mode=args.worker_mode,\n"
+              "        timesteps=args.worker_timesteps,\n"
+              "        dataset_artifact=args.worker_dataset_artifact,\n"
+              "    )\n"
+          )
+          if old_measurement_call not in text:
+              raise SystemExit("expected worker measurement call not found")
+          text = text.replace(old_measurement_call, new_measurement_call, 1)
+
+          parser_anchor = '    parser.add_argument("--worker-output", type=Path)\n'
+          parser_replacement = parser_anchor + '    parser.add_argument("--worker-dataset-artifact", type=Path)\n'
+          if parser_anchor not in text:
+              raise SystemExit("expected worker parser anchor not found")
+          text = text.replace(parser_anchor, parser_replacement, 1)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Normalize changed Python files
+        run: |
+          uv run ruff check --fix tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+          uv run ruff format tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Verify focused worker contracts
+        run: uv run pytest -q tests/test_nautilus_training_throughput_benchmark.py tests/simulation/test_runtime_performance.py tests/simulation/test_runtime_performance_artifact_identity.py
+      - name: Verify targeted mypy
+        run: uv run mypy tools/nautilus_training_throughput_benchmark.py
+      - name: Verify targeted Ruff
+        run: uv run ruff check tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Verify targeted format
+        run: uv run ruff format --check --diff tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py
+      - name: Commit worker propagation and remove temporary workflow
+        run: |
+          rm .github/workflows/agent-nautilus-persisted-worker-tdd.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/nautilus_training_throughput_benchmark.py tests/test_nautilus_training_throughput_benchmark.py .github/workflows/agent-nautilus-persisted-worker-tdd.yml
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "feat: benchmark persisted dataset with Nautilus workers"
+          git push origin HEAD:agent/lgpl-nautilus-migration

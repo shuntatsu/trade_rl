@@ -230,7 +230,9 @@ def test_authoritative_runtime_promotion_requires_persisted_performance_evidence
     stage = tmp_path / "stage"
     stage.mkdir()
 
-    with pytest.raises(FileNotFoundError, match="runtime performance evidence is missing"):
+    with pytest.raises(
+        FileNotFoundError, match="runtime performance evidence is missing"
+    ):
         stage_training_runtime_promotion(
             proposal=_proposal(runtime_digest=report.digest),
             report_path=report_path,

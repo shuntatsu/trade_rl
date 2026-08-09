@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from tools.nautilus_training_throughput_benchmark import _normalize_timesteps
+from tools.nautilus_training_throughput_benchmark import (
+    _DEFAULT_TIMESTEPS,
+    _normalize_timesteps,
+)
+
+
+def test_default_timesteps_cover_broader_performance_workloads() -> None:
+    assert _DEFAULT_TIMESTEPS == (8, 32, 128)
 
 
 def test_normalize_timesteps_accepts_scalar_and_canonicalizes_sequence() -> None:

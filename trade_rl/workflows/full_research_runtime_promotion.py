@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from trade_rl.release.selection_authorization import SelectionProposal
+from trade_rl.simulation.runtime_performance import RuntimePerformanceEvidence
 from trade_rl.simulation.runtime_performance_io import (
     load_runtime_performance_evidence,
     write_runtime_performance_evidence,
@@ -26,7 +27,7 @@ def _load_bound_performance_evidence(
     report: ExecutionPromotionReport,
     *,
     root: Path,
-):
+) -> RuntimePerformanceEvidence | None:
     if not report.evidence.performance_approved:
         return None
     path = root / RUNTIME_PERFORMANCE_EVIDENCE_NAME

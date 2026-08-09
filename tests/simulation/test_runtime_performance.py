@@ -13,7 +13,9 @@ from trade_rl.simulation.runtime_performance import (
 )
 from trade_rl.simulation.runtime_performance_io import (
     load_runtime_performance_evidence,
+    load_runtime_performance_policy,
     write_runtime_performance_evidence,
+    write_runtime_performance_policy,
 )
 
 
@@ -172,6 +174,39 @@ def test_runtime_performance_evidence_loader_rejects_tampered_summary(tmp_path) 
 
     with pytest.raises(ValueError, match="summary mismatch"):
         load_runtime_performance_evidence(path)
+
+
+def test_runtime_performance_policy_persists_immutably(tmp_path) -> None:
+    policy = RuntimePerformanceApprovalPolicy(
+        max_elapsed_slowdown_ratio=3.75,
+        max_peak_process_tree_rss_ratio=1.6,
+        minimum_workloads=3,
+        minimum_max_timesteps=128,
+        reviewed=True,
+        review_reference="review-2026-08-09",
+    )
+    path = tmp_path / "runtime-performance-policy.json"
+
+    assert write_runtime_performance_policy(path, policy) == path
+    assert load_runtime_performance_policy(path) == policy
+    assert write_runtime_performance_policy(path, policy) == path
+
+    drifted = RuntimePerformanceApprovalPolicy(
+        max_elapsed_slowdown_ratio=4.0,
+        max_peak_process_tree_rss_ratio=1.6,
+        minimum_workloads=3,
+        minimum_max_timesteps=128,
+        reviewed=True,
+        review_reference="review-2026-08-09",
+    )
+    with pytest.raises(FileExistsError, match="refusing to overwrite immutable policy"):
+        write_runtime_performance_policy(path, drifted)
+
+    payload = {"policy_digest": policy.digest, **policy.to_mapping()}
+    payload["minimum_max_timesteps"] = 32
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="runtime performance policy digest mismatch"):
+        load_runtime_performance_policy(path)
 
 
 def test_runtime_performance_policy_must_be_reviewed_before_approval() -> None:

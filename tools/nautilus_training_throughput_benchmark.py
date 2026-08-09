@@ -12,10 +12,15 @@ import sys
 import tempfile
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data import (
+    inspect_published_market_dataset_artifact,
+    load_market_dataset_artifact,
+)
 from trade_rl.domain.common import require_sha256
 from trade_rl.simulation.runtime_performance import (
     RuntimePerformanceEvidence,
@@ -28,6 +33,17 @@ _DEFAULT_TIMESTEPS = (8, 32, 128)
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _BENCHMARK_SOURCE_SCHEMA = "nautilus_training_performance_source_v1"
 _WorkerMode = Literal["legacy", "streaming"]
+_DatasetKind = Literal[
+    "deterministic_synthetic_btcusdt",
+    "persisted_market_dataset_artifact",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class _BenchmarkDatasetSource:
+    dataset_kind: _DatasetKind
+    artifact_root: Path | None
+    dataset_source_digest: str | None
 
 
 def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:
@@ -46,6 +62,37 @@ def _normalize_timesteps(value: int | Sequence[int]) -> tuple[int, ...]:
         raise ValueError("timesteps must be at least 2")
     normalized = tuple(sorted(set(raw)))
     return normalized
+
+
+def _resolve_benchmark_dataset_source(
+    dataset_artifact: Path | None,
+    *,
+    workloads: tuple[int, ...],
+) -> _BenchmarkDatasetSource:
+    normalized_workloads = _normalize_timesteps(workloads)
+    if dataset_artifact is None:
+        return _BenchmarkDatasetSource(
+            dataset_kind="deterministic_synthetic_btcusdt",
+            artifact_root=None,
+            dataset_source_digest=None,
+        )
+
+    artifact_root = dataset_artifact.expanduser().resolve()
+    published = inspect_published_market_dataset_artifact(artifact_root)
+    dataset = load_market_dataset_artifact(artifact_root)
+    if dataset.symbols != ("BTCUSDT",):
+        raise ValueError("persisted benchmark dataset must contain exactly BTCUSDT")
+    minimum_bars = max(80, max(normalized_workloads) + 32)
+    if dataset.n_bars < minimum_bars:
+        raise ValueError(
+            "persisted benchmark dataset must contain at least "
+            f"{minimum_bars} bars; found {dataset.n_bars}"
+        )
+    return _BenchmarkDatasetSource(
+        dataset_kind="persisted_market_dataset_artifact",
+        artifact_root=artifact_root,
+        dataset_source_digest=published.artifact_digest,
+    )
 
 
 def _validated_dataset_source_digest(value: str) -> str:

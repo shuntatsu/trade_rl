@@ -6,6 +6,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tools.nautilus_training_throughput_benchmark import (
+    _DEFAULT_TIMESTEPS,
+    _benchmark_source_digest,
+    _normalize_timesteps,
+    _resolve_benchmark_dataset_source,
+)
 from trade_rl.data import PublishedDatasetArtifact, publish_market_dataset_artifact
 from trade_rl.data.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
@@ -15,12 +21,6 @@ from trade_rl.data.contracts import (
     MarketBuildConfig,
 )
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
-from tools.nautilus_training_throughput_benchmark import (
-    _DEFAULT_TIMESTEPS,
-    _benchmark_source_digest,
-    _normalize_timesteps,
-    _resolve_benchmark_dataset_source,
-)
 
 
 def _publish_benchmark_dataset(

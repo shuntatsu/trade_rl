@@ -14,7 +14,9 @@ from trade_rl.simulation.runtime_performance import (
 )
 
 
-def _measurement(*, timesteps: int, elapsed_seconds: float, rss: int) -> RuntimePerformanceMeasurement:
+def _measurement(
+    *, timesteps: int, elapsed_seconds: float, rss: int
+) -> RuntimePerformanceMeasurement:
     return RuntimePerformanceMeasurement(
         timesteps=timesteps,
         elapsed_seconds=elapsed_seconds,
@@ -54,7 +56,9 @@ def _observational_evidence() -> RuntimePerformanceEvidence:
     )
 
 
-def _policy(*, max_elapsed_slowdown_ratio: float = 3.1) -> RuntimePerformanceApprovalPolicy:
+def _policy(
+    *, max_elapsed_slowdown_ratio: float = 3.1
+) -> RuntimePerformanceApprovalPolicy:
     return RuntimePerformanceApprovalPolicy(
         max_elapsed_slowdown_ratio=max_elapsed_slowdown_ratio,
         max_peak_process_tree_rss_ratio=2.1,
@@ -71,7 +75,9 @@ def _approval_function() -> Callable[..., RuntimePerformanceEvidence]:
     return cast(Callable[..., RuntimePerformanceEvidence], approve)
 
 
-def test_reviewed_policy_materializes_approved_evidence_without_measurement_drift() -> None:
+def test_reviewed_policy_materializes_approved_evidence_without_measurement_drift() -> (
+    None
+):
     evidence = _observational_evidence()
     policy = _policy()
 
@@ -93,7 +99,9 @@ def test_reviewed_policy_materializes_approved_evidence_without_measurement_drif
     assert approved.digest != evidence.digest
 
 
-def test_performance_approval_refuses_policy_that_does_not_approve_measurements() -> None:
+def test_performance_approval_refuses_policy_that_does_not_approve_measurements() -> (
+    None
+):
     evidence = _observational_evidence()
     policy = _policy(max_elapsed_slowdown_ratio=2.9)
 

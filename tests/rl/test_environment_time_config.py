@@ -165,6 +165,14 @@ def test_finite_horizon_termination_requires_time_to_go_observation() -> None:
         )
 
 
+def test_episode_boundary_mode_rejects_unknown_values() -> None:
+    with pytest.raises(ValueError, match="episode_boundary_mode is not supported"):
+        ResidualMarketEnvConfig(
+            episode_boundary_mode="unknown",
+            initial_capital=1_000.0,
+        )
+
+
 def test_finite_horizon_terminates_without_liquidating_or_terminal_shaping() -> None:
     dataset = market()
     env = ResidualMarketEnv(
@@ -205,7 +213,7 @@ def test_finite_horizon_terminates_without_liquidating_or_terminal_shaping() -> 
     )
 
 
-def test_episode_boundary_mode_changes_environment_identity() -> None:
+def test_episode_boundary_changes_environment_not_observation_identity() -> None:
     dataset = market()
     trend = TrendStrategy(
         TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
@@ -235,6 +243,7 @@ def test_episode_boundary_mode_changes_environment_identity() -> None:
         ),
     )
 
+    assert truncating.observation_contract_digest == terminating.observation_contract_digest
     assert truncating.environment_digest != terminating.environment_digest
 
 

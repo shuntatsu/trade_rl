@@ -85,9 +85,7 @@ class ExecutionSensitivityScenario(_base.ExecutionSensitivityScenario):
             slippage_std_floor=self.slippage_std_floor,
             participation_fraction=self.participation_fraction,
             minimum_order_latency_bars=self.minimum_order_latency_bars,
-            tail_slippage_probability_floor=(
-                self.tail_slippage_probability_floor
-            ),
+            tail_slippage_probability_floor=(self.tail_slippage_probability_floor),
             tail_slippage_multiplier_floor=self.tail_slippage_multiplier_floor,
             borrow_rate_multiplier=self.borrow_rate_multiplier,
         )

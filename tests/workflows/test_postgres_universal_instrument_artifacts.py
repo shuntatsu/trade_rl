@@ -56,7 +56,9 @@ class FakeDatabase:
         symbol_count: int = 15,
     ) -> None:
         self.queries: list[tuple[str, object]] = []
-        symbols = [f"ASSET{index:02d}USDT" for index in range(symbol_count)]
+        self.symbols = tuple(
+            f"ASSET{index:02d}USDT" for index in range(symbol_count)
+        )
         feature_specs = {
             "base_timeframe": "15m",
             "feature_timeframes": ["1h", "4h", "1d"],
@@ -83,12 +85,12 @@ class FakeDatabase:
             cache_id,
             "native_indicator_cache_v1",
             "usds-m",
-            symbols,
+            self.symbols,
             _START,
             _END,
             content_digest(feature_specs),
             feature_specs,
-            len(symbols) * len(_TIMEFRAMES),
+            len(self.symbols) * len(_TIMEFRAMES),
         )
         self.artifacts = tuple(
             (
@@ -103,13 +105,12 @@ class FakeDatabase:
                 content_digest({"symbol": symbol, "timeframe": timeframe}),
                 4096 + timeframe_index,
             )
-            for symbol_index, symbol in enumerate(symbols)
+            for symbol_index, symbol in enumerate(self.symbols)
             for timeframe_index, timeframe in enumerate(_TIMEFRAMES)
         )
 
     def cursor(self) -> FakeCursor:
         return FakeCursor(self)
-
 
 
 def _metadata(symbols: tuple[str, ...]) -> dict[str, str]:
@@ -119,7 +120,6 @@ def _metadata(symbols: tuple[str, ...]) -> dict[str, str]:
 def test_materializes_postgres_inventory_into_exact_bundle(tmp_path: Path) -> None:
     cache_id = "universal-instrument-source-v1"
     database = FakeDatabase(cache_id=cache_id)
-    symbols = tuple(database.manifest[3])
     output = tmp_path / "universal-instruments"
 
     paths = materialize_postgres_universal_instrument_artifacts(
@@ -127,7 +127,7 @@ def test_materializes_postgres_inventory_into_exact_bundle(tmp_path: Path) -> No
         output_dir=output,
         research_start=_START,
         research_end=_END,
-        metadata_digests=_metadata(symbols),
+        metadata_digests=_metadata(database.symbols),
         seed=17,
         cache_id=cache_id,
     )
@@ -140,7 +140,7 @@ def test_materializes_postgres_inventory_into_exact_bundle(tmp_path: Path) -> No
     }
     bundle = load_universal_instrument_artifact_bundle(output)
     assert bundle.catalog.source_cache_id == cache_id
-    assert bundle.catalog.eligible_symbols == symbols
+    assert bundle.catalog.eligible_symbols == database.symbols
     assert bundle.partition.split_counts == {
         "train": 9,
         "validation": 3,
@@ -155,9 +155,8 @@ def test_materializes_postgres_inventory_into_exact_bundle(tmp_path: Path) -> No
 
 def test_missing_execution_metadata_fails_before_publication(tmp_path: Path) -> None:
     database = FakeDatabase()
-    symbols = tuple(database.manifest[3])
-    metadata = _metadata(symbols)
-    metadata.pop(symbols[0])
+    metadata = _metadata(database.symbols)
+    metadata.pop(database.symbols[0])
     output = tmp_path / "universal-instruments"
 
     with pytest.raises(ValueError, match="at least 15"):

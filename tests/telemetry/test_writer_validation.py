@@ -7,7 +7,9 @@ import pytest
 from trade_rl.telemetry import TrainingTelemetryRecord, TrainingTelemetryWriter
 
 
-def _record(*, terminated: bool = False, truncated: bool = False) -> TrainingTelemetryRecord:
+def _record(
+    *, terminated: bool = False, truncated: bool = False
+) -> TrainingTelemetryRecord:
     return TrainingTelemetryRecord(
         sequence=1,
         recorded_at="2026-07-21T08:00:00+00:00",

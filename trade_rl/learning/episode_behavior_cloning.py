@@ -56,9 +56,7 @@ class BehaviorCloningSplit:
         for names, label in ((index_names, "samples"), (episode_names, "episodes")):
             for left_position, left_name in enumerate(names):
                 for right_name in names[left_position + 1 :]:
-                    if np.intersect1d(
-                        resolved[left_name], resolved[right_name]
-                    ).size:
+                    if np.intersect1d(resolved[left_name], resolved[right_name]).size:
                         raise ValueError(f"behavior cloning split overlaps {label}")
         for name, value in resolved.items():
             object.__setattr__(self, name, value)
@@ -85,11 +83,7 @@ def _validation_count(sample_count: int, validation_fraction: float) -> int:
 
 def _integer_vector(value: object, *, field_name: str, count: int) -> np.ndarray:
     raw = np.asarray(value)
-    if (
-        raw.ndim != 1
-        or len(raw) != count
-        or not np.issubdtype(raw.dtype, np.integer)
-    ):
+    if raw.ndim != 1 or len(raw) != count or not np.issubdtype(raw.dtype, np.integer):
         raise ValueError(f"{field_name} must be a sample-aligned integer vector")
     resolved = np.asarray(raw, dtype=np.int64)
     if np.any(resolved < 0):
@@ -194,7 +188,9 @@ def behavior_cloning_split(
         [episode_id for start, _, episode_id in records if start >= validation_start],
         dtype=np.int64,
     )
-    earlier_records = tuple(record for record in records if record[0] < validation_start)
+    earlier_records = tuple(
+        record for record in records if record[0] < validation_start
+    )
     train_episode_ids = np.asarray(
         [
             episode_id

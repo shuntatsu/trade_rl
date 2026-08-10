@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+import threading
+
+import numpy as np
+
+from trade_rl.learning import episode_teacher_artifact
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeContract,
+)
+from trade_rl.learning.episode_teacher_artifact import (
+    collect_episode_teacher_rollout_parallel,
+)
+
+
+class _FakeTeacherEnvironment:
+    environment_digest = "e" * 64
+    action_spec_digest = "f" * 64
+
+    def __init__(self, close_counter: list[int], lock: threading.Lock) -> None:
+        self.current_index = 0
+        self._remaining = 0
+        self._close_counter = close_counter
+        self._lock = lock
+
+    def reset(self, *, options: dict[str, object]) -> tuple[np.ndarray, dict[str, object]]:
+        start = int(options["start_idx"])
+        self.current_index = start
+        self._remaining = int(options["episode_bars"])
+        return np.asarray([start], dtype=np.float32), {"start_index": start}
+
+    def step(
+        self, target: np.ndarray
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
+        del target
+        self.current_index += 1
+        self._remaining -= 1
+        terminated = self._remaining == 0
+        return (
+            np.asarray([self.current_index], dtype=np.float32),
+            0.0,
+            terminated,
+            False,
+            {},
+        )
+
+    def close(self) -> None:
+        with self._lock:
+            self._close_counter[0] += 1
+
+
+def _episode_batch(episode_count: int = 8) -> EpisodeOracleBatch:
+    contracts: list[OracleEpisodeContract] = []
+    targets: list[np.ndarray] = []
+    for episode_index in range(episode_count):
+        start = 4 + episode_index * 4
+        contracts.append(
+            OracleEpisodeContract(
+                dataset_id="a" * 64,
+                episode_index=episode_index,
+                start=start,
+                stop=start + 3,
+                initial_state_mode="cash",
+                initial_weights=np.zeros(1, dtype=np.float64),
+            )
+        )
+        targets.append(
+            np.asarray(
+                [[episode_index / 10.0], [(episode_index + 1) / 10.0]],
+                dtype=np.float32,
+            )
+        )
+    return EpisodeOracleBatch(
+        dataset_id="a" * 64,
+        teacher_config_digest="d" * 64,
+        sampling_config_digest="b" * 64,
+        contracts=tuple(contracts),
+        targets=tuple(targets),
+    )
+
+
+def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
+    monkeypatch: object,
+) -> None:
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        episode_teacher_artifact.mp,
+        "get_all_start_methods",
+        lambda: ["spawn"],
+    )
+    factory_calls = [0]
+    close_calls = [0]
+    lock = threading.Lock()
+
+    def environment_factory() -> _FakeTeacherEnvironment:
+        with lock:
+            factory_calls[0] += 1
+        return _FakeTeacherEnvironment(close_calls, lock)
+
+    batch = _episode_batch()
+    dataset = collect_episode_teacher_rollout_parallel(
+        environment_factory,
+        batch,
+        teacher_config_digest=batch.teacher_config_digest,
+        max_workers=2,
+    )
+
+    assert factory_calls[0] == 2
+    assert close_calls[0] == 2
+    np.testing.assert_array_equal(
+        dataset.episode_ids,
+        np.repeat(np.arange(batch.episode_count, dtype=np.int64), 2),
+    )
+    np.testing.assert_array_equal(
+        dataset.decision_indices,
+        np.concatenate(
+            [
+                np.arange(contract.start, contract.stop - 1, dtype=np.int64)
+                for contract in batch.contracts
+            ]
+        ),
+    )
+    np.testing.assert_array_equal(dataset.actions, np.concatenate(batch.targets, axis=0))

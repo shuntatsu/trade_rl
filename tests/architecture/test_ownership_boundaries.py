@@ -235,9 +235,9 @@ def test_oracle_accelerator_backend_has_no_process_global_registry() -> None:
     integrations_source = (PACKAGE_ROOT / "integrations/__init__.py").read_text(
         encoding="utf-8"
     )
-    sb3_source = (PACKAGE_ROOT / "integrations/sb3_training.py").read_text(
-        encoding="utf-8"
-    )
+    teacher_pipeline_source = (
+        PACKAGE_ROOT / "integrations/sb3_teacher_pipeline.py"
+    ).read_text(encoding="utf-8")
     benchmark_source = (
         PACKAGE_ROOT / "operations/oracle_teacher_benchmark.py"
     ).read_text(encoding="utf-8")
@@ -249,6 +249,6 @@ def test_oracle_accelerator_backend_has_no_process_global_registry() -> None:
     assert "register_oracle_accelerator_backend" not in learning_source
     assert "register_default_oracle_accelerators" not in integrations_source
     assert "register_oracle_accelerator_backend" not in integrations_source
-    assert "accelerator_backend=_oracle_accelerator_backend(" in sb3_source
+    assert "accelerator_backend=_oracle_accelerator_backend(" in teacher_pipeline_source
     assert "accelerator_backend=accelerator_backend" in benchmark_source
     assert "accelerator_backend=solve_torch_cuda_oracle_batch" in smoke_source

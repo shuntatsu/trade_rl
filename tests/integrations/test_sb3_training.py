@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 from gymnasium import spaces
 
+import trade_rl.integrations.sb3_teacher_pipeline as sb3_teacher_pipeline
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.integrations import sb3_training
@@ -28,6 +29,8 @@ from trade_rl.integrations.sb3_training import (
     _teacher_worker_count,
 )
 from trade_rl.learning import OracleTeacherConfig
+from trade_rl.learning.episode_oracle_teacher import OracleEpisodeSamplingConfig
+from trade_rl.learning.oracle_bellman_contracts import OracleSolverConfig
 from trade_rl.rl.actions import ActionSpec
 from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
 from trade_rl.rl.observations import ObservationLayout
@@ -589,7 +592,7 @@ def test_backend_caches_oracle_targets_across_seed_members(
         calls += 1
         return np.asarray([[0.0], [0.25]], dtype=np.float32)
 
-    monkeypatch.setattr(sb3_training, "oracle_target_path", calculate)
+    monkeypatch.setattr(sb3_teacher_pipeline, "oracle_target_path", calculate)
     backend = StableBaselines3Backend(_tiny_environment_factory)
 
     first = backend._oracle_targets(dataset, (3, 6), config)
@@ -680,7 +683,7 @@ def test_backend_caches_teacher_dataset_across_seed_members(
             teacher_config_digest=teacher_config_digest,
         )
 
-    monkeypatch.setattr(sb3_training, "collect_teacher_rollout", collect)
+    monkeypatch.setattr(sb3_teacher_pipeline, "collect_teacher_rollout", collect)
     backend = StableBaselines3Backend(_tiny_environment_factory)
     teacher_config = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
     targets = np.asarray([[0.0], [0.25]], dtype=np.float32)
@@ -759,7 +762,7 @@ def test_backend_reuses_identity_bound_teacher_artifact_across_processes(
 
     cache_root = tmp_path / "teacher-cache"
     monkeypatch.setenv("TRADE_RL_TEACHER_CACHE_ROOT", str(cache_root))
-    monkeypatch.setattr(sb3_training, "collect_teacher_rollout", collect)
+    monkeypatch.setattr(sb3_teacher_pipeline, "collect_teacher_rollout", collect)
     teacher_config = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
     targets = np.asarray([[0.0], [0.25]], dtype=np.float32)
     environment = type(
@@ -1156,16 +1159,14 @@ def test_cuda_oracle_solver_requires_one_teacher_worker(monkeypatch) -> None:
     with pytest.raises(ValueError, match="TRADE_RL_TEACHER_WORKERS=1"):
         _teacher_worker_count(
             8,
-            solver_config=sb3_training.OracleSolverConfig(selection="cuda"),
+            solver_config=OracleSolverConfig(selection="cuda"),
         )
 
 
 def test_numpy_oracle_solver_defaults_to_one_compatibility_worker(monkeypatch) -> None:
     monkeypatch.delenv("TRADE_RL_TEACHER_WORKERS", raising=False)
 
-    assert (
-        _teacher_worker_count(8, solver_config=sb3_training.OracleSolverConfig()) == 1
-    )
+    assert _teacher_worker_count(8, solver_config=OracleSolverConfig()) == 1
 
 
 def test_oracle_episode_batch_cache_separates_solver_configs(monkeypatch) -> None:
@@ -1173,7 +1174,7 @@ def test_oracle_episode_batch_cache_separates_solver_configs(monkeypatch) -> Non
     backend._oracle_episode_batch_cache = {}
     environment = SimpleNamespace(dataset=SimpleNamespace(dataset_id="f" * 64))
     teacher = OracleTeacherConfig(execution_cost=ExecutionCostConfig.zero())
-    sampling = sb3_training.OracleEpisodeSamplingConfig(
+    sampling = OracleEpisodeSamplingConfig(
         episode_bars=4,
         episode_count=2,
     )
@@ -1185,7 +1186,7 @@ def test_oracle_episode_batch_cache_separates_solver_configs(monkeypatch) -> Non
         return SimpleNamespace(solver_config=solver_config)
 
     monkeypatch.setattr(
-        sb3_training,
+        sb3_teacher_pipeline,
         "build_episode_oracle_batch",
         fake_build_episode_oracle_batch,
     )
@@ -1194,14 +1195,14 @@ def test_oracle_episode_batch_cache_separates_solver_configs(monkeypatch) -> Non
         (1, 10),
         teacher,
         sampling,
-        solver_config=sb3_training.OracleSolverConfig(selection="numpy"),
+        solver_config=OracleSolverConfig(selection="numpy"),
     )
     cuda_result = backend._oracle_episode_batch(
         environment,
         (1, 10),
         teacher,
         sampling,
-        solver_config=sb3_training.OracleSolverConfig(selection="cuda"),
+        solver_config=OracleSolverConfig(selection="cuda"),
     )
 
     assert numpy_result is not cuda_result

@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import os
-import shutil
-import tempfile
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from functools import partial
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import gymnasium as gym
 import numpy as np
@@ -18,30 +14,116 @@ import numpy as np
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.artifacts.verified_file import file_digest
-from trade_rl.catalog.contracts import ArtifactKind
 from trade_rl.catalog.reusable_artifacts import ReusableArtifactIndex
 from trade_rl.integrations.behavior_cloning import pretrain_policy
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _behavior_cloning_gate_thresholds as _behavior_cloning_gate_thresholds,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _behavior_cloning_quality as _behavior_cloning_quality,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _enforce_behavior_cloning_gates as _enforce_behavior_cloning_gates,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _evaluate_hierarchical_behavior_cloning_gate as _evaluate_hierarchical_behavior_cloning_gate,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _hierarchical_behavior_cloning_config as _hierarchical_behavior_cloning_config,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _hierarchical_teacher_labels as _hierarchical_teacher_labels,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _required_hierarchical_config as _required_hierarchical_config,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _resolve_behavior_cloning_seed as _resolve_behavior_cloning_seed,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _restore_member_seed_after_behavior_cloning as _restore_member_seed_after_behavior_cloning,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _save_behavior_cloning_policy_candidate as _save_behavior_cloning_policy_candidate,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _teacher_cache_key as _teacher_cache_key,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _teacher_change_labels as _teacher_change_labels,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _TeacherIdentity as _TeacherIdentity,
+)
+from trade_rl.integrations.sb3_behavior_cloning import (
+    _uses_hierarchical_actor_head as _uses_hierarchical_actor_head,
+)
 from trade_rl.integrations.sb3_checkpoint_assembly import (
     load_sb3_checkpoint_model,
     load_sb3_checkpoint_transfer_model,
+)
+from trade_rl.integrations.sb3_environment import (
+    _HEAVY_TRAINING_INFO_KEYS as _HEAVY_TRAINING_INFO_KEYS,
+)
+from trade_rl.integrations.sb3_environment import (
+    _build_parallel_sequence_training_environment as _build_parallel_sequence_training_environment,
+)
+from trade_rl.integrations.sb3_environment import (
+    _build_training_environment as _build_training_environment,
+)
+from trade_rl.integrations.sb3_environment import (
+    _compact_filtered_training_environment as _compact_filtered_training_environment,
+)
+from trade_rl.integrations.sb3_environment import (
+    _compact_training_info as _compact_training_info,
+)
+from trade_rl.integrations.sb3_environment import (
+    _effective_vector_environment_kind as _effective_vector_environment_kind,
+)
+from trade_rl.integrations.sb3_environment import (
+    _filtered_training_environment as _filtered_training_environment,
+)
+from trade_rl.integrations.sb3_environment import (
+    _reset_observation_for_export as _reset_observation_for_export,
+)
+from trade_rl.integrations.sb3_environment import (
+    _TrainingInfoFilter as _TrainingInfoFilter,
 )
 from trade_rl.integrations.sb3_model_assembly import (
     build_sb3_model,
     resolve_sb3_policy_assembly,
 )
+from trade_rl.integrations.sb3_runtime import (
+    _configure_sequence_runtime as _configure_sequence_runtime,
+)
+from trade_rl.integrations.sb3_runtime import (
+    _configure_torch_cuda_runtime as _configure_torch_cuda_runtime,
+)
+from trade_rl.integrations.sb3_runtime import (
+    _lagrangian_probe_worker_count as _lagrangian_probe_worker_count,
+)
+from trade_rl.integrations.sb3_runtime import (
+    _oracle_accelerator_backend as _oracle_accelerator_backend,
+)
+from trade_rl.integrations.sb3_runtime import (
+    _oracle_episode_sampling_config as _oracle_episode_sampling_config,
+)
+from trade_rl.integrations.sb3_runtime import (
+    _oracle_solver_config as _oracle_solver_config,
+)
+from trade_rl.integrations.sb3_runtime import (
+    _teacher_worker_count as _teacher_worker_count,
+)
+from trade_rl.integrations.sb3_teacher_pipeline import (
+    _StableBaselines3TeacherPipeline,
+)
 from trade_rl.learning import (
     BehaviorCloningConfig,
     BehaviorCloningGateEvaluation,
-    BehaviorCloningGateThresholds,
     BehaviorCloningHoldoutEvaluation,
     OracleTeacherConfig,
     StructuredTeacherObservationProvider,
     SupervisedPolicyDataset,
-    collect_teacher_rollout,
-    evaluate_behavior_cloning_gates,
-    load_teacher_artifact,
-    oracle_target_path,
     write_learning_evaluation,
     write_teacher_artifact,
 )
@@ -55,43 +137,19 @@ from trade_rl.learning.episode_behavior_cloning import (
 from trade_rl.learning.episode_oracle_bc import (
     EpisodeBehaviorCloningHoldoutEvaluation,
     evaluate_episode_behavior_cloning_holdout,
-    oracle_episode_sampling_config,
-    resolve_episode_initial_weights,
 )
 from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
-    OracleEpisodeSamplingConfig,
-    build_episode_oracle_batch,
 )
 from trade_rl.learning.episode_teacher_artifact import (
-    EPISODE_TEACHER_ARTIFACT_SCHEMA,
-    EPISODE_TEACHER_ARTIFACT_SCHEMA_V1,
     EpisodeSupervisedPolicyDataset,
-    collect_episode_teacher_rollout,
-    collect_episode_teacher_rollout_parallel,
-    load_episode_teacher_artifact,
     write_episode_teacher_artifact,
-)
-from trade_rl.learning.hierarchical_teacher_labels import (
-    HierarchicalTeacherLabels,
-    build_hierarchical_teacher_labels,
-)
-from trade_rl.learning.oracle_bellman_contracts import (
-    CompileMode,
-    OracleSolverConfig,
-    SolverSelection,
-)
-from trade_rl.learning.oracle_solver import OracleBatchBackend
-from trade_rl.learning.teacher_cache import (
-    teacher_cache_identity,
-    teacher_cache_identity_v2,
 )
 from trade_rl.rl.algorithm_configs import (
     CostCriticPPOConfig,
     LagrangianPPOConfig,
     build_algorithm_config,
 )
-from trade_rl.rl.checkpointing import save_policy_without_runtime_state
 from trade_rl.rl.replay import (
     load_replay_buffer_artifact,
     verified_replay_buffer_copy,
@@ -105,7 +163,6 @@ from trade_rl.rl.training_environment_contract import (
     training_environment_identity,
     validate_training_environment,
 )
-from trade_rl.rl.training_modes import CudaRuntimeMode
 from trade_rl.rl.training_performance import (
     TrainingPerformanceRecorder,
     activate_training_performance,
@@ -113,622 +170,7 @@ from trade_rl.rl.training_performance import (
 )
 
 
-def _lagrangian_probe_worker_count(n_envs: int) -> int:
-    raw = os.environ.get("TRADE_RL_LAGRANGIAN_PROBE_WORKERS", "1").strip()
-    try:
-        configured = int(raw)
-    except ValueError as error:
-        raise ValueError(
-            "TRADE_RL_LAGRANGIAN_PROBE_WORKERS must be an integer"
-        ) from error
-    if configured <= 0:
-        raise ValueError("TRADE_RL_LAGRANGIAN_PROBE_WORKERS must be positive")
-    return min(n_envs, configured)
-
-
-def _oracle_solver_config() -> OracleSolverConfig:
-    """Parse the explicit Oracle backend/resource contract before generation."""
-
-    selection_name = "TRADE_RL_ORACLE_SOLVER"
-    raw_selection = os.environ.get(selection_name, "numpy").strip()
-    if raw_selection not in {"numpy", "cuda", "cuda_or_numpy"}:
-        raise ValueError(
-            f"{selection_name} must be one of numpy, cuda, or cuda_or_numpy"
-        )
-
-    def positive_integer(name: str, default: int) -> int:
-        raw = os.environ.get(name, str(default)).strip()
-        try:
-            value = int(raw)
-        except ValueError as error:
-            raise ValueError(f"{name} must be an integer") from error
-        if value <= 0:
-            raise ValueError(f"{name} must be positive")
-        return value
-
-    batch_size = positive_integer("TRADE_RL_ORACLE_EPISODE_BATCH_SIZE", 8)
-    block_name = "TRADE_RL_ORACLE_TARGET_STATE_BLOCK_SIZE"
-    raw_block = os.environ.get(block_name, "").strip()
-    block_size: int | None = None
-    if raw_block:
-        try:
-            block_size = int(raw_block)
-        except ValueError as error:
-            raise ValueError(f"{block_name} must be an integer when set") from error
-        if block_size <= 0:
-            raise ValueError(f"{block_name} must be positive when set")
-
-    memory_name = "TRADE_RL_ORACLE_CUDA_MEMORY_FRACTION"
-    raw_memory = os.environ.get(memory_name, "0.65").strip()
-    try:
-        memory_fraction = float(raw_memory)
-    except ValueError as error:
-        raise ValueError(f"{memory_name} must be numeric") from error
-    if not np.isfinite(memory_fraction) or not 0.0 < memory_fraction <= 1.0:
-        raise ValueError(f"{memory_name} must be within (0, 1]")
-
-    compile_name = "TRADE_RL_ORACLE_COMPILE_MODE"
-    raw_compile = os.environ.get(compile_name, "disabled").strip()
-    if raw_compile not in {"disabled", "reduce_overhead"}:
-        raise ValueError(f"{compile_name} must be disabled or reduce_overhead")
-    chunk_name = "TRADE_RL_ORACLE_COMPILE_CHUNK_SIZE"
-    compile_chunk_size = positive_integer(chunk_name, 16)
-    if compile_chunk_size not in {8, 16, 32, 64}:
-        raise ValueError(f"{chunk_name} must be one of 8, 16, 32, or 64")
-
-    return OracleSolverConfig(
-        selection=cast(SolverSelection, raw_selection),
-        episode_batch_size=batch_size,
-        target_state_block_size=block_size,
-        cuda_memory_fraction=memory_fraction,
-        compile_mode=cast(CompileMode, raw_compile),
-        compile_chunk_size=compile_chunk_size,
-    )
-
-
-def _oracle_accelerator_backend(
-    solver_config: OracleSolverConfig,
-) -> OracleBatchBackend | None:
-    """Resolve the concrete optional backend only for explicit CUDA selection."""
-
-    if solver_config.selection == "numpy":
-        return None
-    from trade_rl.integrations.oracle_solver import solve_torch_cuda_oracle_batch
-
-    return solve_torch_cuda_oracle_batch
-
-
-def _teacher_worker_count(
-    n_envs: int,
-    *,
-    solver_config: OracleSolverConfig | None = None,
-) -> int:
-    raw = os.environ.get("TRADE_RL_TEACHER_WORKERS", "").strip()
-    try:
-        if raw:
-            configured = int(raw)
-        else:
-            configured = n_envs if solver_config is None else 1
-    except ValueError as error:
-        raise ValueError("TRADE_RL_TEACHER_WORKERS must be an integer") from error
-    if configured <= 0:
-        raise ValueError("TRADE_RL_TEACHER_WORKERS must be positive")
-    if solver_config is not None and solver_config.selection != "numpy":
-        if configured != 1:
-            raise ValueError("CUDA Oracle solving requires TRADE_RL_TEACHER_WORKERS=1")
-    return min(n_envs, configured)
-
-
-def _oracle_episode_sampling_config(
-    environment: Any,
-    *,
-    train_range: tuple[int, int],
-    seed: int,
-) -> OracleEpisodeSamplingConfig:
-    return oracle_episode_sampling_config(
-        environment,
-        train_range=train_range,
-        seed=seed,
-    )
-
-
-def _configure_torch_cuda_runtime(
-    torch: Any,
-    device: object,
-    mode: CudaRuntimeMode | str,
-) -> dict[str, object]:
-    """Apply one explicit CUDA speed/reproducibility contract."""
-
-    resolved_mode = CudaRuntimeMode(mode)
-    requested = str(device).strip().lower()
-    uses_cuda = requested == "auto" and bool(torch.cuda.is_available())
-    if requested != "auto":
-        try:
-            uses_cuda = torch.device(device).type == "cuda"
-        except (RuntimeError, TypeError, ValueError):
-            uses_cuda = False
-
-    deterministic = resolved_mode is CudaRuntimeMode.DETERMINISTIC
-    torch.use_deterministic_algorithms(deterministic, warn_only=False)
-    if uses_cuda and deterministic:
-        torch.set_float32_matmul_precision("highest")
-        torch.backends.cuda.matmul.allow_tf32 = False
-        torch.backends.cudnn.allow_tf32 = False
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
-    elif uses_cuda:
-        # Performance mode intentionally permits nondeterministic kernel selection.
-        # Parameters, optimizer state, losses, and checkpoints remain float32.
-        torch.set_float32_matmul_precision("high")
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cudnn.deterministic = False
-        torch.backends.cudnn.benchmark = True
-
-    bf16_supported = bool(
-        uses_cuda
-        and callable(getattr(torch.cuda, "is_bf16_supported", None))
-        and torch.cuda.is_bf16_supported()
-    )
-    return {
-        "mode": str(resolved_mode),
-        "deterministic_algorithms": bool(torch.are_deterministic_algorithms_enabled()),
-        "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
-        "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
-        "cudnn_tf32": bool(torch.backends.cudnn.allow_tf32),
-        "float32_matmul_precision": str(torch.get_float32_matmul_precision()),
-        "matmul_tf32": bool(torch.backends.cuda.matmul.allow_tf32),
-        "sequence_encoder_autocast": ("bfloat16" if bf16_supported else "disabled"),
-    }
-
-
-def _configure_sequence_runtime(
-    torch: Any,
-    model: Any,
-    config: ResidualTrainingConfig,
-) -> dict[str, object]:
-    # Apply the identity-bound sequence runtime after construction or load.
-
-    compile_enabled = bool(config.sequence_compile)
-    compile_target: str | None = None
-    if compile_enabled:
-        resolved_device = torch.device(model.device)
-        if resolved_device.type != "cuda":
-            raise RuntimeError("sequence_compile requires a resolved CUDA device")
-        extractor = getattr(getattr(model, "policy", None), "features_extractor", None)
-        compile_module = getattr(extractor, "compile", None)
-        if not callable(compile_module):
-            raise RuntimeError(
-                "sequence feature extractor does not support in-place compile"
-            )
-        compile_module(
-            mode=config.sequence_compile_mode,
-            fullgraph=False,
-            dynamic=False,
-        )
-        compile_target = type(extractor).__name__
-    return {
-        "compile_enabled": compile_enabled,
-        "compile_mode": config.sequence_compile_mode,
-        "compile_target": compile_target,
-        "fullgraph": False,
-        "dynamic": False,
-        "inductor_compile_threads": os.environ.get("TORCHINDUCTOR_COMPILE_THREADS"),
-        "sequence_transfer_mode": config.sequence_transfer_mode,
-        "torch_version": str(torch.__version__),
-        "schema_version": "sequence_runtime_v2",
-    }
-
-
-def _teacher_cache_key(
-    *,
-    dataset_id: str,
-    train_range: tuple[int, int],
-    environment_digest: str,
-    action_spec_digest: str,
-    teacher_config_digest: str,
-) -> str:
-    return content_digest(
-        {
-            "action_spec_digest": action_spec_digest,
-            "dataset_id": dataset_id,
-            "environment_digest": environment_digest,
-            "teacher_config_digest": teacher_config_digest,
-            "train_range": train_range,
-        }
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _TeacherIdentity:
-    """Content identity for non-oracle causal behavior-cloning teachers."""
-
-    digest: str
-
-
-def _behavior_cloning_quality(
-    *,
-    initial_mse: float,
-    final_mse: float,
-    required_relative_improvement: float,
-) -> tuple[float, bool]:
-    """Return a fail-closed relative improvement decision for BC warm starts."""
-
-    if (
-        not np.isfinite(initial_mse)
-        or not np.isfinite(final_mse)
-        or initial_mse < 0.0
-        or final_mse < 0.0
-    ):
-        raise ValueError("behavior cloning MSE values must be finite and non-negative")
-    denominator = max(initial_mse, float(np.finfo(np.float64).eps))
-    relative_improvement = (initial_mse - final_mse) / denominator
-    return (
-        relative_improvement,
-        relative_improvement >= required_relative_improvement,
-    )
-
-
-def _resolve_behavior_cloning_seed(
-    config: ResidualTrainingConfig,
-    *,
-    member_seed: int,
-) -> int:
-    """Keep supervised initialization stable without removing PPO diversity."""
-
-    configured = config.behavior_cloning_seed
-    return member_seed if configured is None else configured
-
-
-def _save_behavior_cloning_policy_candidate(
-    model: Any,
-    *,
-    output_dir: Path,
-) -> tuple[Path, str]:
-    """Persist the pre-PPO policy so selection can reject harmful fine-tuning."""
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    save_target = output_dir / "behavior-cloning-policy"
-    save_policy_without_runtime_state(model, str(save_target))
-    policy_path = save_target.with_suffix(".zip")
-    if not policy_path.is_file():
-        raise FileNotFoundError(
-            "behavior cloning model save did not create behavior-cloning-policy.zip"
-        )
-    return policy_path, file_digest(policy_path, field="behavior cloning policy")
-
-
-def _restore_member_seed_after_behavior_cloning(
-    model: Any,
-    *,
-    behavior_cloning_seed: int,
-    member_seed: int,
-) -> None:
-    """Restore the member RNG after deterministic supervised pretraining."""
-
-    model.set_random_seed(member_seed)
-
-
-_HEAVY_TRAINING_INFO_KEYS = (
-    "hybrid_execution",
-    "shadow_execution",
-    "hybrid_liquidation",
-    "shadow_liquidation",
-)
-
-
-def _compact_training_info(info: dict[str, object]) -> dict[str, object]:
-    """Keep callback diagnostics without copying the environment's histories.
-
-    ``DummyVecEnv`` deep-copies every info mapping.  Execution results reference
-    ``BookState`` objects whose return histories grow for the whole episode, so
-    exposing them to SB3 turns rollout collection into quadratic work.  The raw
-    Gymnasium environment retains its rich diagnostic contract; only the
-    training adapter replaces those objects with the small fields consumed by
-    telemetry and callbacks.
-    """
-
-    compact = dict(info)
-    execution = compact.get("hybrid_execution")
-    book = getattr(execution, "book", None)
-    weights = getattr(book, "weights", None)
-    if weights is not None:
-        compact["telemetry_weights_after"] = np.asarray(
-            weights,
-            dtype=np.float64,
-        ).copy()
-    if "telemetry_risk_reasons" not in compact:
-        risk = compact.get("hybrid_risk")
-        reasons = getattr(risk, "reasons", ())
-        compact["telemetry_risk_reasons"] = tuple(
-            str(getattr(item, "value", item)) for item in reasons if str(item)
-        )
-    for key in _HEAVY_TRAINING_INFO_KEYS:
-        compact.pop(key, None)
-    return compact
-
-
-class _TrainingInfoFilter(gym.Wrapper):
-    """Remove history-bearing diagnostics before SB3 copies vector infos."""
-
-    def step(self, action: Any) -> tuple[Any, float, bool, bool, dict[str, object]]:
-        observation, reward, terminated, truncated, info = self.env.step(action)
-        return (
-            observation,
-            float(reward),
-            bool(terminated),
-            bool(truncated),
-            _compact_training_info(info),
-        )
-
-
-def _filtered_training_environment(factory: Callable[[], Any]) -> Any:
-    return _TrainingInfoFilter(factory())
-
-
-def _required_hierarchical_config(config: object, name: str) -> int | float:
-    value = getattr(config, name, None)
-    if value is None:
-        raise ValueError(
-            f"hierarchical BC requires explicit training_run_config_v4 field {name}"
-        )
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ValueError(
-            f"hierarchical BC training_run_config_v4 field {name} must be numeric"
-        )
-    if not np.isfinite(float(value)):
-        raise ValueError(
-            f"hierarchical BC training_run_config_v4 field {name} must be finite"
-        )
-    return value
-
-
-def _teacher_change_labels(
-    *,
-    teacher_dataset: SupervisedPolicyDataset,
-    config: object,
-) -> HierarchicalTeacherLabels | None:
-    observations = teacher_dataset.observations
-    if not isinstance(observations, Mapping):
-        return None
-    missing = {"active", "current_weights"} - set(observations)
-    if missing:
-        raise ValueError(
-            "structured BC teacher observations are missing "
-            + ", ".join(sorted(missing))
-        )
-    change_threshold = _required_hierarchical_config(
-        config, "behavior_cloning_gate_change_threshold"
-    )
-    return build_hierarchical_teacher_labels(
-        teacher_targets=np.asarray(teacher_dataset.actions),
-        current_weights=np.asarray(observations["current_weights"]),
-        active_mask=np.asarray(observations["active"]) > 0.5,
-        change_threshold=float(change_threshold),
-        source_teacher_digest=teacher_dataset.action_digest,
-    )
-
-
-def _uses_hierarchical_actor_head(policy: object) -> bool:
-    actor_head = getattr(policy, "shared_actor_head", None)
-    return actor_head in {None, "hierarchical_gate_target_v1"} and callable(
-        getattr(policy, "hierarchical_actor_outputs", None)
-    )
-
-
-def _hierarchical_teacher_labels(
-    *,
-    policy: object,
-    teacher_dataset: SupervisedPolicyDataset,
-    config: object,
-) -> HierarchicalTeacherLabels | None:
-    if not _uses_hierarchical_actor_head(policy):
-        return None
-    labels = _teacher_change_labels(
-        teacher_dataset=teacher_dataset,
-        config=config,
-    )
-    if labels is None:
-        raise ValueError("hierarchical BC requires structured teacher observations")
-    return labels
-
-
-def _hierarchical_behavior_cloning_config(
-    config: ResidualTrainingConfig,
-) -> BehaviorCloningConfig:
-    return BehaviorCloningConfig(
-        epochs=config.behavior_cloning_epochs,
-        learning_rate=config.behavior_cloning_learning_rate,
-        batch_size=config.behavior_cloning_batch_size,
-        validation_fraction=config.behavior_cloning_validation_fraction,
-        early_stopping_patience=config.behavior_cloning_patience,
-        minimum_improvement=config.behavior_cloning_minimum_improvement,
-        gate_loss_weight=float(
-            _required_hierarchical_config(config, "behavior_cloning_gate_loss_weight")
-        ),
-        target_loss_weight=float(
-            _required_hierarchical_config(config, "behavior_cloning_target_loss_weight")
-        ),
-        composed_loss_weight=float(
-            _required_hierarchical_config(
-                config, "behavior_cloning_composed_loss_weight"
-            )
-        ),
-        max_positive_class_weight=float(
-            _required_hierarchical_config(
-                config, "behavior_cloning_max_positive_class_weight"
-            )
-        ),
-        gate_prediction_threshold=float(
-            _required_hierarchical_config(
-                config, "behavior_cloning_gate_prediction_threshold"
-            )
-        ),
-    )
-
-
-def _behavior_cloning_gate_thresholds(
-    config: ResidualTrainingConfig,
-) -> BehaviorCloningGateThresholds:
-    return BehaviorCloningGateThresholds(
-        minimum_composed_loss_relative_improvement=(
-            config.behavior_cloning_required_relative_improvement
-        ),
-        minimum_gate_precision=float(
-            _required_hierarchical_config(config, "behavior_cloning_min_gate_precision")
-        ),
-        minimum_gate_recall=float(
-            _required_hierarchical_config(config, "behavior_cloning_min_gate_recall")
-        ),
-        maximum_active_target_rmse=float(
-            _required_hierarchical_config(
-                config, "behavior_cloning_max_active_target_rmse"
-            )
-        ),
-        minimum_activity_ratio=float(
-            _required_hierarchical_config(config, "behavior_cloning_min_activity_ratio")
-        ),
-        maximum_activity_ratio=float(
-            _required_hierarchical_config(config, "behavior_cloning_max_activity_ratio")
-        ),
-        minimum_teacher_positive_support=1,
-        minimum_causal_holdout_trades=int(
-            _required_hierarchical_config(
-                config, "behavior_cloning_min_causal_holdout_trades"
-            )
-        ),
-        maximum_causal_holdout_regret=float(
-            _required_hierarchical_config(
-                config, "behavior_cloning_max_causal_holdout_regret"
-            )
-        ),
-        minimum_causal_holdout_episodes=1,
-        maximum_causal_holdout_regret_upper_bound=float(
-            _required_hierarchical_config(
-                config, "behavior_cloning_max_causal_holdout_regret"
-            )
-        ),
-    )
-
-
-def _evaluate_hierarchical_behavior_cloning_gate(
-    *,
-    cloning: object,
-    holdout: Any,
-    thresholds: BehaviorCloningGateThresholds,
-) -> BehaviorCloningGateEvaluation:
-    initial_losses = getattr(cloning, "initial_hierarchical_losses", None)
-    final_losses = getattr(cloning, "final_hierarchical_losses", None)
-    validation_metrics = getattr(cloning, "validation_hierarchical_metrics", None)
-    if validation_metrics is None:
-        validation_metrics = getattr(cloning, "final_hierarchical_metrics", None)
-    return evaluate_behavior_cloning_gates(
-        initial_composed_loss=(
-            None if initial_losses is None else float(initial_losses.composed)
-        ),
-        final_composed_loss=(
-            None if final_losses is None else float(final_losses.composed)
-        ),
-        reconstruction_metrics=validation_metrics,
-        holdout=holdout,
-        thresholds=thresholds,
-    )
-
-
-def _enforce_behavior_cloning_gates(
-    evaluation: BehaviorCloningGateEvaluation,
-) -> None:
-    evaluation.require_passed()
-
-
-def _build_training_environment(
-    factory: Callable[[], gym.Env[Any, Any]],
-    n_envs: int,
-    *,
-    subprocesses: bool = True,
-) -> Any:
-    if n_envs == 1:
-        return factory()
-    from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
-
-    factories = [factory for _ in range(n_envs)]
-    if subprocesses:
-        return SubprocVecEnv(factories, start_method="spawn")
-    return DummyVecEnv(factories)
-
-
-def _effective_vector_environment_kind(config: ResidualTrainingConfig) -> str:
-    if config.n_envs == 1:
-        return "direct"
-    if config.vector_environment_mode != "subprocess":
-        return "in_process"
-    if config.observation_encoder == "hierarchical_sequence_v2":
-        return "subprocess_compact_sequence"
-    return "subprocess"
-
-
-def _compact_filtered_training_environment(
-    factory: Callable[[], gym.Env[Any, Any]],
-) -> gym.Env[Any, Any]:
-    from trade_rl.rl.sequence_observations import (
-        sequence_policy_plane_materialization,
-    )
-
-    with sequence_policy_plane_materialization(False):
-        environment = factory()
-    unwrapped: Any = getattr(environment, "unwrapped", environment)
-    setter = getattr(unwrapped, "set_compact_sequence_training_observations", None)
-    if not callable(setter):
-        environment.close()
-        raise TypeError(
-            "parallel sequence worker does not support compact observations"
-        )
-    setter(True)
-    return _TrainingInfoFilter(environment)
-
-
-def _build_parallel_sequence_training_environment(
-    factory: Callable[[], gym.Env[Any, Any]],
-    n_envs: int,
-    *,
-    full_observation_space: gym.spaces.Dict,
-    reconstructor: Any,
-) -> Any:
-    from trade_rl.integrations.parallel_sequence_env import ParallelSequenceVecEnv
-
-    workers = _build_training_environment(
-        partial(_compact_filtered_training_environment, factory),
-        n_envs,
-        subprocesses=True,
-    )
-    try:
-        return ParallelSequenceVecEnv(
-            workers,
-            full_observation_space=full_observation_space,
-            reconstructor=reconstructor,
-        )
-    except BaseException:
-        workers.close()
-        raise
-
-
-def _reset_observation_for_export(
-    environment: object, *, seed: int
-) -> Mapping[str, np.ndarray]:
-    reset = getattr(environment, "reset", None)
-    if not callable(reset):
-        raise TypeError("structured export environment does not support reset")
-    try:
-        raw = reset(seed=seed)
-    except TypeError:
-        raw = reset()
-    observation = raw[0] if isinstance(raw, tuple) and len(raw) == 2 else raw
-    if not isinstance(observation, Mapping):
-        raise ValueError("structured export requires a mapping observation")
-    return {key: np.asarray(value) for key, value in observation.items()}
-
-
-class StableBaselines3Backend:
+class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
     """Train one policy with an optional SB3-family algorithm."""
 
     def __init__(
@@ -793,384 +235,6 @@ class StableBaselines3Backend:
         self._episode_teacher_dataset_cache: dict[
             tuple[str, int, int, str, str, str], EpisodeSupervisedPolicyDataset
         ] = {}
-
-    def _oracle_episode_batch(
-        self,
-        environment: Any,
-        train_range: tuple[int, int],
-        teacher_config: OracleTeacherConfig,
-        sampling_config: OracleEpisodeSamplingConfig,
-        max_workers: int = 1,
-        solver_config: OracleSolverConfig | None = None,
-    ) -> EpisodeOracleBatch:
-        resolved_solver_config = solver_config or OracleSolverConfig()
-        dataset = environment.dataset
-        dataset_id = getattr(dataset, "dataset_id", None)
-        if not isinstance(dataset_id, str):
-            raise ValueError("Oracle episode dataset must expose dataset_id")
-        start, stop = train_range
-        key = (
-            dataset_id,
-            int(start),
-            int(stop),
-            teacher_config.digest,
-            sampling_config.digest,
-            resolved_solver_config.digest,
-        )
-        cached = self._oracle_episode_batch_cache.get(key)
-        if cached is not None:
-            return cached
-        batch = build_episode_oracle_batch(
-            dataset,
-            minimum_start_index=start,
-            sampling_config=sampling_config,
-            teacher_config=teacher_config,
-            initial_weight_provider=lambda mode, index: resolve_episode_initial_weights(
-                environment,
-                mode,
-                index,
-            ),
-            max_workers=max_workers,
-            solver_config=resolved_solver_config,
-            accelerator_backend=_oracle_accelerator_backend(resolved_solver_config),
-        )
-        self._oracle_episode_batch_cache[key] = batch
-        return batch
-
-    def _episode_teacher_dataset(
-        self,
-        environment: Any,
-        batch: EpisodeOracleBatch,
-        *,
-        train_range: tuple[int, int],
-        teacher_config: OracleTeacherConfig,
-        max_workers: int = 1,
-    ) -> EpisodeSupervisedPolicyDataset:
-        start, stop = train_range
-        environment_digest = getattr(environment, "environment_digest", None)
-        action_spec_digest = getattr(environment, "action_spec_digest", None)
-        if not isinstance(environment_digest, str):
-            raise ValueError(
-                "episode teacher environment must expose environment_digest"
-            )
-        if not isinstance(action_spec_digest, str):
-            raise ValueError(
-                "episode teacher environment must expose action_spec_digest"
-            )
-        artifact_schema = (
-            EPISODE_TEACHER_ARTIFACT_SCHEMA_V1
-            if batch.solver_provenance is None
-            else EPISODE_TEACHER_ARTIFACT_SCHEMA
-        )
-        teacher_identity = content_digest(
-            {
-                "episode_batch_digest": batch.digest,
-                "schema_version": artifact_schema,
-                "teacher_config_digest": teacher_config.digest,
-            }
-        )
-        key = (
-            batch.dataset_id,
-            int(start),
-            int(stop),
-            environment_digest,
-            action_spec_digest,
-            teacher_identity,
-        )
-        cached = self._episode_teacher_dataset_cache.get(key)
-        if cached is not None:
-            return cached
-        cache_path: Path | None = None
-        shard_root: Path | None = None
-        if self.teacher_cache_root is not None:
-            cache_identity = (
-                teacher_cache_identity(
-                    dataset_id=batch.dataset_id,
-                    train_range=(start, stop),
-                    environment_digest=environment_digest,
-                    action_spec_digest=action_spec_digest,
-                    teacher_config_digest=teacher_identity,
-                )
-                if batch.solver_provenance is None
-                else teacher_cache_identity_v2(
-                    dataset_id=batch.dataset_id,
-                    train_range=(start, stop),
-                    environment_digest=environment_digest,
-                    action_spec_digest=action_spec_digest,
-                    teacher_config_digest=teacher_identity,
-                    solver_provenance=batch.solver_provenance,
-                )
-            )
-            cache_path = self.teacher_cache_root / _teacher_cache_key(
-                dataset_id=batch.dataset_id,
-                train_range=(start, stop),
-                environment_digest=environment_digest,
-                action_spec_digest=action_spec_digest,
-                teacher_config_digest=teacher_identity,
-            )
-            if self.reusable_artifact_index is not None:
-                indexed = self.reusable_artifact_index.resolve(
-                    ArtifactKind.ORACLE_TEACHER,
-                    cache_identity,
-                )
-                if indexed is not None:
-                    cache_path = indexed
-            shard_root = cache_path.with_name(f".{cache_path.name}.episodes")
-            if cache_path.exists():
-                manifest, teacher_dataset = load_episode_teacher_artifact(
-                    cache_path,
-                    expected_dataset_id=batch.dataset_id,
-                    expected_environment_digest=environment_digest,
-                    expected_action_spec_digest=action_spec_digest,
-                )
-                if teacher_dataset.teacher_config_digest != teacher_identity:
-                    raise ValueError("cached episode teacher identity mismatch")
-                if self.reusable_artifact_index is not None:
-                    self.reusable_artifact_index.register_directory(
-                        artifact_digest=manifest.artifact_digest,
-                        artifact_kind=ArtifactKind.ORACLE_TEACHER,
-                        schema_version=manifest.schema_version,
-                        dataset_id=batch.dataset_id,
-                        cache_key=cache_identity,
-                        metadata={
-                            "episode_count": manifest.episode_count,
-                            "sample_count": manifest.sample_count,
-                            **(
-                                {}
-                                if manifest.solver_provenance is None
-                                else {
-                                    "solver_provenance": manifest.solver_provenance.serialized_payload()
-                                }
-                            ),
-                        },
-                        location=cache_path,
-                    )
-                self._episode_teacher_dataset_cache[key] = teacher_dataset
-                return teacher_dataset
-        if max_workers == 1:
-            teacher_dataset = collect_episode_teacher_rollout(
-                environment,
-                batch,
-                teacher_config_digest=teacher_identity,
-            )
-        else:
-            teacher_dataset = collect_episode_teacher_rollout_parallel(
-                self.environment_factory,
-                batch,
-                teacher_config_digest=teacher_identity,
-                max_workers=max_workers,
-                shard_root=shard_root,
-            )
-        if cache_path is not None:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = Path(
-                tempfile.mkdtemp(
-                    prefix=f".{cache_path.name}.", dir=str(cache_path.parent)
-                )
-            )
-            try:
-                write_episode_teacher_artifact(temporary, teacher_dataset)
-                try:
-                    temporary.replace(cache_path)
-                except FileExistsError:
-                    pass
-            finally:
-                if temporary.exists():
-                    shutil.rmtree(temporary)
-            if shard_root is not None and shard_root.exists():
-                shutil.rmtree(shard_root)
-            if self.reusable_artifact_index is not None:
-                manifest, _ = load_episode_teacher_artifact(
-                    cache_path,
-                    expected_dataset_id=batch.dataset_id,
-                    expected_environment_digest=environment_digest,
-                    expected_action_spec_digest=action_spec_digest,
-                )
-                self.reusable_artifact_index.register_directory(
-                    artifact_digest=manifest.artifact_digest,
-                    artifact_kind=ArtifactKind.ORACLE_TEACHER,
-                    schema_version=manifest.schema_version,
-                    dataset_id=batch.dataset_id,
-                    cache_key=cache_identity,
-                    metadata={
-                        "episode_count": manifest.episode_count,
-                        "sample_count": manifest.sample_count,
-                    },
-                    location=cache_path,
-                )
-        self._episode_teacher_dataset_cache[key] = teacher_dataset
-        return teacher_dataset
-
-    def _oracle_targets(
-        self,
-        dataset: Any,
-        train_range: tuple[int, int],
-        teacher_config: OracleTeacherConfig,
-    ) -> np.ndarray:
-        dataset_id = getattr(dataset, "dataset_id", None)
-        if not isinstance(dataset_id, str):
-            raise ValueError("oracle dataset must expose dataset_id")
-        start, stop = train_range
-        key = (dataset_id, int(start), int(stop), teacher_config.digest)
-        cached = self._oracle_target_cache.get(key)
-        if cached is not None:
-            return cached
-        targets = np.asarray(
-            oracle_target_path(dataset, train_range, teacher_config),
-            dtype=np.float32,
-        ).copy(order="C")
-        targets.setflags(write=False)
-        self._oracle_target_cache[key] = targets
-        return targets
-
-    def _trend_baseline_targets(
-        self,
-        dataset: Any,
-        train_range: tuple[int, int],
-        strategy: Any,
-        *,
-        teacher_digest: str,
-    ) -> np.ndarray:
-        """Return causal base-trend targets aligned with policy decisions."""
-
-        dataset_id = getattr(dataset, "dataset_id", None)
-        if not isinstance(dataset_id, str):
-            raise ValueError("trend teacher dataset must expose dataset_id")
-        start, stop = train_range
-        key = (dataset_id, int(start), int(stop), teacher_digest)
-        cached = self._trend_target_cache.get(key)
-        if cached is not None:
-            return cached
-        targets = np.stack(
-            [
-                np.asarray(strategy.targets(dataset, index).base, dtype=np.float32)
-                for index in range(start, stop - 1)
-            ],
-            axis=0,
-        ).astype(np.float32, copy=False)
-        if targets.ndim != 2 or len(targets) != stop - start - 1:
-            raise RuntimeError("causal trend teacher target shape mismatch")
-        if not np.isfinite(targets).all():
-            raise RuntimeError("causal trend teacher targets are non-finite")
-        targets.setflags(write=False)
-        self._trend_target_cache[key] = targets
-        return targets
-
-    def _teacher_dataset(
-        self,
-        environment: Any,
-        targets: np.ndarray,
-        *,
-        dataset_id: str,
-        train_range: tuple[int, int],
-        teacher_config: OracleTeacherConfig | _TeacherIdentity,
-    ) -> SupervisedPolicyDataset:
-        start, stop = train_range
-        environment_digest = getattr(environment, "environment_digest", None)
-        action_spec_digest = getattr(environment, "action_spec_digest", None)
-        if not isinstance(environment_digest, str):
-            raise ValueError("teacher environment must expose environment_digest")
-        if not isinstance(action_spec_digest, str):
-            raise ValueError("teacher environment must expose action_spec_digest")
-        key = (
-            dataset_id,
-            int(start),
-            int(stop),
-            environment_digest,
-            action_spec_digest,
-            teacher_config.digest,
-        )
-        cached = self._teacher_dataset_cache.get(key)
-        if cached is not None:
-            return cached
-        cache_path: Path | None = None
-        if self.teacher_cache_root is not None:
-            cache_identity = teacher_cache_identity(
-                dataset_id=dataset_id,
-                train_range=(start, stop),
-                environment_digest=environment_digest,
-                action_spec_digest=action_spec_digest,
-                teacher_config_digest=teacher_config.digest,
-            )
-            cache_path = self.teacher_cache_root / _teacher_cache_key(
-                dataset_id=dataset_id,
-                train_range=(start, stop),
-                environment_digest=environment_digest,
-                action_spec_digest=action_spec_digest,
-                teacher_config_digest=teacher_config.digest,
-            )
-            if self.reusable_artifact_index is not None:
-                indexed = self.reusable_artifact_index.resolve(
-                    ArtifactKind.ORACLE_TEACHER,
-                    cache_identity,
-                )
-                if indexed is not None:
-                    cache_path = indexed
-            if cache_path.exists():
-                manifest, teacher_dataset = load_teacher_artifact(
-                    cache_path,
-                    expected_dataset_id=dataset_id,
-                    expected_environment_digest=environment_digest,
-                    expected_action_spec_digest=action_spec_digest,
-                    expected_train_range=(start, stop),
-                )
-                if teacher_dataset.teacher_config_digest != teacher_config.digest:
-                    raise ValueError("cached teacher configuration identity mismatch")
-                if self.reusable_artifact_index is not None:
-                    self.reusable_artifact_index.register_directory(
-                        artifact_digest=manifest.artifact_digest,
-                        artifact_kind=ArtifactKind.ORACLE_TEACHER,
-                        schema_version=manifest.schema_version,
-                        dataset_id=dataset_id,
-                        cache_key=cache_identity,
-                        metadata={"sample_count": manifest.sample_count},
-                        location=cache_path,
-                    )
-                self._teacher_dataset_cache[key] = teacher_dataset
-                return teacher_dataset
-        teacher_dataset = collect_teacher_rollout(
-            environment,
-            targets,
-            dataset_id=dataset_id,
-            train_range=(start, stop),
-            teacher_config_digest=teacher_config.digest,
-        )
-        if cache_path is not None:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = Path(
-                tempfile.mkdtemp(
-                    prefix=f".{cache_path.name}.", dir=str(cache_path.parent)
-                )
-            )
-            try:
-                write_teacher_artifact(temporary, teacher_dataset)
-                try:
-                    temporary.replace(cache_path)
-                except FileExistsError:
-                    # A concurrent equivalent trainer won the content-addressed race.
-                    pass
-            finally:
-                if temporary.exists():
-                    shutil.rmtree(temporary)
-            if self.reusable_artifact_index is not None:
-                manifest, _ = load_teacher_artifact(
-                    cache_path,
-                    expected_dataset_id=dataset_id,
-                    expected_environment_digest=environment_digest,
-                    expected_action_spec_digest=action_spec_digest,
-                    expected_train_range=(start, stop),
-                )
-                self.reusable_artifact_index.register_directory(
-                    artifact_digest=manifest.artifact_digest,
-                    artifact_kind=ArtifactKind.ORACLE_TEACHER,
-                    schema_version=manifest.schema_version,
-                    dataset_id=dataset_id,
-                    cache_key=cache_identity,
-                    metadata={"sample_count": manifest.sample_count},
-                    location=cache_path,
-                )
-        self._teacher_dataset_cache[key] = teacher_dataset
-        return teacher_dataset
 
     def train(
         self,

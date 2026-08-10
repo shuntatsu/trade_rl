@@ -7,8 +7,8 @@ from typing import Any
 
 import numpy as np
 
+import trade_rl.integrations.sb3_teacher_pipeline as sb3_teacher_pipeline
 from trade_rl.data.market import MarketDataset
-from trade_rl.integrations import sb3_training
 from trade_rl.integrations.sb3_training import (
     StableBaselines3Backend,
     _oracle_episode_sampling_config,
@@ -400,7 +400,7 @@ def test_backend_caches_episode_oracle_batch_by_sampling_identity(
         calls += 1
         return expected
 
-    monkeypatch.setattr(sb3_training, "build_episode_oracle_batch", build)
+    monkeypatch.setattr(sb3_teacher_pipeline, "build_episode_oracle_batch", build)
     backend = StableBaselines3Backend(lambda: environment)
 
     first = backend._oracle_episode_batch(

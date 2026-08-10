@@ -1,0 +1,63 @@
+name: Publish U2 e3dba delta series
+
+on:
+  push:
+    branches:
+      - agent/publish-u2-e3dba-delta-2026-08-11
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout publisher payload
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/publish-u2-e3dba-delta-2026-08-11
+          path: publisher
+          persist-credentials: false
+
+      - name: Checkout exact U2 base
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: e3dba491b7a158c4f20442e353b5b43f1ba57586
+          path: source
+          fetch-depth: 0
+
+      - name: Reconstruct and verify patch series
+        run: |
+          set -euo pipefail
+          cp publisher/.github/u2-e3dba-delta.patch.gz.b64 /tmp/u2-delta.patch.gz.b64
+          echo "6c6780ccac6d46a0712ffa33e47d0e47ea4b2138e8cdce6b7411ca2bdf5af08f  /tmp/u2-delta.patch.gz.b64" | sha256sum --check -
+          base64 --decode /tmp/u2-delta.patch.gz.b64 | gzip --decompress > /tmp/u2-delta.patch
+
+      - name: Guard remote head and apply exact TDD series
+        working-directory: source
+        run: |
+          set -euo pipefail
+          expected="e3dba491b7a158c4f20442e353b5b43f1ba57586"
+          observed="$(git ls-remote origin refs/heads/agent/universal-episode-router | cut -f1)"
+          test "$observed" = "$expected"
+          git config user.name Shuntatsu
+          git config user.email 148511409+shuntatsu@users.noreply.github.com
+          git am /tmp/u2-delta.patch
+          test -z "$(git status --short)"
+          python -m compileall -q \
+            trade_rl/rl/universal_instrument_binding.py \
+            trade_rl/rl/universal_single_instrument_env.py \
+            trade_rl/workflows/universal_single_instrument_environment.py
+          git push origin HEAD:refs/heads/agent/universal-episode-router
+
+      - name: Delete temporary publisher branch
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request DELETE \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/heads/agent/publish-u2-e3dba-delta-2026-08-11"

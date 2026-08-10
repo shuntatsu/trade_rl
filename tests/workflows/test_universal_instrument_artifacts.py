@@ -45,9 +45,7 @@ def _source(
             timeframe=timeframe,
             row_count=100,
             feature_count=1,
-            available_value_count=(
-                0 if zero_available == (symbol, timeframe) else 100
-            ),
+            available_value_count=(0 if zero_available == (symbol, timeframe) else 100),
             first_event_time_ms=1_609_459_200_000,
             last_event_time_ms=1_782_864_000_000,
             payload_schema=f"npz_native_indicator_v1:{content_digest(timeframe)}",
@@ -77,7 +75,9 @@ def _metadata(symbols: tuple[str, ...], *, version: str = "v1") -> dict[str, str
     }
 
 
-def _bundle(*, seed: int = 17, metadata_version: str = "v1") -> UniversalInstrumentArtifactBundle:
+def _bundle(
+    *, seed: int = 17, metadata_version: str = "v1"
+) -> UniversalInstrumentArtifactBundle:
     source = _source()
     catalog = build_stored_instrument_catalog(
         source,

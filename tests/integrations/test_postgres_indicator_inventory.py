@@ -197,3 +197,70 @@ def test_rejects_wrong_row_shape_or_scalar_types() -> None:
     artifact_type.artifacts = tuple(rows)
     with pytest.raises(ValueError, match="row_count must be an integer"):
         load_postgres_indicator_source_inventory(artifact_type)
+
+
+def test_supports_a_base_only_feature_manifest() -> None:
+    database = FakeDatabase(symbol_count=1)
+    feature_specs = {
+        "base_timeframe": "15m",
+        "feature_timeframes": [],
+        "features": [{"name": "15m__return", "kind": "log_return"}],
+    }
+    manifest_row = list(database.manifest)
+    manifest_row[6] = content_digest(feature_specs)
+    manifest_row[7] = feature_specs
+    manifest_row[8] = 1
+    database.manifest = tuple(manifest_row)
+    database.artifacts = tuple(
+        artifact for artifact in database.artifacts if artifact[1] == "15m"
+    )
+
+    inventory = load_postgres_indicator_source_inventory(database)
+
+    assert inventory.required_timeframes == ("15m",)
+    assert len(inventory.artifacts) == 1
+
+
+def test_extra_timeframe_is_reported_as_metadata_closure_failure() -> None:
+    database = FakeDatabase()
+    extra_artifact = list(database.artifacts[0])
+    extra_artifact[1] = "5m"
+    database.artifacts = (*database.artifacts, tuple(extra_artifact))
+
+    with pytest.raises(FileNotFoundError, match="artifact metadata set mismatch"):
+        load_postgres_indicator_source_inventory(database)
+
+
+def test_rejects_scalar_coercion_and_naive_manifest_time() -> None:
+    symbol_type = FakeDatabase()
+    rows = list(symbol_type.artifacts)
+    artifact_row = list(rows[0])
+    artifact_row[0] = 123
+    rows[0] = tuple(artifact_row)
+    symbol_type.artifacts = tuple(rows)
+    with pytest.raises(ValueError, match="symbol must be a non-empty string"):
+        load_postgres_indicator_source_inventory(symbol_type)
+
+    naive_time = FakeDatabase()
+    manifest_row = list(naive_time.manifest)
+    manifest_row[4] = datetime(2021, 1, 1)
+    naive_time.manifest = tuple(manifest_row)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        load_postgres_indicator_source_inventory(naive_time)
+
+
+def test_rejects_payload_schema_drift_within_timeframe() -> None:
+    database = FakeDatabase()
+    rows = list(database.artifacts)
+    target_index = next(
+        index
+        for index, row in enumerate(rows)
+        if row[1] == "15m" and row[0] == "ASSET01USDT"
+    )
+    artifact_row = list(rows[target_index])
+    artifact_row[7] = f"npz_native_indicator_v1:{999:064x}"
+    rows[target_index] = tuple(artifact_row)
+    database.artifacts = tuple(rows)
+
+    with pytest.raises(ValueError, match="schema differs within timeframe"):
+        load_postgres_indicator_source_inventory(database)

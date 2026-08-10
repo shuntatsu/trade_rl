@@ -144,23 +144,15 @@ def test_episode_bc_holdout_persists_causal_net_return_lower_bound(
 
     assert holdout is not None
     observed = np.asarray(
-        [
-            record.causal_policy_performance.net_return
-            for record in holdout.records
-        ],
+        [record.causal_policy_performance.net_return for record in holdout.records],
         dtype=np.float64,
     )
-    assert (
-        holdout.causal_net_return_lower_confidence_bound
-        <= float(np.mean(observed))
-    )
+    assert holdout.causal_net_return_lower_confidence_bound <= float(np.mean(observed))
     assert audit["causal_net_return_lower_confidence_bound"] == (
         holdout.causal_net_return_lower_confidence_bound
     )
     payload = json.loads(
-        (tmp_path / "behavior-cloning-holdout.json").read_text(
-            encoding="utf-8"
-        )
+        (tmp_path / "behavior-cloning-holdout.json").read_text(encoding="utf-8")
     )
     assert payload["causal_net_return_lower_confidence_bound"] == (
         holdout.causal_net_return_lower_confidence_bound

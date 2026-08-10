@@ -4,7 +4,7 @@ from dataclasses import fields
 
 import pytest
 
-from trade_rl.simulation.execution import ExecutionCostConfig
+from trade_rl.simulation.execution import ExecutionCostConfig, ExecutionRuleStress
 from trade_rl.workflows.market_walk_forward_config import ExecutionSensitivityScenario
 
 
@@ -105,6 +105,37 @@ def test_execution_sensitivity_scenario_applies_cost_stress_immutably() -> None:
     assert base.fee_rate == pytest.approx(0.001)
     assert base.max_participation_rate == pytest.approx(0.2)
     assert base.order_latency_bars == 0
+
+
+def test_identity_execution_stress_preserves_legacy_rule_contract() -> None:
+    scenario = ExecutionSensitivityScenario(
+        name="joint_3x",
+        tick_size_factor=3.0,
+        lot_size_factor=3.0,
+        minimum_notional_factor=3.0,
+        adverse_tick_rounding=True,
+        report_only=True,
+    )
+
+    stress = scenario.stress()
+
+    assert type(stress) is ExecutionRuleStress
+    assert scenario.digest_payload()["schema_version"] == "execution_rule_stress_v1"
+
+
+def test_required_standard_scenario_rejects_execution_cost_stress() -> None:
+    with pytest.raises(
+        ValueError,
+        match="standard execution sensitivity scenario",
+    ):
+        ExecutionSensitivityScenario(
+            name="joint_2x",
+            tick_size_factor=2.0,
+            lot_size_factor=2.0,
+            minimum_notional_factor=2.0,
+            adverse_tick_rounding=True,
+            fee_multiplier=1.5,
+        )
 
 
 @pytest.mark.parametrize(

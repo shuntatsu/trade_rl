@@ -1,0 +1,308 @@
+name: Apply BC split TDD patch
+
+on:
+  push:
+    branches:
+      - agent/consolidate-open-work-2026-08-10
+    paths:
+      - .github/workflows/apply-bc-split-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: run BC split TDD patch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/consolidate-open-work-2026-08-10
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install test dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Add purge-consumption regression
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/learning/test_behavior_cloning.py')
+          text = path.read_text()
+          import_marker = (
+              'from trade_rl.learning.behavior_cloning import BehaviorCloningConfig\n'
+          )
+          replacement = (
+              import_marker
+              + 'from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit\n'
+          )
+          if text.count(import_marker) != 1:
+              raise SystemExit('behavior-cloning test import marker changed')
+          text = text.replace(import_marker, replacement, 1)
+
+          insertion_marker = '\n\nclass _SquashedDistribution:'
+          regression = r'''
+
+
+class _IndexTrackingProvider:
+    def __init__(self, observations: np.ndarray) -> None:
+        self.observations = observations
+        self.sample_count = len(observations)
+        self.requested_indices: set[int] = set()
+
+    def get(self, indices: np.ndarray) -> np.ndarray:
+        self.requested_indices.update(int(index) for index in indices)
+        return self.observations[indices]
+
+
+def test_explicit_behavior_cloning_split_excludes_purged_samples() -> None:
+    observations = np.array(
+        [
+            [-1.0, 0.0],
+            [-0.5, 0.0],
+            [10.0, 0.0],
+            [11.0, 0.0],
+            [0.5, 0.0],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    dataset = SupervisedPolicyDataset(
+        observations=observations,
+        actions=np.clip(observations[:, :1], -1.0, 1.0),
+        dataset_id='a' * 64,
+        train_start=0,
+        train_stop=7,
+        environment_digest='b' * 64,
+        action_spec_digest='c' * 64,
+        teacher_config_digest='d' * 64,
+    )
+    split = BehaviorCloningSplit(
+        train_indices=np.asarray([0, 1], dtype=np.int64),
+        validation_indices=np.asarray([4, 5], dtype=np.int64),
+        train_episode_ids=np.asarray([0], dtype=np.int64),
+        validation_episode_ids=np.asarray([2], dtype=np.int64),
+        purged_indices=np.asarray([2, 3], dtype=np.int64),
+        purged_episode_ids=np.asarray([1], dtype=np.int64),
+    )
+    provider = _IndexTrackingProvider(observations)
+
+    result = pretrain_policy(
+        _LinearPolicy(),
+        dataset,
+        config=BehaviorCloningConfig(
+            epochs=2,
+            learning_rate=0.01,
+            batch_size=2,
+            validation_fraction=1 / 3,
+        ),
+        seed=19,
+        observation_provider=provider,
+        split=split,
+    )
+
+    assert provider.requested_indices == {0, 1, 4, 5}
+    assert result.sample_count == 6
+    assert result.validation_sample_count == 2
+'''
+          if text.count(insertion_marker) != 1:
+              raise SystemExit('behavior-cloning test insertion marker changed')
+          text = text.replace(insertion_marker, regression + insertion_marker, 1)
+          path.write_text(text)
+          PY
+
+      - name: Verify RED contract
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/learning/test_behavior_cloning.py::test_explicit_behavior_cloning_split_excludes_purged_samples > bc-red.log 2>&1
+          status=$?
+          set -e
+          cat bc-red.log
+          test "$status" -ne 0
+          grep -q "unexpected keyword argument 'split'" bc-red.log
+
+      - name: Apply explicit split to trainer and SB3 adapter
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          trainer_path = Path('trade_rl/integrations/behavior_cloning.py')
+          trainer = trainer_path.read_text()
+          import_marker = '''from trade_rl.learning.behavior_cloning import (
+              BehaviorCloningConfig,
+              BehaviorCloningResult,
+              ObservationBatchProvider,
+          )
+          '''
+          import_replacement = (
+              import_marker
+              + 'from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit\n'
+          )
+          if trainer.count(import_marker) != 1:
+              raise SystemExit('trainer import marker changed')
+          trainer = trainer.replace(import_marker, import_replacement, 1)
+
+          helper_marker = '\n\ndef pretrain_policy(\n'
+          helper = r'''
+
+
+def _behavior_cloning_indices(
+    *,
+    sample_count: int,
+    config: BehaviorCloningConfig,
+    split: BehaviorCloningSplit | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    if split is None:
+        validation_count = (
+            0
+            if config.validation_fraction == 0.0
+            else max(1, int(math.floor(sample_count * config.validation_fraction)))
+        )
+        train_count = sample_count - validation_count
+        if train_count <= 0:
+            raise ValueError('behavior-cloning validation leaves no training samples')
+        indices = np.arange(sample_count, dtype=np.int64)
+        return indices[:train_count], indices[train_count:]
+
+    train_indices = np.asarray(split.train_indices, dtype=np.int64)
+    validation_indices = np.asarray(split.validation_indices, dtype=np.int64)
+    purged_indices = np.asarray(split.purged_indices, dtype=np.int64)
+    for name, indices in (
+        ('training', train_indices),
+        ('validation', validation_indices),
+        ('purged', purged_indices),
+    ):
+        if np.any(indices >= sample_count):
+            raise ValueError(f'behavior-cloning {name} index exceeds dataset')
+    partition = np.concatenate((train_indices, validation_indices, purged_indices))
+    expected = np.arange(sample_count, dtype=np.int64)
+    if partition.size != sample_count or not np.array_equal(
+        np.sort(partition), expected
+    ):
+        raise ValueError('explicit behavior-cloning split must partition the dataset')
+    expected_validation_count = (
+        0
+        if config.validation_fraction == 0.0
+        else max(1, int(math.floor(sample_count * config.validation_fraction)))
+    )
+    if validation_indices.size != expected_validation_count:
+        raise ValueError(
+            'explicit behavior-cloning split disagrees with validation_fraction'
+        )
+    return train_indices, validation_indices
+'''
+          if trainer.count(helper_marker) != 1:
+              raise SystemExit('trainer helper marker changed')
+          trainer = trainer.replace(helper_marker, helper + helper_marker, 1)
+
+          signature_marker = '''    config: BehaviorCloningConfig,
+              seed: int,
+          '''
+          signature_replacement = '''    config: BehaviorCloningConfig,
+              seed: int,
+              split: BehaviorCloningSplit | None = None,
+          '''
+          if trainer.count(signature_marker) != 1:
+              raise SystemExit('trainer signature marker changed')
+          trainer = trainer.replace(signature_marker, signature_replacement, 1)
+
+          old_split = '''    sample_count = dataset.sample_count
+              validation_count = (
+                  0
+                  if config.validation_fraction == 0.0
+                  else max(1, int(math.floor(sample_count * config.validation_fraction)))
+              )
+              train_count = sample_count - validation_count
+              if train_count <= 0:
+                  raise ValueError("behavior-cloning validation leaves no training samples")
+              all_indices = np.arange(sample_count, dtype=np.int64)
+              train_indices = all_indices[:train_count]
+              validation_indices = all_indices[train_count:]
+          '''
+          new_split = '''    sample_count = dataset.sample_count
+              train_indices, validation_indices = _behavior_cloning_indices(
+                  sample_count=sample_count,
+                  config=config,
+                  split=split,
+              )
+              train_count = int(train_indices.size)
+              validation_count = int(validation_indices.size)
+              all_indices = np.concatenate((train_indices, validation_indices))
+          '''
+          if trainer.count(old_split) != 1:
+              raise SystemExit('trainer split block changed')
+          trainer = trainer.replace(old_split, new_split, 1)
+          trainer = trainer.replace(
+              '"""Fit legacy MSE or hierarchical BC with a chronological validation tail."""',
+              '"""Fit BC using a validated train/validation split and exclude purged samples."""',
+              1,
+          )
+          trainer_path.write_text(trainer)
+
+          adapter_path = Path('trade_rl/integrations/sb3_training.py')
+          adapter = adapter_path.read_text()
+          call_marker = '''                    cloning = pretrain_policy(
+                                  model.policy,
+                                  teacher_dataset,
+                                  config=cloning_config,
+          '''
+          call_replacement = call_marker + '                        split=episode_split,\n'
+          if adapter.count(call_marker) != 1:
+              raise SystemExit('SB3 pretrain call marker changed')
+          adapter = adapter.replace(call_marker, call_replacement, 1)
+          adapter_path.write_text(adapter)
+          PY
+
+      - name: Format modified Python
+        run: >-
+          uv run ruff format
+          trade_rl/integrations/behavior_cloning.py
+          trade_rl/integrations/sb3_training.py
+          tests/learning/test_behavior_cloning.py
+
+      - name: Verify GREEN contract
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/learning/test_behavior_cloning.py \
+            tests/learning/test_behavior_cloning_temporal_split.py \
+            tests/integrations/test_sb3_training.py 2>&1 | tee bc-green.log
+          uv run ruff check \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/learning/test_behavior_cloning.py \
+            tests/learning/test_behavior_cloning_temporal_split.py
+          uv run ruff format --check \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/learning/test_behavior_cloning.py \
+            tests/learning/test_behavior_cloning_temporal_split.py
+          uv run mypy \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py
+
+      - name: Commit verified fix and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-bc-split-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            .github/workflows/apply-bc-split-fix.yml \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/learning/test_behavior_cloning.py
+          git commit -m 'fix(bc): consume temporal purge split in trainer'
+          git push origin HEAD:refs/heads/agent/consolidate-open-work-2026-08-10

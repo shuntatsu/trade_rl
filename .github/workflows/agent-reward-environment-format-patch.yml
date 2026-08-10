@@ -1,0 +1,86 @@
+name: Agent reward environment format patch
+
+on:
+  push:
+    branches:
+      - agent/reward-objective-contract
+    paths:
+      - .github/workflows/agent-reward-environment-format-patch.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-reward-environment-format-patch
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: >-
+      github.repository == 'shuntatsu/trade_rl' &&
+      github.ref == 'refs/heads/agent/reward-objective-contract' &&
+      github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Normalize exact identity block
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path("trade_rl/rl/environment.py")
+          text = source.read_text(encoding="utf-8")
+          old = '''                **(
+              {
+                  "episode_boundary_mode": EpisodeBoundaryMode(
+                      self.config.episode_boundary_mode
+                  ).value
+              }
+              if self.config.time_limit_terminates
+              else {}
+          ),
+          '''
+          new = '''                **(
+                      {
+                          "episode_boundary_mode": EpisodeBoundaryMode(
+                              self.config.episode_boundary_mode
+                          ).value
+                      }
+                      if self.config.time_limit_terminates
+                      else {}
+                  ),
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("misformatted identity block is not unique")
+          source.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          workflow = Path(
+              ".github/workflows/agent-reward-environment-format-patch.yml"
+          )
+          workflow.unlink()
+          PY
+
+          python -m compileall -q trade_rl/rl/environment.py
+          git diff --check
+
+      - name: Commit and push self-deleting format patch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/rl/environment.py \
+            .github/workflows/agent-reward-environment-format-patch.yml
+          git diff --cached --check
+          git commit -m "style: format environment identity"
+          git push \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            HEAD:refs/heads/agent/reward-objective-contract

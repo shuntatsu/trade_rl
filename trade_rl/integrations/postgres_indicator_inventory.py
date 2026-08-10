@@ -68,9 +68,7 @@ def _aware_datetime(value: object, *, field: str) -> datetime:
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping) or any(
-        not isinstance(key, str) for key in value
-    ):
+    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
         raise ValueError(f"{field} must be a string-keyed mapping")
     return cast(Mapping[str, object], value)
 
@@ -200,10 +198,7 @@ def _parse_artifact_metadata(
         minimum=1,
     )
     expected_feature_count = feature_counts.get(timeframe)
-    if (
-        expected_feature_count is not None
-        and feature_count != expected_feature_count
-    ):
+    if expected_feature_count is not None and feature_count != expected_feature_count:
         raise ValueError("indicator artifact feature count mismatch")
 
     return StoredIndicatorArtifactEvidence(
@@ -304,9 +299,7 @@ def load_postgres_indicator_source_inventory(
         artifact_count,
     ) = _parse_manifest(manifest_row, cache_id=requested_cache_id)
 
-    artifacts_by_key: dict[
-        tuple[str, str], StoredIndicatorArtifactEvidence
-    ] = {}
+    artifacts_by_key: dict[tuple[str, str], StoredIndicatorArtifactEvidence] = {}
     for row in artifact_rows:
         artifact = _parse_artifact_metadata(
             row,

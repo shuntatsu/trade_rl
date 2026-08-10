@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from trade_rl.rl.environment_config import EpisodeBoundaryMode
 from trade_rl.workflows._market_walk_forward_core import (
     _maintained_training_environment,
 )
@@ -25,7 +26,7 @@ FULL_RESEARCH_SCRIPT = (
 )
 
 
-def test_standalone_training_preserves_mark_to_market_truncation() -> None:
+def test_standalone_training_preserves_mark_to_market_finite_horizon() -> None:
     config = TrainingRunConfig.from_json(PROFILE)
 
     normalized = normalize_training_run_config(config)
@@ -33,7 +34,11 @@ def test_standalone_training_preserves_mark_to_market_truncation() -> None:
     assert normalized is config
     assert normalized.environment.liquidate_on_end is False
     assert normalized.environment.terminal_accounting_mode == "mark_to_market"
-    assert normalized.environment.finite_horizon_observation is False
+    assert (
+        normalized.environment.episode_boundary_mode
+        is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+    )
+    assert normalized.environment.finite_horizon_observation is True
 
 
 def test_training_contract_rejects_forced_close_configuration() -> None:
@@ -43,11 +48,11 @@ def test_training_contract_rejects_forced_close_configuration() -> None:
         environment=replace(config.environment, liquidate_on_end=True),
     )
 
-    with pytest.raises(ValueError, match="mark-to-market truncation"):
+    with pytest.raises(ValueError, match="mark-to-market"):
         normalize_training_run_config(forced_close)
 
 
-def test_walk_forward_training_preserves_mark_to_market_truncation() -> None:
+def test_walk_forward_training_preserves_finite_horizon_boundary() -> None:
     config = TrainingRunConfig.from_json(PROFILE)
 
     environment = _maintained_training_environment(
@@ -59,10 +64,15 @@ def test_walk_forward_training_preserves_mark_to_market_truncation() -> None:
     assert environment.episode_hour_choices == ()
     assert environment.liquidate_on_end is False
     assert environment.terminal_accounting_mode == "mark_to_market"
+    assert (
+        environment.episode_boundary_mode
+        is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+    )
+    assert environment.finite_horizon_observation is True
     assert environment.require_full_reward_preroll is True
 
 
-def test_selected_final_config_does_not_rewrite_terminal_accounting(
+def test_selected_final_config_does_not_rewrite_episode_boundary(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "selected.json"
@@ -78,4 +88,14 @@ def test_selected_final_config_does_not_rewrite_terminal_accounting(
     persisted = json.loads(path.read_text(encoding="utf-8"))
 
     assert config.environment.liquidate_on_end is False
+    assert (
+        config.environment.episode_boundary_mode
+        is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+    )
+    assert config.environment.finite_horizon_observation is True
     assert persisted["environment"]["liquidate_on_end"] is False
+    assert (
+        persisted["environment"]["episode_boundary_mode"]
+        == "finite_horizon_termination"
+    )
+    assert persisted["environment"]["finite_horizon_observation"] is True

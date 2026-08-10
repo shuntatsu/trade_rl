@@ -1,0 +1,79 @@
+name: Prepare universal partition reconciliation
+
+on:
+  push:
+    branches:
+      - agent/consolidate-open-work-2026-08-10
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-universal-partition-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Three-way merge canonical partition fix
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact consolidation head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Merge exact stored-catalog fix
+        shell: bash
+        env:
+          CATALOG_TIP: c7f0750b73f3afd3aca9078212dfbd44689b2d93
+          TARGET: trade_rl/workflows/universal_instrument_partition.py
+        run: |
+          set -euo pipefail
+          git fetch origin agent/stored-instrument-catalog
+          test "$(git rev-parse origin/agent/stored-instrument-catalog)" = "$CATALOG_TIP"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-commit --no-ff "$CATALOG_TIP"
+          mapfile -t changed < <(git diff --cached --name-only)
+          printf 'staged merge files:\n%s\n' "${changed[*]}"
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = "$TARGET"
+          git diff --cached --check
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Verify the merged contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff check \
+            trade_rl/workflows/universal_instrument_partition.py \
+            tests/workflows/test_universal_instrument_partition.py
+          uv run ruff format --check \
+            trade_rl/workflows/universal_instrument_partition.py \
+            tests/workflows/test_universal_instrument_partition.py
+          uv run pytest -q \
+            tests/workflows/test_universal_instrument_partition.py::test_partition_rejects_noncanonical_split_counts
+
+      - name: Package the reconciled source file
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reconciliation/trade_rl/workflows
+          cp trade_rl/workflows/universal_instrument_partition.py \
+            reconciliation/trade_rl/workflows/universal_instrument_partition.py
+
+      - name: Upload reconciliation source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: universal-partition-reconciliation
+          path: reconciliation
+          if-no-files-found: error

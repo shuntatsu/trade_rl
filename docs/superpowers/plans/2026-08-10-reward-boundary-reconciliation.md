@@ -2,30 +2,31 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Reapply the completed PR #369 reward/episode-boundary contract onto the current `main` that already contains PR #368 and PR #370, without mixing Universal-policy implementation into the change.
+**Goal:** Reapply the completed PR #369 reward/episode-boundary contract onto the current `main`, while preserving the already-merged PR #368 telemetry semantics and PR #370 three-candidate default workflow.
 
-**Architecture:** Start from the latest `main`, add an explicit `EpisodeBoundaryMode` to the environment contract, route it through transition classification and environment identity, then migrate only the maintained gamma-one and discounted profiles. Preserve legacy default semantics by omitting the default `external_truncation` field from the environment digest, retain PR #368 telemetry behavior, and retain PR #370’s target-weight default workflow.
+**Architecture:** Build a conflict-resolved merge commit whose first parent is current `main` and whose second parent is PR #369’s final head. Use the current `main` tree as the base, overlay only the semantic boundary/profile/document changes, and intentionally exclude stale telemetry formatting plus PR #369’s obsolete two-candidate workflow state.
 
 **Tech Stack:** Python 3.12, Gymnasium, Stable-Baselines3, frozen dataclasses, canonical JSON/content digests, pytest, Ruff, MyPy, Import Linter, GitHub Actions.
 
 ## Global Constraints
 
-- The maintained economic scalar reward remains actual after-cost interval net log growth; do not add drawdown, margin, turnover, execution-cost, terminal-equity, or baseline penalties to the pure-growth profiles.
-- `gamma = 1.0` maintained growth profiles must use `finite_horizon_termination`, `finite_horizon_observation = true`, and `liquidate_on_end = false`.
-- Discounted continuing ablations must use `external_truncation`, `finite_horizon_observation = false`, and `liquidate_on_end = false`.
-- Default environment behavior remains `external_truncation`; existing configs and artifacts retain their historical meaning.
-- Only non-default `finite_horizon_termination` is added to environment identity, so explicit/default external truncation produce the historical digest.
-- `terminated` and `truncated` must remain mutually exclusive.
-- A finite-horizon time limit is not an economic insolvency and must not set `hybrid_terminated` or trigger terminal-equity shaping.
-- Preserve PR #368’s smooth exploration telemetry and legacy `terminated`/`truncated` normalization.
-- Preserve PR #370’s no-override default workflow and three-candidate order.
-- Do not modify Universal-policy, symbol routing, catalog, normalization, BC, model architecture, Docker, or serving behavior in this PR.
-- Do not stop, rewrite, resume, or migrate the active legacy BTC generation.
+- Pure-growth reward remains `scale * log(net_equity_after / net_equity_before)`.
+- Do not mix drawdown, margin, turnover, execution cost, terminal equity, or baseline shaping into maintained pure-growth profiles.
+- Maintained `gamma = 1.0` profiles use `finite_horizon_termination`, `finite_horizon_observation = true`, and `liquidate_on_end = false`.
+- Discounted continuing profiles use `external_truncation`, `finite_horizon_observation = false`, and `liquidate_on_end = false`.
+- Default environment behavior remains `external_truncation`; historical default environment digests stay unchanged.
+- Only non-default finite-horizon mode is serialized into environment identity.
+- `terminated` and `truncated` remain mutually exclusive.
+- Finite-horizon time-limit termination does not set `hybrid_terminated` and does not trigger terminal-equity shaping.
+- Preserve PR #368 exploration and telemetry compatibility behavior exactly.
+- Preserve PR #370’s default candidate order exactly: PPO gamma-one, Lagrangian gamma-one, discounted Lagrangian.
+- Do not include Universal-policy, symbol routing, catalog, normalization, BC, architecture, Docker, or serving changes.
+- Do not modify the active legacy BTC generation.
 - Production remains `NO-GO`.
 
 ---
 
-### Task 1: Reproduce the boundary-contract failures on current `main`
+### Task 1: Pin the boundary contract with RED tests
 
 **Files:**
 - Modify: `tests/rl/test_environment_time_config.py`
@@ -34,12 +35,10 @@
 - Create: `tests/examples/test_reward_objective_boundary_profiles.py`
 
 **Interfaces:**
-- Consumes: existing `ResidualMarketEnvConfig`, `classify_economic_transition()`, training JSON loader, and profile fixtures.
-- Produces: failing contract tests for `EpisodeBoundaryMode`, finite-horizon Gymnasium flags, environment identity, and canonical profile alignment.
+- Consumes: current `ResidualMarketEnvConfig`, `classify_economic_transition()`, environment identity, and maintained JSON profiles.
+- Produces: regression tests for enum normalization, finite-horizon validation, Gymnasium flags, identity compatibility, and profile semantics.
 
-- [ ] **Step 1: Add failing config and transition tests**
-
-Add tests equivalent to the following contracts:
+- [ ] **Step 1: Add config tests**
 
 ```python
 from trade_rl.rl.environment_config import EpisodeBoundaryMode, ResidualMarketEnvConfig
@@ -67,7 +66,7 @@ def test_finite_horizon_boundary_normalizes_to_enum() -> None:
     assert config.time_limit_terminates is True
 ```
 
-Add pure transition tests:
+- [ ] **Step 2: Add pure transition tests**
 
 ```python
 result = classify_economic_transition(
@@ -83,21 +82,9 @@ assert result.truncated is False
 assert result.reason == "finite_horizon"
 ```
 
-Retain the external-truncation assertion:
+Retain a separate assertion that default time limits produce `terminated=False`, `truncated=True`.
 
-```python
-assert classify_economic_transition(
-    hybrid=hybrid,
-    shadow=shadow,
-    time_limit_reached=True,
-    liquidation_terminal=False,
-    liquidation_complete=True,
-).truncated is True
-```
-
-- [ ] **Step 2: Add failing identity and profile tests**
-
-Pin these contracts:
+- [ ] **Step 3: Add identity tests**
 
 ```python
 assert default_external.environment_digest == explicit_external.environment_digest
@@ -105,7 +92,9 @@ assert finite_horizon.environment_digest != explicit_external.environment_digest
 assert finite_horizon.observation_contract_digest == explicit_external.observation_contract_digest
 ```
 
-For every maintained gamma-one profile assert:
+- [ ] **Step 4: Add canonical profile tests**
+
+For gamma-one profiles:
 
 ```python
 assert payload["training"]["gamma"] == 1.0
@@ -114,7 +103,7 @@ assert payload["environment"]["finite_horizon_observation"] is True
 assert payload["environment"]["liquidate_on_end"] is False
 ```
 
-For every discounted profile assert:
+For discounted profiles:
 
 ```python
 assert payload["training"]["gamma"] < 1.0
@@ -123,9 +112,7 @@ assert payload["environment"]["finite_horizon_observation"] is False
 assert payload["environment"]["liquidate_on_end"] is False
 ```
 
-- [ ] **Step 3: Run focused tests and verify RED**
-
-Run:
+- [ ] **Step 5: Verify RED**
 
 ```bash
 pytest \
@@ -135,16 +122,12 @@ pytest \
   tests/examples/test_reward_objective_boundary_profiles.py -q
 ```
 
-Expected: failures caused by missing `EpisodeBoundaryMode`, missing `episode_boundary_mode`, missing `time_limit_terminates`, and unchanged gamma-one profile boundary fields. Existing unrelated tests must remain green.
+Expected: failures for missing boundary enum/config/transition support and unmigrated profiles.
 
-- [ ] **Step 4: Commit the RED tests**
+- [ ] **Step 6: Commit RED tests**
 
 ```bash
-git add \
-  tests/rl/test_environment_time_config.py \
-  tests/rl/test_transition_shadow_failure.py \
-  tests/workflows/test_training_terminal_contract.py \
-  tests/examples/test_reward_objective_boundary_profiles.py
+git add tests/rl tests/workflows/test_training_terminal_contract.py tests/examples/test_reward_objective_boundary_profiles.py
 git commit -m "test: pin finite-horizon growth boundary contract"
 ```
 
@@ -157,18 +140,12 @@ git commit -m "test: pin finite-horizon growth boundary contract"
 - Modify: `trade_rl/rl/transition.py`
 - Modify: `trade_rl/rl/environment_transition.py`
 - Modify: `trade_rl/rl/environment.py`
-- Modify: `trade_rl/rl/environment_transition.py`
-- Test: `tests/rl/test_environment_time_config.py`
-- Test: `tests/rl/test_transition_shadow_failure.py`
-- Test: `tests/workflows/test_training_terminal_contract.py`
 
 **Interfaces:**
 - Produces: `EpisodeBoundaryMode`, `ResidualMarketEnvConfig.time_limit_terminates`, and `classify_economic_transition(..., time_limit_terminates: bool = False)`.
-- Consumes: existing environment config persistence, transition coordinator, and content-digest contracts.
+- Consumes: existing environment persistence and content-digest contracts.
 
-- [ ] **Step 1: Add the enum and validated config field**
-
-Implement in `trade_rl/rl/environment_config.py`:
+- [ ] **Step 1: Add the enum and config field**
 
 ```python
 from enum import Enum
@@ -179,15 +156,13 @@ class EpisodeBoundaryMode(str, Enum):
     FINITE_HORIZON_TERMINATION = "finite_horizon_termination"
 ```
 
-Add to `ResidualMarketEnvConfig` after terminal-accounting fields:
-
 ```python
 episode_boundary_mode: EpisodeBoundaryMode | str = (
     EpisodeBoundaryMode.EXTERNAL_TRUNCATION
 )
 ```
 
-Normalize and validate in `__post_init__`:
+- [ ] **Step 2: Normalize and validate the mode**
 
 ```python
 try:
@@ -204,8 +179,6 @@ if (
 object.__setattr__(self, "episode_boundary_mode", boundary_mode)
 ```
 
-Expose:
-
 ```python
 @property
 def time_limit_terminates(self) -> bool:
@@ -215,23 +188,7 @@ def time_limit_terminates(self) -> bool:
     )
 ```
 
-- [ ] **Step 2: Extend the pure transition classifier**
-
-Change the signature in `trade_rl/rl/transition.py`:
-
-```python
-def classify_economic_transition(
-    *,
-    hybrid: BookState,
-    shadow: BookState,
-    time_limit_reached: bool,
-    liquidation_terminal: bool,
-    liquidation_complete: bool,
-    time_limit_terminates: bool = False,
-) -> EconomicTransition:
-```
-
-Implement exclusive classification:
+- [ ] **Step 3: Extend transition classification**
 
 ```python
 finite_horizon_terminal = time_limit_reached and time_limit_terminates
@@ -239,11 +196,11 @@ terminated = hybrid.insolvent or liquidation_terminal or finite_horizon_terminal
 truncated = time_limit_reached and not terminated
 ```
 
-After economic and liquidation reasons, return `"finite_horizon"` for the intrinsic time boundary. Do not mutate either book and do not mark `hybrid_terminated` true for this reason.
+Return reason `"finite_horizon"` only after economic and liquidation reasons have been considered.
 
-- [ ] **Step 3: Route the mode through the coordinator**
+- [ ] **Step 4: Route the mode through termination coordination**
 
-In `EnvironmentTerminationCoordinator.resolve()` pass:
+Pass:
 
 ```python
 time_limit_terminates=self.config.time_limit_terminates
@@ -256,11 +213,9 @@ hybrid_terminated = hybrid.insolvent
 shadow_terminated = shadow.insolvent
 ```
 
-This preserves reward/economic termination semantics while changing only Gymnasium boundary flags.
+- [ ] **Step 5: Preserve historical environment identity**
 
-- [ ] **Step 4: Bind only the non-default mode into environment identity**
-
-Import `EpisodeBoundaryMode` in `trade_rl/rl/environment.py` and add this conditional entry inside `environment_config`:
+Inside the environment digest payload, add only the non-default mode:
 
 ```python
 **(
@@ -274,45 +229,21 @@ Import `EpisodeBoundaryMode` in `trade_rl/rl/environment.py` and add this condit
 ),
 ```
 
-Do not add `external_truncation` to the historical default digest payload.
-
-- [ ] **Step 5: Run focused tests**
+- [ ] **Step 6: Verify focused GREEN**
 
 ```bash
 pytest \
   tests/rl/test_environment_time_config.py \
   tests/rl/test_transition_shadow_failure.py \
   tests/workflows/test_training_terminal_contract.py -q
-```
-
-Expected: PASS.
-
-- [ ] **Step 6: Run static checks for changed modules**
-
-```bash
-ruff check \
-  trade_rl/rl/environment_config.py \
-  trade_rl/rl/transition.py \
-  trade_rl/rl/environment_transition.py \
-  trade_rl/rl/environment.py \
-  tests/rl/test_environment_time_config.py \
-  tests/rl/test_transition_shadow_failure.py \
-  tests/workflows/test_training_terminal_contract.py
-ruff format --check \
-  trade_rl/rl/environment_config.py \
-  trade_rl/rl/transition.py \
-  trade_rl/rl/environment_transition.py \
-  trade_rl/rl/environment.py
-mypy \
-  trade_rl/rl/environment_config.py \
-  trade_rl/rl/transition.py \
-  trade_rl/rl/environment_transition.py \
-  trade_rl/rl/environment.py
+ruff check trade_rl/rl/environment_config.py trade_rl/rl/transition.py trade_rl/rl/environment_transition.py trade_rl/rl/environment.py
+ruff format --check trade_rl/rl/environment_config.py trade_rl/rl/transition.py trade_rl/rl/environment_transition.py trade_rl/rl/environment.py
+mypy trade_rl/rl/environment_config.py trade_rl/rl/transition.py trade_rl/rl/environment_transition.py trade_rl/rl/environment.py
 ```
 
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Commit implementation**
 
 ```bash
 git add trade_rl/rl tests/rl tests/workflows/test_training_terminal_contract.py
@@ -321,7 +252,7 @@ git commit -m "feat: define finite-horizon environment boundaries"
 
 ---
 
-### Task 3: Migrate maintained profiles without changing reward meaning
+### Task 3: Migrate only maintained training profiles
 
 **Files:**
 - Modify: `examples/binance-multitimeframe/training-action-head-ablation-direct.json`
@@ -334,23 +265,16 @@ git commit -m "feat: define finite-horizon environment boundaries"
 - Modify: `examples/binance-multitimeframe/training-target-weight-constrained-growth-discounted.json`
 - Modify: `examples/binance-multitimeframe/training-target-weight-constrained-growth.json`
 - Modify: `examples/binance-multitimeframe/training-target-weight-growth-ppo.json`
-- Create: `examples/binance-multitimeframe/walk-forward-constrained-growth-discounted.json`
-- Modify: `examples/binance-multitimeframe/walk-forward-constrained-growth.json`
-- Modify: `examples/binance-multitimeframe/walk-forward-growth-optimal.json`
-- Create: `examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth-discounted.json`
-- Modify: `examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json`
 - Modify: `tests/examples/test_constrained_growth_profiles.py`
 - Modify: `tests/examples/test_growth_optimal_reward_profiles.py`
 - Modify: `tests/examples/test_target_weight_constrained_growth_profiles.py`
 - Test: `tests/examples/test_reward_objective_boundary_profiles.py`
 
 **Interfaces:**
-- Consumes: Task 2’s boundary config field.
-- Produces: canonical gamma-one and discounted profile families whose only reward/time-boundary differences are explicit and test-pinned.
+- Consumes: Task 2 boundary field.
+- Produces: profile-level reward/boundary semantics without changing any walk-forward candidate catalog.
 
-- [ ] **Step 1: Migrate every gamma-one maintained profile**
-
-Add to each gamma-one profile environment:
+- [ ] **Step 1: Update gamma-one profiles**
 
 ```json
 "episode_boundary_mode": "finite_horizon_termination",
@@ -358,11 +282,7 @@ Add to each gamma-one profile environment:
 "liquidate_on_end": false
 ```
 
-Do not change its pure-growth reward block.
-
-- [ ] **Step 2: Pin discounted continuing profiles**
-
-Set or preserve:
+- [ ] **Step 2: Update discounted profiles**
 
 ```json
 "episode_boundary_mode": "external_truncation",
@@ -370,11 +290,9 @@ Set or preserve:
 "liquidate_on_end": false
 ```
 
-Do not change the configured discount half-life or Lagrangian budget values.
+- [ ] **Step 3: Do not copy stale PR #369 walk-forward files**
 
-- [ ] **Step 3: Preserve PR #370’s default workflow**
-
-`walk-forward-target-weight-constrained-growth.json` must still expose the exact no-override default candidate order:
+Keep current `main` versions of every `walk-forward-*.json`. In particular, preserve `walk-forward-target-weight-constrained-growth.json` with exactly:
 
 ```json
 [
@@ -384,9 +302,9 @@ Do not change the configured discount half-life or Lagrangian budget values.
 ]
 ```
 
-The new standalone discounted walk-forward files are explicit ablations; they must not replace or reorder the PR #370 default catalog.
+Do not add PR #369’s standalone discounted walk-forward files in this reconciliation PR.
 
-- [ ] **Step 4: Run all profile contract tests**
+- [ ] **Step 4: Verify profiles and PR #370 default**
 
 ```bash
 pytest \
@@ -397,169 +315,140 @@ pytest \
   tests/examples/test_full_research_default_workflow.py -q
 ```
 
-Expected: PASS, including the default three-candidate order.
+Expected: all pass and the default candidate order remains unchanged.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit profiles**
 
 ```bash
-git add examples/binance-multitimeframe tests/examples
+git add examples/binance-multitimeframe/training-*.json tests/examples
 git commit -m "config: align growth profiles with finite-horizon semantics"
 ```
 
 ---
 
-### Task 4: Reconcile documentation and telemetry-era formatting
+### Task 4: Reconcile documentation without reverting merged behavior
 
 **Files:**
 - Create: `docs/REWARD_OBJECTIVE.md`
 - Modify: `docs/BINANCE.md`
 - Modify: `docs/SINGLE_SYMBOL.md`
-- Modify only if formatting requires it: `trade_rl/rl/tensorboard_logging.py`
-- Modify only if formatting requires it: `tests/rl/test_tensorboard_logging.py`
 - Modify: `tests/architecture/test_maintained_single_symbol_boundary.py`
 
 **Interfaces:**
-- Consumes: Tasks 2–3’s final runtime/profile behavior.
-- Produces: one documented reward/boundary contract that does not regress PR #368 telemetry or PR #370 defaults.
+- Consumes: Tasks 2–3.
+- Produces: durable reward/boundary documentation that also preserves PR #370’s runtime default description.
 
-- [ ] **Step 1: Add the durable reward-objective document**
+- [ ] **Step 1: Add the durable objective document**
 
-Document exactly:
+Document:
 
 ```text
 reward_t = scale * log(net_equity_after / net_equity_before)
 ```
 
-State that safety is managed through hard risk, seven independent cost channels, and walk-forward gates. Define both boundary modes and explain that gamma-one pure growth requires finite-horizon termination and time-to-go observation.
+Define both boundary modes, independent cost channels, hard risk, finite-horizon telescoping, compatibility, and fail-closed conditions.
 
-- [ ] **Step 2: Merge BINANCE and SINGLE_SYMBOL documentation**
+- [ ] **Step 2: Merge BINANCE and SINGLE_SYMBOL text**
 
-Preserve the following PR #370 statement:
+Both documents must state:
 
 ```text
-No explicit training template -> target-weight three-profile workflow
+No explicit training template -> three target-weight profiles
 training-full.json -> explicit legacy comparison only
 ```
 
-Add PR #369’s boundary distinction without reverting that default.
+Add the gamma-one finite-horizon and discounted external-truncation distinction without reverting that statement.
 
-- [ ] **Step 3: Preserve PR #368 telemetry semantics**
+- [ ] **Step 3: Exclude stale telemetry-only formatting**
 
-Do not replace the current telemetry implementation with the stale PR #369 branch copy. If Ruff formatting differs, apply only the formatter-equivalent line wrapping. Verify tests still cover:
+Do not modify `trade_rl/rl/tensorboard_logging.py` or `tests/rl/test_tensorboard_logging.py`; PR #369’s diff there was formatter-only and predates PR #368.
 
-```text
-sampled action - smooth deterministic mean
-terminated = hybrid_terminated or (done and not truncated)
-legacy dual-flag rows normalized on read
-```
-
-- [ ] **Step 4: Run docs/architecture/telemetry tests**
+- [ ] **Step 4: Verify documentation contracts**
 
 ```bash
 pytest \
   tests/architecture/test_maintained_single_symbol_boundary.py \
-  tests/rl/test_tensorboard_logging.py \
-  tests/examples/test_full_research_default_workflow.py -q
-ruff check docs trade_rl/rl/tensorboard_logging.py tests/rl/test_tensorboard_logging.py
+  tests/examples/test_full_research_default_workflow.py \
+  tests/rl/test_tensorboard_logging.py -q
+ruff check docs tests/architecture/test_maintained_single_symbol_boundary.py
 ```
 
-Expected: PASS.
+Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit documentation**
 
 ```bash
-git add docs tests/architecture trade_rl/rl/tensorboard_logging.py tests/rl/test_tensorboard_logging.py
+git add docs tests/architecture/test_maintained_single_symbol_boundary.py
 git commit -m "docs: define maintained growth and boundary contract"
 ```
 
 ---
 
-### Task 5: Exact-head verification and PR completion
+### Task 5: Create a conflict-resolved merge commit and finish PR #369
 
 **Files:**
-- Modify: PR body only after verification evidence exists.
+- Modify: PR #369 metadata/body after verification.
 
 **Interfaces:**
-- Consumes: Tasks 1–4.
-- Produces: one mergeable Ready PR based on current `main`, with no Universal-policy code and complete exact-head evidence.
+- Consumes: Tasks 1–4 plus current `main` and PR #369 final head.
+- Produces: PR #369 as a descendant of both histories, mergeable against current `main`, with exact-head evidence.
 
-- [ ] **Step 1: Review the complete diff**
+- [ ] **Step 1: Create the resolved merge commit**
 
-Verify:
+Use current `main` as first parent and `89703977d445abaa627f70b0081e2a1bb6d464e6` as second parent. The resolved tree must contain only the files listed in Tasks 1–4 on top of current `main`.
 
-```bash
-git diff --check main...HEAD
-git status --short
-git diff --stat main...HEAD
-```
+- [ ] **Step 2: Update the PR branch by fast-forward**
 
-Reject unrelated files, generated artifacts, Docker state, secrets, or Universal-policy changes.
+Move `agent/reward-objective-contract` to the merge commit without force. Because the old PR head is a parent, the update must be a fast-forward.
 
-- [ ] **Step 2: Run focused and RL test suites**
+- [ ] **Step 3: Review the exact diff**
 
-```bash
-pytest tests/rl tests/examples tests/workflows/test_training_terminal_contract.py -q
-```
-
-Expected: all pass.
-
-- [ ] **Step 3: Run complete repository verification**
-
-Run the repository’s canonical commands for:
+Confirm:
 
 ```text
-full pytest with branch coverage
-Ruff
-Ruff format check
+No Universal-policy files
+No active-run files
+No stale telemetry replacement
+No two-candidate default regression
+No unrelated JSON compaction
+```
+
+- [ ] **Step 4: Run complete exact-head CI**
+
+Require on one head:
+
+```text
+full pytest and branch coverage
+Ruff and format
 MyPy
 Import Linter
 Dead-code report
-frontend tests/typecheck/build/layout checks
+frontend tests/typecheck/build/layout
 critical coverage
-Windows compatibility
-Ubuntu compatibility
+Windows/Ubuntu compatibility
 Training image and non-root probe
-PostgreSQL Catalog integration
+PostgreSQL Catalog
+Nautilus capability
 structured serving/recovery smoke
 ```
 
-Every required job must pass on the same final head.
-
-- [ ] **Step 4: Self-review semantic invariants**
-
-Confirm from code and tests:
+- [ ] **Step 5: Self-review semantic invariants**
 
 ```text
-external_truncation -> terminated=false, truncated=true, SB3 bootstraps
-finite_horizon_termination -> terminated=true, truncated=false, no bootstrap
+external_truncation -> terminated=false, truncated=true
+finite_horizon_termination -> terminated=true, truncated=false
 finite-horizon boundary does not set hybrid_terminated
 finite-horizon boundary does not trigger terminal-equity shaping
-default external environment digest is unchanged
-observation digest does not change solely because boundary mode changes
-PR #368 telemetry remains present
-PR #370 default candidate order remains present
+default external digest is unchanged
+observation digest is mode-independent
+PR #368 telemetry remains
+PR #370 default order remains
 ```
 
-- [ ] **Step 5: Update the PR and mark Ready**
+- [ ] **Step 6: Update PR body and mark Ready**
 
-Record:
+Record RED/GREEN evidence, final SHA, all CI results, compatibility, active-run isolation, remaining risks, and `Production NO-GO`.
 
-```text
-What
-Why
-Architecture
-Compatibility
-RED evidence
-GREEN evidence
-exact final head
-all CI results
-active-run isolation
-remaining risks
-Production NO-GO
-```
+- [ ] **Step 7: Do not merge without explicit user authorization**
 
-Change Draft to Ready only after exact-head CI and self-review pass.
-
-- [ ] **Step 6: Do not merge without explicit user authorization**
-
-Leave the PR open and mergeable. Report the PR number, final SHA, changed files, tests, unverified items, and residual risks.
+Leave PR #369 open and Ready after all verification succeeds.

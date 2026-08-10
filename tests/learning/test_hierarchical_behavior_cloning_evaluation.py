@@ -86,11 +86,7 @@ def test_hierarchical_evaluation_losses_are_batch_size_invariant() -> None:
     assert split_batches.metrics.digest == single_batch.metrics.digest
     assert split_batches.losses.gate == pytest.approx(single_batch.losses.gate)
     assert split_batches.losses.target == pytest.approx(single_batch.losses.target)
-    assert split_batches.losses.composed == pytest.approx(
-        single_batch.losses.composed
-    )
-    assert split_batches.losses.weighted == pytest.approx(
-        single_batch.losses.weighted
-    )
+    assert split_batches.losses.composed == pytest.approx(single_batch.losses.composed)
+    assert split_batches.losses.weighted == pytest.approx(single_batch.losses.weighted)
     assert single_batch.losses.target == pytest.approx(0.15)
     assert single_batch.losses.composed == pytest.approx(0.075)

@@ -1,0 +1,99 @@
+name: Apply BC split identity
+
+on:
+  push:
+    branches:
+      - agent/consolidate-open-work-2026-08-10
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-bc-split-identity-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    name: Bind BC result identity to the explicit partition
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact consolidation head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/consolidate-open-work-2026-08-10
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install test dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Confirm split identity regression is RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q \
+            tests/learning/test_behavior_cloning_episode_training.py \
+            > bc-split-identity-red.log 2>&1
+          status=$?
+          set -e
+          cat bc-split-identity-red.log
+          test "$status" -ne 0
+          grep -q "training_sample_count" bc-split-identity-red.log
+
+      - name: Apply framework-neutral split identity contract
+        run: uv run python scripts/apply_bc_split_identity.py
+
+      - name: Normalize changed Python files
+        run: |
+          uv run ruff check --fix \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/behavior_cloning.py \
+            tests/learning/test_behavior_cloning_episode_training.py
+          uv run ruff format \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/behavior_cloning.py \
+            tests/learning/test_behavior_cloning_episode_training.py
+
+      - name: Verify focused BC contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/behavior_cloning.py \
+            tests/learning/test_behavior_cloning_episode_training.py
+          uv run ruff format --check \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/behavior_cloning.py \
+            tests/learning/test_behavior_cloning_episode_training.py
+          uv run mypy \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/behavior_cloning.py \
+            tests/learning/test_behavior_cloning_episode_training.py
+          uv run pytest -q \
+            tests/learning/test_behavior_cloning_episode_training.py \
+            tests/learning/test_behavior_cloning_temporal_split.py \
+            tests/learning/test_behavior_cloning.py \
+            tests/learning/test_hierarchical_behavior_cloning_evaluation.py \
+            tests/integrations/test_sb3_training.py::test_backend_runs_oracle_behavior_cloning_before_ppo
+
+      - name: Commit verified implementation and remove temporary machinery
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          rm -f .github/workflows/apply-bc-split-identity.yml
+          rm -f scripts/apply_bc_split_identity.py
+          rm -f bc-split-identity-red.log
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat(bc): bind results to the resolved sample split'
+          git push origin HEAD:refs/heads/agent/consolidate-open-work-2026-08-10

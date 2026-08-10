@@ -11,6 +11,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_ROOT = ROOT / "examples" / "binance-multitimeframe"
 RUNNER_PATH = EXAMPLE_ROOT / "run_full_research_state.py"
+DEFAULT_TEMPLATE = EXAMPLE_ROOT / "walk-forward-target-weight-constrained-growth.json"
+DISCOUNTED_TEMPLATE = (
+    EXAMPLE_ROOT / "walk-forward-target-weight-constrained-growth-discounted.json"
+)
 EXPECTED_DEFAULT_CANDIDATES = (
     (
         "target-weight-growth-gamma-one-ppo",
@@ -20,6 +24,8 @@ EXPECTED_DEFAULT_CANDIDATES = (
         "target-weight-constrained-growth-gamma-one",
         "training-target-weight-constrained-growth.json",
     ),
+)
+EXPECTED_DISCOUNTED_CANDIDATES = (
     (
         "target-weight-constrained-growth-discounted-168h",
         "training-target-weight-constrained-growth-discounted.json",
@@ -64,19 +70,18 @@ def _candidate_rows(path: Path) -> tuple[tuple[str, str], ...]:
     )
 
 
-def test_default_full_research_uses_target_weight_growth_catalog() -> None:
+def test_default_full_research_uses_gamma_one_target_weight_catalog() -> None:
     namespace = _runner_namespace()
 
     assert "_DEFAULT_WALK_FORWARD_TEMPLATE" in namespace
     template = namespace["_DEFAULT_WALK_FORWARD_TEMPLATE"]
     assert isinstance(template, Path)
-    assert (
-        template
-        == (
-            EXAMPLE_ROOT / "walk-forward-target-weight-constrained-growth.json"
-        ).resolve()
-    )
+    assert template == DEFAULT_TEMPLATE.resolve()
     assert _candidate_rows(template) == EXPECTED_DEFAULT_CANDIDATES
+
+
+def test_discounted_boundary_ablation_has_a_dedicated_catalog() -> None:
+    assert _candidate_rows(DISCOUNTED_TEMPLATE) == EXPECTED_DISCOUNTED_CANDIDATES
 
 
 def test_develop_materializes_target_weight_default(
@@ -162,9 +167,7 @@ def test_develop_materializes_target_weight_default(
         stages_type(args)._develop(work_root)
 
     assert captured == {
-        "template_path": (
-            EXAMPLE_ROOT / "walk-forward-target-weight-constrained-growth.json"
-        ),
+        "template_path": DEFAULT_TEMPLATE,
         "output_path": work_root / "walk-forward-full.json",
     }
 

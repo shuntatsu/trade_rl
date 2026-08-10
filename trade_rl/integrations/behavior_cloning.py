@@ -17,6 +17,11 @@ from trade_rl.learning.behavior_cloning import (
     BehaviorCloningConfig,
     BehaviorCloningResult,
     ObservationBatchProvider,
+    behavior_cloning_split_digest,
+)
+from trade_rl.learning.episode_behavior_cloning import (
+    BehaviorCloningSplit,
+    behavior_cloning_split,
 )
 from trade_rl.learning.hierarchical_bc_metrics import (
     HierarchicalBehaviorCloningLosses,
@@ -194,8 +199,8 @@ def _evaluate_hierarchical(
     gate_total = 0.0
     target_total = 0.0
     composed_total = 0.0
-    weighted_total = 0.0
-    batch_weight = 0
+    active_support = 0
+    event_support = 0
     with torch.no_grad():
         for offset in range(0, len(indices), batch_size):
             batch_indices = indices[offset : offset + batch_size]
@@ -203,7 +208,7 @@ def _evaluate_hierarchical(
                 _observation_batch(dataset, batch_indices, provider=provider),
                 device=device,
             )
-            outputs, gate, target, composed, weighted = _hierarchical_batch_losses(
+            outputs, gate, target, composed, _ = _hierarchical_batch_losses(
                 policy,
                 observations,
                 labels,
@@ -212,17 +217,28 @@ def _evaluate_hierarchical(
                 positive_class_weight=positive_class_weight,
                 device=device,
             )
-            size = len(batch_indices)
-            gate_total += float(gate.detach().cpu()) * size
-            target_total += float(target.detach().cpu()) * size
-            composed_total += float(composed.detach().cpu()) * size
-            weighted_total += float(weighted.detach().cpu()) * size
-            batch_weight += size
+            active = labels.active_mask[batch_indices]
+            events = active & labels.gate_labels[batch_indices]
+            batch_active_support = int(np.count_nonzero(active))
+            batch_event_support = int(np.count_nonzero(events))
+            gate_total += float(gate.detach().cpu()) * batch_active_support
+            target_total += float(target.detach().cpu()) * batch_event_support
+            composed_total += float(composed.detach().cpu()) * batch_active_support
+            active_support += batch_active_support
+            event_support += batch_event_support
             gate_batches.append(outputs.gate_probabilities.detach().cpu().numpy())
             proposal_batches.append(outputs.target_actions.detach().cpu().numpy())
             composed_batches.append(outputs.composed_actions.detach().cpu().numpy())
-    if batch_weight <= 0:
+    if active_support <= 0:
         raise ValueError("hierarchical BC evaluation batch is empty")
+    gate_mean = gate_total / active_support
+    target_mean = 0.0 if event_support == 0 else target_total / event_support
+    composed_mean = composed_total / active_support
+    weighted_mean = (
+        config.gate_loss_weight * gate_mean
+        + config.target_loss_weight * target_mean
+        + config.composed_loss_weight * composed_mean
+    )
     metrics = hierarchical_bc_metrics(
         gate_probabilities=np.concatenate(gate_batches, axis=0),
         proposal_actions=np.concatenate(proposal_batches, axis=0),
@@ -233,10 +249,10 @@ def _evaluate_hierarchical(
     )
     return _HierarchicalEvaluation(
         losses=HierarchicalBehaviorCloningLosses(
-            gate=gate_total / batch_weight,
-            target=target_total / batch_weight,
-            composed=composed_total / batch_weight,
-            weighted=weighted_total / batch_weight,
+            gate=gate_mean,
+            target=target_mean,
+            composed=composed_mean,
+            weighted=weighted_mean,
         ),
         metrics=metrics,
     )
@@ -255,17 +271,102 @@ def _validate_hierarchical_labels(
         raise ValueError("hierarchical teacher targets do not match supervised actions")
 
 
+def _behavior_cloning_indices(
+    *,
+    dataset: SupervisedPolicyDataset,
+    config: BehaviorCloningConfig,
+    split: BehaviorCloningSplit | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    sample_count = dataset.sample_count
+    if split is None and hasattr(dataset, "episode_ids"):
+        episode_split = behavior_cloning_split(
+            dataset,
+            validation_fraction=config.validation_fraction,
+        )
+        return (
+            episode_split.train_indices,
+            episode_split.validation_indices,
+            episode_split.purged_indices,
+        )
+    if split is None:
+        validation_count = (
+            0
+            if config.validation_fraction == 0.0
+            else max(
+                1,
+                int(math.floor(sample_count * config.validation_fraction)),
+            )
+        )
+        train_count = sample_count - validation_count
+        if train_count <= 0:
+            raise ValueError("behavior-cloning validation leaves no training samples")
+        indices = np.arange(sample_count, dtype=np.int64)
+        return (
+            indices[:train_count],
+            indices[train_count:],
+            np.asarray([], dtype=np.int64),
+        )
+
+    train_indices = np.asarray(split.train_indices, dtype=np.int64)
+    validation_indices = np.asarray(split.validation_indices, dtype=np.int64)
+    purged_indices = np.asarray(split.purged_indices, dtype=np.int64)
+    for name, indices in (
+        ("training", train_indices),
+        ("validation", validation_indices),
+        ("purged", purged_indices),
+    ):
+        if np.any(indices < 0) or np.any(indices >= sample_count):
+            raise ValueError(f"behavior-cloning {name} index is outside the dataset")
+    partition = np.concatenate((train_indices, validation_indices, purged_indices))
+    expected_partition = np.arange(sample_count, dtype=np.int64)
+    if partition.size != sample_count or not np.array_equal(
+        np.sort(partition), expected_partition
+    ):
+        raise ValueError("explicit behavior-cloning split must partition the dataset")
+    if hasattr(dataset, "episode_ids"):
+        expected_split = behavior_cloning_split(
+            dataset,
+            validation_fraction=config.validation_fraction,
+        )
+        for name, actual, expected in (
+            ("training", train_indices, expected_split.train_indices),
+            ("validation", validation_indices, expected_split.validation_indices),
+            ("purged", purged_indices, expected_split.purged_indices),
+        ):
+            if not np.array_equal(actual, expected):
+                raise ValueError(
+                    "explicit behavior-cloning split disagrees with "
+                    f"episode-aware {name} split"
+                )
+        return train_indices, validation_indices, purged_indices
+
+    expected_validation_count = (
+        0
+        if config.validation_fraction == 0.0
+        else max(
+            1,
+            int(math.floor(sample_count * config.validation_fraction)),
+        )
+    )
+    if validation_indices.size != expected_validation_count:
+        raise ValueError(
+            "explicit behavior-cloning split disagrees with validation_fraction"
+        )
+    return train_indices, validation_indices, purged_indices
+
+
 def pretrain_policy(
     policy: Any,
     dataset: SupervisedPolicyDataset,
     *,
     config: BehaviorCloningConfig,
     seed: int,
+    split: BehaviorCloningSplit | None = None,
     observation_provider: ObservationBatchProvider | None = None,
     hierarchical_labels: HierarchicalTeacherLabels | None = None,
     progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> BehaviorCloningResult:
-    """Fit legacy MSE or hierarchical BC with a chronological validation tail."""
+    """Fit BC using a validated split while excluding purged samples."""
 
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("behavior-cloning seed must be non-negative")
@@ -273,17 +374,21 @@ def pretrain_policy(
         _validate_hierarchical_labels(dataset, hierarchical_labels)
     device = torch.device(policy.device)
     sample_count = dataset.sample_count
-    validation_count = (
-        0
-        if config.validation_fraction == 0.0
-        else max(1, int(math.floor(sample_count * config.validation_fraction)))
+    train_indices, validation_indices, excluded_indices = _behavior_cloning_indices(
+        dataset=dataset,
+        config=config,
+        split=split,
     )
-    train_count = sample_count - validation_count
-    if train_count <= 0:
-        raise ValueError("behavior-cloning validation leaves no training samples")
-    all_indices = np.arange(sample_count, dtype=np.int64)
-    train_indices = all_indices[:train_count]
-    validation_indices = all_indices[train_count:]
+    train_count = int(train_indices.size)
+    validation_count = int(validation_indices.size)
+    excluded_count = int(excluded_indices.size)
+    split_digest = behavior_cloning_split_digest(
+        sample_count=sample_count,
+        training_indices=train_indices,
+        validation_indices=validation_indices,
+        excluded_indices=excluded_indices,
+    )
+    all_indices = np.concatenate((train_indices, validation_indices))
     # Teacher targets and their reconstruction gates are deterministic contracts.
     # Eval mode disables stochastic regularizers while preserving autograd, so
     # both optimization and metrics fit the exact function deployed to PPO.
@@ -500,6 +605,9 @@ def pretrain_policy(
         teacher_config_digest=dataset.teacher_config_digest,
         config=config,
         seed=seed,
+        training_sample_count=train_count,
+        excluded_sample_count=excluded_count,
+        split_digest=split_digest,
         validation_mse=validation_mse,
         validation_sample_count=validation_count,
         best_epoch=best_epoch,

@@ -6,11 +6,13 @@ from trade_rl.simulation.execution import (
     ExecutionResult,
     MarketExecutor,
 )
+from trade_rl.simulation.execution_stress import ExecutionEnvironmentStress
 
 __all__ = [
     "BookState",
     "EconomicTerminationReason",
     "ExecutionCostConfig",
+    "ExecutionEnvironmentStress",
     "ExecutionResult",
     "MarketExecutor",
 ]

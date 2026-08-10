@@ -26,7 +26,8 @@
     },
     "episode_hours": 720.0,
     "episode_sampling_mode": "uniform",
-    "finite_horizon_observation": true,
+    "episode_boundary_mode": "external_truncation",
+    "finite_horizon_observation": false,
     "initial_capital": 100000.0,
     "initial_state_modes": [
       "cash",

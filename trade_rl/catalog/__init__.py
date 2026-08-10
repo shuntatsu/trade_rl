@@ -13,6 +13,16 @@ from trade_rl.catalog.postgres_sealed_test import PostgresSealedTestReservationS
 from trade_rl.catalog.postgres_stage_a_sealed_test import (
     PostgresStageASealedTestLedger,
 )
+from trade_rl.catalog.stored_instrument_catalog import (
+    STORED_INSTRUMENT_CATALOG_SCHEMA,
+    StoredIndicatorArtifactEvidence,
+    StoredIndicatorSourceInventory,
+    StoredInstrumentCatalog,
+    StoredInstrumentExclusion,
+    build_stored_instrument_catalog,
+    load_stored_instrument_catalog,
+    write_stored_instrument_catalog,
+)
 
 __all__ = [
     "ArtifactCatalog",
@@ -23,5 +33,13 @@ __all__ = [
     "ArtifactStatus",
     "PostgresSealedTestReservationStore",
     "PostgresStageASealedTestLedger",
+    "STORED_INSTRUMENT_CATALOG_SCHEMA",
+    "StoredIndicatorArtifactEvidence",
+    "StoredIndicatorSourceInventory",
+    "StoredInstrumentCatalog",
+    "StoredInstrumentExclusion",
+    "build_stored_instrument_catalog",
+    "load_stored_instrument_catalog",
+    "write_stored_instrument_catalog",
     "cache_key_digest",
 ]

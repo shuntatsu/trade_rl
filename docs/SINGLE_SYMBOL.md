@@ -54,6 +54,14 @@ already represent a one-element action vector.
 The maintained config writer rejects any profile that is not
 `target_weight_count=1` before training resources are allocated.
 
+Gamma-one growth profiles use the intrinsic finite-horizon contract. The
+168-hour discounted profile and its dedicated
+`walk-forward-target-weight-constrained-growth-discounted.json` workflow use
+external truncation. The two boundary semantics are not mixed in one
+walk-forward candidate set, so each candidate set retains one environment and
+observation contract. See `docs/REWARD_OBJECTIVE.md` for the reward and episode
+boundary contract.
+
 ## Data and policy behavior
 
 - Market-data synchronization requests only `BTCUSDT`.
@@ -86,6 +94,6 @@ under different objective semantics.
 
 ## Execution and safety
 
-This migration does not change the current execution simulator, reward,
-constraint, walk-forward, sealed-test or evidence semantics. It does not add
-live order submission. Production remains `NO-GO`.
+The single-symbol boundary and objective split do not add live order submission
+or weaken the execution simulator, hard risk, constraint, sealed-test or
+evidence contracts. Production remains `NO-GO`.

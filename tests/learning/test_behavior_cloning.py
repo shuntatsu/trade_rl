@@ -8,6 +8,7 @@ from trade_rl.integrations.behavior_cloning import (
     pretrain_policy,
 )
 from trade_rl.learning.behavior_cloning import BehaviorCloningConfig
+from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 
 
@@ -160,6 +161,68 @@ def test_behavior_cloning_never_materializes_more_than_one_configured_batch() ->
         observation_provider=provider,
     )
     assert provider.maximum_requested_batch <= config.batch_size
+
+
+class _IndexTrackingProvider:
+    def __init__(self, observations: np.ndarray) -> None:
+        self.observations = observations
+        self.sample_count = len(observations)
+        self.requested_indices: set[int] = set()
+
+    def get(self, indices: np.ndarray) -> np.ndarray:
+        self.requested_indices.update(int(index) for index in indices)
+        return self.observations[indices]
+
+
+def test_explicit_behavior_cloning_split_excludes_purged_samples() -> None:
+    observations = np.array(
+        [
+            [-1.0, 0.0],
+            [-0.5, 0.0],
+            [10.0, 0.0],
+            [11.0, 0.0],
+            [0.5, 0.0],
+            [1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    dataset = SupervisedPolicyDataset(
+        observations=observations,
+        actions=np.clip(observations[:, :1], -1.0, 1.0),
+        dataset_id="a" * 64,
+        train_start=0,
+        train_stop=7,
+        environment_digest="b" * 64,
+        action_spec_digest="c" * 64,
+        teacher_config_digest="d" * 64,
+    )
+    split = BehaviorCloningSplit(
+        train_indices=np.asarray([0, 1], dtype=np.int64),
+        validation_indices=np.asarray([4, 5], dtype=np.int64),
+        train_episode_ids=np.asarray([0], dtype=np.int64),
+        validation_episode_ids=np.asarray([2], dtype=np.int64),
+        purged_indices=np.asarray([2, 3], dtype=np.int64),
+        purged_episode_ids=np.asarray([1], dtype=np.int64),
+    )
+    provider = _IndexTrackingProvider(observations)
+
+    result = pretrain_policy(
+        _LinearPolicy(),
+        dataset,
+        config=BehaviorCloningConfig(
+            epochs=2,
+            learning_rate=0.01,
+            batch_size=2,
+            validation_fraction=1 / 3,
+        ),
+        seed=19,
+        observation_provider=provider,
+        split=split,
+    )
+
+    assert provider.requested_indices == {0, 1, 4, 5}
+    assert result.sample_count == 6
+    assert result.validation_sample_count == 2
 
 
 class _SquashedDistribution:

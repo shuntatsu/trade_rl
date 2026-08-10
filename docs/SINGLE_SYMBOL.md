@@ -54,6 +54,20 @@ already represent a one-element action vector.
 The maintained config writer rejects any profile that is not
 `target_weight_count=1` before training resources are allocated.
 
+Gamma-one growth candidates use `episode_boundary_mode=finite_horizon_termination`,
+`finite_horizon_observation=true`, and `liquidate_on_end=false`. Their 720-hour
+limit is part of the finite-horizon MDP, so the final mark-to-market state is a
+termination and is not bootstrapped. The discounted candidate uses
+`episode_boundary_mode=external_truncation`,
+`finite_horizon_observation=false`, and `liquidate_on_end=false`, so its time
+limit is an external training-window cut and its terminal observation is
+bootstrapped.
+
+Both boundary contracts remain in the same default catalog as explicit
+candidate-level ablations. Each candidate carries its own environment identity;
+selection uses common after-cost net log growth evidence rather than comparing
+raw training rewards across the two objectives. See `docs/REWARD_OBJECTIVE.md`.
+
 ## Data and policy behavior
 
 - Market-data synchronization requests only `BTCUSDT`.
@@ -80,12 +94,14 @@ policy. See `docs/implementation/legacy-multi-asset-inventory.md` for the
 classification of retained legacy code.
 
 Existing generations remain bound to their recorded source, image, configuration
-and artifact identities. Changing the default affects only a generation built
-from a newer source commit; it does not migrate or resume an existing generation
-under different objective semantics.
+and artifact identities. Changing the default or the boundary contract affects
+only a generation built from a newer source commit; it does not migrate or resume
+an existing generation under different objective semantics.
 
 ## Execution and safety
 
-This migration does not change the current execution simulator, reward,
-constraint, walk-forward, sealed-test or evidence semantics. It does not add
-live order submission. Production remains `NO-GO`.
+The boundary alignment does not add live order submission or weaken the
+execution simulator, hard risk, constraint, sealed-test or evidence contracts.
+A finite-horizon time limit is not insolvency, does not set the environment's
+economic-termination flag, and does not trigger terminal-equity shaping.
+Production remains `NO-GO`.

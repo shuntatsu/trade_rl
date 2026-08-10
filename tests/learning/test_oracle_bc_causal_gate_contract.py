@@ -47,9 +47,7 @@ def test_maintained_profiles_require_nontrivial_causal_evidence() -> None:
         assert training["behavior_cloning_min_causal_holdout_trades"] >= 20
         assert training["behavior_cloning_min_causal_holdout_episodes"] >= 5
         assert (
-            training[
-                "behavior_cloning_min_causal_holdout_net_return_lower_bound"
-            ]
+            training["behavior_cloning_min_causal_holdout_net_return_lower_bound"]
             >= -0.05
         )
         assert training["behavior_cloning_causal_holdout_bootstrap_resamples"] >= 2_000

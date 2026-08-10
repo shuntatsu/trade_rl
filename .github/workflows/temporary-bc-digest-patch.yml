@@ -1,0 +1,111 @@
+name: Temporary BC digest compatibility patch
+
+on:
+  push:
+    branches:
+      - agent/bc-economic-admission-gate
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-bc-digest-patch
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'fix: preserve legacy BC training digests'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout patch branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/bc-economic-admission-gate
+          fetch-depth: 0
+
+      - name: Apply verified compatibility patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          training_path = Path("trade_rl/rl/training.py")
+          training = training_path.read_text(encoding="utf-8")
+          old_fields = '''            "behavior_cloning_min_causal_holdout_episodes": (
+                          self.behavior_cloning_min_causal_holdout_episodes
+                      ),
+                      "behavior_cloning_min_causal_holdout_net_return_lower_bound": (
+                          self.behavior_cloning_min_causal_holdout_net_return_lower_bound
+                      ),
+          '''
+          if training.count(old_fields) != 1:
+              raise SystemExit("unexpected BC digest field block")
+          training = training.replace(old_fields, "", 1)
+
+          anchor = '''        }
+                  if self.algorithm in {"cost_critic_ppo", "lagrangian_ppo"}:
+          '''
+          replacement = '''        }
+                  if (
+                      self.behavior_cloning_min_causal_holdout_episodes != 1
+                      or self.behavior_cloning_min_causal_holdout_net_return_lower_bound
+                      != -1.0
+                  ):
+                      payload.update(
+                          {
+                              "behavior_cloning_min_causal_holdout_episodes": (
+                                  self.behavior_cloning_min_causal_holdout_episodes
+                              ),
+                              "behavior_cloning_min_causal_holdout_net_return_lower_bound": (
+                                  self.behavior_cloning_min_causal_holdout_net_return_lower_bound
+                              ),
+                          }
+                      )
+                  if self.algorithm in {"cost_critic_ppo", "lagrangian_ppo"}:
+          '''
+          digest_start = training.index("    def digest_payload")
+          prefix = training[:digest_start]
+          digest = training[digest_start:]
+          if digest.count(anchor) != 1:
+              raise SystemExit("unexpected BC digest insertion anchor")
+          training_path.write_text(
+              prefix + digest.replace(anchor, replacement, 1),
+              encoding="utf-8",
+          )
+
+          design_path = Path(
+              "docs/implementation/2026-08-11-bc-economic-admission-gate-design.md"
+          )
+          design = design_path.read_text(encoding="utf-8")
+          old_design = (
+              "Historical `training_run_config_v4` documents that omit these fields "
+              "retain their prior behavior through the defaults. The fields are "
+              "included in the training configuration digest, so strengthened "
+              "profiles cannot silently reuse checkpoints created under weaker "
+              "admission semantics."
+          )
+          new_design = (
+              "Historical `training_run_config_v4` documents that omit these fields "
+              "retain their prior behavior and digest payload through the defaults. "
+              "When either field is non-default, both fields are included in the "
+              "training configuration digest, so strengthened profiles cannot "
+              "silently reuse checkpoints created under weaker admission semantics."
+          )
+          if design.count(old_design) != 1:
+              raise SystemExit("unexpected BC design compatibility paragraph")
+          design_path.write_text(
+              design.replace(old_design, new_design, 1),
+              encoding="utf-8",
+          )
+          PY
+          python -m compileall -q trade_rl/rl/training.py
+
+      - name: Commit compatibility fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/rl/training.py docs/implementation/2026-08-11-bc-economic-admission-gate-design.md
+          git diff --cached --check
+          git commit -m "fix: preserve legacy BC training digests"
+          git push origin HEAD:agent/bc-economic-admission-gate

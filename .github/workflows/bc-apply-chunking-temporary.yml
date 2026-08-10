@@ -28,6 +28,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          from textwrap import dedent, indent
 
           path = Path("trade_rl/learning/episode_teacher_artifact.py")
           text = path.read_text(encoding="utf-8")
@@ -49,7 +50,8 @@ jobs:
           helper_end = text.index(
               "\ndef collect_episode_teacher_rollout_parallel(", helper_start
           )
-          helpers = '''def _collect_episode_with_environment(
+          helpers = dedent('''\
+          def _collect_episode_with_environment(
               environment: TeacherRolloutEnvironment,
               batch: EpisodeOracleBatch,
               teacher_config_digest: str,
@@ -137,14 +139,16 @@ jobs:
               )
 
 
-          '''
+          ''')
           text = text[:helper_start] + helpers + text[helper_end + 1 :]
 
           parallel_start = text.index(
               '    if pending_items and "fork" in mp.get_all_start_methods():'
           )
           parallel_end = text.index("    collected = tuple(", parallel_start)
-          parallel = '''    if pending_items:
+          parallel = indent(
+              dedent('''\
+          if pending_items:
               pending_worker_count = min(worker_count, len(pending_items))
               pending_chunks = _episode_item_chunks(
                   tuple(pending_items),
@@ -197,7 +201,9 @@ jobs:
                   for values in executor.map(collect_chunk, pending_chunks):
                       for value in values:
                           persist(value)
-          '''
+          '''),
+              "    ",
+          )
           text = text[:parallel_start] + parallel + text[parallel_end:]
           path.write_text(text, encoding="utf-8")
           PY

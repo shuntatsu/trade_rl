@@ -69,7 +69,9 @@ def config(
         decision_every=2,
         reward_config=reward,
         require_full_reward_preroll=require_full_reward_preroll,
-        execution_cost=(ExecutionCostConfig.zero() if execution_cost is None else execution_cost),
+        execution_cost=(
+            ExecutionCostConfig.zero() if execution_cost is None else execution_cost
+        ),
     )
 
 

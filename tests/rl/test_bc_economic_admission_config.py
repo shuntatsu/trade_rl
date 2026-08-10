@@ -41,9 +41,7 @@ def test_config_rejects_invalid_causal_net_return_lower_bound_floor(
         ValueError,
         match="behavior_cloning_min_causal_holdout_net_return_lower_bound",
     ):
-        _config(
-            behavior_cloning_min_causal_holdout_net_return_lower_bound=value
-        )
+        _config(behavior_cloning_min_causal_holdout_net_return_lower_bound=value)
 
 
 def test_config_defaults_preserve_legacy_bc_admission_contract() -> None:
@@ -54,7 +52,4 @@ def test_config_defaults_preserve_legacy_bc_admission_contract() -> None:
     )
 
     assert resolved.behavior_cloning_min_causal_holdout_episodes == 1
-    assert (
-        resolved.behavior_cloning_min_causal_holdout_net_return_lower_bound
-        == -1.0
-    )
+    assert resolved.behavior_cloning_min_causal_holdout_net_return_lower_bound == -1.0

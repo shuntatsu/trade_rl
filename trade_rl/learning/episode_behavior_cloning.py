@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Protocol, cast
 
 import numpy as np
@@ -225,7 +225,7 @@ def align_behavior_cloning_validation(
     config: BehaviorCloningConfig,
     dataset: object,
 ) -> tuple[BehaviorCloningConfig, BehaviorCloningSplit]:
-    """Adjust the scalar tail fraction so the existing trainer cuts at an episode edge."""
+    """Return the explicit episode split without scalar-fraction approximation."""
 
     if not hasattr(dataset, "sample_count") or not hasattr(dataset, "episode_ids"):
         raise TypeError("episode behavior cloning requires episode-aware provenance")
@@ -234,13 +234,7 @@ def align_behavior_cloning_validation(
         episode_dataset,
         validation_fraction=config.validation_fraction,
     )
-    if split.validation_sample_count == 0:
-        return replace(config, validation_fraction=0.0), split
-    exact_fraction = split.validation_sample_count / int(episode_dataset.sample_count)
-    aligned_fraction = math.nextafter(exact_fraction, 1.0)
-    if not aligned_fraction < 0.5:
-        raise ValueError("episode-aligned validation fraction must remain below 0.5")
-    return replace(config, validation_fraction=aligned_fraction), split
+    return config, split
 
 
 __all__ = [

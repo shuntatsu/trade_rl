@@ -18,6 +18,7 @@ from trade_rl.learning.behavior_cloning import (
     BehaviorCloningResult,
     ObservationBatchProvider,
 )
+from trade_rl.learning.episode_behavior_cloning import behavior_cloning_split
 from trade_rl.learning.hierarchical_bc_metrics import (
     HierarchicalBehaviorCloningLosses,
     HierarchicalBehaviorCloningMetrics,
@@ -265,7 +266,7 @@ def pretrain_policy(
     hierarchical_labels: HierarchicalTeacherLabels | None = None,
     progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> BehaviorCloningResult:
-    """Fit legacy MSE or hierarchical BC with a chronological validation tail."""
+    """Fit BC with chronological episode validation and purge support."""
 
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("behavior-cloning seed must be non-negative")
@@ -273,17 +274,17 @@ def pretrain_policy(
         _validate_hierarchical_labels(dataset, hierarchical_labels)
     device = torch.device(policy.device)
     sample_count = dataset.sample_count
-    validation_count = (
-        0
-        if config.validation_fraction == 0.0
-        else max(1, int(math.floor(sample_count * config.validation_fraction)))
+    split = behavior_cloning_split(
+        dataset,
+        validation_fraction=config.validation_fraction,
     )
-    train_count = sample_count - validation_count
-    if train_count <= 0:
-        raise ValueError("behavior-cloning validation leaves no training samples")
-    all_indices = np.arange(sample_count, dtype=np.int64)
-    train_indices = all_indices[:train_count]
-    validation_indices = all_indices[train_count:]
+    train_indices = split.train_indices
+    validation_indices = split.validation_indices
+    train_count = int(train_indices.size)
+    validation_count = int(validation_indices.size)
+    evaluation_indices = np.sort(
+        np.concatenate((train_indices, validation_indices))
+    )
     # Teacher targets and their reconstruction gates are deterministic contracts.
     # Eval mode disables stochastic regularizers while preserving autograd, so
     # both optimization and metrics fit the exact function deployed to PPO.
@@ -291,7 +292,7 @@ def pretrain_policy(
     initial_mse = _mean_squared_error(
         policy,
         dataset,
-        indices=all_indices,
+        indices=evaluation_indices,
         batch_size=config.batch_size,
         device=device,
         provider=observation_provider,
@@ -312,7 +313,7 @@ def pretrain_policy(
             policy,
             dataset,
             hierarchical_labels,
-            indices=all_indices,
+            indices=evaluation_indices,
             batch_size=config.batch_size,
             config=config,
             positive_class_weight=positive_class_weight,
@@ -444,7 +445,7 @@ def pretrain_policy(
     final_mse = _mean_squared_error(
         policy,
         dataset,
-        indices=all_indices,
+        indices=evaluation_indices,
         batch_size=config.batch_size,
         device=device,
         provider=observation_provider,
@@ -468,7 +469,7 @@ def pretrain_policy(
             policy,
             dataset,
             hierarchical_labels,
-            indices=all_indices,
+            indices=evaluation_indices,
             batch_size=config.batch_size,
             config=config,
             positive_class_weight=positive_class_weight,

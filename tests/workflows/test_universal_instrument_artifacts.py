@@ -214,6 +214,22 @@ def test_exact_existing_bundle_is_reused_but_mismatch_is_rejected(
     assert {path.name: path.read_bytes() for path in root.iterdir()} == before
 
 
+def test_noncanonical_bytes_are_rejected_even_when_contracts_decode(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "universal-instruments"
+    bundle = _bundle()
+    write_universal_instrument_artifact_bundle(root, bundle)
+    manifest_path = root / SYMBOL_DISJOINT_FILENAME
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="canonical"):
+        load_universal_instrument_artifact_bundle(root)
+    with pytest.raises(FileExistsError, match="partial|different"):
+        write_universal_instrument_artifact_bundle(root, bundle)
+
+
 def test_partial_extra_and_non_directory_outputs_fail_closed(tmp_path: Path) -> None:
     bundle = _bundle()
 

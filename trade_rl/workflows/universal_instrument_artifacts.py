@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.catalog.stored_instrument_catalog import (
     StoredIndicatorSourceInventory,
     StoredInstrumentCatalog,
@@ -161,6 +162,31 @@ def _require_bundle_root(root: Path) -> UniversalInstrumentArtifactPaths:
     return paths
 
 
+def _require_canonical_bundle_bytes(
+    paths: UniversalInstrumentArtifactPaths,
+    bundle: UniversalInstrumentArtifactBundle,
+) -> None:
+    expected_by_path = (
+        (
+            paths.stored_instruments,
+            canonical_json_bytes(bundle.catalog.to_json_dict()),
+        ),
+        (
+            paths.symbol_disjoint,
+            canonical_json_bytes(bundle.symbol_disjoint_manifest.to_json_dict()),
+        ),
+        (
+            paths.universal_partition,
+            canonical_json_bytes(bundle.partition.to_json_dict()),
+        ),
+    )
+    for path, expected in expected_by_path:
+        if path.read_bytes() != expected:
+            raise ValueError(
+                f"universal instrument artifact must use canonical JSON bytes: {path.name}"
+            )
+
+
 def load_universal_instrument_artifact_bundle(
     root: str | Path,
 ) -> UniversalInstrumentArtifactBundle:
@@ -185,11 +211,13 @@ def load_universal_instrument_artifact_bundle(
         raise ValueError(
             f"universal instrument partition is invalid: {error}"
         ) from error
-    return UniversalInstrumentArtifactBundle(
+    bundle = UniversalInstrumentArtifactBundle(
         catalog=catalog,
         symbol_disjoint_manifest=manifest,
         partition=partition,
     )
+    _require_canonical_bundle_bytes(paths, bundle)
+    return bundle
 
 
 def _existing_bundle_paths(

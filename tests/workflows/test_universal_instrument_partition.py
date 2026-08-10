@@ -82,12 +82,9 @@ def test_partition_is_catalog_bound_disjoint_and_deterministic() -> None:
     assert set(first.train_symbols).isdisjoint(first.validation_symbols)
     assert set(first.train_symbols).isdisjoint(first.test_symbols)
     assert set(first.validation_symbols).isdisjoint(first.test_symbols)
-    assert (
-        set(first.train_symbols)
-        | set(first.validation_symbols)
-        | set(first.test_symbols)
-        == set(catalog.eligible_symbols)
-    )
+    assert set(first.train_symbols) | set(first.validation_symbols) | set(
+        first.test_symbols
+    ) == set(catalog.eligible_symbols)
     assert first.symbol_disjoint_manifest.digest == (
         first.symbol_disjoint_manifest_digest
     )
@@ -100,9 +97,10 @@ def test_partition_accessors_fail_closed_across_splits() -> None:
     test = partition.test_symbols[0]
 
     assert partition.require_symbol(train, split="train") == train
-    assert partition.require_symbols(
-        partition.validation_symbols, split="validation"
-    ) == partition.validation_symbols
+    assert (
+        partition.require_symbols(partition.validation_symbols, split="validation")
+        == partition.validation_symbols
+    )
     assert partition.require_symbol(test, split="test") == test
 
     with pytest.raises(ValueError, match="not declared for train"):

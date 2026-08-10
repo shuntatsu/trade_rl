@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from trade_rl.rl.algorithm_configs import LagrangianPPOConfig, build_algorithm_config
+from trade_rl.rl.environment_config import EpisodeBoundaryMode
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
@@ -42,7 +43,6 @@ def _common_contract(
     assert config.action.risk_tilt_enabled is False
     assert config.reward.is_pure_net_log_growth() is True
     assert config.environment.episode_hours == pytest.approx(720.0)
-    assert config.environment.finite_horizon_observation is False
     assert config.environment.liquidate_on_end is False
     assert config.risk.max_abs_weight == pytest.approx(1.0)
     assert config.portfolio_risk.max_abs_weight == pytest.approx(1.0)
@@ -72,12 +72,32 @@ def _common_contract(
     assert training.vector_environment_mode == "subprocess"
 
 
+def _assert_finite_horizon(config: TrainingRunConfig) -> None:
+    assert (
+        config.environment.episode_boundary_mode
+        is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+    )
+    assert config.environment.finite_horizon_observation is True
+
+
+def _assert_external_truncation(config: TrainingRunConfig) -> None:
+    assert (
+        config.environment.episode_boundary_mode
+        is EpisodeBoundaryMode.EXTERNAL_TRUNCATION
+    )
+    assert config.environment.finite_horizon_observation is False
+
+
 def _without_discount(payload: dict[str, object]) -> dict[str, object]:
     resolved = deepcopy(payload)
     training = resolved["training"]
+    environment = resolved["environment"]
     assert isinstance(training, dict)
+    assert isinstance(environment, dict)
     training.pop("gamma", None)
     training.pop("discount_half_life_hours", None)
+    environment.pop("episode_boundary_mode", None)
+    environment.pop("finite_horizon_observation", None)
     return resolved
 
 
@@ -101,6 +121,7 @@ def test_target_weight_growth_ppo_is_gamma_one_control() -> None:
     config = _load(PPO)
 
     _common_contract(config)
+    _assert_finite_horizon(config)
     assert config.training.algorithm == "ppo"
     assert config.training.gamma == pytest.approx(1.0)
     assert config.training.discount_half_life_hours is None
@@ -111,6 +132,7 @@ def test_target_weight_lagrangian_uses_same_growth_recipe_and_all_costs() -> Non
     constrained = _load(LAGRANGIAN)
 
     _common_contract(constrained)
+    _assert_finite_horizon(constrained)
     assert constrained.action == ppo.action
     assert constrained.environment == ppo.environment
     assert constrained.risk == ppo.risk
@@ -138,11 +160,12 @@ def test_target_weight_lagrangian_uses_same_growth_recipe_and_all_costs() -> Non
     assert algorithm.lagrangian_schema.names == CONSTRAINT_COST_NAMES
 
 
-def test_discounted_profile_changes_only_real_time_discount() -> None:
+def test_discounted_profile_changes_only_real_time_discount_and_boundary() -> None:
     canonical = _load(LAGRANGIAN)
     discounted = _load(DISCOUNTED)
 
     _common_contract(discounted)
+    _assert_external_truncation(discounted)
     assert discounted.training.algorithm == "lagrangian_ppo"
     assert discounted.training.gamma == pytest.approx(0.998969062762624)
     assert discounted.training.discount_half_life_hours == pytest.approx(168.0)

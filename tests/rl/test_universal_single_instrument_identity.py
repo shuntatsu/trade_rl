@@ -63,9 +63,10 @@ def test_concrete_symbol_lives_only_in_deployment_binding() -> None:
     assert binding.to_json_dict()["concrete_symbol"] == "XRPUSDT"
     assert binding.to_json_dict()["seen_in_training"] is False
     assert binding.digest == content_digest(binding.to_json_dict())
-    assert SingleInstrumentDeploymentBinding.from_json_dict(
-        binding.to_json_dict()
-    ) == binding
+    assert (
+        SingleInstrumentDeploymentBinding.from_json_dict(binding.to_json_dict())
+        == binding
+    )
     assert "XRPUSDT" not in json.dumps(manifest.to_json_dict(), sort_keys=True)
 
 

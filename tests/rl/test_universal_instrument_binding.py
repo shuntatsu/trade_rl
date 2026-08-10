@@ -31,9 +31,7 @@ def _binding(symbol: str, *, split: str = "train") -> InstrumentDatasetBinding:
 def test_generic_policy_facing_contract_is_exactly_one_instrument() -> None:
     assert GENERIC_INSTRUMENT_SYMBOL == "INSTRUMENT"
     assert GENERIC_INSTRUMENT_SYMBOLS == ("INSTRUMENT",)
-    assert GENERIC_TARGET_WEIGHT_ACTION_NAMES == (
-        "target_weight:INSTRUMENT",
-    )
+    assert GENERIC_TARGET_WEIGHT_ACTION_NAMES == ("target_weight:INSTRUMENT",)
 
 
 def test_dataset_binding_is_canonical_and_round_trips() -> None:

@@ -178,17 +178,21 @@ def test_facade_exposes_generic_single_action_and_routes_whole_episodes() -> Non
     assert terminated is True
     assert truncated is False
     assert reset_info["instrument_episode_binding"]["concrete_symbol"] == first_symbol
-    assert terminal_info["instrument_episode_binding"] == reset_info[
-        "instrument_episode_binding"
-    ]
-    assert terminal_info["instrument_episode_binding_digest"] == reset_info[
-        "instrument_episode_binding_digest"
-    ]
+    assert (
+        terminal_info["instrument_episode_binding"]
+        == reset_info["instrument_episode_binding"]
+    )
+    assert (
+        terminal_info["instrument_episode_binding_digest"]
+        == reset_info["instrument_episode_binding_digest"]
+    )
     assert env.completed_episode_count == 1
 
     _, second_reset = env.reset()
 
-    assert second_reset["instrument_episode_binding"]["concrete_symbol"] == second_symbol
+    assert (
+        second_reset["instrument_episode_binding"]["concrete_symbol"] == second_symbol
+    )
     assert calls == [first_symbol, second_symbol]
     assert created[first_symbol] is not created[second_symbol]
 

@@ -31,9 +31,7 @@ def test_router_uses_every_symbol_once_before_repetition() -> None:
     first_cycle = tuple(router.route(index) for index in range(count))
     second_cycle = tuple(router.route(count + index) for index in range(count))
 
-    assert {route.concrete_symbol for route in first_cycle} == set(
-        router.train_symbols
-    )
+    assert {route.concrete_symbol for route in first_cycle} == set(router.train_symbols)
     assert len({route.concrete_symbol for route in first_cycle}) == count
     assert {route.concrete_symbol for route in second_cycle} == set(
         router.train_symbols
@@ -51,7 +49,9 @@ def test_router_is_deterministic_and_routes_have_canonical_identity() -> None:
 
     assert observed == tuple(second.route(index) for index in range(17))
     assert all(isinstance(route, InstrumentRoute) for route in observed)
-    assert all(route.digest == content_digest(route.to_json_dict()) for route in observed)
+    assert all(
+        route.digest == content_digest(route.to_json_dict()) for route in observed
+    )
     assert first.digest == second.digest
 
 

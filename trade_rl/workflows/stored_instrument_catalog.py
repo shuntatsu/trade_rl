@@ -181,8 +181,7 @@ class StoredIndicatorSourceInventory:
         )
         artifacts = tuple(self.artifacts)
         if any(
-            not isinstance(item, StoredIndicatorArtifactEvidence)
-            for item in artifacts
+            not isinstance(item, StoredIndicatorArtifactEvidence) for item in artifacts
         ):
             raise TypeError("source inventory contains an invalid artifact")
         expected = tuple(
@@ -313,7 +312,10 @@ class StoredInstrumentCatalog:
         declared = set(eligible) | set(excluded_names)
         if set(artifact_symbols) != declared:
             raise ValueError("stored instrument catalog symbol closure mismatch")
-        if tuple(symbol for symbol in artifact_symbols if symbol in eligible) != eligible:
+        if (
+            tuple(symbol for symbol in artifact_symbols if symbol in eligible)
+            != eligible
+        ):
             raise ValueError("stored instrument eligible symbol order mismatch")
         if (
             tuple(symbol for symbol in artifact_symbols if symbol in excluded_names)
@@ -371,9 +373,7 @@ class StoredInstrumentCatalog:
         return {
             "digest": self.digest,
             "eligible_symbols": list(self.eligible_symbols),
-            "excluded_symbols": [
-                item.to_json_dict() for item in self.excluded_symbols
-            ],
+            "excluded_symbols": [item.to_json_dict() for item in self.excluded_symbols],
             "feature_config_digest": self.feature_config_digest,
             "market": self.market,
             "per_symbol_artifact_digests": [

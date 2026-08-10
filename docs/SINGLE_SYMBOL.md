@@ -34,12 +34,17 @@ BTC, ETH and BNB in one action vector.
 ## Configuration
 
 The default full-research workflow is
-`walk-forward-target-weight-constrained-growth.json`. It compares these three
-single-symbol target-weight profiles in order:
+`walk-forward-target-weight-constrained-growth.json`. It compares these two
+single-symbol gamma-one target-weight profiles in order:
 
-- `training-target-weight-growth-ppo.json` — gamma-one net-growth PPO control;
-- `training-target-weight-constrained-growth.json` — gamma-one constrained-growth Lagrangian PPO candidate;
-- `training-target-weight-constrained-growth-discounted.json` — 168-hour discounted constrained-growth ablation.
+- `training-target-weight-growth-ppo.json` — net-growth PPO control;
+- `training-target-weight-constrained-growth.json` — constrained-growth Lagrangian PPO candidate.
+
+The 168-hour discounted constrained-growth profile has a distinct environment
+boundary and is evaluated through
+`walk-forward-target-weight-constrained-growth-discounted.json`. It is an
+explicit time-preference ablation, not a candidate in the gamma-one selection
+catalog.
 
 `training-full.json` is retained as an explicit legacy mixed-shaping comparison.
 It is selected only by naming it through `--training-template training-full.json`;
@@ -57,16 +62,17 @@ The maintained config writer rejects any profile that is not
 Gamma-one growth candidates use `episode_boundary_mode=finite_horizon_termination`,
 `finite_horizon_observation=true`, and `liquidate_on_end=false`. Their 720-hour
 limit is part of the finite-horizon MDP, so the final mark-to-market state is a
-termination and is not bootstrapped. The discounted candidate uses
+termination and is not bootstrapped. The discounted ablation uses
 `episode_boundary_mode=external_truncation`,
 `finite_horizon_observation=false`, and `liquidate_on_end=false`, so its time
 limit is an external training-window cut and its terminal observation is
 bootstrapped.
 
-Both boundary contracts remain in the same default catalog as explicit
-candidate-level ablations. Each candidate carries its own environment identity;
-selection uses common after-cost net log growth evidence rather than comparing
-raw training rewards across the two objectives. See `docs/REWARD_OBJECTIVE.md`.
+The two boundary contracts are intentionally not mixed in one
+`MarketWalkForwardConfig`: that contract requires all candidates to share the
+same environment dynamics. Cross-objective reporting uses common after-cost net
+log growth evidence rather than raw training rewards. See
+`docs/REWARD_OBJECTIVE.md`.
 
 ## Data and policy behavior
 

@@ -15,12 +15,9 @@ def _empty_int_vector() -> np.ndarray:
     return np.asarray([], dtype=np.int64)
 
 
-class EpisodeDataset(Protocol):
+class BehaviorCloningDataset(Protocol):
     @property
     def sample_count(self) -> int: ...
-
-    @property
-    def episode_ids(self) -> np.ndarray: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +132,7 @@ def _plain_tail_split(
 
 
 def behavior_cloning_split(
-    dataset: EpisodeDataset,
+    dataset: BehaviorCloningDataset,
     *,
     validation_fraction: float,
 ) -> BehaviorCloningSplit:
@@ -232,7 +229,7 @@ def align_behavior_cloning_validation(
 
     if not hasattr(dataset, "sample_count") or not hasattr(dataset, "episode_ids"):
         raise TypeError("episode behavior cloning requires episode-aware provenance")
-    episode_dataset = cast(EpisodeDataset, dataset)
+    episode_dataset = cast(BehaviorCloningDataset, dataset)
     split = behavior_cloning_split(
         episode_dataset,
         validation_fraction=config.validation_fraction,

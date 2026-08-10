@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass, field
 from typing import Protocol, cast
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.behavior_cloning import BehaviorCloningConfig
 
 
 def _empty_int_vector() -> np.ndarray:
     return np.asarray([], dtype=np.int64)
+
+
+def _integer_vector_identity(value: np.ndarray) -> dict[str, object]:
+    array = np.ascontiguousarray(value, dtype=np.int64)
+    return {
+        "count": int(array.size),
+        "sha256": hashlib.sha256(array.tobytes(order="C")).hexdigest(),
+    }
 
 
 class BehaviorCloningDataset(Protocol):
@@ -65,6 +75,22 @@ class BehaviorCloningSplit:
     @property
     def purged_sample_count(self) -> int:
         return int(self.purged_indices.size)
+
+    @property
+    def digest(self) -> str:
+        return content_digest(
+            {
+                "purged_episode_ids": _integer_vector_identity(self.purged_episode_ids),
+                "purged_indices": _integer_vector_identity(self.purged_indices),
+                "schema_version": "behavior_cloning_split_v1",
+                "train_episode_ids": _integer_vector_identity(self.train_episode_ids),
+                "train_indices": _integer_vector_identity(self.train_indices),
+                "validation_episode_ids": _integer_vector_identity(
+                    self.validation_episode_ids
+                ),
+                "validation_indices": _integer_vector_identity(self.validation_indices),
+            }
+        )
 
 
 def _validation_count(sample_count: int, validation_fraction: float) -> int:

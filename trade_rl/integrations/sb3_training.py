@@ -1806,6 +1806,9 @@ class StableBaselines3Backend:
                         "final_mse": cloning.final_mse,
                         "initial_mse": cloning.initial_mse,
                         "sample_count": cloning.sample_count,
+                        "training_sample_count": cloning.training_sample_count,
+                        "excluded_sample_count": cloning.excluded_sample_count,
+                        "split_digest": cloning.split_digest,
                         "validation_mse": cloning.validation_mse,
                         "validation_sample_count": cloning.validation_sample_count,
                         "best_epoch": cloning.best_epoch,
@@ -1828,7 +1831,7 @@ class StableBaselines3Backend:
                             }
                         ),
                         "oracle_reproduction": oracle_audit_payload,
-                        "schema_version": "behavior_cloning_run_v6",
+                        "schema_version": "behavior_cloning_run_v7",
                     }
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     (output_path.parent / "behavior-cloning.json").write_bytes(

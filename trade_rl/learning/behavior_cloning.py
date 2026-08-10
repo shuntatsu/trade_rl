@@ -100,6 +100,9 @@ class BehaviorCloningResult:
     initial_hierarchical_metrics: HierarchicalBehaviorCloningMetrics | None = None
     final_hierarchical_metrics: HierarchicalBehaviorCloningMetrics | None = None
     validation_hierarchical_metrics: HierarchicalBehaviorCloningMetrics | None = None
+    training_sample_count: int | None = None
+    excluded_sample_count: int = 0
+    split_digest: str | None = None
 
     @property
     def digest(self) -> str:
@@ -118,6 +121,7 @@ class BehaviorCloningResult:
                     if self.final_hierarchical_metrics is None
                     else asdict(self.final_hierarchical_metrics)
                 ),
+                "excluded_sample_count": self.excluded_sample_count,
                 "final_mse": self.final_mse,
                 "hierarchical_label_digest": self.hierarchical_label_digest,
                 "initial_hierarchical_losses": (
@@ -133,9 +137,11 @@ class BehaviorCloningResult:
                 "initial_mse": self.initial_mse,
                 "observation_digest": self.observation_digest,
                 "sample_count": self.sample_count,
-                "schema_version": "behavior_cloning_result_v3",
+                "schema_version": "behavior_cloning_result_v4",
                 "seed": self.seed,
+                "split_digest": self.split_digest,
                 "teacher_config_digest": self.teacher_config_digest,
+                "training_sample_count": self.training_sample_count,
                 "validation_hierarchical_losses": (
                     None
                     if self.validation_hierarchical_losses is None

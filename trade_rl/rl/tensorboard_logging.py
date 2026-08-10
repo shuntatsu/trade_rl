@@ -64,9 +64,7 @@ _INFO_MEAN_TAGS = {
     "trade_rl/reward_terminal_penalty_weighted_mean": (
         "reward_terminal_penalty_weighted"
     ),
-    "trade_rl/reward_margin_penalty_weighted_mean": (
-        "reward_margin_penalty_weighted"
-    ),
+    "trade_rl/reward_margin_penalty_weighted_mean": ("reward_margin_penalty_weighted"),
     "trade_rl/reward_total_raw_mean": "reward_total_raw",
     "trade_rl/rolling_growth_gap_mean": "rolling_growth_gap",
 }
@@ -123,7 +121,17 @@ def build_tensorboard_metrics_callback(
             if self.n_calls % log_interval == 0:
                 observations = self.locals.get("obs_tensor")
                 policy = getattr(self.model, "policy", None)
-                output_factory = getattr(policy, "action_stage_outputs", None)
+                # Rollout collection samples from the smooth distribution mean even
+                # while SB3 keeps the policy module in eval mode. The hierarchical
+                # BC output already forces operational=False, so prefer it before
+                # generic or operational action-stage diagnostics.
+                output_factory = getattr(
+                    policy,
+                    "hierarchical_behavior_cloning_outputs",
+                    None,
+                )
+                if not callable(output_factory):
+                    output_factory = getattr(policy, "action_stage_outputs", None)
                 if not callable(output_factory):
                     output_factory = getattr(
                         policy,

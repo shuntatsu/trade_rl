@@ -211,6 +211,8 @@ class TrainingTelemetryRecord:
             _finite_tuple(values, field=field)
         if self.high is not None and self.low is not None and self.high < self.low:
             raise ValueError("high cannot be below low")
+        if self.terminated and self.truncated:
+            raise ValueError("terminated and truncated must be mutually exclusive")
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -256,6 +258,14 @@ class TrainingTelemetryRecord:
         event_type = _required_string(raw, "event_type")
         if event_type not in _EVENT_TYPES:
             raise ValueError("event_type is invalid")
+        terminated = _required_bool(raw, "terminated")
+        truncated = _required_bool(raw, "truncated")
+        if terminated and truncated:
+            # Historical v1 writers treated SB3 VecEnv's combined ``done`` as
+            # termination even for a time-limit transition. The environment
+            # contract keeps these flags exclusive, so dual flags identify that
+            # legacy truncation representation and can be normalized on read.
+            terminated = False
         return cls(
             sequence=_required_int(raw, "sequence", minimum=1),
             recorded_at=_required_string(raw, "recorded_at"),
@@ -284,8 +294,8 @@ class TrainingTelemetryRecord:
             interval_return=_optional_float(raw, "interval_return"),
             risk_reasons=_string_tuple(raw, "risk_reasons"),
             emergency_deleverage=_required_bool(raw, "emergency_deleverage"),
-            terminated=_required_bool(raw, "terminated"),
-            truncated=_required_bool(raw, "truncated"),
+            terminated=terminated,
+            truncated=truncated,
         )
 
 

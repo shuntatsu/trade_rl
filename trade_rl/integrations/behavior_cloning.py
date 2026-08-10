@@ -18,7 +18,10 @@ from trade_rl.learning.behavior_cloning import (
     BehaviorCloningResult,
     ObservationBatchProvider,
 )
-from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
+from trade_rl.learning.episode_behavior_cloning import (
+    BehaviorCloningSplit,
+    behavior_cloning_split,
+)
 from trade_rl.learning.hierarchical_bc_metrics import (
     HierarchicalBehaviorCloningLosses,
     HierarchicalBehaviorCloningMetrics,
@@ -258,10 +261,17 @@ def _validate_hierarchical_labels(
 
 def _behavior_cloning_indices(
     *,
-    sample_count: int,
+    dataset: SupervisedPolicyDataset,
     config: BehaviorCloningConfig,
     split: BehaviorCloningSplit | None,
 ) -> tuple[np.ndarray, np.ndarray]:
+    sample_count = dataset.sample_count
+    if split is None and hasattr(dataset, "episode_ids"):
+        episode_split = behavior_cloning_split(
+            dataset,
+            validation_fraction=config.validation_fraction,
+        )
+        return episode_split.train_indices, episode_split.validation_indices
     if split is None:
         validation_count = (
             0
@@ -328,7 +338,7 @@ def pretrain_policy(
     device = torch.device(policy.device)
     sample_count = dataset.sample_count
     train_indices, validation_indices = _behavior_cloning_indices(
-        sample_count=sample_count,
+        dataset=dataset,
         config=config,
         split=split,
     )

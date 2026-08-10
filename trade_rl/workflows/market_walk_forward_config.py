@@ -12,11 +12,12 @@ from pathlib import Path
 from typing import Any
 
 import trade_rl.workflows._market_walk_forward_config_base as _base
+from trade_rl.simulation.execution_stress import ExecutionEnvironmentStress
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionSensitivityScenario(_base.ExecutionSensitivityScenario):
-    """Rule stress plus report-only execution-environment dimensions."""
+    """One reportable rule and execution-environment stress scenario."""
 
     fee_multiplier: float = 1.0
     spread_multiplier: float = 1.0
@@ -27,6 +28,34 @@ class ExecutionSensitivityScenario(_base.ExecutionSensitivityScenario):
     tail_slippage_probability_floor: float = 0.0
     tail_slippage_multiplier_floor: float = 0.0
     borrow_rate_multiplier: float = 1.0
+
+    def __post_init__(self) -> None:
+        _base.ExecutionSensitivityScenario.__post_init__(self)
+        self.stress()
+
+    def stress(self) -> ExecutionEnvironmentStress:
+        return ExecutionEnvironmentStress(
+            name=self.name,
+            tick_size_factor=self.tick_size_factor,
+            lot_size_factor=self.lot_size_factor,
+            minimum_notional_factor=self.minimum_notional_factor,
+            adverse_tick_rounding=self.adverse_tick_rounding,
+            fee_multiplier=self.fee_multiplier,
+            spread_multiplier=self.spread_multiplier,
+            impact_multiplier=self.impact_multiplier,
+            slippage_std_multiplier=self.slippage_std_multiplier,
+            participation_fraction=self.participation_fraction,
+            minimum_order_latency_bars=self.minimum_order_latency_bars,
+            tail_slippage_probability_floor=(self.tail_slippage_probability_floor),
+            tail_slippage_multiplier_floor=(self.tail_slippage_multiplier_floor),
+            borrow_rate_multiplier=self.borrow_rate_multiplier,
+        )
+
+    def digest_payload(self) -> dict[str, object]:
+        return {
+            **self.stress().digest_payload(),
+            "report_only": self.report_only,
+        }
 
 
 NamedCandidateRun = _base.NamedCandidateRun
@@ -64,7 +93,7 @@ def _boolean(value: object, *, field: str, default: bool) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class ExecutionSensitivityConfig(_base.ExecutionSensitivityConfig):
-    """Canonical stress pack plus optional report-only extensions."""
+    """Canonical rule pack plus optional report-only environment stress."""
 
     def __post_init__(self) -> None:
         names = tuple(item.name for item in self.scenarios)
@@ -75,6 +104,10 @@ class ExecutionSensitivityConfig(_base.ExecutionSensitivityConfig):
             for item in self.scenarios
             if item.name in _STANDARD_EXECUTION_SCENARIOS
         )
+        if self.scenarios and not standard:
+            raise ValueError(
+                "execution sensitivity extensions require the standard scenario pack"
+            )
         _base.ExecutionSensitivityConfig(
             scenarios=standard,
             required_scenario=self.required_scenario,
@@ -83,6 +116,15 @@ class ExecutionSensitivityConfig(_base.ExecutionSensitivityConfig):
             maximum_drawdown=self.maximum_drawdown,
             schema_version=self.schema_version,
         )
+        for scenario in standard:
+            if (
+                isinstance(scenario, ExecutionSensitivityScenario)
+                and scenario.stress().environment_enabled
+            ):
+                raise ValueError(
+                    "standard execution sensitivity scenarios cannot change "
+                    "execution-environment costs"
+                )
         for scenario in self.scenarios:
             if (
                 scenario.name not in _STANDARD_EXECUTION_SCENARIOS
@@ -92,6 +134,8 @@ class ExecutionSensitivityConfig(_base.ExecutionSensitivityConfig):
                     "additional execution sensitivity scenarios must be report-only"
                 )
         if self.scenarios:
+            if self.required_scenario not in names:
+                raise ValueError("required execution sensitivity scenario is missing")
             required = next(
                 item for item in self.scenarios if item.name == self.required_scenario
             )
@@ -197,6 +241,32 @@ def _base_compatible_payload(expanded: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _non_negative_integer(
+    value: object,
+    *,
+    field: str,
+    default: int,
+) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{field} must be a non-negative integer")
+    return value
+
+
+def _scenario_from_base(
+    scenario: _base.ExecutionSensitivityScenario,
+) -> ExecutionSensitivityScenario:
+    return ExecutionSensitivityScenario(
+        name=scenario.name,
+        tick_size_factor=scenario.tick_size_factor,
+        lot_size_factor=scenario.lot_size_factor,
+        minimum_notional_factor=scenario.minimum_notional_factor,
+        adverse_tick_rounding=scenario.adverse_tick_rounding,
+        report_only=scenario.report_only,
+    )
+
+
 def _extended_execution_sensitivity(
     expanded: dict[str, Any],
     base: _base.ExecutionSensitivityConfig,
@@ -204,7 +274,9 @@ def _extended_execution_sensitivity(
     sensitivity = expanded.get("execution_sensitivity")
     if not isinstance(sensitivity, dict):
         return ExecutionSensitivityConfig(
-            scenarios=base.scenarios,
+            scenarios=tuple(
+                _scenario_from_base(scenario) for scenario in base.scenarios
+            ),
             required_scenario=base.required_scenario,
             minimum_selected_return=base.minimum_selected_return,
             minimum_baseline_uplift=base.minimum_baseline_uplift,
@@ -214,7 +286,8 @@ def _extended_execution_sensitivity(
     raw_scenarios = sensitivity.get("scenarios")
     if not isinstance(raw_scenarios, list):
         raise ValueError("execution_sensitivity.scenarios must be a list")
-    additional: list[ExecutionSensitivityScenario] = []
+    base_by_name = {scenario.name: scenario for scenario in base.scenarios}
+    scenarios: list[ExecutionSensitivityScenario] = []
     for index, raw_scenario in enumerate(raw_scenarios):
         if not isinstance(raw_scenario, dict):
             raise ValueError(
@@ -225,41 +298,105 @@ def _extended_execution_sensitivity(
             raise ValueError(
                 f"execution_sensitivity.scenarios[{index}].name must be a string"
             )
-        if name in _STANDARD_EXECUTION_SCENARIOS:
-            continue
         field = f"execution_sensitivity.scenarios[{index}]"
-        additional.append(
+        canonical = base_by_name.get(name)
+        scenarios.append(
             ExecutionSensitivityScenario(
                 name=name,
-                tick_size_factor=_finite_number(
-                    raw_scenario.get("tick_size_factor"),
-                    field=f"{field}.tick_size_factor",
+                tick_size_factor=(
+                    canonical.tick_size_factor
+                    if canonical is not None
+                    else _finite_number(
+                        raw_scenario.get("tick_size_factor"),
+                        field=f"{field}.tick_size_factor",
+                        default=1.0,
+                    )
+                ),
+                lot_size_factor=(
+                    canonical.lot_size_factor
+                    if canonical is not None
+                    else _finite_number(
+                        raw_scenario.get("lot_size_factor"),
+                        field=f"{field}.lot_size_factor",
+                        default=1.0,
+                    )
+                ),
+                minimum_notional_factor=(
+                    canonical.minimum_notional_factor
+                    if canonical is not None
+                    else _finite_number(
+                        raw_scenario.get("minimum_notional_factor"),
+                        field=f"{field}.minimum_notional_factor",
+                        default=1.0,
+                    )
+                ),
+                adverse_tick_rounding=(
+                    canonical.adverse_tick_rounding
+                    if canonical is not None
+                    else _boolean(
+                        raw_scenario.get("adverse_tick_rounding"),
+                        field=f"{field}.adverse_tick_rounding",
+                        default=True,
+                    )
+                ),
+                report_only=(
+                    canonical.report_only
+                    if canonical is not None
+                    else _boolean(
+                        raw_scenario.get("report_only"),
+                        field=f"{field}.report_only",
+                        default=False,
+                    )
+                ),
+                fee_multiplier=_finite_number(
+                    raw_scenario.get("fee_multiplier"),
+                    field=f"{field}.fee_multiplier",
                     default=1.0,
                 ),
-                lot_size_factor=_finite_number(
-                    raw_scenario.get("lot_size_factor"),
-                    field=f"{field}.lot_size_factor",
+                spread_multiplier=_finite_number(
+                    raw_scenario.get("spread_multiplier"),
+                    field=f"{field}.spread_multiplier",
                     default=1.0,
                 ),
-                minimum_notional_factor=_finite_number(
-                    raw_scenario.get("minimum_notional_factor"),
-                    field=f"{field}.minimum_notional_factor",
+                impact_multiplier=_finite_number(
+                    raw_scenario.get("impact_multiplier"),
+                    field=f"{field}.impact_multiplier",
                     default=1.0,
                 ),
-                adverse_tick_rounding=_boolean(
-                    raw_scenario.get("adverse_tick_rounding"),
-                    field=f"{field}.adverse_tick_rounding",
-                    default=True,
+                slippage_std_multiplier=_finite_number(
+                    raw_scenario.get("slippage_std_multiplier"),
+                    field=f"{field}.slippage_std_multiplier",
+                    default=1.0,
                 ),
-                report_only=_boolean(
-                    raw_scenario.get("report_only"),
-                    field=f"{field}.report_only",
-                    default=False,
+                participation_fraction=_finite_number(
+                    raw_scenario.get("participation_fraction"),
+                    field=f"{field}.participation_fraction",
+                    default=1.0,
+                ),
+                minimum_order_latency_bars=_non_negative_integer(
+                    raw_scenario.get("minimum_order_latency_bars"),
+                    field=f"{field}.minimum_order_latency_bars",
+                    default=0,
+                ),
+                tail_slippage_probability_floor=_finite_number(
+                    raw_scenario.get("tail_slippage_probability_floor"),
+                    field=f"{field}.tail_slippage_probability_floor",
+                    default=0.0,
+                ),
+                tail_slippage_multiplier_floor=_finite_number(
+                    raw_scenario.get("tail_slippage_multiplier_floor"),
+                    field=f"{field}.tail_slippage_multiplier_floor",
+                    default=0.0,
+                ),
+                borrow_rate_multiplier=_finite_number(
+                    raw_scenario.get("borrow_rate_multiplier"),
+                    field=f"{field}.borrow_rate_multiplier",
+                    default=1.0,
                 ),
             )
         )
     return ExecutionSensitivityConfig(
-        scenarios=base.scenarios + tuple(additional),
+        scenarios=tuple(scenarios),
         required_scenario=base.required_scenario,
         minimum_selected_return=base.minimum_selected_return,
         minimum_baseline_uplift=base.minimum_baseline_uplift,

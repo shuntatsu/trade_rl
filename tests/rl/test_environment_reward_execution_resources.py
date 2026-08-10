@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -15,6 +17,7 @@ from trade_rl.simulation.execution import (
     ExecutionCostConfig,
     ExecutionRuleStress,
 )
+from trade_rl.simulation.execution_stress import ExecutionEnvironmentStress
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
@@ -179,3 +182,63 @@ def test_environment_preserves_reward_and_executor_attributes() -> None:
         env.shadow_executor.execution_policy_digest
     )
     assert env._reward_history_cache == {}
+
+
+def test_builder_applies_identical_environment_stress_to_both_books() -> None:
+    dataset = market()
+    resolved_reward = reward_config(baseline_weight=0.0)
+    base_cost = ExecutionCostConfig(
+        fee_rate=0.001,
+        spread_rate=0.002,
+        impact_rate=0.003,
+        max_participation_rate=0.2,
+        slippage_std=0.004,
+        tail_slippage_probability=0.0,
+        tail_slippage_multiplier=5.0,
+        borrow_rate_multiplier=1.5,
+        order_latency_bars=0,
+    )
+    resolved_config = replace(
+        config(reward=resolved_reward),
+        execution_cost=base_cost,
+    )
+    stress = ExecutionEnvironmentStress(
+        name="joint-adverse",
+        fee_multiplier=2.0,
+        spread_multiplier=2.0,
+        impact_multiplier=2.0,
+        slippage_std_multiplier=2.0,
+        participation_fraction=0.5,
+        minimum_order_latency_bars=2,
+        tail_slippage_probability_floor=0.01,
+        tail_slippage_multiplier_floor=10.0,
+        borrow_rate_multiplier=2.0,
+    )
+
+    resources = EnvironmentRewardExecutionResourcesBuilder(
+        dataset,
+        config=resolved_config,
+        reward_config=resolved_reward,
+        resolved_decision_hours=2.0,
+        minimum_start_index=8,
+        execution_rule_stress=stress,
+    ).build()
+
+    assert resources.hybrid_executor.cost is resources.shadow_executor.cost
+    assert resources.hybrid_executor.cost is not base_cost
+    assert resources.hybrid_executor.cost.fee_rate == pytest.approx(0.002)
+    assert resources.hybrid_executor.cost.spread_rate == pytest.approx(0.004)
+    assert resources.hybrid_executor.cost.impact_rate == pytest.approx(0.006)
+    assert resources.hybrid_executor.cost.max_participation_rate == pytest.approx(0.1)
+    assert resources.hybrid_executor.cost.order_latency_bars == 2
+    assert resources.hybrid_executor.cost.tail_slippage_probability == (
+        pytest.approx(0.01)
+    )
+    assert resources.hybrid_executor.cost.tail_slippage_multiplier == (
+        pytest.approx(10.0)
+    )
+    assert resources.hybrid_executor.rule_stress is stress
+    assert resources.shadow_executor.rule_stress is stress
+    assert resources.hybrid_executor.execution_policy_digest == (
+        resources.shadow_executor.execution_policy_digest
+    )

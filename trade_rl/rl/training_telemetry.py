@@ -61,6 +61,18 @@ def _number(value: object, *, fallback: float | None = None) -> float | None:
     return resolved if np.isfinite(resolved) else fallback
 
 
+def _transition_flags(
+    info: dict[str, object],
+    *,
+    done: bool,
+) -> tuple[bool, bool]:
+    """Recover exclusive Gymnasium flags from SB3's combined VecEnv ``done``."""
+
+    truncated = bool(info.get("TimeLimit.truncated"))
+    terminated = bool(info.get("hybrid_terminated")) or (done and not truncated)
+    return terminated, truncated
+
+
 def _risk_reasons(info: dict[str, object]) -> tuple[str, ...]:
     explicit = info.get("telemetry_risk_reasons")
     if isinstance(explicit, (tuple, list)):
@@ -321,6 +333,7 @@ class TrainingTelemetrySampler:
                     if environment_id < done_rows.size
                     else False
                 )
+                terminated, truncated = _transition_flags(info, done=done)
                 event_type = self._event_type(
                     info=info,
                     environment_step=environment_step,
@@ -424,8 +437,8 @@ class TrainingTelemetrySampler:
                         interval_return=_number(info.get("interval_net_return")),
                         risk_reasons=reasons,
                         emergency_deleverage=bool(info.get("emergency_deleverage")),
-                        terminated=bool(info.get("hybrid_terminated")) or done,
-                        truncated=bool(info.get("TimeLimit.truncated")),
+                        terminated=terminated,
+                        truncated=truncated,
                         episode_id=episode_id,
                     )
                 )

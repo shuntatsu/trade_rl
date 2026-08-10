@@ -29,6 +29,24 @@ jobs:
       - name: Install test dependencies
         run: uv sync --extra dev --extra train-sb3
 
+      - name: Enable deterministic Ruff import repair
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/apply_execution_robustness.py')
+          text = path.read_text()
+          marker = '    run("uv", "run", "ruff", "format", *modified)\n'
+          replacement = (
+              '    run("uv", "run", "ruff", "check", "--fix", *modified)\n'
+              + marker
+          )
+          if text.count(marker) != 1:
+              raise SystemExit('execution patch format marker changed')
+          path.write_text(text.replace(marker, replacement, 1))
+          PY
+
       - name: Run RED-GREEN patch and verification
         run: uv run python scripts/apply_execution_robustness.py
 

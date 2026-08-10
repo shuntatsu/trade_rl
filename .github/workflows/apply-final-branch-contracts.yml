@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   finalize:
-    name: Merge verified execution tip and repair BC split
+    name: Merge verified tips and repair final contracts
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -33,19 +33,28 @@ jobs:
       - name: Install focused test dependencies
         run: uv sync --extra dev --extra train-sb3
 
-      - name: Confirm the BC regression is RED
+      - name: Confirm the BC regressions are RED
         shell: bash
         run: |
           set -euo pipefail
           set +e
           uv run pytest -q \
             tests/integrations/test_sb3_training.py::test_backend_runs_oracle_behavior_cloning_before_ppo \
-            > bc-red.log 2>&1
-          status=$?
+            > bc-split-red.log 2>&1
+          split_status=$?
+          uv run pytest -q \
+            tests/learning/test_hierarchical_behavior_cloning_evaluation.py::test_hierarchical_evaluation_losses_are_batch_size_invariant \
+            > bc-evaluation-red.log 2>&1
+          evaluation_status=$?
           set -e
-          cat bc-red.log
-          test "$status" -ne 0
-          grep -q "explicit behavior-cloning split disagrees with validation_fraction" bc-red.log
+          cat bc-split-red.log
+          cat bc-evaluation-red.log
+          test "$split_status" -ne 0
+          test "$evaluation_status" -ne 0
+          grep -q "explicit behavior-cloning split disagrees with validation_fraction" \
+            bc-split-red.log
+          grep -q "test_hierarchical_evaluation_losses_are_batch_size_invariant" \
+            bc-evaluation-red.log
 
       - name: Merge the exact verified execution branch tip
         shell: bash
@@ -56,7 +65,8 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git fetch origin agent/execution-robustness-environment
-          git merge-base --is-ancestor "$EXECUTION_TIP" origin/agent/execution-robustness-environment
+          git merge-base --is-ancestor "$EXECUTION_TIP" \
+            origin/agent/execution-robustness-environment
 
           set +e
           git merge --no-commit --no-ff "$EXECUTION_TIP"
@@ -96,7 +106,22 @@ jobs:
           git add "${allowed_conflicts[@]}"
           test -z "$(git diff --name-only --diff-filter=U)"
 
-      - name: Apply the episode-aware explicit split contract
+      - name: Confirm neutral execution identity is RED after merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q \
+            tests/simulation/test_execution_environment_stress.py::test_neutral_environment_stress_preserves_cost_identity \
+            > execution-identity-red.log 2>&1
+          status=$?
+          set -e
+          cat execution-identity-red.log
+          test "$status" -ne 0
+          grep -q "test_neutral_environment_stress_preserves_cost_identity" \
+            execution-identity-red.log
+
+      - name: Apply the final BC and execution contracts
         run: uv run python scripts/apply_final_branch_contracts.py
 
       - name: Verify focused BC and execution contracts
@@ -145,7 +170,7 @@ jobs:
           set -euo pipefail
           rm -f .github/workflows/apply-final-branch-contracts.yml
           rm -f scripts/apply_final_branch_contracts.py
-          rm -f bc-red.log
+          rm -f bc-split-red.log bc-evaluation-red.log execution-identity-red.log
           git add -A
           git diff --cached --check
           git commit -m 'merge: consolidate BC and execution robustness'

@@ -13,7 +13,22 @@ from typing import Any
 
 import trade_rl.workflows._market_walk_forward_config_base as _base
 
-ExecutionSensitivityScenario = _base.ExecutionSensitivityScenario
+
+@dataclass(frozen=True, slots=True)
+class ExecutionSensitivityScenario(_base.ExecutionSensitivityScenario):
+    """Rule stress plus report-only execution-environment dimensions."""
+
+    fee_multiplier: float = 1.0
+    spread_multiplier: float = 1.0
+    impact_multiplier: float = 1.0
+    slippage_std_multiplier: float = 1.0
+    participation_fraction: float = 1.0
+    minimum_order_latency_bars: int = 0
+    tail_slippage_probability_floor: float = 0.0
+    tail_slippage_multiplier_floor: float = 0.0
+    borrow_rate_multiplier: float = 1.0
+
+
 NamedCandidateRun = _base.NamedCandidateRun
 
 _STANDARD_EXECUTION_SCENARIOS = frozenset(

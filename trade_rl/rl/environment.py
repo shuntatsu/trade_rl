@@ -318,14 +318,14 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 "episode_hour_choices": self.config.episode_hour_choices,
                 "episode_hours": self.config.episode_hours,
                 **(
-            {
-                "episode_boundary_mode": EpisodeBoundaryMode(
-                    self.config.episode_boundary_mode
-                ).value
-            }
-            if self.config.time_limit_terminates
-            else {}
-        ),
+                    {
+                        "episode_boundary_mode": EpisodeBoundaryMode(
+                            self.config.episode_boundary_mode
+                        ).value
+                    }
+                    if self.config.time_limit_terminates
+                    else {}
+                ),
                 "execution_cost": asdict(self.config.execution_cost),
                 "finite_horizon_observation": self.config.finite_horizon_observation,
                 "fail_on_incomplete_emergency_liquidation": (

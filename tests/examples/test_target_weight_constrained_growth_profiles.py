@@ -18,6 +18,9 @@ PPO = "training-target-weight-growth-ppo.json"
 LAGRANGIAN = "training-target-weight-constrained-growth.json"
 DISCOUNTED = "training-target-weight-constrained-growth-discounted.json"
 WALK_FORWARD = "walk-forward-target-weight-constrained-growth.json"
+DISCOUNTED_WALK_FORWARD = (
+    "walk-forward-target-weight-constrained-growth-discounted.json"
+)
 
 EXPECTED_BUDGETS = (0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.03)
 EXPECTED_DUAL_LEARNING_RATES = (0.001, 0.01, 0.001, 0.01, 0.001, 0.001, 0.001)
@@ -25,8 +28,8 @@ EXPECTED_MINIMUM_SUPPORT = (1, 20, 1, 20, 1, 1, 1)
 EXPECTED_NAMES = (
     "target-weight-growth-gamma-one-ppo",
     "target-weight-constrained-growth-gamma-one",
-    "target-weight-constrained-growth-discounted-168h",
 )
+DISCOUNTED_NAME = "target-weight-constrained-growth-discounted-168h"
 
 
 def _load(name: str) -> TrainingRunConfig:
@@ -174,7 +177,7 @@ def test_discounted_profile_changes_only_real_time_discount_and_boundary() -> No
     )
 
 
-def test_walk_forward_references_canonical_standalone_profiles() -> None:
+def test_gamma_one_walk_forward_references_common_horizon_profiles() -> None:
     config = MarketWalkForwardConfig.from_json(
         EXAMPLE_ROOT / WALK_FORWARD,
         n_bars=55_392,
@@ -184,7 +187,6 @@ def test_walk_forward_references_canonical_standalone_profiles() -> None:
     standalone = {
         EXPECTED_NAMES[0]: _load(PPO),
         EXPECTED_NAMES[1]: _load(LAGRANGIAN),
-        EXPECTED_NAMES[2]: _load(DISCOUNTED),
     }
     for candidate in config.candidates:
         assert (
@@ -223,6 +225,22 @@ def test_walk_forward_references_canonical_standalone_profiles() -> None:
     assert config.workflow.max_folds == 6
     assert config.workflow.selection_bars == 2_880
     assert config.workflow.test_bars == 2_880
+
+
+def test_discounted_walk_forward_is_a_separate_ablation() -> None:
+    config = MarketWalkForwardConfig.from_json(
+        EXAMPLE_ROOT / DISCOUNTED_WALK_FORWARD,
+        n_bars=55_392,
+    )
+
+    assert tuple(candidate.name for candidate in config.candidates) == (
+        DISCOUNTED_NAME,
+    )
+    assert (
+        config.candidates[0].run.candidate_digest_payload()
+        == _load(DISCOUNTED).candidate_digest_payload()
+    )
+    _assert_external_truncation(config.candidates[0].run)
 
 
 def test_walk_forward_resolves_run_files_from_a_relative_config_path(

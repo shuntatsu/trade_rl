@@ -89,9 +89,7 @@ class FakeDatabase:
                         1_609_459_200_000,
                         1_782_864_000_000,
                         f"npz_native_indicator_v1:{timeframe_index + 1:064x}",
-                        content_digest(
-                            {"symbol": symbol, "timeframe": timeframe}
-                        ),
+                        content_digest({"symbol": symbol, "timeframe": timeframe}),
                         4096 + timeframe_index,
                     )
                 )
@@ -108,15 +106,13 @@ def test_loads_complete_metadata_inventory_without_npz_payload() -> None:
 
     assert inventory.cache_id == INDICATOR_CACHE_ID
     assert inventory.market == "usds-m"
-    assert inventory.symbols == tuple(
-        f"ASSET{index:02d}USDT" for index in range(15)
-    )
+    assert inventory.symbols == tuple(f"ASSET{index:02d}USDT" for index in range(15))
     assert inventory.timeframes == _TIMEFRAMES
     assert len(inventory.source_manifest_digest) == 64
-    assert tuple((item.symbol, item.timeframe) for item in inventory.artifacts) == tuple(
-        (symbol, timeframe)
-        for symbol in inventory.symbols
-        for timeframe in _TIMEFRAMES
+    assert tuple(
+        (item.symbol, item.timeframe) for item in inventory.artifacts
+    ) == tuple(
+        (symbol, timeframe) for symbol in inventory.symbols for timeframe in _TIMEFRAMES
     )
     assert inventory.artifact_for("ASSET03USDT", "4h").payload_bytes == 4098
 

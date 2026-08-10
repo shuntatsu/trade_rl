@@ -73,14 +73,14 @@ def test_tensorboard_uses_soft_rollout_mean_for_exploration_telemetry() -> None:
         active_mask=torch.tensor([[True, True]]),
     )
 
-    def rollout_outputs(observations: object) -> object:
+    def behavior_cloning_outputs(observations: object) -> object:
         del observations
-        calls.append("rollout")
+        calls.append("smooth")
         return smooth_outputs
 
     policy = SimpleNamespace(
         action_stage_outputs=lambda observations: hard_outputs,
-        rollout_action_stage_outputs=rollout_outputs,
+        hierarchical_behavior_cloning_outputs=behavior_cloning_outputs,
     )
     callback.model = SimpleNamespace(logger=logger, policy=policy)
     callback.locals = {
@@ -93,7 +93,7 @@ def test_tensorboard_uses_soft_rollout_mean_for_exploration_telemetry() -> None:
     assert callback._on_step()
     callback._on_rollout_end()
 
-    assert calls == ["rollout"]
+    assert calls == ["smooth"]
     assert logger.values["trade_rl/change_intensity_mean"] == pytest.approx(0.25)
     assert logger.values["trade_rl/deterministic_change_l1_mean"] == pytest.approx(0.1)
     assert logger.values["trade_rl/exploration_l1_mean"] == pytest.approx(0.3)

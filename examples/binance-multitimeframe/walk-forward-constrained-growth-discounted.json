@@ -1,16 +1,8 @@
 {
   "candidates": [
     {
-      "name": "growth-optimal-ppo-pr-d-control",
-      "run_file": "training-constrained-growth-control.json"
-    },
-    {
-      "name": "constrained-growth-canonical",
-      "run_file": "training-constrained-growth.json"
-    },
-    {
-      "name": "constrained-growth-gae097",
-      "run_file": "training-constrained-growth-gae097.json"
+      "name": "constrained-growth-discounted-gamma09995",
+      "run_file": "training-constrained-growth-discounted.json"
     }
   ],
   "checkpoint_finalists_per_seed": 1,

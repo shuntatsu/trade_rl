@@ -1,0 +1,94 @@
+name: Fix SB3 environment test patch owner
+
+on:
+  push:
+    branches:
+      - agent/split-sb3-training-boundaries
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-sb3-environment-test-owner
+  cancel-in-progress: true
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Move test patch to canonical environment owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/integrations/test_parallel_sequence_environments.py")
+          source = path.read_text(encoding="utf-8")
+          import_marker = "from trade_rl.integrations import sb3_training\n"
+          import_replacement = (
+              "from trade_rl.integrations import sb3_training\n"
+              "import trade_rl.integrations.sb3_environment as sb3_environment\n"
+          )
+          patch_marker = (
+              'monkeypatch.setattr(sb3_training, "_build_training_environment", build)'
+          )
+          patch_replacement = (
+              'monkeypatch.setattr(sb3_environment, "_build_training_environment", build)'
+          )
+          if source.count(import_marker) != 1:
+              raise RuntimeError("sb3_training import marker changed")
+          if source.count(patch_marker) != 1:
+              raise RuntimeError("environment patch marker changed")
+          source = source.replace(import_marker, import_replacement, 1)
+          source = source.replace(patch_marker, patch_replacement, 1)
+          path.write_text(source, encoding="utf-8")
+          PY
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install focused verification dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Format and lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix tests/integrations/test_parallel_sequence_environments.py
+          uv run ruff format tests/integrations/test_parallel_sequence_environments.py
+
+      - name: Run focused regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest \
+            tests/integrations/test_parallel_sequence_environments.py \
+            tests/architecture/test_sb3_training_boundaries.py \
+            -q
+
+      - name: Remove temporary workflow and commit verified test fix
+        shell: bash
+        env:
+          TARGET_BRANCH: agent/split-sb3-training-boundaries
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/fix-sb3-environment-test-owner.yml
+          git diff --check
+          git config user.name "Shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "test: patch canonical SB3 environment owner"
+          git push origin "HEAD:${TARGET_BRANCH}"

@@ -66,13 +66,13 @@ Raw cacheを削除すると再Downloadが必要ですが、Published dataset art
 
 ## Target-weight growth profiles
 
-長期複利成長の比較では、報酬、action space、BC、encoder、執行条件を同時に変更しません。次の3設定はすべてdirect target-weight、同一Oracle BC、同一Transformer、同一hard-risk条件を使用します。
+長期複利成長の比較では、報酬、action space、BC、encoder、執行条件を同時に変更しません。次の3設定はすべてdirect target-weight、同一Oracle BC、同一Transformer、同一hard-risk条件を使用します。報酬とEpisode境界の正本契約は[`REWARD_OBJECTIVE.md`](REWARD_OBJECTIVE.md)です。
 
 | Profile | 役割 | Objective |
 |---|---|---|
-| [`training-target-weight-growth-ppo.json`](../examples/binance-multitimeframe/training-target-weight-growth-ppo.json) | 必須対照群 | `gamma=1.0`の実コスト控除後net log growth、通常PPO |
-| [`training-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth.json) | 本命候補 | 同じgrowth objective、Lagrangian PPOでsoft constraint予算を管理 |
-| [`training-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth-discounted.json) | 時間選好アブレーション | 168時間half-life、その他は制約付きgamma-one設定と同一 |
+| [`training-target-weight-growth-ppo.json`](../examples/binance-multitimeframe/training-target-weight-growth-ppo.json) | 必須対照群 | `gamma=1.0`、有限720時間、実コスト控除後net log growth、通常PPO |
+| [`training-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth.json) | 本命候補 | 同じ有限期間growth objective、Lagrangian PPOでsoft constraint予算を管理 |
+| [`training-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth-discounted.json) | 時間選好アブレーション | 168時間half-lifeのdiscounted continuing objective |
 
 6-fold比較は[`walk-forward-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)を使用します。walk-forwardは`run_file`で上記standalone profileを参照するため、埋め込みコピーによる設定ドリフトを起こしません。Nominal、joint 2x、joint 3xの証拠を同じfold-seed identityへ紐付けます。
 
@@ -80,7 +80,9 @@ Raw cacheを削除すると再Downloadが必要ですが、Published dataset art
 
 Hard safetyは学習成功へ依存させません。`max_abs_weight`、`max_gross`、drawdown stop、minimum equity、証拠金、取引所ルールは環境とpre-trade riskが常に強制します。Lagrangianはdrawdown excess、turnover、execution costなどのsoft budgetだけを調整します。
 
-720時間は経済的な投資終了ではなく訓練窓です。全target-weight growth profileは`liquidate_on_end=false`を明示し、時間上限をmark-to-market truncationとして扱います。さらに`finite_horizon_observation=false`として、方策へ人工的な残り時間を知らせません。
+Gamma-one profileでは、720時間をMDP内の明示的な有限期間として扱います。`episode_boundary_mode=finite_horizon_termination`、`finite_horizon_observation=true`、`liquidate_on_end=false`を固定し、時間上限では保有Positionをmark-to-marketしたまま`terminated=true`とします。人工的なforced closeやterminal-equity shapingは行いません。これにより区間net log rewardの和が720時間終端のnet log wealthへ一致します。
+
+Discounted profileでは、720時間を外部の学習窓として扱います。`episode_boundary_mode=external_truncation`、`finite_horizon_observation=false`、`liquidate_on_end=false`を固定し、時間上限では`truncated=true`としてterminal observationから継続価値をbootstrapします。Gamma-one profileとdiscounted profileのEpisode returnを同じ尺度として直接比較せず、共通の実コスト控除後net log growth証拠で比較します。
 
 ## Target-weight production gate
 
@@ -138,4 +140,3 @@ substituting `walk-forward-action-head-ablation.json` as the configuration file.
 Compare net return, baseline uplift, maximum drawdown, turnover, cost, action-stage
 L1 metrics, and seed dispersion. This experiment does not authorize live exchange
 routing.
-

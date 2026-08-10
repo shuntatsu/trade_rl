@@ -13,7 +13,11 @@ from trade_rl.catalog.stored_instrument_catalog import (
     StoredInstrumentCatalog,
     build_stored_instrument_catalog,
 )
+from trade_rl.workflows.symbol_disjoint_manifest import (
+    build_symbol_disjoint_manifest,
+)
 from trade_rl.workflows.universal_instrument_partition import (
+    UniversalInstrumentPartition,
     build_universal_instrument_partition,
     load_universal_instrument_partition,
     universal_split_counts,
@@ -89,6 +93,23 @@ def test_partition_is_catalog_bound_disjoint_and_deterministic() -> None:
     assert first.symbol_disjoint_manifest.digest == (
         first.symbol_disjoint_manifest_digest
     )
+
+
+def test_partition_rejects_noncanonical_split_counts() -> None:
+    catalog = _catalog(15)
+    noncanonical = build_symbol_disjoint_manifest(
+        catalog.eligible_symbols,
+        seed=17,
+        validation_count=4,
+        test_count=3,
+        minimum_symbols_per_split=3,
+    )
+
+    with pytest.raises(ValueError, match="split counts"):
+        UniversalInstrumentPartition(
+            catalog_digest=catalog.digest,
+            symbol_disjoint_manifest=noncanonical,
+        )
 
 
 def test_partition_accessors_fail_closed_across_splits() -> None:

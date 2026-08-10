@@ -11,7 +11,7 @@ from gymnasium import spaces
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.actions import ActionSpec
-from trade_rl.rl.environment_config import EpisodeBoundaryMode, ResidualMarketEnvConfig
+from trade_rl.rl.environment_config import ResidualMarketEnvConfig
 from trade_rl.rl.normalization import ObservationNormalizer
 from trade_rl.rl.observations import (
     CURRENT_WEIGHT_SOURCE,
@@ -117,9 +117,7 @@ class EnvironmentObservationContractBuilder:
             observation_schema = SEQUENCE_OBSERVATION_SCHEMA
         else:
             observation_schema = OBSERVATION_SCHEMA
-            observation_contract_digest = self._bind_episode_boundary(
-                observation_builder.schema_digest(self.dataset)
-            )
+            observation_contract_digest = observation_builder.schema_digest(self.dataset)
             observation_space = spaces.Box(
                 low=-np.inf,
                 high=np.inf,
@@ -145,18 +143,6 @@ class EnvironmentObservationContractBuilder:
             observation_space=observation_space,
             action_space=action_space,
             minimum_start_index=resolved_minimum_start_index,
-        )
-
-    def _bind_episode_boundary(self, base_digest: str) -> str:
-        boundary_mode = EpisodeBoundaryMode(self.config.episode_boundary_mode)
-        if boundary_mode is EpisodeBoundaryMode.EXTERNAL_TRUNCATION:
-            return base_digest
-        return content_digest(
-            {
-                "base_observation_contract_digest": base_digest,
-                "episode_boundary_mode": boundary_mode.value,
-                "schema_version": "environment_observation_contract_v1",
-            }
         )
 
     def _validate_normalizer(
@@ -341,7 +327,7 @@ class EnvironmentObservationContractBuilder:
             key: str(np.dtype(space.dtype))
             for key, space in sorted(sequence_spaces.items())
         }
-        base_observation_contract_digest = content_digest(
+        observation_contract_digest = content_digest(
             {
                 "component_dtypes": component_dtypes,
                 "current_schema_digest": observation_builder.schema_digest(
@@ -353,9 +339,6 @@ class EnvironmentObservationContractBuilder:
                 "layout": sequence_layout_metadata,
                 "schema_version": SEQUENCE_OBSERVATION_SCHEMA,
             }
-        )
-        observation_contract_digest = self._bind_episode_boundary(
-            base_observation_contract_digest
         )
         return (
             spaces.Dict(sequence_spaces),

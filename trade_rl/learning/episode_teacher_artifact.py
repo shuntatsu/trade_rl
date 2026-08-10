@@ -51,6 +51,7 @@ _COMPACT_KEYS = (
     "global_state",
 )
 
+_MAX_EPISODES_PER_TEACHER_TASK: Final = 8
 _FORK_EPISODE_BATCH: EpisodeOracleBatch | None = None
 _FORK_EPISODE_ENVIRONMENT_FACTORY: Any | None = None
 _FORK_EPISODE_TEACHER_DIGEST: str | None = None
@@ -645,8 +646,8 @@ def collect_episode_teacher_rollout(
     )
 
 
-def _collect_isolated_episode(
-    environment_factory: Any,
+def _collect_episode_with_environment(
+    environment: TeacherRolloutEnvironment,
     batch: EpisodeOracleBatch,
     teacher_config_digest: str,
     item: tuple[OracleEpisodeContract, np.ndarray],
@@ -668,32 +669,68 @@ def _collect_isolated_episode(
         targets=(targets,),
         solver_provenance=batch.solver_provenance,
     )
+    episode = collect_episode_teacher_rollout(
+        environment,
+        episode_batch,
+        teacher_config_digest=teacher_config_digest,
+    )
+    return episode, contract.episode_index
+
+
+def _collect_isolated_episode_chunk(
+    environment_factory: Any,
+    batch: EpisodeOracleBatch,
+    teacher_config_digest: str,
+    items: tuple[tuple[OracleEpisodeContract, np.ndarray], ...],
+) -> tuple[tuple[EpisodeSupervisedPolicyDataset, int], ...]:
+    if not items:
+        raise ValueError("teacher rollout episode chunk must not be empty")
     environment = environment_factory()
     try:
-        episode = collect_episode_teacher_rollout(
-            environment,
-            episode_batch,
-            teacher_config_digest=teacher_config_digest,
+        return tuple(
+            _collect_episode_with_environment(
+                environment,
+                batch,
+                teacher_config_digest,
+                item,
+            )
+            for item in items
         )
-        return episode, contract.episode_index
     finally:
         environment.close()
 
 
-def _collect_forked_episode(
-    item: tuple[OracleEpisodeContract, np.ndarray],
-) -> tuple[EpisodeSupervisedPolicyDataset, int]:
+def _episode_item_chunks(
+    items: tuple[tuple[OracleEpisodeContract, np.ndarray], ...],
+    *,
+    worker_count: int,
+) -> tuple[tuple[tuple[OracleEpisodeContract, np.ndarray], ...], ...]:
+    if not items:
+        return ()
+    if worker_count <= 0:
+        raise ValueError("teacher rollout chunk worker count must be positive")
+    balanced_size = (len(items) + worker_count - 1) // worker_count
+    chunk_size = min(_MAX_EPISODES_PER_TEACHER_TASK, balanced_size)
+    return tuple(
+        tuple(items[offset : offset + chunk_size])
+        for offset in range(0, len(items), chunk_size)
+    )
+
+
+def _collect_forked_episode_chunk(
+    items: tuple[tuple[OracleEpisodeContract, np.ndarray], ...],
+) -> tuple[tuple[EpisodeSupervisedPolicyDataset, int], ...]:
     if (
         _FORK_EPISODE_ENVIRONMENT_FACTORY is None
         or _FORK_EPISODE_BATCH is None
         or _FORK_EPISODE_TEACHER_DIGEST is None
     ):
         raise RuntimeError("forked episode teacher worker is not initialized")
-    return _collect_isolated_episode(
+    return _collect_isolated_episode_chunk(
         _FORK_EPISODE_ENVIRONMENT_FACTORY,
         _FORK_EPISODE_BATCH,
         _FORK_EPISODE_TEACHER_DIGEST,
-        item,
+        items,
     )
 
 
@@ -777,7 +814,17 @@ def collect_episode_teacher_rollout_parallel(
             if temporary.exists():
                 shutil.rmtree(temporary)
 
-    if pending_items and "fork" in mp.get_all_start_methods():
+    if pending_items:
+        pending_worker_count = min(worker_count, len(pending_items))
+        pending_chunks = _episode_item_chunks(
+            tuple(pending_items),
+            worker_count=pending_worker_count,
+        )
+    else:
+        pending_worker_count = 0
+        pending_chunks = ()
+
+    if pending_chunks and "fork" in mp.get_all_start_methods():
         global _FORK_EPISODE_BATCH
         global _FORK_EPISODE_ENVIRONMENT_FACTORY
         global _FORK_EPISODE_TEACHER_DIGEST
@@ -787,37 +834,39 @@ def collect_episode_teacher_rollout_parallel(
         try:
             context = mp.get_context("fork")
             with context.Pool(
-                processes=worker_count,
+                processes=pending_worker_count,
                 maxtasksperchild=1,
             ) as pool:
-                for value in pool.imap(
-                    _collect_forked_episode,
-                    pending_items,
+                for values in pool.imap(
+                    _collect_forked_episode_chunk,
+                    pending_chunks,
                     chunksize=1,
                 ):
-                    persist(value)
+                    for value in values:
+                        persist(value)
         finally:
             _FORK_EPISODE_BATCH = None
             _FORK_EPISODE_ENVIRONMENT_FACTORY = None
             _FORK_EPISODE_TEACHER_DIGEST = None
-    elif pending_items:
+    elif pending_chunks:
 
-        def collect_one(
-            item: tuple[OracleEpisodeContract, np.ndarray],
-        ) -> tuple[EpisodeSupervisedPolicyDataset, int]:
-            return _collect_isolated_episode(
+        def collect_chunk(
+            items: tuple[tuple[OracleEpisodeContract, np.ndarray], ...],
+        ) -> tuple[tuple[EpisodeSupervisedPolicyDataset, int], ...]:
+            return _collect_isolated_episode_chunk(
                 environment_factory,
                 batch,
                 teacher_config_digest,
-                item,
+                items,
             )
 
         with ThreadPoolExecutor(
-            max_workers=worker_count,
+            max_workers=pending_worker_count,
             thread_name_prefix="teacher-rollout",
         ) as executor:
-            for value in executor.map(collect_one, pending_items):
-                persist(value)
+            for values in executor.map(collect_chunk, pending_chunks):
+                for value in values:
+                    persist(value)
     collected = tuple(
         collected_by_id[contract.episode_index] for contract in batch.contracts
     )

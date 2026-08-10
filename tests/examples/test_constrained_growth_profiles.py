@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from trade_rl.rl.algorithm_configs import LagrangianPPOConfig, build_algorithm_config
+from trade_rl.rl.environment_config import EpisodeBoundaryMode
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
@@ -50,6 +51,20 @@ def _payload_without_training_field(
     return payload
 
 
+def _payload_without_discount_and_boundary(
+    config: TrainingRunConfig,
+) -> dict[str, object]:
+    payload = deepcopy(config.candidate_digest_payload())
+    training = payload["training"]
+    environment = payload["environment"]
+    assert isinstance(training, dict)
+    assert isinstance(environment, dict)
+    training.pop("gamma")
+    environment.pop("episode_boundary_mode", None)
+    environment.pop("finite_horizon_observation", None)
+    return payload
+
+
 def _assert_common_full_scale_contract(config: TrainingRunConfig) -> None:
     training = config.training
     assert training.seeds == (0, 1, 2)
@@ -73,6 +88,7 @@ def _assert_common_full_scale_contract(config: TrainingRunConfig) -> None:
     assert training.sequence_compile_mode == "reduce-overhead"
     assert training.sequence_transfer_mode == "pinned_non_blocking"
     assert training.vector_environment_mode == "subprocess"
+    assert config.environment.liquidate_on_end is False
     assert config.reward.absolute_growth_weight == pytest.approx(1.0)
     assert config.reward.excess_growth_weight == pytest.approx(0.0)
     assert config.reward.incremental_drawdown_weight == pytest.approx(0.0)
@@ -82,10 +98,27 @@ def _assert_common_full_scale_contract(config: TrainingRunConfig) -> None:
     assert config.reward.margin_deficit_weight == pytest.approx(0.0)
 
 
+def _assert_finite_horizon(config: TrainingRunConfig) -> None:
+    assert (
+        config.environment.episode_boundary_mode
+        is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+    )
+    assert config.environment.finite_horizon_observation is True
+
+
+def _assert_external_truncation(config: TrainingRunConfig) -> None:
+    assert (
+        config.environment.episode_boundary_mode
+        is EpisodeBoundaryMode.EXTERNAL_TRUNCATION
+    )
+    assert config.environment.finite_horizon_observation is False
+
+
 def test_pr_d_control_is_explicit_and_preserves_growth_objective() -> None:
     control = _load_training(CONTROL)
 
     _assert_common_full_scale_contract(control)
+    _assert_finite_horizon(control)
     assert control.training.algorithm == "ppo"
     assert control.training.gamma == pytest.approx(1.0)
     assert control.training.gae_lambda == pytest.approx(0.95)
@@ -97,6 +130,7 @@ def test_canonical_constrained_profile_closes_all_seven_costs() -> None:
     config = _load_training(CANONICAL)
 
     _assert_common_full_scale_contract(config)
+    _assert_finite_horizon(config)
     training = config.training
     assert training.algorithm == "lagrangian_ppo"
     assert training.gamma == pytest.approx(1.0)
@@ -135,6 +169,7 @@ def test_gae_ablation_changes_only_reward_gae_lambda() -> None:
     canonical = _load_training(CANONICAL)
     ablation = _load_training(GAE_097)
 
+    _assert_finite_horizon(ablation)
     assert canonical.candidate_digest_payload() != ablation.candidate_digest_payload()
     assert ablation.training.gamma == pytest.approx(1.0)
     assert ablation.training.gae_lambda == pytest.approx(0.97)
@@ -145,19 +180,20 @@ def test_gae_ablation_changes_only_reward_gae_lambda() -> None:
     ) == _payload_without_training_field(ablation, "gae_lambda")
 
 
-def test_discounted_ablation_changes_only_reward_gamma() -> None:
+def test_discounted_ablation_changes_only_reward_gamma_and_boundary() -> None:
     canonical = _load_training(CANONICAL)
     ablation = _load_training(DISCOUNTED)
 
+    _assert_external_truncation(ablation)
     assert canonical.candidate_digest_payload() != ablation.candidate_digest_payload()
     assert ablation.training.gamma == pytest.approx(0.9995)
     assert ablation.training.gae_lambda == pytest.approx(0.95)
     algorithm = build_algorithm_config(ablation.training)
     assert isinstance(algorithm, LagrangianPPOConfig)
     assert tuple(spec.gamma for spec in algorithm.cost_schema.specs) == (1.0,) * 7
-    assert _payload_without_training_field(
-        canonical, "gamma"
-    ) == _payload_without_training_field(ablation, "gamma")
+    assert _payload_without_discount_and_boundary(
+        canonical
+    ) == _payload_without_discount_and_boundary(ablation)
 
 
 def test_walk_forward_profile_binds_all_four_candidates_and_joint_stress() -> None:

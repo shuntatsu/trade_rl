@@ -59,9 +59,7 @@ def test_default_economic_admission_fields_preserve_legacy_digest_payload() -> N
     payload = _config().digest_payload()
 
     assert "behavior_cloning_min_causal_holdout_episodes" not in payload
-    assert (
-        "behavior_cloning_min_causal_holdout_net_return_lower_bound" not in payload
-    )
+    assert "behavior_cloning_min_causal_holdout_net_return_lower_bound" not in payload
 
 
 def test_nondefault_economic_admission_fields_are_identity_bound() -> None:
@@ -73,6 +71,5 @@ def test_nondefault_economic_admission_fields_are_identity_bound() -> None:
 
     assert payload["behavior_cloning_min_causal_holdout_episodes"] == 5
     assert (
-        payload["behavior_cloning_min_causal_holdout_net_return_lower_bound"]
-        == -0.05
+        payload["behavior_cloning_min_causal_holdout_net_return_lower_bound"] == -0.05
     )

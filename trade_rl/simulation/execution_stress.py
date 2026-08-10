@@ -69,9 +69,7 @@ class ExecutionEnvironmentStress(ExecutionRuleStress):
             field="tail_slippage_probability_floor",
         )
         if not 0.0 <= probability <= 1.0:
-            raise ValueError(
-                "tail_slippage_probability_floor must be within [0, 1]"
-            )
+            raise ValueError("tail_slippage_probability_floor must be within [0, 1]")
         object.__setattr__(self, "tail_slippage_probability_floor", probability)
         multiplier_floor = _finite_number(
             self.tail_slippage_multiplier_floor,
@@ -146,12 +144,8 @@ class ExecutionEnvironmentStress(ExecutionRuleStress):
             "slippage_std_floor": self.slippage_std_floor,
             "slippage_std_multiplier": self.slippage_std_multiplier,
             "spread_multiplier": self.spread_multiplier,
-            "tail_slippage_multiplier_floor": (
-                self.tail_slippage_multiplier_floor
-            ),
-            "tail_slippage_probability_floor": (
-                self.tail_slippage_probability_floor
-            ),
+            "tail_slippage_multiplier_floor": (self.tail_slippage_multiplier_floor),
+            "tail_slippage_probability_floor": (self.tail_slippage_probability_floor),
             "tick_size_factor": self.tick_size_factor,
         }
 

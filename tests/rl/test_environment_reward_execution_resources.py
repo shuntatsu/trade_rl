@@ -15,6 +15,7 @@ from trade_rl.simulation.execution import (
     ExecutionCostConfig,
     ExecutionRuleStress,
 )
+from trade_rl.simulation.execution_stress import ExecutionEnvironmentStress
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
@@ -60,6 +61,7 @@ def config(
     *,
     reward: RewardConfig,
     require_full_reward_preroll: bool = False,
+    execution_cost: ExecutionCostConfig | None = None,
 ) -> ResidualMarketEnvConfig:
     return ResidualMarketEnvConfig(
         initial_capital=100_000.0,
@@ -67,7 +69,7 @@ def config(
         decision_every=2,
         reward_config=reward,
         require_full_reward_preroll=require_full_reward_preroll,
-        execution_cost=ExecutionCostConfig.zero(),
+        execution_cost=(ExecutionCostConfig.zero() if execution_cost is None else execution_cost),
     )
 
 
@@ -113,6 +115,71 @@ def test_builder_returns_fresh_equivalent_resources_without_preroll() -> None:
     assert first.reward_history_cache == {}
     assert second.reward_history_cache == {}
     assert first.reward_history_cache is not second.reward_history_cache
+
+
+def test_builder_applies_same_execution_environment_stress_to_both_books() -> None:
+    dataset = market()
+    resolved_reward = reward_config(baseline_weight=0.0)
+    base_cost = ExecutionCostConfig(
+        fee_rate=0.001,
+        maker_fee_rate=0.0002,
+        taker_fee_rate=0.0003,
+        spread_rate=0.0004,
+        impact_rate=0.0005,
+        max_participation_rate=0.2,
+        slippage_std=0.0001,
+        tail_slippage_probability=0.002,
+        tail_slippage_multiplier=3.0,
+        borrow_rate_multiplier=1.5,
+        order_latency_bars=0,
+    )
+    resolved_config = config(
+        reward=resolved_reward,
+        execution_cost=base_cost,
+    )
+    stress = ExecutionEnvironmentStress(
+        name="joint-execution-test",
+        fee_multiplier=1.5,
+        spread_multiplier=2.0,
+        impact_multiplier=3.0,
+        slippage_std_multiplier=2.0,
+        slippage_std_floor=0.0003,
+        participation_fraction=0.5,
+        minimum_order_latency_bars=2,
+        tail_slippage_probability_floor=0.01,
+        tail_slippage_multiplier_floor=7.0,
+        borrow_rate_multiplier=2.0,
+    )
+
+    resources = EnvironmentRewardExecutionResourcesBuilder(
+        dataset,
+        config=resolved_config,
+        reward_config=resolved_reward,
+        resolved_decision_hours=2.0,
+        minimum_start_index=8,
+        execution_rule_stress=stress,
+    ).build()
+
+    hybrid_cost = resources.hybrid_executor.cost
+    shadow_cost = resources.shadow_executor.cost
+    assert hybrid_cost is shadow_cost
+    assert hybrid_cost is not base_cost
+    assert hybrid_cost.fee_rate == pytest.approx(0.0015)
+    assert hybrid_cost.maker_fee_rate == pytest.approx(0.0003)
+    assert hybrid_cost.taker_fee_rate == pytest.approx(0.00045)
+    assert hybrid_cost.spread_rate == pytest.approx(0.0008)
+    assert hybrid_cost.impact_rate == pytest.approx(0.0015)
+    assert hybrid_cost.slippage_std == pytest.approx(0.0003)
+    assert hybrid_cost.max_participation_rate == pytest.approx(0.1)
+    assert hybrid_cost.order_latency_bars == 2
+    assert hybrid_cost.tail_slippage_probability == pytest.approx(0.01)
+    assert hybrid_cost.tail_slippage_multiplier == pytest.approx(7.0)
+    assert hybrid_cost.borrow_rate_multiplier == pytest.approx(3.0)
+    assert base_cost.fee_rate == pytest.approx(0.001)
+    assert base_cost.max_participation_rate == pytest.approx(0.2)
+    assert base_cost.order_latency_bars == 0
+    assert resources.hybrid_executor.rule_stress is stress
+    assert resources.shadow_executor.rule_stress is stress
 
 
 def test_builder_derives_full_reward_preroll_minimum() -> None:

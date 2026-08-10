@@ -282,9 +282,7 @@ def pretrain_policy(
     validation_indices = split.validation_indices
     train_count = int(train_indices.size)
     validation_count = int(validation_indices.size)
-    evaluation_indices = np.sort(
-        np.concatenate((train_indices, validation_indices))
-    )
+    evaluation_indices = np.sort(np.concatenate((train_indices, validation_indices)))
     # Teacher targets and their reconstruction gates are deterministic contracts.
     # Eval mode disables stochastic regularizers while preserving autograd, so
     # both optimization and metrics fit the exact function deployed to PPO.

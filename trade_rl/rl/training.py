@@ -1160,8 +1160,7 @@ class ResidualTrainingConfig:
         }
         if (
             self.behavior_cloning_min_causal_holdout_episodes != 1
-            or self.behavior_cloning_min_causal_holdout_net_return_lower_bound
-            != -1.0
+            or self.behavior_cloning_min_causal_holdout_net_return_lower_bound != -1.0
         ):
             payload.update(
                 {

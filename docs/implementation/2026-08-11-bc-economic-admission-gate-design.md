@@ -37,7 +37,7 @@ Validation is fail-closed:
 - the episode minimum must be a positive, non-boolean integer;
 - the net-return floor must be finite and at least `-1.0`.
 
-Historical `training_run_config_v4` documents that omit these fields retain their prior behavior through the defaults. The fields are included in the training configuration digest, so strengthened profiles cannot silently reuse checkpoints created under weaker admission semantics.
+Historical `training_run_config_v4` documents that omit these fields retain their prior behavior and digest payload through the defaults. When either field is non-default, both fields are included in the training configuration digest, so strengthened profiles cannot silently reuse checkpoints created under weaker admission semantics.
 
 ## Statistical Evidence
 

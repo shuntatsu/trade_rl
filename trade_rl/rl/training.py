@@ -1096,12 +1096,6 @@ class ResidualTrainingConfig:
             "behavior_cloning_min_causal_holdout_trades": (
                 self.behavior_cloning_min_causal_holdout_trades
             ),
-            "behavior_cloning_min_causal_holdout_episodes": (
-                self.behavior_cloning_min_causal_holdout_episodes
-            ),
-            "behavior_cloning_min_causal_holdout_net_return_lower_bound": (
-                self.behavior_cloning_min_causal_holdout_net_return_lower_bound
-            ),
             "behavior_cloning_max_causal_holdout_regret": (
                 self.behavior_cloning_max_causal_holdout_regret
             ),
@@ -1164,6 +1158,21 @@ class ResidualTrainingConfig:
             "use_sde": self.use_sde,
             "vf_coef": self.vf_coef,
         }
+        if (
+            self.behavior_cloning_min_causal_holdout_episodes != 1
+            or self.behavior_cloning_min_causal_holdout_net_return_lower_bound
+            != -1.0
+        ):
+            payload.update(
+                {
+                    "behavior_cloning_min_causal_holdout_episodes": (
+                        self.behavior_cloning_min_causal_holdout_episodes
+                    ),
+                    "behavior_cloning_min_causal_holdout_net_return_lower_bound": (
+                        self.behavior_cloning_min_causal_holdout_net_return_lower_bound
+                    ),
+                }
+            )
         if self.algorithm in {"cost_critic_ppo", "lagrangian_ppo"}:
             cost_schema = canonical_cost_learning_schema(
                 continuous_gae_lambda=self.cost_continuous_gae_lambda,

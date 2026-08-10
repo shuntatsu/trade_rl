@@ -51,6 +51,9 @@ if str(_EXAMPLE_DIR) not in sys.path:
 import full_research_pipeline as pipeline  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_WALK_FORWARD_TEMPLATE = (
+    _EXAMPLE_DIR / "walk-forward-target-weight-constrained-growth.json"
+)
 _SUPERVISED_BOOTSTRAP_ARTIFACTS = frozenset(
     {"cuda-preflight.json", "entrypoint-provenance.json", "heartbeat.json"}
 )
@@ -256,7 +259,7 @@ class BinanceFullResearchStages:
                 f"observed {policy_observation_count:,}"
             )
 
-        workflow_template = _EXAMPLE_DIR / "walk-forward-full.json"
+        workflow_template = _DEFAULT_WALK_FORWARD_TEMPLATE
         requested_training = getattr(self.args, "training_template", None)
         if requested_training:
             training_template = _example_template(

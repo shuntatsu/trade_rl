@@ -33,18 +33,23 @@ BTC, ETH and BNB in one action vector.
 
 ## Configuration
 
-The maintained profiles are:
+The default full-research workflow is
+`walk-forward-target-weight-constrained-growth.json`. It compares these three
+single-symbol target-weight profiles in order:
 
-- `training-full.json`;
-- `training-target-weight-growth-ppo.json`;
-- `training-target-weight-constrained-growth.json`;
-- `training-target-weight-constrained-growth-discounted.json`;
-- `walk-forward-full.json`;
-- `walk-forward-target-weight-constrained-growth.json`.
+- `training-target-weight-growth-ppo.json` — gamma-one net-growth PPO control;
+- `training-target-weight-constrained-growth.json` — gamma-one constrained-growth Lagrangian PPO candidate;
+- `training-target-weight-constrained-growth-discounted.json` — 168-hour discounted constrained-growth ablation.
 
-They retain `training_run_config_v4`. A schema bump is not required because the
-existing action, symbol-order and policy-identity contracts already represent a
-one-element action vector.
+`training-full.json` is retained as an explicit legacy mixed-shaping comparison.
+It is selected only by naming it through `--training-template training-full.json`;
+it is not part of the implicit default candidate catalog.
+`walk-forward-full.json` remains available for historical reproducibility and is
+not silently substituted for the maintained default.
+
+All training profiles retain `training_run_config_v4`. A schema bump is not
+required because the existing action, symbol-order and policy-identity contracts
+already represent a one-element action vector.
 
 The maintained config writer rejects any profile that is not
 `target_weight_count=1` before training resources are allocated.
@@ -73,6 +78,11 @@ Prior multi-asset artifacts remain immutable and readable. They are not
 silently converted, resumed or transferred into the maintained one-action
 policy. See `docs/implementation/legacy-multi-asset-inventory.md` for the
 classification of retained legacy code.
+
+Existing generations remain bound to their recorded source, image, configuration
+and artifact identities. Changing the default affects only a generation built
+from a newer source commit; it does not migrate or resume an existing generation
+under different objective semantics.
 
 ## Execution and safety
 

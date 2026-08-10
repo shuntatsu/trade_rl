@@ -102,9 +102,7 @@ def test_catalog_records_eligibility_exclusions_and_source_evidence() -> None:
     assert catalog.research_start == _START
     assert catalog.research_end == _END
     assert catalog.eligible_symbols == source.symbols[2:]
-    assert tuple(
-        (item.symbol, item.reasons) for item in catalog.excluded_symbols
-    ) == (
+    assert tuple((item.symbol, item.reasons) for item in catalog.excluded_symbols) == (
         ("ASSET00USDT", ("missing_execution_metadata",)),
         ("ASSET01USDT", ("no_available_values:4h",)),
     )
@@ -123,7 +121,9 @@ def test_catalog_json_round_trip_and_tamper_rejection(tmp_path: Path) -> None:
         research_end=_END,
         metadata_digests=_metadata(source.symbols),
     )
-    path = write_stored_instrument_catalog(tmp_path / "stored-instruments.json", catalog)
+    path = write_stored_instrument_catalog(
+        tmp_path / "stored-instruments.json", catalog
+    )
 
     assert load_stored_instrument_catalog(path) == catalog
 

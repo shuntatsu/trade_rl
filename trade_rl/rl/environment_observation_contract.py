@@ -148,12 +148,13 @@ class EnvironmentObservationContractBuilder:
         )
 
     def _bind_episode_boundary(self, base_digest: str) -> str:
-        if self.config.episode_boundary_mode is EpisodeBoundaryMode.EXTERNAL_TRUNCATION:
+        boundary_mode = EpisodeBoundaryMode(self.config.episode_boundary_mode)
+        if boundary_mode is EpisodeBoundaryMode.EXTERNAL_TRUNCATION:
             return base_digest
         return content_digest(
             {
                 "base_observation_contract_digest": base_digest,
-                "episode_boundary_mode": self.config.episode_boundary_mode.value,
+                "episode_boundary_mode": boundary_mode.value,
                 "schema_version": "environment_observation_contract_v1",
             }
         )

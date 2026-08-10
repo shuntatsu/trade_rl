@@ -34,7 +34,6 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import textwrap
 
           path = Path('scripts/apply_execution_robustness.py')
           text = path.read_text()
@@ -48,22 +47,19 @@ jobs:
               raise SystemExit('execution patch format marker changed')
           text = text.replace(format_marker, format_replacement, 1)
 
-          enabled_old = '''            @property
-                      def enabled(self) -> bool:
-                          return ExecutionRuleStress.enabled.fget(self) or self.environment_enabled
-          '''
-          enabled_new = '''            @property
-                      def enabled(self) -> bool:
-                          return (
-                              self.tick_size_factor != 1.0
-                              or self.lot_size_factor != 1.0
-                              or self.minimum_notional_factor != 1.0
-                              or self.adverse_tick_rounding
-                              or self.environment_enabled
-                          )
-          '''
-          enabled_old = textwrap.dedent(enabled_old)
-          enabled_new = textwrap.dedent(enabled_new)
+          enabled_old = (
+              '                return ExecutionRuleStress.enabled.fget(self) '
+              'or self.environment_enabled\n'
+          )
+          enabled_new = (
+              '                return (\n'
+              '                    self.tick_size_factor != 1.0\n'
+              '                    or self.lot_size_factor != 1.0\n'
+              '                    or self.minimum_notional_factor != 1.0\n'
+              '                    or self.adverse_tick_rounding\n'
+              '                    or self.environment_enabled\n'
+              '                )\n'
+          )
           if text.count(enabled_old) != 1:
               raise SystemExit('execution stress enabled marker changed')
           text = text.replace(enabled_old, enabled_new, 1)
@@ -74,8 +70,8 @@ jobs:
               '    text = text[:old_class_start] + new_class + text[old_class_end:]\n'
           )
           class_end = text.index(class_end_marker, class_start)
-          class_block = '''    new_class = textwrap.dedent(
-              \'''\'''
+          class_block = """    new_class = textwrap.dedent(
+              '''
               @dataclass(frozen=True, slots=True)
               class ExecutionSensitivityScenario(_base.ExecutionSensitivityScenario):
                   \"\"\"One reportable rule and execution-environment stress scenario.\"\"\"
@@ -121,19 +117,19 @@ jobs:
                           **self.stress().digest_payload(),
                           \"report_only\": self.report_only,
                       }
-              \'''\'''
+              '''
           ).strip()
-          '''
+          """
           text = text[:class_start] + class_block + text[class_end:]
 
-          standard_old = '''                        isinstance(scenario, ExecutionEnvironmentStress)
-                                  and scenario.environment_enabled
-          '''
-          standard_new = '''                        isinstance(scenario, ExecutionSensitivityScenario)
-                                  and scenario.stress().environment_enabled
-          '''
-          standard_old = textwrap.dedent(standard_old)
-          standard_new = textwrap.dedent(standard_new)
+          standard_old = (
+              '                        isinstance(scenario, ExecutionEnvironmentStress)\n'
+              '                        and scenario.environment_enabled\n'
+          )
+          standard_new = (
+              '                        isinstance(scenario, ExecutionSensitivityScenario)\n'
+              '                        and scenario.stress().environment_enabled\n'
+          )
           if text.count(standard_old) != 1:
               raise SystemExit('standard scenario validation marker changed')
           text = text.replace(standard_old, standard_new, 1)

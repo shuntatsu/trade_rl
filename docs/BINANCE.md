@@ -66,7 +66,7 @@ Raw cacheを削除すると再Downloadが必要ですが、Published dataset art
 
 ## Target-weight growth profiles
 
-長期複利成長の比較では、報酬、action space、BC、encoder、執行条件を同時に変更しません。次の3設定はすべてdirect target-weight、同一Oracle BC、同一Transformer、同一hard-risk条件を使用します。報酬とEpisode境界の正本契約は[`REWARD_OBJECTIVE.md`](REWARD_OBJECTIVE.md)です。
+長期複利成長の比較では、報酬、action space、BC、encoder、執行条件を同時に変更しません。次の3設定はすべてtarget-weight action、同一Oracle BC、同一Transformer、同一hard-risk条件を使用します。報酬とEpisode境界の正本契約は[`REWARD_OBJECTIVE.md`](REWARD_OBJECTIVE.md)です。
 
 | Profile | 役割 | Objective |
 |---|---|---|
@@ -74,15 +74,17 @@ Raw cacheを削除すると再Downloadが必要ですが、Published dataset art
 | [`training-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth.json) | 本命候補 | 同じ有限期間growth objective、Lagrangian PPOでsoft constraint予算を管理 |
 | [`training-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth-discounted.json) | 時間選好アブレーション | 168時間half-lifeのdiscounted continuing objective |
 
-Gamma-one PPOとLagrangianの6-fold比較は[`walk-forward-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)を使用します。Discounted continuing ablationは、観測とEpisode境界が異なるため同じcandidate setへ混在させず、[`walk-forward-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth-discounted.json)で独立に評価します。両方とも`run_file`でstandalone profileを参照し、埋め込みコピーによる設定ドリフトを起こしません。
+既定の6-fold比較は[`walk-forward-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)を使用し、gamma-one PPOとgamma-one Lagrangianだけを同じcandidate setで比較します。Discounted continuing ablationはenvironment dynamicsが異なるため、[`walk-forward-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth-discounted.json)で独立に評価します。各workflowは`run_file`でstandalone profileを参照し、埋め込みコピーによる設定ドリフトを防ぎます。
 
-[`training-full.json`](../examples/binance-multitimeframe/training-full.json)は、baseline、drawdown、excess growth、時間割引を混合したlegacy shaping比較として維持します。Production defaultではありません。
+[`training-full.json`](../examples/binance-multitimeframe/training-full.json)は、baseline、drawdown、excess growth、時間割引を混合したlegacy shaping比較として維持します。Production defaultではありません。明示的な`--training-template training-full.json`指定がない限り選択されず、`walk-forward-full.json`は歴史的再現用に残します。
 
 Hard safetyは学習成功へ依存させません。`max_abs_weight`、`max_gross`、drawdown stop、minimum equity、証拠金、取引所ルールは環境とpre-trade riskが常に強制します。Lagrangianはdrawdown excess、turnover、execution costなどのsoft budgetだけを調整します。
 
-Gamma-one profileでは、720時間をMDP内の明示的な有限期間として扱います。`episode_boundary_mode=finite_horizon_termination`、`finite_horizon_observation=true`、`liquidate_on_end=false`を固定し、時間上限では保有Positionをmark-to-marketしたまま`terminated=true`とします。人工的なforced closeやterminal-equity shapingは行いません。これにより区間net log rewardの和が720時間終端のnet log wealthへ一致します。
+Gamma-one profileでは、720時間をMDP内の明示的な有限期間として扱います。`episode_boundary_mode=finite_horizon_termination`、`finite_horizon_observation=true`、`liquidate_on_end=false`を固定し、時間上限では保有Positionをmark-to-marketしたまま`terminated=true`、`truncated=false`とします。人工的なforced closeやterminal-equity shapingは行いません。これにより区間net log rewardの和が720時間終端のnet log wealthへ一致します。
 
-Discounted profileでは、720時間を外部の学習窓として扱います。`episode_boundary_mode=external_truncation`、`finite_horizon_observation=false`、`liquidate_on_end=false`を固定し、時間上限では`truncated=true`としてterminal observationから継続価値をbootstrapします。Gamma-one profileとdiscounted profileのEpisode returnを同じ尺度として直接比較せず、共通の実コスト控除後net log growth証拠で比較します。
+Discounted profileでは、720時間を外部の学習窓として扱います。`episode_boundary_mode=external_truncation`、`finite_horizon_observation=false`、`liquidate_on_end=false`を固定し、時間上限では`terminated=false`、`truncated=true`としてterminal observationから継続価値をbootstrapします。
+
+`MarketWalkForwardConfig`は同一candidate set内でenvironment dynamicsの一致を要求するため、二つの境界modeを混在させません。Gamma-one profileとdiscounted profileのraw training rewardやepisode returnも同じ尺度として直接比較せず、cross-objective reportingでは共通の実コスト控除後net log growth、baseline paired excess、drawdown、cost、constraint、execution-stress証拠を使用します。
 
 ## Target-weight production gate
 

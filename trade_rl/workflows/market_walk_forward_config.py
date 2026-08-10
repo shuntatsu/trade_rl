@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import trade_rl.workflows._market_walk_forward_config_base as _base
+from trade_rl.simulation.execution_stress import ExecutionEnvironmentStress
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,11 +23,43 @@ class ExecutionSensitivityScenario(_base.ExecutionSensitivityScenario):
     spread_multiplier: float = 1.0
     impact_multiplier: float = 1.0
     slippage_std_multiplier: float = 1.0
+    slippage_std_floor: float = 0.0
     participation_fraction: float = 1.0
     minimum_order_latency_bars: int = 0
     tail_slippage_probability_floor: float = 0.0
     tail_slippage_multiplier_floor: float = 0.0
     borrow_rate_multiplier: float = 1.0
+
+    def __post_init__(self) -> None:
+        _base.ExecutionSensitivityScenario.__post_init__(self)
+        self.stress()
+
+    def stress(self) -> ExecutionEnvironmentStress:
+        return ExecutionEnvironmentStress(
+            name=self.name,
+            tick_size_factor=self.tick_size_factor,
+            lot_size_factor=self.lot_size_factor,
+            minimum_notional_factor=self.minimum_notional_factor,
+            adverse_tick_rounding=self.adverse_tick_rounding,
+            fee_multiplier=self.fee_multiplier,
+            spread_multiplier=self.spread_multiplier,
+            impact_multiplier=self.impact_multiplier,
+            slippage_std_multiplier=self.slippage_std_multiplier,
+            slippage_std_floor=self.slippage_std_floor,
+            participation_fraction=self.participation_fraction,
+            minimum_order_latency_bars=self.minimum_order_latency_bars,
+            tail_slippage_probability_floor=(
+                self.tail_slippage_probability_floor
+            ),
+            tail_slippage_multiplier_floor=self.tail_slippage_multiplier_floor,
+            borrow_rate_multiplier=self.borrow_rate_multiplier,
+        )
+
+    def digest_payload(self) -> dict[str, object]:
+        return {
+            **self.stress().digest_payload(),
+            "report_only": self.report_only,
+        }
 
 
 NamedCandidateRun = _base.NamedCandidateRun

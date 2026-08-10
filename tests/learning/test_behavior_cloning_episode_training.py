@@ -114,7 +114,9 @@ def test_behavior_cloning_result_identity_binds_the_explicit_episode_split() -> 
     )
 
     assert chronological.training_sample_count == reordered.training_sample_count == 4
-    assert chronological.validation_sample_count == reordered.validation_sample_count == 2
+    assert (
+        chronological.validation_sample_count == reordered.validation_sample_count == 2
+    )
     assert chronological.excluded_sample_count == reordered.excluded_sample_count == 2
     assert chronological.split_digest != reordered.split_digest
     assert chronological.digest != reordered.digest

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the final pinned execution-stress contract with RED/GREEN checks."""
+"""Apply the final pinned BC and execution contracts with RED/GREEN checks."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+BC_PATH = ROOT / "trade_rl/integrations/behavior_cloning.py"
 STRESS_PATH = ROOT / "trade_rl/simulation/execution_stress.py"
 CONFIG_PATH = ROOT / "trade_rl/workflows/market_walk_forward_config.py"
 DOC_PATH = ROOT / "docs/EXECUTION_ROBUSTNESS.md"
@@ -28,6 +29,23 @@ def run(*args: str) -> None:
     subprocess.run(args, cwd=ROOT, check=True)
 
 
+def run_red(test: str, *, expected: str) -> None:
+    print(f"+ uv run pytest -q {test}", flush=True)
+    completed = subprocess.run(
+        ["uv", "run", "pytest", "-q", test],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    print(completed.stdout)
+    if completed.returncode == 0:
+        raise RuntimeError(f"RED contract unexpectedly passed: {test}")
+    if expected not in completed.stdout:
+        raise RuntimeError(f"RED contract failed unexpectedly: {test}")
+
+
 def stage_source_execution_contract() -> None:
     completed = subprocess.run(
         [
@@ -43,22 +61,83 @@ def stage_source_execution_contract() -> None:
     SOURCE_TEST.write_bytes(completed.stdout)
 
 
-def verify_red() -> None:
-    test = "tests/workflows/test_execution_robustness_source_contract.py"
-    print(f"+ uv run pytest -q {test}", flush=True)
-    completed = subprocess.run(
-        ["uv", "run", "pytest", "-q", test],
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
+def patch_hierarchical_evaluation() -> None:
+    text = BC_PATH.read_text()
+    text = replace_once(
+        text,
+        "    gate_total = 0.0\n"
+        "    target_total = 0.0\n"
+        "    composed_total = 0.0\n"
+        "    weighted_total = 0.0\n"
+        "    batch_weight = 0\n",
+        "    gate_total = 0.0\n"
+        "    target_total = 0.0\n"
+        "    composed_total = 0.0\n"
+        "    gate_support_total = 0\n"
+        "    target_support_total = 0\n"
+        "    composed_support_total = 0\n",
+        label="hierarchical evaluation totals",
     )
-    print(completed.stdout)
-    if completed.returncode == 0:
-        raise RuntimeError("execution slippage-floor RED contract unexpectedly passed")
-    if "slippage_std_floor" not in completed.stdout:
-        raise RuntimeError("execution slippage-floor RED contract failed unexpectedly")
+    text = replace_once(
+        text,
+        "            size = len(batch_indices)\n"
+        "            gate_total += float(gate.detach().cpu()) * size\n"
+        "            target_total += float(target.detach().cpu()) * size\n"
+        "            composed_total += float(composed.detach().cpu()) * size\n"
+        "            weighted_total += float(weighted.detach().cpu()) * size\n"
+        "            batch_weight += size\n",
+        "            active = labels.active_mask[batch_indices]\n"
+        "            event = active & labels.gate_labels[batch_indices]\n"
+        "            gate_support = int(np.count_nonzero(active))\n"
+        "            target_support = int(np.count_nonzero(event))\n"
+        "            composed_support = gate_support\n"
+        "            gate_total += float(gate.detach().cpu()) * gate_support\n"
+        "            target_total += float(target.detach().cpu()) * target_support\n"
+        "            composed_total += (\n"
+        "                float(composed.detach().cpu()) * composed_support\n"
+        "            )\n"
+        "            gate_support_total += gate_support\n"
+        "            target_support_total += target_support\n"
+        "            composed_support_total += composed_support\n",
+        label="hierarchical evaluation accumulation",
+    )
+    text = replace_once(
+        text,
+        "    if batch_weight <= 0:\n"
+        "        raise ValueError(\"hierarchical BC evaluation batch is empty\")\n",
+        "    if gate_support_total <= 0 or composed_support_total <= 0:\n"
+        "        raise ValueError(\"hierarchical BC evaluation batch is empty\")\n"
+        "    gate_mean = gate_total / gate_support_total\n"
+        "    target_mean = (\n"
+        "        target_total / target_support_total\n"
+        "        if target_support_total > 0\n"
+        "        else 0.0\n"
+        "    )\n"
+        "    composed_mean = composed_total / composed_support_total\n"
+        "    weighted_mean = (\n"
+        "        config.gate_loss_weight * gate_mean\n"
+        "        + config.target_loss_weight * target_mean\n"
+        "        + config.composed_loss_weight * composed_mean\n"
+        "    )\n",
+        label="hierarchical evaluation normalization",
+    )
+    text = replace_once(
+        text,
+        "        losses=HierarchicalBehaviorCloningLosses(\n"
+        "            gate=gate_total / batch_weight,\n"
+        "            target=target_total / batch_weight,\n"
+        "            composed=composed_total / batch_weight,\n"
+        "            weighted=weighted_total / batch_weight,\n"
+        "        ),\n",
+        "        losses=HierarchicalBehaviorCloningLosses(\n"
+        "            gate=gate_mean,\n"
+        "            target=target_mean,\n"
+        "            composed=composed_mean,\n"
+        "            weighted=weighted_mean,\n"
+        "        ),\n",
+        label="hierarchical evaluation return",
+    )
+    BC_PATH.write_text(text)
 
 
 def patch_execution_stress() -> None:
@@ -228,6 +307,7 @@ def patch_docs() -> None:
 
 def verify_green() -> None:
     python_files = [
+        "trade_rl/integrations/behavior_cloning.py",
         "trade_rl/simulation/execution_stress.py",
         "trade_rl/workflows/market_walk_forward_config.py",
         "tests/workflows/test_execution_robustness_source_contract.py",
@@ -267,7 +347,15 @@ def verify_green() -> None:
 
 def main() -> None:
     stage_source_execution_contract()
-    verify_red()
+    run_red(
+        "tests/learning/test_hierarchical_behavior_cloning_evaluation.py",
+        expected="AssertionError",
+    )
+    run_red(
+        "tests/workflows/test_execution_robustness_source_contract.py",
+        expected="slippage_std_floor",
+    )
+    patch_hierarchical_evaluation()
     patch_execution_stress()
     patch_execution_config()
     patch_docs()

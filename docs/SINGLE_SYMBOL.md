@@ -52,7 +52,8 @@ The maintained config writer rejects any profile that is not
 
 Gamma-one growth profiles use the intrinsic finite-horizon contract, while the
 discounted profile and its dedicated walk-forward use external truncation. The
-two boundary semantics are not mixed in one walk-forward candidate set. See
+two boundary semantics are not mixed in one walk-forward candidate set, so each
+candidate set retains one environment and observation contract. See
 `docs/REWARD_OBJECTIVE.md` for the reward and Episode-boundary contract.
 
 ## Data and policy behavior

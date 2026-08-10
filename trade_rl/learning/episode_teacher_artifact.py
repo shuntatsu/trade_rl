@@ -709,12 +709,18 @@ def _episode_item_chunks(
         return ()
     if worker_count <= 0:
         raise ValueError("teacher rollout chunk worker count must be positive")
-    balanced_size = (len(items) + worker_count - 1) // worker_count
-    chunk_size = min(_MAX_EPISODES_PER_TEACHER_TASK, balanced_size)
-    return tuple(
-        tuple(items[offset : offset + chunk_size])
-        for offset in range(0, len(items), chunk_size)
-    )
+    minimum_task_count = (
+        len(items) + _MAX_EPISODES_PER_TEACHER_TASK - 1
+    ) // _MAX_EPISODES_PER_TEACHER_TASK
+    task_count = max(min(worker_count, len(items)), minimum_task_count)
+    base_size, oversized_chunk_count = divmod(len(items), task_count)
+    chunks: list[tuple[tuple[OracleEpisodeContract, np.ndarray], ...]] = []
+    offset = 0
+    for chunk_index in range(task_count):
+        chunk_size = base_size + int(chunk_index < oversized_chunk_count)
+        chunks.append(tuple(items[offset : offset + chunk_size]))
+        offset += chunk_size
+    return tuple(chunks)
 
 
 def _collect_forked_episode_chunk(

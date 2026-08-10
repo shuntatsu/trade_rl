@@ -1,82 +1,63 @@
-# Behavior-Cloning Economic Admission Gate Design
+# Behavior-Cloning Economic Admission Gate
 
 ## Decision
 
-Strengthen Oracle behavior-cloning admission without changing PPO, the action space, reward semantics, episode routing, or execution simulation.
+Oracle behavior cloning is admitted to PPO only when its causal, after-cost holdout evidence satisfies both of these conditions:
 
-A BC warm start must satisfy both of these causal after-cost conditions before PPO begins:
+1. the holdout contains enough complete validation episodes;
+2. a deterministic one-sided bootstrap lower confidence bound for the policy's episode net returns is not below an authored floor.
 
-1. the holdout contains a configured minimum number of complete validation episodes;
-2. a deterministic one-sided bootstrap lower confidence bound for the causal policy's episode net returns is not below a configured floor.
+The maintained Binance target-weight growth profiles require at least five complete holdout episodes and a 95% lower confidence bound of at least `-0.05` net return.
 
-The maintained Binance target-weight growth profiles will require at least five held-out episodes and a 95% lower confidence bound of at least `-0.05` net return. Existing catastrophic-regret, trade-support, collapse, and reconstruction checks remain mandatory.
+This is an admission floor, not a profitability claim. Nested walk-forward selection, sealed outer tests, execution stress, and production gates remain authoritative.
 
-## Context
+## Scope
 
-The current BC gate correctly separates hindsight Oracle agreement from causal policy evidence. It already rejects zero-trade collapse, constant actions, insufficient teacher support, and catastrophic after-cost loss. It also computes a one-sided upper confidence bound for cash-baseline regret.
+This change is limited to behavior-cloning evidence and admission. It does not change:
 
-Two gaps remain:
+- PPO or Lagrangian PPO updates;
+- reward or episode-boundary semantics;
+- action composition or execution simulation;
+- checkpoint selection, serving, or live-order behavior;
+- an active training generation.
 
-- `minimum_causal_holdout_episodes` is hard-coded to one in the SB3 integration, so a single favorable episode can satisfy the statistical gate;
-- the current catastrophic cash-regret threshold permits a materially losing BC policy to pass, because it is an emergency bound rather than a non-inferiority bound.
+It also does not modify any file changed by open PR #385 or PR #387.
 
-These gaps concern BC admission only. They are independent from the open universal-instrument artifact and episode-router work.
+## Configuration
 
-## Approaches Considered
-
-### A. Tighten the existing point-regret threshold only
-
-This is the smallest change, but it treats one realized path as sufficient evidence and does not distinguish a stable policy from a noisy favorable episode.
-
-### B. Require episode support and a deterministic lower confidence bound
-
-This is the selected approach. It uses the complete episode records already produced by the causal holdout evaluator, adds no new market-data access, and preserves the current separation between Oracle diagnostics and causal evidence.
-
-### C. Add a separate trend-baseline rollout and require paired non-inferiority
-
-This would provide a stronger economic comparison, but it requires a new baseline-policy evaluation path and additional accounting identity. It is a separate follow-up because it is larger and would mix baseline-policy semantics into this focused admission change.
-
-## Contract
-
-### Configuration
-
-Add two backward-compatible `ResidualTrainingConfig` fields:
+`ResidualTrainingConfig` adds two backward-compatible fields:
 
 ```python
 behavior_cloning_min_causal_holdout_episodes: int = 1
 behavior_cloning_min_causal_holdout_net_return_lower_bound: float = -1.0
 ```
 
-Validation rules:
+Validation is fail-closed:
 
-- episode minimum must be a positive, non-boolean integer;
-- the lower-bound floor must be finite and at least `-1.0`;
-- historical `training_run_config_v4` documents that omit the fields retain their old effective behavior through the defaults;
-- maintained target-weight profiles declare both fields explicitly.
+- the episode minimum must be a positive, non-boolean integer;
+- the net-return floor must be finite and at least `-1.0`.
 
-### Statistical evidence
+Historical `training_run_config_v4` documents that omit these fields retain their prior behavior through the defaults. The fields are included in the training configuration digest, so strengthened profiles cannot silently reuse checkpoints created under weaker admission semantics.
 
-Add:
+## Statistical Evidence
+
+`deterministic_bootstrap_lower_bound()` accepts a non-empty finite vector, including losses, and computes a reproducible lower bound for its mean:
 
 ```python
-def deterministic_bootstrap_lower_bound(
-    values: object,
-    *,
-    confidence_level: float,
-    resamples: int,
-    seed_material: str,
-) -> float
+lower = quantile(
+    bootstrap_episode_means,
+    1.0 - confidence_level,
+    method="lower",
+)
 ```
 
-The helper:
+The helper uses the same content-derived deterministic RNG contract as the existing upper-bound helper and requires:
 
-- accepts a non-empty finite rank-one vector, including negative values;
-- uses the same content-derived deterministic RNG contract as the existing upper-bound helper;
-- samples episode returns with replacement;
-- returns the `(1 - confidence_level)` quantile using NumPy's `lower` method;
-- requires at least 1,000 bootstrap resamples and confidence strictly between 0.5 and 1.0.
+- confidence strictly between `0.5` and `1.0`;
+- at least 1,000 bootstrap resamples;
+- non-empty seed material.
 
-### Episode holdout evidence
+## Episode Holdout Evidence
 
 `EpisodeBehaviorCloningHoldoutEvaluation` records:
 
@@ -84,60 +65,48 @@ The helper:
 causal_net_return_lower_confidence_bound: float
 ```
 
-It is computed from the per-episode causal policy net returns and persisted in `behavior-cloning-holdout.json` and the Oracle audit payload. The episode holdout schema advances from v1 to v2 because the immutable evidence payload changes.
+The value is computed from complete validation-episode causal policy net returns after execution costs. It is persisted in:
 
-### Mandatory gate
+- `behavior-cloning-holdout.json`;
+- the Oracle audit payload;
+- the artifact content digest.
 
-`BehaviorCloningGateThresholds` gains:
+The episode holdout schema advances to `episode_oracle_bc_evaluation_v2` because its immutable evidence payload changes.
+
+## Mandatory Gate
+
+`BehaviorCloningGateThresholds` adds:
 
 ```python
 minimum_causal_holdout_net_return_lower_bound: float = -1.0
 ```
 
-The mandatory causal gate gains a metric named:
+The causal gate adds a mandatory metric:
 
 ```text
 causal_net_return_lower_confidence_bound
 ```
 
-It passes only when:
+The metric passes only when:
 
-- complete holdout episode support is at least `minimum_causal_holdout_episodes`; and
+- complete episode support is at least `minimum_causal_holdout_episodes`; and
 - the observed lower confidence bound is at least `minimum_causal_holdout_net_return_lower_bound`.
 
-For legacy single-path holdouts without episode records, the causal policy net return is used as the observed bound and support is one. This preserves existing direct-BC tests and semantics.
+For historical single-path holdouts without episode records, the observed causal policy net return is used as the bound and support is one. This preserves the previous default behavior while allowing maintained profiles to opt into the stronger contract.
 
-The behavior-cloning gate schema advances from v1 to v2 because the mandatory metric set changes.
+The behavior-cloning gate schema advances to `behavior_cloning_gate_evaluation_v2` because its mandatory metric set changes.
 
-## Data Flow
+Existing reconstruction, activity, trade-support, collapse, catastrophic-regret, and regret-upper-bound checks remain mandatory.
 
-```text
-complete validation episodes
-  -> causal policy rollouts after costs
-  -> per-episode net returns
-  -> deterministic one-sided bootstrap lower bound
-  -> immutable holdout evidence v2
-  -> mandatory causal BC gate v2
-  -> BC candidate saved and PPO allowed only after gate success
-```
+## Maintained Profiles
 
-Oracle action agreement, Oracle regret, and normalized Oracle regret remain hindsight diagnostics. They are not used as production-generalization evidence.
+These profiles explicitly declare the stronger admission contract:
 
-## Failure Behavior
+- `training-target-weight-growth-ppo.json`;
+- `training-target-weight-constrained-growth.json`;
+- `training-target-weight-constrained-growth-discounted.json`.
 
-The implementation fails closed when:
-
-- the holdout has fewer complete episodes than configured;
-- the lower confidence bound is unavailable or non-finite;
-- the lower confidence bound is below the configured floor;
-- bootstrap confidence, resample count, or seed material is invalid;
-- existing reconstruction, activity, collapse, trade-support, or catastrophic-regret checks fail.
-
-The error identifies the first failing mandatory metric through the existing `require_passed()` path.
-
-## Maintained Profile Policy
-
-The following maintained target-weight profiles declare:
+Each contains:
 
 ```json
 {
@@ -146,42 +115,18 @@ The following maintained target-weight profiles declare:
 }
 ```
 
-- `training-target-weight-growth-ppo.json`
-- `training-target-weight-constrained-growth.json`
-- `training-target-weight-constrained-growth-discounted.json`
+## Verification Contract
 
-The threshold is an admission floor, not a profitability claim. Walk-forward and sealed outer-test gates remain authoritative for model selection and production status.
+Regression coverage proves:
 
-## Files and Responsibilities
+- the lower-bound estimator is deterministic, one-sided, and accepts losses;
+- insufficient complete-episode support fails closed;
+- a lower bound below the authored floor fails closed;
+- historical single-path defaults remain compatible;
+- invalid configuration values are rejected;
+- real episode holdout evidence is persisted under schema v2;
+- all maintained target-weight profiles declare the stronger thresholds.
 
-- `trade_rl/learning/evaluation.py`: deterministic lower-bound helper and mandatory gate metric.
-- `trade_rl/learning/episode_oracle_bc.py`: per-episode causal return evidence and schema v2 payload.
-- `trade_rl/rl/training.py`: authored training fields and validation.
-- `trade_rl/integrations/sb3_behavior_cloning.py`: map authored fields into gate thresholds.
-- `examples/binance-multitimeframe/*.json`: explicit maintained thresholds.
-- `tests/learning/`: statistical, evidence, and gate regressions.
-- `tests/rl/` and `tests/workflows/`: configuration parsing and validation regressions.
+The implementation was developed with an observed RED exact head before production code and is accepted only after exact-head static checks, compatibility tests, full pytest, branch-aware coverage, architecture checks, package identity, and training-image verification succeed.
 
-## Isolation from Parallel Work
-
-This change does not modify any file changed by open PR #385 or PR #387. In particular, it does not touch universal instrument artifacts, PostgreSQL universal materialization, universal episode bindings, universal router tests, or the PostgreSQL workflow.
-
-## Non-Goals
-
-- no learner-state dataset aggregation or DAgger;
-- no trend-baseline economic rollout;
-- no BC-versus-no-BC duplicate PPO experiment;
-- no PPO, Lagrangian, reward, execution, episode-boundary, action-head, checkpoint, serving, or live-order change;
-- no modification of an active training generation;
-- no profitability or Production authorization claim.
-
-## Testing Strategy
-
-1. Prove the lower-bound helper is deterministic, one-sided, and accepts negative values.
-2. Prove the episode holdout persists the lower bound and binds it into the artifact digest.
-3. Prove the mandatory gate rejects insufficient episode support.
-4. Prove the mandatory gate rejects a lower bound below the configured floor even when action and trade-collapse checks pass.
-5. Prove backward-compatible defaults preserve legacy single-path behavior.
-6. Prove configuration rejects invalid episode minima and invalid lower-bound floors.
-7. Prove the three maintained target-weight profiles declare the stronger contract.
-8. Run focused tests, Ruff, Ruff format, MyPy, architecture checks, and exact-head repository CI.
+Production remains `NO-GO`.

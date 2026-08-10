@@ -62,9 +62,7 @@ class UniversalInstrumentArtifactBundle:
         if not isinstance(self.catalog, StoredInstrumentCatalog):
             raise TypeError("catalog must be StoredInstrumentCatalog")
         if not isinstance(self.symbol_disjoint_manifest, SymbolDisjointManifest):
-            raise TypeError(
-                "symbol_disjoint_manifest must be SymbolDisjointManifest"
-            )
+            raise TypeError("symbol_disjoint_manifest must be SymbolDisjointManifest")
         if not isinstance(self.partition, UniversalInstrumentPartition):
             raise TypeError("partition must be UniversalInstrumentPartition")
         if self.partition.catalog_digest != self.catalog.digest:
@@ -113,9 +111,7 @@ class UniversalInstrumentArtifactPaths:
             root=resolved,
             stored_instruments=resolved / STORED_INSTRUMENTS_FILENAME,
             symbol_disjoint=resolved / SYMBOL_DISJOINT_FILENAME,
-            universal_partition=(
-                resolved / UNIVERSAL_INSTRUMENT_PARTITION_FILENAME
-            ),
+            universal_partition=(resolved / UNIVERSAL_INSTRUMENT_PARTITION_FILENAME),
         )
 
 
@@ -186,7 +182,9 @@ def load_universal_instrument_artifact_bundle(
             symbol_disjoint_manifest=manifest,
         )
     except _LOAD_ERRORS as error:
-        raise ValueError(f"universal instrument partition is invalid: {error}") from error
+        raise ValueError(
+            f"universal instrument partition is invalid: {error}"
+        ) from error
     return UniversalInstrumentArtifactBundle(
         catalog=catalog,
         symbol_disjoint_manifest=manifest,
@@ -199,9 +197,7 @@ def _existing_bundle_paths(
     expected: UniversalInstrumentArtifactBundle,
 ) -> UniversalInstrumentArtifactPaths:
     if root.is_symlink():
-        raise FileExistsError(
-            "universal instrument artifact root exists as a symlink"
-        )
+        raise FileExistsError("universal instrument artifact root exists as a symlink")
     if not root.is_dir():
         raise FileExistsError(
             "universal instrument artifact root exists and is not a directory"
@@ -256,9 +252,7 @@ def write_universal_instrument_artifact_bundle(
         raise TypeError("bundle must be UniversalInstrumentArtifactBundle")
     output_root = Path(root)
     if output_root.is_symlink():
-        raise FileExistsError(
-            "universal instrument artifact root exists as a symlink"
-        )
+        raise FileExistsError("universal instrument artifact root exists as a symlink")
     if output_root.exists():
         return _existing_bundle_paths(output_root, bundle)
 

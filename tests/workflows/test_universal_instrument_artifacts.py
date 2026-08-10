@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -228,6 +229,48 @@ def test_noncanonical_bytes_are_rejected_even_when_contracts_decode(
         load_universal_instrument_artifact_bundle(root)
     with pytest.raises(FileExistsError, match="partial|different"):
         write_universal_instrument_artifact_bundle(root, bundle)
+
+
+def test_concurrent_exact_publisher_is_reused_and_staging_is_removed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "universal-instruments"
+    bundle = _bundle()
+
+    def publish_exact_winner(source: str | Path, destination: str | Path) -> None:
+        shutil.copytree(source, destination)
+        raise FileExistsError("concurrent publisher won")
+
+    monkeypatch.setattr(artifacts_module.os, "rename", publish_exact_winner)
+
+    paths = write_universal_instrument_artifact_bundle(root, bundle)
+
+    assert paths == UniversalInstrumentArtifactPaths.for_root(root)
+    assert load_universal_instrument_artifact_bundle(root) == bundle
+    assert not tuple(tmp_path.glob(".universal-instruments.staging-*"))
+
+
+def test_concurrent_different_publisher_is_preserved_and_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "universal-instruments"
+    bundle = _bundle()
+
+    def publish_different_winner(source: str | Path, destination: str | Path) -> None:
+        shutil.copytree(source, destination)
+        manifest_path = Path(destination) / SYMBOL_DISJOINT_FILENAME
+        manifest_path.write_text("{}", encoding="utf-8")
+        raise FileExistsError("concurrent publisher won")
+
+    monkeypatch.setattr(artifacts_module.os, "rename", publish_different_winner)
+
+    with pytest.raises(FileExistsError, match="partial|different"):
+        write_universal_instrument_artifact_bundle(root, bundle)
+
+    assert (root / SYMBOL_DISJOINT_FILENAME).read_text(encoding="utf-8") == "{}"
+    assert not tuple(tmp_path.glob(".universal-instruments.staging-*"))
 
 
 def test_partial_extra_and_non_directory_outputs_fail_closed(tmp_path: Path) -> None:

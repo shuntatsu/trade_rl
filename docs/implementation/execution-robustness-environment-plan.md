@@ -25,7 +25,7 @@ Files:
 - Modify `trade_rl/workflows/market_walk_forward_config.py`.
 - Test in `tests/workflows/test_execution_robustness_config.py`.
 
-The maintained scenario type declares fee, spread, impact, slippage, capacity, latency, tail-slippage, and borrow fields. A frozen `ExecutionEnvironmentStress` applies those values to an immutable `ExecutionCostConfig` while retaining the inherited tick, lot, minimum-notional, and adverse-rounding rule stress.
+The maintained scenario type declares fee, spread, impact, slippage, capacity, latency, tail-slippage, and borrow fields. A frozen `ExecutionEnvironmentStress` applies those values to an immutable `ExecutionCostConfig` while retaining the inherited tick, lot, minimum-notional, and adverse-rounding rule stress. Identity-valued extensions retain the legacy `execution_rule_stress_v1` digest, while non-identity extensions use `execution_environment_stress_v1`.
 
 ## Task 2: Apply the stress to both accounting paths
 
@@ -34,7 +34,7 @@ Files:
 - Modify `trade_rl/rl/environment_reward_execution_resources.py`.
 - Extend `tests/rl/test_environment_reward_execution_resources.py`.
 
-Resolve one immutable stressed cost inside `EnvironmentRewardExecutionResourcesBuilder.build()` and pass it to both hybrid and shadow `MarketExecutor` instances. Base `ExecutionRuleStress` objects preserve the original cost object and historical behavior.
+Resolve one immutable stressed cost inside `EnvironmentRewardExecutionResourcesBuilder.build()` and pass it to both hybrid and shadow `MarketExecutor` instances. Base `ExecutionRuleStress` objects and subclasses preserve the original cost object and historical behavior.
 
 ## Task 3: Add a maintained report-only robustness profile
 
@@ -44,7 +44,7 @@ Files:
 - Create `docs/EXECUTION_ROBUSTNESS.md`.
 - Create `tests/examples/test_execution_robustness_profile.py`.
 
-The profile retains the existing three candidate profiles and `joint_2x` required gate, then adds report-only fee/spread, impact, capacity, latency, tail-slippage, borrow, and joint-adverse scenarios.
+The profile is isolated to the gamma-one PPO and gamma-one Lagrangian PPO family, retains the existing `joint_2x` required gate, and adds report-only fee/spread, impact, capacity, latency, tail-slippage, borrow, and joint-adverse scenarios. Discounted continuing profiles remain in their independent workflow.
 
 ## Task 4: Review and full verification
 

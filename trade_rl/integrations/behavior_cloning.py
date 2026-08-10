@@ -198,8 +198,8 @@ def _evaluate_hierarchical(
     gate_total = 0.0
     target_total = 0.0
     composed_total = 0.0
-    weighted_total = 0.0
-    batch_weight = 0
+    active_support = 0
+    event_support = 0
     with torch.no_grad():
         for offset in range(0, len(indices), batch_size):
             batch_indices = indices[offset : offset + batch_size]
@@ -207,7 +207,7 @@ def _evaluate_hierarchical(
                 _observation_batch(dataset, batch_indices, provider=provider),
                 device=device,
             )
-            outputs, gate, target, composed, weighted = _hierarchical_batch_losses(
+            outputs, gate, target, composed, _ = _hierarchical_batch_losses(
                 policy,
                 observations,
                 labels,
@@ -216,17 +216,28 @@ def _evaluate_hierarchical(
                 positive_class_weight=positive_class_weight,
                 device=device,
             )
-            size = len(batch_indices)
-            gate_total += float(gate.detach().cpu()) * size
-            target_total += float(target.detach().cpu()) * size
-            composed_total += float(composed.detach().cpu()) * size
-            weighted_total += float(weighted.detach().cpu()) * size
-            batch_weight += size
+            active = labels.active_mask[batch_indices]
+            events = active & labels.gate_labels[batch_indices]
+            batch_active_support = int(np.count_nonzero(active))
+            batch_event_support = int(np.count_nonzero(events))
+            gate_total += float(gate.detach().cpu()) * batch_active_support
+            target_total += float(target.detach().cpu()) * batch_event_support
+            composed_total += float(composed.detach().cpu()) * batch_active_support
+            active_support += batch_active_support
+            event_support += batch_event_support
             gate_batches.append(outputs.gate_probabilities.detach().cpu().numpy())
             proposal_batches.append(outputs.target_actions.detach().cpu().numpy())
             composed_batches.append(outputs.composed_actions.detach().cpu().numpy())
-    if batch_weight <= 0:
+    if active_support <= 0:
         raise ValueError("hierarchical BC evaluation batch is empty")
+    gate_mean = gate_total / active_support
+    target_mean = 0.0 if event_support == 0 else target_total / event_support
+    composed_mean = composed_total / active_support
+    weighted_mean = (
+        config.gate_loss_weight * gate_mean
+        + config.target_loss_weight * target_mean
+        + config.composed_loss_weight * composed_mean
+    )
     metrics = hierarchical_bc_metrics(
         gate_probabilities=np.concatenate(gate_batches, axis=0),
         proposal_actions=np.concatenate(proposal_batches, axis=0),
@@ -237,10 +248,10 @@ def _evaluate_hierarchical(
     )
     return _HierarchicalEvaluation(
         losses=HierarchicalBehaviorCloningLosses(
-            gate=gate_total / batch_weight,
-            target=target_total / batch_weight,
-            composed=composed_total / batch_weight,
-            weighted=weighted_total / batch_weight,
+            gate=gate_mean,
+            target=target_mean,
+            composed=composed_mean,
+            weighted=weighted_mean,
         ),
         metrics=metrics,
     )
@@ -303,6 +314,23 @@ def _behavior_cloning_indices(
         np.sort(partition), expected_partition
     ):
         raise ValueError("explicit behavior-cloning split must partition the dataset")
+    if hasattr(dataset, "episode_ids"):
+        expected_split = behavior_cloning_split(
+            dataset,
+            validation_fraction=config.validation_fraction,
+        )
+        for name, actual, expected in (
+            ("training", train_indices, expected_split.train_indices),
+            ("validation", validation_indices, expected_split.validation_indices),
+            ("purged", purged_indices, expected_split.purged_indices),
+        ):
+            if not np.array_equal(actual, expected):
+                raise ValueError(
+                    "explicit behavior-cloning split disagrees with "
+                    f"episode-aware {name} split"
+                )
+        return train_indices, validation_indices
+
     expected_validation_count = (
         0
         if config.validation_fraction == 0.0

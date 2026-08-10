@@ -10,7 +10,7 @@ from trade_rl.rl.episode import minimum_reward_start_index
 from trade_rl.rl.rewards import RewardConfig, RewardTracker
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.execution import ExecutionRuleStress
-from trade_rl.simulation.execution_stress import ExecutionEnvironmentStress
+from trade_rl.simulation.execution_stress import apply_execution_environment_stress
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,9 +60,10 @@ class EnvironmentRewardExecutionResourcesBuilder:
                 signal_minimum=minimum_start_index,
                 window_hours=self.reward_config.baseline_window_hours,
             )
-        execution_cost = self.config.execution_cost
-        if isinstance(self.execution_rule_stress, ExecutionEnvironmentStress):
-            execution_cost = self.execution_rule_stress.apply(execution_cost)
+        execution_cost = apply_execution_environment_stress(
+            self.config.execution_cost,
+            self.execution_rule_stress,
+        )
         hybrid_executor = MarketExecutor(
             self.dataset,
             execution_cost,

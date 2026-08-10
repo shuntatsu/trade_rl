@@ -59,62 +59,61 @@
         "tick_size_factor": 3.0
       },
       {
-        "name": "fee_spread_2x",
         "adverse_tick_rounding": false,
-        "report_only": true,
         "fee_multiplier": 2.0,
+        "name": "fee_spread_2x",
+        "report_only": true,
         "spread_multiplier": 2.0
       },
       {
-        "name": "impact_2x",
         "adverse_tick_rounding": false,
-        "report_only": true,
-        "impact_multiplier": 2.0
-      },
-      {
-        "name": "slippage_2x",
-        "adverse_tick_rounding": false,
-        "report_only": true,
-        "slippage_std_multiplier": 2.0
-      },
-      {
-        "name": "capacity_50pct",
-        "adverse_tick_rounding": false,
-        "report_only": true,
-        "participation_fraction": 0.5
-      },
-      {
-        "name": "latency_1bar",
-        "adverse_tick_rounding": false,
-        "report_only": true,
-        "minimum_order_latency_bars": 1
-      },
-      {
-        "name": "tail_slippage",
-        "adverse_tick_rounding": false,
-        "report_only": true,
-        "tail_slippage_probability_floor": 0.01,
-        "tail_slippage_multiplier_floor": 10.0
-      },
-      {
-        "name": "borrow_2x",
-        "adverse_tick_rounding": false,
-        "report_only": true,
-        "borrow_rate_multiplier": 2.0
-      },
-      {
-        "name": "joint_adverse",
-        "adverse_tick_rounding": false,
-        "report_only": true,
-        "fee_multiplier": 2.0,
-        "spread_multiplier": 2.0,
         "impact_multiplier": 2.0,
-        "slippage_std_multiplier": 2.0,
+        "name": "impact_2x",
+        "report_only": true
+      },
+      {
+        "adverse_tick_rounding": false,
+        "name": "capacity_half",
         "participation_fraction": 0.5,
+        "report_only": true
+      },
+      {
+        "adverse_tick_rounding": false,
         "minimum_order_latency_bars": 1,
+        "name": "latency_1bar",
+        "report_only": true
+      },
+      {
+        "adverse_tick_rounding": false,
+        "name": "tail_slippage_adverse",
+        "report_only": true,
+        "slippage_std_floor": 0.0005,
+        "tail_slippage_multiplier_floor": 5.0,
+        "tail_slippage_probability_floor": 0.01
+      },
+      {
+        "adverse_tick_rounding": false,
+        "borrow_rate_multiplier": 2.0,
+        "name": "borrow_2x",
+        "report_only": true
+      },
+      {
+        "adverse_tick_rounding": true,
+        "borrow_rate_multiplier": 2.0,
+        "fee_multiplier": 1.5,
+        "impact_multiplier": 2.0,
+        "lot_size_factor": 2.0,
+        "minimum_notional_factor": 2.0,
+        "minimum_order_latency_bars": 1,
+        "name": "joint_execution_adverse",
+        "participation_fraction": 0.5,
+        "report_only": true,
+        "slippage_std_floor": 0.0005,
+        "slippage_std_multiplier": 2.0,
+        "spread_multiplier": 2.0,
+        "tail_slippage_multiplier_floor": 5.0,
         "tail_slippage_probability_floor": 0.01,
-        "tail_slippage_multiplier_floor": 10.0,
-        "borrow_rate_multiplier": 2.0
+        "tick_size_factor": 2.0
       }
     ],
     "schema_version": "execution_sensitivity_config_v1"

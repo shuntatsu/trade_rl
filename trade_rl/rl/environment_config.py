@@ -222,8 +222,7 @@ class ResidualMarketEnvConfig:
     @property
     def time_limit_terminates(self) -> bool:
         return (
-            self.episode_boundary_mode
-            is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+            self.episode_boundary_mode is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
         )
 
     @property

@@ -45,8 +45,10 @@ jobs:
               raise RuntimeError("episode teacher globals anchor changed")
           text = text.replace(old_globals, new_globals, 1)
 
-          start = text.index("def _collect_isolated_episode(")
-          end = text.index("\ndef collect_episode_teacher_rollout_parallel(", start)
+          helper_start = text.index("def _collect_isolated_episode(")
+          helper_end = text.index(
+              "\ndef collect_episode_teacher_rollout_parallel(", helper_start
+          )
           helpers = '''def _collect_episode_with_environment(
               environment: TeacherRolloutEnvironment,
               batch: EpisodeOracleBatch,
@@ -136,51 +138,13 @@ jobs:
 
 
           '''
-          text = text[:start] + helpers + text[end + 1 :]
+          text = text[:helper_start] + helpers + text[helper_end + 1 :]
 
-          old_parallel = '''    if pending_items and "fork" in mp.get_all_start_methods():
-              global _FORK_EPISODE_BATCH
-              global _FORK_EPISODE_ENVIRONMENT_FACTORY
-              global _FORK_EPISODE_TEACHER_DIGEST
-              _FORK_EPISODE_BATCH = batch
-              _FORK_EPISODE_ENVIRONMENT_FACTORY = environment_factory
-              _FORK_EPISODE_TEACHER_DIGEST = teacher_config_digest
-              try:
-                  context = mp.get_context("fork")
-                  with context.Pool(
-                      processes=worker_count,
-                      maxtasksperchild=1,
-                  ) as pool:
-                      for value in pool.imap(
-                          _collect_forked_episode,
-                          pending_items,
-                          chunksize=1,
-                      ):
-                          persist(value)
-              finally:
-                  _FORK_EPISODE_BATCH = None
-                  _FORK_EPISODE_ENVIRONMENT_FACTORY = None
-                  _FORK_EPISODE_TEACHER_DIGEST = None
-          elif pending_items:
-
-              def collect_one(
-                  item: tuple[OracleEpisodeContract, np.ndarray],
-              ) -> tuple[EpisodeSupervisedPolicyDataset, int]:
-                  return _collect_isolated_episode(
-                      environment_factory,
-                      batch,
-                      teacher_config_digest,
-                      item,
-                  )
-
-              with ThreadPoolExecutor(
-                  max_workers=worker_count,
-                  thread_name_prefix="teacher-rollout",
-              ) as executor:
-                  for value in executor.map(collect_one, pending_items):
-                      persist(value)
-          '''
-          new_parallel = '''    if pending_items:
+          parallel_start = text.index(
+              '    if pending_items and "fork" in mp.get_all_start_methods():'
+          )
+          parallel_end = text.index("    collected = tuple(", parallel_start)
+          parallel = '''    if pending_items:
               pending_worker_count = min(worker_count, len(pending_items))
               pending_chunks = _episode_item_chunks(
                   tuple(pending_items),
@@ -234,9 +198,7 @@ jobs:
                       for value in values:
                           persist(value)
           '''
-          if text.count(old_parallel) != 1:
-              raise RuntimeError("episode teacher parallel anchor changed")
-          text = text.replace(old_parallel, new_parallel, 1)
+          text = text[:parallel_start] + parallel + text[parallel_end:]
           path.write_text(text, encoding="utf-8")
           PY
 

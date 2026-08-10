@@ -3,15 +3,12 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG_MODULE = ROOT / "trade_rl" / "catalog" / "stored_instrument_catalog.py"
 LEGACY_WORKFLOW_MODULE = (
     ROOT / "trade_rl" / "workflows" / "stored_instrument_catalog.py"
 )
-PARTITION_MODULE = (
-    ROOT / "trade_rl" / "workflows" / "universal_instrument_partition.py"
-)
+PARTITION_MODULE = ROOT / "trade_rl" / "workflows" / "universal_instrument_partition.py"
 
 
 def _imports(path: Path) -> set[str]:

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.workflows.stored_instrument_catalog import (
+from trade_rl.catalog.stored_instrument_catalog import (
     StoredIndicatorArtifactEvidence,
     StoredIndicatorSourceInventory,
     build_stored_instrument_catalog,

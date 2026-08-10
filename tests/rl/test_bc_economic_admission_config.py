@@ -53,3 +53,26 @@ def test_config_defaults_preserve_legacy_bc_admission_contract() -> None:
 
     assert resolved.behavior_cloning_min_causal_holdout_episodes == 1
     assert resolved.behavior_cloning_min_causal_holdout_net_return_lower_bound == -1.0
+
+
+def test_default_economic_admission_fields_preserve_legacy_digest_payload() -> None:
+    payload = _config().digest_payload()
+
+    assert "behavior_cloning_min_causal_holdout_episodes" not in payload
+    assert (
+        "behavior_cloning_min_causal_holdout_net_return_lower_bound" not in payload
+    )
+
+
+def test_nondefault_economic_admission_fields_are_identity_bound() -> None:
+    payload = _config(
+        behavior_cloning_epochs=1,
+        behavior_cloning_min_causal_holdout_episodes=5,
+        behavior_cloning_min_causal_holdout_net_return_lower_bound=-0.05,
+    ).digest_payload()
+
+    assert payload["behavior_cloning_min_causal_holdout_episodes"] == 5
+    assert (
+        payload["behavior_cloning_min_causal_holdout_net_return_lower_bound"]
+        == -0.05
+    )

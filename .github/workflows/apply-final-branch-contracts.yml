@@ -4,46 +4,149 @@ on:
   push:
     branches:
       - agent/consolidate-open-work-2026-08-10
-    paths:
-      - .github/workflows/apply-final-branch-contracts.yml
 
 permissions:
   contents: write
 
+concurrency:
+  group: finalize-consolidation-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  patch:
+  finalize:
+    name: Merge verified execution tip and repair BC split
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - name: Checkout reconciled branch head and all histories
+      - name: Checkout exact consolidation head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: agent/consolidate-open-work-2026-08-10
           fetch-depth: 0
 
-      - name: Verify pinned source tips are integrated
-        shell: bash
-        run: |
-          git merge-base --is-ancestor e7a68eca47b86fb7dc6698e611c4c0874792f574 HEAD
-          git merge-base --is-ancestor b04e109d45370732a04f57e7125b72766fe94f7a HEAD
-          git merge-base --is-ancestor 0ad2440eeaa5895ed55501a9c77d4a822cd07659 HEAD
-
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
-          python-version: '3.12'
+          python-version: "3.12"
           enable-cache: true
 
-      - name: Install test dependencies
+      - name: Install focused test dependencies
         run: uv sync --extra dev --extra train-sb3
 
-      - name: Run reconciled RED-GREEN patch and focused verification
-        run: uv run python scripts/apply_final_branch_contracts.py
-
-      - name: Commit verified contracts and remove temporary files
+      - name: Confirm the BC regression is RED
         shell: bash
         run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q \
+            tests/integrations/test_sb3_training.py::test_backend_runs_oracle_behavior_cloning_before_ppo \
+            > bc-red.log 2>&1
+          status=$?
+          set -e
+          cat bc-red.log
+          test "$status" -ne 0
+          grep -q "explicit behavior-cloning split disagrees with validation_fraction" bc-red.log
+
+      - name: Merge the exact verified execution branch tip
+        shell: bash
+        env:
+          EXECUTION_TIP: e2c9e11d4d5509c7ea8fe6b18f799f0007bdf819
+        run: |
+          set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin agent/execution-robustness-environment
+          git merge-base --is-ancestor "$EXECUTION_TIP" origin/agent/execution-robustness-environment
+
+          set +e
+          git merge --no-commit --no-ff "$EXECUTION_TIP"
+          merge_status=$?
+          set -e
+
+          allowed_conflicts=(
+            docs/EXECUTION_ROBUSTNESS.md
+            docs/implementation/execution-robustness-environment-plan.md
+            examples/binance-multitimeframe/walk-forward-target-weight-execution-robustness.json
+            tests/examples/test_execution_robustness_profile.py
+            tests/workflows/test_execution_robustness_config.py
+            trade_rl/rl/environment_reward_execution_resources.py
+            trade_rl/simulation/execution_stress.py
+            trade_rl/workflows/market_walk_forward_config.py
+          )
+
+          if test "$merge_status" -ne 0; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            test "${#conflicts[@]}" -gt 0
+            for conflict in "${conflicts[@]}"; do
+              allowed=false
+              for path in "${allowed_conflicts[@]}"; do
+                if test "$conflict" = "$path"; then
+                  allowed=true
+                  break
+                fi
+              done
+              if test "$allowed" != true; then
+                echo "unexpected merge conflict: $conflict" >&2
+                exit 1
+              fi
+            done
+          fi
+
+          git checkout "$EXECUTION_TIP" -- "${allowed_conflicts[@]}"
+          git add "${allowed_conflicts[@]}"
+          test -z "$(git diff --name-only --diff-filter=U)"
+
+      - name: Apply the episode-aware explicit split contract
+        run: uv run python scripts/apply_final_branch_contracts.py
+
+      - name: Verify focused BC and execution contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/rl/environment_reward_execution_resources.py \
+            trade_rl/simulation/execution_stress.py \
+            trade_rl/workflows/market_walk_forward_config.py \
+            tests/learning/test_hierarchical_behavior_cloning_evaluation.py \
+            tests/workflows/test_execution_robustness_config.py \
+            tests/rl/test_environment_reward_execution_resources.py \
+            tests/examples/test_execution_robustness_profile.py
+          uv run ruff format --check \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/rl/environment_reward_execution_resources.py \
+            trade_rl/simulation/execution_stress.py \
+            trade_rl/workflows/market_walk_forward_config.py \
+            tests/learning/test_hierarchical_behavior_cloning_evaluation.py \
+            tests/workflows/test_execution_robustness_config.py \
+            tests/rl/test_environment_reward_execution_resources.py \
+            tests/examples/test_execution_robustness_profile.py
+          uv run mypy \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/rl/environment_reward_execution_resources.py \
+            trade_rl/simulation/execution_stress.py \
+            trade_rl/workflows/market_walk_forward_config.py
+          uv run pytest -q \
+            tests/learning/test_hierarchical_behavior_cloning_evaluation.py \
+            tests/learning/test_behavior_cloning.py \
+            tests/learning/test_behavior_cloning_episode_training.py \
+            tests/learning/test_behavior_cloning_temporal_split.py \
+            tests/integrations/test_sb3_training.py \
+            tests/workflows/test_execution_robustness_config.py \
+            tests/simulation/test_execution_environment_stress.py \
+            tests/rl/test_environment_reward_execution_resources.py \
+            tests/examples/test_execution_robustness_profile.py \
+            tests/simulation/test_execution_sensitivity.py \
+            tests/evaluation/test_execution_sensitivity_matrix.py
+
+      - name: Commit the verified merge and remove temporary machinery
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/apply-final-branch-contracts.yml
+          rm -f scripts/apply_final_branch_contracts.py
+          rm -f bc-red.log
           git add -A
-          git commit -m 'fix: reconcile final BC and execution contracts'
+          git diff --cached --check
+          git commit -m 'merge: consolidate BC and execution robustness'
           git push origin HEAD:refs/heads/agent/consolidate-open-work-2026-08-10

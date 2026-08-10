@@ -42,9 +42,12 @@ def test_default_full_research_uses_target_weight_growth_catalog() -> None:
     assert "_DEFAULT_WALK_FORWARD_TEMPLATE" in namespace
     template = namespace["_DEFAULT_WALK_FORWARD_TEMPLATE"]
     assert isinstance(template, Path)
-    assert template == (
-        EXAMPLE_ROOT / "walk-forward-target-weight-constrained-growth.json"
-    ).resolve()
+    assert (
+        template
+        == (
+            EXAMPLE_ROOT / "walk-forward-target-weight-constrained-growth.json"
+        ).resolve()
+    )
     assert _candidate_rows(template) == EXPECTED_DEFAULT_CANDIDATES
 
 
@@ -56,7 +59,10 @@ def test_training_full_is_available_only_through_explicit_template_selection() -
     assert "training-full.json" not in {
         run_file for _, run_file in _candidate_rows(template)
     }
-    assert example_template(
-        "training-full.json",
-        field="training template",
-    ) == (EXAMPLE_ROOT / "training-full.json").resolve()
+    assert (
+        example_template(
+            "training-full.json",
+            field="training template",
+        )
+        == (EXAMPLE_ROOT / "training-full.json").resolve()
+    )

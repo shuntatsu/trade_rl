@@ -67,3 +67,33 @@ def test_hybrid_failure_takes_precedence_when_both_books_fail() -> None:
     assert transition.terminated is True
     assert transition.truncated is False
     assert transition.reason == EconomicTerminationReason.MARGIN_CALL.value
+
+
+def test_external_time_limit_remains_a_truncation() -> None:
+    transition = classify_economic_transition(
+        hybrid=_book(),
+        shadow=_book(),
+        time_limit_reached=True,
+        liquidation_terminal=False,
+        liquidation_complete=True,
+        time_limit_terminates=False,
+    )
+
+    assert transition.terminated is False
+    assert transition.truncated is True
+    assert transition.reason is None
+
+
+def test_intrinsic_finite_horizon_is_a_true_termination() -> None:
+    transition = classify_economic_transition(
+        hybrid=_book(),
+        shadow=_book(),
+        time_limit_reached=True,
+        liquidation_terminal=False,
+        liquidation_complete=True,
+        time_limit_terminates=True,
+    )
+
+    assert transition.terminated is True
+    assert transition.truncated is False
+    assert transition.reason == "finite_horizon"

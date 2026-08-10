@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.rl.environment_config import EpisodeBoundaryMode
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
 
@@ -14,13 +13,8 @@ EXAMPLE_ROOT = ROOT / "examples" / "binance-multitimeframe"
 def _assert_growth_optimal_contract(config: TrainingRunConfig) -> None:
     assert config.training.gamma == pytest.approx(1.0)
     assert config.training.discount_half_life_hours is None
-    assert (
-        config.environment.episode_boundary_mode
-        is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
-    )
     assert config.environment.finite_horizon_observation is True
     assert config.environment.episode_hours == pytest.approx(720.0)
-    assert config.environment.liquidate_on_end is False
     assert config.reward.absolute_growth_weight == pytest.approx(1.0)
     assert config.reward.excess_growth_weight == pytest.approx(0.0)
     assert config.reward.incremental_drawdown_weight == pytest.approx(0.0)
@@ -55,14 +49,12 @@ def test_growth_optimal_walk_forward_profile_uses_same_objective() -> None:
     assert config.execution_sensitivity.required_scenario == "joint_2x"
 
 
-def test_growth_optimal_walk_forward_references_standalone_profile() -> None:
+def test_growth_optimal_walk_forward_candidate_matches_standalone_profile() -> None:
+    standalone = json.loads(
+        (EXAMPLE_ROOT / "training-growth-optimal.json").read_text(encoding="utf-8")
+    )
     walk_forward = json.loads(
         (EXAMPLE_ROOT / "walk-forward-growth-optimal.json").read_text(encoding="utf-8")
     )
 
-    assert walk_forward["candidates"] == [
-        {
-            "name": "growth-optimal-ppo-15m",
-            "run_file": "training-growth-optimal.json",
-        }
-    ]
+    assert walk_forward["candidates"][0]["run"] == standalone

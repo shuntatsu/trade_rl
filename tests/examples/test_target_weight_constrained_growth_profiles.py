@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from trade_rl.rl.algorithm_configs import LagrangianPPOConfig, build_algorithm_config
-from trade_rl.rl.environment_config import EpisodeBoundaryMode
 from trade_rl.rl.environment_constraints import CONSTRAINT_COST_NAMES
 from trade_rl.workflows.market_walk_forward_config import MarketWalkForwardConfig
 from trade_rl.workflows.training_run import TrainingRunConfig
@@ -18,9 +17,6 @@ PPO = "training-target-weight-growth-ppo.json"
 LAGRANGIAN = "training-target-weight-constrained-growth.json"
 DISCOUNTED = "training-target-weight-constrained-growth-discounted.json"
 WALK_FORWARD = "walk-forward-target-weight-constrained-growth.json"
-DISCOUNTED_WALK_FORWARD = (
-    "walk-forward-target-weight-constrained-growth-discounted.json"
-)
 
 EXPECTED_BUDGETS = (0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.03)
 EXPECTED_DUAL_LEARNING_RATES = (0.001, 0.01, 0.001, 0.01, 0.001, 0.001, 0.001)
@@ -28,8 +24,8 @@ EXPECTED_MINIMUM_SUPPORT = (1, 20, 1, 20, 1, 1, 1)
 EXPECTED_NAMES = (
     "target-weight-growth-gamma-one-ppo",
     "target-weight-constrained-growth-gamma-one",
+    "target-weight-constrained-growth-discounted-168h",
 )
-DISCOUNTED_NAME = "target-weight-constrained-growth-discounted-168h"
 
 
 def _load(name: str) -> TrainingRunConfig:
@@ -46,6 +42,7 @@ def _common_contract(
     assert config.action.risk_tilt_enabled is False
     assert config.reward.is_pure_net_log_growth() is True
     assert config.environment.episode_hours == pytest.approx(720.0)
+    assert config.environment.finite_horizon_observation is False
     assert config.environment.liquidate_on_end is False
     assert config.risk.max_abs_weight == pytest.approx(1.0)
     assert config.portfolio_risk.max_abs_weight == pytest.approx(1.0)
@@ -75,32 +72,12 @@ def _common_contract(
     assert training.vector_environment_mode == "subprocess"
 
 
-def _assert_finite_horizon(config: TrainingRunConfig) -> None:
-    assert (
-        config.environment.episode_boundary_mode
-        is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
-    )
-    assert config.environment.finite_horizon_observation is True
-
-
-def _assert_external_truncation(config: TrainingRunConfig) -> None:
-    assert (
-        config.environment.episode_boundary_mode
-        is EpisodeBoundaryMode.EXTERNAL_TRUNCATION
-    )
-    assert config.environment.finite_horizon_observation is False
-
-
 def _without_discount(payload: dict[str, object]) -> dict[str, object]:
     resolved = deepcopy(payload)
     training = resolved["training"]
-    environment = resolved["environment"]
     assert isinstance(training, dict)
-    assert isinstance(environment, dict)
     training.pop("gamma", None)
     training.pop("discount_half_life_hours", None)
-    environment.pop("episode_boundary_mode", None)
-    environment.pop("finite_horizon_observation", None)
     return resolved
 
 
@@ -124,7 +101,6 @@ def test_target_weight_growth_ppo_is_gamma_one_control() -> None:
     config = _load(PPO)
 
     _common_contract(config)
-    _assert_finite_horizon(config)
     assert config.training.algorithm == "ppo"
     assert config.training.gamma == pytest.approx(1.0)
     assert config.training.discount_half_life_hours is None
@@ -135,7 +111,6 @@ def test_target_weight_lagrangian_uses_same_growth_recipe_and_all_costs() -> Non
     constrained = _load(LAGRANGIAN)
 
     _common_contract(constrained)
-    _assert_finite_horizon(constrained)
     assert constrained.action == ppo.action
     assert constrained.environment == ppo.environment
     assert constrained.risk == ppo.risk
@@ -163,12 +138,11 @@ def test_target_weight_lagrangian_uses_same_growth_recipe_and_all_costs() -> Non
     assert algorithm.lagrangian_schema.names == CONSTRAINT_COST_NAMES
 
 
-def test_discounted_profile_changes_only_real_time_discount_and_boundary() -> None:
+def test_discounted_profile_changes_only_real_time_discount() -> None:
     canonical = _load(LAGRANGIAN)
     discounted = _load(DISCOUNTED)
 
     _common_contract(discounted)
-    _assert_external_truncation(discounted)
     assert discounted.training.algorithm == "lagrangian_ppo"
     assert discounted.training.gamma == pytest.approx(0.998969062762624)
     assert discounted.training.discount_half_life_hours == pytest.approx(168.0)
@@ -177,7 +151,7 @@ def test_discounted_profile_changes_only_real_time_discount_and_boundary() -> No
     )
 
 
-def test_gamma_one_walk_forward_references_common_horizon_profiles() -> None:
+def test_walk_forward_references_canonical_standalone_profiles() -> None:
     config = MarketWalkForwardConfig.from_json(
         EXAMPLE_ROOT / WALK_FORWARD,
         n_bars=55_392,
@@ -187,6 +161,7 @@ def test_gamma_one_walk_forward_references_common_horizon_profiles() -> None:
     standalone = {
         EXPECTED_NAMES[0]: _load(PPO),
         EXPECTED_NAMES[1]: _load(LAGRANGIAN),
+        EXPECTED_NAMES[2]: _load(DISCOUNTED),
     }
     for candidate in config.candidates:
         assert (
@@ -225,22 +200,6 @@ def test_gamma_one_walk_forward_references_common_horizon_profiles() -> None:
     assert config.workflow.max_folds == 6
     assert config.workflow.selection_bars == 2_880
     assert config.workflow.test_bars == 2_880
-
-
-def test_discounted_walk_forward_is_a_separate_ablation() -> None:
-    config = MarketWalkForwardConfig.from_json(
-        EXAMPLE_ROOT / DISCOUNTED_WALK_FORWARD,
-        n_bars=55_392,
-    )
-
-    assert tuple(candidate.name for candidate in config.candidates) == (
-        DISCOUNTED_NAME,
-    )
-    assert (
-        config.candidates[0].run.candidate_digest_payload()
-        == _load(DISCOUNTED).candidate_digest_payload()
-    )
-    _assert_external_truncation(config.candidates[0].run)
 
 
 def test_walk_forward_resolves_run_files_from_a_relative_config_path(

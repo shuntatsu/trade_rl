@@ -98,6 +98,7 @@ class EnvironmentStepInfoRequest:
     submitted_target: np.ndarray
     executed_target: np.ndarray
     hybrid: BookState
+    shadow: BookState
     reward_breakdown: RewardBreakdown
     hybrid_execution: ExecutionInfo
     hybrid_risk: RiskInfo
@@ -408,7 +409,10 @@ class EnvironmentInfoBuilder:
             "sampled_policy_to_filled_l1": action_path.policy_to_filled_l1,
             "drawdown_after": self.drawdown(request.hybrid),
             "portfolio_value_after": request.hybrid.portfolio_value,
+            "baseline_portfolio_value_after": request.shadow.portfolio_value,
             "reward_growth_raw": reward.absolute_log_growth,
+            "reward_absolute_component": reward.absolute_component,
+            "reward_excess_component": reward.excess_component,
             "reward_baseline_penalty_delta": (
                 0.0
                 if baseline_weight == 0.0
@@ -417,6 +421,9 @@ class EnvironmentInfoBuilder:
             "reward_baseline_penalty_weighted": reward.baseline_penalty,
             "reward_drawdown_penalty_delta": reward.incremental_drawdown,
             "reward_drawdown_penalty_weighted": reward.drawdown_penalty,
+            "reward_projection_penalty_weighted": reward.projection_penalty,
+            "reward_terminal_penalty_weighted": reward.terminal_penalty,
+            "reward_margin_penalty_weighted": reward.margin_penalty,
             "reward_total_raw": reward.unscaled_total,
             "reward_total_scaled": reward.scaled_total,
             "reward_context_before": before,

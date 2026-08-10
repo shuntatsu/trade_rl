@@ -155,6 +155,31 @@ def test_unchanged_status_and_scalars_share_one_loaded_snapshot(tmp_path: Path) 
     assert factory.scalar_reads[(path.resolve(), "train/learning_rate")] == 1
 
 
+def test_reward_components_are_allowlisted_for_intermediate_audit(
+    tmp_path: Path,
+) -> None:
+    path = _event_file(tmp_path, run_id="run-reward-components")
+    tag = "trade_rl/reward_absolute_component_mean"
+    _write_scalar(path, step=100, value=0.002, tag=tag)
+    factory = _AccumulatorFactory()
+    reader = _reader(tmp_path, factory)
+    job = _job("run-reward-components")
+
+    status = reader.status(job, seed=3)
+    page = reader.scalars(
+        job,
+        seed=3,
+        tags=(tag,),
+        after_step=0,
+        limit=512,
+        generation=status.generation,
+    )
+
+    assert tag in status.available_tags
+    assert page.series[0].display_name == "Mean absolute reward component"
+    assert page.series[0].points[0].value == pytest.approx(0.002)
+
+
 def test_append_reloads_once_and_preserves_generation(tmp_path: Path) -> None:
     path = _event_file(tmp_path, run_id="run-append")
     _write_scalar(path, step=100, value=1.2e-4)

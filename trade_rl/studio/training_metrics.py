@@ -37,8 +37,51 @@ _METRICS: dict[str, tuple[str, MetricGroup, MetricUnit]] = {
     "train/explained_variance": ("Explained variance", "value", "raw"),
     "trade_rl/reward_mean": ("Mean reward", "trading", "raw"),
     "trade_rl/portfolio_value_mean": ("Mean portfolio value", "trading", "currency"),
+    "trade_rl/baseline_portfolio_value_mean": (
+        "Mean baseline portfolio value",
+        "trading",
+        "currency",
+    ),
     "trade_rl/drawdown_mean": ("Mean drawdown", "trading", "percent"),
     "trade_rl/interval_cost_mean": ("Mean interval cost", "trading", "currency"),
+    "trade_rl/reward_growth_raw_mean": ("Mean raw reward growth", "trading", "raw"),
+    "trade_rl/reward_absolute_component_mean": (
+        "Mean absolute reward component",
+        "trading",
+        "raw",
+    ),
+    "trade_rl/reward_excess_component_mean": (
+        "Mean excess reward component",
+        "trading",
+        "raw",
+    ),
+    "trade_rl/reward_baseline_penalty_weighted_mean": (
+        "Mean baseline reward penalty",
+        "trading",
+        "raw",
+    ),
+    "trade_rl/reward_drawdown_penalty_weighted_mean": (
+        "Mean drawdown reward penalty",
+        "trading",
+        "raw",
+    ),
+    "trade_rl/reward_projection_penalty_weighted_mean": (
+        "Mean projection reward penalty",
+        "trading",
+        "raw",
+    ),
+    "trade_rl/reward_terminal_penalty_weighted_mean": (
+        "Mean terminal reward penalty",
+        "trading",
+        "raw",
+    ),
+    "trade_rl/reward_margin_penalty_weighted_mean": (
+        "Mean margin reward penalty",
+        "trading",
+        "raw",
+    ),
+    "trade_rl/reward_total_raw_mean": ("Mean raw total reward", "trading", "raw"),
+    "trade_rl/rolling_growth_gap_mean": ("Mean rolling growth gap", "trading", "raw"),
     "trade_rl/action_abs_mean": ("Mean absolute action", "trading", "raw"),
     "trade_rl/action_abs_max": ("Maximum absolute action", "trading", "raw"),
 }

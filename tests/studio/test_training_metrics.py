@@ -44,6 +44,7 @@ def _write_events(tmp_path: Path, *, seed: int = 3, suffix: str = "") -> Path:
     writer.add_scalar("train/learning_rate", 1.2e-4, 100)
     writer.add_scalar("train/learning_rate", 1.0e-4, 200)
     writer.add_scalar("train/approx_kl", 0.01, 200)
+    writer.add_scalar("trade_rl/reward_absolute_component_mean", 0.002, 200)
     writer.add_scalar("secret/internal", 999.0, 200)
     writer.close()
     return run
@@ -67,6 +68,7 @@ def test_reader_returns_only_allowlisted_sorted_scalars(tmp_path: Path) -> None:
     assert status.available
     assert status.available_seeds == (3,)
     assert "secret/internal" not in status.available_tags
+    assert "trade_rl/reward_absolute_component_mean" in status.available_tags
     assert [point.step for point in page.series[0].points] == [100, 200]
     assert page.next_step == 200
 

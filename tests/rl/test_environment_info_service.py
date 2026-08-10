@@ -120,6 +120,7 @@ def _step_request(**overrides: object) -> EnvironmentStepInfoRequest:
         "submitted_target": np.array([0.4, -0.2]),
         "executed_target": np.array([0.1, -0.1]),
         "hybrid": _book(cash=95.0),
+        "shadow": _book(cash=102.0),
         "reward_breakdown": _reward(),
         "hybrid_execution": _execution(),
         "hybrid_risk": SimpleNamespace(projection_l1=0.4),
@@ -165,11 +166,17 @@ def test_step_info_preserves_complete_stable_key_set() -> None:
         "sampled_policy_to_filled_l1",
         "drawdown_after",
         "portfolio_value_after",
+        "baseline_portfolio_value_after",
         "reward_growth_raw",
+        "reward_absolute_component",
+        "reward_excess_component",
         "reward_baseline_penalty_delta",
         "reward_baseline_penalty_weighted",
         "reward_drawdown_penalty_delta",
         "reward_drawdown_penalty_weighted",
+        "reward_projection_penalty_weighted",
+        "reward_terminal_penalty_weighted",
+        "reward_margin_penalty_weighted",
         "reward_total_raw",
         "reward_total_scaled",
         "reward_context_before",
@@ -227,6 +234,12 @@ def test_step_info_preserves_complete_stable_key_set() -> None:
         "constraint_cost_execution_fraction",
         "constraint_cost_funding_credit_fraction",
     }
+    assert info["baseline_portfolio_value_after"] == pytest.approx(102.0)
+    assert info["reward_absolute_component"] == pytest.approx(0.02)
+    assert info["reward_excess_component"] == pytest.approx(0.0)
+    assert info["reward_projection_penalty_weighted"] == pytest.approx(0.0)
+    assert info["reward_terminal_penalty_weighted"] == pytest.approx(0.0)
+    assert info["reward_margin_penalty_weighted"] == pytest.approx(0.0)
     assert info["reward_baseline_penalty_delta"] == 0.02
     assert info["rolling_growth_gap"] == pytest.approx(0.005)
 

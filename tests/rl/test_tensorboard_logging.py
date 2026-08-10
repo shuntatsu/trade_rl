@@ -29,13 +29,35 @@ def test_tensorboard_callback_aggregates_finite_rollout_metrics() -> None:
         "infos": [
             {
                 "portfolio_value_after": 101.0,
+                "baseline_portfolio_value_after": 104.0,
                 "drawdown_after": 0.1,
                 "interval_cost": 0.5,
+                "reward_growth_raw": 0.01,
+                "reward_absolute_component": 0.01,
+                "reward_excess_component": -0.001,
+                "reward_baseline_penalty_weighted": 0.002,
+                "reward_drawdown_penalty_weighted": 0.003,
+                "reward_projection_penalty_weighted": 0.004,
+                "reward_terminal_penalty_weighted": 0.005,
+                "reward_margin_penalty_weighted": 0.006,
+                "reward_total_raw": -0.011,
+                "rolling_growth_gap": -0.02,
             },
             {
                 "portfolio_value_after": 103.0,
+                "baseline_portfolio_value_after": 106.0,
                 "drawdown_after": 0.2,
                 "interval_cost": 0.7,
+                "reward_growth_raw": 0.03,
+                "reward_absolute_component": 0.03,
+                "reward_excess_component": 0.001,
+                "reward_baseline_penalty_weighted": 0.004,
+                "reward_drawdown_penalty_weighted": 0.005,
+                "reward_projection_penalty_weighted": 0.006,
+                "reward_terminal_penalty_weighted": 0.007,
+                "reward_margin_penalty_weighted": 0.008,
+                "reward_total_raw": 0.001,
+                "rolling_growth_gap": 0.02,
             },
         ],
     }
@@ -43,8 +65,35 @@ def test_tensorboard_callback_aggregates_finite_rollout_metrics() -> None:
     callback._on_rollout_end()
     assert logger.values["trade_rl/reward_mean"] == pytest.approx(2.0)
     assert logger.values["trade_rl/portfolio_value_mean"] == pytest.approx(102.0)
+    assert logger.values["trade_rl/baseline_portfolio_value_mean"] == pytest.approx(
+        105.0
+    )
     assert logger.values["trade_rl/drawdown_mean"] == pytest.approx(0.15)
     assert logger.values["trade_rl/interval_cost_mean"] == pytest.approx(0.6)
+    assert logger.values["trade_rl/reward_growth_raw_mean"] == pytest.approx(0.02)
+    assert logger.values["trade_rl/reward_absolute_component_mean"] == pytest.approx(
+        0.02
+    )
+    assert logger.values["trade_rl/reward_excess_component_mean"] == pytest.approx(
+        0.0
+    )
+    assert logger.values[
+        "trade_rl/reward_baseline_penalty_weighted_mean"
+    ] == pytest.approx(0.003)
+    assert logger.values[
+        "trade_rl/reward_drawdown_penalty_weighted_mean"
+    ] == pytest.approx(0.004)
+    assert logger.values[
+        "trade_rl/reward_projection_penalty_weighted_mean"
+    ] == pytest.approx(0.005)
+    assert logger.values[
+        "trade_rl/reward_terminal_penalty_weighted_mean"
+    ] == pytest.approx(0.006)
+    assert logger.values[
+        "trade_rl/reward_margin_penalty_weighted_mean"
+    ] == pytest.approx(0.007)
+    assert logger.values["trade_rl/reward_total_raw_mean"] == pytest.approx(-0.005)
+    assert logger.values["trade_rl/rolling_growth_gap_mean"] == pytest.approx(0.0)
     assert logger.values["trade_rl/action_abs_mean"] == pytest.approx(0.5)
     assert logger.values["trade_rl/action_abs_max"] == pytest.approx(0.75)
 

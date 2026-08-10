@@ -1126,6 +1126,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 submitted_target=decision.submitted_hybrid_target,
                 executed_target=decision.executed_hybrid_target,
                 hybrid=self.hybrid,
+                shadow=self.shadow,
                 reward_breakdown=reward_breakdown,
                 hybrid_execution=hybrid_execution,
                 hybrid_risk=hybrid_risk,

@@ -15,8 +15,19 @@ if TYPE_CHECKING:
 _TAGS = (
     "trade_rl/reward_mean",
     "trade_rl/portfolio_value_mean",
+    "trade_rl/baseline_portfolio_value_mean",
     "trade_rl/drawdown_mean",
     "trade_rl/interval_cost_mean",
+    "trade_rl/reward_growth_raw_mean",
+    "trade_rl/reward_absolute_component_mean",
+    "trade_rl/reward_excess_component_mean",
+    "trade_rl/reward_baseline_penalty_weighted_mean",
+    "trade_rl/reward_drawdown_penalty_weighted_mean",
+    "trade_rl/reward_projection_penalty_weighted_mean",
+    "trade_rl/reward_terminal_penalty_weighted_mean",
+    "trade_rl/reward_margin_penalty_weighted_mean",
+    "trade_rl/reward_total_raw_mean",
+    "trade_rl/rolling_growth_gap_mean",
     "trade_rl/action_abs_mean",
     "trade_rl/action_abs_max",
     "trade_rl/change_intensity_mean",
@@ -32,6 +43,32 @@ _ACTION_STAGE_TAGS = {
     "sampled_change_l1": "trade_rl/sampled_change_l1_mean",
     "submission_l1": "trade_rl/submission_l1_mean",
     "effective_action_l1": "trade_rl/effective_action_l1_mean",
+}
+_INFO_MEAN_TAGS = {
+    "trade_rl/portfolio_value_mean": "portfolio_value_after",
+    "trade_rl/baseline_portfolio_value_mean": "baseline_portfolio_value_after",
+    "trade_rl/drawdown_mean": "drawdown_after",
+    "trade_rl/interval_cost_mean": "interval_cost",
+    "trade_rl/reward_growth_raw_mean": "reward_growth_raw",
+    "trade_rl/reward_absolute_component_mean": "reward_absolute_component",
+    "trade_rl/reward_excess_component_mean": "reward_excess_component",
+    "trade_rl/reward_baseline_penalty_weighted_mean": (
+        "reward_baseline_penalty_weighted"
+    ),
+    "trade_rl/reward_drawdown_penalty_weighted_mean": (
+        "reward_drawdown_penalty_weighted"
+    ),
+    "trade_rl/reward_projection_penalty_weighted_mean": (
+        "reward_projection_penalty_weighted"
+    ),
+    "trade_rl/reward_terminal_penalty_weighted_mean": (
+        "reward_terminal_penalty_weighted"
+    ),
+    "trade_rl/reward_margin_penalty_weighted_mean": (
+        "reward_margin_penalty_weighted"
+    ),
+    "trade_rl/reward_total_raw_mean": "reward_total_raw",
+    "trade_rl/rolling_growth_gap_mean": "rolling_growth_gap",
 }
 
 
@@ -172,18 +209,8 @@ def build_tensorboard_metrics_callback(
             for index, info in enumerate(info_items):
                 if not isinstance(info, dict):
                     continue
-                self._extend(
-                    "trade_rl/portfolio_value_mean",
-                    info.get("portfolio_value_after", ()),
-                )
-                self._extend(
-                    "trade_rl/drawdown_mean",
-                    info.get("drawdown_after", ()),
-                )
-                self._extend(
-                    "trade_rl/interval_cost_mean",
-                    info.get("interval_cost", ()),
-                )
+                for tag, info_key in _INFO_MEAN_TAGS.items():
+                    self._extend(tag, info.get(info_key, ()))
                 if index not in hierarchical_effective_indices:
                     self._extend(
                         "trade_rl/effective_action_l1_mean",

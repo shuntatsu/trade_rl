@@ -115,6 +115,7 @@ def _request(**overrides: object) -> EnvironmentStepInfoRequest:
         "submitted_target": np.array([0.8, -0.6]),
         "executed_target": np.array([0.8, -0.6]),
         "hybrid": _book(),
+        "shadow": _book(),
         "reward_breakdown": _reward(),
         "hybrid_execution": _execution(),
         "hybrid_risk": _risk(),

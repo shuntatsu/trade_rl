@@ -243,7 +243,10 @@ def test_episode_boundary_changes_environment_not_observation_identity() -> None
         ),
     )
 
-    assert truncating.observation_contract_digest == terminating.observation_contract_digest
+    assert (
+        truncating.observation_contract_digest
+        == terminating.observation_contract_digest
+    )
     assert truncating.environment_digest != terminating.environment_digest
 
 

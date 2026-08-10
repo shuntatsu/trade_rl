@@ -91,9 +91,7 @@ def _thresholds(
         maximum_causal_holdout_regret=0.2,
         minimum_causal_holdout_episodes=minimum_episodes,
         maximum_causal_holdout_regret_upper_bound=0.2,
-        minimum_causal_holdout_net_return_lower_bound=(
-            minimum_net_return_lower_bound
-        ),
+        minimum_causal_holdout_net_return_lower_bound=(minimum_net_return_lower_bound),
     )
 
 

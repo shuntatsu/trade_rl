@@ -1,0 +1,66 @@
+name: Publish consolidated U2 TDD series
+
+on:
+  push:
+    branches:
+      - agent/publish-u2-consolidated-2026-08-11
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout publisher payload
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/publish-u2-consolidated-2026-08-11
+          path: publisher
+          persist-credentials: false
+
+      - name: Checkout exact consolidated U2 base
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 782030ec3c411990bbd2f83d993edd70e91715e5
+          path: source
+          fetch-depth: 0
+
+      - name: Reconstruct and verify patch series
+        run: |
+          set -euo pipefail
+          cp publisher/.github/u2-consolidated-delta.patch.gz.b64 /tmp/u2-delta.patch.gz.b64
+          echo "ab205f2c81985090a961c08ff884ce4efa2cdbb8b85031ac31bad7782e88cb3f  /tmp/u2-delta.patch.gz.b64" | sha256sum --check -
+          base64 --decode /tmp/u2-delta.patch.gz.b64 | gzip --decompress > /tmp/u2-delta.patch
+
+      - name: Guard remote head and apply exact TDD series
+        working-directory: source
+        run: |
+          set -euo pipefail
+          expected="782030ec3c411990bbd2f83d993edd70e91715e5"
+          observed="$(git ls-remote origin refs/heads/agent/universal-episode-router-consolidated | cut -f1)"
+          test "$observed" = "$expected"
+          git config user.name Shuntatsu
+          git config user.email 148511409+shuntatsu@users.noreply.github.com
+          git am /tmp/u2-delta.patch
+          test -z "$(git status --short)"
+          python -m compileall -q \
+            trade_rl/rl/universal_instrument_binding.py \
+            trade_rl/rl/universal_single_instrument_env.py \
+            trade_rl/workflows/universal_single_instrument_environment.py \
+            tests/architecture/test_universal_episode_routing_ownership.py \
+            tests/rl/test_universal_single_instrument_integration.py \
+            tests/workflows/test_universal_single_instrument_environment.py
+          git push origin HEAD:refs/heads/agent/universal-episode-router-consolidated
+
+      - name: Delete temporary publisher branch
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request DELETE \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/heads/agent/publish-u2-consolidated-2026-08-11"

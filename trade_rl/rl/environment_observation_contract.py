@@ -148,10 +148,7 @@ class EnvironmentObservationContractBuilder:
         )
 
     def _bind_episode_boundary(self, base_digest: str) -> str:
-        if (
-            self.config.episode_boundary_mode
-            is EpisodeBoundaryMode.EXTERNAL_TRUNCATION
-        ):
+        if self.config.episode_boundary_mode is EpisodeBoundaryMode.EXTERNAL_TRUNCATION:
             return base_digest
         return content_digest(
             {

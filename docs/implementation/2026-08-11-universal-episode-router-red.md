@@ -1,0 +1,11 @@
+# Universal Episode Router RED Evidence
+
+The contract-test commit is:
+
+```text
+3f6d64c37edcf870af7bd49aeec61a5928497459
+```
+
+This head adds the complete U2 contract tests before the implementation modules exist. The expected repository failure is collection-time `ModuleNotFoundError` for the new `trade_rl.rl.universal_*` modules. Any unrelated failure must be investigated before implementation begins.
+
+The active BTC training generation and existing runtime artifacts are outside this stacked PR and remain untouched.

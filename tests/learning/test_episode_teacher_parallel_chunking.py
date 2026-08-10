@@ -82,9 +82,12 @@ def _episode_batch(episode_count: int = 8) -> EpisodeOracleBatch:
     )
 
 
-def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
+def _collect_threaded_teacher_batch(
     monkeypatch: object,
-) -> None:
+    *,
+    episode_count: int,
+    max_workers: int,
+) -> tuple[EpisodeSupervisedPolicyDataset, int, int]:
     monkeypatch.setattr(  # type: ignore[attr-defined]
         episode_teacher_artifact.mp,
         "get_all_start_methods",
@@ -99,16 +102,28 @@ def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
             factory_calls[0] += 1
         return _FakeTeacherEnvironment(close_calls, lock)
 
-    batch = _episode_batch()
+    batch = _episode_batch(episode_count)
     dataset = collect_episode_teacher_rollout_parallel(
         environment_factory,
         batch,
         teacher_config_digest=batch.teacher_config_digest,
+        max_workers=max_workers,
+    )
+    return dataset, factory_calls[0], close_calls[0]
+
+
+def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
+    monkeypatch: object,
+) -> None:
+    dataset, factory_calls, close_calls = _collect_threaded_teacher_batch(
+        monkeypatch,
+        episode_count=8,
         max_workers=2,
     )
+    batch = _episode_batch()
 
-    assert factory_calls[0] == 2
-    assert close_calls[0] == 2
+    assert factory_calls == 2
+    assert close_calls == 2
     np.testing.assert_array_equal(
         dataset.episode_ids,
         np.repeat(np.arange(batch.episode_count, dtype=np.int64), 2),
@@ -124,4 +139,21 @@ def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
     )
     np.testing.assert_array_equal(
         dataset.actions, np.concatenate(batch.targets, axis=0)
+    )
+
+
+def test_parallel_teacher_rollout_uses_every_worker_when_episodes_are_available(
+    monkeypatch: object,
+) -> None:
+    dataset, factory_calls, close_calls = _collect_threaded_teacher_batch(
+        monkeypatch,
+        episode_count=17,
+        max_workers=16,
+    )
+
+    assert factory_calls == 16
+    assert close_calls == 16
+    np.testing.assert_array_equal(
+        dataset.episode_ids,
+        np.repeat(np.arange(17, dtype=np.int64), 2),
     )

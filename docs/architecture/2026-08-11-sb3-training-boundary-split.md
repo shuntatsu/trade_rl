@@ -2,56 +2,63 @@
 
 ## Conclusion
 
-`trade_rl.integrations.sb3_training` remains the stable orchestration entry point, but it stops owning unrelated runtime, vector-environment, and behavior-cloning helper implementations. The change is intentionally structural: algorithm behavior, serialized identities, exception semantics, public workflow entry points, and `StableBaselines3Backend` remain unchanged.
+`trade_rl.integrations.sb3_training` remains the stable Stable-Baselines3 orchestration entry point, but it no longer owns unrelated runtime policy, vector-environment assembly, behavior-cloning helper logic, or teacher cache/artifact lifecycle.
 
-The selected approach is a phased extraction with compatibility re-exports. A big-bang rewrite would create unnecessary training and checkpoint risk; adding only a file-size guard would document the problem without correcting it.
+The implementation is intentionally structural. It preserves algorithm behavior, serialized identities, exception semantics, environment-variable defaults, process start methods, public workflow entry points, and the `StableBaselines3Backend` API.
+
+The selected design is a phased extraction with direct compatibility imports for module-level private helpers and an internal teacher-pipeline base class for cache-oriented backend methods. No forwarding wrappers or duplicate DTOs are introduced.
 
 ## Goal
 
-Reduce the number of independent change reasons in `sb3_training.py` while preserving every current caller and test contract.
+Reduce independent change reasons in `sb3_training.py` while preserving current callers and numerical behavior.
 
 Success means:
 
-1. runtime/resource parsing is owned by one focused module;
+1. runtime and resource policy are owned by one focused module;
 2. vector-environment construction and training-info filtering are owned by one focused module;
-3. behavior-cloning helper logic is owned by one focused module;
-4. `sb3_training.py` keeps orchestration and `StableBaselines3Backend`;
-5. existing imports from `trade_rl.integrations.sb3_training`, including current private test imports, continue to resolve to the same callable objects;
-6. no checkpoint, artifact, reward, BC metric, PPO, execution, or serving behavior changes;
-7. architecture tests prevent the extracted implementations from returning to the coordinator.
+3. coordinator-independent BC helpers are owned by one focused module;
+4. teacher generation, immutable cache lookup/publication, and teacher artifact lifecycle are owned by one focused pipeline base;
+5. `sb3_training.py` keeps `StableBaselines3Backend`, model/checkpoint/replay coordination, PPO execution, telemetry, and result publication;
+6. existing module-level helper imports from `sb3_training` resolve to the same canonical objects;
+7. teacher methods are inherited directly from the canonical pipeline base rather than redefined or wrapped;
+8. no checkpoint, artifact, reward, BC metric, PPO, execution, or serving behavior changes;
+9. architecture tests prevent extracted responsibilities from returning to the coordinator;
+10. `sb3_training.py` remains below 60 KiB.
 
 ## Non-goals
 
 This change does not:
 
-- redesign `StableBaselines3Backend`;
+- redesign the public `StableBaselines3Backend` API;
 - alter BC train/validation/purge semantics;
-- alter Oracle solver selection or numerical behavior;
-- alter CUDA determinism, TF32, compilation, or worker defaults;
+- alter teacher labels, Oracle dynamic programming, or numerical formulas;
+- alter Oracle solver selection or fallback behavior;
+- alter CUDA determinism, TF32, compilation, memory, or worker defaults;
 - alter vector-environment start methods;
 - alter checkpoint schemas, policy identity, replay handling, telemetry, or artifact publication;
 - modify `trade_rl.rl.environment`;
+- extract checkpoint/replay lifecycle in this phase;
 - overlap with the Universal Instrument Artifact work in PR #385.
 
 ## Approaches considered
 
-### A. Big-bang backend decomposition
+### A. Big-bang backend rewrite
 
-Move the backend class, checkpoint lifecycle, teacher pipeline, environment lifecycle, and runtime configuration at once.
+Move the complete backend class, model lifecycle, checkpoint lifecycle, teacher pipeline, environment lifecycle, and runtime configuration at once.
 
-Rejected for this change because the review surface would combine structural movement with many hidden coupling points. Exact-head CI would detect regressions, but diagnosis and rollback would be unnecessarily difficult.
+Rejected because the review surface would combine structural movement with hidden coupling points. Diagnosis and rollback would be unnecessarily difficult.
 
-### B. Phased helper extraction with compatibility aliases
+### B. Focused extraction with compatibility contracts
 
-Move cohesive, mostly stateless helper clusters first. Keep the coordinator class and import the moved symbols back into `sb3_training.py` under their existing names.
+Move cohesive helper clusters into owner modules, import module-level helpers directly back into `sb3_training`, and move stateful teacher methods into an internal pipeline base inherited by the backend.
 
-Selected because it reduces responsibility immediately, preserves current imports, and creates stable seams for later checkpoint and teacher-pipeline extraction.
+Selected because it removes responsibility concentration immediately while preserving existing call sites and creating stable seams for later checkpoint/replay extraction.
 
-### C. Size-budget test only
+### C. Size ratchet only
 
-Add an architecture test that rejects further growth but leave all logic in place.
+Add an architecture test that rejects further growth but leave the implementation in place.
 
-Rejected as insufficient. A ratchet is useful only after the first responsibility split establishes a smaller baseline.
+Rejected as insufficient. The size ratchet is useful only after responsibility ownership has been corrected.
 
 ## Responsibility boundaries
 
@@ -81,7 +88,7 @@ Owns the framework adapter around training environments:
 - structured-export reset normalization;
 - effective vector-environment kind selection.
 
-It must preserve the current `spawn` subprocess contract and close partially constructed workers on failure.
+It preserves the existing `spawn` subprocess contract and closes partially constructed workers on failure.
 
 ### `trade_rl.integrations.sb3_behavior_cloning`
 
@@ -95,97 +102,124 @@ Owns coordinator-independent BC helpers:
 - hierarchical teacher labels and BC configuration;
 - BC gate thresholds, evaluation, and fail-closed enforcement.
 
-It may call the existing `learning` and checkpoint persistence contracts, but it must not construct SB3 models or run PPO.
+It may call existing `learning` and checkpoint persistence contracts, but it must not construct SB3 models or run PPO.
+
+### `trade_rl.integrations.sb3_teacher_pipeline`
+
+Owns teacher computation and immutable teacher-cache lifecycle:
+
+- Oracle episode-batch construction and memoization;
+- episode teacher dataset load, generation, validation, and publication;
+- flat Oracle target load, generation, validation, and publication;
+- trend-baseline target memoization;
+- non-episode teacher dataset load, generation, validation, and publication;
+- reusable artifact index lookup and registration;
+- temporary-directory cleanup and atomic artifact replacement behavior already present in the coordinator.
+
+`_StableBaselines3TeacherPipeline` is an internal base class. It declares the state it consumes from `StableBaselines3Backend` and owns only the five cache-oriented teacher methods. It does not construct models, run PPO, publish final training results, or import `sb3_training`.
 
 ### `trade_rl.integrations.sb3_training`
 
 Continues to own:
 
-- `StableBaselines3Backend`;
+- `StableBaselines3Backend` construction and public behavior;
 - end-to-end training orchestration;
-- model/checkpoint/replay coordination;
-- teacher generation and artifact lifecycle that are still coupled to the backend method flow;
-- progress, architecture, performance, and final result publication.
+- model construction and algorithm selection;
+- checkpoint and replay coordination;
+- behavior-cloning invocation and PPO fine-tuning flow;
+- progress, architecture, performance, checkpoint, and final-result publication;
+- cleanup of resources owned by the training call.
 
-The coordinator imports the extracted helpers under their existing underscore-prefixed names. This is a compatibility bridge, not duplicate implementation.
+The backend inherits `_StableBaselines3TeacherPipeline`; it does not override or wrap the five extracted teacher methods.
 
 ## Compatibility contract
 
-Current callers and tests import several private helpers from `sb3_training.py`. Removing those names in the same change would mix architecture cleanup with API migration. Therefore:
+Current tests and internal callers import several underscore-prefixed module helpers from `sb3_training.py`. Removing those names in the same change would mix architecture cleanup with an API migration. Therefore `sb3_training.py` imports each helper directly from its owner module under the same name.
 
 ```python
 from trade_rl.integrations.sb3_runtime import (
-    _configure_sequence_runtime,
-    _configure_torch_cuda_runtime,
-    ...
+    _configure_sequence_runtime as _configure_sequence_runtime,
+    _configure_torch_cuda_runtime as _configure_torch_cuda_runtime,
 )
 ```
 
-The same pattern applies to the environment and BC modules. The imported objects must be identical to the canonical definitions, and `sb3_training.py` must not wrap or redefine them.
+The same identity contract applies to runtime, environment, and BC helpers:
 
-No new production code should begin importing these private compatibility names from `sb3_training`. New focused tests should import the owning modules directly.
+```python
+getattr(sb3_training, name) is getattr(owner_module, name)
+```
+
+Teacher methods use inheritance rather than module aliases:
+
+```python
+StableBaselines3Backend._teacher_dataset \
+    is _StableBaselines3TeacherPipeline._teacher_dataset
+```
+
+Tests that patch dependencies used inside teacher methods patch `sb3_teacher_pipeline`, the canonical owner. Dynamic forwarding through the old coordinator is deliberately not restored.
+
+New production code must import focused private helpers from their owner module, not from the coordinator compatibility surface.
 
 ## Data and control flow
 
 ```text
 StableBaselines3Backend.train
-  -> sb3_runtime: resolve workers / solver / CUDA / sequence runtime
-  -> sb3_environment: build and filter training environments
-  -> sb3_behavior_cloning: prepare labels/config/gates and candidate persistence
-  -> existing model/checkpoint/replay/telemetry contracts
+  -> sb3_runtime
+       resolve workers / solver / CUDA / sequence runtime
+  -> sb3_environment
+       build and filter training environments
+  -> sb3_teacher_pipeline
+       resolve or generate teacher data and immutable cache evidence
+  -> sb3_behavior_cloning
+       prepare labels / config / gates / candidate persistence
+  -> sb3_training coordinator
+       model / checkpoint / replay / PPO / telemetry / publication
   -> PolicyTrainingResult
 ```
 
-Values and exceptions cross module boundaries unchanged. The extraction must use the existing concrete DTOs; no duplicate configuration or result types are introduced.
+Values and exceptions cross module boundaries unchanged. Existing concrete DTOs are reused; no duplicate configuration or result types are introduced.
 
 ## Failure behavior
 
-- Invalid environment variables retain the current exception type and message.
+- Invalid environment variables retain their exception types and messages.
 - CUDA and sequence compilation failures remain fail-closed.
 - Vector-worker construction closes already-created workers before re-raising.
 - Missing hierarchical BC fields, invalid losses, failed gates, and missing policy files retain current failures.
-- Import cycles are prohibited; none of the three new modules imports `sb3_training`.
+- Teacher artifacts retain the existing digest, schema, cache-identity, validation, and replacement rules.
+- Teacher temporary directories retain cleanup-on-success and cleanup-on-failure behavior.
+- Import cycles are prohibited; none of the four focused modules imports `sb3_training`.
 
-## Testing strategy
+## Enforced architecture contracts
 
-### RED architecture contract
+`tests/architecture/test_sb3_training_boundaries.py` locks:
 
-Add a focused test module that initially fails because the new modules do not exist and the helper implementations still live in `sb3_training.py`.
-
-The test locks:
-
-- canonical helper-name ownership by module;
-- absence of those function/class definitions from `sb3_training.py`;
-- compatibility object identity through `sb3_training`;
+- exact module-level helper ownership;
+- absence of extracted definitions from `sb3_training.py`;
+- direct compatibility object identity through `sb3_training`;
+- exact ownership of the five teacher pipeline methods;
+- direct inherited method identity on `StableBaselines3Backend`;
 - no reverse import into `sb3_training`;
-- a post-extraction `sb3_training.py` size ceiling of 60 KiB.
+- a coordinator size ceiling of 61,440 bytes.
 
-### Focused behavioral verification
+`tests/architecture/test_ownership_boundaries.py` reads accelerator-backend ownership from `sb3_teacher_pipeline.py`, matching the new responsibility boundary.
 
-Run the existing suites that directly exercise the moved contracts, including:
+## TDD and focused verification evidence
 
-- sequence runtime acceleration;
-- Lagrangian probe and worker selection;
-- action-head BC routing;
-- BC split/gate/evaluation tests;
-- parallel sequence subprocess smoke;
-- SB3 training, transfer, cost-critic, and Lagrangian backend tests;
-- architecture ownership tests.
+The extraction was driven by explicit failing contracts:
 
-### Repository verification
+1. Initial RED: 4 failures and 1,031 passes; failures were only the three missing owner modules and the original 92,927-byte coordinator.
+2. First GREEN stage: 82 focused tests passed; the remaining failure was only the 74,392-byte size ratchet.
+3. Teacher-pipeline RED: 4 expected failures and 80 passes; failures were missing teacher ownership/identity plus size.
+4. First teacher extraction exposed eight tests patching the former coordinator globals. The implementation was not weakened with forwarding wrappers; tests were migrated to the canonical owner.
+5. Final focused run: 84 tests passed.
+6. MyPy passed for all five affected integration modules.
+7. Import Linter kept all 12 contracts with 0 broken.
+8. Vulture passed at 100% confidence.
+9. The final `sb3_training.py` size is 58,621 bytes.
+10. The changed-file set has no overlap with PR #385.
 
-On one final head require:
-
-- Ruff and Ruff format;
-- MyPy;
-- Import Linter;
-- Vulture;
-- focused integration tests;
-- full pytest and critical branch coverage;
-- Windows and Ubuntu compatibility;
-- training image and packaged non-root probe;
-- frontend and structured-serving checks through normal CI.
+Full repository and cross-platform verification remains an exact-head PR CI requirement before the PR can be marked ready.
 
 ## Future phases
 
-After this PR is stable, separate changes may extract checkpoint/replay lifecycle and teacher-generation orchestration. Those changes must use the seams created here and must not be bundled into this first structural PR.
+A later, separately reviewed change may extract checkpoint/replay lifecycle and final artifact publication from the coordinator. It must preserve the seams and compatibility contracts established here and must not be combined with algorithm or schema changes.

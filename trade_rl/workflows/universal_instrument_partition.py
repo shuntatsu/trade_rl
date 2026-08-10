@@ -17,9 +17,7 @@ from trade_rl.workflows.symbol_disjoint_manifest import (
     build_symbol_disjoint_manifest,
 )
 
-UNIVERSAL_INSTRUMENT_PARTITION_SCHEMA: Final = (
-    "universal_instrument_partition_v1"
-)
+UNIVERSAL_INSTRUMENT_PARTITION_SCHEMA: Final = "universal_instrument_partition_v1"
 UniversalInstrumentSplit = Literal["train", "validation", "test"]
 _SPLITS: Final[tuple[UniversalInstrumentSplit, ...]] = (
     "train",
@@ -62,7 +60,9 @@ def _immutable_write(path: Path, payload: bytes, *, field: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         if not path.is_file() or path.read_bytes() != payload:
-            raise FileExistsError(f"{field} already exists with different content: {path}")
+            raise FileExistsError(
+                f"{field} already exists with different content: {path}"
+            )
         return path
     temporary = path.with_name(f".{path.name}.tmp")
     try:
@@ -84,7 +84,9 @@ def universal_split_counts(symbol_count: int) -> tuple[int, int, int]:
     test_count = max(3, symbol_count // 5)
     train_count = symbol_count - validation_count - test_count
     if train_count < 9:
-        raise ValueError("universal zero-shot research requires at least 9 train symbols")
+        raise ValueError(
+            "universal zero-shot research requires at least 9 train symbols"
+        )
     return train_count, validation_count, test_count
 
 
@@ -105,9 +107,7 @@ class UniversalInstrumentPartition:
             field="universal instrument partition catalog_digest",
         )
         if not isinstance(self.symbol_disjoint_manifest, SymbolDisjointManifest):
-            raise TypeError(
-                "symbol_disjoint_manifest must be SymbolDisjointManifest"
-            )
+            raise TypeError("symbol_disjoint_manifest must be SymbolDisjointManifest")
         universal_split_counts(len(self.symbol_disjoint_manifest.source_universe))
         expected_digest = content_digest(self.digest_payload())
         if self.digest and self.digest != expected_digest:
@@ -175,9 +175,7 @@ class UniversalInstrumentPartition:
             "schema_version": self.schema_version,
             "seed": self.seed,
             "split_counts": self.split_counts,
-            "symbol_disjoint_manifest_digest": (
-                self.symbol_disjoint_manifest_digest
-            ),
+            "symbol_disjoint_manifest_digest": (self.symbol_disjoint_manifest_digest),
             "test_symbols": self.test_symbols,
             "train_symbols": self.train_symbols,
             "validation_symbols": self.validation_symbols,
@@ -190,9 +188,7 @@ class UniversalInstrumentPartition:
             "schema_version": self.schema_version,
             "seed": self.seed,
             "split_counts": self.split_counts,
-            "symbol_disjoint_manifest_digest": (
-                self.symbol_disjoint_manifest_digest
-            ),
+            "symbol_disjoint_manifest_digest": (self.symbol_disjoint_manifest_digest),
             "test_symbols": list(self.test_symbols),
             "train_symbols": list(self.train_symbols),
             "validation_symbols": list(self.validation_symbols),
@@ -273,9 +269,7 @@ def load_universal_instrument_partition(
     if not isinstance(catalog, StoredInstrumentCatalog):
         raise TypeError("catalog must be StoredInstrumentCatalog")
     if not isinstance(symbol_disjoint_manifest, SymbolDisjointManifest):
-        raise TypeError(
-            "symbol_disjoint_manifest must be SymbolDisjointManifest"
-        )
+        raise TypeError("symbol_disjoint_manifest must be SymbolDisjointManifest")
     payload = _json_object(path)
     required = {
         "catalog_digest",
@@ -304,10 +298,10 @@ def load_universal_instrument_partition(
         raise ValueError(
             "universal instrument partition symbol-disjoint digest mismatch"
         )
-    if set(symbol_disjoint_manifest.source_universe) != set(
-        catalog.eligible_symbols
-    ):
-        raise ValueError("universal instrument partition catalog symbol closure mismatch")
+    if set(symbol_disjoint_manifest.source_universe) != set(catalog.eligible_symbols):
+        raise ValueError(
+            "universal instrument partition catalog symbol closure mismatch"
+        )
 
     partition = UniversalInstrumentPartition(
         catalog_digest=serialized_catalog_digest,

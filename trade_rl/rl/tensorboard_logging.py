@@ -121,7 +121,20 @@ def build_tensorboard_metrics_callback(
             if self.n_calls % log_interval == 0:
                 observations = self.locals.get("obs_tensor")
                 policy = getattr(self.model, "policy", None)
-                output_factory = getattr(policy, "action_stage_outputs", None)
+                # Rollout collection samples from the smooth distribution mean even
+                # while SB3 keeps the policy module in eval mode. Prefer an explicit
+                # rollout-stage provider, then the maintained hierarchical BC output
+                # that also forces operational=False. Falling back preserves generic
+                # and direct-head telemetry contracts.
+                output_factory = getattr(policy, "rollout_action_stage_outputs", None)
+                if not callable(output_factory):
+                    output_factory = getattr(
+                        policy,
+                        "hierarchical_behavior_cloning_outputs",
+                        None,
+                    )
+                if not callable(output_factory):
+                    output_factory = getattr(policy, "action_stage_outputs", None)
                 if not callable(output_factory):
                     output_factory = getattr(
                         policy,

@@ -64,9 +64,7 @@ _INFO_MEAN_TAGS = {
     "trade_rl/reward_terminal_penalty_weighted_mean": (
         "reward_terminal_penalty_weighted"
     ),
-    "trade_rl/reward_margin_penalty_weighted_mean": (
-        "reward_margin_penalty_weighted"
-    ),
+    "trade_rl/reward_margin_penalty_weighted_mean": ("reward_margin_penalty_weighted"),
     "trade_rl/reward_total_raw_mean": "reward_total_raw",
     "trade_rl/rolling_growth_gap_mean": "rolling_growth_gap",
 }

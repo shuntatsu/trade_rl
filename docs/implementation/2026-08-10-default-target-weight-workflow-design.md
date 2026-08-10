@@ -93,6 +93,14 @@ The test is committed first and must fail against the current runner. The minima
 constant and wiring change is then added, followed by focused tests, related
 example/profile tests, static checks, and the repository's exact-head CI.
 
+## TDD Evidence
+
+RED head `6dafdbfe87a2bc7ea8e21cf108d65e9af02eae69` completed all compatibility,
+training-image, frontend, formatting, typing, architecture, dead-code, and smoke
+checks before full pytest reported exactly the two new default-workflow contract
+failures. The remaining repository result was 3,177 passed and 26 skipped with
+80.65% total branch-aware coverage.
+
 ## Documentation
 
 The Docker full-training runbook and maintained single-symbol documentation will

@@ -22,7 +22,7 @@ from trade_rl.learning.hierarchical_bc_metrics import (
 )
 
 LEARNING_EVALUATION_SCHEMA: Final = "oracle_behavior_cloning_evaluation_v2"
-BEHAVIOR_CLONING_GATE_SCHEMA: Final = "behavior_cloning_gate_evaluation_v1"
+BEHAVIOR_CLONING_GATE_SCHEMA: Final = "behavior_cloning_gate_evaluation_v2"
 ORACLE_DIAGNOSTIC_SCOPE: Final = "hindsight_oracle_diagnostic"
 CAUSAL_GENERALIZATION_SCOPE: Final = "causal_policy_generalization"
 GATE_STATUSES: Final = frozenset({"passed", "failed", "insufficient_support"})
@@ -80,6 +80,33 @@ def deterministic_bootstrap_upper_bound(
     indices = rng.integers(0, len(sample), size=(resamples, len(sample)))
     means = sample[indices].mean(axis=1, dtype=np.float64)
     return float(np.quantile(means, confidence_level, method="higher"))
+
+
+def deterministic_bootstrap_lower_bound(
+    values: object,
+    *,
+    confidence_level: float,
+    resamples: int,
+    seed_material: str,
+) -> float:
+    """Return a reproducible one-sided bootstrap lower bound for the mean."""
+
+    sample = _finite_vector(values, field="bootstrap values")
+    if not math.isfinite(confidence_level) or not 0.5 < confidence_level < 1.0:
+        raise ValueError("bootstrap confidence_level must be within (0.5, 1)")
+    if (
+        isinstance(resamples, bool)
+        or not isinstance(resamples, int)
+        or resamples < 1_000
+    ):
+        raise ValueError("bootstrap resamples must be an integer of at least 1000")
+    if not isinstance(seed_material, str) or not seed_material:
+        raise ValueError("bootstrap seed_material must be non-empty")
+    seed = int(content_digest({"seed_material": seed_material})[:16], 16)
+    rng = np.random.default_rng(seed)
+    indices = rng.integers(0, len(sample), size=(resamples, len(sample)))
+    means = sample[indices].mean(axis=1, dtype=np.float64)
+    return float(np.quantile(means, 1.0 - confidence_level, method="lower"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +206,7 @@ class ActionPathCollapseEvidence:
 
 @dataclass(frozen=True, slots=True)
 class BehaviorCloningGateThresholds:
-    """Explicit thresholds; configuration v3 must provide every field."""
+    """Explicit thresholds for mandatory BC admission evidence."""
 
     minimum_composed_loss_relative_improvement: float
     minimum_gate_precision: float
@@ -192,6 +219,7 @@ class BehaviorCloningGateThresholds:
     maximum_causal_holdout_regret: float
     minimum_causal_holdout_episodes: int = 1
     maximum_causal_holdout_regret_upper_bound: float | None = None
+    minimum_causal_holdout_net_return_lower_bound: float = -1.0
 
     def __post_init__(self) -> None:
         fractions = (
@@ -238,6 +266,12 @@ class BehaviorCloningGateThresholds:
             raise ValueError(
                 "maximum_causal_holdout_regret_upper_bound must be non-negative"
             )
+        lower = self.minimum_causal_holdout_net_return_lower_bound
+        if not math.isfinite(lower) or lower < -1.0:
+            raise ValueError(
+                "minimum_causal_holdout_net_return_lower_bound must be finite "
+                "and at least -1"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,7 +298,7 @@ class BehaviorCloningGateMetric:
         if self.minimum_support is not None and self.minimum_support < 0:
             raise ValueError("BC gate minimum support must be non-negative")
         if not isinstance(self.required, bool) or not self.required:
-            raise ValueError("BC gate metrics in v1 are mandatory")
+            raise ValueError("BC gate metrics in v2 are mandatory")
 
     @property
     def passed(self) -> bool:
@@ -542,9 +576,6 @@ class BehaviorCloningHoldoutEvaluation:
             self.heldout_range, field="heldout_range"
         )
         del train_start
-        # Ranges are bar-half-open and contain decisions [start, stop - 1).
-        # Adjacent decision partitions therefore share the boundary bar:
-        # train=(start, d + 1), heldout=(d, stop).
         if heldout_start < train_stop - 1:
             raise ValueError(
                 "heldout decisions must not overlap teacher training decisions"
@@ -881,6 +912,17 @@ def evaluate_behavior_cloning_gates(
     causal_episode_support = (
         len(causal_records) if causal_records else (0 if holdout is None else 1)
     )
+    causal_net_return_lower = (
+        None
+        if holdout is None
+        else float(
+            getattr(
+                holdout,
+                "causal_net_return_lower_confidence_bound",
+                holdout.causal_policy_performance.net_return,
+            )
+        )
+    )
     causal_regret_upper = None
     if holdout is not None and causal_records:
         cash_regrets = np.asarray(
@@ -968,6 +1010,25 @@ def evaluate_behavior_cloning_gates(
             ),
         ),
         _gate_metric(
+            name="causal_net_return_lower_confidence_bound",
+            observed=causal_net_return_lower,
+            comparison=">=",
+            threshold=(
+                thresholds.minimum_causal_holdout_net_return_lower_bound
+            ),
+            support=causal_episode_support,
+            minimum_support=thresholds.minimum_causal_holdout_episodes,
+            passed=(
+                causal_net_return_lower is not None
+                and causal_net_return_lower
+                >= thresholds.minimum_causal_holdout_net_return_lower_bound
+            ),
+            failure_reason=(
+                "causal after-cost net-return lower confidence bound is below "
+                "the required floor"
+            ),
+        ),
+        _gate_metric(
             name="cash_baseline_after_cost_regret",
             observed=causal_regret,
             comparison="<=",
@@ -1037,6 +1098,7 @@ __all__ = [
     "BehaviorCloningHoldoutEvaluation",
     "OracleTeacherEvaluation",
     "PathPerformanceMetrics",
+    "deterministic_bootstrap_lower_bound",
     "deterministic_bootstrap_upper_bound",
     "evaluate_behavior_cloning_gates",
     "evaluate_behavior_cloning_holdout",

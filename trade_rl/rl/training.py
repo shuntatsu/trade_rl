@@ -146,6 +146,8 @@ class ResidualTrainingConfig:
     behavior_cloning_min_activity_ratio: float = 0.0
     behavior_cloning_max_activity_ratio: float = 1.0
     behavior_cloning_min_causal_holdout_trades: int = 0
+    behavior_cloning_min_causal_holdout_episodes: int = 1
+    behavior_cloning_min_causal_holdout_net_return_lower_bound: float = -1.0
     behavior_cloning_max_causal_holdout_regret: float = 0.0
     behavior_cloning_causal_holdout_bootstrap_resamples: int = 2_000
     behavior_cloning_causal_holdout_confidence_level: float = 0.95
@@ -306,6 +308,24 @@ class ResidualTrainingConfig:
         ):
             raise ValueError(
                 "behavior_cloning_min_causal_holdout_trades must be a non-negative integer"
+            )
+        if (
+            isinstance(self.behavior_cloning_min_causal_holdout_episodes, bool)
+            or not isinstance(self.behavior_cloning_min_causal_holdout_episodes, int)
+            or self.behavior_cloning_min_causal_holdout_episodes <= 0
+        ):
+            raise ValueError(
+                "behavior_cloning_min_causal_holdout_episodes must be a positive integer"
+            )
+        if (
+            not math.isfinite(
+                self.behavior_cloning_min_causal_holdout_net_return_lower_bound
+            )
+            or self.behavior_cloning_min_causal_holdout_net_return_lower_bound < -1.0
+        ):
+            raise ValueError(
+                "behavior_cloning_min_causal_holdout_net_return_lower_bound "
+                "must be finite and at least -1"
             )
         if (
             not math.isfinite(self.behavior_cloning_max_causal_holdout_regret)
@@ -988,6 +1008,16 @@ class ResidualTrainingConfig:
                         0,
                     ),
                     (
+                        "behavior_cloning_min_causal_holdout_episodes",
+                        self.behavior_cloning_min_causal_holdout_episodes,
+                        1,
+                    ),
+                    (
+                        "behavior_cloning_min_causal_holdout_net_return_lower_bound",
+                        self.behavior_cloning_min_causal_holdout_net_return_lower_bound,
+                        -1.0,
+                    ),
+                    (
                         "behavior_cloning_max_causal_holdout_regret",
                         self.behavior_cloning_max_causal_holdout_regret,
                         0.0,
@@ -1065,6 +1095,12 @@ class ResidualTrainingConfig:
             ),
             "behavior_cloning_min_causal_holdout_trades": (
                 self.behavior_cloning_min_causal_holdout_trades
+            ),
+            "behavior_cloning_min_causal_holdout_episodes": (
+                self.behavior_cloning_min_causal_holdout_episodes
+            ),
+            "behavior_cloning_min_causal_holdout_net_return_lower_bound": (
+                self.behavior_cloning_min_causal_holdout_net_return_lower_bound
             ),
             "behavior_cloning_max_causal_holdout_regret": (
                 self.behavior_cloning_max_causal_holdout_regret

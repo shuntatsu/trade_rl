@@ -20,6 +20,7 @@ from trade_rl.learning.episode_oracle_teacher import (
 from trade_rl.learning.evaluation import (
     ActionPathCollapseEvidence,
     PathPerformanceMetrics,
+    deterministic_bootstrap_lower_bound,
     deterministic_bootstrap_upper_bound,
 )
 from trade_rl.learning.rollout_evaluation import (
@@ -27,7 +28,7 @@ from trade_rl.learning.rollout_evaluation import (
     evaluate_action_path,
 )
 
-EPISODE_ORACLE_BC_EVALUATION_SCHEMA = "episode_oracle_bc_evaluation_v1"
+EPISODE_ORACLE_BC_EVALUATION_SCHEMA = "episode_oracle_bc_evaluation_v2"
 
 
 def oracle_episode_sampling_config(
@@ -167,6 +168,7 @@ class EpisodeBehaviorCloningHoldoutEvaluation:
     heldout_oracle_regret: float
     normalized_oracle_regret: float
     causal_regret_upper_confidence_bound: float
+    causal_net_return_lower_confidence_bound: float
     bootstrap_confidence_level: float
     bootstrap_resamples: int
     schema_version: str = EPISODE_ORACLE_BC_EVALUATION_SCHEMA
@@ -189,6 +191,10 @@ class EpisodeBehaviorCloningHoldoutEvaluation:
                 raise ValueError(
                     "episode BC holdout metrics must be finite and non-negative"
                 )
+        if not math.isfinite(self.causal_net_return_lower_confidence_bound):
+            raise ValueError(
+                "causal net-return lower confidence bound must be finite"
+            )
         if self.action_agreement_rate > 1.0:
             raise ValueError("episode BC action agreement exceeds one")
         if not 0.5 < self.bootstrap_confidence_level < 1.0:
@@ -208,6 +214,9 @@ class EpisodeBehaviorCloningHoldoutEvaluation:
             "normalized_oracle_regret": self.normalized_oracle_regret,
             "causal_regret_upper_confidence_bound": (
                 self.causal_regret_upper_confidence_bound
+            ),
+            "causal_net_return_lower_confidence_bound": (
+                self.causal_net_return_lower_confidence_bound
             ),
             "bootstrap_confidence_level": self.bootstrap_confidence_level,
             "bootstrap_resamples": self.bootstrap_resamples,
@@ -350,6 +359,24 @@ def evaluate_episode_behavior_cloning_holdout(
             }
         ),
     )
+    causal_return_lower = deterministic_bootstrap_lower_bound(
+        np.asarray(
+            [
+                record.causal_policy_performance.net_return
+                for record in resolved_records
+            ],
+            dtype=np.float64,
+        ),
+        confidence_level=bootstrap_confidence_level,
+        resamples=bootstrap_resamples,
+        seed_material=content_digest(
+            {
+                "batch_digest": batch.digest,
+                "scope": "causal_policy_net_return",
+                "validation_episode_ids": validation_ids,
+            }
+        ),
+    )
     worst = max(resolved_records, key=lambda record: record.normalized_oracle_regret)
     holdout = EpisodeBehaviorCloningHoldoutEvaluation(
         records=resolved_records,
@@ -367,6 +394,7 @@ def evaluate_episode_behavior_cloning_holdout(
             record.normalized_oracle_regret for record in resolved_records
         ),
         causal_regret_upper_confidence_bound=regret_upper,
+        causal_net_return_lower_confidence_bound=causal_return_lower,
         bootstrap_confidence_level=bootstrap_confidence_level,
         bootstrap_resamples=bootstrap_resamples,
     )
@@ -392,6 +420,9 @@ def evaluate_episode_behavior_cloning_holdout(
             "normalized_oracle_regret": holdout.normalized_oracle_regret,
             "causal_regret_upper_confidence_bound": (
                 holdout.causal_regret_upper_confidence_bound
+            ),
+            "causal_net_return_lower_confidence_bound": (
+                holdout.causal_net_return_lower_confidence_bound
             ),
             "bootstrap_confidence_level": holdout.bootstrap_confidence_level,
             "bootstrap_resamples": holdout.bootstrap_resamples,

@@ -106,7 +106,9 @@ finite_horizon_termination
 - training config identity
 - documentation and profile tests
 
-Defaultは既存互換の`external_truncation`とする。既存ConfigとArtifactは従来意味のまま読み取る。
+Episode境界modeは環境力学の契約であり、観測schemaそのものではない。同じ観測特徴と`finite_horizon_observation`を使う2環境は、境界modeが異なっても同じ`observation_contract_digest`を持つ。一方、`environment_digest`は異なり、CheckpointやEvidenceが異なる遷移意味を暗黙に共有することを防ぐ。
+
+Defaultは既存互換の`external_truncation`とする。既存ConfigとArtifactは従来意味のまま読み取るため、default modeは既存`environment_digest`へ新しいfieldを追加しない。非defaultの`finite_horizon_termination`だけを明示的にenvironment identityへ追加する。
 
 維持対象のgamma-one target-weight growth profileは、明示的に次を設定する。
 
@@ -180,7 +182,7 @@ Constraint diagnostics
 - Canonical target-weight PPO/Lagrangian profileが純粋growth、`gamma=1.0`、finite-horizon terminationを共有すること。
 - Discounted profileとの差分がdiscountingと境界modeだけであること。
 - Legacy full profileが明示的にlegacy comparisonとして残ること。
-- Environment digestが境界modeで変化すること。
+- Environment digestが境界modeで変化し、Observation digestはmode単独では変化しないこと。
 
 ### Integration
 

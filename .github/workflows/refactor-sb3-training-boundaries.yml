@@ -49,6 +49,18 @@ jobs:
                   raise RuntimeError(f"expected one {name} marker, found {count}")
 
           positions = {name: source.index(marker) for name, marker in markers.items()}
+          teacher_methods_marker = "\n    def _oracle_episode_batch("
+          if source.count(teacher_methods_marker) != 1:
+              raise RuntimeError("teacher pipeline start marker changed")
+          positions["teacher_methods_start"] = source.index(
+              teacher_methods_marker,
+              positions["backend_start"],
+          )
+          positions["train_method_start"] = source.index(
+              "\n    def train(",
+              positions["teacher_methods_start"],
+          )
+
           ordered = [
               positions["runtime_start"],
               positions["bc_first_start"],
@@ -56,9 +68,11 @@ jobs:
               positions["bc_second_start"],
               positions["environment_second_start"],
               positions["backend_start"],
+              positions["teacher_methods_start"],
+              positions["train_method_start"],
           ]
           if ordered != sorted(ordered):
-              raise RuntimeError("SB3 training helper markers are out of order")
+              raise RuntimeError("SB3 training extraction markers are out of order")
 
           def block(start_name: str, end_name: str) -> str:
               return source[
@@ -73,6 +87,10 @@ jobs:
           bc_second_block = block("bc_second_start", "environment_second_start")
           environment_second_block = block(
               "environment_second_start", "backend_start"
+          )
+          teacher_methods_block = block(
+              "teacher_methods_start",
+              "train_method_start",
           )
 
           runtime_header = dedent(
@@ -147,17 +165,97 @@ jobs:
 
               '''
           ).lstrip()
+          teacher_pipeline_header = dedent(
+              '''
+              """Teacher generation, caching, and artifact lifecycle for SB3 training."""
+
+              from __future__ import annotations
+
+              import shutil
+              import tempfile
+              from collections.abc import Callable
+              from pathlib import Path
+              from typing import Any
+
+              import numpy as np
+
+              from trade_rl.artifacts.hashing import content_digest
+              from trade_rl.catalog.contracts import ArtifactKind
+              from trade_rl.catalog.reusable_artifacts import ReusableArtifactIndex
+              from trade_rl.integrations.sb3_behavior_cloning import (
+                  _TeacherIdentity,
+                  _teacher_cache_key,
+              )
+              from trade_rl.integrations.sb3_runtime import _oracle_accelerator_backend
+              from trade_rl.learning import (
+                  OracleTeacherConfig,
+                  SupervisedPolicyDataset,
+                  collect_teacher_rollout,
+                  load_teacher_artifact,
+                  oracle_target_path,
+                  write_teacher_artifact,
+              )
+              from trade_rl.learning.episode_oracle_bc import resolve_episode_initial_weights
+              from trade_rl.learning.episode_oracle_teacher import (
+                  EpisodeOracleBatch,
+                  OracleEpisodeSamplingConfig,
+                  build_episode_oracle_batch,
+              )
+              from trade_rl.learning.episode_teacher_artifact import (
+                  EPISODE_TEACHER_ARTIFACT_SCHEMA,
+                  EPISODE_TEACHER_ARTIFACT_SCHEMA_V1,
+                  EpisodeSupervisedPolicyDataset,
+                  collect_episode_teacher_rollout,
+                  collect_episode_teacher_rollout_parallel,
+                  load_episode_teacher_artifact,
+                  write_episode_teacher_artifact,
+              )
+              from trade_rl.learning.oracle_bellman_contracts import OracleSolverConfig
+              from trade_rl.learning.teacher_cache import (
+                  teacher_cache_identity,
+                  teacher_cache_identity_v2,
+              )
+
+
+              class _StableBaselines3TeacherPipeline:
+                  """Own teacher computation and immutable cache publication."""
+
+                  environment_factory: Callable[[], Any]
+                  teacher_cache_root: Path | None
+                  reusable_artifact_index: ReusableArtifactIndex | None
+                  _oracle_target_cache: dict[tuple[str, int, int, str], np.ndarray]
+                  _oracle_episode_batch_cache: dict[
+                      tuple[str, int, int, str, str, str], EpisodeOracleBatch
+                  ]
+                  _trend_target_cache: dict[tuple[str, int, int, str], np.ndarray]
+                  _teacher_dataset_cache: dict[
+                      tuple[str, int, int, str, str, str], SupervisedPolicyDataset
+                  ]
+                  _episode_teacher_dataset_cache: dict[
+                      tuple[str, int, int, str, str, str],
+                      EpisodeSupervisedPolicyDataset,
+                  ]
+
+              '''
+          ).lstrip()
 
           Path("trade_rl/integrations/sb3_runtime.py").write_text(
               runtime_header + runtime_block,
               encoding="utf-8",
           )
           Path("trade_rl/integrations/sb3_environment.py").write_text(
-              environment_header + environment_first_block + "\n" + environment_second_block,
+              environment_header
+              + environment_first_block
+              + "\n"
+              + environment_second_block,
               encoding="utf-8",
           )
           Path("trade_rl/integrations/sb3_behavior_cloning.py").write_text(
               behavior_cloning_header + bc_first_block + "\n" + bc_second_block,
+              encoding="utf-8",
+          )
+          Path("trade_rl/integrations/sb3_teacher_pipeline.py").write_text(
+              teacher_pipeline_header + teacher_methods_block,
               encoding="utf-8",
           )
 
@@ -170,6 +268,10 @@ jobs:
               ),
               (positions["bc_second_start"], positions["environment_second_start"]),
               (positions["environment_second_start"], positions["backend_start"]),
+              (
+                  positions["teacher_methods_start"],
+                  positions["train_method_start"],
+              ),
           ]
           reduced = source
           for start, end in reversed(ranges):
@@ -213,6 +315,9 @@ jobs:
                   _oracle_solver_config as _oracle_solver_config,
                   _teacher_worker_count as _teacher_worker_count,
               )
+              from trade_rl.integrations.sb3_teacher_pipeline import (
+                  _StableBaselines3TeacherPipeline,
+              )
               '''
           ).lstrip()
           insertion_marker = (
@@ -223,6 +328,14 @@ jobs:
           reduced = reduced.replace(
               insertion_marker,
               insertion_marker + compatibility_imports,
+              1,
+          )
+          backend_marker = "class StableBaselines3Backend:"
+          if reduced.count(backend_marker) != 1:
+              raise RuntimeError("StableBaselines3Backend marker changed")
+          reduced = reduced.replace(
+              backend_marker,
+              "class StableBaselines3Backend(_StableBaselines3TeacherPipeline):",
               1,
           )
           training_path.write_text(reduced, encoding="utf-8")
@@ -263,6 +376,13 @@ jobs:
               "_evaluate_hierarchical_behavior_cloning_gate",
               "_enforce_behavior_cloning_gates",
           }
+          expected_teacher_methods = {
+              "_oracle_episode_batch",
+              "_episode_teacher_dataset",
+              "_oracle_targets",
+              "_trend_baseline_targets",
+              "_teacher_dataset",
+          }
           for name in expected_runtime:
               if runtime_block.count(name) < 1:
                   raise RuntimeError(f"runtime extraction omitted {name}")
@@ -272,6 +392,9 @@ jobs:
           for name in expected_bc:
               if (bc_first_block + bc_second_block).count(name) < 1:
                   raise RuntimeError(f"BC extraction omitted {name}")
+          for name in expected_teacher_methods:
+              if teacher_methods_block.count(f"def {name}(") != 1:
+                  raise RuntimeError(f"teacher pipeline extraction omitted {name}")
           PY
 
       - name: Set up uv
@@ -292,12 +415,14 @@ jobs:
             trade_rl/integrations/sb3_runtime.py \
             trade_rl/integrations/sb3_environment.py \
             trade_rl/integrations/sb3_behavior_cloning.py \
+            trade_rl/integrations/sb3_teacher_pipeline.py \
             tests/architecture/test_sb3_training_boundaries.py
           uv run ruff format \
             trade_rl/integrations/sb3_training.py \
             trade_rl/integrations/sb3_runtime.py \
             trade_rl/integrations/sb3_environment.py \
             trade_rl/integrations/sb3_behavior_cloning.py \
+            trade_rl/integrations/sb3_teacher_pipeline.py \
             tests/architecture/test_sb3_training_boundaries.py
 
       - name: Run focused boundary regression suite
@@ -327,7 +452,8 @@ jobs:
             trade_rl/integrations/sb3_training.py \
             trade_rl/integrations/sb3_runtime.py \
             trade_rl/integrations/sb3_environment.py \
-            trade_rl/integrations/sb3_behavior_cloning.py
+            trade_rl/integrations/sb3_behavior_cloning.py \
+            trade_rl/integrations/sb3_teacher_pipeline.py
           uv run lint-imports
           uv run vulture trade_rl --min-confidence 100
           test "$(wc -c < trade_rl/integrations/sb3_training.py)" -lt 61440

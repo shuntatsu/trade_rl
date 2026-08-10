@@ -36,6 +36,8 @@ def test_episode_split_orders_by_time_and_purges_future_support_overlap() -> Non
     np.testing.assert_array_equal(split.train_indices, np.arange(0, 6))
     np.testing.assert_array_equal(split.purged_indices, np.arange(6, 9))
     np.testing.assert_array_equal(split.validation_indices, np.arange(9, 12))
+    assert split.validation_sample_count == 3
+    assert split.purged_sample_count == 3
     combined = np.concatenate(
         (split.train_indices, split.purged_indices, split.validation_indices)
     )

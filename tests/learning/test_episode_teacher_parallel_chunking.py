@@ -27,10 +27,17 @@ class _FakeTeacherEnvironment:
     def reset(
         self, *, options: dict[str, object]
     ) -> tuple[np.ndarray, dict[str, object]]:
-        start = int(options["start_idx"])
-        self.current_index = start
-        self._remaining = int(options["episode_bars"])
-        return np.asarray([start], dtype=np.float32), {"start_index": start}
+        raw_start = options["start_idx"]
+        raw_episode_bars = options["episode_bars"]
+        if isinstance(raw_start, bool) or not isinstance(raw_start, int):
+            raise TypeError("start_idx must be an integer")
+        if isinstance(raw_episode_bars, bool) or not isinstance(raw_episode_bars, int):
+            raise TypeError("episode_bars must be an integer")
+        self.current_index = raw_start
+        self._remaining = raw_episode_bars
+        return np.asarray([raw_start], dtype=np.float32), {
+            "start_index": raw_start
+        }
 
     def step(
         self, target: np.ndarray

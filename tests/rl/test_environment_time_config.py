@@ -199,7 +199,10 @@ def test_finite_horizon_terminates_without_liquidating_or_terminal_shaping() -> 
     assert info["terminal_accounting_mode"] == "mark_to_market"
     assert info["terminal_liquidation_cost"] == 0.0
     assert info["reward_terminal_penalty_weighted"] == pytest.approx(0.0)
-    assert env.config.episode_boundary_mode is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+    assert (
+        env.config.episode_boundary_mode
+        is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+    )
 
 
 def test_episode_boundary_mode_changes_environment_identity() -> None:

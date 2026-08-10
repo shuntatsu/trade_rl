@@ -10,6 +10,7 @@ from trade_rl.learning.episode_oracle_teacher import (
     OracleEpisodeContract,
 )
 from trade_rl.learning.episode_teacher_artifact import (
+    EpisodeSupervisedPolicyDataset,
     collect_episode_teacher_rollout_parallel,
 )
 

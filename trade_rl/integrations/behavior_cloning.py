@@ -18,6 +18,7 @@ from trade_rl.learning.behavior_cloning import (
     BehaviorCloningResult,
     ObservationBatchProvider,
 )
+from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
 from trade_rl.learning.hierarchical_bc_metrics import (
     HierarchicalBehaviorCloningLosses,
     HierarchicalBehaviorCloningMetrics,
@@ -255,17 +256,70 @@ def _validate_hierarchical_labels(
         raise ValueError("hierarchical teacher targets do not match supervised actions")
 
 
+def _behavior_cloning_indices(
+    *,
+    sample_count: int,
+    config: BehaviorCloningConfig,
+    split: BehaviorCloningSplit | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    if split is None:
+        validation_count = (
+            0
+            if config.validation_fraction == 0.0
+            else max(
+                1,
+                int(math.floor(sample_count * config.validation_fraction)),
+            )
+        )
+        train_count = sample_count - validation_count
+        if train_count <= 0:
+            raise ValueError("behavior-cloning validation leaves no training samples")
+        indices = np.arange(sample_count, dtype=np.int64)
+        return indices[:train_count], indices[train_count:]
+
+    train_indices = np.asarray(split.train_indices, dtype=np.int64)
+    validation_indices = np.asarray(split.validation_indices, dtype=np.int64)
+    purged_indices = np.asarray(split.purged_indices, dtype=np.int64)
+    for name, indices in (
+        ("training", train_indices),
+        ("validation", validation_indices),
+        ("purged", purged_indices),
+    ):
+        if np.any(indices < 0) or np.any(indices >= sample_count):
+            raise ValueError(f"behavior-cloning {name} index is outside the dataset")
+    partition = np.concatenate((train_indices, validation_indices, purged_indices))
+    expected_partition = np.arange(sample_count, dtype=np.int64)
+    if partition.size != sample_count or not np.array_equal(
+        np.sort(partition), expected_partition
+    ):
+        raise ValueError("explicit behavior-cloning split must partition the dataset")
+    expected_validation_count = (
+        0
+        if config.validation_fraction == 0.0
+        else max(
+            1,
+            int(math.floor(sample_count * config.validation_fraction)),
+        )
+    )
+    if validation_indices.size != expected_validation_count:
+        raise ValueError(
+            "explicit behavior-cloning split disagrees with validation_fraction"
+        )
+    return train_indices, validation_indices
+
+
 def pretrain_policy(
     policy: Any,
     dataset: SupervisedPolicyDataset,
     *,
     config: BehaviorCloningConfig,
     seed: int,
+    split: BehaviorCloningSplit | None = None,
     observation_provider: ObservationBatchProvider | None = None,
     hierarchical_labels: HierarchicalTeacherLabels | None = None,
     progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> BehaviorCloningResult:
-    """Fit legacy MSE or hierarchical BC with a chronological validation tail."""
+    """Fit BC using a validated split while excluding purged samples."""
 
     if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("behavior-cloning seed must be non-negative")
@@ -273,17 +327,14 @@ def pretrain_policy(
         _validate_hierarchical_labels(dataset, hierarchical_labels)
     device = torch.device(policy.device)
     sample_count = dataset.sample_count
-    validation_count = (
-        0
-        if config.validation_fraction == 0.0
-        else max(1, int(math.floor(sample_count * config.validation_fraction)))
+    train_indices, validation_indices = _behavior_cloning_indices(
+        sample_count=sample_count,
+        config=config,
+        split=split,
     )
-    train_count = sample_count - validation_count
-    if train_count <= 0:
-        raise ValueError("behavior-cloning validation leaves no training samples")
-    all_indices = np.arange(sample_count, dtype=np.int64)
-    train_indices = all_indices[:train_count]
-    validation_indices = all_indices[train_count:]
+    train_count = int(train_indices.size)
+    validation_count = int(validation_indices.size)
+    all_indices = np.concatenate((train_indices, validation_indices))
     # Teacher targets and their reconstruction gates are deterministic contracts.
     # Eval mode disables stochastic regularizers while preserving autograd, so
     # both optimization and metrics fit the exact function deployed to PPO.

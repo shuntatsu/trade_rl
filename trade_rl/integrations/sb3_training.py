@@ -1699,6 +1699,7 @@ class StableBaselines3Backend:
                         model.policy,
                         teacher_dataset,
                         config=cloning_config,
+                        split=episode_split,
                         seed=behavior_cloning_seed,
                         observation_provider=observation_provider,
                         hierarchical_labels=hierarchical_labels,

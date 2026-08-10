@@ -29,7 +29,7 @@ jobs:
       - name: Reconstruct and verify patch series
         run: |
           set -euo pipefail
-          cp publisher/.github/u2-consolidated-delta.patch.gz.b64 /tmp/u2-delta.patch.gz.b64
+          tr -d '\r\n' < publisher/.github/u2-consolidated-delta.patch.gz.b64 > /tmp/u2-delta.patch.gz.b64
           echo "ab205f2c81985090a961c08ff884ce4efa2cdbb8b85031ac31bad7782e88cb3f  /tmp/u2-delta.patch.gz.b64" | sha256sum --check -
           base64 --decode /tmp/u2-delta.patch.gz.b64 | gzip --decompress > /tmp/u2-delta.patch
 

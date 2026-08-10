@@ -138,6 +138,7 @@ class EnvironmentTerminationCoordinator:
             time_limit_reached=time_limit_reached,
             liquidation_terminal=liquidation_terminal,
             liquidation_complete=liquidation_complete,
+            time_limit_terminates=self.config.time_limit_terminates,
         )
         return EnvironmentTransitionOutcome(
             hybrid=hybrid,

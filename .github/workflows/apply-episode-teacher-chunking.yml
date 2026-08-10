@@ -1,0 +1,86 @@
+name: Apply episode teacher chunking
+
+on:
+  push:
+    branches:
+      - agent/consolidate-open-work-2026-08-10
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-episode-teacher-chunking-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    name: Reuse one teacher environment per worker chunk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact consolidation head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/consolidate-open-work-2026-08-10
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install test dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Confirm chunk reuse regression is RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q \
+            tests/learning/test_episode_teacher_parallel_chunking.py \
+            > episode-chunk-red.log 2>&1
+          status=$?
+          set -e
+          cat episode-chunk-red.log
+          test "$status" -ne 0
+          grep -q "assert 8 == 2" episode-chunk-red.log
+
+      - name: Apply deterministic worker chunk reuse
+        run: uv run python scripts/apply_episode_teacher_chunking.py
+
+      - name: Verify focused teacher rollout contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            trade_rl/learning/episode_teacher_artifact.py \
+            tests/learning/test_episode_teacher_parallel_chunking.py
+          uv run ruff format --check \
+            trade_rl/learning/episode_teacher_artifact.py \
+            tests/learning/test_episode_teacher_parallel_chunking.py
+          uv run mypy \
+            trade_rl/learning/episode_teacher_artifact.py \
+            tests/learning/test_episode_teacher_parallel_chunking.py
+          uv run pytest -q \
+            tests/learning/test_episode_teacher_parallel_chunking.py \
+            tests/learning/test_episode_teacher_api_contract.py \
+            tests/learning/test_episode_teacher_integration.py \
+            tests/learning/test_episode_teacher_provenance.py \
+            tests/learning/test_episode_oracle_teacher.py \
+            tests/integrations/test_sb3_training.py::test_backend_runs_oracle_behavior_cloning_before_ppo
+
+      - name: Commit verified implementation and remove temporary machinery
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          rm -f .github/workflows/apply-episode-teacher-chunking.yml
+          rm -f scripts/apply_episode_teacher_chunking.py
+          rm -f episode-chunk-red.log
+          git add -A
+          git diff --cached --check
+          git commit -m 'perf(bc): reuse teacher environments per worker chunk'
+          git push origin HEAD:refs/heads/agent/consolidate-open-work-2026-08-10

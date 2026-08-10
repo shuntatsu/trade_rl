@@ -14,21 +14,18 @@ jobs:
   patch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact branch head and all branch histories
+      - name: Checkout exact branch head and all histories
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: agent/consolidate-open-work-2026-08-10
           fetch-depth: 0
 
-      - name: Verify integrated source tips remain stable
+      - name: Verify pinned source tips are integrated
         shell: bash
         run: |
-          test "$(git rev-parse origin/agent/bc-temporal-correctness)" = e7a68eca47b86fb7dc6698e611c4c0874792f574
-          test "$(git rev-parse origin/agent/bc-temporal-correctness-stacked)" = 4cca731ba005090c48f08389cc484310704b872e
-          test "$(git rev-parse origin/agent/execution-robustness-environment)" = 1a1f30c041e86170f84f13a080a1368d127e4ae8
           git merge-base --is-ancestor e7a68eca47b86fb7dc6698e611c4c0874792f574 HEAD
-          git merge-base --is-ancestor 4cca731ba005090c48f08389cc484310704b872e HEAD
-          git merge-base --is-ancestor 1a1f30c041e86170f84f13a080a1368d127e4ae8 HEAD
+          git merge-base --is-ancestor b04e109d45370732a04f57e7125b72766fe94f7a HEAD
+          git merge-base --is-ancestor 0ad2440eeaa5895ed55501a9c77d4a822cd07659 HEAD
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -42,11 +39,11 @@ jobs:
       - name: Run RED-GREEN patch and focused verification
         run: uv run python scripts/apply_final_branch_contracts.py
 
-      - name: Commit verified contracts and remove temporary files
+      - name: Commit verified contract and remove temporary files
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'fix: close final BC and execution branch contracts'
+          git commit -m 'fix(execution): add slippage floor contract'
           git push origin HEAD:refs/heads/agent/consolidate-open-work-2026-08-10

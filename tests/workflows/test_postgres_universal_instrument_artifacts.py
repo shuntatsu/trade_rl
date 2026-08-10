@@ -56,9 +56,7 @@ class FakeDatabase:
         symbol_count: int = 15,
     ) -> None:
         self.queries: list[tuple[str, object]] = []
-        self.symbols = tuple(
-            f"ASSET{index:02d}USDT" for index in range(symbol_count)
-        )
+        self.symbols = tuple(f"ASSET{index:02d}USDT" for index in range(symbol_count))
         feature_specs = {
             "base_timeframe": "15m",
             "feature_timeframes": ["1h", "4h", "1d"],

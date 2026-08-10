@@ -135,14 +135,12 @@ def verify_red() -> None:
 
 def patch_trainer() -> None:
     text = TRAINER_PATH.read_text()
-    import_marker = textwrap.dedent(
-        '''
-        from trade_rl.learning.behavior_cloning import (
-            BehaviorCloningConfig,
-            BehaviorCloningResult,
-            ObservationBatchProvider,
-        )
-        '''
+    import_marker = (
+        "from trade_rl.learning.behavior_cloning import (\n"
+        "    BehaviorCloningConfig,\n"
+        "    BehaviorCloningResult,\n"
+        "    ObservationBatchProvider,\n"
+        ")\n"
     )
     text = replace_once(
         text,
@@ -231,34 +229,30 @@ def patch_trainer() -> None:
         "    observation_provider:",
         label="behavior-cloning trainer signature",
     )
-    split_block = textwrap.dedent(
-        '''
-            sample_count = dataset.sample_count
-            validation_count = (
-                0
-                if config.validation_fraction == 0.0
-                else max(1, int(math.floor(sample_count * config.validation_fraction)))
-            )
-            train_count = sample_count - validation_count
-            if train_count <= 0:
-                raise ValueError("behavior-cloning validation leaves no training samples")
-            all_indices = np.arange(sample_count, dtype=np.int64)
-            train_indices = all_indices[:train_count]
-            validation_indices = all_indices[train_count:]
-        '''
+    split_block = (
+        "    sample_count = dataset.sample_count\n"
+        "    validation_count = (\n"
+        "        0\n"
+        "        if config.validation_fraction == 0.0\n"
+        "        else max(1, int(math.floor(sample_count * config.validation_fraction)))\n"
+        "    )\n"
+        "    train_count = sample_count - validation_count\n"
+        "    if train_count <= 0:\n"
+        "        raise ValueError(\"behavior-cloning validation leaves no training samples\")\n"
+        "    all_indices = np.arange(sample_count, dtype=np.int64)\n"
+        "    train_indices = all_indices[:train_count]\n"
+        "    validation_indices = all_indices[train_count:]\n"
     )
-    replacement = textwrap.dedent(
-        '''
-            sample_count = dataset.sample_count
-            train_indices, validation_indices = _behavior_cloning_indices(
-                sample_count=sample_count,
-                config=config,
-                split=split,
-            )
-            train_count = int(train_indices.size)
-            validation_count = int(validation_indices.size)
-            all_indices = np.concatenate((train_indices, validation_indices))
-        '''
+    replacement = (
+        "    sample_count = dataset.sample_count\n"
+        "    train_indices, validation_indices = _behavior_cloning_indices(\n"
+        "        sample_count=sample_count,\n"
+        "        config=config,\n"
+        "        split=split,\n"
+        "    )\n"
+        "    train_count = int(train_indices.size)\n"
+        "    validation_count = int(validation_indices.size)\n"
+        "    all_indices = np.concatenate((train_indices, validation_indices))\n"
     )
     text = replace_once(
         text,
@@ -277,13 +271,11 @@ def patch_trainer() -> None:
 
 def patch_sb3_adapter() -> None:
     text = ADAPTER_PATH.read_text()
-    marker = textwrap.dedent(
-        '''
-                            cloning = pretrain_policy(
-                                model.policy,
-                                teacher_dataset,
-                                config=cloning_config,
-        '''
+    marker = (
+        "                    cloning = pretrain_policy(\n"
+        "                        model.policy,\n"
+        "                        teacher_dataset,\n"
+        "                        config=cloning_config,\n"
     )
     replacement = marker + "                        split=episode_split,\n"
     text = replace_once(

@@ -14,12 +14,14 @@ on:
       - trade_rl/data/artifact.py
       - trade_rl/evaluation/walk_forward/**
       - trade_rl/integrations/postgres_indicator_artifacts.py
+      - trade_rl/integrations/postgres_indicator_inventory.py
       - trade_rl/integrations/postgres_market_dataset.py
       - trade_rl/workflows/**
       - trade_rl/cli/**
       - tests/catalog/**
       - tests/evaluation/**
       - tests/integrations/test_postgres_indicator_artifacts.py
+      - tests/integrations/test_postgres_indicator_inventory.py
       - tests/integrations/test_postgres_market_dataset.py
       - tests/integrations/test_postgres_market_dataset_live.py
       - tests/workflows/**
@@ -73,6 +75,7 @@ jobs:
           tests/data/test_market_artifact_catalog.py
           tests/cli/test_catalog_commands.py
           tests/integrations/test_postgres_indicator_artifacts.py
+          tests/integrations/test_postgres_indicator_inventory.py
           tests/integrations/test_postgres_market_dataset.py
           tests/integrations/test_postgres_market_dataset_live.py
           -q

@@ -1,0 +1,241 @@
+name: Apply catalog and BC finalization
+
+on:
+  push:
+    branches:
+      - agent/consolidate-open-work-2026-08-10
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-catalog-and-bc-finalization-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    name: Integrate catalog contracts and saturate BC workers
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact consolidation head and histories
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/consolidate-open-work-2026-08-10
+          fetch-depth: 0
+
+      - name: Verify pinned source tips
+        shell: bash
+        env:
+          BC_TIP: 353406337de0dc93c7622e8d10e96548359c939d
+          CATALOG_TIP: a38b7b50cd0d505f7ad67972796b922d5f188d85
+        run: |
+          set -euo pipefail
+          git fetch origin agent/bc-temporal-correctness-stacked agent/stored-instrument-catalog
+          git merge-base --is-ancestor "$BC_TIP" origin/agent/bc-temporal-correctness-stacked
+          git merge-base --is-ancestor "$CATALOG_TIP" origin/agent/stored-instrument-catalog
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install test dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Confirm BC worker saturation is RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q \
+            tests/learning/test_episode_teacher_parallel_chunking.py::test_parallel_teacher_rollout_uses_every_worker_when_episodes_are_available \
+            > bc-worker-red.log 2>&1
+          status=$?
+          set -e
+          cat bc-worker-red.log
+          test "$status" -ne 0
+          grep -q "assert 9 == 16" bc-worker-red.log
+
+      - name: Confirm catalog ownership and imports are RED
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          uv run pytest -q \
+            tests/catalog/test_stored_instrument_catalog.py \
+            tests/workflows/test_universal_instrument_partition.py \
+            tests/architecture/test_stored_instrument_contract_boundary.py \
+            > catalog-red.log 2>&1
+          status=$?
+          set -e
+          cat catalog-red.log
+          test "$status" -ne 0
+          grep -Eq "stored_instrument_catalog|CATALOG_MODULE" catalog-red.log
+
+      - name: Install pinned implementations in their maintained layers
+        shell: bash
+        env:
+          BC_TIP: 353406337de0dc93c7622e8d10e96548359c939d
+          CATALOG_TIP: a38b7b50cd0d505f7ad67972796b922d5f188d85
+        run: |
+          set -euo pipefail
+          git show "$BC_TIP":trade_rl/learning/episode_teacher_artifact.py \
+            > trade_rl/learning/episode_teacher_artifact.py
+          git show "$CATALOG_TIP":trade_rl/workflows/stored_instrument_catalog.py \
+            > trade_rl/catalog/stored_instrument_catalog.py
+          git show "$CATALOG_TIP":trade_rl/workflows/universal_instrument_partition.py \
+            > trade_rl/workflows/universal_instrument_partition.py
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("trade_rl/workflows/universal_instrument_partition.py"): (
+                  "from trade_rl.workflows.stored_instrument_catalog import StoredInstrumentCatalog",
+                  "from trade_rl.catalog.stored_instrument_catalog import StoredInstrumentCatalog",
+              ),
+              Path("tests/catalog/test_stored_instrument_catalog.py"): (
+                  "from trade_rl.workflows.stored_instrument_catalog import (",
+                  "from trade_rl.catalog.stored_instrument_catalog import (",
+              ),
+              Path("tests/workflows/test_universal_instrument_partition.py"): (
+                  "from trade_rl.workflows.stored_instrument_catalog import (",
+                  "from trade_rl.catalog.stored_instrument_catalog import (",
+              ),
+          }
+          for path, (old, new) in replacements.items():
+              text = path.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(f"import marker changed: {path}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          init_path = Path("trade_rl/catalog/__init__.py")
+          init_text = init_path.read_text(encoding="utf-8")
+          import_marker = "from trade_rl.catalog.service import ArtifactCatalogService\n"
+          if import_marker not in init_text:
+              import_marker = "from trade_rl.catalog.postgres_stage_a_sealed_test import (\n"
+              insertion = (
+                  "from trade_rl.catalog.stored_instrument_catalog import (\n"
+                  "    STORED_INSTRUMENT_CATALOG_SCHEMA,\n"
+                  "    StoredIndicatorArtifactEvidence,\n"
+                  "    StoredIndicatorSourceInventory,\n"
+                  "    StoredInstrumentCatalog,\n"
+                  "    StoredInstrumentExclusion,\n"
+                  "    build_stored_instrument_catalog,\n"
+                  "    load_stored_instrument_catalog,\n"
+                  "    write_stored_instrument_catalog,\n"
+                  ")\n"
+              )
+              init_text = init_text.replace(import_marker, insertion + import_marker, 1)
+          else:
+              insertion = (
+                  "from trade_rl.catalog.stored_instrument_catalog import (\n"
+                  "    STORED_INSTRUMENT_CATALOG_SCHEMA,\n"
+                  "    StoredIndicatorArtifactEvidence,\n"
+                  "    StoredIndicatorSourceInventory,\n"
+                  "    StoredInstrumentCatalog,\n"
+                  "    StoredInstrumentExclusion,\n"
+                  "    build_stored_instrument_catalog,\n"
+                  "    load_stored_instrument_catalog,\n"
+                  "    write_stored_instrument_catalog,\n"
+                  ")\n"
+              )
+              init_text = init_text.replace(import_marker, import_marker + insertion, 1)
+          all_marker = '    "cache_key_digest",\n'
+          exports = (
+              '    "STORED_INSTRUMENT_CATALOG_SCHEMA",\n'
+              '    "StoredIndicatorArtifactEvidence",\n'
+              '    "StoredIndicatorSourceInventory",\n'
+              '    "StoredInstrumentCatalog",\n'
+              '    "StoredInstrumentExclusion",\n'
+              '    "build_stored_instrument_catalog",\n'
+              '    "load_stored_instrument_catalog",\n'
+              '    "write_stored_instrument_catalog",\n'
+          )
+          if init_text.count(all_marker) != 1:
+              raise SystemExit("catalog export marker changed")
+          init_path.write_text(
+              init_text.replace(all_marker, exports + all_marker, 1),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Normalize changed Python files
+        run: |
+          uv run ruff check --fix \
+            trade_rl/catalog/__init__.py \
+            trade_rl/catalog/stored_instrument_catalog.py \
+            trade_rl/workflows/universal_instrument_partition.py \
+            trade_rl/learning/episode_teacher_artifact.py \
+            tests/catalog/test_stored_instrument_catalog.py \
+            tests/workflows/test_universal_instrument_partition.py \
+            tests/learning/test_episode_teacher_parallel_chunking.py \
+            tests/architecture/test_stored_instrument_contract_boundary.py \
+            tests/examples/test_full_research_default_workflow.py
+          uv run ruff format \
+            trade_rl/catalog/__init__.py \
+            trade_rl/catalog/stored_instrument_catalog.py \
+            trade_rl/workflows/universal_instrument_partition.py \
+            trade_rl/learning/episode_teacher_artifact.py \
+            tests/catalog/test_stored_instrument_catalog.py \
+            tests/workflows/test_universal_instrument_partition.py \
+            tests/learning/test_episode_teacher_parallel_chunking.py \
+            tests/architecture/test_stored_instrument_contract_boundary.py \
+            tests/examples/test_full_research_default_workflow.py
+
+      - name: Verify focused contracts and architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            trade_rl/catalog/__init__.py \
+            trade_rl/catalog/stored_instrument_catalog.py \
+            trade_rl/workflows/universal_instrument_partition.py \
+            trade_rl/learning/episode_teacher_artifact.py \
+            tests/catalog/test_stored_instrument_catalog.py \
+            tests/workflows/test_universal_instrument_partition.py \
+            tests/learning/test_episode_teacher_parallel_chunking.py \
+            tests/architecture/test_stored_instrument_contract_boundary.py \
+            tests/examples/test_full_research_default_workflow.py
+          uv run ruff format --check \
+            trade_rl/catalog/__init__.py \
+            trade_rl/catalog/stored_instrument_catalog.py \
+            trade_rl/workflows/universal_instrument_partition.py \
+            trade_rl/learning/episode_teacher_artifact.py \
+            tests/catalog/test_stored_instrument_catalog.py \
+            tests/workflows/test_universal_instrument_partition.py \
+            tests/learning/test_episode_teacher_parallel_chunking.py \
+            tests/architecture/test_stored_instrument_contract_boundary.py \
+            tests/examples/test_full_research_default_workflow.py
+          uv run mypy \
+            trade_rl/catalog/stored_instrument_catalog.py \
+            trade_rl/workflows/universal_instrument_partition.py \
+            trade_rl/learning/episode_teacher_artifact.py \
+            tests/catalog/test_stored_instrument_catalog.py \
+            tests/workflows/test_universal_instrument_partition.py \
+            tests/learning/test_episode_teacher_parallel_chunking.py
+          uv run lint-imports
+          uv run vulture trade_rl tests --min-confidence 100
+          uv run pytest -q \
+            tests/catalog/test_stored_instrument_catalog.py \
+            tests/workflows/test_universal_instrument_partition.py \
+            tests/workflows/test_symbol_disjoint_manifest.py \
+            tests/learning/test_episode_teacher_parallel_chunking.py \
+            tests/learning/test_episode_teacher_api_contract.py \
+            tests/learning/test_episode_teacher_integration.py \
+            tests/architecture/test_stored_instrument_contract_boundary.py \
+            tests/examples/test_full_research_default_workflow.py
+
+      - name: Commit verified implementation and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          rm -f .github/workflows/apply-catalog-and-bc-finalization.yml
+          rm -f bc-worker-red.log catalog-red.log
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat: add stored catalog partition and saturate BC workers'
+          git push origin HEAD:refs/heads/agent/consolidate-open-work-2026-08-10

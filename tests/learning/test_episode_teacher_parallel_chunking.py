@@ -10,6 +10,7 @@ from trade_rl.learning.episode_oracle_teacher import (
     OracleEpisodeContract,
 )
 from trade_rl.learning.episode_teacher_artifact import (
+    EpisodeSupervisedPolicyDataset,
     collect_episode_teacher_rollout_parallel,
 )
 
@@ -27,15 +28,10 @@ class _FakeTeacherEnvironment:
     def reset(
         self, *, options: dict[str, object]
     ) -> tuple[np.ndarray, dict[str, object]]:
-        raw_start = options["start_idx"]
-        raw_episode_bars = options["episode_bars"]
-        if isinstance(raw_start, bool) or not isinstance(raw_start, int):
-            raise TypeError("start_idx must be an integer")
-        if isinstance(raw_episode_bars, bool) or not isinstance(raw_episode_bars, int):
-            raise TypeError("episode_bars must be an integer")
-        self.current_index = raw_start
-        self._remaining = raw_episode_bars
-        return np.asarray([raw_start], dtype=np.float32), {"start_index": raw_start}
+        start = int(options["start_idx"])
+        self.current_index = start
+        self._remaining = int(options["episode_bars"])
+        return np.asarray([start], dtype=np.float32), {"start_index": start}
 
     def step(
         self, target: np.ndarray
@@ -87,9 +83,12 @@ def _episode_batch(episode_count: int = 8) -> EpisodeOracleBatch:
     )
 
 
-def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
+def _collect_threaded_teacher_batch(
     monkeypatch: object,
-) -> None:
+    *,
+    episode_count: int,
+    max_workers: int,
+) -> tuple[EpisodeSupervisedPolicyDataset, int, int]:
     monkeypatch.setattr(  # type: ignore[attr-defined]
         episode_teacher_artifact.mp,
         "get_all_start_methods",
@@ -104,16 +103,28 @@ def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
             factory_calls[0] += 1
         return _FakeTeacherEnvironment(close_calls, lock)
 
-    batch = _episode_batch()
+    batch = _episode_batch(episode_count)
     dataset = collect_episode_teacher_rollout_parallel(
         environment_factory,
         batch,
         teacher_config_digest=batch.teacher_config_digest,
+        max_workers=max_workers,
+    )
+    return dataset, factory_calls[0], close_calls[0]
+
+
+def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
+    monkeypatch: object,
+) -> None:
+    dataset, factory_calls, close_calls = _collect_threaded_teacher_batch(
+        monkeypatch,
+        episode_count=8,
         max_workers=2,
     )
+    batch = _episode_batch()
 
-    assert factory_calls[0] == 2
-    assert close_calls[0] == 2
+    assert factory_calls == 2
+    assert close_calls == 2
     np.testing.assert_array_equal(
         dataset.episode_ids,
         np.repeat(np.arange(batch.episode_count, dtype=np.int64), 2),
@@ -129,4 +140,21 @@ def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
     )
     np.testing.assert_array_equal(
         dataset.actions, np.concatenate(batch.targets, axis=0)
+    )
+
+
+def test_parallel_teacher_rollout_uses_every_worker_when_episodes_are_available(
+    monkeypatch: object,
+) -> None:
+    dataset, factory_calls, close_calls = _collect_threaded_teacher_batch(
+        monkeypatch,
+        episode_count=17,
+        max_workers=16,
+    )
+
+    assert factory_calls == 16
+    assert close_calls == 16
+    np.testing.assert_array_equal(
+        dataset.episode_ids,
+        np.repeat(np.arange(17, dtype=np.int64), 2),
     )

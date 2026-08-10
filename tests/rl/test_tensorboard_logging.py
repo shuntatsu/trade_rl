@@ -74,9 +74,7 @@ def test_tensorboard_callback_aggregates_finite_rollout_metrics() -> None:
     assert logger.values["trade_rl/reward_absolute_component_mean"] == pytest.approx(
         0.02
     )
-    assert logger.values["trade_rl/reward_excess_component_mean"] == pytest.approx(
-        0.0
-    )
+    assert logger.values["trade_rl/reward_excess_component_mean"] == pytest.approx(0.0)
     assert logger.values[
         "trade_rl/reward_baseline_penalty_weighted_mean"
     ] == pytest.approx(0.003)

@@ -130,6 +130,41 @@ def test_sampler_skips_unimportant_steps_and_preserves_position_risk_and_termina
     assert page.items[0].action == pytest.approx((0.4,))
 
 
+def test_sampler_preserves_vecenv_termination_semantics(tmp_path: Path) -> None:
+    path = tmp_path / "training-telemetry.jsonl"
+    sampler = TrainingTelemetrySampler(path, seed=7, sample_every=1)
+    truncated_info = info(1)
+    truncated_info["TimeLimit.truncated"] = True
+
+    assert (
+        sampler.consume(
+            global_step=1,
+            actions=np.asarray([[0.0]], dtype=np.float32),
+            rewards=np.asarray([0.0], dtype=np.float32),
+            dones=np.asarray([True]),
+            infos=(truncated_info,),
+        )
+        == 1
+    )
+    assert (
+        sampler.consume(
+            global_step=2,
+            actions=np.asarray([[0.0]], dtype=np.float32),
+            rewards=np.asarray([0.0], dtype=np.float32),
+            dones=np.asarray([True]),
+            infos=(info(2, terminated=True),),
+        )
+        == 1
+    )
+    sampler.close()
+
+    truncated, terminated = read_training_telemetry(path, limit=10).items
+    assert truncated.terminated is False
+    assert truncated.truncated is True
+    assert terminated.terminated is True
+    assert terminated.truncated is False
+
+
 def test_sampler_batches_durable_writes_until_rollout_boundary(tmp_path: Path) -> None:
     path = tmp_path / "training-telemetry.jsonl"
     sampler = TrainingTelemetrySampler(path, seed=7, sample_every=1)

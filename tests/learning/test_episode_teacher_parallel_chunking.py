@@ -35,9 +35,7 @@ class _FakeTeacherEnvironment:
             raise TypeError("episode_bars must be an integer")
         self.current_index = raw_start
         self._remaining = raw_episode_bars
-        return np.asarray([raw_start], dtype=np.float32), {
-            "start_index": raw_start
-        }
+        return np.asarray([raw_start], dtype=np.float32), {"start_index": raw_start}
 
     def step(
         self, target: np.ndarray

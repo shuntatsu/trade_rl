@@ -80,12 +80,16 @@ run_full_research_state.py --phase develop \
 
 ## Testing Strategy
 
-A focused regression test will load the runner without executing `main()` and
-assert that:
+Focused regression tests load the runner without executing `main()` and assert
+that:
 
 - the default workflow constant resolves to
   `walk-forward-target-weight-constrained-growth.json`;
 - the default catalog contains the three expected `run_file` profiles in order;
+- the `develop` stage passes that path to `pipeline.write_run_config()` before
+  starting the walk-forward command;
+- the generation-local materialized output path remains
+  `walk-forward-full.json`, preserving the downstream path contract;
 - `training-full.json` is absent from the default catalog;
 - `training-full.json` remains accepted by the existing explicit-template path.
 

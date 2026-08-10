@@ -5,7 +5,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from trade_rl.learning.episode_behavior_cloning import behavior_cloning_split
+from trade_rl.learning.behavior_cloning import BehaviorCloningConfig
+from trade_rl.learning.episode_behavior_cloning import (
+    align_behavior_cloning_validation,
+    behavior_cloning_split,
+)
 
 
 def _episode_dataset(
@@ -42,6 +46,20 @@ def test_episode_split_orders_by_time_and_purges_future_support_overlap() -> Non
         (split.train_indices, split.purged_indices, split.validation_indices)
     )
     np.testing.assert_array_equal(np.sort(combined), np.arange(dataset.sample_count))
+
+
+def test_explicit_episode_split_preserves_requested_validation_fraction() -> None:
+    dataset = _episode_dataset(
+        episode_ids=[9, 9, 9, 2, 2, 2, 7, 7, 7, 1, 1, 1],
+        decision_indices=[0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    )
+    config = BehaviorCloningConfig(validation_fraction=0.26)
+
+    resolved, split = align_behavior_cloning_validation(config, dataset)
+
+    assert resolved is config
+    assert split.validation_sample_count == 3
+    assert split.purged_sample_count == 3
 
 
 def test_episode_split_fails_when_temporal_purge_removes_every_training_episode() -> (

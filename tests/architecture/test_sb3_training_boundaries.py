@@ -8,6 +8,8 @@ from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 
 PACKAGE_ROOT = PYTHON_SOURCE_ROOT
 TRAINING_PATH = PACKAGE_ROOT / "integrations/sb3_training.py"
+TEACHER_PIPELINE_MODULE = "trade_rl.integrations.sb3_teacher_pipeline"
+TEACHER_PIPELINE_CLASS = "_StableBaselines3TeacherPipeline"
 OWNER_PATHS = {
     "trade_rl.integrations.sb3_runtime": (
         PACKAGE_ROOT / "integrations/sb3_runtime.py"
@@ -18,6 +20,7 @@ OWNER_PATHS = {
     "trade_rl.integrations.sb3_behavior_cloning": (
         PACKAGE_ROOT / "integrations/sb3_behavior_cloning.py"
     ),
+    TEACHER_PIPELINE_MODULE: PACKAGE_ROOT / "integrations/sb3_teacher_pipeline.py",
 }
 
 RUNTIME_HELPERS = frozenset(
@@ -65,6 +68,16 @@ BEHAVIOR_CLONING_HELPERS = frozenset(
     }
 )
 
+TEACHER_PIPELINE_METHODS = frozenset(
+    {
+        "_oracle_episode_batch",
+        "_episode_teacher_dataset",
+        "_oracle_targets",
+        "_trend_baseline_targets",
+        "_teacher_dataset",
+    }
+)
+
 HELPERS_BY_MODULE = {
     "trade_rl.integrations.sb3_runtime": RUNTIME_HELPERS,
     "trade_rl.integrations.sb3_environment": ENVIRONMENT_HELPERS,
@@ -91,6 +104,17 @@ def _defined_names(path: Path) -> frozenset[str]:
     return frozenset(names)
 
 
+def _class_methods(path: Path, class_name: str) -> frozenset[str]:
+    for node in _tree(path).body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return frozenset(
+                item.name
+                for item in node.body
+                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef)
+            )
+    raise AssertionError(f"class not found: {class_name}")
+
+
 def _import_targets(path: Path) -> frozenset[str]:
     targets: set[str] = set()
     for node in ast.walk(_tree(path)):
@@ -110,12 +134,29 @@ def test_sb3_helpers_are_owned_by_focused_modules() -> None:
     assert not ALL_EXTRACTED_HELPERS & _defined_names(TRAINING_PATH)
 
 
+def test_sb3_teacher_cache_methods_are_owned_by_pipeline_base() -> None:
+    path = OWNER_PATHS[TEACHER_PIPELINE_MODULE]
+    assert path.is_file(), f"missing owner module: {TEACHER_PIPELINE_MODULE}"
+    assert TEACHER_PIPELINE_CLASS in _defined_names(path)
+    assert TEACHER_PIPELINE_METHODS <= _class_methods(path, TEACHER_PIPELINE_CLASS)
+    assert not TEACHER_PIPELINE_METHODS & _class_methods(
+        TRAINING_PATH,
+        "StableBaselines3Backend",
+    )
+
+
 def test_sb3_training_keeps_direct_compatibility_aliases() -> None:
     coordinator = importlib.import_module("trade_rl.integrations.sb3_training")
     for module_name, helpers in HELPERS_BY_MODULE.items():
         owner = importlib.import_module(module_name)
         for helper in helpers:
             assert getattr(coordinator, helper) is getattr(owner, helper)
+
+    owner = importlib.import_module(TEACHER_PIPELINE_MODULE)
+    pipeline = getattr(owner, TEACHER_PIPELINE_CLASS)
+    backend = coordinator.StableBaselines3Backend
+    for method in TEACHER_PIPELINE_METHODS:
+        assert getattr(backend, method) is getattr(pipeline, method)
 
 
 def test_sb3_helper_modules_never_depend_on_training_coordinator() -> None:

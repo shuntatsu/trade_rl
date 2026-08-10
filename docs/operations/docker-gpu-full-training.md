@@ -37,28 +37,37 @@ Containerは次をFail closedで確認します。
 
 ## 維持対象Full configuration
 
-正本は[training-full.json](../../examples/binance-multitimeframe/training-full.json)です。
+既定の正本は
+[walk-forward-target-weight-constrained-growth.json](../../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)
+です。明示的な`--training-template`指定がない`develop` phaseは、次の3候補を同じwalk-forward契約で比較します。
 
-主な値:
+1. `training-target-weight-growth-ppo.json`: gamma-one net-growth PPO control
+2. `training-target-weight-constrained-growth.json`: gamma-one constrained-growth Lagrangian PPO candidate
+3. `training-target-weight-constrained-growth-discounted.json`: 168-hour discounted constrained-growth ablation
+
+3候補に共通する主な値:
 
 ```text
+symbol / action: BTCUSDT / one direct target-weight action
 observation_encoder: hierarchical_sequence_v2
 policy: MultiInputPolicy
-action: target_weight (BTCUSDT, ETHUSDT, BNBUSDT order)
-algorithm: ppo
-behavior cloning: oracle teacher / 15 epochs / 10% chronological validation
+behavior cloning: oracle teacher / 45 epochs / 10% chronological validation
 learning rate: linear 0.00012 -> 0.000012
-n_envs: 4
+n_envs / n_steps / batch_size / n_epochs: 8 / 128 / 256 / 10
 seeds: 0, 1, 2
 device: cuda
+timesteps per seed: 524288
 sequence_d_model: 336
 timeframe attention: 8 heads / 2 layers
-asset attention: 8 heads / 2 layers
 max_policy_parameters: 12,000,000
 tensorboard diagnostics: enabled
 ```
 
-このPresetは維持対象候補であり、最適値を意味しません。
+`training-full.json`はlegacy mixed-shaping comparisonとして保持します。暗黙のdefault候補には含めず、必要な場合だけ`--training-template training-full.json`で明示選択します。`walk-forward-full.json`も過去の再現性のため削除しません。
+
+既存generationは記録済みsource commit、image、configuration、artifact identityへ固定されます。default変更によって実行中または完了済みgenerationを移行、上書き、別objectiveでresumeしません。新しいdefaultは、新しいsource commitとimageから作成した新generationだけに適用されます。
+
+これらは維持対象候補であり、最適値やProduction認可を意味しません。
 
 ## Oracle Bellman solver
 

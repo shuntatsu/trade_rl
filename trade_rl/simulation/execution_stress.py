@@ -154,15 +154,15 @@ def apply_execution_environment_stress(
     base: ExecutionCostConfig,
     stress: ExecutionRuleStress | None,
 ) -> ExecutionCostConfig:
-    """Apply only the maintained extended stress and preserve legacy identity."""
+    """Apply extended stress while preserving every legacy rule-stress subtype."""
 
     if not isinstance(base, ExecutionCostConfig):
         raise TypeError("base must be an ExecutionCostConfig")
-    if stress is None or type(stress) is ExecutionRuleStress:
+    if isinstance(stress, ExecutionEnvironmentStress):
+        return stress.apply(base)
+    if stress is None or isinstance(stress, ExecutionRuleStress):
         return base
-    if not isinstance(stress, ExecutionEnvironmentStress):
-        raise TypeError("stress must be an ExecutionRuleStress or null")
-    return stress.apply(base)
+    raise TypeError("stress must be an ExecutionRuleStress or null")
 
 
 __all__ = [

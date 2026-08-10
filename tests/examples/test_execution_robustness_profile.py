@@ -18,7 +18,6 @@ PROFILE = (
 EXPECTED_CANDIDATES = (
     "target-weight-growth-gamma-one-ppo",
     "target-weight-constrained-growth-gamma-one",
-    "target-weight-constrained-growth-discounted-168h",
 )
 EXPECTED_REPORT_ONLY_STRESSES = {
     "fee_spread_2x": {

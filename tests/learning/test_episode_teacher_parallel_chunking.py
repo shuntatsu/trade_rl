@@ -24,7 +24,9 @@ class _FakeTeacherEnvironment:
         self._close_counter = close_counter
         self._lock = lock
 
-    def reset(self, *, options: dict[str, object]) -> tuple[np.ndarray, dict[str, object]]:
+    def reset(
+        self, *, options: dict[str, object]
+    ) -> tuple[np.ndarray, dict[str, object]]:
         start = int(options["start_idx"])
         self.current_index = start
         self._remaining = int(options["episode_bars"])
@@ -120,4 +122,6 @@ def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
             ]
         ),
     )
-    np.testing.assert_array_equal(dataset.actions, np.concatenate(batch.targets, axis=0))
+    np.testing.assert_array_equal(
+        dataset.actions, np.concatenate(batch.targets, axis=0)
+    )

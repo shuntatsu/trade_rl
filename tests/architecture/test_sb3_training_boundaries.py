@@ -11,9 +11,7 @@ TRAINING_PATH = PACKAGE_ROOT / "integrations/sb3_training.py"
 TEACHER_PIPELINE_MODULE = "trade_rl.integrations.sb3_teacher_pipeline"
 TEACHER_PIPELINE_CLASS = "_StableBaselines3TeacherPipeline"
 OWNER_PATHS = {
-    "trade_rl.integrations.sb3_runtime": (
-        PACKAGE_ROOT / "integrations/sb3_runtime.py"
-    ),
+    "trade_rl.integrations.sb3_runtime": (PACKAGE_ROOT / "integrations/sb3_runtime.py"),
     "trade_rl.integrations.sb3_environment": (
         PACKAGE_ROOT / "integrations/sb3_environment.py"
     ),

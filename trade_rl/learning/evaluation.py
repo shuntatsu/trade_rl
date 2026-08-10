@@ -576,6 +576,9 @@ class BehaviorCloningHoldoutEvaluation:
             self.heldout_range, field="heldout_range"
         )
         del train_start
+        # Ranges are bar-half-open and contain decisions [start, stop - 1).
+        # Adjacent decision partitions therefore share the boundary bar:
+        # train=(start, d + 1), heldout=(d, stop).
         if heldout_start < train_stop - 1:
             raise ValueError(
                 "heldout decisions must not overlap teacher training decisions"
@@ -1013,9 +1016,7 @@ def evaluate_behavior_cloning_gates(
             name="causal_net_return_lower_confidence_bound",
             observed=causal_net_return_lower,
             comparison=">=",
-            threshold=(
-                thresholds.minimum_causal_holdout_net_return_lower_bound
-            ),
+            threshold=(thresholds.minimum_causal_holdout_net_return_lower_bound),
             support=causal_episode_support,
             minimum_support=thresholds.minimum_causal_holdout_episodes,
             passed=(

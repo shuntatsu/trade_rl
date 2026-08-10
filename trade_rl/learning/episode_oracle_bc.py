@@ -192,9 +192,7 @@ class EpisodeBehaviorCloningHoldoutEvaluation:
                     "episode BC holdout metrics must be finite and non-negative"
                 )
         if not math.isfinite(self.causal_net_return_lower_confidence_bound):
-            raise ValueError(
-                "causal net-return lower confidence bound must be finite"
-            )
+            raise ValueError("causal net-return lower confidence bound must be finite")
         if self.action_agreement_rate > 1.0:
             raise ValueError("episode BC action agreement exceeds one")
         if not 0.5 < self.bootstrap_confidence_level < 1.0:

@@ -1,0 +1,56 @@
+name: Publish U2 patch series
+
+on:
+  push:
+    branches:
+      - agent/publish-u2-2026-08-11
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout publisher payload
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/publish-u2-2026-08-11
+          path: publisher
+          persist-credentials: false
+
+      - name: Checkout exact stacked base
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 92d239c9c7acfa46a786137519d6c3fbca041924
+          path: source
+          fetch-depth: 0
+
+      - name: Reconstruct and verify patch series
+        run: |
+          set -euo pipefail
+          cat publisher/.github/u2-patch-part-* > /tmp/u2-series.patch.gz.b64
+          echo "b7985ab84178c43a438199aeb8c6ffa63f9d916f1f7b4b83608798fe0f230b15  /tmp/u2-series.patch.gz.b64" | sha256sum --check -
+          base64 --decode /tmp/u2-series.patch.gz.b64 | gzip --decompress > /tmp/u2-series.patch
+
+      - name: Apply exact TDD series and push U2 branch
+        working-directory: source
+        run: |
+          set -euo pipefail
+          git config user.name Shuntatsu
+          git config user.email 148511409+shuntatsu@users.noreply.github.com
+          git am /tmp/u2-series.patch
+          test -z "$(git status --short)"
+          git push origin HEAD:refs/heads/agent/universal-episode-router
+
+      - name: Delete temporary publisher branch
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request DELETE \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/heads/agent/publish-u2-2026-08-11"

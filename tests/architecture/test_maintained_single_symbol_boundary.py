@@ -38,6 +38,7 @@ def test_all_maintained_profiles_are_one_action() -> None:
     for name in (
         "walk-forward-full.json",
         "walk-forward-target-weight-constrained-growth.json",
+        "walk-forward-target-weight-constrained-growth-discounted.json",
     ):
         workflow = MarketWalkForwardConfig.from_json(
             EXAMPLE_ROOT / name,

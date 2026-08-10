@@ -1,12 +1,8 @@
 {
   "candidates": [
     {
-      "name": "target-weight-growth-gamma-one-ppo",
-      "run_file": "training-target-weight-growth-ppo.json"
-    },
-    {
-      "name": "target-weight-constrained-growth-gamma-one",
-      "run_file": "training-target-weight-constrained-growth.json"
+      "name": "target-weight-constrained-growth-discounted-168h",
+      "run_file": "training-target-weight-constrained-growth-discounted.json"
     }
   ],
   "checkpoint_finalists_per_seed": 1,

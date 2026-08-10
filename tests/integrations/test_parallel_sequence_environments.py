@@ -9,6 +9,7 @@ import pytest
 from gymnasium import spaces
 from stable_baselines3.common.vec_env import VecEnv
 
+import trade_rl.integrations.sb3_environment as sb3_environment
 from trade_rl.data.market import MarketDataset
 from trade_rl.integrations import sb3_training
 from trade_rl.integrations.parallel_sequence_env import (
@@ -469,7 +470,7 @@ def test_parallel_sequence_builder_uses_spawn_workers_and_parent_wrapper(
             observed["reconstructor"] = reconstructor
             return wrapped
 
-    monkeypatch.setattr(sb3_training, "_build_training_environment", build)
+    monkeypatch.setattr(sb3_environment, "_build_training_environment", build)
     monkeypatch.setattr(
         "trade_rl.integrations.parallel_sequence_env.ParallelSequenceVecEnv",
         FakeWrapper,

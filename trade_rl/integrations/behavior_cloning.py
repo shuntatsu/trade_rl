@@ -17,6 +17,7 @@ from trade_rl.learning.behavior_cloning import (
     BehaviorCloningConfig,
     BehaviorCloningResult,
     ObservationBatchProvider,
+    behavior_cloning_split_digest,
 )
 from trade_rl.learning.episode_behavior_cloning import (
     BehaviorCloningSplit,
@@ -275,14 +276,18 @@ def _behavior_cloning_indices(
     dataset: SupervisedPolicyDataset,
     config: BehaviorCloningConfig,
     split: BehaviorCloningSplit | None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     sample_count = dataset.sample_count
     if split is None and hasattr(dataset, "episode_ids"):
         episode_split = behavior_cloning_split(
             dataset,
             validation_fraction=config.validation_fraction,
         )
-        return episode_split.train_indices, episode_split.validation_indices
+        return (
+            episode_split.train_indices,
+            episode_split.validation_indices,
+            episode_split.purged_indices,
+        )
     if split is None:
         validation_count = (
             0
@@ -296,7 +301,11 @@ def _behavior_cloning_indices(
         if train_count <= 0:
             raise ValueError("behavior-cloning validation leaves no training samples")
         indices = np.arange(sample_count, dtype=np.int64)
-        return indices[:train_count], indices[train_count:]
+        return (
+            indices[:train_count],
+            indices[train_count:],
+            np.asarray([], dtype=np.int64),
+        )
 
     train_indices = np.asarray(split.train_indices, dtype=np.int64)
     validation_indices = np.asarray(split.validation_indices, dtype=np.int64)
@@ -329,7 +338,7 @@ def _behavior_cloning_indices(
                     "explicit behavior-cloning split disagrees with "
                     f"episode-aware {name} split"
                 )
-        return train_indices, validation_indices
+        return train_indices, validation_indices, purged_indices
 
     expected_validation_count = (
         0
@@ -343,7 +352,7 @@ def _behavior_cloning_indices(
         raise ValueError(
             "explicit behavior-cloning split disagrees with validation_fraction"
         )
-    return train_indices, validation_indices
+    return train_indices, validation_indices, purged_indices
 
 
 def pretrain_policy(
@@ -365,13 +374,20 @@ def pretrain_policy(
         _validate_hierarchical_labels(dataset, hierarchical_labels)
     device = torch.device(policy.device)
     sample_count = dataset.sample_count
-    train_indices, validation_indices = _behavior_cloning_indices(
+    train_indices, validation_indices, excluded_indices = _behavior_cloning_indices(
         dataset=dataset,
         config=config,
         split=split,
     )
     train_count = int(train_indices.size)
     validation_count = int(validation_indices.size)
+    excluded_count = int(excluded_indices.size)
+    split_digest = behavior_cloning_split_digest(
+        sample_count=sample_count,
+        training_indices=train_indices,
+        validation_indices=validation_indices,
+        excluded_indices=excluded_indices,
+    )
     all_indices = np.concatenate((train_indices, validation_indices))
     # Teacher targets and their reconstruction gates are deterministic contracts.
     # Eval mode disables stochastic regularizers while preserving autograd, so
@@ -589,6 +605,9 @@ def pretrain_policy(
         teacher_config_digest=dataset.teacher_config_digest,
         config=config,
         seed=seed,
+        training_sample_count=train_count,
+        excluded_sample_count=excluded_count,
+        split_digest=split_digest,
         validation_mse=validation_mse,
         validation_sample_count=validation_count,
         best_epoch=best_epoch,

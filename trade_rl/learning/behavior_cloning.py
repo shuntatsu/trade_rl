@@ -21,6 +21,69 @@ class ObservationBatchProvider(Protocol):
     def get(self, indices: np.ndarray) -> object: ...
 
 
+def _partition_indices(
+    value: object,
+    *,
+    field: str,
+    sample_count: int,
+) -> np.ndarray:
+    raw = np.asarray(value)
+    if raw.ndim != 1 or not np.issubdtype(raw.dtype, np.integer):
+        raise ValueError(f"{field} must be an integer vector")
+    resolved = np.asarray(raw, dtype=np.int64)
+    if np.any(resolved < 0) or np.any(resolved >= sample_count):
+        raise ValueError(f"{field} contains an out-of-range sample index")
+    if np.unique(resolved).size != resolved.size:
+        raise ValueError(f"{field} must not contain duplicates")
+    return resolved
+
+
+def behavior_cloning_split_digest(
+    *,
+    sample_count: int,
+    training_indices: object,
+    validation_indices: object,
+    excluded_indices: object,
+) -> str:
+    """Return a canonical identity for one complete BC sample partition."""
+
+    if (
+        isinstance(sample_count, bool)
+        or not isinstance(sample_count, int)
+        or sample_count <= 0
+    ):
+        raise ValueError("sample_count must be a positive integer")
+    training = _partition_indices(
+        training_indices,
+        field="training_indices",
+        sample_count=sample_count,
+    )
+    validation = _partition_indices(
+        validation_indices,
+        field="validation_indices",
+        sample_count=sample_count,
+    )
+    excluded = _partition_indices(
+        excluded_indices,
+        field="excluded_indices",
+        sample_count=sample_count,
+    )
+    partition = np.concatenate((training, validation, excluded))
+    if partition.size != sample_count or not np.array_equal(
+        np.sort(partition), np.arange(sample_count, dtype=np.int64)
+    ):
+        raise ValueError("behavior-cloning split must partition every sample")
+    return content_digest(
+        {
+            "excluded_indices": excluded.tolist(),
+            "sample_count": sample_count,
+            "schema_version": "behavior_cloning_split_v1",
+            "training_indices": training.tolist(),
+            "validation_indices": validation.tolist(),
+        }
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class BehaviorCloningConfig:
     epochs: int = 15
@@ -90,6 +153,9 @@ class BehaviorCloningResult:
     teacher_config_digest: str
     config: BehaviorCloningConfig
     seed: int
+    training_sample_count: int
+    excluded_sample_count: int
+    split_digest: str
     validation_mse: float | None = None
     validation_sample_count: int = 0
     best_epoch: int = 0
@@ -131,11 +197,14 @@ class BehaviorCloningResult:
                     else asdict(self.initial_hierarchical_metrics)
                 ),
                 "initial_mse": self.initial_mse,
+                "excluded_sample_count": self.excluded_sample_count,
                 "observation_digest": self.observation_digest,
                 "sample_count": self.sample_count,
-                "schema_version": "behavior_cloning_result_v3",
+                "schema_version": "behavior_cloning_result_v4",
                 "seed": self.seed,
+                "split_digest": self.split_digest,
                 "teacher_config_digest": self.teacher_config_digest,
+                "training_sample_count": self.training_sample_count,
                 "validation_hierarchical_losses": (
                     None
                     if self.validation_hierarchical_losses is None
@@ -156,4 +225,5 @@ __all__ = [
     "BehaviorCloningConfig",
     "BehaviorCloningResult",
     "ObservationBatchProvider",
+    "behavior_cloning_split_digest",
 ]

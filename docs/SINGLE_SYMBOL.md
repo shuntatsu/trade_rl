@@ -40,7 +40,8 @@ The maintained profiles are:
 - `training-target-weight-constrained-growth.json`;
 - `training-target-weight-constrained-growth-discounted.json`;
 - `walk-forward-full.json`;
-- `walk-forward-target-weight-constrained-growth.json`.
+- `walk-forward-target-weight-constrained-growth.json`;
+- `walk-forward-target-weight-constrained-growth-discounted.json`.
 
 They retain `training_run_config_v4`. A schema bump is not required because the
 existing action, symbol-order and policy-identity contracts already represent a
@@ -48,6 +49,11 @@ one-element action vector.
 
 The maintained config writer rejects any profile that is not
 `target_weight_count=1` before training resources are allocated.
+
+Gamma-one growth profiles use the intrinsic finite-horizon contract, while the
+discounted profile and its dedicated walk-forward use external truncation. The
+two boundary semantics are not mixed in one walk-forward candidate set. See
+`docs/REWARD_OBJECTIVE.md` for the reward and Episode-boundary contract.
 
 ## Data and policy behavior
 
@@ -76,6 +82,6 @@ classification of retained legacy code.
 
 ## Execution and safety
 
-This migration does not change the current execution simulator, reward,
-constraint, walk-forward, sealed-test or evidence semantics. It does not add
-live order submission. Production remains `NO-GO`.
+The single-symbol boundary does not add live order submission or weaken the
+execution simulator, hard risk, constraint, sealed-test or evidence contracts.
+Production remains `NO-GO`.

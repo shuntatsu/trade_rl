@@ -5,7 +5,8 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.actions import ActionSpec
-from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
+from trade_rl.rl.environment import ResidualMarketEnv
+from trade_rl.rl.environment_config import EpisodeBoundaryMode, ResidualMarketEnvConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
@@ -149,6 +150,89 @@ def test_end_of_episode_mark_to_market_truncates_without_closing_positions() -> 
     assert info["terminal_liquidation_cost"] == 0.0
     assert info["pending_target_discarded"] is False
     assert env.config.terminal_accounting_mode == "mark_to_market"
+    assert env.config.episode_boundary_mode is EpisodeBoundaryMode.EXTERNAL_TRUNCATION
+
+
+def test_finite_horizon_termination_requires_time_to_go_observation() -> None:
+    with pytest.raises(
+        ValueError,
+        match="finite_horizon_termination requires finite_horizon_observation",
+    ):
+        ResidualMarketEnvConfig(
+            episode_boundary_mode="finite_horizon_termination",
+            finite_horizon_observation=False,
+            initial_capital=1_000.0,
+        )
+
+
+def test_finite_horizon_terminates_without_liquidating_or_terminal_shaping() -> None:
+    dataset = market()
+    env = ResidualMarketEnv(
+        dataset,
+        trend_strategy=TrendStrategy(
+            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+        ),
+        config=ResidualMarketEnvConfig(
+            episode_bars=4,
+            decision_every=4,
+            episode_boundary_mode="finite_horizon_termination",
+            finite_horizon_observation=True,
+            initial_capital=1_000.0,
+            liquidate_on_end=False,
+            execution_cost=ExecutionCostConfig(
+                fee_rate=0.001,
+                spread_rate=0.0,
+                impact_rate=0.0,
+                max_participation_rate=1.0,
+            ),
+        ),
+    )
+    env.reset(options={"start_idx": 24})
+
+    _, _, terminated, truncated, info = env.step(np.zeros(2))
+
+    assert terminated is True
+    assert truncated is False
+    assert np.any(np.abs(env.hybrid.quantities) > 1e-12)
+    assert "hybrid_liquidation" not in info
+    assert info["termination_reason"] == "finite_horizon"
+    assert info["terminal_accounting_mode"] == "mark_to_market"
+    assert info["terminal_liquidation_cost"] == 0.0
+    assert info["reward_terminal_penalty_weighted"] == pytest.approx(0.0)
+    assert env.config.episode_boundary_mode is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+
+
+def test_episode_boundary_mode_changes_environment_identity() -> None:
+    dataset = market()
+    trend = TrendStrategy(
+        TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
+    )
+    common = {
+        "episode_bars": 4,
+        "decision_every": 4,
+        "finite_horizon_observation": True,
+        "initial_capital": 1_000.0,
+        "liquidate_on_end": False,
+        "execution_cost": ExecutionCostConfig.zero(),
+    }
+    truncating = ResidualMarketEnv(
+        dataset,
+        trend_strategy=trend,
+        config=ResidualMarketEnvConfig(
+            **common,
+            episode_boundary_mode="external_truncation",
+        ),
+    )
+    terminating = ResidualMarketEnv(
+        dataset,
+        trend_strategy=trend,
+        config=ResidualMarketEnvConfig(
+            **common,
+            episode_boundary_mode="finite_horizon_termination",
+        ),
+    )
+
+    assert truncating.environment_digest != terminating.environment_digest
 
 
 def test_final_delayed_target_is_reported_and_discarded_at_horizon() -> None:

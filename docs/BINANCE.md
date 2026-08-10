@@ -74,7 +74,7 @@ Raw cacheを削除すると再Downloadが必要ですが、Published dataset art
 | [`training-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth.json) | 本命候補 | 同じ有限期間growth objective、Lagrangian PPOでsoft constraint予算を管理 |
 | [`training-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth-discounted.json) | 時間選好アブレーション | 168時間half-lifeのdiscounted continuing objective |
 
-6-fold比較は[`walk-forward-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)を使用します。walk-forwardは`run_file`で上記standalone profileを参照するため、埋め込みコピーによる設定ドリフトを起こしません。Nominal、joint 2x、joint 3xの証拠を同じfold-seed identityへ紐付けます。
+Gamma-one PPOとLagrangianの6-fold比較は[`walk-forward-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)を使用します。Discounted continuing ablationは、観測とEpisode境界が異なるため同じcandidate setへ混在させず、[`walk-forward-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth-discounted.json)で独立に評価します。両方とも`run_file`でstandalone profileを参照し、埋め込みコピーによる設定ドリフトを起こしません。
 
 [`training-full.json`](../examples/binance-multitimeframe/training-full.json)は、baseline、drawdown、excess growth、時間割引を混合したlegacy shaping比較として維持します。Production defaultではありません。
 

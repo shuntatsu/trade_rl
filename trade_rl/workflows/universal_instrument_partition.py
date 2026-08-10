@@ -108,7 +108,16 @@ class UniversalInstrumentPartition:
         )
         if not isinstance(self.symbol_disjoint_manifest, SymbolDisjointManifest):
             raise TypeError("symbol_disjoint_manifest must be SymbolDisjointManifest")
-        universal_split_counts(len(self.symbol_disjoint_manifest.source_universe))
+        train_count, validation_count, test_count = universal_split_counts(
+            len(self.symbol_disjoint_manifest.source_universe)
+        )
+        expected_counts = {
+            "train": train_count,
+            "validation": validation_count,
+            "test": test_count,
+        }
+        if self.symbol_disjoint_manifest.split_counts != expected_counts:
+            raise ValueError("universal instrument partition split counts mismatch")
         expected_digest = content_digest(self.digest_payload())
         if self.digest and self.digest != expected_digest:
             raise ValueError("universal instrument partition digest mismatch")

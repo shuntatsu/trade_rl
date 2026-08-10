@@ -29,22 +29,116 @@ jobs:
       - name: Install test dependencies
         run: uv sync --extra dev --extra train-sb3
 
-      - name: Enable deterministic Ruff import repair
+      - name: Refine the typed config-to-simulation boundary
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          import textwrap
 
           path = Path('scripts/apply_execution_robustness.py')
           text = path.read_text()
-          marker = '    run("uv", "run", "ruff", "format", *modified)\n'
-          replacement = (
+
+          format_marker = '    run("uv", "run", "ruff", "format", *modified)\n'
+          format_replacement = (
               '    run("uv", "run", "ruff", "check", "--fix", *modified)\n'
-              + marker
+              + format_marker
           )
-          if text.count(marker) != 1:
+          if text.count(format_marker) != 1:
               raise SystemExit('execution patch format marker changed')
-          path.write_text(text.replace(marker, replacement, 1))
+          text = text.replace(format_marker, format_replacement, 1)
+
+          enabled_old = '''            @property
+                      def enabled(self) -> bool:
+                          return ExecutionRuleStress.enabled.fget(self) or self.environment_enabled
+          '''
+          enabled_new = '''            @property
+                      def enabled(self) -> bool:
+                          return (
+                              self.tick_size_factor != 1.0
+                              or self.lot_size_factor != 1.0
+                              or self.minimum_notional_factor != 1.0
+                              or self.adverse_tick_rounding
+                              or self.environment_enabled
+                          )
+          '''
+          enabled_old = textwrap.dedent(enabled_old)
+          enabled_new = textwrap.dedent(enabled_new)
+          if text.count(enabled_old) != 1:
+              raise SystemExit('execution stress enabled marker changed')
+          text = text.replace(enabled_old, enabled_new, 1)
+
+          function_start = text.index('def patch_walk_forward_config()')
+          class_start = text.index('    new_class = textwrap.dedent(\n', function_start)
+          class_end_marker = (
+              '    text = text[:old_class_start] + new_class + text[old_class_end:]\n'
+          )
+          class_end = text.index(class_end_marker, class_start)
+          class_block = '''    new_class = textwrap.dedent(
+              \'''\'''
+              @dataclass(frozen=True, slots=True)
+              class ExecutionSensitivityScenario(_base.ExecutionSensitivityScenario):
+                  \"\"\"One reportable rule and execution-environment stress scenario.\"\"\"
+
+                  fee_multiplier: float = 1.0
+                  spread_multiplier: float = 1.0
+                  impact_multiplier: float = 1.0
+                  slippage_std_multiplier: float = 1.0
+                  participation_fraction: float = 1.0
+                  minimum_order_latency_bars: int = 0
+                  tail_slippage_probability_floor: float = 0.0
+                  tail_slippage_multiplier_floor: float = 0.0
+                  borrow_rate_multiplier: float = 1.0
+
+                  def __post_init__(self) -> None:
+                      _base.ExecutionSensitivityScenario.__post_init__(self)
+                      self.stress()
+
+                  def stress(self) -> ExecutionEnvironmentStress:
+                      return ExecutionEnvironmentStress(
+                          name=self.name,
+                          tick_size_factor=self.tick_size_factor,
+                          lot_size_factor=self.lot_size_factor,
+                          minimum_notional_factor=self.minimum_notional_factor,
+                          adverse_tick_rounding=self.adverse_tick_rounding,
+                          fee_multiplier=self.fee_multiplier,
+                          spread_multiplier=self.spread_multiplier,
+                          impact_multiplier=self.impact_multiplier,
+                          slippage_std_multiplier=self.slippage_std_multiplier,
+                          participation_fraction=self.participation_fraction,
+                          minimum_order_latency_bars=self.minimum_order_latency_bars,
+                          tail_slippage_probability_floor=(
+                              self.tail_slippage_probability_floor
+                          ),
+                          tail_slippage_multiplier_floor=(
+                              self.tail_slippage_multiplier_floor
+                          ),
+                          borrow_rate_multiplier=self.borrow_rate_multiplier,
+                      )
+
+                  def digest_payload(self) -> dict[str, object]:
+                      return {
+                          **self.stress().digest_payload(),
+                          \"report_only\": self.report_only,
+                      }
+              \'''\'''
+          ).strip()
+          '''
+          text = text[:class_start] + class_block + text[class_end:]
+
+          standard_old = '''                        isinstance(scenario, ExecutionEnvironmentStress)
+                                  and scenario.environment_enabled
+          '''
+          standard_new = '''                        isinstance(scenario, ExecutionSensitivityScenario)
+                                  and scenario.stress().environment_enabled
+          '''
+          standard_old = textwrap.dedent(standard_old)
+          standard_new = textwrap.dedent(standard_new)
+          if text.count(standard_old) != 1:
+              raise SystemExit('standard scenario validation marker changed')
+          text = text.replace(standard_old, standard_new, 1)
+
+          path.write_text(text)
           PY
 
       - name: Run RED-GREEN patch and verification

@@ -24,7 +24,7 @@ This implements the next U1 slice of `docs/architecture/universal-single-instrum
 3. The manifest source universe equals the catalog eligible-symbol closure.
 4. Fewer than 15 eligible symbols fails before any filesystem write.
 5. The published directory contains exactly the three required filenames.
-6. Existing output is reusable only when strict decoding proves exact object equality.
+6. Existing output is reusable only when canonical file bytes and strict decoding prove exact object equality.
 7. Partial directories, unknown files, symlink roots, tampered digests, or cross-bound mismatches fail closed.
 8. New publication occurs only after all staged files reload successfully.
 9. Publication uses one same-filesystem directory rename; no existing root is deleted or replaced.
@@ -107,7 +107,7 @@ For a new root, publication must:
 
 If a concurrent writer wins, accept the existing root only when strict loading proves exact equality. Never delete or replace a pre-existing root.
 
-Required tests cover exact round-trip, exact immutable reuse, mismatch rejection, partial/extra/non-directory/symlink rejection, tampering, injected staged-write failure, and validation before filesystem access.
+Required tests cover exact round-trip, exact immutable reuse, noncanonical-byte rejection, concurrent exact reuse, mismatch rejection, partial/extra/non-directory/symlink rejection, tampering, injected staged-write failure, and validation before filesystem access.
 
 ## Task 4: PostgreSQL orchestration
 

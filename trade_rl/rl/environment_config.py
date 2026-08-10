@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from enum import Enum
 
 from trade_rl.data.contracts import timeframe_hours
 from trade_rl.data.market import MarketDataset
@@ -16,6 +17,13 @@ RESET_STATE_MODES = frozenset(
     {"cash", "baseline", "random", "stress", "partial_fill", "restore"}
 )
 SAMPLED_INITIAL_STATE_MODES = RESET_STATE_MODES - {"restore"}
+
+
+class EpisodeBoundaryMode(str, Enum):
+    """Whether the configured time limit belongs to the MDP itself."""
+
+    EXTERNAL_TRUNCATION = "external_truncation"
+    FINITE_HORIZON_TERMINATION = "finite_horizon_termination"
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +43,9 @@ class ResidualMarketEnvConfig:
     reward: AbsoluteGrowthRewardConfig | None = None
     liquidate_on_end: bool = False
     fail_on_incomplete_emergency_liquidation: bool = True
+    episode_boundary_mode: EpisodeBoundaryMode | str = (
+        EpisodeBoundaryMode.EXTERNAL_TRUNCATION
+    )
     finite_horizon_observation: bool = False
     structured_sequence_observation: bool = False
     sequence_windows: tuple[tuple[str, int], ...] = ()
@@ -162,6 +173,18 @@ class ResidualMarketEnvConfig:
         ):
             if not isinstance(value, bool):
                 raise ValueError(f"{field_name} must be a boolean")
+        try:
+            boundary_mode = EpisodeBoundaryMode(self.episode_boundary_mode)
+        except ValueError as error:
+            raise ValueError("episode_boundary_mode is not supported") from error
+        if (
+            boundary_mode is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+            and not self.finite_horizon_observation
+        ):
+            raise ValueError(
+                "finite_horizon_termination requires finite_horizon_observation"
+            )
+        object.__setattr__(self, "episode_boundary_mode", boundary_mode)
         normalized_windows: list[tuple[str, int]] = []
         for item in self.sequence_windows:
             if not isinstance(item, (tuple, list)) or len(item) != 2:
@@ -195,6 +218,13 @@ class ResidualMarketEnvConfig:
     @property
     def terminal_accounting_mode(self) -> str:
         return "liquidate_at_close" if self.liquidate_on_end else "mark_to_market"
+
+    @property
+    def time_limit_terminates(self) -> bool:
+        return (
+            self.episode_boundary_mode
+            is EpisodeBoundaryMode.FINITE_HORIZON_TERMINATION
+        )
 
     @property
     def resolved_sequence_windows(self) -> tuple[tuple[str, int], ...]:
@@ -238,6 +268,7 @@ class ResidualMarketEnvConfig:
 
 
 __all__ = [
+    "EpisodeBoundaryMode",
     "RESET_STATE_MODES",
     "ResidualMarketEnvConfig",
     "SAMPLED_INITIAL_STATE_MODES",

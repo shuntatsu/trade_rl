@@ -10,6 +10,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.workflows.stored_instrument_catalog import (
     StoredIndicatorArtifactEvidence,
     StoredIndicatorSourceInventory,
+    StoredInstrumentCatalog,
     build_stored_instrument_catalog,
 )
 from trade_rl.workflows.universal_instrument_partition import (
@@ -24,7 +25,7 @@ _START = datetime(2021, 1, 1, tzinfo=UTC)
 _END = datetime(2026, 7, 1, tzinfo=UTC)
 
 
-def _catalog(count: int):
+def _catalog(count: int) -> StoredInstrumentCatalog:
     symbols = tuple(f"ASSET{index:02d}USDT" for index in range(count))
     artifacts = tuple(
         StoredIndicatorArtifactEvidence(

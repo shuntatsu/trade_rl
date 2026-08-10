@@ -1,3 +1,5 @@
+"""Contract tests for the metadata-only PostgreSQL indicator inventory."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

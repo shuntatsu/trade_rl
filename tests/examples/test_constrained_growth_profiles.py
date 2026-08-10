@@ -19,13 +19,14 @@ CANONICAL = "training-constrained-growth.json"
 GAE_097 = "training-constrained-growth-gae097.json"
 DISCOUNTED = "training-constrained-growth-discounted.json"
 WALK_FORWARD = "walk-forward-constrained-growth.json"
+DISCOUNTED_WALK_FORWARD = "walk-forward-constrained-growth-discounted.json"
 
 EXPECTED_CANDIDATE_NAMES = (
     "growth-optimal-ppo-pr-d-control",
     "constrained-growth-canonical",
     "constrained-growth-gae097",
-    "constrained-growth-discounted-gamma09995",
 )
+DISCOUNTED_CANDIDATE_NAME = "constrained-growth-discounted-gamma09995"
 EXPECTED_BUDGETS = (0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.03)
 EXPECTED_DUAL_LEARNING_RATES = (0.001, 0.01, 0.001, 0.01, 0.001, 0.001, 0.001)
 EXPECTED_EMA_BETAS = (0.95,) * 7
@@ -196,7 +197,7 @@ def test_discounted_ablation_changes_only_reward_gamma_and_boundary() -> None:
     ) == _payload_without_discount_and_boundary(ablation)
 
 
-def test_walk_forward_profile_binds_all_four_candidates_and_joint_stress() -> None:
+def test_gamma_one_walk_forward_binds_common_horizon_candidates() -> None:
     config = MarketWalkForwardConfig.from_json(
         EXAMPLE_ROOT / WALK_FORWARD,
         n_bars=55_392,
@@ -209,7 +210,6 @@ def test_walk_forward_profile_binds_all_four_candidates_and_joint_stress() -> No
         EXPECTED_CANDIDATE_NAMES[0]: _load_training(CONTROL),
         EXPECTED_CANDIDATE_NAMES[1]: _load_training(CANONICAL),
         EXPECTED_CANDIDATE_NAMES[2]: _load_training(GAE_097),
-        EXPECTED_CANDIDATE_NAMES[3]: _load_training(DISCOUNTED),
     }
     for candidate in config.candidates:
         assert (
@@ -227,3 +227,19 @@ def test_walk_forward_profile_binds_all_four_candidates_and_joint_stress() -> No
     assert config.workflow.selection_bars == 2_880
     assert config.workflow.test_bars == 2_880
     assert config.sealed_test_ledger_mode.value == "durable_postgres"
+
+
+def test_discounted_walk_forward_is_a_separate_ablation() -> None:
+    config = MarketWalkForwardConfig.from_json(
+        EXAMPLE_ROOT / DISCOUNTED_WALK_FORWARD,
+        n_bars=55_392,
+    )
+
+    assert tuple(candidate.name for candidate in config.candidates) == (
+        DISCOUNTED_CANDIDATE_NAME,
+    )
+    assert (
+        config.candidates[0].run.candidate_digest_payload()
+        == _load_training(DISCOUNTED).candidate_digest_payload()
+    )
+    _assert_external_truncation(config.candidates[0].run)

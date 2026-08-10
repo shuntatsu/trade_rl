@@ -1,0 +1,171 @@
+name: Apply BC split identity
+
+on:
+  push:
+    branches:
+      - agent/bc-temporal-correctness-stacked
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-bc-split-identity
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/bc-temporal-correctness-stacked
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Apply split-bound result identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, *, label: str) -> str:
+              if text.count(old) != 1:
+                  raise RuntimeError(f"{label} anchor count is {text.count(old)}")
+              return text.replace(old, new, 1)
+
+          split_path = Path("trade_rl/learning/episode_behavior_cloning.py")
+          split_text = split_path.read_text(encoding="utf-8")
+          split_text = replace_once(
+              split_text,
+              "import math\n",
+              "import hashlib\nimport math\n",
+              label="split hashlib import",
+          )
+          split_text = replace_once(
+              split_text,
+              "import numpy as np\n\nfrom trade_rl.learning.behavior_cloning import BehaviorCloningConfig\n",
+              "import numpy as np\n\nfrom trade_rl.artifacts.hashing import content_digest\nfrom trade_rl.learning.behavior_cloning import BehaviorCloningConfig\n",
+              label="split content digest import",
+          )
+          split_text = replace_once(
+              split_text,
+              '''def _empty_int_vector() -> np.ndarray:\n    return np.asarray([], dtype=np.int64)\n\n\n''',
+              '''def _empty_int_vector() -> np.ndarray:\n    return np.asarray([], dtype=np.int64)\n\n\ndef _integer_vector_identity(value: np.ndarray) -> dict[str, object]:\n    array = np.ascontiguousarray(value, dtype=np.int64)\n    return {\n        "count": int(array.size),\n        "sha256": hashlib.sha256(array.tobytes(order="C")).hexdigest(),\n    }\n\n\n''',
+              label="split integer identity helper",
+          )
+          split_text = replace_once(
+              split_text,
+              '''    @property\n    def purged_sample_count(self) -> int:\n        return int(self.purged_indices.size)\n\n\n''',
+              '''    @property\n    def purged_sample_count(self) -> int:\n        return int(self.purged_indices.size)\n\n    @property\n    def digest(self) -> str:\n        return content_digest(\n            {\n                "purged_episode_ids": _integer_vector_identity(\n                    self.purged_episode_ids\n                ),\n                "purged_indices": _integer_vector_identity(self.purged_indices),\n                "schema_version": "behavior_cloning_split_v1",\n                "train_episode_ids": _integer_vector_identity(self.train_episode_ids),\n                "train_indices": _integer_vector_identity(self.train_indices),\n                "validation_episode_ids": _integer_vector_identity(\n                    self.validation_episode_ids\n                ),\n                "validation_indices": _integer_vector_identity(\n                    self.validation_indices\n                ),\n            }\n        )\n\n\n''',
+              label="split digest property",
+          )
+          split_path.write_text(split_text, encoding="utf-8")
+
+          result_path = Path("trade_rl/learning/behavior_cloning.py")
+          result_text = result_path.read_text(encoding="utf-8")
+          result_text = replace_once(
+              result_text,
+              '''    validation_hierarchical_metrics: HierarchicalBehaviorCloningMetrics | None = None\n\n    @property\n''',
+              '''    validation_hierarchical_metrics: HierarchicalBehaviorCloningMetrics | None = None\n    training_sample_count: int | None = None\n    excluded_sample_count: int = 0\n    split_digest: str | None = None\n\n    @property\n''',
+              label="result split fields",
+          )
+          result_text = replace_once(
+              result_text,
+              '''                "final_mse": self.final_mse,\n                "hierarchical_label_digest": self.hierarchical_label_digest,\n''',
+              '''                "excluded_sample_count": self.excluded_sample_count,\n                "final_mse": self.final_mse,\n                "hierarchical_label_digest": self.hierarchical_label_digest,\n''',
+              label="result excluded count digest",
+          )
+          result_text = replace_once(
+              result_text,
+              '''                "sample_count": self.sample_count,\n                "schema_version": "behavior_cloning_result_v3",\n                "seed": self.seed,\n''',
+              '''                "sample_count": self.sample_count,\n                "schema_version": "behavior_cloning_result_v4",\n                "seed": self.seed,\n                "split_digest": self.split_digest,\n''',
+              label="result split digest schema",
+          )
+          result_text = replace_once(
+              result_text,
+              '''                "teacher_config_digest": self.teacher_config_digest,\n                "validation_hierarchical_losses": (\n''',
+              '''                "teacher_config_digest": self.teacher_config_digest,\n                "training_sample_count": self.training_sample_count,\n                "validation_hierarchical_losses": (\n''',
+              label="result training count digest",
+          )
+          result_path.write_text(result_text, encoding="utf-8")
+
+          trainer_path = Path("trade_rl/integrations/behavior_cloning.py")
+          trainer_text = trainer_path.read_text(encoding="utf-8")
+          trainer_text = replace_once(
+              trainer_text,
+              '''        sample_count=sample_count,\n        observation_digest=dataset.observation_digest,\n''',
+              '''        sample_count=sample_count,\n        observation_digest=dataset.observation_digest,\n        training_sample_count=train_count,\n        excluded_sample_count=split.purged_sample_count,\n        split_digest=split.digest,\n''',
+              label="trainer split result fields",
+          )
+          trainer_path.write_text(trainer_text, encoding="utf-8")
+
+          adapter_path = Path("trade_rl/integrations/sb3_training.py")
+          adapter_text = adapter_path.read_text(encoding="utf-8")
+          adapter_text = replace_once(
+              adapter_text,
+              '''                        "sample_count": cloning.sample_count,\n                        "validation_mse": cloning.validation_mse,\n''',
+              '''                        "sample_count": cloning.sample_count,\n                        "training_sample_count": cloning.training_sample_count,\n                        "excluded_sample_count": cloning.excluded_sample_count,\n                        "split_digest": cloning.split_digest,\n                        "validation_mse": cloning.validation_mse,\n''',
+              label="run split evidence fields",
+          )
+          adapter_text = replace_once(
+              adapter_text,
+              '                        "schema_version": "behavior_cloning_run_v6",\n',
+              '                        "schema_version": "behavior_cloning_run_v7",\n',
+              label="run evidence schema",
+          )
+          adapter_path.write_text(adapter_text, encoding="utf-8")
+          PY
+
+          uv run ruff format \
+            trade_rl/learning/episode_behavior_cloning.py \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/learning/test_behavior_cloning_episode_training.py
+          uv run ruff check \
+            trade_rl/learning/episode_behavior_cloning.py \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/learning/test_behavior_cloning_episode_training.py
+          python -m py_compile \
+            trade_rl/learning/episode_behavior_cloning.py \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py
+          git diff --check
+
+      - name: Run focused BC regressions
+        run: >-
+          uv run pytest -q
+          tests/learning/test_behavior_cloning_episode_training.py
+          tests/learning/test_behavior_cloning_temporal_split.py
+          tests/learning/test_behavior_cloning.py
+          tests/integrations/test_sb3_training.py
+          -k 'behavior_cloning or episode_teacher'
+
+      - name: Commit source change and remove helper workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/bc-apply-split-identity-temporary.yml
+          git add \
+            trade_rl/learning/episode_behavior_cloning.py \
+            trade_rl/learning/behavior_cloning.py \
+            trade_rl/integrations/behavior_cloning.py \
+            trade_rl/integrations/sb3_training.py \
+            tests/learning/test_behavior_cloning_episode_training.py
+          git commit -m "fix(bc): bind result identity to explicit split"
+          git push origin HEAD:agent/bc-temporal-correctness-stacked

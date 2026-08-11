@@ -12,6 +12,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.contracts import FeatureSpec
+from trade_rl.data.universal_features import universal_feature_schema_digest_from_names
 from trade_rl.domain.common import require_sha256
 from trade_rl.integrations.postgres_indicator_artifacts import (
     IndicatorArtifactConnection,
@@ -506,19 +507,6 @@ def universal_training_contract_digest(
     )
 
 
-def _universal_feature_schema_digest(feature_names: Sequence[str]) -> str:
-    names = tuple(str(value) for value in feature_names)
-    if not names or len(set(names)) != len(names) or any(not value for value in names):
-        raise ValueError("Universal feature names must be non-empty and unique")
-    return content_digest(
-        {
-            "feature_names": names,
-            "profile": "binance_universal_target_local_v1",
-            "schema_version": "universal_feature_schema_v1",
-        }
-    )
-
-
 def materialize_universal_train_datasets(
     connection: IndicatorArtifactConnection,
     *,
@@ -645,7 +633,7 @@ def fit_universal_shared_normalizer(
         raise ValueError("Universal fold_train_range is invalid")
     first = ordered[tuple(train_symbols)[0]]
     feature_names = tuple(getattr(first, "feature_names", ()))
-    feature_schema_digest = _universal_feature_schema_digest(feature_names)
+    feature_schema_digest = universal_feature_schema_digest_from_names(feature_names)
     symbol_features: dict[str, np.ndarray] = {}
     symbol_available: dict[str, np.ndarray] = {}
     for symbol in tuple(train_symbols):

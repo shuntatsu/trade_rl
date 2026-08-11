@@ -49,16 +49,24 @@ def universal_target_local_features(
     return kept
 
 
-def universal_feature_schema_digest(features: Iterable[NamedFeature]) -> str:
-    names = tuple(feature.name for feature in features)
-    if not names:
+def universal_feature_schema_digest_from_names(feature_names: Iterable[str]) -> str:
+    names = tuple(str(name) for name in feature_names)
+    if not names or any(not name for name in names):
         raise ValueError("universal feature schema must not be empty")
+    if len(set(names)) != len(names):
+        raise ValueError("universal feature schema names must be unique")
     return content_digest(
         {
             "version": "universal_target_local_features_v1",
             "ordered_feature_names": names,
             "instrument_descriptors": UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
         }
+    )
+
+
+def universal_feature_schema_digest(features: Iterable[NamedFeature]) -> str:
+    return universal_feature_schema_digest_from_names(
+        feature.name for feature in features
     )
 
 

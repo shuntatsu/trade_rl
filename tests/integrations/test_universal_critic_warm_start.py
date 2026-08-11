@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import warnings
 
 import numpy as np
 import pytest
@@ -152,9 +153,7 @@ def _supervised_dataset() -> SupervisedPolicyDataset:
     )
 
 
-def test_critic_only_phase_preserves_actor_then_joint_phase_improves_value_fit() -> (
-    None
-):
+def test_critic_only_phase_preserves_actor_then_joint_phase_improves_value_fit() -> None:
     _, warm_start_policy_actor_critic = _runtime()
     policy = _Policy()
     dataset = _supervised_dataset()
@@ -212,3 +211,59 @@ def test_critic_warm_start_can_exclude_validation_samples() -> None:
 
     assert result.sample_count == 2
     assert result.final_value_mse < result.initial_value_mse
+
+
+class _ObservationProvider:
+    sample_count = 4
+
+    def __init__(self) -> None:
+        self.calls: list[np.ndarray] = []
+        self._observations = np.asarray(
+            [[-1.0], [-0.5], [0.5], [1.0]], dtype=np.float32
+        )
+
+    def get(self, indices: np.ndarray) -> np.ndarray:
+        resolved = np.asarray(indices, dtype=np.int64)
+        self.calls.append(resolved.copy())
+        return self._observations[resolved]
+
+
+def test_critic_warm_start_provider_never_reads_validation_samples() -> None:
+    _, warm_start_policy_actor_critic = _runtime()
+    provider = _ObservationProvider()
+    result = warm_start_policy_actor_critic(
+        _Policy(),
+        _supervised_dataset(),
+        np.asarray([0.9, 0.5, 10_000.0, -10_000.0], dtype=np.float32),
+        plan=CriticWarmStartPlan(critic_only_steps=8, joint_fine_tune_steps=4),
+        sample_indices=np.asarray([0, 1], dtype=np.int64),
+        observation_provider=provider,
+        batch_size=2,
+        learning_rate=2e-2,
+        seed=7,
+    )
+
+    assert result.sample_count == 2
+    assert provider.calls
+    assert all(set(call.tolist()) <= {0, 1} for call in provider.calls)
+
+
+def test_critic_warm_start_does_not_alias_read_only_teacher_arrays() -> None:
+    _, warm_start_policy_actor_critic = _runtime()
+    dataset = _supervised_dataset()
+    assert isinstance(dataset.observations, np.ndarray)
+    assert not dataset.observations.flags.writeable
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warm_start_policy_actor_critic(
+            _Policy(),
+            dataset,
+            np.asarray([0.9, 0.5, 0.5, 0.9], dtype=np.float32),
+            plan=CriticWarmStartPlan(critic_only_steps=2, joint_fine_tune_steps=2),
+            batch_size=4,
+            learning_rate=2e-2,
+            seed=7,
+        )
+
+    assert not any("not writable" in str(item.message) for item in caught)

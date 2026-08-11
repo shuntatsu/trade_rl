@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
 from gymnasium import spaces
 
+from trade_rl.integrations import sb3_training
 from trade_rl.integrations.sb3_model_assembly import resolve_sb3_policy_assembly
 from trade_rl.rl.algorithm_configs import build_algorithm_config
 from trade_rl.rl.training import ResidualTrainingConfig
@@ -117,3 +119,28 @@ def test_universal_sequence_assembly_keeps_shared_actor() -> None:
     kwargs = assembly.policy_kwargs["features_extractor_kwargs"]
     assert isinstance(kwargs, dict)
     assert kwargs["instrument_context_width"] == 9
+
+
+def test_universal_parallel_sequence_uses_full_dict_subprocess_vectorization() -> None:
+    config = replace(
+        _config(),
+        n_envs=2,
+        vector_environment_mode="subprocess",
+        n_steps=4,
+        batch_size=8,
+    )
+
+    assert (
+        sb3_training._resolved_vector_environment_kind(
+            config,
+            sequence_reconstructor=None,
+        )
+        == "subprocess"
+    )
+    assert (
+        sb3_training._resolved_vector_environment_kind(
+            config,
+            sequence_reconstructor=object(),
+        )
+        == "subprocess_compact_sequence"
+    )

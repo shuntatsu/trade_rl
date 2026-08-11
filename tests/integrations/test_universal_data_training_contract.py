@@ -10,7 +10,10 @@ from trade_rl.integrations.postgres_indicator_artifacts import (
     NativeIndicatorArtifact,
     NativeIndicatorArtifactBundle,
 )
-from trade_rl.integrations.postgres_market_dataset import NATIVE_TIMEFRAMES, _align_indicators
+from trade_rl.integrations.postgres_market_dataset import (
+    NATIVE_TIMEFRAMES,
+    _align_indicators,
+)
 from trade_rl.rl.universal_normalization import SymbolBalancedStandardNormalizer
 
 

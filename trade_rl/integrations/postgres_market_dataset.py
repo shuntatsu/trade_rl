@@ -237,6 +237,7 @@ def _align_indicators(
     *,
     timestamps_ms: np.ndarray,
     symbol_vocabulary: tuple[str, ...],
+    feature_specs: Sequence[FeatureSpec] | None = None,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -248,31 +249,54 @@ def _align_indicators(
     vocabulary = _ordered_unique(symbol_vocabulary, field="symbol_vocabulary")
     if not set(bundle.symbols) <= set(vocabulary):
         raise ValueError("indicator symbols must belong to symbol_vocabulary")
-    specs = _feature_specs()
-    spec_by_name = {spec.name: spec for spec in specs}
-    feature_names = tuple(
+    specs = _feature_specs() if feature_specs is None else tuple(feature_specs)
+    if not specs:
+        raise ValueError("feature_specs must not be empty")
+    feature_names = tuple(spec.name for spec in specs)
+    if any(not name for name in feature_names) or len(set(feature_names)) != len(
+        feature_names
+    ):
+        raise ValueError("feature_specs must contain unique non-empty feature names")
+    artifact_feature_names = tuple(
         name
         for timeframe in NATIVE_TIMEFRAMES
         for name in bundle.get(bundle.symbols[0], timeframe).feature_names
     )
-    if feature_names != tuple(spec.name for spec in specs):
+    if feature_specs is None and artifact_feature_names != feature_names:
         raise ValueError(
             "PostgreSQL indicator feature order differs from code contract"
         )
+    unknown = set(feature_names) - set(artifact_feature_names)
+    if unknown:
+        raise ValueError(
+            "requested PostgreSQL feature profile is absent from indicator artifacts"
+        )
+    spec_by_name = {spec.name: spec for spec in specs}
+    target_by_name = {name: index for index, name in enumerate(feature_names)}
     shape = (len(timestamps_ms), len(bundle.symbols), len(feature_names))
     values = np.zeros(shape, dtype=np.float32)
     available = np.zeros(shape, dtype=np.bool_)
     age_hours = np.zeros(shape, dtype=np.float32)
     staleness = np.ones(shape, dtype=np.float32)
 
-    offset = 0
     for timeframe in NATIVE_TIMEFRAMES:
         names = bundle.get(bundle.symbols[0], timeframe).feature_names
+        name_to_local = {name: index for index, name in enumerate(names)}
+        requested_names = tuple(
+            name for name in feature_names if name.startswith(f"{timeframe}__")
+        )
+        if not requested_names:
+            raise ValueError(f"requested feature profile has no {timeframe} channels")
         for symbol_index, symbol in enumerate(bundle.symbols):
             artifact = bundle.get(symbol, timeframe)
             if artifact.feature_names != names:
                 raise ValueError("indicator feature order differs between symbols")
-            for local_index, name in enumerate(names):
+            for name in requested_names:
+                local_index = name_to_local.get(name)
+                if local_index is None:
+                    raise ValueError(
+                        f"requested feature {name} is absent from {timeframe} artifact"
+                    )
                 valid_rows = np.flatnonzero(artifact.available[:, local_index])
                 if valid_rows.size == 0:
                     continue
@@ -290,7 +314,7 @@ def _align_indicators(
                 maximum = float(spec_by_name[name].max_staleness_hours)
                 present &= ages >= -1e-12
                 present &= ages <= maximum + 1e-12
-                target = offset + local_index
+                target = target_by_name[name]
                 values[present, symbol_index, target] = artifact.values[
                     source_indices[present], local_index
                 ]
@@ -300,9 +324,9 @@ def _align_indicators(
                     ages[present], dtype=np.float32
                 )
                 staleness[present, symbol_index, target] = np.asarray(
-                    np.clip(ages[present] / maximum, 0.0, 1.0), dtype=np.float32
+                    np.clip(ages[present] / maximum, 0.0, 1.0),
+                    dtype=np.float32,
                 )
-        offset += len(names)
 
     feature_digest = content_digest(
         {
@@ -327,6 +351,7 @@ def build_postgres_market_dataset(
     execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]
     | None = None,
     indicator_bundle: NativeIndicatorArtifactBundle | None = None,
+    feature_specs: Sequence[FeatureSpec] | None = None,
     slot_symbols: Sequence[str] | None = None,
     symbol_triplet_provenance: Mapping[str, object] | None = None,
 ) -> MarketDataset:
@@ -386,6 +411,7 @@ def build_postgres_market_dataset(
         bundle,
         timestamps_ms=timestamps_ms,
         symbol_vocabulary=vocabulary,
+        feature_specs=feature_specs,
     )
     n_bars = len(timestamps_ms)
     price_shape = (n_bars, len(selected))

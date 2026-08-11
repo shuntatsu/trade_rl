@@ -58,7 +58,9 @@ class SymbolBalancedStandardNormalizer:
             raise ValueError("train_symbols must be non-empty and unique")
         if set(symbol_features) != set(ordered_symbols):
             raise ValueError("symbol_features must exactly match train_symbols")
-        if symbol_available is not None and set(symbol_available) != set(ordered_symbols):
+        if symbol_available is not None and set(symbol_available) != set(
+            ordered_symbols
+        ):
             raise ValueError("symbol_available must exactly match train_symbols")
         if max_samples_per_symbol <= 0:
             raise ValueError("max_samples_per_symbol must be positive")

@@ -132,7 +132,9 @@ def test_prepare_full_research_configs_projects_only_selected_architecture() -> 
         by_algorithm[FullResearchAlgorithm.DISCOUNTED].training_config.algorithm
         == "lagrangian_ppo"
     )
-    assert 0.0 < by_algorithm[FullResearchAlgorithm.DISCOUNTED].training_config.gamma < 1.0
+    assert (
+        0.0 < by_algorithm[FullResearchAlgorithm.DISCOUNTED].training_config.gamma < 1.0
+    )
     assert len({item.fixed_condition_digest for item in prepared}) == 1
 
 
@@ -237,7 +239,9 @@ def test_train_full_research_comparison_reuses_oracle_targets_and_closes_algorit
     assert len(oracle_calls) == 1
     assert tuple(assembled) == tuple(FullResearchAlgorithm)
     assert tuple(trained) == tuple(FullResearchAlgorithm)
-    assert tuple(run.algorithm for run in comparison.runs) == tuple(FullResearchAlgorithm)
+    assert tuple(run.algorithm for run in comparison.runs) == tuple(
+        FullResearchAlgorithm
+    )
     assert comparison.required_pairs == build_full_research_pair_closure(
         algorithms=tuple(FullResearchAlgorithm),
         baseline_names=("supervised_allocator",),

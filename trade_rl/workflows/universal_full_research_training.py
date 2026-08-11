@@ -40,6 +40,8 @@ def _strip_algorithm_family_fields(
 ) -> dict[str, object]:
     payload = _training_payload(config)
     payload.pop("algorithm", None)
+    payload.pop("cost_critic", None)
+    payload.pop("lagrangian", None)
     if remove_gamma:
         payload.pop("gamma", None)
     for key in tuple(payload):
@@ -139,7 +141,9 @@ class UniversalFullResearchTrainingComparison:
         runs = tuple(self.runs)
         if tuple(run.algorithm for run in runs) != tuple(FullResearchAlgorithm):
             raise ValueError("U6 training comparison requires exact algorithm closure")
-        if any(run.selected_architecture is not self.selected_architecture for run in runs):
+        if any(
+            run.selected_architecture is not self.selected_architecture for run in runs
+        ):
             raise ValueError("U6 training comparison architecture identity mismatch")
         required = tuple(self.required_pairs)
         completed = tuple(self.completed_pairs)
@@ -148,7 +152,9 @@ class UniversalFullResearchTrainingComparison:
         if len(set(completed)) != len(completed):
             raise ValueError("U6 completed pair closure must be unique")
         if not set(completed).issubset(required):
-            raise ValueError("U6 completed pairs contain values outside the required closure")
+            raise ValueError(
+                "U6 completed pairs contain values outside the required closure"
+            )
         object.__setattr__(self, "runs", runs)
         object.__setattr__(self, "required_pairs", required)
         object.__setattr__(self, "completed_pairs", completed)
@@ -186,11 +192,17 @@ def prepare_universal_full_research_training_configs(
         if algorithm in resolved:
             raise ValueError("U6 algorithm configuration contains duplicate algorithms")
         if not isinstance(config, ResidualTrainingConfig):
-            raise TypeError("U6 algorithm configurations must be ResidualTrainingConfig")
-        resolved[algorithm] = apply_architecture_to_training_config(config, architecture)
+            raise TypeError(
+                "U6 algorithm configurations must be ResidualTrainingConfig"
+            )
+        resolved[algorithm] = apply_architecture_to_training_config(
+            config, architecture
+        )
     required_algorithms = tuple(FullResearchAlgorithm)
     if set(resolved) != set(required_algorithms):
-        raise ValueError("U6 algorithm configurations must close PPO/Lagrangian/discounted")
+        raise ValueError(
+            "U6 algorithm configurations must close PPO/Lagrangian/discounted"
+        )
 
     ppo = resolved[FullResearchAlgorithm.PPO]
     lagrangian = resolved[FullResearchAlgorithm.LAGRANGIAN]
@@ -198,7 +210,9 @@ def prepare_universal_full_research_training_configs(
     if ppo.algorithm != "ppo" or ppo.gamma != 1.0:
         raise ValueError("U6 PPO control requires algorithm=ppo and gamma=1")
     if lagrangian.algorithm != "lagrangian_ppo" or lagrangian.gamma != 1.0:
-        raise ValueError("U6 Lagrangian PPO requires algorithm=lagrangian_ppo and gamma=1")
+        raise ValueError(
+            "U6 Lagrangian PPO requires algorithm=lagrangian_ppo and gamma=1"
+        )
     if discounted.algorithm != "lagrangian_ppo" or not 0.0 < discounted.gamma < 1.0:
         raise ValueError(
             "U6 discounted comparison requires Discounted Lagrangian PPO with gamma in (0, 1)"
@@ -228,7 +242,9 @@ def prepare_universal_full_research_training_configs(
         for algorithm in required_algorithms
     )
     if len({spec.fixed_condition_digest for spec in specs}) != 1:
-        raise ValueError("U6 algorithms contain unexpected non-comparison condition drift")
+        raise ValueError(
+            "U6 algorithms contain unexpected non-comparison condition drift"
+        )
     return specs
 
 

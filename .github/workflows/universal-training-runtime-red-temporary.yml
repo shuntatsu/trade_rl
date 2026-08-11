@@ -1,4 +1,4 @@
-name: Temporary Universal U6 Training GREEN
+name: Temporary Universal U6 Training GREEN Retry
 
 on:
   push:
@@ -19,6 +19,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
+      - run: uv run python .github/temporary/fix_universal_u6_comparison_fields.py
       - run: |
           uv run ruff check --fix trade_rl/workflows/universal_full_research_training.py tests/workflows/test_universal_full_research_training.py
           uv run ruff format trade_rl/workflows/universal_full_research_training.py tests/workflows/test_universal_full_research_training.py
@@ -31,6 +32,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add trade_rl/workflows/universal_full_research_training.py tests/workflows/test_universal_full_research_training.py
           if ! git diff --cached --quiet; then
-            git commit -m "test: verify Universal U6 training comparison"
+            git commit -m "feat: verify Universal U6 training comparison"
             git push origin HEAD:integration/universal-research-u3-u6
           fi

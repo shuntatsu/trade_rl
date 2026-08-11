@@ -14,6 +14,9 @@ from trade_rl.integrations.postgres_indicator_artifacts import INDICATOR_CACHE_I
 from trade_rl.integrations.postgres_indicator_inventory import (
     load_postgres_indicator_source_inventory,
 )
+from trade_rl.integrations.postgres_market_tables import (
+    UNIVERSAL_202411_202607_TABLES,
+)
 
 _TIMEFRAMES = ("15m", "1h", "4h", "1d")
 
@@ -131,6 +134,18 @@ def test_loads_catalog_source_inventory_without_npz_payload() -> None:
     assert "payload_bytes" in artifact_query
     assert "ORDER BY symbol, timeframe" in artifact_query
     assert artifact_params == (INDICATOR_CACHE_ID,)
+
+
+def test_explicit_table_set_routes_inventory_queries() -> None:
+    database = FakeDatabase()
+
+    load_postgres_indicator_source_inventory(
+        database,
+        tables=UNIVERSAL_202411_202607_TABLES,
+    )
+
+    assert UNIVERSAL_202411_202607_TABLES.indicator_manifest in database.queries[0][0]
+    assert UNIVERSAL_202411_202607_TABLES.indicator_artifact in database.queries[1][0]
 
 
 def test_source_inventory_identity_is_independent_of_database_row_order() -> None:

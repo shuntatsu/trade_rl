@@ -25,6 +25,9 @@ from trade_rl.integrations.postgres_market_dataset import (
     POLICY_ASSET_IDENTITY_MODE,
     build_postgres_market_dataset,
 )
+from trade_rl.integrations.postgres_market_tables import (
+    UNIVERSAL_202411_202607_TABLES,
+)
 
 _ECONOMIC_FIELDS = (
     "symbol_active",
@@ -62,6 +65,7 @@ class _Cursor:
         return None
 
     def execute(self, query: str, params: object = None) -> None:
+        self.database.queries.append(query)
         assert isinstance(params, tuple)
         symbol = str(params[0])
         self.rows = (
@@ -76,6 +80,7 @@ class _Cursor:
 
 class _Database:
     def __init__(self, symbols: tuple[str, ...], start_ms: int) -> None:
+        self.queries: list[str] = []
         self.klines: dict[str, list[tuple[object, ...]]] = {}
         self.funding: dict[str, list[tuple[object, ...]]] = {}
         for symbol_index, symbol in enumerate(symbols):
@@ -246,6 +251,48 @@ def test_builds_btc_free_triplet_with_identity_free_policy_features() -> None:
     assert not dataset.feature_available[0, 0].any()
     assert dataset.funding_event_count[:, 0].tolist() == [0, 1, 0, 0]
     assert dataset.funding_rate[1, 0] == 0.0001
+
+
+def test_explicit_table_set_routes_market_queries_and_binds_identity() -> None:
+    symbols = ("SOLUSDT", "ETHUSDT", "BNBUSDT")
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    start_ms = int(start.timestamp() * 1000)
+    metadata = _metadata(symbols, start)
+    legacy_database = _Database(symbols, start_ms)
+    routed_database = _Database(symbols, start_ms)
+
+    legacy = build_postgres_market_dataset(
+        legacy_database,
+        symbols=symbols,
+        symbol_vocabulary=symbols,
+        start_time=start,
+        end_time=end,
+        metadata=metadata,
+        metadata_evidence_digest="3" * 64,
+        indicator_bundle=_bundle(symbols, start_ms),
+    )
+    routed = build_postgres_market_dataset(
+        routed_database,
+        symbols=symbols,
+        symbol_vocabulary=symbols,
+        start_time=start,
+        end_time=end,
+        metadata=metadata,
+        metadata_evidence_digest="3" * 64,
+        indicator_bundle=_bundle(symbols, start_ms),
+        tables=UNIVERSAL_202411_202607_TABLES,
+    )
+
+    assert any(
+        UNIVERSAL_202411_202607_TABLES.kline in query
+        for query in routed_database.queries
+    )
+    assert any(
+        UNIVERSAL_202411_202607_TABLES.funding in query
+        for query in routed_database.queries
+    )
+    assert routed.dataset_id != legacy.dataset_id
 
 
 def test_postgres_metadata_is_required_instead_of_defaulting_to_zero() -> None:

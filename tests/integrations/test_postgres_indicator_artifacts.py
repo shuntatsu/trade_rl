@@ -12,6 +12,9 @@ from trade_rl.integrations.postgres_indicator_artifacts import (
     INDICATOR_CACHE_ID,
     load_postgres_indicator_artifacts,
 )
+from trade_rl.integrations.postgres_market_tables import (
+    UNIVERSAL_202411_202607_TABLES,
+)
 
 
 def _payload(offset: int) -> bytes:
@@ -130,6 +133,20 @@ def test_loads_requested_subset_in_declared_order_without_requiring_btc() -> Non
     artifact_query, params = database.queries[1]
     assert "ORDER BY symbol, timeframe" in artifact_query
     assert params == (INDICATOR_CACHE_ID, list(symbols), list(timeframes))
+
+
+def test_explicit_table_set_routes_indicator_queries() -> None:
+    database = FakeDatabase()
+
+    load_postgres_indicator_artifacts(
+        database,
+        symbols=("ETHUSDT", "BNBUSDT", "SOLUSDT"),
+        timeframes=("15m", "1h", "4h", "1d"),
+        tables=UNIVERSAL_202411_202607_TABLES,
+    )
+
+    assert UNIVERSAL_202411_202607_TABLES.indicator_manifest in database.queries[0][0]
+    assert UNIVERSAL_202411_202607_TABLES.indicator_artifact in database.queries[1][0]
 
 
 def test_rejects_missing_requested_artifact() -> None:

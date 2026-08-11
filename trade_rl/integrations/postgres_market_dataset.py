@@ -25,9 +25,13 @@ from trade_rl.integrations.postgres_indicator_artifacts import (
     NativeIndicatorArtifactBundle,
     load_postgres_indicator_artifacts,
 )
+from trade_rl.integrations.postgres_market_tables import (
+    LEGACY_MARKET_TABLES,
+    PostgresMarketTableSet,
+)
 
-KLINE_TABLE: Final = "market_raw.binance_usds_m_klines_202101_202606"
-FUNDING_TABLE: Final = "market_raw.binance_usds_m_funding_202101_202606"
+KLINE_TABLE: Final = LEGACY_MARKET_TABLES.kline
+FUNDING_TABLE: Final = LEGACY_MARKET_TABLES.funding
 BASE_TIMEFRAME: Final = "15m"
 NATIVE_TIMEFRAMES: Final = ("15m", "1h", "4h", "1d")
 POLICY_ASSET_IDENTITY_MODE: Final = "identity_free_v1"
@@ -122,6 +126,7 @@ def _load_base_market(
     symbols: tuple[str, ...],
     start_ms: int,
     end_ms: int,
+    tables: PostgresMarketTableSet,
 ) -> dict[str, np.ndarray]:
     expected_rows, remainder = divmod(end_ms - start_ms, _STEP_MS)
     if remainder or expected_rows < 3:
@@ -140,7 +145,7 @@ def _load_base_market(
                        open::double precision, high::double precision,
                        low::double precision, close::double precision,
                        quote_volume::double precision
-                FROM {KLINE_TABLE}
+                FROM {tables.kline}
                 WHERE symbol = %s AND interval = %s
                   AND open_time_ms >= %s AND open_time_ms < %s
                 ORDER BY open_time_ms
@@ -179,6 +184,7 @@ def _load_funding(
     *,
     symbols: tuple[str, ...],
     timestamps_ms: np.ndarray,
+    tables: PostgresMarketTableSet,
 ) -> tuple[np.ndarray, np.ndarray]:
     rates = np.zeros((len(timestamps_ms), len(symbols)), dtype=np.float64)
     counts = np.zeros((len(timestamps_ms), len(symbols)), dtype=np.int32)
@@ -189,7 +195,7 @@ def _load_funding(
             cursor.execute(
                 f"""
                 SELECT calc_time_ms, last_funding_rate::double precision
-                FROM {FUNDING_TABLE}
+                FROM {tables.funding}
                 WHERE symbol = %s AND calc_time_ms > %s AND calc_time_ms <= %s
                 ORDER BY calc_time_ms
                 """,
@@ -354,6 +360,7 @@ def build_postgres_market_dataset(
     feature_specs: Sequence[FeatureSpec] | None = None,
     slot_symbols: Sequence[str] | None = None,
     symbol_triplet_provenance: Mapping[str, object] | None = None,
+    tables: PostgresMarketTableSet = LEGACY_MARKET_TABLES,
 ) -> MarketDataset:
     """Build one identity-free one- or three-symbol market dataset."""
 
@@ -382,6 +389,7 @@ def build_postgres_market_dataset(
         connection,
         symbols=selected,
         timeframes=NATIVE_TIMEFRAMES,
+        tables=tables,
     )
     if bundle.symbols != selected or bundle.timeframes != NATIVE_TIMEFRAMES:
         raise ValueError("indicator bundle order does not match requested dataset")
@@ -393,12 +401,14 @@ def build_postgres_market_dataset(
         symbols=selected,
         start_ms=start_ms,
         end_ms=end_ms,
+        tables=tables,
     )
     timestamps_ms = raw.pop("timestamps_ms")
     funding, funding_counts = _load_funding(
         connection,
         symbols=selected,
         timestamps_ms=timestamps_ms,
+        tables=tables,
     )
     (
         features,
@@ -556,8 +566,10 @@ def build_postgres_market_dataset(
                 artifact.payload_sha256 for artifact in bundle.artifacts
             ),
             "indicator_cache_id": bundle.cache_id,
-            "kline_table": KLINE_TABLE,
-            "funding_table": FUNDING_TABLE,
+            "kline_table": tables.kline,
+            "funding_table": tables.funding,
+            "indicator_manifest_table": tables.indicator_manifest,
+            "indicator_artifact_table": tables.indicator_artifact,
             "metadata_evidence_digest": metadata_evidence_digest,
             "policy_asset_identity_mode": POLICY_ASSET_IDENTITY_MODE,
             "range": (start.isoformat(), end.isoformat()),

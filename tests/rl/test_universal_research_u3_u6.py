@@ -35,27 +35,43 @@ def test_universal_binance_contract_has_206_target_local_features() -> None:
     assert not any("rolling_beta_to_btc" in feature.name for feature in features)
 
 
-def test_symbol_balanced_normalizer_weights_symbols_equally_and_clips() -> None:
+def test_symbol_balanced_normalizer_uses_only_fold_and_weights_symbols_equally() -> None:
     normalizer = SymbolBalancedStandardNormalizer.fit(
         {
-            "AAAUSDT": np.asarray([[0.0], [2.0]], dtype=np.float64),
-            "BBBUSDT": np.asarray(
-                [[100.0], [102.0], [104.0], [106.0]], dtype=np.float64
-            ),
+            "AAAUSDT": np.asarray([[0.0], [2.0], [9_999.0], [9_999.0]]),
+            "BBBUSDT": np.asarray([[100.0], [102.0], [-9_999.0], [-9_999.0]]),
         },
         train_symbols=("AAAUSDT", "BBBUSDT"),
         feature_schema_digest="features-v1",
         catalog_digest="catalog-v1",
         split_manifest_digest="split-v1",
-        fold_train_range=(10, 20),
+        fold_train_range=(0, 2),
         max_samples_per_symbol=2,
     )
     assert normalizer.sample_count_per_symbol == 2
     assert normalizer.train_symbols == ("AAAUSDT", "BBBUSDT")
-    assert normalizer.mean[0] == pytest.approx(52.0)
+    assert normalizer.mean[0] == pytest.approx(51.0)
     transformed = normalizer.transform(np.asarray([[-1_000.0], [1_000.0]]))
     assert transformed.min() >= -10.0
     assert transformed.max() <= 10.0
+
+
+def test_symbol_balanced_normalizer_handles_missing_values_per_feature() -> None:
+    normalizer = SymbolBalancedStandardNormalizer.fit(
+        {
+            "A": np.asarray([[0.0, np.nan], [2.0, 10.0], [4.0, 12.0]]),
+            "B": np.asarray([[100.0, 20.0], [102.0, np.nan], [104.0, 24.0]]),
+        },
+        train_symbols=("A", "B"),
+        feature_schema_digest="features-v1",
+        catalog_digest="catalog-v1",
+        split_manifest_digest="split-v1",
+        fold_train_range=(0, 3),
+        max_samples_per_symbol=2,
+    )
+    assert normalizer.sample_count_per_feature == (2, 2)
+    assert np.isfinite(normalizer.mean).all()
+    assert np.isfinite(normalizer.std).all()
 
 
 def test_symbol_balanced_normalizer_rejects_validation_symbol_in_fit_scope() -> None:

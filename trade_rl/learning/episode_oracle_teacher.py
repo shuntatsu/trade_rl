@@ -296,6 +296,7 @@ def sample_oracle_episode_contracts(
     dataset: MarketDataset,
     *,
     minimum_start_index: int,
+    maximum_stop_index: int | None = None,
     config: OracleEpisodeSamplingConfig,
     initial_weight_provider: InitialWeightProvider | None = None,
 ) -> tuple[OracleEpisodeContract, ...]:
@@ -308,9 +309,22 @@ def sample_oracle_episode_contracts(
         or minimum_start_index >= dataset.n_bars
     ):
         raise ValueError("minimum_start_index is outside the dataset")
-    maximum_start = dataset.n_bars - config.episode_bars - 1
+    if maximum_stop_index is None:
+        resolved_stop = dataset.n_bars
+    else:
+        if (
+            isinstance(maximum_stop_index, bool)
+            or not isinstance(maximum_stop_index, int)
+            or maximum_stop_index <= minimum_start_index
+            or maximum_stop_index > dataset.n_bars
+        ):
+            raise ValueError("maximum_stop_index is outside the dataset train range")
+        resolved_stop = maximum_stop_index
+    maximum_start = resolved_stop - config.episode_bars - 1
     if maximum_start < minimum_start_index:
-        raise ValueError("dataset does not contain a complete episode horizon")
+        raise ValueError(
+            "dataset train range does not contain a complete episode horizon"
+        )
     if "baseline" in config.initial_state_modes and initial_weight_provider is None:
         raise ValueError("non-cash episodes require an initial weight provider")
 
@@ -360,6 +374,7 @@ def build_episode_oracle_batch(
     dataset: MarketDataset,
     *,
     minimum_start_index: int,
+    maximum_stop_index: int | None = None,
     sampling_config: OracleEpisodeSamplingConfig,
     teacher_config: OracleTeacherConfig,
     initial_weight_provider: InitialWeightProvider | None = None,
@@ -376,6 +391,7 @@ def build_episode_oracle_batch(
     contracts = sample_oracle_episode_contracts(
         dataset,
         minimum_start_index=minimum_start_index,
+        maximum_stop_index=maximum_stop_index,
         config=sampling_config,
         initial_weight_provider=initial_weight_provider,
     )

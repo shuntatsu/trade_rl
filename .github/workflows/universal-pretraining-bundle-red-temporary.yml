@@ -20,7 +20,7 @@ jobs:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
       - run: |
+          uv run ruff format trade_rl/integrations/universal_pretraining.py trade_rl/integrations/universal_behavior_cloning.py tests/integrations/test_universal_pretraining_bundle.py
           uv run ruff check trade_rl/integrations/universal_pretraining.py trade_rl/integrations/universal_behavior_cloning.py tests/integrations/test_universal_pretraining_bundle.py
-          uv run ruff format --check trade_rl/integrations/universal_pretraining.py trade_rl/integrations/universal_behavior_cloning.py tests/integrations/test_universal_pretraining_bundle.py
           uv run mypy trade_rl/integrations/universal_pretraining.py trade_rl/integrations/universal_behavior_cloning.py
           uv run pytest tests/integrations/test_universal_pretraining_bundle.py tests/integrations/test_universal_behavior_cloning.py tests/integrations/test_sb3_universal_pretraining_hook.py tests/integrations/test_universal_critic_warm_start.py -q

@@ -1,0 +1,248 @@
+name: Temporary Universal Runtime GREEN
+
+on:
+  push:
+    branches: [integration/universal-research-u3-u6]
+    paths: [.github/workflows/universal-runtime-green-temporary.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  tdd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: integration/universal-research-u3-u6
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Implement descriptor fusion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/policies.py")
+          text = path.read_text()
+          cls = text.index("class SequenceAssetFeatureExtractor")
+          end_cls = text.index("\n\nclass SharedAssetActorCriticExtractor", cls)
+          segment = text[cls:end_cls]
+          if "instrument_context_width: int = 0" not in segment:
+              marker = "        current_weight_source: str = CURRENT_WEIGHT_SOURCE,\n"
+              pos = text.index(marker, cls)
+              text = text[:pos] + "        instrument_context_width: int = 0,\n" + text[pos:]
+              end_cls += len("        instrument_context_width: int = 0,\n")
+          segment = text[cls:end_cls]
+          if 'expected_shapes["instrument_context"]' not in segment:
+              marker = "        for timeframe in timeframes:\n"
+              pos = text.index(marker, cls)
+              addition = (
+                  "        if instrument_context_width < 0:\n"
+                  "            raise ValueError(\"instrument_context_width must be non-negative\")\n"
+                  "        if instrument_context_width > 0:\n"
+                  "            expected_shapes[\"instrument_context\"] = (\n"
+                  "                n_symbols, instrument_context_width\n"
+                  "            )\n"
+              )
+              text = text[:pos] + addition + text[pos:]
+              end_cls += len(addition)
+          segment = text[cls:end_cls]
+          if "self.instrument_context_encoder" not in segment:
+              pos = text.index("\n\n    def forward(", cls)
+              addition = (
+                  "\n        self.instrument_context_encoder = (\n"
+                  "            None\n"
+                  "            if instrument_context_width == 0\n"
+                  "            else nn.Sequential(\n"
+                  "                nn.Linear(instrument_context_width, d_model),\n"
+                  "                nn.LayerNorm(d_model),\n"
+                  "                nn.SiLU(),\n"
+                  "                nn.Linear(d_model, d_model),\n"
+                  "                nn.LayerNorm(d_model),\n"
+                  "            )\n"
+                  "        )\n"
+              )
+              text = text[:pos] + addition + text[pos:]
+              end_cls += len(addition)
+          segment = text[cls:end_cls]
+          if "context_tokens = self.instrument_context_encoder" not in segment:
+              marker = '            globals_ = self.global_encoder(observations["global_state"].float())\n'
+              pos = text.index(marker, cls)
+              addition = (
+                  "            if self.instrument_context_encoder is not None:\n"
+                  "                context_tokens = self.instrument_context_encoder(\n"
+                  "                    observations[\"instrument_context\"].float()\n"
+                  "                )\n"
+                  "                asset_tokens = asset_tokens + context_tokens\n"
+                  "                active_context = observations[\"active\"].float().unsqueeze(-1)\n"
+                  "                denominator = active_context.sum(dim=1).clamp_min(1.0)\n"
+                  "                pooled_context = (\n"
+                  "                    (context_tokens * active_context).sum(dim=1) / denominator\n"
+                  "                )\n"
+                  "                pooled_assets = pooled_assets + pooled_context\n"
+              )
+              text = text[:pos] + addition + text[pos:]
+          path.write_text(text)
+          compile(text, str(path), "exec")
+          PY
+      - name: Implement Universal SB3 sequence assembly
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          path = Path("trade_rl/integrations/sb3_model_assembly.py")
+          text = path.read_text()
+          if "def _is_universal_single_instrument" not in text:
+              pos = text.index("def _rollout_buffer_bytes(\n")
+              helper = (
+                  "def _is_universal_single_instrument(probe: object) -> bool:\n"
+                  "    unwrapped = getattr(probe, \"unwrapped\", probe)\n"
+                  "    return bool(getattr(unwrapped, \"is_universal_single_instrument\", False))\n\n\n"
+              )
+              text = text[:pos] + helper + text[pos:]
+          start = text.index("def _rollout_buffer_bytes(\n")
+          stop = text.index("\n\ndef _sequence_policy_assembly(\n", start)
+          rollout = text[start:stop]
+          rollout = rollout.replace(
+              '        if config.observation_encoder == "hierarchical_sequence_v2"\n',
+              '        if (\n            config.observation_encoder == "hierarchical_sequence_v2"\n            and not _is_universal_single_instrument(probe)\n        )\n',
+              1,
+          )
+          text = text[:start] + rollout + text[stop:]
+          start = text.index("def _sequence_policy_assembly(\n")
+          stop = text.index("\n\ndef resolve_sb3_policy_assembly(\n", start)
+          function = textwrap.dedent('''\
+          def _sequence_policy_assembly(
+              *,
+              probe: object,
+              identity: Mapping[str, object],
+              config: ResidualTrainingConfig,
+          ) -> tuple[
+              object,
+              dict[str, object],
+              dict[str, object],
+              SequenceRolloutReconstructor | None,
+              bool,
+          ]:
+              from trade_rl.rl.policies import (
+                  SequenceAssetFeatureExtractor,
+                  SharedPerAssetActorCriticPolicy,
+              )
+
+              unwrapped: Any = getattr(probe, "unwrapped", probe)
+              metadata = getattr(unwrapped, "sequence_layout_metadata", None)
+              if not isinstance(metadata, dict):
+                  raise ValueError("sequence training requires environment sequence metadata")
+              sequence_metadata = dict(metadata)
+              action_names = _action_names(identity)
+              universal = _is_universal_single_instrument(unwrapped)
+              sequence_reconstructor: SequenceRolloutReconstructor | None = None
+              if universal:
+                  if getattr(unwrapped, "policy_symbols", None) != ("INSTRUMENT",):
+                      raise ValueError("Universal sequence training requires generic policy symbols")
+                  if int(sequence_metadata["n_symbols"]) != 1 or _action_size(identity) != 1:
+                      raise ValueError("Universal sequence training requires one instrument")
+                  if action_names != ("target_weight:INSTRUMENT",):
+                      raise ValueError("Universal sequence action contract mismatch")
+              else:
+                  dataset = getattr(unwrapped, "dataset", None)
+                  raw_symbols = getattr(dataset, "symbols", None)
+                  if not isinstance(raw_symbols, (tuple, list)) or not raw_symbols:
+                      raise ValueError("sequence training requires ordered dataset symbols")
+                  symbols = tuple(raw_symbols)
+                  if any(not isinstance(item, str) or not item for item in symbols):
+                      raise ValueError("sequence training requires ordered dataset symbols")
+                  expected = tuple(f"target_weight:{symbol}" for symbol in symbols)
+                  if _action_size(identity) != int(sequence_metadata["n_symbols"]) or action_names != expected:
+                      raise ValueError("hierarchical sequence action/symbol order mismatch")
+                  builder = getattr(unwrapped, "sequence_observation_builder", None)
+                  if dataset is None or builder is None:
+                      raise ValueError("sequence training requires dataset reconstruction metadata")
+                  sequence_reconstructor = SequenceRolloutReconstructor(
+                      dataset=dataset,
+                      builder=builder,
+                      normalizer=getattr(unwrapped, "sequence_normalizer", None),
+                      expected_dataset_id=dataset.dataset_id,
+                      expected_layout_digest=builder.layout_digest(dataset),
+                      policy_plane=getattr(unwrapped, "sequence_policy_plane", None),
+                  )
+              policy_kwargs: dict[str, object] = {
+                  "net_arch": {"pi": list(config.policy_net_arch), "vf": list(config.value_net_arch)},
+                  "features_extractor_class": SequenceAssetFeatureExtractor,
+                  "features_extractor_kwargs": {
+                      **sequence_metadata,
+                      "sequence_tcn_capacity": config.sequence_tcn_capacity,
+                      "d_model": config.sequence_d_model,
+                      "timeframe_attention_heads": config.sequence_timeframe_attention_heads,
+                      "timeframe_attention_layers": config.sequence_timeframe_attention_layers,
+                      "timeframe_ffn_multiplier": config.sequence_timeframe_ffn_multiplier,
+                      "timeframe_gate_bias": config.sequence_timeframe_gate_bias,
+                      "asset_attention_heads": config.sequence_asset_attention_heads,
+                      "asset_attention_layers": config.sequence_asset_attention_layers,
+                      "asset_ffn_multiplier": config.sequence_asset_ffn_multiplier,
+                      "asset_gate_bias": config.sequence_asset_gate_bias,
+                      "dropout": config.sequence_dropout,
+                  },
+              }
+              risk_config = getattr(getattr(unwrapped, "pre_trade_risk", None), "config", None)
+              policy_kwargs.update(
+                  {
+                      "shared_actor_n_symbols": int(sequence_metadata["n_symbols"]),
+                      "shared_actor_d_model": config.sequence_d_model,
+                      "shared_actor_global_dim": 128,
+                      "shared_actor_net_arch": tuple(config.policy_net_arch),
+                      "shared_actor_head": config.policy_actor_head,
+                      "shared_actor_gate_temperature": config.hierarchical_gate_temperature,
+                      "shared_actor_gate_prediction_threshold": config.behavior_cloning_gate_prediction_threshold,
+                      "shared_actor_entry_threshold": float(getattr(risk_config, "entry_threshold", 0.0)),
+                      "shared_actor_minimum_deterministic_change": float(getattr(risk_config, "no_trade_band", 0.0)),
+                  }
+              )
+              return SharedPerAssetActorCriticPolicy, policy_kwargs, sequence_metadata, sequence_reconstructor, True
+          ''')
+          text = text[:start] + function + text[stop:]
+          start = text.index('        sequence_unwrapped: Any = getattr(probe, "unwrapped", probe)\n', text.index("def resolve_sb3_policy_assembly"))
+          stop = text.index("    elif isinstance(algorithm_config, PPOConfig):\n", start)
+          block = textwrap.dedent('''\
+          sequence_unwrapped: Any = getattr(probe, "unwrapped", probe)
+          sequence_action_names = _action_names(identity)
+          if _is_universal_single_instrument(sequence_unwrapped):
+              if getattr(sequence_unwrapped, "policy_symbols", None) != ("INSTRUMENT",):
+                  raise ValueError("Universal sequence training requires generic policy symbols")
+              sequence_symbols = ("INSTRUMENT",)
+              rollout_buffer_class = None
+              rollout_buffer_kwargs = None
+          else:
+              dataset = getattr(sequence_unwrapped, "dataset", None)
+              raw_symbols = getattr(dataset, "symbols", None)
+              if not isinstance(raw_symbols, (tuple, list)) or not raw_symbols:
+                  raise ValueError("sequence training requires ordered dataset symbols")
+              sequence_symbols = tuple(raw_symbols)
+              rollout_buffer_class = IndexBackedDictRolloutBuffer
+              rollout_buffer_kwargs = {
+                  "sequence_reconstructor": sequence_reconstructor,
+                  "sequence_transfer_mode": config.sequence_transfer_mode,
+              }
+          ''')
+          text = text[:start] + textwrap.indent(block, "        ") + text[stop:]
+          path.write_text(text)
+          compile(text, str(path), "exec")
+          PY
+      - name: Verify
+        run: |
+          uv run ruff format trade_rl/rl/universal_instrument_context.py trade_rl/rl/universal_single_instrument_env.py trade_rl/rl/policies.py trade_rl/integrations/sb3_model_assembly.py tests/rl/test_universal_training_environment.py tests/integrations/test_universal_sb3_model_assembly.py
+          uv run ruff check trade_rl/rl/universal_instrument_context.py trade_rl/rl/universal_single_instrument_env.py trade_rl/rl/policies.py trade_rl/integrations/sb3_model_assembly.py tests/rl/test_universal_training_environment.py tests/integrations/test_universal_sb3_model_assembly.py
+          uv run mypy trade_rl/rl/universal_instrument_context.py trade_rl/rl/universal_single_instrument_env.py trade_rl/rl/policies.py trade_rl/integrations/sb3_model_assembly.py
+          uv run pytest tests/rl/test_universal_training_environment.py tests/integrations/test_universal_sb3_model_assembly.py tests/rl/test_universal_single_instrument_env.py tests/rl/test_universal_instrument_binding.py tests/rl/test_universal_episode_router.py tests/integrations/test_sb3_model_assembly.py -q
+          git diff --check
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/rl/universal_instrument_context.py trade_rl/rl/universal_single_instrument_env.py trade_rl/rl/policies.py trade_rl/integrations/sb3_model_assembly.py tests/rl/test_universal_training_environment.py tests/integrations/test_universal_sb3_model_assembly.py
+          if ! git diff --cached --quiet; then git commit -m "feat: complete Universal routed SB3 observation path"; fi
+          git pull --rebase origin integration/universal-research-u3-u6
+          git push origin HEAD:integration/universal-research-u3-u6

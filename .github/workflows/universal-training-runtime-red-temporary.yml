@@ -1,4 +1,4 @@
-name: Temporary Oracle Environment Runtime RED
+name: Temporary Oracle Environment Runtime GREEN
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
     paths: [.github/workflows/universal-training-runtime-red-temporary.yml]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  red:
+  green:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -19,7 +19,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
+      - run: uv run python .github/temporary/patch_bounded_oracle_environment_runtime.py
       - run: |
-          uv run ruff check --fix tests/integrations/test_sb3_oracle_episode_runtime.py
-          uv run ruff format tests/integrations/test_sb3_oracle_episode_runtime.py
-          uv run pytest tests/integrations/test_sb3_oracle_episode_runtime.py -q
+          uv run ruff check --fix trade_rl/integrations/sb3_runtime.py tests/integrations/test_sb3_oracle_episode_runtime.py
+          uv run ruff format trade_rl/integrations/sb3_runtime.py tests/integrations/test_sb3_oracle_episode_runtime.py
+          uv run ruff check trade_rl/integrations/sb3_runtime.py tests/integrations/test_sb3_oracle_episode_runtime.py
+          uv run mypy trade_rl/integrations/sb3_runtime.py
+          uv run pytest tests/integrations/test_sb3_oracle_episode_runtime.py tests/integrations/test_sb3_oracle_teacher_config.py tests/learning/test_episode_oracle_train_range.py -q
+      - name: Commit verified bounded Oracle runtime
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/integrations/sb3_runtime.py tests/integrations/test_sb3_oracle_episode_runtime.py
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: bind Oracle runtime to explicit train range"
+            git push origin HEAD:integration/universal-research-u3-u6
+          fi

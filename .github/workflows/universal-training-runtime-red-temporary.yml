@@ -1,4 +1,4 @@
-name: Temporary Oracle Environment Runtime GREEN
+name: Temporary Oracle Environment Runtime GREEN Retry
 
 on:
   push:

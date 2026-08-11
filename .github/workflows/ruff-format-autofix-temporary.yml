@@ -1,0 +1,98 @@
+name: Temporary Ruff format autofix
+
+on:
+  push:
+    branches:
+      - integration/universal-research-u3-u6
+    paths:
+      - .github/workflows/ruff-format-autofix-temporary.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: integration/universal-research-u3-u6
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Install formatter
+        run: uv sync --extra dev
+      - name: Apply exact Ruff formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            scripts/run_full_research_experiment.py \
+            tests/integrations/test_universal_critic_warm_start.py \
+            tests/rl/test_episode_routed_environment.py \
+            tests/rl/test_instrument_episode_routing.py \
+            tests/rl/test_universal_research_u3_u6.py \
+            trade_rl/data/universal_features.py \
+            trade_rl/evaluation/universal_zero_shot.py \
+            trade_rl/learning/universal_bc.py \
+            trade_rl/rl/episode_routed_environment.py \
+            trade_rl/rl/instrument_episode_routing.py \
+            trade_rl/rl/universal_architecture.py \
+            trade_rl/rl/universal_instrument_binding.py \
+            trade_rl/rl/universal_normalization.py \
+            trade_rl/rl/universal_policy_identity.py \
+            trade_rl/rl/universal_single_instrument_env.py \
+            trade_rl/rl/universal_single_instrument_identity.py \
+            trade_rl/workflows/universal_research.py
+          uv run ruff format --check \
+            scripts/run_full_research_experiment.py \
+            tests/integrations/test_universal_critic_warm_start.py \
+            tests/rl/test_episode_routed_environment.py \
+            tests/rl/test_instrument_episode_routing.py \
+            tests/rl/test_universal_research_u3_u6.py \
+            trade_rl/data/universal_features.py \
+            trade_rl/evaluation/universal_zero_shot.py \
+            trade_rl/learning/universal_bc.py \
+            trade_rl/rl/episode_routed_environment.py \
+            trade_rl/rl/instrument_episode_routing.py \
+            trade_rl/rl/universal_architecture.py \
+            trade_rl/rl/universal_instrument_binding.py \
+            trade_rl/rl/universal_normalization.py \
+            trade_rl/rl/universal_policy_identity.py \
+            trade_rl/rl/universal_single_instrument_env.py \
+            trade_rl/rl/universal_single_instrument_identity.py \
+            trade_rl/workflows/universal_research.py
+          git diff --check
+          git diff --name-only
+      - name: Commit formatting only
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No formatting changes needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            scripts/run_full_research_experiment.py \
+            tests/integrations/test_universal_critic_warm_start.py \
+            tests/rl/test_episode_routed_environment.py \
+            tests/rl/test_instrument_episode_routing.py \
+            tests/rl/test_universal_research_u3_u6.py \
+            trade_rl/data/universal_features.py \
+            trade_rl/evaluation/universal_zero_shot.py \
+            trade_rl/learning/universal_bc.py \
+            trade_rl/rl/episode_routed_environment.py \
+            trade_rl/rl/instrument_episode_routing.py \
+            trade_rl/rl/universal_architecture.py \
+            trade_rl/rl/universal_instrument_binding.py \
+            trade_rl/rl/universal_normalization.py \
+            trade_rl/rl/universal_policy_identity.py \
+            trade_rl/rl/universal_single_instrument_env.py \
+            trade_rl/rl/universal_single_instrument_identity.py \
+            trade_rl/workflows/universal_research.py
+          git commit -m "style: apply Ruff formatting to universal integration"
+          git push origin HEAD:integration/universal-research-u3-u6

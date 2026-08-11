@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
 from torch import nn
 
+from trade_rl.artifacts.atomic_write import atomic_write_bytes
+from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.behavior_cloning import ObservationBatchProvider
+from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.learning.universal_bc import CriticWarmStartPlan
+from trade_rl.rl.training import ResidualTrainingConfig
 
 TensorObservationBatch = torch.Tensor | dict[str, torch.Tensor]
 
@@ -523,4 +529,109 @@ def warm_start_policy_actor_critic(
         ),
         actor_max_abs_drift_critic_only=actor_drift_critic_only,
         actor_max_abs_drift_joint=_max_abs_drift(after_critic_actor, final_actor),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ConfiguredCriticWarmStart:
+    warm_start: CriticWarmStartResult
+    artifact_path: Path
+    artifact_digest: str
+
+
+def _teacher_dataset_identity(
+    teacher_dataset: SupervisedPolicyDataset,
+) -> str:
+    return content_digest(
+        {
+            "schema_version": "supervised_policy_dataset_identity_v1",
+            "dataset_id": teacher_dataset.dataset_id,
+            "train_start": teacher_dataset.train_start,
+            "train_stop": teacher_dataset.train_stop,
+            "environment_digest": teacher_dataset.environment_digest,
+            "action_spec_digest": teacher_dataset.action_spec_digest,
+            "teacher_config_digest": teacher_dataset.teacher_config_digest,
+            "observation_digest": teacher_dataset.observation_digest,
+            "action_digest": teacher_dataset.action_digest,
+        }
+    )
+
+
+def run_configured_critic_warm_start(
+    *,
+    policy: Any,
+    teacher_environment: Any,
+    teacher_dataset: SupervisedPolicyDataset,
+    episode_batch: EpisodeOracleBatch,
+    split: BehaviorCloningSplit,
+    config: ResidualTrainingConfig,
+    observation_provider: ObservationBatchProvider | None,
+    behavior_cloning_seed: int,
+    output_root: Path,
+) -> ConfiguredCriticWarmStart:
+    """Run the configured Oracle critic warm-start and bind immutable evidence."""
+
+    if not config.behavior_cloning_critic_warm_start_enabled:
+        raise ValueError(
+            "configured critic warm-start requires the feature to be enabled"
+        )
+    if episode_batch.decision_count != teacher_dataset.sample_count:
+        raise ValueError("critic warm-start Oracle batch and teacher dataset disagree")
+    critic_targets = collect_episode_return_targets(
+        teacher_environment,
+        episode_batch,
+        gamma=config.gamma,
+    )
+    plan = CriticWarmStartPlan(
+        critic_only_steps=config.behavior_cloning_critic_warm_start_steps,
+        joint_fine_tune_steps=config.behavior_cloning_joint_warm_start_steps,
+        joint_actor_learning_rate_scale=(
+            config.behavior_cloning_joint_warm_start_actor_lr_scale
+        ),
+    )
+    result = warm_start_policy_actor_critic(
+        policy,
+        teacher_dataset,
+        critic_targets,
+        plan=plan,
+        sample_indices=split.train_indices,
+        observation_provider=observation_provider,
+        batch_size=config.behavior_cloning_batch_size,
+        learning_rate=config.behavior_cloning_critic_warm_start_learning_rate,
+        seed=behavior_cloning_seed,
+    )
+    if result.actor_max_abs_drift_critic_only != 0.0:
+        raise RuntimeError("critic-only warm-start changed actor outputs")
+    train_indices = tuple(int(value) for value in split.train_indices)
+    payload: dict[str, object] = {
+        "schema_version": "universal_critic_warm_start_v1",
+        "behavior_cloning_seed": behavior_cloning_seed,
+        "teacher_dataset_digest": _teacher_dataset_identity(teacher_dataset),
+        "episode_batch_digest": episode_batch.digest,
+        "training_config_digest": content_digest(config.digest_payload()),
+        "train_indices_digest": content_digest({"indices": train_indices}),
+        "train_sample_count": len(train_indices),
+        "validation_sample_count": split.validation_sample_count,
+        "purged_sample_count": split.purged_sample_count,
+        "gamma": config.gamma,
+        "batch_size": config.behavior_cloning_batch_size,
+        "learning_rate": (config.behavior_cloning_critic_warm_start_learning_rate),
+        "plan": {
+            "critic_only_steps": plan.critic_only_steps,
+            "joint_fine_tune_steps": plan.joint_fine_tune_steps,
+            "joint_actor_learning_rate_scale": (plan.joint_actor_learning_rate_scale),
+        },
+        "result": asdict(result),
+    }
+    artifact_digest = content_digest(payload)
+    artifact_path = output_root / "critic-warm-start.json"
+    output_root.mkdir(parents=True, exist_ok=True)
+    atomic_write_bytes(
+        artifact_path,
+        canonical_json_bytes({**payload, "artifact_digest": artifact_digest}),
+    )
+    return ConfiguredCriticWarmStart(
+        warm_start=result,
+        artifact_path=artifact_path,
+        artifact_digest=artifact_digest,
     )

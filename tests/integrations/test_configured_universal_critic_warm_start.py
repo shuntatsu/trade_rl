@@ -181,7 +181,19 @@ def test_configured_critic_warm_start_binds_train_scope_and_artifact(
     assert configured.artifact_path == tmp_path / "critic-warm-start.json"
     payload = json.loads(configured.artifact_path.read_text(encoding="utf-8"))
     assert payload["artifact_digest"] == configured.artifact_digest
-    assert payload["teacher_dataset_digest"] == dataset.artifact_digest
+    assert payload["teacher_dataset_digest"] == content_digest(
+        {
+            "schema_version": "supervised_policy_dataset_identity_v1",
+            "dataset_id": dataset.dataset_id,
+            "train_start": dataset.train_start,
+            "train_stop": dataset.train_stop,
+            "environment_digest": dataset.environment_digest,
+            "action_spec_digest": dataset.action_spec_digest,
+            "teacher_config_digest": dataset.teacher_config_digest,
+            "observation_digest": dataset.observation_digest,
+            "action_digest": dataset.action_digest,
+        }
+    )
     assert payload["episode_batch_digest"] == _episode_batch().digest
     assert payload["train_sample_count"] == 2
     assert payload["validation_sample_count"] == 2

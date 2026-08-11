@@ -1,4 +1,4 @@
-name: Temporary Universal Stage A Adapter RED
+name: Temporary Universal Stage A Adapter GREEN
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
     paths: [.github/workflows/universal-training-runtime-red-temporary.yml]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  red:
+  green:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -19,7 +19,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
+      - run: uv run python .github/temporary/patch_universal_stage_a_training_adapter.py
       - run: |
-          uv run ruff check --fix tests/workflows/test_universal_stage_a_training_adapter.py
-          uv run ruff format tests/workflows/test_universal_stage_a_training_adapter.py
-          uv run pytest tests/workflows/test_universal_stage_a_training_adapter.py -q
+          uv run ruff check --fix trade_rl/workflows/universal_stage_a.py tests/workflows/test_universal_stage_a_training_adapter.py
+          uv run ruff format trade_rl/workflows/universal_stage_a.py tests/workflows/test_universal_stage_a_training_adapter.py
+          uv run ruff check trade_rl/workflows/universal_stage_a.py tests/workflows/test_universal_stage_a_training_adapter.py
+          uv run mypy trade_rl/workflows/universal_stage_a.py
+          uv run pytest tests/workflows/test_universal_stage_a_training_adapter.py tests/workflows/test_universal_stage_a.py tests/integrations/test_sb3_final_checkpoint.py tests/rl/test_checkpointing.py -q
+      - name: Commit verified Universal Stage A training adapter
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/workflows/universal_stage_a.py tests/workflows/test_universal_stage_a_training_adapter.py
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: bind Universal training to Stage A checkpoints"
+            git push origin HEAD:integration/universal-research-u3-u6
+          fi

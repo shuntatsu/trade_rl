@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.learning.behavior_cloning import BehaviorCloningConfig
 from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.rl.training import ResidualTrainingConfig
@@ -47,7 +46,11 @@ def test_combine_symbol_teachers_preserves_exact_symbol_train_scope() -> None:
     combined = combine_symbol_teachers(
         {
             "AAAUSDT": (_dataset("A", 1.0), _split(), np.arange(6, dtype=np.float32)),
-            "BBBUSDT": (_dataset("B", 2.0), _split(), np.arange(6, dtype=np.float32) + 10),
+            "BBBUSDT": (
+                _dataset("B", 2.0),
+                _split(),
+                np.arange(6, dtype=np.float32) + 10,
+            ),
         },
         train_symbols=("AAAUSDT", "BBBUSDT"),
         normalizer_digest=content_digest("normalizer"),
@@ -99,7 +102,11 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
     combined = module.combine_symbol_teachers(
         {
             "AAAUSDT": (_dataset("A", 1.0), _split(), np.arange(6, dtype=np.float32)),
-            "BBBUSDT": (_dataset("B", 2.0), _split(), np.arange(6, dtype=np.float32) + 10),
+            "BBBUSDT": (
+                _dataset("B", 2.0),
+                _split(),
+                np.arange(6, dtype=np.float32) + 10,
+            ),
         },
         train_symbols=("AAAUSDT", "BBBUSDT"),
         normalizer_digest=content_digest("normalizer"),
@@ -137,9 +144,9 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
         behavior_cloning_teacher="oracle",
         behavior_cloning_required_relative_improvement=0.1,
         behavior_cloning_critic_warm_start_steps=2,
-        behavior_cloning_critic_joint_fine_tune_steps=2,
-        behavior_cloning_critic_learning_rate=1e-3,
-        behavior_cloning_critic_joint_actor_learning_rate_scale=0.1,
+        behavior_cloning_joint_warm_start_steps=2,
+        behavior_cloning_critic_warm_start_learning_rate=1e-3,
+        behavior_cloning_joint_warm_start_actor_lr_scale=0.1,
     )
     hook = module.build_universal_pretraining_hook(combined)
     evidence = hook(
@@ -152,6 +159,9 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
 
     assert calls == ["bc", "critic"]
     assert evidence["passed"] is True
-    assert evidence["teacher_artifact_digest"] == combined.teacher_artifact.artifact_digest
+    assert (
+        evidence["teacher_artifact_digest"]
+        == combined.teacher_artifact.artifact_digest
+    )
     assert len(evidence["behavior_cloning_digest"]) == 64
     assert len(evidence["critic_warm_start_digest"]) == 64

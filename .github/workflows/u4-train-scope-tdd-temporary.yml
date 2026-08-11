@@ -56,6 +56,24 @@ jobs:
               artifact_digest: str
 
 
+          def _teacher_dataset_identity(
+              teacher_dataset: SupervisedPolicyDataset,
+          ) -> str:
+              return content_digest(
+                  {
+                      "schema_version": "supervised_policy_dataset_identity_v1",
+                      "dataset_id": teacher_dataset.dataset_id,
+                      "train_start": teacher_dataset.train_start,
+                      "train_stop": teacher_dataset.train_stop,
+                      "environment_digest": teacher_dataset.environment_digest,
+                      "action_spec_digest": teacher_dataset.action_spec_digest,
+                      "teacher_config_digest": teacher_dataset.teacher_config_digest,
+                      "observation_digest": teacher_dataset.observation_digest,
+                      "action_digest": teacher_dataset.action_digest,
+                  }
+              )
+
+
           def run_configured_critic_warm_start(
               *,
               policy: Any,
@@ -107,7 +125,7 @@ jobs:
               payload: dict[str, object] = {
                   "schema_version": "universal_critic_warm_start_v1",
                   "behavior_cloning_seed": behavior_cloning_seed,
-                  "teacher_dataset_digest": teacher_dataset.artifact_digest,
+                  "teacher_dataset_digest": _teacher_dataset_identity(teacher_dataset),
                   "episode_batch_digest": episode_batch.digest,
                   "training_config_digest": content_digest(config.digest_payload()),
                   "train_indices_digest": content_digest({"indices": train_indices}),
@@ -148,6 +166,32 @@ jobs:
                   for line in addition.splitlines()
               )
               path.write_text(text.rstrip() + addition + "\n")
+
+          test_path = Path(
+              "tests/integrations/test_configured_universal_critic_warm_start.py"
+          )
+          test_text = test_path.read_text()
+          old = '    assert payload["teacher_dataset_digest"] == dataset.artifact_digest\n'
+          if old in test_text:
+              new = '''    assert payload["teacher_dataset_digest"] == content_digest(
+              {
+                  "schema_version": "supervised_policy_dataset_identity_v1",
+                  "dataset_id": dataset.dataset_id,
+                  "train_start": dataset.train_start,
+                  "train_stop": dataset.train_stop,
+                  "environment_digest": dataset.environment_digest,
+                  "action_spec_digest": dataset.action_spec_digest,
+                  "teacher_config_digest": dataset.teacher_config_digest,
+                  "observation_digest": dataset.observation_digest,
+                  "action_digest": dataset.action_digest,
+              }
+          )
+          '''
+              new = "\n".join(
+                  line[10:] if line.startswith("          ") else line
+                  for line in new.splitlines()
+              ) + "\n"
+              test_path.write_text(test_text.replace(old, new, 1))
           PY
       - name: Check and test focused U4 files
         run: |

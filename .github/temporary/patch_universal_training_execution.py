@@ -5,6 +5,11 @@ text = path.read_text()
 if "def build_universal_bindings(" in text:
     raise SystemExit(0)
 text = text.replace(
+    "from functools import partial\n",
+    "from functools import partial\nfrom pathlib import Path\n",
+    1,
+)
+text = text.replace(
     "from trade_rl.artifacts.hashing import content_digest\n",
     "from trade_rl.artifacts.atomic_write import atomic_write_bytes\n"
     "from trade_rl.artifacts.codec import canonical_json_bytes\n"

@@ -48,7 +48,9 @@ def _run_config(**overrides: object) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
 
-def test_validate_universal_training_config_requires_generic_target_weight_surface() -> None:
+def test_validate_universal_training_config_requires_generic_target_weight_surface() -> (
+    None
+):
     from trade_rl.workflows.universal_training_runner import (
         validate_universal_training_config,
     )

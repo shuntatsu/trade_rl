@@ -82,6 +82,9 @@ from trade_rl.integrations.sb3_environment import (
     _effective_vector_environment_kind as _effective_vector_environment_kind,
 )
 from trade_rl.integrations.sb3_environment import (
+    _filtered_environment_factory as _filtered_environment_factory,
+)
+from trade_rl.integrations.sb3_environment import (
     _filtered_training_environment as _filtered_training_environment,
 )
 from trade_rl.integrations.sb3_environment import (
@@ -514,7 +517,7 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                         reconstructor=sequence_reconstructor,
                     )
                 return _build_training_environment(
-                    lambda: _filtered_training_environment(self.environment_factory),
+                    _filtered_environment_factory(self.environment_factory),
                     config.n_envs,
                     subprocesses=vector_environment_kind == "subprocess",
                 )

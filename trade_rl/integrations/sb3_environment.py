@@ -68,6 +68,37 @@ def _filtered_training_environment(factory: Callable[[], Any]) -> Any:
     return _TrainingInfoFilter(factory())
 
 
+class _FilteredEnvironmentFactory:
+    """Preserve optional worker-index routing through the training info filter."""
+
+    def __init__(self, factory: Callable[[], gym.Env[Any, Any]]) -> None:
+        self.factory = factory
+
+    def __call__(self) -> gym.Env[Any, Any]:
+        return _filtered_training_environment(self.factory)
+
+    def for_environment_index(self, index: int) -> Callable[[], gym.Env[Any, Any]]:
+        indexed = getattr(self.factory, "for_environment_index", None)
+        selected = indexed(index) if callable(indexed) else self.factory
+        return partial(_filtered_training_environment, selected)
+
+
+def _filtered_environment_factory(
+    factory: Callable[[], gym.Env[Any, Any]],
+) -> _FilteredEnvironmentFactory:
+    return _FilteredEnvironmentFactory(factory)
+
+
+def _environment_factories(
+    factory: Callable[[], gym.Env[Any, Any]],
+    n_envs: int,
+) -> list[Callable[[], gym.Env[Any, Any]]]:
+    indexed = getattr(factory, "for_environment_index", None)
+    if callable(indexed):
+        return [indexed(index) for index in range(n_envs)]
+    return [factory for _ in range(n_envs)]
+
+
 def _build_training_environment(
     factory: Callable[[], gym.Env[Any, Any]],
     n_envs: int,
@@ -78,7 +109,7 @@ def _build_training_environment(
         return factory()
     from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
-    factories = [factory for _ in range(n_envs)]
+    factories = _environment_factories(factory, n_envs)
     if subprocesses:
         return SubprocVecEnv(factories, start_method="spawn")
     return DummyVecEnv(factories)

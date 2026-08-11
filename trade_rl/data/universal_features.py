@@ -27,7 +27,8 @@ _CROSS_ASSET_TOKENS = (
 
 
 class NamedFeature(Protocol):
-    name: str
+    @property
+    def name(self) -> str: ...
 
 
 TFeature = TypeVar("TFeature", bound=NamedFeature)

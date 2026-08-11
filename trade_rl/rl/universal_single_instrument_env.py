@@ -127,12 +127,13 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         if dataset is None:
             raise TypeError("concrete environment must expose its dataset")
         raw_symbols = getattr(dataset, "symbols", None)
-        try:
-            symbols = tuple(raw_symbols)
-        except TypeError as error:
-            raise TypeError(
-                "concrete environment dataset symbols are invalid"
-            ) from error
+        if (
+            not isinstance(raw_symbols, (tuple, list))
+            or not raw_symbols
+            or any(not isinstance(symbol, str) or not symbol for symbol in raw_symbols)
+        ):
+            raise TypeError("concrete environment dataset symbols are invalid")
+        symbols = tuple(raw_symbols)
         if symbols != (binding.concrete_symbol,):
             raise ValueError(
                 "concrete environment dataset symbol does not match binding"

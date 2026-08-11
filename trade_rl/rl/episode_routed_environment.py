@@ -9,7 +9,12 @@ import gymnasium as gym
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.rl.actions import ActionMode, ActionSpec, ActionValidationMode
+from trade_rl.rl.actions import (
+    ActionMode,
+    ActionSpec,
+    ActionValidationMode,
+    TargetWeightAction,
+)
 from trade_rl.rl.instrument_episode_routing import (
     GENERIC_INSTRUMENT_ACTION_NAMES,
     GENERIC_INSTRUMENT_SYMBOLS,
@@ -320,8 +325,9 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Observation, np.ndarray]):
         symbol = route.binding.concrete_symbol
         child = self._children[symbol]
         child_seed = self._child_reset_seed(user_seed=seed)
+        child_runtime: Any = child
         try:
-            observation, child_info = child.reset(
+            observation, child_info = child_runtime.reset(
                 seed=child_seed,
                 options=resolved_options or None,
             )
@@ -365,10 +371,15 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Observation, np.ndarray]):
             vector,
             mode=ActionValidationMode.FAIL_CLOSED,
         )
+        if not isinstance(parsed, TargetWeightAction):
+            raise RuntimeError(
+                "episode-routed action parser returned residual controls"
+            )
         maintained_action = parsed.as_array()
+        active_child_runtime: Any = self._active_child
         try:
             observation, reward, terminated, truncated, child_info = (
-                self._active_child.step(maintained_action)
+                active_child_runtime.step(maintained_action)
             )
         except Exception:
             self._failed_symbol = (

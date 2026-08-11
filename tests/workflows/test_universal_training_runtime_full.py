@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.rl.actions import ActionMode, ActionSpec, ActionValidationMode
+from trade_rl.rl.actions import ACTION_SCHEMA, ActionMode, ActionSpec, ActionValidationMode
 
 
 def _training_config(**overrides: object) -> SimpleNamespace:
@@ -81,7 +81,7 @@ def test_concrete_action_spec_digest_is_symbol_specific_but_deterministic() -> N
     assert len(first) == 64
     assert first == content_digest(
         {
-            "action_schema": "residual_action_v2",
+            "action_schema": ACTION_SCHEMA,
             "names": ("target_weight:AAAUSDT",),
             "spec": action.digest_payload(),
         }

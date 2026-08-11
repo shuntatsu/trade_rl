@@ -11,6 +11,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from trade_rl.learning.behavior_cloning import ObservationBatchProvider
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.learning.teacher_artifact import ObservationBatch, SupervisedPolicyDataset
 from trade_rl.learning.universal_bc import CriticWarmStartPlan
@@ -20,6 +21,7 @@ TensorObservationBatch = torch.Tensor | dict[str, torch.Tensor]
 
 @dataclass(frozen=True, slots=True)
 class CriticWarmStartResult:
+    sample_count: int
     initial_value_mse: float
     critic_only_value_mse: float
     final_value_mse: float
@@ -92,26 +94,60 @@ def collect_episode_return_targets(
     return np.concatenate(all_returns).astype(np.float32, copy=False)
 
 
+def _validated_sample_indices(
+    sample_indices: np.ndarray | None,
+    *,
+    sample_count: int,
+) -> np.ndarray:
+    if sample_indices is None:
+        return np.arange(sample_count, dtype=np.int64)
+    raw = np.asarray(sample_indices)
+    if raw.ndim != 1 or not np.issubdtype(raw.dtype, np.integer):
+        raise ValueError("critic warm-start sample_indices must be an integer vector")
+    resolved = np.asarray(raw, dtype=np.int64).copy(order="C")
+    if resolved.size == 0:
+        raise ValueError("critic warm-start sample_indices must not be empty")
+    if np.any(resolved < 0) or np.any(resolved >= sample_count):
+        raise ValueError("critic warm-start sample_indices contain an out-of-range index")
+    if np.unique(resolved).size != resolved.size:
+        raise ValueError("critic warm-start sample_indices must not contain duplicates")
+    return resolved
+
+
+def _observation_batch(
+    dataset: SupervisedPolicyDataset,
+    indices: np.ndarray,
+    *,
+    provider: ObservationBatchProvider | None,
+) -> object:
+    if provider is not None:
+        if provider.sample_count != dataset.sample_count:
+            raise ValueError("critic warm-start observation provider sample count mismatch")
+        return provider.get(indices)
+    observations = dataset.observations
+    if isinstance(observations, Mapping):
+        return {key: np.asarray(value)[indices] for key, value in observations.items()}
+    return np.asarray(observations)[indices]
+
+
 def _tensor_observations(
-    observations: ObservationBatch,
+    observations: object,
     *,
     device: torch.device,
 ) -> TensorObservationBatch:
     if isinstance(observations, Mapping):
         return {
-            key: torch.as_tensor(np.asarray(value), device=device)
+            str(key): torch.as_tensor(
+                np.array(value, copy=True, order="C"),
+                device=device,
+            )
             for key, value in observations.items()
         }
-    return torch.as_tensor(np.asarray(observations), device=device)
-
-
-def _slice_observations(
-    observations: TensorObservationBatch,
-    indices: torch.Tensor,
-) -> TensorObservationBatch:
-    if isinstance(observations, dict):
-        return {key: value[indices] for key, value in observations.items()}
-    return observations[indices]
+    return torch.as_tensor(
+        np.array(observations, dtype=np.float32, copy=True, order="C"),
+        dtype=torch.float32,
+        device=device,
+    )
 
 
 def _policy_actions(policy: Any, observations: TensorObservationBatch) -> torch.Tensor:
@@ -147,27 +183,95 @@ def _critic_parameters(policy: Any) -> tuple[nn.Parameter, ...]:
     return parameters
 
 
-def _actor_snapshot(policy: Any, observations: TensorObservationBatch) -> torch.Tensor:
+def _evaluation_batches(indices: np.ndarray, *, batch_size: int) -> tuple[np.ndarray, ...]:
+    return tuple(
+        indices[offset : offset + batch_size]
+        for offset in range(0, len(indices), batch_size)
+    )
+
+
+def _actor_snapshot(
+    policy: Any,
+    dataset: SupervisedPolicyDataset,
+    sample_indices: np.ndarray,
+    *,
+    batch_size: int,
+    device: torch.device,
+    provider: ObservationBatchProvider | None,
+) -> torch.Tensor:
+    batches: list[torch.Tensor] = []
     with torch.no_grad():
-        return _policy_actions(policy, observations).detach().cpu().clone()
+        for indices in _evaluation_batches(sample_indices, batch_size=batch_size):
+            observations = _tensor_observations(
+                _observation_batch(dataset, indices, provider=provider),
+                device=device,
+            )
+            batches.append(_policy_actions(policy, observations).detach().cpu())
+    if not batches:
+        raise ValueError("critic warm-start actor evaluation scope is empty")
+    return torch.cat(batches, dim=0).clone()
 
 
 def _value_mse(
     policy: Any,
-    observations: TensorObservationBatch,
-    targets: torch.Tensor,
+    dataset: SupervisedPolicyDataset,
+    targets: np.ndarray,
+    sample_indices: np.ndarray,
+    *,
+    batch_size: int,
+    device: torch.device,
+    provider: ObservationBatchProvider | None,
 ) -> float:
+    squared_error = 0.0
+    count = 0
     with torch.no_grad():
-        return float(_mse(_policy_values(policy, observations), targets).cpu().item())
+        for indices in _evaluation_batches(sample_indices, batch_size=batch_size):
+            observations = _tensor_observations(
+                _observation_batch(dataset, indices, provider=provider),
+                device=device,
+            )
+            expected = torch.as_tensor(
+                np.array(targets[indices], dtype=np.float32, copy=True),
+                dtype=torch.float32,
+                device=device,
+            )
+            errors = torch.square(_policy_values(policy, observations) - expected)
+            squared_error += float(errors.sum().cpu().item())
+            count += int(errors.numel())
+    if count <= 0:
+        raise ValueError("critic warm-start value evaluation scope is empty")
+    return squared_error / count
 
 
 def _actor_mse(
     policy: Any,
-    observations: TensorObservationBatch,
-    targets: torch.Tensor,
+    dataset: SupervisedPolicyDataset,
+    actions: np.ndarray,
+    sample_indices: np.ndarray,
+    *,
+    batch_size: int,
+    device: torch.device,
+    provider: ObservationBatchProvider | None,
 ) -> float:
+    squared_error = 0.0
+    count = 0
     with torch.no_grad():
-        return float(_mse(_policy_actions(policy, observations), targets).cpu().item())
+        for indices in _evaluation_batches(sample_indices, batch_size=batch_size):
+            observations = _tensor_observations(
+                _observation_batch(dataset, indices, provider=provider),
+                device=device,
+            )
+            expected = torch.as_tensor(
+                np.array(actions[indices], dtype=np.float32, copy=True),
+                dtype=torch.float32,
+                device=device,
+            )
+            errors = torch.square(_policy_actions(policy, observations) - expected)
+            squared_error += float(errors.sum().cpu().item())
+            count += int(errors.numel())
+    if count <= 0:
+        raise ValueError("critic warm-start actor evaluation scope is empty")
+    return squared_error / count
 
 
 def _max_abs_drift(before: torch.Tensor, after: torch.Tensor) -> float:
@@ -178,18 +282,31 @@ def _max_abs_drift(before: torch.Tensor, after: torch.Tensor) -> float:
     return float(torch.max(torch.abs(before - after)).item())
 
 
-def _batch_indices(
+def _sample_batch_indices(
     rng: np.random.Generator,
     *,
-    sample_count: int,
+    sample_indices: np.ndarray,
     batch_size: int,
+) -> np.ndarray:
+    if batch_size >= len(sample_indices):
+        return sample_indices.copy(order="C")
+    return np.asarray(
+        rng.choice(sample_indices, size=batch_size, replace=False),
+        dtype=np.int64,
+    )
+
+
+def _batch_targets(
+    values: np.ndarray,
+    indices: np.ndarray,
+    *,
     device: torch.device,
 ) -> torch.Tensor:
-    if batch_size >= sample_count:
-        values = np.arange(sample_count, dtype=np.int64)
-    else:
-        values = rng.choice(sample_count, size=batch_size, replace=False)
-    return torch.as_tensor(values, dtype=torch.long, device=device)
+    return torch.as_tensor(
+        np.array(values[indices], dtype=np.float32, copy=True),
+        dtype=torch.float32,
+        device=device,
+    )
 
 
 def warm_start_policy_actor_critic(
@@ -201,14 +318,16 @@ def warm_start_policy_actor_critic(
     batch_size: int,
     learning_rate: float,
     seed: int,
+    sample_indices: np.ndarray | None = None,
+    observation_provider: ObservationBatchProvider | None = None,
 ) -> CriticWarmStartResult:
     """Fit critic first with actor frozen, then conservatively fine-tune both."""
 
-    if batch_size <= 0:
+    if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
         raise ValueError("critic warm-start batch_size must be positive")
     if not math.isfinite(learning_rate) or learning_rate <= 0.0:
         raise ValueError("critic warm-start learning_rate must be finite and positive")
-    if seed < 0:
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
         raise ValueError("critic warm-start seed must be non-negative")
 
     actions_np = np.asarray(teacher_dataset.actions, dtype=np.float32)
@@ -217,21 +336,48 @@ def warm_start_policy_actor_critic(
         raise ValueError("critic target count must match teacher action count")
     if not np.isfinite(returns_np).all():
         raise ValueError("critic warm-start targets must be finite")
+    training_indices = _validated_sample_indices(
+        sample_indices,
+        sample_count=len(actions_np),
+    )
+    if observation_provider is not None and (
+        observation_provider.sample_count != teacher_dataset.sample_count
+    ):
+        raise ValueError("critic warm-start observation provider sample count mismatch")
 
     device = torch.device(getattr(policy, "device", "cpu"))
-    observations = _tensor_observations(teacher_dataset.observations, device=device)
-    action_targets = torch.as_tensor(actions_np, dtype=torch.float32, device=device)
-    value_targets = torch.as_tensor(returns_np, dtype=torch.float32, device=device)
-    sample_count = len(actions_np)
-
+    evaluation_batch_size = min(batch_size, len(training_indices))
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
     if device.type == "cuda":
         torch.cuda.manual_seed_all(seed)
 
-    initial_actor = _actor_snapshot(policy, observations)
-    initial_value_mse = _value_mse(policy, observations, value_targets)
-    initial_actor_mse = _actor_mse(policy, observations, action_targets)
+    initial_actor = _actor_snapshot(
+        policy,
+        teacher_dataset,
+        training_indices,
+        batch_size=evaluation_batch_size,
+        device=device,
+        provider=observation_provider,
+    )
+    initial_value_mse = _value_mse(
+        policy,
+        teacher_dataset,
+        returns_np,
+        training_indices,
+        batch_size=evaluation_batch_size,
+        device=device,
+        provider=observation_provider,
+    )
+    initial_actor_mse = _actor_mse(
+        policy,
+        teacher_dataset,
+        actions_np,
+        training_indices,
+        batch_size=evaluation_batch_size,
+        device=device,
+        provider=observation_provider,
+    )
 
     critic_parameters = _critic_parameters(policy)
     critic_parameter_ids = {id(parameter) for parameter in critic_parameters}
@@ -245,14 +391,20 @@ def warm_start_policy_actor_critic(
     critic_optimizer = torch.optim.Adam(critic_parameters, lr=learning_rate)
     try:
         for _ in range(plan.critic_only_steps):
-            indices = _batch_indices(
+            indices = _sample_batch_indices(
                 rng,
-                sample_count=sample_count,
+                sample_indices=training_indices,
                 batch_size=batch_size,
+            )
+            batch_observations = _tensor_observations(
+                _observation_batch(
+                    teacher_dataset,
+                    indices,
+                    provider=observation_provider,
+                ),
                 device=device,
             )
-            batch_observations = _slice_observations(observations, indices)
-            batch_values = value_targets[indices]
+            batch_values = _batch_targets(returns_np, indices, device=device)
             critic_optimizer.zero_grad(set_to_none=True)
             value_loss = _mse(_policy_values(policy, batch_observations), batch_values)
             value_loss.backward()
@@ -261,9 +413,24 @@ def warm_start_policy_actor_critic(
         for parameter in all_parameters:
             parameter.requires_grad_(original_requires_grad[id(parameter)])
 
-    after_critic_actor = _actor_snapshot(policy, observations)
+    after_critic_actor = _actor_snapshot(
+        policy,
+        teacher_dataset,
+        training_indices,
+        batch_size=evaluation_batch_size,
+        device=device,
+        provider=observation_provider,
+    )
     actor_drift_critic_only = _max_abs_drift(initial_actor, after_critic_actor)
-    critic_only_value_mse = _value_mse(policy, observations, value_targets)
+    critic_only_value_mse = _value_mse(
+        policy,
+        teacher_dataset,
+        returns_np,
+        training_indices,
+        batch_size=evaluation_batch_size,
+        device=device,
+        provider=observation_provider,
+    )
 
     critic_group = [
         parameter
@@ -292,28 +459,58 @@ def warm_start_policy_actor_critic(
     joint_optimizer = torch.optim.Adam(parameter_groups)
 
     for _ in range(plan.joint_fine_tune_steps):
-        indices = _batch_indices(
+        indices = _sample_batch_indices(
             rng,
-            sample_count=sample_count,
+            sample_indices=training_indices,
             batch_size=batch_size,
+        )
+        batch_observations = _tensor_observations(
+            _observation_batch(
+                teacher_dataset,
+                indices,
+                provider=observation_provider,
+            ),
             device=device,
         )
-        batch_observations = _slice_observations(observations, indices)
-        batch_actions = action_targets[indices]
-        batch_values = value_targets[indices]
+        batch_actions = _batch_targets(actions_np, indices, device=device)
+        batch_values = _batch_targets(returns_np, indices, device=device)
         joint_optimizer.zero_grad(set_to_none=True)
         actor_loss = _mse(_policy_actions(policy, batch_observations), batch_actions)
         value_loss = _mse(_policy_values(policy, batch_observations), batch_values)
         (actor_loss + value_loss).backward()
         joint_optimizer.step()
 
-    final_actor = _actor_snapshot(policy, observations)
+    final_actor = _actor_snapshot(
+        policy,
+        teacher_dataset,
+        training_indices,
+        batch_size=evaluation_batch_size,
+        device=device,
+        provider=observation_provider,
+    )
     return CriticWarmStartResult(
+        sample_count=len(training_indices),
         initial_value_mse=initial_value_mse,
         critic_only_value_mse=critic_only_value_mse,
-        final_value_mse=_value_mse(policy, observations, value_targets),
+        final_value_mse=_value_mse(
+            policy,
+            teacher_dataset,
+            returns_np,
+            training_indices,
+            batch_size=evaluation_batch_size,
+            device=device,
+            provider=observation_provider,
+        ),
         initial_actor_mse=initial_actor_mse,
-        final_actor_mse=_actor_mse(policy, observations, action_targets),
+        final_actor_mse=_actor_mse(
+            policy,
+            teacher_dataset,
+            actions_np,
+            training_indices,
+            batch_size=evaluation_batch_size,
+            device=device,
+            provider=observation_provider,
+        ),
         actor_max_abs_drift_critic_only=actor_drift_critic_only,
         actor_max_abs_drift_joint=_max_abs_drift(after_critic_actor, final_actor),
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 import hashlib
 import json
 from typing import Sequence
@@ -12,6 +13,51 @@ def _digest(payload: object) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+class FullResearchAlgorithm(StrEnum):
+    PPO = "ppo"
+    LAGRANGIAN = "lagrangian"
+    DISCOUNTED = "discounted"
+
+
+@dataclass(frozen=True)
+class UniversalFullResearchPlan:
+    selected_architecture: UniversalArchitectureName
+    algorithms: tuple[FullResearchAlgorithm, ...]
+    zero_shot_gate_passed: bool
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        selected_architecture: UniversalArchitectureName | str,
+        zero_shot_gate_passed: bool,
+        algorithms: Sequence[FullResearchAlgorithm | str],
+    ) -> "UniversalFullResearchPlan":
+        if not zero_shot_gate_passed:
+            raise ValueError("U6 requires the zero-shot gate to pass before full research")
+        resolved = tuple(FullResearchAlgorithm(value) for value in algorithms)
+        if len(set(resolved)) != len(resolved):
+            raise ValueError("full-research algorithms must be unique")
+        required = set(FullResearchAlgorithm)
+        if set(resolved) != required:
+            missing = sorted(value.value for value in required.difference(resolved))
+            extra = sorted(value.value for value in set(resolved).difference(required))
+            details = []
+            if missing:
+                details.append("missing=" + ",".join(missing))
+            if extra:
+                details.append("extra=" + ",".join(extra))
+            raise ValueError(
+                "U6 requires the closed PPO/Lagrangian/discounted comparison: "
+                + "; ".join(details)
+            )
+        return cls(
+            selected_architecture=UniversalArchitectureName(selected_architecture),
+            algorithms=resolved,
+            zero_shot_gate_passed=True,
+        )
 
 
 @dataclass(frozen=True)

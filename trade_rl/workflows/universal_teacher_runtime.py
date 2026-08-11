@@ -7,6 +7,7 @@ from typing import Any
 
 from trade_rl.integrations.sb3_runtime import (
     build_episode_oracle_batch_for_environment,
+    oracle_teacher_config_for_environment,
 )
 from trade_rl.integrations.universal_pretraining import (
     UniversalPretrainingBundle,
@@ -165,6 +166,18 @@ def build_universal_pretraining_bundle_from_batches(
             raise TypeError("Universal teacher batch must be an EpisodeOracleBatch")
         if batch.dataset_id != binding.source_dataset_id:
             raise ValueError("Universal teacher batch dataset identity mismatch")
+        concrete_environment = concrete_environment_factory(binding)
+        close_concrete = getattr(concrete_environment, "close", None)
+        if not callable(close_concrete):
+            raise TypeError("Universal teacher concrete environment must be closable")
+        try:
+            candidate_teacher_config = oracle_teacher_config_for_environment(
+                concrete_environment
+            )
+        finally:
+            close_concrete()
+        if candidate_teacher_config.digest != batch.teacher_config_digest:
+            raise ValueError("Universal Oracle teacher config identity mismatch")
         environment = build_universal_symbol_teacher_environment(
             symbol=symbol,
             binding=binding,

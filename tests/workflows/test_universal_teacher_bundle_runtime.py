@@ -93,6 +93,11 @@ def test_build_universal_pretraining_bundle_from_batches_closes_train_scope(
     monkeypatch.setattr(
         module, "build_universal_symbol_teacher_environment", build_environment
     )
+    monkeypatch.setattr(
+        module,
+        "oracle_teacher_config_for_environment",
+        lambda _environment: SimpleNamespace(digest=_digest("teacher-config")),
+    )
     monkeypatch.setattr(module, "collect_universal_episode_teacher", collect)
     monkeypatch.setattr(
         module, "behavior_cloning_split", lambda *_args, **_kwargs: split
@@ -114,7 +119,9 @@ def test_build_universal_pretraining_bundle_from_batches_closes_train_scope(
         train_symbols=symbols,
         bindings=tuple(_binding(symbol) for symbol in symbols),
         batches={symbol: _batch(symbol) for symbol in symbols},
-        concrete_environment_factory=lambda _binding: object(),
+        concrete_environment_factory=lambda _binding: SimpleNamespace(
+            close=lambda: None
+        ),
         instrument_context_provider=lambda _environment, _binding: np.zeros((1, 9)),
         partition_digest=_digest("partition"),
         training_contract_digest=_digest("training"),

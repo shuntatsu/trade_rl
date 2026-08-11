@@ -1,4 +1,4 @@
-name: Temporary SB3 Indexed Factory RED
+name: Temporary SB3 Indexed Factory GREEN
 
 on:
   push:
@@ -6,18 +6,32 @@ on:
     paths: [.github/workflows/sb3-indexed-factory-red-temporary.yml]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  red:
+  green:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: integration/universal-research-u3-u6
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
+      - run: uv run python .github/temporary/patch_sb3_indexed_factory.py
       - run: |
-          uv run ruff check --fix tests/integrations/test_sb3_indexed_environment_factory.py
-          uv run ruff format tests/integrations/test_sb3_indexed_environment_factory.py
-          uv run pytest tests/integrations/test_sb3_indexed_environment_factory.py -q
+          uv run ruff check --fix trade_rl/integrations/sb3_environment.py trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_indexed_environment_factory.py
+          uv run ruff format trade_rl/integrations/sb3_environment.py trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_indexed_environment_factory.py
+          uv run ruff check trade_rl/integrations/sb3_environment.py trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_indexed_environment_factory.py
+          uv run mypy trade_rl/integrations/sb3_environment.py
+          uv run pytest tests/integrations/test_sb3_indexed_environment_factory.py tests/integrations/test_sb3_training.py tests/integrations/test_universal_sb3_model_assembly.py -q
+      - name: Commit verified indexed factory
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/integrations/sb3_environment.py trade_rl/integrations/sb3_training.py
+          if ! git diff --cached --quiet; then
+            git commit -m "fix: preserve Universal worker routing across SB3 vectorization"
+            git push origin HEAD:integration/universal-research-u3-u6
+          fi

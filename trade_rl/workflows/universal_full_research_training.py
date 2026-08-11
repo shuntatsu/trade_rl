@@ -44,6 +44,7 @@ def _strip_algorithm_family_fields(
     payload.pop("lagrangian", None)
     if remove_gamma:
         payload.pop("gamma", None)
+        payload.pop("discount_half_life_hours", None)
     for key in tuple(payload):
         if key.startswith("cost_") or key.startswith("lagrangian_"):
             payload.pop(key)
@@ -53,6 +54,7 @@ def _strip_algorithm_family_fields(
 def _strip_gamma(config: ResidualTrainingConfig) -> dict[str, object]:
     payload = _training_payload(config)
     payload.pop("gamma", None)
+    payload.pop("discount_half_life_hours", None)
     return payload
 
 

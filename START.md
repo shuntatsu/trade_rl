@@ -276,9 +276,9 @@ uv sync --extra dev --extra train-sb3 --extra postgres
 
 uv run python scripts/run_universal_full_research.py \
   --selected-architecture u_medium_direct \
-  --ppo-config examples/binance-multitimeframe/training-target-weight-growth-ppo.json \
-  --lagrangian-config examples/binance-multitimeframe/training-target-weight-constrained-growth.json \
-  --discounted-config examples/binance-multitimeframe/training-target-weight-constrained-growth-discounted.json \
+  --ppo-config examples/binance-multitimeframe/universal-u6-ppo.json \
+  --lagrangian-config examples/binance-multitimeframe/universal-u6-lagrangian.json \
+  --discounted-config examples/binance-multitimeframe/universal-u6-discounted.json \
   --runtime-factory your_project.universal_runtime:build_runtime \
   --instrument-artifact-root artifacts/universal/instruments \
   --postgres-url "$TRADE_RL_POSTGRES_URL" \
@@ -293,7 +293,7 @@ uv run python scripts/run_universal_full_research.py \
   --output-root artifacts/universal/full-research
 ```
 
-3つのauthored `TrainingRunConfig`は、training algorithm/cost-family/gammaの比較上必要な差分を除き、Environment / Risk / Reward / Trend / Action / Executionを同一にしてください。CLIは非training surfaceの差分を先に拒否し、U6本体もPPO対Lagrangianの非algorithm条件と、Lagrangian対Discountedのgamma以外の差分をfail-closedで拒否します。
+3つのauthored `TrainingRunConfig`は、training algorithm/cost-family/gammaの比較上必要な差分を除き、Environment / Risk / Reward / Trend / Action / Executionを同一にしてください。 上のcanonical U6 configはBC seedを17に固定し、critic-only warm startを512 step、conservative joint warm startを128 step有効化した初期maintained設定です。これらのstep数はソフトウェア契約用の初期値であり、実データ上の最適性を主張しません。CLIは非training surfaceの差分を先に拒否し、U6本体もPPO対Lagrangianの非algorithm条件と、Lagrangian対Discountedのgamma以外の差分をfail-closedで拒否します。
 
 学習完了時は`universal-full-research-training.json`が生成されます。この時点の`research_success=false`は意図した状態です。training完走はSoftware successであり、Research successではありません。U5のvalidation selectionと一度だけのsealed unseen-symbol test、paired baseline evidence、bootstrap lower bound、worst-symbol/worst-seed/pass-fraction gate、hard-safety violation=0がそろうまでは`NO-GO`を維持してください。
 

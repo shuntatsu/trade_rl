@@ -10,7 +10,6 @@ from trade_rl.workflows.universal_full_research_training import (
 )
 from trade_rl.workflows.universal_research import FullResearchAlgorithm
 
-
 _ROOT = Path("examples/binance-multitimeframe")
 _PATHS = {
     FullResearchAlgorithm.PPO: _ROOT / "universal-u6-ppo.json",

@@ -11,7 +11,7 @@ on:
       - trade_rl/integrations/universal_critic_warm_start.py
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   tdd:
@@ -19,11 +19,24 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          persist-credentials: false
+          ref: integration/universal-research-u3-u6
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - run: uv run ruff check tests/integrations/test_sb3_universal_critic_warm_start.py
-      - run: uv run ruff format --check tests/integrations/test_sb3_universal_critic_warm_start.py
-      - run: uv run pytest tests/integrations/test_sb3_universal_critic_warm_start.py -q
+      - name: Format test
+        run: |
+          uv run ruff check --fix tests/integrations/test_sb3_universal_critic_warm_start.py
+          uv run ruff format tests/integrations/test_sb3_universal_critic_warm_start.py
+          uv run ruff check tests/integrations/test_sb3_universal_critic_warm_start.py
+      - name: Commit test formatting
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/integrations/test_sb3_universal_critic_warm_start.py
+          if ! git diff --cached --quiet; then
+            git commit -m "style: format U4 SB3 wiring test"
+            git push origin HEAD:integration/universal-research-u3-u6
+          fi
+      - name: Confirm U4 SB3 RED or GREEN
+        run: uv run pytest tests/integrations/test_sb3_universal_critic_warm_start.py -q

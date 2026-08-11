@@ -31,6 +31,7 @@ def _dataset(symbol: str) -> SimpleNamespace:
     return SimpleNamespace(
         dataset_id=_digest(f"dataset:{symbol}"),
         symbols=(symbol,),
+        n_symbols=1,
         feature_names=feature_names,
         n_features=len(feature_names),
         global_feature_names=("global_a", "global_b"),
@@ -142,7 +143,9 @@ class _FullDictTeacherEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         self._end = 0
         component_spaces: dict[str, gym.Space[Any]] = {
             "decision_index": spaces.Box(0, 100, shape=(1,), dtype=np.int64),
-            "current_snapshot": spaces.Box(-10.0, 10.0, shape=(1, 1), dtype=np.float32),
+            "current_snapshot": spaces.Box(
+                -10.0, 10.0, shape=(1, 1), dtype=np.float32
+            ),
             "asset_state": spaces.Box(-10.0, 10.0, shape=(1, 1), dtype=np.float32),
             "global_state": spaces.Box(-10.0, 10.0, shape=(1,), dtype=np.float32),
             "active": spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),
@@ -234,7 +237,9 @@ def test_universal_teacher_collector_keeps_full_dict_and_aligned_return_targets(
                 initial_weights=np.zeros(1, dtype=np.float64),
             ),
         ),
-        targets=(np.asarray([[1.0], [2.0]], dtype=np.float32),),
+        targets=(
+            np.asarray([[1.0], [2.0]], dtype=np.float32),
+        ),
         solver_provenance=None,
     )
 
@@ -249,5 +254,10 @@ def test_universal_teacher_collector_keeps_full_dict_and_aligned_return_targets(
     assert isinstance(collected.dataset.observations, dict)
     assert "instrument_context" in collected.dataset.observations
     assert "sequence_15m_values" in collected.dataset.observations
-    assert collected.dataset.observations["sequence_15m_values"].shape == (2, 1, 2, 1)
+    assert collected.dataset.observations["sequence_15m_values"].shape == (
+        2,
+        1,
+        2,
+        1,
+    )
     assert collected.critic_targets.tolist() == pytest.approx([3.0, 2.0])

@@ -1,4 +1,4 @@
-name: Temporary Shared Oracle Config GREEN Retry
+name: Temporary Universal Teacher Bundle RED
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
     paths: [.github/workflows/universal-training-runtime-red-temporary.yml]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  green:
+  red:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -19,19 +19,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - run: uv run python .github/temporary/patch_shared_oracle_teacher_config.py
       - run: |
-          uv run ruff check --fix trade_rl/integrations/sb3_runtime.py trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_oracle_teacher_config.py
-          uv run ruff format trade_rl/integrations/sb3_runtime.py trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_oracle_teacher_config.py
-          uv run ruff check trade_rl/integrations/sb3_runtime.py trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_oracle_teacher_config.py
-          uv run mypy trade_rl/integrations/sb3_runtime.py trade_rl/integrations/sb3_training.py
-          uv run pytest tests/integrations/test_sb3_oracle_teacher_config.py tests/integrations/test_sb3_training.py -q
-      - name: Commit verified Oracle config helper
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/integrations/sb3_runtime.py trade_rl/integrations/sb3_training.py
-          if ! git diff --cached --quiet; then
-            git commit -m "refactor: share Oracle teacher config assembly"
-            git push origin HEAD:integration/universal-research-u3-u6
-          fi
+          uv run ruff check --fix tests/workflows/test_universal_teacher_bundle_runtime.py
+          uv run ruff format tests/workflows/test_universal_teacher_bundle_runtime.py
+          uv run pytest tests/workflows/test_universal_teacher_bundle_runtime.py -q

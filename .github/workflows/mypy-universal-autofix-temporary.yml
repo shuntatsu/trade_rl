@@ -1,0 +1,94 @@
+name: Temporary universal mypy autofix
+
+on:
+  push:
+    branches:
+      - integration/universal-research-u3-u6
+    paths:
+      - .github/workflows/mypy-universal-autofix-temporary.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: integration/universal-research-u3-u6
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Install static tooling
+        run: uv sync --extra dev --extra train-sb3
+      - name: Apply exact typing fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/data/universal_features.py')
+          text = path.read_text()
+          old = '''class NamedFeature(Protocol):\n    name: str\n'''
+          new = '''class NamedFeature(Protocol):\n    @property\n    def name(self) -> str: ...\n'''
+          if old not in text:
+              raise SystemExit('NamedFeature pattern not found')
+          path.write_text(text.replace(old, new, 1))
+
+          path = Path('trade_rl/rl/universal_single_instrument_env.py')
+          text = path.read_text()
+          old = '''        raw_symbols = getattr(dataset, "symbols", None)\n        try:\n            symbols = tuple(raw_symbols)\n        except TypeError as error:\n            raise TypeError(\n                "concrete environment dataset symbols are invalid"\n            ) from error\n'''
+          new = '''        raw_symbols = getattr(dataset, "symbols", None)\n        if (\n            not isinstance(raw_symbols, (tuple, list))\n            or not raw_symbols\n            or any(not isinstance(symbol, str) or not symbol for symbol in raw_symbols)\n        ):\n            raise TypeError("concrete environment dataset symbols are invalid")\n        symbols = tuple(raw_symbols)\n'''
+          if old not in text:
+              raise SystemExit('universal env symbols pattern not found')
+          path.write_text(text.replace(old, new, 1))
+
+          path = Path('trade_rl/rl/episode_routed_environment.py')
+          text = path.read_text()
+          text = text.replace(
+              'from trade_rl.rl.actions import ActionMode, ActionSpec, ActionValidationMode\n',
+              'from trade_rl.rl.actions import (\n    ActionMode,\n    ActionSpec,\n    ActionValidationMode,\n    TargetWeightAction,\n)\n',
+              1,
+          )
+          old = '''        try:\n            observation, child_info = child.reset(\n                seed=child_seed,\n                options=resolved_options or None,\n            )\n        except Exception:\n            self._failed_symbol = symbol\n            raise\n'''
+          new = '''        child_runtime: Any = child\n        try:\n            observation, child_info = child_runtime.reset(\n                seed=child_seed,\n                options=resolved_options or None,\n            )\n        except Exception:\n            self._failed_symbol = symbol\n            raise\n'''
+          if old not in text:
+              raise SystemExit('episode reset pattern not found')
+          text = text.replace(old, new, 1)
+          old = '''        maintained_action = parsed.as_array()\n        try:\n            observation, reward, terminated, truncated, child_info = (\n                self._active_child.step(maintained_action)\n            )\n'''
+          new = '''        if not isinstance(parsed, TargetWeightAction):\n            raise RuntimeError("episode-routed action parser returned residual controls")\n        maintained_action = parsed.as_array()\n        active_child_runtime: Any = self._active_child\n        try:\n            observation, reward, terminated, truncated, child_info = (\n                active_child_runtime.step(maintained_action)\n            )\n'''
+          if old not in text:
+              raise SystemExit('episode step pattern not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          uv run ruff check --fix \
+            trade_rl/data/universal_features.py \
+            trade_rl/rl/universal_single_instrument_env.py \
+            trade_rl/rl/episode_routed_environment.py
+          uv run ruff format \
+            trade_rl/data/universal_features.py \
+            trade_rl/rl/universal_single_instrument_env.py \
+            trade_rl/rl/episode_routed_environment.py
+          uv run mypy \
+            trade_rl/data/universal_features.py \
+            trade_rl/integrations/binance_universal.py \
+            trade_rl/rl/universal_single_instrument_env.py \
+            trade_rl/rl/episode_routed_environment.py
+          git diff --check
+      - name: Commit fixes only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/data/universal_features.py \
+            trade_rl/rl/universal_single_instrument_env.py \
+            trade_rl/rl/episode_routed_environment.py
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: satisfy universal routing type contracts"
+          git push origin HEAD:integration/universal-research-u3-u6

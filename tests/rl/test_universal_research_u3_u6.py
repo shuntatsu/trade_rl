@@ -15,8 +15,10 @@ from trade_rl.learning.universal_bc import (
     SymbolBalancedBatchSampler,
     UniversalTeacherArtifact,
 )
+from trade_rl.rl.training import ResidualTrainingConfig
 from trade_rl.rl.universal_architecture import (
     UniversalArchitectureName,
+    apply_architecture_to_training_config,
     architecture_spec,
 )
 from trade_rl.rl.universal_normalization import SymbolBalancedStandardNormalizer
@@ -135,6 +137,23 @@ def test_architecture_candidates_have_fixed_universal_contract() -> None:
         assert spec.actor_head == head
         assert spec.action_shape == (1,)
         assert spec.sequence_dropout == 0.0
+
+
+def test_architecture_candidate_projects_into_training_config() -> None:
+    base = ResidualTrainingConfig(timesteps=128, gamma=1.0, seeds=(1,))
+    resolved = apply_architecture_to_training_config(
+        base,
+        UniversalArchitectureName.U_MEDIUM_GATE,
+    )
+    assert resolved.observation_encoder == "hierarchical_sequence_v2"
+    assert resolved.sequence_tcn_capacity == "compact"
+    assert resolved.sequence_d_model == 256
+    assert resolved.sequence_timeframe_attention_heads == 4
+    assert resolved.sequence_timeframe_attention_layers == 1
+    assert resolved.sequence_dropout == 0.0
+    assert resolved.policy_actor_head == "hierarchical_gate_target_v1"
+    assert resolved.policy_net_arch == (256, 128)
+    assert resolved.value_net_arch == (256, 128)
 
 
 def _positive_zero_shot_pairs() -> tuple[UniversalZeroShotPair, ...]:

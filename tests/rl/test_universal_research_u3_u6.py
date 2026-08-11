@@ -7,6 +7,7 @@ from trade_rl.evaluation.universal_zero_shot import (
     UniversalZeroShotPair,
     passes_zero_shot_gate,
     summarize_zero_shot_pairs,
+    zero_shot_bootstrap,
 )
 from trade_rl.integrations.binance_universal import binance_universal_feature_specs
 from trade_rl.learning.universal_bc import (
@@ -20,6 +21,8 @@ from trade_rl.rl.universal_architecture import (
 )
 from trade_rl.rl.universal_normalization import SymbolBalancedStandardNormalizer
 from trade_rl.workflows.universal_research import (
+    FullResearchAlgorithm,
+    UniversalFullResearchPlan,
     UniversalResearchManifest,
     validate_full_research_inputs,
 )
@@ -134,18 +137,31 @@ def test_architecture_candidates_have_fixed_universal_contract() -> None:
         assert spec.sequence_dropout == 0.0
 
 
-def test_zero_shot_gate_uses_symbol_seed_and_safety_worst_cases() -> None:
-    summary = summarize_zero_shot_pairs(
-        (
-            UniversalZeroShotPair("X", 0, 0, 0.05, 0.01),
-            UniversalZeroShotPair("Y", 0, 0, 0.04, 0.01),
-            UniversalZeroShotPair("X", 1, 1, 0.03, 0.01),
-            UniversalZeroShotPair("Y", 1, 1, 0.02, 0.01),
-        )
+def _positive_zero_shot_pairs() -> tuple[UniversalZeroShotPair, ...]:
+    return (
+        UniversalZeroShotPair("X", 0, 0, 0.05, 0.01),
+        UniversalZeroShotPair("Y", 0, 0, 0.04, 0.01),
+        UniversalZeroShotPair("X", 1, 1, 0.03, 0.01),
+        UniversalZeroShotPair("Y", 1, 1, 0.02, 0.01),
     )
+
+
+def test_zero_shot_gate_uses_symbol_seed_and_safety_worst_cases() -> None:
+    summary = summarize_zero_shot_pairs(_positive_zero_shot_pairs())
     assert summary.worst_symbol_excess_return > 0.0
     assert summary.worst_seed_excess_return > 0.0
     assert passes_zero_shot_gate(summary)
+
+
+def test_zero_shot_bootstrap_reports_paired_excess_lower_bound() -> None:
+    result = zero_shot_bootstrap(
+        _positive_zero_shot_pairs(),
+        n_bootstrap=200,
+        seed=9,
+        block_size=2,
+    )
+    assert result.lower_ci > 0.0
+    assert result.block_size == 2
 
 
 def test_full_research_validation_fails_closed_on_missing_pair() -> None:
@@ -163,3 +179,29 @@ def test_full_research_validation_fails_closed_on_missing_pair() -> None:
     )
     with pytest.raises(ValueError, match="paired deliverables"):
         validate_full_research_inputs(manifest)
+
+
+def test_u6_requires_zero_shot_selection_before_full_algorithms() -> None:
+    with pytest.raises(ValueError, match="zero-shot gate"):
+        UniversalFullResearchPlan.create(
+            selected_architecture=UniversalArchitectureName.U_MEDIUM_DIRECT,
+            zero_shot_gate_passed=False,
+            algorithms=(
+                FullResearchAlgorithm.PPO,
+                FullResearchAlgorithm.LAGRANGIAN,
+                FullResearchAlgorithm.DISCOUNTED,
+            ),
+        )
+
+
+def test_u6_full_plan_closes_required_algorithm_comparison() -> None:
+    plan = UniversalFullResearchPlan.create(
+        selected_architecture=UniversalArchitectureName.U_MEDIUM_DIRECT,
+        zero_shot_gate_passed=True,
+        algorithms=(
+            FullResearchAlgorithm.PPO,
+            FullResearchAlgorithm.LAGRANGIAN,
+            FullResearchAlgorithm.DISCOUNTED,
+        ),
+    )
+    assert set(plan.algorithms) == set(FullResearchAlgorithm)

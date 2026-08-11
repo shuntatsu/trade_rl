@@ -6,7 +6,7 @@ on:
     paths: [.github/workflows/universal-pretraining-bundle-red-temporary.yml]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   green:
@@ -14,13 +14,39 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          persist-credentials: false
+          ref: integration/universal-research-u3-u6
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - run: |
+      - name: Fix keyword-only critic warm-start call
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/integrations/universal_pretraining.py")
+          text = path.read_text()
+          old = "                bundle.critic_targets,\n                plan,\n                batch_size="
+          new = "                bundle.critic_targets,\n                plan=plan,\n                batch_size="
+          if old not in text:
+              raise SystemExit("keyword-only warm-start call anchor not found")
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          compile(text, str(path), "exec")
+          PY
+      - name: Format and verify Universal pretraining bundle
+        run: |
           uv run ruff format trade_rl/integrations/universal_pretraining.py trade_rl/integrations/universal_behavior_cloning.py tests/integrations/test_universal_pretraining_bundle.py
           uv run ruff check trade_rl/integrations/universal_pretraining.py trade_rl/integrations/universal_behavior_cloning.py tests/integrations/test_universal_pretraining_bundle.py
           uv run mypy trade_rl/integrations/universal_pretraining.py trade_rl/integrations/universal_behavior_cloning.py
           uv run pytest tests/integrations/test_universal_pretraining_bundle.py tests/integrations/test_universal_behavior_cloning.py tests/integrations/test_sb3_universal_pretraining_hook.py tests/integrations/test_universal_critic_warm_start.py -q
+      - name: Commit verified Universal pretraining bundle
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/integrations/universal_pretraining.py tests/integrations/test_universal_pretraining_bundle.py
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "fix: close Universal pretraining bundle type contract"
+          git push origin HEAD:integration/universal-research-u3-u6

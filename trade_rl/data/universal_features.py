@@ -69,14 +69,6 @@ class UniversalObservationContract:
     time_to_go_count: int = 1
     sequence_steps: int = 20
 
-    @property
-    def flattened_width(self) -> int:
-        return self.market_feature_count * self.sequence_steps + (
-            self.account_state_count
-            + self.instrument_descriptor_count
-            + self.time_to_go_count
-        ) * self.sequence_steps
-
     def validate_market_feature_count(self, count: int) -> None:
         if count != self.market_feature_count:
             raise ValueError(

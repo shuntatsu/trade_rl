@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Protocol, TypeVar
+from typing import Iterable, Protocol, TypeVar
 
 from trade_rl.artifacts.hashing import content_digest
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import StrEnum
 import hashlib
 import json
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Sequence
 
 from trade_rl.rl.universal_architecture import UniversalArchitectureName

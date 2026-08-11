@@ -5,6 +5,11 @@ text = path.read_text()
 if "def build_episode_oracle_batch_for_environment(" in text:
     raise SystemExit(0)
 text = text.replace(
+    "import numpy as np\n\n",
+    "import numpy as np\n\nfrom trade_rl.data.market import MarketDataset\n",
+    1,
+)
+text = text.replace(
     "from trade_rl.learning.episode_oracle_bc import oracle_episode_sampling_config\n",
     "from trade_rl.learning.episode_oracle_bc import (\n"
     "    oracle_episode_sampling_config,\n"
@@ -38,17 +43,16 @@ def build_episode_oracle_batch_for_environment(
 
     start, stop = train_range
     dataset = getattr(environment, "dataset", None)
-    n_bars = getattr(dataset, "n_bars", None)
+    if not isinstance(dataset, MarketDataset):
+        raise TypeError("Oracle environment dataset must be a MarketDataset")
+    n_bars = dataset.n_bars
     minimum_start_index = getattr(environment, "minimum_start_index", None)
     if (
-        isinstance(n_bars, bool)
-        or not isinstance(n_bars, int)
-        or n_bars <= 0
-        or isinstance(minimum_start_index, bool)
+        isinstance(minimum_start_index, bool)
         or not isinstance(minimum_start_index, int)
         or minimum_start_index < 0
     ):
-        raise ValueError("Oracle environment does not expose a valid trainable dataset")
+        raise ValueError("Oracle environment does not expose a valid minimum_start_index")
     if (
         isinstance(start, bool)
         or isinstance(stop, bool)

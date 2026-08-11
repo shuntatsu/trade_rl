@@ -1,4 +1,4 @@
-name: Temporary Universal Full Runtime RED Finalize Test
+name: Temporary Universal Full Runtime GREEN
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  red:
+  green:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -19,16 +19,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - name: Format and persist test contract
+      - run: uv run python .github/temporary/patch_universal_runtime_full.py
+      - run: |
+          uv run ruff check --fix trade_rl/workflows/universal_training_runner.py tests/workflows/test_universal_training_runtime_full.py
+          uv run ruff format trade_rl/workflows/universal_training_runner.py tests/workflows/test_universal_training_runtime_full.py
+          uv run ruff check trade_rl/workflows/universal_training_runner.py tests/workflows/test_universal_training_runtime_full.py
+          uv run mypy trade_rl/workflows/universal_training_runner.py
+          uv run pytest tests/workflows/test_universal_training_runtime_full.py tests/workflows/test_universal_training_runtime.py tests/workflows/test_universal_training_execution.py -q
+      - name: Commit verified runtime contract
         run: |
-          uv run ruff format tests/workflows/test_universal_training_runtime_full.py
-          uv run ruff check tests/workflows/test_universal_training_runtime_full.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tests/workflows/test_universal_training_runtime_full.py
+          git add trade_rl/workflows/universal_training_runner.py
           if ! git diff --cached --quiet; then
-            git commit -m "test: finalize Universal full runtime contract"
+            git commit -m "feat: validate Universal full training surface"
             git push origin HEAD:integration/universal-research-u3-u6
           fi
-      - name: Verify feature RED
-        run: uv run pytest tests/workflows/test_universal_training_runtime_full.py -q

@@ -25,99 +25,61 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import textwrap
 
           path = Path("trade_rl/integrations/behavior_cloning.py")
           text = path.read_text()
           if "from collections.abc import Mapping, Sequence\n" not in text:
-              text = text.replace(
-                  "from collections.abc import Mapping\n",
-                  "from collections.abc import Mapping, Sequence\n",
-                  1,
-              )
-
-          signature_anchor = (
-              "    observation_provider: ObservationBatchProvider | None = None,\n"
-              "    hierarchical_labels: HierarchicalTeacherLabels | None = None,\n"
-          )
-          signature_replacement = (
-              "    observation_provider: ObservationBatchProvider | None = None,\n"
-              "    training_batch_provider: (\n"
-              "        Callable[[int, np.ndarray, int], Sequence[np.ndarray]] | None\n"
-              "    ) = None,\n"
-              "    hierarchical_labels: HierarchicalTeacherLabels | None = None,\n"
-          )
+              text = text.replace("from collections.abc import Mapping\n", "from collections.abc import Mapping, Sequence\n", 1)
+          signature_anchor = "    observation_provider: ObservationBatchProvider | None = None,\n    hierarchical_labels: HierarchicalTeacherLabels | None = None,\n"
+          signature_replacement = "    observation_provider: ObservationBatchProvider | None = None,\n    training_batch_provider: (\n        Callable[[int, np.ndarray, int], Sequence[np.ndarray]] | None\n    ) = None,\n    hierarchical_labels: HierarchicalTeacherLabels | None = None,\n"
           if "training_batch_provider:" not in text:
               if signature_anchor not in text:
                   raise SystemExit("BC signature anchor not found")
               text = text.replace(signature_anchor, signature_replacement, 1)
-
           if "if training_batch_provider is None:" not in text:
-              start_marker = "    for epoch in range(1, config.epochs + 1):\n"
-              next_marker = "            if hierarchical_labels is None:\n"
-              start = text.index(start_marker)
-              end = text.index(next_marker, start)
-              replacement = '''    for epoch in range(1, config.epochs + 1):
-              if training_batch_provider is None:
-                  permutation = torch.randperm(train_count, generator=generator).numpy()
-                  shuffled = train_indices[permutation]
-                  training_batches = tuple(
-                      shuffled[offset : offset + config.batch_size]
-                      for offset in range(0, train_count, config.batch_size)
-                  )
-              else:
-                  raw_batches = tuple(
-                      training_batch_provider(
-                          epoch,
-                          train_indices.copy(),
-                          config.batch_size,
+              start = text.index("    for epoch in range(1, config.epochs + 1):\n")
+              end = text.index("            if hierarchical_labels is None:\n", start)
+              body = textwrap.dedent('''\
+              for epoch in range(1, config.epochs + 1):
+                  if training_batch_provider is None:
+                      permutation = torch.randperm(train_count, generator=generator).numpy()
+                      shuffled = train_indices[permutation]
+                      training_batches = tuple(
+                          shuffled[offset : offset + config.batch_size]
+                          for offset in range(0, train_count, config.batch_size)
                       )
-                  )
-                  if not raw_batches:
-                      raise ValueError("behavior-cloning batch provider returned no batches")
-                  train_scope = frozenset(int(value) for value in train_indices)
-                  covered: set[int] = set()
-                  validated_batches: list[np.ndarray] = []
-                  for raw_batch in raw_batches:
-                      raw_array = np.asarray(raw_batch)
-                      if (
-                          raw_array.ndim != 1
-                          or not np.issubdtype(raw_array.dtype, np.integer)
-                          or raw_array.size == 0
-                          or raw_array.size > config.batch_size
-                      ):
-                          raise ValueError(
-                              "behavior-cloning batch provider returned an invalid batch"
-                          )
-                      batch = np.asarray(raw_array, dtype=np.int64).copy(order="C")
-                      if any(int(value) not in train_scope for value in batch):
-                          raise ValueError(
-                              "behavior-cloning batch provider left the train scope"
-                          )
-                      covered.update(int(value) for value in batch)
-                      validated_batches.append(batch)
-                  if covered != train_scope:
-                      raise ValueError(
-                          "behavior-cloning batch provider must cover the full train scope"
+                  else:
+                      raw_batches = tuple(training_batch_provider(epoch, train_indices.copy(), config.batch_size))
+                      if not raw_batches:
+                          raise ValueError("behavior-cloning batch provider returned no batches")
+                      train_scope = frozenset(int(value) for value in train_indices)
+                      covered: set[int] = set()
+                      validated_batches: list[np.ndarray] = []
+                      for raw_batch in raw_batches:
+                          raw_array = np.asarray(raw_batch)
+                          if raw_array.ndim != 1 or not np.issubdtype(raw_array.dtype, np.integer) or raw_array.size == 0 or raw_array.size > config.batch_size:
+                              raise ValueError("behavior-cloning batch provider returned an invalid batch")
+                          batch = np.asarray(raw_array, dtype=np.int64).copy(order="C")
+                          if any(int(value) not in train_scope for value in batch):
+                              raise ValueError("behavior-cloning batch provider left the train scope")
+                          covered.update(int(value) for value in batch)
+                          validated_batches.append(batch)
+                      if covered != train_scope:
+                          raise ValueError("behavior-cloning batch provider must cover the full train scope")
+                      training_batches = tuple(validated_batches)
+                  for batch_indices in training_batches:
+                      observations = _tensor_observations(
+                          _observation_batch(dataset, batch_indices, provider=observation_provider),
+                          device=device,
                       )
-                  training_batches = tuple(validated_batches)
-              for batch_indices in training_batches:
-                  observations = _tensor_observations(
-                      _observation_batch(
-                          dataset, batch_indices, provider=observation_provider
-                      ),
-                      device=device,
-                  )
-          '''
-              replacement = "\n".join(
-                  line[10:] if line.startswith("          ") else line
-                  for line in replacement.splitlines()
-              ) + "\n"
-              text = text[:start] + replacement + text[end:]
+              ''')
+              text = text[:start] + textwrap.indent(body, "    ") + text[end:]
           path.write_text(text)
+          compile(text, str(path), "exec")
           PY
       - name: Verify Universal BC
         run: |
-          uv run ruff check --fix trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
           uv run ruff format trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
           uv run ruff check trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
           uv run mypy trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py
@@ -128,8 +90,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
-          if ! git diff --cached --quiet; then
-            git commit -m "feat: complete symbol-balanced Universal BC"
-          fi
+          if ! git diff --cached --quiet; then git commit -m "feat: complete symbol-balanced Universal BC"; fi
           git pull --rebase origin integration/universal-research-u3-u6
           git push origin HEAD:integration/universal-research-u3-u6

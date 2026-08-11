@@ -13,7 +13,10 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import file_digest
-from trade_rl.data.artifact import load_market_dataset_artifact
+from trade_rl.data.artifact import (
+    load_market_dataset_artifact,
+    publish_market_dataset_artifact,
+)
 from trade_rl.data.contracts import (
     InstrumentContract,
     InstrumentExecutionRule,
@@ -196,6 +199,50 @@ def _build_universal_concrete_environment(
         sequence_normalizer=sequence_normalizer,
         config=run_config.environment,
     )
+
+
+def publish_universal_train_dataset_artifacts(
+    datasets: Mapping[str, Any],
+    *,
+    train_symbols: Sequence[str],
+    artifact_root: Path,
+) -> dict[str, Path]:
+    """Publish or strictly reuse immutable train-only single-symbol datasets."""
+
+    symbols = tuple(train_symbols)
+    if (
+        not symbols
+        or len(set(symbols)) != len(symbols)
+        or any(not symbol for symbol in symbols)
+    ):
+        raise ValueError("Universal train_symbols must be non-empty and unique")
+    if set(datasets) != set(symbols):
+        raise ValueError(
+            "Universal dataset artifact scope must exactly match train_symbols"
+        )
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    paths: dict[str, Path] = {}
+    for symbol in symbols:
+        dataset = datasets[symbol]
+        if tuple(getattr(dataset, "symbols", ())) != (symbol,):
+            raise ValueError("Universal dataset artifact symbol identity mismatch")
+        dataset_id = getattr(dataset, "dataset_id", None)
+        if not isinstance(dataset_id, str):
+            raise ValueError("Universal dataset artifact identity is unavailable")
+        destination = artifact_root / symbol
+        if destination.exists():
+            existing = load_market_dataset_artifact(destination)
+            if (
+                tuple(getattr(existing, "symbols", ())) != (symbol,)
+                or getattr(existing, "dataset_id", None) != dataset_id
+            ):
+                raise ValueError(
+                    "Universal existing dataset artifact identity mismatch"
+                )
+        else:
+            publish_market_dataset_artifact(destination, dataset)
+        paths[symbol] = destination
+    return paths
 
 
 @dataclass(frozen=True, slots=True)
@@ -457,5 +504,6 @@ __all__ = [
     "train_universal_seeds",
     "build_universal_instrument_contracts",
     "concrete_action_spec_digest",
+    "publish_universal_train_dataset_artifacts",
     "validate_universal_training_config",
 ]

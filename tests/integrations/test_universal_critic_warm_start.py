@@ -152,9 +152,7 @@ def _supervised_dataset() -> SupervisedPolicyDataset:
     )
 
 
-def test_critic_only_phase_preserves_actor_then_joint_phase_improves_value_fit() -> (
-    None
-):
+def test_critic_only_phase_preserves_actor_then_joint_phase_improves_value_fit() -> None:
     _, warm_start_policy_actor_critic = _runtime()
     policy = _Policy()
     dataset = _supervised_dataset()
@@ -190,3 +188,25 @@ def test_critic_warm_start_rejects_target_count_mismatch() -> None:
             learning_rate=1e-3,
             seed=0,
         )
+
+
+def test_critic_warm_start_can_exclude_validation_samples() -> None:
+    _, warm_start_policy_actor_critic = _runtime()
+    dataset = _supervised_dataset()
+    result = warm_start_policy_actor_critic(
+        _Policy(),
+        dataset,
+        np.asarray([0.9, 0.5, 10_000.0, -10_000.0], dtype=np.float32),
+        plan=CriticWarmStartPlan(
+            critic_only_steps=80,
+            joint_fine_tune_steps=20,
+            joint_actor_learning_rate_scale=0.1,
+        ),
+        sample_indices=np.asarray([0, 1], dtype=np.int64),
+        batch_size=2,
+        learning_rate=2e-2,
+        seed=7,
+    )
+
+    assert result.sample_count == 2
+    assert result.final_value_mse < result.initial_value_mse

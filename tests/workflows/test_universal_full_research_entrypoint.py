@@ -8,7 +8,10 @@ import pytest
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.rl.training_run_config import TrainingRunConfig
-from trade_rl.rl.universal_architecture import UniversalArchitectureName
+from trade_rl.rl.universal_architecture import (
+    UniversalArchitectureName,
+    apply_architecture_to_training_config,
+)
 from trade_rl.workflows.universal_research import FullResearchAlgorithm
 
 
@@ -53,7 +56,13 @@ def test_run_universal_full_research_training_binds_projected_full_configs(
     }
 
     def train(**kwargs):
-        projected = kwargs["algorithm_configs"]
+        raw_configs = kwargs["algorithm_configs"]
+        projected = {
+            algorithm: apply_architecture_to_training_config(
+                raw_configs[algorithm], UniversalArchitectureName.U_MEDIUM_DIRECT
+            )
+            for algorithm in FullResearchAlgorithm
+        }
         wrapped_factory = kwargs["runtime_factory"]
         for algorithm in FullResearchAlgorithm:
             runtime = wrapped_factory(algorithm, projected[algorithm])
@@ -69,6 +78,7 @@ def test_run_universal_full_research_training_binds_projected_full_configs(
             completed_pairs=(),
         )
 
+    monkeypatch.setattr(module, "UniversalTrainingRuntime", SimpleNamespace)
     monkeypatch.setattr(module, "train_universal_full_research_comparison", train)
 
     result = run_universal_full_research_training(
@@ -89,9 +99,7 @@ def test_run_universal_full_research_training_binds_projected_full_configs(
     assert result.research_success is False
     assert tuple(call[0] for call in factory_calls) == tuple(FullResearchAlgorithm)
     for algorithm, projected_config in factory_calls:
-        assert projected_config.training != authored[algorithm].training or (
-            projected_config.training == authored[algorithm].training
-        )
+        assert projected_config.training != authored[algorithm].training
         assert projected_config.environment == authored[algorithm].environment
         assert projected_config.risk == authored[algorithm].risk
         assert projected_config.reward == authored[algorithm].reward
@@ -139,7 +147,10 @@ def test_run_universal_full_research_training_rejects_non_training_surface_drift
         )
 
 
-def test_load_universal_runtime_factory_requires_module_function(tmp_path: Path, monkeypatch) -> None:
+def test_load_universal_runtime_factory_requires_module_function(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from trade_rl.workflows.universal_full_research_entrypoint import (
         load_universal_runtime_factory,
     )

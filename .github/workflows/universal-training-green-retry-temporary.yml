@@ -1,0 +1,194 @@
+name: Temporary Universal Training GREEN Retry
+
+on:
+  push:
+    branches: [integration/universal-research-u3-u6]
+    paths: [.github/workflows/universal-training-green-retry-temporary.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: integration/universal-research-u3-u6
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Apply Universal training contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/universal_training.py")
+          text = path.read_text().replace("shared.clip,", "shared.clip_value,")
+          path.write_text(text)
+          compile(text, str(path), "exec")
+
+          path = Path("trade_rl/rl/universal_single_instrument_env.py")
+          text = path.read_text()
+          old = '    digest = getattr(value, "digest", None)\n'
+          new = (
+              '    digest = getattr(value, "statistics_digest", None)\n'
+              '    if digest is None:\n'
+              '        digest = getattr(value, "digest", None)\n'
+          )
+          if old not in text:
+              raise SystemExit("component digest anchor not found")
+          text = text.replace(old, new, 1)
+          old = '                "concrete_observation_contract_digest": concrete_observation_digest,\n'
+          new = (
+              '                "concrete_observation_contract_digest": (\n'
+              '                    concrete_observation_digest\n'
+              '                    if training_contract_digest is None\n'
+              '                    else None\n'
+              '                ),\n'
+          )
+          if old not in text:
+              raise SystemExit("Universal observation digest anchor not found")
+          text = text.replace(old, new, 1)
+          old = (
+              '            "observation_contract_digest": getattr(\n'
+              '                environment,\n'
+              '                "observation_contract_digest",\n'
+              '                None,\n'
+              '            ),\n'
+          )
+          new = (
+              '            "observation_contract_digest": (\n'
+              '                None\n'
+              '                if self._training_identity_enabled\n'
+              '                else getattr(environment, "observation_contract_digest", None)\n'
+              '            ),\n'
+          )
+          if old not in text:
+              raise SystemExit("training surface observation anchor not found")
+          text = text.replace(old, new, 1)
+          marker = (
+              '    @property\n'
+              '    def sequence_normalizer(self) -> object | None:\n'
+              '        return getattr(self._reference_environment, "sequence_normalizer", None)\n'
+          )
+          addition = marker + (
+              '\n'
+              '    @property\n'
+              '    def normalizer_digest(self) -> str | None:\n'
+              '        flat = _optional_digest(\n'
+              '            getattr(self._reference_environment, "normalizer", None)\n'
+              '        )\n'
+              '        sequence = _optional_digest(\n'
+              '            getattr(self._reference_environment, "sequence_normalizer", None)\n'
+              '        )\n'
+              '        if flat is None:\n'
+              '            return sequence\n'
+              '        if sequence is None:\n'
+              '            return flat\n'
+              '        return content_digest(\n'
+              '            {\n'
+              '                "flat": flat,\n'
+              '                "schema_version": "universal_policy_normalizer_bundle_v1",\n'
+              '                "sequence": sequence,\n'
+              '            }\n'
+              '        )\n'
+          )
+          if "def normalizer_digest(self)" not in text:
+              if marker not in text:
+                  raise SystemExit("normalizer property marker not found")
+              text = text.replace(marker, addition, 1)
+          marker = (
+              '    @property\n'
+              '    def completed_episode_count(self) -> int:\n'
+              '        return self._completed_episode_count\n'
+          )
+          addition = marker + (
+              '\n'
+              '    @property\n'
+              '    def current_index(self) -> int:\n'
+              '        environment = self._active_environment\n'
+              '        if environment is None:\n'
+              '            raise RuntimeError(\n'
+              '                "environment must be reset before current_index access"\n'
+              '            )\n'
+              '        value = getattr(environment, "current_index", None)\n'
+              '        return _require_non_negative_int(value, field="current_index")\n'
+          )
+          if "def current_index(self)" not in text:
+              if marker not in text:
+                  raise SystemExit("completed episode marker not found")
+              text = text.replace(marker, addition, 1)
+          path.write_text(text)
+          compile(text, str(path), "exec")
+
+          path = Path("trade_rl/rl/training_environment_contract.py")
+          text = path.read_text()
+          old = (
+              'def _combined_normalizer_digest(unwrapped: Any) -> str | None:\n'
+              '    flat = getattr(getattr(unwrapped, "normalizer", None), "digest", None)\n'
+          )
+          new = (
+              'def _combined_normalizer_digest(unwrapped: Any) -> str | None:\n'
+              '    explicit = getattr(unwrapped, "normalizer_digest", None)\n'
+              '    if explicit is not None:\n'
+              '        if not isinstance(explicit, str):\n'
+              '            raise TypeError("explicit normalizer_digest must be a string")\n'
+              '        require_sha256(explicit, field="normalizer_digest")\n'
+              '        return explicit\n'
+              '    flat = getattr(getattr(unwrapped, "normalizer", None), "digest", None)\n'
+          )
+          if old not in text:
+              raise SystemExit("combined normalizer marker not found")
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          compile(text, str(path), "exec")
+
+          path = Path("trade_rl/integrations/sb3_training.py")
+          text = path.read_text()
+          if "def _resolved_vector_environment_kind(" not in text:
+              marker = 'class StableBaselines3Backend(_StableBaselines3TeacherPipeline):\n'
+              helper = (
+                  'def _resolved_vector_environment_kind(\n'
+                  '    config: ResidualTrainingConfig,\n'
+                  '    *,\n'
+                  '    sequence_reconstructor: object | None,\n'
+                  ') -> str:\n'
+                  '    kind = _effective_vector_environment_kind(config)\n'
+                  '    if kind == "subprocess_compact_sequence" and sequence_reconstructor is None:\n'
+                  '        return "subprocess"\n'
+                  '    return kind\n'
+                  '\n'
+                  '\n'
+              )
+              if marker not in text:
+                  raise SystemExit("SB3 backend marker not found")
+              text = text.replace(marker, helper + marker, 1)
+          old = '            vector_environment_kind = _effective_vector_environment_kind(config)\n'
+          new = (
+              '            vector_environment_kind = _resolved_vector_environment_kind(\n'
+              '                config, sequence_reconstructor=sequence_reconstructor\n'
+              '            )\n'
+          )
+          if old not in text:
+              raise SystemExit("vector environment call marker not found")
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          compile(text, str(path), "exec")
+          PY
+      - name: Verify Universal training contracts
+        run: |
+          uv run ruff format trade_rl/workflows/universal_training.py trade_rl/rl/universal_single_instrument_env.py trade_rl/rl/training_environment_contract.py trade_rl/integrations/sb3_training.py tests/workflows/test_universal_training.py tests/rl/test_universal_training_contract_binding.py tests/integrations/test_universal_sb3_model_assembly.py
+          uv run ruff check trade_rl/workflows/universal_training.py trade_rl/rl/universal_single_instrument_env.py trade_rl/rl/training_environment_contract.py trade_rl/integrations/sb3_training.py tests/workflows/test_universal_training.py tests/rl/test_universal_training_contract_binding.py tests/integrations/test_universal_sb3_model_assembly.py
+          uv run mypy trade_rl/workflows/universal_training.py trade_rl/rl/universal_single_instrument_env.py trade_rl/rl/training_environment_contract.py
+          uv run pytest tests/workflows/test_universal_training.py tests/rl/test_universal_training_contract_binding.py tests/integrations/test_universal_sb3_model_assembly.py tests/rl/test_universal_training_environment.py tests/integrations/test_sb3_universal_pretraining_hook.py tests/integrations/test_sb3_training.py -q
+      - name: Commit verified Universal training contracts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/workflows/universal_training.py trade_rl/rl/universal_single_instrument_env.py trade_rl/rl/training_environment_contract.py trade_rl/integrations/sb3_training.py
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: close Universal multi-dataset training contracts"
+            git push origin HEAD:integration/universal-research-u3-u6
+          fi

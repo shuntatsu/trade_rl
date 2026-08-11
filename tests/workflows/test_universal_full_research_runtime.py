@@ -54,6 +54,7 @@ def _manifest(*, completed_pairs: tuple[str, ...] = ()) -> UniversalResearchMani
         observation_contract_digest=_digest("observation"),
         architecture_evidence_digest=_digest("u5-evidence"),
         zero_shot_gate_digest=_digest("zero-shot-gate"),
+        zero_shot_gate_passed=True,
         paired_baseline_digest=_digest("baseline"),
     )
 

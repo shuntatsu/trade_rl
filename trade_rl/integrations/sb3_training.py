@@ -117,6 +117,10 @@ from trade_rl.integrations.sb3_runtime import (
 from trade_rl.integrations.sb3_teacher_pipeline import (
     _StableBaselines3TeacherPipeline,
 )
+from trade_rl.integrations.universal_critic_warm_start import (
+    ConfiguredCriticWarmStart,
+    run_configured_critic_warm_start,
+)
 from trade_rl.learning import (
     BehaviorCloningConfig,
     BehaviorCloningGateEvaluation,
@@ -168,6 +172,37 @@ from trade_rl.rl.training_performance import (
     activate_training_performance,
     write_training_performance_evidence,
 )
+
+
+def _run_behavior_cloning_critic_warm_start_if_enabled(
+    *,
+    policy: Any,
+    teacher_environment: Any,
+    teacher_dataset: SupervisedPolicyDataset,
+    episode_batch: EpisodeOracleBatch | None,
+    episode_split: BehaviorCloningSplit | None,
+    config: ResidualTrainingConfig,
+    observation_provider: Any | None,
+    behavior_cloning_seed: int,
+    output_root: Path,
+) -> ConfiguredCriticWarmStart | None:
+    if not config.behavior_cloning_critic_warm_start_enabled:
+        return None
+    if episode_batch is None or episode_split is None:
+        raise RuntimeError(
+            "critic warm-start requires Oracle episode evidence and split"
+        )
+    return run_configured_critic_warm_start(
+        policy=policy,
+        teacher_environment=teacher_environment,
+        teacher_dataset=teacher_dataset,
+        episode_batch=episode_batch,
+        split=episode_split,
+        config=config,
+        observation_provider=observation_provider,
+        behavior_cloning_seed=behavior_cloning_seed,
+        output_root=output_root,
+    )
 
 
 class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
@@ -933,6 +968,17 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                         raise RuntimeError(
                             "behavior cloning failed the required MSE improvement gate"
                         )
+                    _run_behavior_cloning_critic_warm_start_if_enabled(
+                        policy=model.policy,
+                        teacher_environment=teacher_environment,
+                        teacher_dataset=teacher_dataset,
+                        episode_batch=episode_batch,
+                        episode_split=episode_split,
+                        config=config,
+                        observation_provider=observation_provider,
+                        behavior_cloning_seed=behavior_cloning_seed,
+                        output_root=output_path.parent,
+                    )
                 finally:
                     teacher_environment.close()
             if environment_suspended_for_teacher:

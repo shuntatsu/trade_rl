@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/u6-full-research-tdd-temporary.yml
       - tests/workflows/test_universal_full_research_runtime.py
+      - tests/rl/test_universal_research_u3_u6.py
       - trade_rl/workflows/universal_research.py
       - trade_rl/workflows/universal_research_runtime.py
       - scripts/run_full_research_experiment.py
@@ -25,6 +26,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - run: uv run ruff check tests/workflows/test_universal_full_research_runtime.py
-      - run: uv run ruff format --check tests/workflows/test_universal_full_research_runtime.py
-      - run: uv run pytest tests/workflows/test_universal_full_research_runtime.py -q
+      - name: Static checks
+        run: |
+          uv run ruff check tests/workflows/test_universal_full_research_runtime.py tests/rl/test_universal_research_u3_u6.py trade_rl/workflows/universal_research.py trade_rl/workflows/universal_research_runtime.py scripts/run_full_research_experiment.py
+          uv run ruff format --check tests/workflows/test_universal_full_research_runtime.py tests/rl/test_universal_research_u3_u6.py trade_rl/workflows/universal_research.py trade_rl/workflows/universal_research_runtime.py scripts/run_full_research_experiment.py
+          uv run mypy trade_rl/workflows/universal_research.py trade_rl/workflows/universal_research_runtime.py scripts/run_full_research_experiment.py
+      - name: U6 focused tests
+        run: uv run pytest tests/workflows/test_universal_full_research_runtime.py tests/rl/test_universal_research_u3_u6.py -q

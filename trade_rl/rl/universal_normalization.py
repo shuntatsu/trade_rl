@@ -1,20 +1,15 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
+
 
 _NORMALIZER_VERSION = "symbol_balanced_standard_normalizer_v1"
 _EPSILON = 1e-12
-
-
-def _canonical_digest(payload: object) -> str:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _evenly_spaced_indices(count: int, sample_count: int) -> np.ndarray:
@@ -118,7 +113,7 @@ class SymbolBalancedStandardNormalizer:
         safe_std[constant_mask] = 1.0
         sample_count_per_feature = tuple(sample_counts)
 
-        statistics_digest = _canonical_digest(
+        statistics_digest = content_digest(
             {
                 "version": _NORMALIZER_VERSION,
                 "catalog_digest": catalog_digest,

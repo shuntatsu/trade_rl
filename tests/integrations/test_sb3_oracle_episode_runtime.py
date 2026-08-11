@@ -11,8 +11,12 @@ def test_build_episode_oracle_batch_for_environment_binds_explicit_train_range(
         build_episode_oracle_batch_for_environment,
     )
 
+    class _Dataset:
+        n_bars = 100
+
+    dataset = _Dataset()
     environment = SimpleNamespace(
-        dataset=SimpleNamespace(n_bars=100),
+        dataset=dataset,
         minimum_start_index=5,
     )
     teacher_config = object()
@@ -21,6 +25,7 @@ def test_build_episode_oracle_batch_for_environment_binds_explicit_train_range(
     sentinel = object()
     observed: dict[str, object] = {}
 
+    monkeypatch.setattr(module, "MarketDataset", _Dataset)
     monkeypatch.setattr(
         module,
         "oracle_teacher_config_for_environment",
@@ -47,8 +52,8 @@ def test_build_episode_oracle_batch_for_environment_binds_explicit_train_range(
         lambda _environment, _mode, _index: None,
     )
 
-    def build(dataset, **kwargs):
-        assert dataset is environment.dataset
+    def build(observed_dataset, **kwargs):
+        assert observed_dataset is dataset
         observed.update(kwargs)
         return sentinel
 

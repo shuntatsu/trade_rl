@@ -58,7 +58,9 @@ def _episode_boundary(
 def _optional_digest(value: object) -> str | None:
     if value is None:
         return None
-    digest = getattr(value, "digest", None)
+    digest = getattr(value, "statistics_digest", None)
+    if digest is None:
+        digest = getattr(value, "digest", None)
     if digest is None:
         return None
     if not isinstance(digest, str):
@@ -209,7 +211,11 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             )
         self._observation_contract_digest = content_digest(
             {
-                "concrete_observation_contract_digest": concrete_observation_digest,
+                "concrete_observation_contract_digest": (
+                    concrete_observation_digest
+                    if training_contract_digest is None
+                    else None
+                ),
                 "instrument_context_schema_digest": context_schema_digest,
                 "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,
                 "training_contract_digest": training_contract_digest,
@@ -279,10 +285,10 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             "normalizer_digest": _optional_digest(
                 getattr(environment, "normalizer", None)
             ),
-            "observation_contract_digest": getattr(
-                environment,
-                "observation_contract_digest",
-                None,
+            "observation_contract_digest": (
+                None
+                if self._training_identity_enabled
+                else getattr(environment, "observation_contract_digest", None)
             ),
             "observation_schema": getattr(environment, "observation_schema", None),
             "sequence_layout_metadata": self._resolve_sequence_layout_metadata(
@@ -361,6 +367,26 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         return getattr(self._reference_environment, "sequence_normalizer", None)
 
     @property
+    def normalizer_digest(self) -> str | None:
+        flat = _optional_digest(
+            getattr(self._reference_environment, "normalizer", None)
+        )
+        sequence = _optional_digest(
+            getattr(self._reference_environment, "sequence_normalizer", None)
+        )
+        if flat is None:
+            return sequence
+        if sequence is None:
+            return flat
+        return content_digest(
+            {
+                "flat": flat,
+                "schema_version": "universal_policy_normalizer_bundle_v1",
+                "sequence": sequence,
+            }
+        )
+
+    @property
     def alpha_artifact_digest(self) -> str | None:
         return getattr(self._reference_environment, "alpha_artifact_digest", None)
 
@@ -375,6 +401,14 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
     @property
     def completed_episode_count(self) -> int:
         return self._completed_episode_count
+
+    @property
+    def current_index(self) -> int:
+        environment = self._active_environment
+        if environment is None:
+            raise RuntimeError("environment must be reset before current_index access")
+        value = getattr(environment, "current_index", None)
+        return _require_non_negative_int(value, field="current_index")
 
     @property
     def active_episode_binding(self) -> InstrumentEpisodeBinding:

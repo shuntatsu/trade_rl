@@ -16,6 +16,12 @@ class _TrainingEnvironmentConfig(Protocol):
 
 
 def _combined_normalizer_digest(unwrapped: Any) -> str | None:
+    explicit = getattr(unwrapped, "normalizer_digest", None)
+    if explicit is not None:
+        if not isinstance(explicit, str):
+            raise TypeError("explicit normalizer_digest must be a string")
+        require_sha256(explicit, field="normalizer_digest")
+        return explicit
     flat = getattr(getattr(unwrapped, "normalizer", None), "digest", None)
     sequence = getattr(getattr(unwrapped, "sequence_normalizer", None), "digest", None)
     if flat is None and sequence is None:

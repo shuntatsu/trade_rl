@@ -281,6 +281,17 @@ def _run_behavior_cloning_critic_warm_start_if_enabled(
     )
 
 
+def _resolved_vector_environment_kind(
+    config: ResidualTrainingConfig,
+    *,
+    sequence_reconstructor: object | None,
+) -> str:
+    kind = _effective_vector_environment_kind(config)
+    if kind == "subprocess_compact_sequence" and sequence_reconstructor is None:
+        return "subprocess"
+    return kind
+
+
 class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
     """Train one policy with an optional SB3-family algorithm."""
 
@@ -481,7 +492,9 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                 algorithm_config=algorithm_config,
             )
             sequence_reconstructor = policy.sequence_reconstructor
-            vector_environment_kind = _effective_vector_environment_kind(config)
+            vector_environment_kind = _resolved_vector_environment_kind(
+                config, sequence_reconstructor=sequence_reconstructor
+            )
             full_observation_space = probe.observation_space
 
             def build_parallel_environment() -> Any:

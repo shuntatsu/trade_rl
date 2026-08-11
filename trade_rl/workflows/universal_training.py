@@ -15,7 +15,11 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.learning.episode_teacher_artifact import EpisodeSupervisedPolicyDataset
 from trade_rl.rl.normalization import ObservationNormalizer
-from trade_rl.rl.observations import OBSERVATION_SCHEMA, ObservationBuilder, observation_layout
+from trade_rl.rl.observations import (
+    OBSERVATION_SCHEMA,
+    ObservationBuilder,
+    observation_layout,
+)
 from trade_rl.rl.sequence_normalization import SequenceFeatureNormalizer
 from trade_rl.rl.sequence_observations import (
     DEFAULT_SEQUENCE_WINDOWS,
@@ -57,7 +61,9 @@ class UniversalBoundObservationNormalizer(ObservationNormalizer):
             field_name="Universal flat constant_mask",
         )
         if constant_mask.shape != (self.market_feature_count,):
-            raise ValueError("Universal flat constant_mask does not match market features")
+            raise ValueError(
+                "Universal flat constant_mask does not match market features"
+            )
         statistics_digest = require_sha256(
             self.statistics_digest,
             field="Universal flat statistics_digest",
@@ -83,7 +89,9 @@ class UniversalBoundObservationNormalizer(ObservationNormalizer):
             raise ValueError("observation does not match the Universal flat normalizer")
         n_features = self.market_feature_count
         if self.size < 2 * n_features:
-            raise ValueError("Universal flat observation is missing availability channels")
+            raise ValueError(
+                "Universal flat observation is missing availability channels"
+            )
         available = vector[n_features : 2 * n_features] > 0.5
         market = np.clip(
             (vector[:n_features] - self.mean[:n_features]) / self.scale[:n_features],
@@ -98,7 +106,9 @@ class UniversalBoundObservationNormalizer(ObservationNormalizer):
     def transform_batch(self, observations: np.ndarray) -> np.ndarray:
         matrix = np.asarray(observations, dtype=np.float64)
         if matrix.ndim != 2 or matrix.shape[1:] != self.mean.shape:
-            raise ValueError("observation batch does not match Universal flat normalizer")
+            raise ValueError(
+                "observation batch does not match Universal flat normalizer"
+            )
         if not np.isfinite(matrix).all():
             raise ValueError("Universal flat observation batch must be finite")
         n_features = self.market_feature_count
@@ -150,7 +160,9 @@ class UniversalBoundSequenceNormalizer(SequenceFeatureNormalizer):
         return {
             **SequenceFeatureNormalizer.digest_payload(self),
             "constant_mask": {
-                key: tuple(bool(value) for value in self.constant_mask_by_timeframe[key])
+                key: tuple(
+                    bool(value) for value in self.constant_mask_by_timeframe[key]
+                )
                 for key in _MAINTAINED_TIMEFRAMES
             },
             "statistics_digest": self.statistics_digest,
@@ -168,7 +180,9 @@ class UniversalBoundSequenceNormalizer(SequenceFeatureNormalizer):
         if timeframe not in self.feature_names:
             raise ValueError("Universal sequence timeframe is unknown")
         if tuple(feature_names) != self.feature_names[timeframe]:
-            raise ValueError("Universal sequence feature order does not match normalizer")
+            raise ValueError(
+                "Universal sequence feature order does not match normalizer"
+            )
         array = np.asarray(values, dtype=np.float64)
         mask = np.asarray(available, dtype=np.bool_)
         if array.shape != mask.shape or array.shape[-1] != len(feature_names):
@@ -197,14 +211,20 @@ def _feature_groups(
     observed: list[int] = []
     for timeframe in _MAINTAINED_TIMEFRAMES:
         prefix = f"{timeframe}__"
-        indices = tuple(index for index, name in enumerate(names) if name.startswith(prefix))
+        indices = tuple(
+            index for index, name in enumerate(names) if name.startswith(prefix)
+        )
         if not indices:
-            raise ValueError(f"Universal feature contract is missing {timeframe} channels")
+            raise ValueError(
+                f"Universal feature contract is missing {timeframe} channels"
+            )
         grouped_names[timeframe] = tuple(names[index] for index in indices)
         grouped_indices[timeframe] = np.asarray(indices, dtype=np.int64)
         observed.extend(indices)
     if tuple(sorted(observed)) != tuple(range(len(names))):
-        raise ValueError("Universal feature names must belong to exactly one maintained timeframe")
+        raise ValueError(
+            "Universal feature names must belong to exactly one maintained timeframe"
+        )
     return grouped_names, grouped_indices
 
 
@@ -227,7 +247,9 @@ def bind_universal_normalizers(
         raise ValueError("Universal normalizer binding requires one concrete symbol")
     feature_names = tuple(getattr(dataset, "feature_names", ()))
     if len(feature_names) != len(shared.mean):
-        raise ValueError("Universal shared statistics width does not match dataset features")
+        raise ValueError(
+            "Universal shared statistics width does not match dataset features"
+        )
     grouped_names, grouped_indices = _feature_groups(feature_names)
 
     layout = observation_layout(
@@ -251,7 +273,7 @@ def bind_universal_normalizers(
         scale=scale,
         train_start=train_start,
         train_end=train_end,
-        clip=shared.clip,
+        clip=shared.clip_value,
         passthrough_indices=tuple(range(len(feature_names), layout.size)),
         dataset_id=str(dataset.dataset_id),
         source_dataset_id=str(dataset.dataset_id),
@@ -290,7 +312,7 @@ def bind_universal_normalizers(
         sequence_schema_digest=sequence_builder.layout_digest(dataset),
         sample_count=counts,
         minimum_samples_per_channel=1,
-        clip=shared.clip,
+        clip=shared.clip_value,
         constant_mask_by_timeframe=constants,
         statistics_digest=shared.statistics_digest,
     )
@@ -305,7 +327,11 @@ def validate_universal_dataset_scope(
     """Reject any dataset that is outside the immutable train-symbol partition."""
 
     symbols = tuple(train_symbols)
-    if not symbols or len(set(symbols)) != len(symbols) or any(not value for value in symbols):
+    if (
+        not symbols
+        or len(set(symbols)) != len(symbols)
+        or any(not value for value in symbols)
+    ):
         raise ValueError("Universal train_symbols must be non-empty and unique")
     if set(datasets) != set(symbols):
         raise ValueError("Universal datasets must exactly match train_symbols")
@@ -329,8 +355,15 @@ class UniversalCollectedTeacher:
     critic_targets: np.ndarray
 
     def __post_init__(self) -> None:
-        values = np.asarray(self.critic_targets, dtype=np.float32).reshape(-1).copy(order="C")
-        if values.shape != (self.dataset.sample_count,) or not np.isfinite(values).all():
+        values = (
+            np.asarray(self.critic_targets, dtype=np.float32)
+            .reshape(-1)
+            .copy(order="C")
+        )
+        if (
+            values.shape != (self.dataset.sample_count,)
+            or not np.isfinite(values).all()
+        ):
             raise ValueError("Universal critic targets must align with teacher samples")
         values.setflags(write=False)
         object.__setattr__(self, "critic_targets", values)
@@ -380,7 +413,9 @@ def collect_universal_episode_teacher(
             expected_index = contract.start + offset
             current_index = getattr(environment, "current_index", expected_index)
             if int(current_index) != expected_index:
-                raise ValueError("Universal teacher environment left its episode contract")
+                raise ValueError(
+                    "Universal teacher environment left its episode contract"
+                )
             keys = tuple(sorted(observation))
             if expected_keys is None:
                 expected_keys = keys
@@ -417,7 +452,9 @@ def collect_universal_episode_teacher(
     if not isinstance(action_spec_digest, str):
         raise ValueError("Universal teacher action specification digest is unavailable")
     dataset = EpisodeSupervisedPolicyDataset(
-        observations={key: np.stack(values, axis=0) for key, values in observations.items()},
+        observations={
+            key: np.stack(values, axis=0) for key, values in observations.items()
+        },
         actions=np.stack(actions, axis=0),
         dataset_id=batch.dataset_id,
         train_start=min(contract.start for contract in batch.contracts),

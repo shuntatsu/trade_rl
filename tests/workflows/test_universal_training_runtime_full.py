@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import pytest
@@ -90,6 +91,6 @@ def test_concrete_action_spec_digest_is_symbol_specific_but_deterministic() -> N
         {
             "action_schema": ACTION_SCHEMA,
             "names": ("target_weight:AAAUSDT",),
-            "spec": action.digest_payload(),
+            "spec": asdict(action),
         }
     )

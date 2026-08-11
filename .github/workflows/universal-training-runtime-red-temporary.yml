@@ -1,4 +1,4 @@
-name: Temporary Final SB3 Checkpoint RED
+name: Temporary Final SB3 Checkpoint GREEN
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
     paths: [.github/workflows/universal-training-runtime-red-temporary.yml]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  red:
+  green:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -19,7 +19,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
+      - run: uv run python .github/temporary/patch_sb3_final_checkpoint.py
       - run: |
-          uv run ruff check --fix tests/integrations/test_sb3_final_checkpoint.py
-          uv run ruff format tests/integrations/test_sb3_final_checkpoint.py
-          uv run pytest tests/integrations/test_sb3_final_checkpoint.py -q
+          uv run ruff check --fix trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_final_checkpoint.py
+          uv run ruff format trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_final_checkpoint.py
+          uv run ruff check trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_final_checkpoint.py
+          uv run mypy trade_rl/integrations/sb3_training.py
+          uv run pytest tests/integrations/test_sb3_final_checkpoint.py tests/integrations/test_sb3_training.py tests/rl/test_checkpointing.py -q
+      - name: Commit verified final SB3 checkpoint publication
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_final_checkpoint.py
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: publish final SB3 training checkpoint"
+            git push origin HEAD:integration/universal-research-u3-u6
+          fi

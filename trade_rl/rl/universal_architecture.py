@@ -1,3 +1,5 @@
+"""Typed architecture candidates for universal single-instrument policies."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -13,7 +15,7 @@ class UniversalArchitectureName(str, Enum):
     U_LARGE_DIRECT = "u_large_direct"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class UniversalArchitectureSpec:
     name: UniversalArchitectureName
     tcn_capacity: str
@@ -24,22 +26,11 @@ class UniversalArchitectureSpec:
     actor_head: str
     actor_mlp: tuple[int, ...]
     critic_mlp: tuple[int, ...]
-    action_shape: tuple[int, ...] = (1,)
     sequence_dropout: float = 0.0
-    shared_scalar_log_std: bool = True
-
-    def __post_init__(self) -> None:
-        if self.d_model % self.attention_heads != 0:
-            raise ValueError("d_model must be divisible by attention_heads")
-        if self.action_shape != (1,):
-            raise ValueError("universal single-instrument action shape must be (1,)")
-        if self.sequence_dropout != 0.0:
-            raise ValueError(
-                "maintained universal candidates use zero sequence dropout"
-            )
+    action_shape: tuple[int, ...] = (1,)
 
 
-_SPECS = {
+_SPECS: dict[UniversalArchitectureName, UniversalArchitectureSpec] = {
     UniversalArchitectureName.U_SMALL_DIRECT: UniversalArchitectureSpec(
         name=UniversalArchitectureName.U_SMALL_DIRECT,
         tcn_capacity="compact",
@@ -107,6 +98,7 @@ def apply_architecture_to_training_config(
     spec = architecture_spec(name)
     return replace(
         config,
+        policy="MultiInputPolicy",
         observation_encoder="hierarchical_sequence_v2",
         sequence_tcn_capacity=spec.tcn_capacity,
         sequence_d_model=spec.d_model,

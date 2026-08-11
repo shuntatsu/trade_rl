@@ -5,7 +5,12 @@ from types import SimpleNamespace
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.rl.actions import ACTION_SCHEMA, ActionMode, ActionSpec, ActionValidationMode
+from trade_rl.rl.actions import (
+    ACTION_SCHEMA,
+    ActionMode,
+    ActionSpec,
+    ActionValidationMode,
+)
 
 
 def _training_config(**overrides: object) -> SimpleNamespace:

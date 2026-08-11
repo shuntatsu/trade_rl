@@ -15,6 +15,7 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.catalog.reusable_artifacts import ReusableArtifactIndex
+from trade_rl.domain.common import require_sha256
 from trade_rl.integrations.behavior_cloning import pretrain_policy
 from trade_rl.integrations.sb3_behavior_cloning import (
     _behavior_cloning_gate_thresholds as _behavior_cloning_gate_thresholds,
@@ -174,6 +175,81 @@ from trade_rl.rl.training_performance import (
 )
 
 
+def _apply_universal_pretraining_if_configured(
+    *,
+    hook: Callable[..., Mapping[str, object]] | None,
+    policy: Any,
+    config: ResidualTrainingConfig,
+    behavior_cloning_seed: int,
+    member_seed: int,
+    output_root: Path,
+) -> dict[str, object] | None:
+    if hook is None:
+        return None
+    if config.behavior_cloning_epochs <= 0:
+        raise ValueError(
+            "Universal pretraining requires behavior cloning to be enabled"
+        )
+    if config.behavior_cloning_teacher != "oracle":
+        raise ValueError(
+            "Universal pretraining requires the Oracle behavior cloning teacher"
+        )
+    if not callable(hook):
+        raise TypeError("Universal pretraining hook must be callable")
+    evidence = hook(
+        policy=policy,
+        config=config,
+        behavior_cloning_seed=behavior_cloning_seed,
+        member_seed=member_seed,
+        output_root=output_root,
+    )
+    if not isinstance(evidence, Mapping):
+        raise TypeError("Universal pretraining hook must return a mapping")
+    payload = dict(evidence)
+    if payload.get("schema_version") != "universal_pretraining_evidence_v1":
+        raise ValueError("Universal pretraining evidence schema mismatch")
+    if payload.get("passed") is not True:
+        raise RuntimeError("Universal pretraining failed its admission gates")
+    for field in ("teacher_artifact_digest", "behavior_cloning_digest"):
+        value = payload.get(field)
+        if not isinstance(value, str):
+            raise ValueError(f"Universal pretraining evidence is missing {field}")
+        require_sha256(value, field=field)
+    critic_digest = payload.get("critic_warm_start_digest")
+    if config.behavior_cloning_critic_warm_start_enabled:
+        if not isinstance(critic_digest, str):
+            raise ValueError(
+                "Universal pretraining evidence is missing critic_warm_start_digest"
+            )
+        require_sha256(
+            critic_digest,
+            field="critic_warm_start_digest",
+        )
+    elif critic_digest is not None:
+        if not isinstance(critic_digest, str):
+            raise ValueError(
+                "critic_warm_start_digest must be a SHA-256 string when present"
+            )
+        require_sha256(
+            critic_digest,
+            field="critic_warm_start_digest",
+        )
+    bound_payload: dict[str, object] = {
+        **payload,
+        "behavior_cloning_seed": behavior_cloning_seed,
+        "member_seed": member_seed,
+        "training_config_digest": content_digest(config.digest_payload()),
+    }
+    artifact_digest = content_digest(bound_payload)
+    resolved = {**bound_payload, "artifact_digest": artifact_digest}
+    output_root.mkdir(parents=True, exist_ok=True)
+    atomic_write_bytes(
+        output_root / "universal-pretraining.json",
+        canonical_json_bytes(resolved),
+    )
+    return resolved
+
+
 def _run_behavior_cloning_critic_warm_start_if_enabled(
     *,
     policy: Any,
@@ -216,6 +292,7 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
         resume_replay_artifact: Path | None = None,
         resume_checkpoint_artifacts: Mapping[int, Path] | None = None,
         transfer_checkpoint_artifacts: Mapping[int, Path] | None = None,
+        universal_pretraining_hook: (Callable[..., Mapping[str, object]] | None) = None,
         structured_export_enabled: bool = False,
         structured_export_tolerance: float = 1e-5,
     ) -> None:
@@ -224,6 +301,11 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
         self.resume_replay_artifact = resume_replay_artifact
         self.resume_checkpoint_artifacts = dict(resume_checkpoint_artifacts or {})
         self.transfer_checkpoint_artifacts = dict(transfer_checkpoint_artifacts or {})
+        if universal_pretraining_hook is not None and not callable(
+            universal_pretraining_hook
+        ):
+            raise TypeError("universal_pretraining_hook must be callable")
+        self.universal_pretraining_hook = universal_pretraining_hook
         overlapping_seeds = (
             self.resume_checkpoint_artifacts.keys()
             & self.transfer_checkpoint_artifacts.keys()
@@ -325,7 +407,11 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
             prefetched_episode_batch: EpisodeOracleBatch | None = None
             prefetched_episode_teacher: EpisodeSupervisedPolicyDataset | None = None
             prefetched_oracle_config: OracleTeacherConfig | None = None
-            if fresh_behavior_cloning and config.behavior_cloning_teacher == "oracle":
+            if (
+                fresh_behavior_cloning
+                and self.universal_pretraining_hook is None
+                and config.behavior_cloning_teacher == "oracle"
+            ):
                 unwrapped_probe: Any = getattr(probe, "unwrapped", probe)
                 probe_action_names = tuple(identity["action_names"])
                 if not probe_action_names or not all(
@@ -631,7 +717,7 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                 environment.close()
                 environment = None
                 environment_suspended_for_teacher = True
-            if fresh_behavior_cloning:
+            if fresh_behavior_cloning and self.universal_pretraining_hook is None:
                 teacher_environment = self.environment_factory()
                 try:
                     teacher_identity = training_environment_identity(
@@ -981,6 +1067,15 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                     )
                 finally:
                     teacher_environment.close()
+            if fresh_behavior_cloning and self.universal_pretraining_hook is not None:
+                _apply_universal_pretraining_if_configured(
+                    hook=self.universal_pretraining_hook,
+                    policy=model.policy,
+                    config=config,
+                    behavior_cloning_seed=behavior_cloning_seed,
+                    member_seed=seed,
+                    output_root=output_path.parent,
+                )
             if environment_suspended_for_teacher:
                 environment = build_parallel_environment()
                 model.set_env(environment)

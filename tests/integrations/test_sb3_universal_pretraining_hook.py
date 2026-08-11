@@ -24,7 +24,9 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
     return ResidualTrainingConfig(**values)  # type: ignore[arg-type]
 
 
-def test_universal_pretraining_hook_is_fail_closed_and_persisted(tmp_path: Path) -> None:
+def test_universal_pretraining_hook_is_fail_closed_and_persisted(
+    tmp_path: Path,
+) -> None:
     captured: dict[str, Any] = {}
 
     def hook(**kwargs: object) -> dict[str, object]:
@@ -78,7 +80,9 @@ def test_universal_pretraining_hook_rejects_failed_evidence(tmp_path: Path) -> N
         )
 
 
-def test_universal_pretraining_requires_behavior_cloning_enabled(tmp_path: Path) -> None:
+def test_universal_pretraining_requires_behavior_cloning_enabled(
+    tmp_path: Path,
+) -> None:
     with pytest.raises(ValueError, match="behavior cloning"):
         sb3_training._apply_universal_pretraining_if_configured(
             hook=lambda **_: {

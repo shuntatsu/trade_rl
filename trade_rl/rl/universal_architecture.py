@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
+
+from trade_rl.rl.training import ResidualTrainingConfig
 
 
 class UniversalArchitectureName(str, Enum):
@@ -90,3 +92,25 @@ def architecture_spec(name: UniversalArchitectureName | str) -> UniversalArchite
 
 def architecture_ablation_candidates() -> tuple[UniversalArchitectureSpec, ...]:
     return tuple(_SPECS[name] for name in UniversalArchitectureName)
+
+
+def apply_architecture_to_training_config(
+    config: ResidualTrainingConfig,
+    name: UniversalArchitectureName | str,
+) -> ResidualTrainingConfig:
+    """Project one U5 candidate into the existing SB3 assembly contract."""
+
+    spec = architecture_spec(name)
+    return replace(
+        config,
+        observation_encoder="hierarchical_sequence_v2",
+        sequence_tcn_capacity=spec.tcn_capacity,
+        sequence_d_model=spec.d_model,
+        sequence_timeframe_attention_heads=spec.attention_heads,
+        sequence_timeframe_attention_layers=spec.attention_layers,
+        sequence_timeframe_ffn_multiplier=spec.ffn_multiplier,
+        sequence_dropout=spec.sequence_dropout,
+        policy_actor_head=spec.actor_head,
+        policy_net_arch=spec.actor_mlp,
+        value_net_arch=spec.critic_mlp,
+    )

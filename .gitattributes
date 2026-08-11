@@ -1,2 +1,2 @@
-# Keep the size-constrained SB3 coordinator byte-stable across platforms.
+# Keep architecture size checks byte-stable across Linux and Windows checkouts.
 trade_rl/integrations/sb3_training.py text eol=lf

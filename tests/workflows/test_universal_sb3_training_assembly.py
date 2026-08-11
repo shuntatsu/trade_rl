@@ -7,7 +7,9 @@ import pytest
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.rl.training import ResidualTrainingConfig
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
-from trade_rl.workflows.universal_training_runner import UniversalRoutedEnvironmentFactory
+from trade_rl.workflows.universal_training_runner import (
+    UniversalRoutedEnvironmentFactory,
+)
 
 
 def _digest(label: str) -> str:
@@ -122,7 +124,10 @@ def test_assemble_universal_sb3_training_backend_connects_oracle_bundle_and_hook
     assert isinstance(batch_kwargs, dict)
     assert batch_kwargs["train_symbols"] == routed.train_symbols
     assert batch_kwargs["bindings"] == routed.bindings
-    assert batch_kwargs["concrete_environment_factory"] is routed.concrete_environment_factory
+    assert (
+        batch_kwargs["concrete_environment_factory"]
+        is routed.concrete_environment_factory
+    )
     assert batch_kwargs["fold_train_range"] == (19, 211)
     assert batch_kwargs["behavior_cloning_seed"] == 17
     assert batch_kwargs["n_envs"] == 4
@@ -130,7 +135,10 @@ def test_assemble_universal_sb3_training_backend_connects_oracle_bundle_and_hook
     bundle_kwargs = observed["bundle_kwargs"]
     assert isinstance(bundle_kwargs, dict)
     assert bundle_kwargs["batches"] is batches
-    assert bundle_kwargs["instrument_context_provider"] is routed.instrument_context_provider
+    assert (
+        bundle_kwargs["instrument_context_provider"]
+        is routed.instrument_context_provider
+    )
     assert bundle_kwargs["partition_digest"] == routed.partition_digest
     assert bundle_kwargs["training_contract_digest"] == routed.training_contract_digest
     assert bundle_kwargs["run_seed"] == routed.run_seed

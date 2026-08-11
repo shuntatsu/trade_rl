@@ -1,4 +1,4 @@
-name: Temporary Universal Full Research Entrypoint GREEN
+name: Temporary Universal Full Research Entrypoint GREEN Retry
 
 on:
   push:
@@ -20,6 +20,7 @@ jobs:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
       - run: uv run python .github/temporary/patch_universal_full_research_start.py
+      - run: uv run python .github/temporary/fix_universal_full_research_entrypoint_types.py
       - run: |
           uv run ruff check --fix trade_rl/workflows/universal_full_research_entrypoint.py scripts/run_universal_full_research.py tests/workflows/test_universal_full_research_entrypoint.py tests/test_start_universal_full_training.py
           uv run ruff format trade_rl/workflows/universal_full_research_entrypoint.py scripts/run_universal_full_research.py tests/workflows/test_universal_full_research_entrypoint.py tests/test_start_universal_full_training.py

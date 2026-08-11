@@ -100,6 +100,9 @@ def _run_behavior_cloning_critic_warm_start_if_enabled(
     observation_provider: Any | None,
     behavior_cloning_seed: int,
     output_root: Path,
+    run_warm_start: Callable[
+        ..., ConfiguredCriticWarmStart
+    ] = run_configured_critic_warm_start,
 ) -> ConfiguredCriticWarmStart | None:
     if not config.behavior_cloning_critic_warm_start_enabled:
         return None
@@ -107,7 +110,7 @@ def _run_behavior_cloning_critic_warm_start_if_enabled(
         raise RuntimeError(
             "critic warm-start requires Oracle episode evidence and split"
         )
-    return run_configured_critic_warm_start(
+    return run_warm_start(
         policy=policy,
         teacher_environment=teacher_environment,
         teacher_dataset=teacher_dataset,

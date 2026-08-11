@@ -125,7 +125,12 @@ from trade_rl.integrations.sb3_teacher_pipeline import (
 )
 from trade_rl.integrations.sb3_universal_pretraining import (
     _apply_universal_pretraining_if_configured,
-    _run_behavior_cloning_critic_warm_start_if_enabled,
+)
+from trade_rl.integrations.sb3_universal_pretraining import (
+    _run_behavior_cloning_critic_warm_start_if_enabled as _run_critic_warm_start_helper,
+)
+from trade_rl.integrations.universal_critic_warm_start import (
+    run_configured_critic_warm_start,
 )
 from trade_rl.learning import (
     BehaviorCloningConfig,
@@ -174,6 +179,12 @@ from trade_rl.rl.training_performance import (
     activate_training_performance,
     write_training_performance_evidence,
 )
+
+
+def _run_behavior_cloning_critic_warm_start_if_enabled(**kwargs: Any) -> Any:
+    return _run_critic_warm_start_helper(
+        **kwargs, run_warm_start=run_configured_critic_warm_start
+    )
 
 
 def _resolved_vector_environment_kind(
@@ -1051,8 +1062,12 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                 checkpoint_root=output_path.parent / "checkpoints",
                 algorithm=config.algorithm,
                 seed=seed,
-                interval_steps=config.resolved_checkpoint_interval,
-                max_checkpoints=config.max_checkpoints,
+                interval_steps=(
+                    0
+                    if config.max_checkpoints == 1
+                    else config.resolved_checkpoint_interval
+                ),
+                max_checkpoints=max(1, config.max_checkpoints - 1),
                 total_timesteps=target_total_timesteps,
                 starting_timestep=starting_timestep,
                 environment_digest=str(identity["environment_digest"]),

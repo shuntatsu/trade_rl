@@ -4,6 +4,14 @@ path = Path("trade_rl/workflows/universal_training.py")
 text = path.read_text()
 if "def materialize_universal_train_datasets(" in text:
     raise SystemExit(0)
+text = text.replace(
+    "import numpy as np\n",
+    "import numpy as np\n\n"
+    "from trade_rl.data.contracts import FeatureSpec\n"
+    "from trade_rl.integrations.postgres_indicator_artifacts import "
+    "IndicatorArtifactConnection\n",
+    1,
+)
 marker = "\n\n__all__ = [\n"
 if marker not in text:
     raise SystemExit("universal_training __all__ marker not found")
@@ -24,11 +32,11 @@ def _universal_feature_schema_digest(feature_names: Sequence[str]) -> str:
 
 
 def materialize_universal_train_datasets(
-    connection: object,
+    connection: IndicatorArtifactConnection,
     *,
     instrument_bundle: Any,
     metadata_resolution: Any,
-    feature_specs: Sequence[object],
+    feature_specs: Sequence[FeatureSpec],
     indicator_loader: Any | None = None,
     dataset_builder: Any | None = None,
 ) -> dict[str, Any]:

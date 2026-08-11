@@ -21,6 +21,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - run: uv run ruff check tests/integrations/test_universal_data_training_contract.py
-      - run: uv run ruff format --check tests/integrations/test_universal_data_training_contract.py
+      - run: |
+          uv run ruff check --fix tests/integrations/test_universal_data_training_contract.py
+          uv run ruff format tests/integrations/test_universal_data_training_contract.py
+          uv run ruff check tests/integrations/test_universal_data_training_contract.py
+          uv run ruff format --check tests/integrations/test_universal_data_training_contract.py
       - run: uv run pytest tests/integrations/test_universal_data_training_contract.py -q

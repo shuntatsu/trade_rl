@@ -54,9 +54,7 @@ class UniversalPretrainingBundle:
         for symbol in symbols:
             values = tuple(self.symbol_sample_indices[symbol])
             if not values or any(
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or value < 0
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
                 for value in values
             ):
                 raise ValueError("symbol sample indices are invalid")
@@ -70,7 +68,9 @@ class UniversalPretrainingBundle:
             raise ValueError("symbol sample indices must close over the train scope")
         targets = np.asarray(self.critic_targets, dtype=np.float32).copy(order="C")
         if targets.ndim != 1 or targets.shape[0] != self.dataset.sample_count:
-            raise ValueError("critic_targets must align with the combined teacher dataset")
+            raise ValueError(
+                "critic_targets must align with the combined teacher dataset"
+            )
         if not np.isfinite(targets).all():
             raise ValueError("critic_targets must be finite")
         targets.setflags(write=False)
@@ -92,7 +92,9 @@ def _validated_local_partition(
     )
     partition = np.concatenate(arrays)
     expected = np.arange(dataset.sample_count, dtype=np.int64)
-    if partition.size != expected.size or not np.array_equal(np.sort(partition), expected):
+    if partition.size != expected.size or not np.array_equal(
+        np.sort(partition), expected
+    ):
         raise ValueError("symbol teacher split must partition the full dataset")
 
 
@@ -108,8 +110,13 @@ def _concatenate_observations(
             trailing_shape: tuple[int, ...] | None = None
             for dataset in datasets:
                 observations = dataset.observations
-                if not isinstance(observations, Mapping) or tuple(sorted(observations)) != keys:
-                    raise ValueError("Universal teacher observation key closure mismatch")
+                if (
+                    not isinstance(observations, Mapping)
+                    or tuple(sorted(observations)) != keys
+                ):
+                    raise ValueError(
+                        "Universal teacher observation key closure mismatch"
+                    )
                 array = np.asarray(observations[key])
                 shape = tuple(int(value) for value in array.shape[1:])
                 if trailing_shape is None:
@@ -123,7 +130,9 @@ def _concatenate_observations(
         raise ValueError("Universal teacher observation representation mismatch")
     arrays = [np.asarray(dataset.observations) for dataset in datasets]
     trailing = tuple(int(value) for value in arrays[0].shape[1:])
-    if any(tuple(int(value) for value in array.shape[1:]) != trailing for array in arrays):
+    if any(
+        tuple(int(value) for value in array.shape[1:]) != trailing for array in arrays
+    ):
         raise ValueError("Universal teacher observation shape mismatch")
     return np.concatenate(arrays, axis=0)
 
@@ -190,7 +199,9 @@ def combine_symbol_teachers(
         datasets.append(dataset)
         targets.append(critic)
         shifted_train = np.asarray(split.train_indices + offset, dtype=np.int64)
-        shifted_validation = np.asarray(split.validation_indices + offset, dtype=np.int64)
+        shifted_validation = np.asarray(
+            split.validation_indices + offset, dtype=np.int64
+        )
         shifted_purged = np.asarray(split.purged_indices + offset, dtype=np.int64)
         train_indices.append(shifted_train)
         validation_indices.append(shifted_validation)
@@ -244,7 +255,9 @@ def combine_symbol_teachers(
     assert action_spec_digest is not None
     assert teacher_config_digest is not None
     observations = _concatenate_observations(datasets)
-    actions = np.concatenate([np.asarray(dataset.actions) for dataset in datasets], axis=0)
+    actions = np.concatenate(
+        [np.asarray(dataset.actions) for dataset in datasets], axis=0
+    )
     total = int(actions.shape[0])
     combined_dataset = SupervisedPolicyDataset(
         observations=observations,  # type: ignore[arg-type]
@@ -363,11 +376,9 @@ def build_universal_pretraining_hook(
                 policy,
                 bundle.dataset,
                 bundle.critic_targets,
-                plan,
+                plan=plan,
                 batch_size=config.behavior_cloning_batch_size,
-                learning_rate=(
-                    config.behavior_cloning_critic_warm_start_learning_rate
-                ),
+                learning_rate=(config.behavior_cloning_critic_warm_start_learning_rate),
                 seed=behavior_cloning_seed,
                 sample_indices=bundle.split.train_indices,
                 observation_provider=None,

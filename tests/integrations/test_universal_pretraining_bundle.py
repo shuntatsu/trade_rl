@@ -160,8 +160,7 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
     assert calls == ["bc", "critic"]
     assert evidence["passed"] is True
     assert (
-        evidence["teacher_artifact_digest"]
-        == combined.teacher_artifact.artifact_digest
+        evidence["teacher_artifact_digest"] == combined.teacher_artifact.artifact_digest
     )
     assert len(evidence["behavior_cloning_digest"]) == 64
     assert len(evidence["critic_warm_start_digest"]) == 64

@@ -147,10 +147,7 @@ def _wrapper(
     environment_index: int = 0,
     child_overrides: dict[str, _SingleSymbolEnv] | None = None,
 ) -> tuple[EpisodeRoutedSingleInstrumentEnv, dict[str, _SingleSymbolEnv]]:
-    children = {
-        symbol: _SingleSymbolEnv(symbol)
-        for symbol in symbols
-    }
+    children = {symbol: _SingleSymbolEnv(symbol) for symbol in symbols}
     children.update(child_overrides or {})
     bindings = tuple(_binding(symbol) for symbol in symbols)
     wrapper = EpisodeRoutedSingleInstrumentEnv(
@@ -249,7 +246,7 @@ def test_non_scalar_action_is_rejected_before_child_execution() -> None:
     _, info = wrapper.reset()
     selected = info["instrument_episode_binding"]["concrete_symbol"]
 
-    with pytest.raises(ValueError, match="\(1,\)"):
+    with pytest.raises(ValueError, match=r"\(1,\)"):
         wrapper.step(np.array([[0.0]], dtype=np.float32))
 
     assert children[selected].received_actions == []

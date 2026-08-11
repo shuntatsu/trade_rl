@@ -15,7 +15,6 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.catalog.reusable_artifacts import ReusableArtifactIndex
-from trade_rl.domain.common import require_sha256
 from trade_rl.integrations.behavior_cloning import pretrain_policy
 from trade_rl.integrations.sb3_behavior_cloning import (
     _behavior_cloning_gate_thresholds as _behavior_cloning_gate_thresholds,
@@ -124,9 +123,9 @@ from trade_rl.integrations.sb3_runtime import (
 from trade_rl.integrations.sb3_teacher_pipeline import (
     _StableBaselines3TeacherPipeline,
 )
-from trade_rl.integrations.universal_critic_warm_start import (
-    ConfiguredCriticWarmStart,
-    run_configured_critic_warm_start,
+from trade_rl.integrations.sb3_universal_pretraining import (
+    _apply_universal_pretraining_if_configured,
+    _run_behavior_cloning_critic_warm_start_if_enabled,
 )
 from trade_rl.learning import (
     BehaviorCloningConfig,
@@ -149,9 +148,7 @@ from trade_rl.learning.episode_oracle_bc import (
     EpisodeBehaviorCloningHoldoutEvaluation,
     evaluate_episode_behavior_cloning_holdout,
 )
-from trade_rl.learning.episode_oracle_teacher import (
-    EpisodeOracleBatch,
-)
+from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.learning.episode_teacher_artifact import (
     EpisodeSupervisedPolicyDataset,
     write_episode_teacher_artifact,
@@ -166,9 +163,7 @@ from trade_rl.rl.replay import (
     verified_replay_buffer_copy,
     write_replay_buffer_artifact,
 )
-from trade_rl.rl.tensorboard_logging import (
-    build_tensorboard_metrics_callback,
-)
+from trade_rl.rl.tensorboard_logging import build_tensorboard_metrics_callback
 from trade_rl.rl.training import PolicyTrainingResult, ResidualTrainingConfig
 from trade_rl.rl.training_environment_contract import (
     training_environment_identity,
@@ -179,112 +174,6 @@ from trade_rl.rl.training_performance import (
     activate_training_performance,
     write_training_performance_evidence,
 )
-
-
-def _apply_universal_pretraining_if_configured(
-    *,
-    hook: Callable[..., Mapping[str, object]] | None,
-    policy: Any,
-    config: ResidualTrainingConfig,
-    behavior_cloning_seed: int,
-    member_seed: int,
-    output_root: Path,
-) -> dict[str, object] | None:
-    if hook is None:
-        return None
-    if config.behavior_cloning_epochs <= 0:
-        raise ValueError(
-            "Universal pretraining requires behavior cloning to be enabled"
-        )
-    if config.behavior_cloning_teacher != "oracle":
-        raise ValueError(
-            "Universal pretraining requires the Oracle behavior cloning teacher"
-        )
-    if not callable(hook):
-        raise TypeError("Universal pretraining hook must be callable")
-    evidence = hook(
-        policy=policy,
-        config=config,
-        behavior_cloning_seed=behavior_cloning_seed,
-        member_seed=member_seed,
-        output_root=output_root,
-    )
-    if not isinstance(evidence, Mapping):
-        raise TypeError("Universal pretraining hook must return a mapping")
-    payload = dict(evidence)
-    if payload.get("schema_version") != "universal_pretraining_evidence_v1":
-        raise ValueError("Universal pretraining evidence schema mismatch")
-    if payload.get("passed") is not True:
-        raise RuntimeError("Universal pretraining failed its admission gates")
-    for field in ("teacher_artifact_digest", "behavior_cloning_digest"):
-        value = payload.get(field)
-        if not isinstance(value, str):
-            raise ValueError(f"Universal pretraining evidence is missing {field}")
-        require_sha256(value, field=field)
-    critic_digest = payload.get("critic_warm_start_digest")
-    if config.behavior_cloning_critic_warm_start_enabled:
-        if not isinstance(critic_digest, str):
-            raise ValueError(
-                "Universal pretraining evidence is missing critic_warm_start_digest"
-            )
-        require_sha256(
-            critic_digest,
-            field="critic_warm_start_digest",
-        )
-    elif critic_digest is not None:
-        if not isinstance(critic_digest, str):
-            raise ValueError(
-                "critic_warm_start_digest must be a SHA-256 string when present"
-            )
-        require_sha256(
-            critic_digest,
-            field="critic_warm_start_digest",
-        )
-    bound_payload: dict[str, object] = {
-        **payload,
-        "behavior_cloning_seed": behavior_cloning_seed,
-        "member_seed": member_seed,
-        "training_config_digest": content_digest(config.digest_payload()),
-    }
-    artifact_digest = content_digest(bound_payload)
-    resolved = {**bound_payload, "artifact_digest": artifact_digest}
-    output_root.mkdir(parents=True, exist_ok=True)
-    atomic_write_bytes(
-        output_root / "universal-pretraining.json",
-        canonical_json_bytes(resolved),
-    )
-    return resolved
-
-
-def _run_behavior_cloning_critic_warm_start_if_enabled(
-    *,
-    policy: Any,
-    teacher_environment: Any,
-    teacher_dataset: SupervisedPolicyDataset,
-    episode_batch: EpisodeOracleBatch | None,
-    episode_split: BehaviorCloningSplit | None,
-    config: ResidualTrainingConfig,
-    observation_provider: Any | None,
-    behavior_cloning_seed: int,
-    output_root: Path,
-) -> ConfiguredCriticWarmStart | None:
-    if not config.behavior_cloning_critic_warm_start_enabled:
-        return None
-    if episode_batch is None or episode_split is None:
-        raise RuntimeError(
-            "critic warm-start requires Oracle episode evidence and split"
-        )
-    return run_configured_critic_warm_start(
-        policy=policy,
-        teacher_environment=teacher_environment,
-        teacher_dataset=teacher_dataset,
-        episode_batch=episode_batch,
-        split=episode_split,
-        config=config,
-        observation_provider=observation_provider,
-        behavior_cloning_seed=behavior_cloning_seed,
-        output_root=output_root,
-    )
 
 
 def _resolved_vector_environment_kind(
@@ -447,10 +336,9 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                         max_workers=_lagrangian_probe_worker_count(config.n_envs),
                     )
                 )
-            # A full-market environment is several GiB.  Do not keep the
+            # A full-market environment is several GiB. Do not keep the
             # identity probe alive while the isolated canonical probe creates
-            # its own environment, otherwise the 15.5 GiB training cgroup can
-            # contain two full environments at once and be OOM killed.
+            # its own environment.
             probe = self.environment_factory()
             identity = training_environment_identity(probe)
             validate_training_environment(identity, config)
@@ -514,9 +402,6 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                     teacher_config=prefetched_oracle_config,
                     max_workers=teacher_workers,
                 )
-            # The CPU-only canonical probe may fork on Linux.  Initialize the
-            # CUDA runtime only after its workers and the forked Oracle teacher
-            # workers have joined so no child inherits a live CUDA context.
             import torch
 
             torch_runtime = _configure_torch_cuda_runtime(
@@ -609,9 +494,6 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
             sequence_metadata = policy.sequence_metadata
             policy_identifier = policy.policy_identifier
 
-            # Stable-Baselines3 seeds CUDA during model construction/loading and
-            # resets cuDNN to its deterministic, slow dilated-convolution path.
-            # Capture and persist the effective post-construction runtime state.
             torch_runtime = _configure_torch_cuda_runtime(
                 torch,
                 config.device,
@@ -761,11 +643,6 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                 raise RuntimeError("behavior cloning resume state changed unexpectedly")
             environment_suspended_for_teacher = False
             if fresh_behavior_cloning and config.n_envs > 1:
-                # The compact PPO vector environment keeps one full market view in
-                # each subprocess.  It is idle during behavior cloning, while the
-                # Oracle rollout creates its own bounded worker environments.  Do
-                # not retain both groups: on the 15-symbol full-history dataset the
-                # otherwise-idle PPO workers alone consume most of a 24 GiB cgroup.
                 environment.close()
                 environment = None
                 environment_suspended_for_teacher = True

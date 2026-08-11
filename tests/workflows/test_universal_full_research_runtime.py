@@ -18,7 +18,7 @@ from trade_rl.workflows.universal_research import (
     UniversalResearchManifest,
     build_full_research_pair_closure,
     validate_full_research_completion,
-    validate_full_research_inputs,
+    validate_full_research_start_inputs,
 )
 
 
@@ -37,24 +37,24 @@ def _pairs() -> tuple[str, ...]:
 
 def _manifest(*, completed_pairs: tuple[str, ...] = ()) -> UniversalResearchManifest:
     return UniversalResearchManifest(
-        universe_manifest_digest=_digest("universe"),
         catalog_digest=_digest("catalog"),
         split_manifest_digest=_digest("split"),
         normalizer_digest=_digest("normalizer"),
-        normalization_fit_scope_digest=_digest("normalizer-scope"),
         feature_schema_digest=_digest("features"),
-        observation_contract_digest=_digest("observation"),
         seed_manifest_digest=_digest("seeds"),
         architecture_name=UniversalArchitectureName.U_MEDIUM_DIRECT,
-        architecture_evidence_digest=_digest("u5-evidence"),
-        zero_shot_gate_digest=_digest("zero-shot-gate"),
         checkpoint_digest=_digest("checkpoint"),
         cost_model_digest=_digest("cost"),
-        paired_baseline_digest=_digest("baseline"),
         required_pairs=_pairs(),
         completed_pairs=completed_pairs,
         bc_teacher_digest=_digest("bc-teacher"),
         software_identity=_digest("software"),
+        universe_manifest_digest=_digest("universe"),
+        normalization_fit_scope_digest=_digest("normalizer-scope"),
+        observation_contract_digest=_digest("observation"),
+        architecture_evidence_digest=_digest("u5-evidence"),
+        zero_shot_gate_digest=_digest("zero-shot-gate"),
+        paired_baseline_digest=_digest("baseline"),
     )
 
 
@@ -66,27 +66,27 @@ def _plan() -> UniversalFullResearchPlan:
     )
 
 
-def test_u6_input_validation_allows_incomplete_pair_closure() -> None:
+def test_u6_start_validation_allows_incomplete_pair_closure() -> None:
     manifest = _manifest(completed_pairs=(_pairs()[0],))
 
-    validate_full_research_inputs(manifest)
+    validate_full_research_start_inputs(manifest)
 
     with pytest.raises(ValueError, match="missing paired deliverables"):
         validate_full_research_completion(manifest)
 
 
-def test_u6_input_validation_rejects_out_of_closure_completion() -> None:
+def test_u6_start_validation_rejects_out_of_closure_completion() -> None:
     manifest = _manifest(completed_pairs=("unexpected",))
 
     with pytest.raises(ValueError, match="outside the manifest closure"):
-        validate_full_research_inputs(manifest)
+        validate_full_research_start_inputs(manifest)
 
 
 def test_u6_requires_all_immutable_research_identity() -> None:
     manifest = _manifest()
 
     with pytest.raises(ValueError, match="normalization_fit_scope_digest"):
-        validate_full_research_inputs(
+        validate_full_research_start_inputs(
             UniversalResearchManifest(
                 **{
                     **manifest.__dict__,

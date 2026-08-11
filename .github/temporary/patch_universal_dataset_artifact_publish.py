@@ -49,7 +49,7 @@ def publish_universal_train_dataset_artifacts(
             ):
                 raise ValueError("Universal existing dataset artifact identity mismatch")
         else:
-            publish_market_dataset_artifact(dataset, destination)
+            publish_market_dataset_artifact(destination, dataset)
         paths[symbol] = destination
     return paths
 '''

@@ -1,4 +1,4 @@
-name: Temporary Universal Teacher Bundle GREEN
+name: Temporary Universal Teacher Bundle GREEN Retry
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
     paths: [.github/workflows/universal-training-runtime-red-temporary.yml]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   green:
@@ -24,4 +24,13 @@ jobs:
           uv run ruff format trade_rl/workflows/universal_teacher_runtime.py tests/workflows/test_universal_teacher_bundle_runtime.py tests/workflows/test_universal_teacher_runtime.py
           uv run ruff check trade_rl/workflows/universal_teacher_runtime.py tests/workflows/test_universal_teacher_bundle_runtime.py tests/workflows/test_universal_teacher_runtime.py
           uv run mypy trade_rl/workflows/universal_teacher_runtime.py
-          uv run pytest tests/workflows/test_universal_teacher_bundle_runtime.py tests/workflows/test_universal_teacher_runtime.py tests/workflows/test_universal_training.py tests/integrations/test_universal_pretraining.py -q
+          uv run pytest tests/workflows/test_universal_teacher_bundle_runtime.py tests/workflows/test_universal_teacher_runtime.py tests/workflows/test_universal_training.py tests/integrations/test_universal_pretraining_bundle.py tests/integrations/test_sb3_universal_pretraining_hook.py -q
+      - name: Commit verified teacher runtime formatting
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/workflows/universal_teacher_runtime.py tests/workflows/test_universal_teacher_bundle_runtime.py tests/workflows/test_universal_teacher_runtime.py
+          if ! git diff --cached --quiet; then
+            git commit -m "test: verify Universal teacher bundle runtime"
+            git push origin HEAD:integration/universal-research-u3-u6
+          fi

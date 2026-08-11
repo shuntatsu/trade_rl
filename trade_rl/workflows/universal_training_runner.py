@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -18,6 +18,7 @@ from trade_rl.data.contracts import (
     InstrumentExecutionRule,
     VolumeUnit,
 )
+from trade_rl.rl.actions import ACTION_SCHEMA, ActionMode, ActionSpec
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.rl.universal_instrument_context import CausalInstrumentContextProvider
 from trade_rl.rl.universal_single_instrument_env import EpisodeRoutedSingleInstrumentEnv
@@ -48,6 +49,65 @@ def _positive_number(value: object, *, field: str) -> float:
     if not resolved > 0.0:
         raise ValueError(f"{field} must be positive")
     return resolved
+
+
+def validate_universal_training_config(run_config: Any) -> None:
+    """Reject any run configuration that violates the maintained Universal surface."""
+
+    training = getattr(run_config, "training", None)
+    action = getattr(run_config, "action", None)
+    environment = getattr(run_config, "environment", None)
+    if training is None or environment is None or not isinstance(action, ActionSpec):
+        raise TypeError(
+            "Universal training requires a complete TrainingRunConfig surface"
+        )
+    if (
+        ActionMode(action.mode) is not ActionMode.TARGET_WEIGHT
+        or action.target_weight_count != 1
+        or action.alpha_enabled
+        or action.risk_tilt_enabled
+        or action.n_factors != 0
+    ):
+        raise ValueError(
+            "Universal training requires exactly one scalar target-weight action"
+        )
+    if getattr(run_config, "alpha_artifact", None) is not None:
+        raise ValueError(
+            "Universal target-weight training does not accept alpha artifacts"
+        )
+    if getattr(run_config, "factor_artifact", None) is not None:
+        raise ValueError(
+            "Universal target-weight training does not accept factor artifacts"
+        )
+    if getattr(training, "observation_encoder", None) != "hierarchical_sequence_v2":
+        raise ValueError("Universal training requires hierarchical_sequence_v2")
+    if not bool(getattr(environment, "structured_sequence_observation", False)):
+        raise ValueError("Universal training requires structured sequence observations")
+    if not bool(getattr(environment, "finite_horizon_observation", False)):
+        raise ValueError("Universal training requires finite-horizon observations")
+
+
+def concrete_action_spec_digest(action: ActionSpec, symbol: str) -> str:
+    """Bind the generic one-action specification to one concrete child environment."""
+
+    if not isinstance(action, ActionSpec):
+        raise TypeError("action must be an ActionSpec")
+    if not isinstance(symbol, str) or not symbol:
+        raise ValueError("concrete symbol must be non-empty")
+    if (
+        ActionMode(action.mode) is not ActionMode.TARGET_WEIGHT
+        or action.target_weight_count != 1
+    ):
+        raise ValueError(
+            "Universal concrete action identity requires one target-weight action"
+        )
+    return content_digest(
+        {
+            "action_schema": ACTION_SCHEMA,
+            "names": action.names_for_symbols((symbol,)),
+            "spec": asdict(action),
+        }
+    )
 
 
 def build_universal_instrument_contracts(
@@ -314,4 +374,6 @@ __all__ = [
     "build_universal_bindings",
     "train_universal_seeds",
     "build_universal_instrument_contracts",
+    "concrete_action_spec_digest",
+    "validate_universal_training_config",
 ]

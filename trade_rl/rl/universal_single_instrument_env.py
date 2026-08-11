@@ -110,6 +110,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         self._environment_factory = environment_factory
         self._instrument_context_provider = instrument_context_provider
         self._training_contract_digest = training_contract_digest
+        self._training_identity_enabled = training_contract_digest is not None
         self._run_seed = self._router.run_seed
         self._environment_index = self._router.environment_index
         self._environments: dict[str, ConcreteSingleInstrumentEnv] = {}
@@ -140,30 +141,70 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         self._sequence_layout_metadata = self._resolve_sequence_layout_metadata(
             initial_environment
         )
-        self._initial_capital = float(getattr(initial_environment, "initial_capital"))
-        self._decision_hours = float(getattr(initial_environment, "decision_hours"))
-        if not np.isfinite(self._initial_capital) or self._initial_capital <= 0.0:
-            raise ValueError("concrete environment initial_capital must be positive")
-        if not np.isfinite(self._decision_hours) or self._decision_hours <= 0.0:
-            raise ValueError("concrete environment decision_hours must be positive")
+
+        raw_initial_capital = getattr(initial_environment, "initial_capital", None)
+        raw_decision_hours = getattr(initial_environment, "decision_hours", None)
+        self._initial_capital = (
+            None if raw_initial_capital is None else float(raw_initial_capital)
+        )
+        self._decision_hours = (
+            None if raw_decision_hours is None else float(raw_decision_hours)
+        )
         concrete_observation_digest = getattr(
             initial_environment,
             "observation_contract_digest",
             None,
         )
-        if not isinstance(concrete_observation_digest, str):
-            raise TypeError("concrete environment must expose observation_contract_digest")
-        require_sha256(
-            concrete_observation_digest,
-            field="concrete observation_contract_digest",
+        source_environment_digest = getattr(
+            initial_environment,
+            "environment_digest",
+            None,
         )
+        if self._training_identity_enabled:
+            if (
+                self._initial_capital is None
+                or not np.isfinite(self._initial_capital)
+                or self._initial_capital <= 0.0
+            ):
+                raise ValueError("concrete environment initial_capital must be positive")
+            if (
+                self._decision_hours is None
+                or not np.isfinite(self._decision_hours)
+                or self._decision_hours <= 0.0
+            ):
+                raise ValueError("concrete environment decision_hours must be positive")
+            if not isinstance(concrete_observation_digest, str):
+                raise TypeError(
+                    "concrete environment must expose observation_contract_digest"
+                )
+            require_sha256(
+                concrete_observation_digest,
+                field="concrete observation_contract_digest",
+            )
+            if not isinstance(source_environment_digest, str):
+                raise TypeError("concrete environment must expose environment_digest")
+            require_sha256(
+                source_environment_digest,
+                field="concrete environment_digest",
+            )
+        elif source_environment_digest is not None:
+            if not isinstance(source_environment_digest, str):
+                raise TypeError("concrete environment_digest must be a string")
+            require_sha256(
+                source_environment_digest,
+                field="concrete environment_digest",
+            )
+
         context_schema_digest = getattr(
             instrument_context_provider,
             "schema_digest",
             None,
         )
         if context_schema_digest is not None:
-            require_sha256(context_schema_digest, field="instrument context schema digest")
+            require_sha256(
+                context_schema_digest,
+                field="instrument context schema digest",
+            )
         self._observation_contract_digest = content_digest(
             {
                 "concrete_observation_contract_digest": concrete_observation_digest,
@@ -172,10 +213,6 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
                 "training_contract_digest": training_contract_digest,
             }
         )
-        source_environment_digest = getattr(initial_environment, "environment_digest", None)
-        if not isinstance(source_environment_digest, str):
-            raise TypeError("concrete environment must expose environment_digest")
-        require_sha256(source_environment_digest, field="concrete environment_digest")
         self._environment_digest = content_digest(
             {
                 "router_digest": self._router.digest,
@@ -229,17 +266,26 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             )
         return resolved
 
-    def _training_surface(self, environment: ConcreteSingleInstrumentEnv) -> dict[str, object]:
+    def _training_surface(
+        self,
+        environment: ConcreteSingleInstrumentEnv,
+    ) -> dict[str, object]:
         return {
             "action_space": environment.action_space,
             "decision_hours": float(getattr(environment, "decision_hours")),
             "initial_capital": float(getattr(environment, "initial_capital")),
-            "normalizer_digest": _optional_digest(getattr(environment, "normalizer", None)),
+            "normalizer_digest": _optional_digest(
+                getattr(environment, "normalizer", None)
+            ),
             "observation_contract_digest": getattr(
-                environment, "observation_contract_digest", None
+                environment,
+                "observation_contract_digest",
+                None,
             ),
             "observation_schema": getattr(environment, "observation_schema", None),
-            "sequence_layout_metadata": self._resolve_sequence_layout_metadata(environment),
+            "sequence_layout_metadata": self._resolve_sequence_layout_metadata(
+                environment
+            ),
             "sequence_normalizer_digest": _optional_digest(
                 getattr(environment, "sequence_normalizer", None)
             ),
@@ -282,10 +328,14 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
 
     @property
     def initial_capital(self) -> float:
+        if self._initial_capital is None:
+            raise AttributeError("Universal training identity is not enabled")
         return self._initial_capital
 
     @property
     def decision_hours(self) -> float:
+        if self._decision_hours is None:
+            raise AttributeError("Universal training identity is not enabled")
         return self._decision_hours
 
     @property
@@ -384,8 +434,9 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             raise ValueError("concrete environment observation space mismatch")
         if environment.action_space != self.action_space:
             raise ValueError("concrete environment action space mismatch")
-        if self._training_surface(environment) != self._training_surface(
-            self._reference_environment
+        if self._training_identity_enabled and (
+            self._training_surface(environment)
+            != self._training_surface(self._reference_environment)
         ):
             raise ValueError("concrete environment training contract mismatch")
 
@@ -482,10 +533,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         if not self._episode_complete:
             raise RuntimeError("cannot reset while an active episode is routed")
         if seed is not None:
-            resolved_seed = _require_non_negative_int(
-                seed,
-                field="seed",
-            )
+            resolved_seed = _require_non_negative_int(seed, field="seed")
             if resolved_seed != self._run_seed:
                 raise ValueError("reset seed must equal the immutable run_seed")
         super().reset(seed=self._run_seed)
@@ -493,10 +541,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         route = self._router.route(self._completed_episode_count)
         environment = self._load_environment(route)
         dataset_binding = self._bindings[route.concrete_symbol]
-        episode_seed = self._episode_seed(
-            route=route,
-            binding=dataset_binding,
-        )
+        episode_seed = self._episode_seed(route=route, binding=dataset_binding)
         observation, raw_info = environment.reset(
             seed=episode_seed,
             options=options,

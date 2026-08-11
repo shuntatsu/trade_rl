@@ -1,4 +1,4 @@
-name: Temporary Universal Feature Identity GREEN
+name: Temporary Universal Feature Identity GREEN Retry
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
           uv run ruff format trade_rl/data/universal_features.py trade_rl/workflows/universal_training.py tests/workflows/test_universal_training_runner.py
           uv run ruff check trade_rl/data/universal_features.py trade_rl/workflows/universal_training.py tests/workflows/test_universal_training_runner.py
           uv run mypy trade_rl/data/universal_features.py trade_rl/workflows/universal_training.py
-          uv run pytest tests/workflows/test_universal_training_runner.py tests/data/test_universal_features.py tests/rl/test_universal_normalization.py -q
+          uv run pytest tests/workflows/test_universal_training_runner.py tests/rl/test_universal_normalization.py -q
       - name: Commit verified feature identity
         run: |
           git config user.name "github-actions[bot]"

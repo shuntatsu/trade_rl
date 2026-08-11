@@ -28,11 +28,13 @@ jobs:
 
           path = Path("trade_rl/integrations/behavior_cloning.py")
           text = path.read_text()
-          text = text.replace(
-              "from collections.abc import Mapping\n",
-              "from collections.abc import Mapping, Sequence\n",
-              1,
-          )
+          if "from collections.abc import Mapping, Sequence\n" not in text:
+              text = text.replace(
+                  "from collections.abc import Mapping\n",
+                  "from collections.abc import Mapping, Sequence\n",
+                  1,
+              )
+
           signature_anchor = (
               "    observation_provider: ObservationBatchProvider | None = None,\n"
               "    hierarchical_labels: HierarchicalTeacherLabels | None = None,\n"
@@ -49,18 +51,12 @@ jobs:
                   raise SystemExit("BC signature anchor not found")
               text = text.replace(signature_anchor, signature_replacement, 1)
 
-          old_loop = '''    for epoch in range(1, config.epochs + 1):
-              permutation = torch.randperm(train_count, generator=generator).numpy()
-              shuffled = train_indices[permutation]
-              for offset in range(0, train_count, config.batch_size):
-                  batch_indices = shuffled[offset : offset + config.batch_size]
-                  observations = _tensor_observations(
-          '''
-          old_loop = "\n".join(
-              line[10:] if line.startswith("          ") else line
-              for line in old_loop.splitlines()
-          ) + "\n"
-          new_loop = '''    for epoch in range(1, config.epochs + 1):
+          if "if training_batch_provider is None:" not in text:
+              start_marker = "    for epoch in range(1, config.epochs + 1):\n"
+              next_marker = "            if hierarchical_labels is None:\n"
+              start = text.index(start_marker)
+              end = text.index(next_marker, start)
+              replacement = '''    for epoch in range(1, config.epochs + 1):
               if training_batch_provider is None:
                   permutation = torch.randperm(train_count, generator=generator).numpy()
                   shuffled = train_indices[permutation]
@@ -106,30 +102,32 @@ jobs:
                   training_batches = tuple(validated_batches)
               for batch_indices in training_batches:
                   observations = _tensor_observations(
+                      _observation_batch(
+                          dataset, batch_indices, provider=observation_provider
+                      ),
+                      device=device,
+                  )
           '''
-          new_loop = "\n".join(
-              line[10:] if line.startswith("          ") else line
-              for line in new_loop.splitlines()
-          ) + "\n"
-          if "if training_batch_provider is None:" not in text:
-              if old_loop not in text:
-                  raise SystemExit("BC training loop anchor not found")
-              text = text.replace(old_loop, new_loop, 1)
+              replacement = "\n".join(
+                  line[10:] if line.startswith("          ") else line
+                  for line in replacement.splitlines()
+              ) + "\n"
+              text = text[:start] + replacement + text[end:]
           path.write_text(text)
           PY
       - name: Verify Universal BC
         run: |
-          uv run ruff check --fix trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py
-          uv run ruff format trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py
-          uv run ruff check trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py
+          uv run ruff check --fix trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
+          uv run ruff format trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
+          uv run ruff check trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
           uv run mypy trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py
-          uv run pytest tests/integrations/test_universal_behavior_cloning.py tests/rl/test_universal_research_u3_u6.py -q
+          uv run pytest tests/learning/test_behavior_cloning_batch_provider.py tests/learning/test_behavior_cloning.py tests/integrations/test_universal_behavior_cloning.py tests/rl/test_universal_research_u3_u6.py -q
           git diff --check
       - name: Commit Universal BC implementation
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/rl/test_universal_research_u3_u6.py
+          git add trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
           if ! git diff --cached --quiet; then
             git commit -m "feat: complete symbol-balanced Universal BC"
           fi

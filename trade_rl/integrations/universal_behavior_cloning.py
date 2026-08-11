@@ -18,6 +18,7 @@ from trade_rl.learning.behavior_cloning import (
     ObservationBatchProvider,
 )
 from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
+from trade_rl.learning.hierarchical_teacher_labels import HierarchicalTeacherLabels
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.learning.universal_bc import SymbolBalancedBatchSampler
 
@@ -86,6 +87,7 @@ def pretrain_universal_policy(
     seed: int,
     observation_provider: ObservationBatchProvider | None,
     output_root: Path,
+    hierarchical_labels: HierarchicalTeacherLabels | None = None,
 ) -> BehaviorCloningResult:
     """Run shared BC with equal symbol contribution in every training mini-batch."""
 
@@ -122,6 +124,7 @@ def pretrain_universal_policy(
         seed=seed,
         observation_provider=observation_provider,
         training_batch_provider=training_batch_provider,
+        hierarchical_labels=hierarchical_labels,
     )
     if isinstance(result, BehaviorCloningResult):
         payload: dict[str, object] = {
@@ -135,6 +138,11 @@ def pretrain_universal_policy(
             "sampling_contract": "equal_symbol_per_minibatch_cycle_shorter_symbols_v1",
             "batch_size": config.batch_size,
             "seed": seed,
+            "hierarchical_label_digest": (
+                None
+                if hierarchical_labels is None
+                else hierarchical_labels.label_config_digest
+            ),
         }
         artifact_digest = content_digest(payload)
         output_root.mkdir(parents=True, exist_ok=True)

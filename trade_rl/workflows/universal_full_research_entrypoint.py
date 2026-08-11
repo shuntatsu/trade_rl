@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
@@ -15,6 +14,7 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.rl.training import ResidualTrainingConfig
 from trade_rl.rl.training_run_config import TrainingRunConfig
 from trade_rl.rl.universal_architecture import UniversalArchitectureName
+from trade_rl.runtime_factory import load_runtime_factory
 from trade_rl.workflows.universal_full_research_training import (
     UniversalFullResearchTrainingComparison,
     train_universal_full_research_comparison,
@@ -81,16 +81,7 @@ class UniversalFullResearchEntrypointResult:
 def load_universal_runtime_factory(spec: str) -> UniversalEntrypointRuntimeFactory:
     """Load one explicit `module:function` Universal runtime factory."""
 
-    if not isinstance(spec, str) or spec.count(":") != 1:
-        raise ValueError("runtime factory must use module:function syntax")
-    module_name, function_name = (part.strip() for part in spec.split(":", 1))
-    if not module_name or not function_name:
-        raise ValueError("runtime factory must use module:function syntax")
-    module = importlib.import_module(module_name)
-    factory = getattr(module, function_name, None)
-    if not callable(factory):
-        raise TypeError("runtime factory target must be callable")
-    return factory
+    return cast(UniversalEntrypointRuntimeFactory, load_runtime_factory(spec))
 
 
 def _resolved_run_configs(

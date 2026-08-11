@@ -127,9 +127,10 @@ def test_build_universal_stage_a_candidate_uses_final_checkpoint_manifests(
         (7, _digest("checkpoint:7")),
         (11, _digest("checkpoint:11")),
     )
-    assert candidate.stage_a_candidate.final_training_completion_digest == _manifest(
-        config
-    )["run_digest"]
+    assert (
+        candidate.stage_a_candidate.final_training_completion_digest
+        == _manifest(config)["run_digest"]
+    )
 
 
 def test_build_universal_stage_a_candidate_rejects_missing_final_checkpoint(

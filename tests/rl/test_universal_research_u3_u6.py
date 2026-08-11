@@ -3,6 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from trade_rl.evaluation.universal_zero_shot import (
+    UniversalZeroShotPair,
+    passes_zero_shot_gate,
+    summarize_zero_shot_pairs,
+)
+from trade_rl.integrations.binance_universal import binance_universal_feature_specs
 from trade_rl.learning.universal_bc import (
     CriticWarmStartPhase,
     SymbolBalancedBatchSampler,
@@ -19,11 +25,23 @@ from trade_rl.workflows.universal_research import (
 )
 
 
+def test_universal_binance_contract_has_206_target_local_features() -> None:
+    features = binance_universal_feature_specs(
+        base_timeframe="15m",
+        feature_timeframes=("1h", "4h", "1d"),
+    )
+    assert len(features) == 206
+    assert not any("relative_return_to_btc" in feature.name for feature in features)
+    assert not any("rolling_beta_to_btc" in feature.name for feature in features)
+
+
 def test_symbol_balanced_normalizer_weights_symbols_equally_and_clips() -> None:
     normalizer = SymbolBalancedStandardNormalizer.fit(
         {
             "AAAUSDT": np.asarray([[0.0], [2.0]], dtype=np.float64),
-            "BBBUSDT": np.asarray([[100.0], [102.0], [104.0], [106.0]], dtype=np.float64),
+            "BBBUSDT": np.asarray(
+                [[100.0], [102.0], [104.0], [106.0]], dtype=np.float64
+            ),
         },
         train_symbols=("AAAUSDT", "BBBUSDT"),
         feature_schema_digest="features-v1",
@@ -32,9 +50,9 @@ def test_symbol_balanced_normalizer_weights_symbols_equally_and_clips() -> None:
         fold_train_range=(10, 20),
         max_samples_per_symbol=2,
     )
-    # Per-symbol equal sampling gives samples [0,2,100,106], not row-count weighting.
     assert normalizer.sample_count_per_symbol == 2
     assert normalizer.train_symbols == ("AAAUSDT", "BBBUSDT")
+    assert normalizer.mean[0] == pytest.approx(52.0)
     transformed = normalizer.transform(np.asarray([[-1_000.0], [1_000.0]]))
     assert transformed.min() >= -10.0
     assert transformed.max() <= 10.0
@@ -98,6 +116,20 @@ def test_architecture_candidates_have_fixed_universal_contract() -> None:
         assert spec.actor_head == head
         assert spec.action_shape == (1,)
         assert spec.sequence_dropout == 0.0
+
+
+def test_zero_shot_gate_uses_symbol_seed_and_safety_worst_cases() -> None:
+    summary = summarize_zero_shot_pairs(
+        (
+            UniversalZeroShotPair("X", 0, 0, 0.05, 0.01),
+            UniversalZeroShotPair("Y", 0, 0, 0.04, 0.01),
+            UniversalZeroShotPair("X", 1, 1, 0.03, 0.01),
+            UniversalZeroShotPair("Y", 1, 1, 0.02, 0.01),
+        )
+    )
+    assert summary.worst_symbol_excess_return > 0.0
+    assert summary.worst_seed_excess_return > 0.0
+    assert passes_zero_shot_gate(summary)
 
 
 def test_full_research_validation_fails_closed_on_missing_pair() -> None:

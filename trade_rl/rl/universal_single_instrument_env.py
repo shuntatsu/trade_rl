@@ -86,6 +86,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         environment_index: int,
         instrument_context_provider: InstrumentContextProvider | None = None,
         training_contract_digest: str | None = None,
+        max_cached_environments: int | None = None,
     ) -> None:
         super().__init__()
         if not callable(environment_factory):
@@ -98,6 +99,14 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             training_contract_digest = require_sha256(
                 training_contract_digest,
                 field="training_contract_digest",
+            )
+        if max_cached_environments is not None and (
+            isinstance(max_cached_environments, bool)
+            or not isinstance(max_cached_environments, int)
+            or max_cached_environments <= 0
+        ):
+            raise ValueError(
+                "max_cached_environments must be null or a positive integer"
             )
         self._bindings = validate_training_instrument_bindings(
             train_symbols,
@@ -113,6 +122,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         self._instrument_context_provider = instrument_context_provider
         self._training_contract_digest = training_contract_digest
         self._training_identity_enabled = training_contract_digest is not None
+        self._max_cached_environments = max_cached_environments
         self._run_seed = self._router.run_seed
         self._environment_index = self._router.environment_index
         self._environments: dict[str, ConcreteSingleInstrumentEnv] = {}
@@ -485,6 +495,31 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         except Exception:
             pass
 
+    def _evict_cached_environment_for(self, symbol: str) -> bool:
+        limit = self._max_cached_environments
+        if (
+            limit is None
+            or symbol in self._environments
+            or len(self._environments) < limit
+        ):
+            return False
+        if not self._episode_complete:
+            raise RuntimeError(
+                "cannot evict a child environment during an active episode"
+            )
+        victim_symbol = next(iter(self._environments))
+        victim = self._environments.pop(victim_symbol)
+        self._environment_object_ids.discard(id(victim))
+        if self._active_environment is victim:
+            self._active_environment = None
+            self._active_episode_binding = None
+        reference_evicted = (
+            hasattr(self, "_reference_environment")
+            and self._reference_environment is victim
+        )
+        victim.close()
+        return reference_evicted
+
     def _load_environment(
         self,
         route: InstrumentRoute,
@@ -494,6 +529,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         if cached is not None:
             return cached
 
+        reference_evicted = self._evict_cached_environment_for(symbol)
         binding = self._bindings[symbol]
         environment = self._environment_factory(binding)
         if not isinstance(environment, gym.Env):
@@ -512,6 +548,8 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             raise
         self._environments[symbol] = environment
         self._environment_object_ids.add(object_id)
+        if reference_evicted:
+            self._reference_environment = environment
         return environment
 
     def _episode_seed(

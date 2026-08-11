@@ -183,6 +183,7 @@ class UniversalRoutedEnvironmentFactory:
     instrument_context_provider: CausalInstrumentContextProvider | None
     training_contract_digest: str
     run_seed: int
+    max_cached_environments: int | None = 1
 
     def __post_init__(self) -> None:
         symbols = tuple(self.train_symbols)
@@ -212,6 +213,7 @@ class UniversalRoutedEnvironmentFactory:
                 "bindings": tuple(binding.digest for binding in self.bindings),
                 "partition_digest": self.partition_digest,
                 "run_seed": self.run_seed,
+                "max_cached_environments": self.max_cached_environments,
                 "schema_version": "universal_routed_environment_factory_v1",
                 "training_contract_digest": self.training_contract_digest,
                 "train_symbols": self.train_symbols,
@@ -228,6 +230,7 @@ class UniversalRoutedEnvironmentFactory:
             environment_index=environment_index,
             instrument_context_provider=self.instrument_context_provider,
             training_contract_digest=self.training_contract_digest,
+            max_cached_environments=self.max_cached_environments,
         )
 
     def __call__(self) -> EpisodeRoutedSingleInstrumentEnv:

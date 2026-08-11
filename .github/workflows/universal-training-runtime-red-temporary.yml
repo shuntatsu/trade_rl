@@ -1,4 +1,4 @@
-name: Temporary Universal Training Execution GREEN
+name: Temporary Universal Training Execution GREEN Retry
 
 on:
   push:

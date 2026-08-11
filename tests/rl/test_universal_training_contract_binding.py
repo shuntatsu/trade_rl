@@ -54,9 +54,7 @@ class _DatasetSpecificContractEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                 "current_snapshot": spaces.Box(
                     -10.0, 10.0, shape=(1, 2), dtype=np.float32
                 ),
-                "asset_state": spaces.Box(
-                    -10.0, 10.0, shape=(1, 2), dtype=np.float32
-                ),
+                "asset_state": spaces.Box(-10.0, 10.0, shape=(1, 2), dtype=np.float32),
                 "global_state": spaces.Box(-10.0, 10.0, shape=(2,), dtype=np.float32),
                 "active": spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),
                 "current_weights": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32),

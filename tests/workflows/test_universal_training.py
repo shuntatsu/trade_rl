@@ -70,7 +70,9 @@ def _shared_normalizer() -> SymbolBalancedStandardNormalizer:
     )
 
 
-def test_shared_statistics_bind_to_each_dataset_without_changing_statistics_digest() -> None:
+def test_shared_statistics_bind_to_each_dataset_without_changing_statistics_digest() -> (
+    None
+):
     from trade_rl.workflows.universal_training import bind_universal_normalizers
 
     shared = _shared_normalizer()
@@ -145,7 +147,9 @@ class _FullDictTeacherEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             "global_state": spaces.Box(-10.0, 10.0, shape=(1,), dtype=np.float32),
             "active": spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),
             "current_weights": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32),
-            "instrument_context": spaces.Box(-10.0, 10.0, shape=(1, 9), dtype=np.float32),
+            "instrument_context": spaces.Box(
+                -10.0, 10.0, shape=(1, 9), dtype=np.float32
+            ),
         }
         for timeframe in ("15m", "1h", "4h", "1d"):
             component_spaces[f"sequence_{timeframe}_values"] = spaces.Box(
@@ -163,7 +167,9 @@ class _FullDictTeacherEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
     def _observation(self) -> dict[str, np.ndarray]:
         result: dict[str, np.ndarray] = {
             "decision_index": np.asarray([self.current_index], dtype=np.int64),
-            "current_snapshot": np.asarray([[float(self.current_index)]], dtype=np.float32),
+            "current_snapshot": np.asarray(
+                [[float(self.current_index)]], dtype=np.float32
+            ),
             "asset_state": np.zeros((1, 1), dtype=np.float32),
             "global_state": np.zeros((1,), dtype=np.float32),
             "active": np.ones((1,), dtype=np.float32),
@@ -207,7 +213,9 @@ class _FullDictTeacherEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         return self._observation(), reward, terminated, False, {}
 
 
-def test_universal_teacher_collector_keeps_full_dict_and_aligned_return_targets() -> None:
+def test_universal_teacher_collector_keeps_full_dict_and_aligned_return_targets() -> (
+    None
+):
     from trade_rl.workflows.universal_training import collect_universal_episode_teacher
 
     dataset_id = _digest("teacher-dataset")
@@ -226,9 +234,7 @@ def test_universal_teacher_collector_keeps_full_dict_and_aligned_return_targets(
                 initial_weights=np.zeros(1, dtype=np.float64),
             ),
         ),
-        targets=(
-            np.asarray([[1.0], [2.0]], dtype=np.float32),
-        ),
+        targets=(np.asarray([[1.0], [2.0]], dtype=np.float32),),
         solver_provenance=None,
     )
 

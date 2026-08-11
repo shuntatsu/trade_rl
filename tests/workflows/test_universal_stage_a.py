@@ -36,7 +36,10 @@ def _stage_a_candidate(name: UniversalArchitectureName) -> StageACandidate:
         candidate_config_digest=_digest(f"config:{name.value}"),
         final_training_completion_digest=_digest(f"completion:{name.value}"),
         policy_identity=_digest(f"policy:{name.value}"),
-        checkpoint_digests=((7, _digest(f"{name.value}:7")), (11, _digest(f"{name.value}:11"))),
+        checkpoint_digests=(
+            (7, _digest(f"{name.value}:7")),
+            (11, _digest(f"{name.value}:11")),
+        ),
     )
 
 
@@ -89,7 +92,9 @@ def test_universal_stage_a_requires_exact_four_ablation_candidates() -> None:
     universal = UniversalStageAPlan(ablation_candidates=wrapped, stage_a_plan=plan)
 
     assert universal.stage_a_plan is plan
-    assert universal.candidate_ids == tuple(name.value for name in UniversalArchitectureName)
+    assert universal.candidate_ids == tuple(
+        name.value for name in UniversalArchitectureName
+    )
     assert len({item.fixed_condition_digest for item in wrapped}) == 1
 
 

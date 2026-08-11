@@ -168,6 +168,7 @@ def test_publish_is_atomic_idempotent_and_rejects_drift() -> None:
 
     assert first == second
     assert first.artifact_count == 4
+    assert first.funding_row_count == 1
     assert connection.commit_count == 2
     with pytest.raises(FileExistsError, match="different content"):
         publish_native_cache(

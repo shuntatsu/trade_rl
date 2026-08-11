@@ -55,7 +55,9 @@ class PublishedNativeCache:
             artifact_count=len(build.artifacts),
             kline_row_count=sum(len(bars.open_time_ms) for bars in build.market_bars.values()),
             funding_row_count=sum(
-                int(bars.funding_available.sum()) for bars in build.market_bars.values()
+                int(bars.funding_available.sum())
+                for (_, timeframe), bars in build.market_bars.items()
+                if timeframe == "15m"
             ),
             tables=tables,
         )
@@ -160,7 +162,9 @@ def _kline_rows(build: NativeCacheBuild) -> Iterable[tuple[object, ...]]:
 
 
 def _funding_rows(build: NativeCacheBuild) -> Iterable[tuple[object, ...]]:
-    for (symbol, _), bars in build.market_bars.items():
+    for (symbol, timeframe), bars in build.market_bars.items():
+        if timeframe != "15m":
+            continue
         for index in bars.funding_available.nonzero()[0]:
             yield (
                 build.manifest.cache_id,

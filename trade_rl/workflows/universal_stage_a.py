@@ -50,7 +50,9 @@ class UniversalStageACandidate:
         architecture = UniversalArchitectureName(self.architecture)
         object.__setattr__(self, "architecture", architecture)
         if self.stage_a_candidate.candidate_id != architecture.value:
-            raise ValueError("Universal Stage A candidate ID must equal architecture name")
+            raise ValueError(
+                "Universal Stage A candidate ID must equal architecture name"
+            )
         spec = architecture_spec(architecture)
         expected_fields: tuple[tuple[str, object, object], ...] = (
             (
@@ -61,26 +63,34 @@ class UniversalStageACandidate:
             (
                 "sequence_tcn_capacity",
                 self.training_config.sequence_tcn_capacity,
-                spec.sequence_tcn_capacity,
+                spec.tcn_capacity,
             ),
             ("sequence_d_model", self.training_config.sequence_d_model, spec.d_model),
             (
                 "sequence_timeframe_attention_heads",
                 self.training_config.sequence_timeframe_attention_heads,
-                spec.timeframe_attention_heads,
+                spec.attention_heads,
             ),
             (
                 "sequence_timeframe_attention_layers",
                 self.training_config.sequence_timeframe_attention_layers,
-                spec.timeframe_attention_layers,
+                spec.attention_layers,
             ),
             (
                 "sequence_timeframe_ffn_multiplier",
                 self.training_config.sequence_timeframe_ffn_multiplier,
-                spec.timeframe_ffn_multiplier,
+                spec.ffn_multiplier,
             ),
-            ("sequence_dropout", self.training_config.sequence_dropout, spec.sequence_dropout),
-            ("policy_actor_head", self.training_config.policy_actor_head, spec.actor_head),
+            (
+                "sequence_dropout",
+                self.training_config.sequence_dropout,
+                spec.sequence_dropout,
+            ),
+            (
+                "policy_actor_head",
+                self.training_config.policy_actor_head,
+                spec.actor_head,
+            ),
             ("policy_net_arch", self.training_config.policy_net_arch, spec.actor_mlp),
             ("value_net_arch", self.training_config.value_net_arch, spec.critic_mlp),
         )
@@ -149,8 +159,13 @@ class UniversalStageAPlan:
                 "Universal Stage A non-architecture conditions must be identical"
             )
 
-        if any(candidate.training_config.seeds != self.stage_a_plan.seeds for candidate in ordered):
-            raise ValueError("Universal Stage A training seeds must match Stage A seeds")
+        if any(
+            candidate.training_config.seeds != self.stage_a_plan.seeds
+            for candidate in ordered
+        ):
+            raise ValueError(
+                "Universal Stage A training seeds must match Stage A seeds"
+            )
 
         for candidate in ordered:
             try:
@@ -166,7 +181,9 @@ class UniversalStageAPlan:
 
     @property
     def candidate_ids(self) -> tuple[str, ...]:
-        return tuple(candidate.architecture.value for candidate in self.ablation_candidates)
+        return tuple(
+            candidate.architecture.value for candidate in self.ablation_candidates
+        )
 
     @property
     def digest(self) -> str:
@@ -177,7 +194,9 @@ class UniversalStageAPlan:
                 "candidate_digests": tuple(
                     candidate.digest for candidate in self.ablation_candidates
                 ),
-                "fixed_condition_digest": self.ablation_candidates[0].fixed_condition_digest,
+                "fixed_condition_digest": self.ablation_candidates[
+                    0
+                ].fixed_condition_digest,
             }
         )
 

@@ -1,4 +1,4 @@
-name: Temporary Universal Artifact Publish GREEN
+name: Temporary Universal Artifact Publish GREEN Retry
 
 on:
   push:

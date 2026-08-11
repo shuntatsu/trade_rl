@@ -27,7 +27,7 @@ def test_publish_universal_train_dataset_artifacts_is_train_only_and_determinist
 
     published: list[tuple[str, Path]] = []
 
-    def publish(dataset: SimpleNamespace, path: Path) -> None:
+    def publish(path: Path, dataset: SimpleNamespace) -> None:
         published.append((dataset.symbols[0], path))
 
     monkeypatch.setattr(module, "publish_market_dataset_artifact", publish)

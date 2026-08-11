@@ -1,0 +1,30 @@
+name: Temporary U4 Universal BC TDD
+
+on:
+  push:
+    branches:
+      - integration/universal-research-u3-u6
+    paths:
+      - .github/workflows/u4-universal-bc-tdd-temporary.yml
+      - tests/integrations/test_universal_behavior_cloning.py
+      - trade_rl/integrations/universal_behavior_cloning.py
+      - trade_rl/integrations/behavior_cloning.py
+      - trade_rl/learning/universal_bc.py
+
+permissions:
+  contents: read
+
+jobs:
+  tdd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - run: uv run ruff check tests/integrations/test_universal_behavior_cloning.py
+      - run: uv run ruff format --check tests/integrations/test_universal_behavior_cloning.py
+      - run: uv run pytest tests/integrations/test_universal_behavior_cloning.py -q

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +20,10 @@ from trade_rl.workflows.universal_full_research_training import (
     train_universal_full_research_comparison,
 )
 from trade_rl.workflows.universal_research import FullResearchAlgorithm
+from trade_rl.workflows.universal_runtime_manifest import (
+    UniversalRuntimeManifest,
+    load_universal_runtime_manifest,
+)
 from trade_rl.workflows.universal_training_runner import UniversalTrainingRuntime
 
 UniversalEntrypointRuntimeFactory = Callable[..., UniversalTrainingRuntime]
@@ -29,36 +33,65 @@ UniversalEntrypointRuntimeFactory = Callable[..., UniversalTrainingRuntime]
 class UniversalRuntimeFactoryContext:
     """Explicit external inputs available to a real Universal runtime factory."""
 
-    instrument_artifact_root: Path
-    postgres_url: str
-    dataset_artifact_root: Path
-    fold_train_range: tuple[int, int]
-    normalizer_digest: str
-    feature_schema_digest: str
+    runtime_manifest_path: Path
+    frozen_metadata_root: Path
+    instrument_artifact_root: Path | None = None
+    dataset_artifact_root: Path | None = None
+    fold_train_range: tuple[int, int] | None = None
+    normalizer_digest: str | None = None
+    feature_schema_digest: str | None = None
+    manifest: UniversalRuntimeManifest = field(init=False)
+    normalizer_artifact_root: Path = field(init=False)
 
     def __post_init__(self) -> None:
-        instrument_root = Path(self.instrument_artifact_root)
-        dataset_root = Path(self.dataset_artifact_root)
-        if not str(instrument_root):
-            raise ValueError("instrument_artifact_root must not be empty")
-        if not isinstance(self.postgres_url, str) or not self.postgres_url.strip():
-            raise ValueError("postgres_url must be non-empty")
-        if not str(dataset_root):
-            raise ValueError("dataset_artifact_root must not be empty")
-        start, stop = self.fold_train_range
-        if (
-            isinstance(start, bool)
-            or isinstance(stop, bool)
-            or not isinstance(start, int)
-            or not isinstance(stop, int)
-            or start < 0
-            or stop <= start
-        ):
-            raise ValueError("fold_train_range is invalid")
-        require_sha256(self.normalizer_digest, field="normalizer_digest")
-        require_sha256(self.feature_schema_digest, field="feature_schema_digest")
+        manifest_path = Path(self.runtime_manifest_path)
+        frozen_root = Path(self.frozen_metadata_root)
+        manifest = load_universal_runtime_manifest(manifest_path)
+        base = manifest_path.parent
+        instrument_root = base / manifest.instrument_artifact_relpath
+        dataset_root = base / manifest.dataset_artifact_relpath
+        normalizer_root = base / manifest.normalizer_artifact_relpath
+        if self.instrument_artifact_root is not None and Path(
+            self.instrument_artifact_root
+        ).resolve() != instrument_root.resolve():
+            raise ValueError("instrument artifact root compatibility mismatch")
+        if self.dataset_artifact_root is not None and Path(
+            self.dataset_artifact_root
+        ).resolve() != dataset_root.resolve():
+            raise ValueError("dataset artifact root compatibility mismatch")
+        if self.fold_train_range is not None and self.fold_train_range != manifest.fold_train_range:
+            raise ValueError("fold train range compatibility mismatch")
+        if self.normalizer_digest is not None:
+            require_sha256(self.normalizer_digest, field="normalizer_digest")
+            if self.normalizer_digest != manifest.statistics_digest:
+                raise ValueError("normalizer digest compatibility mismatch")
+        if self.feature_schema_digest is not None:
+            require_sha256(self.feature_schema_digest, field="feature_schema_digest")
+            if self.feature_schema_digest != manifest.feature_schema_digest:
+                raise ValueError("feature schema digest compatibility mismatch")
+        object.__setattr__(self, "runtime_manifest_path", manifest_path)
+        object.__setattr__(self, "frozen_metadata_root", frozen_root)
         object.__setattr__(self, "instrument_artifact_root", instrument_root)
         object.__setattr__(self, "dataset_artifact_root", dataset_root)
+        object.__setattr__(self, "normalizer_artifact_root", normalizer_root)
+        object.__setattr__(self, "fold_train_range", manifest.fold_train_range)
+        object.__setattr__(self, "normalizer_digest", manifest.statistics_digest)
+        object.__setattr__(self, "feature_schema_digest", manifest.feature_schema_digest)
+        object.__setattr__(self, "manifest", manifest)
+
+    @property
+    def resolved_instrument_artifact_root(self) -> Path:
+        value = self.instrument_artifact_root
+        if value is None:  # pragma: no cover - established in __post_init__
+            raise RuntimeError("instrument artifact root was not resolved")
+        return value
+
+    @property
+    def resolved_dataset_artifact_root(self) -> Path:
+        value = self.dataset_artifact_root
+        if value is None:  # pragma: no cover - established in __post_init__
+            raise RuntimeError("dataset artifact root was not resolved")
+        return value
 
 
 @dataclass(frozen=True, slots=True)

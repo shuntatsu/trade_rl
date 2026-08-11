@@ -34,19 +34,21 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--discounted-config", required=True, type=Path)
     parser.add_argument(
         "--runtime-factory",
-        required=True,
+        default="trade_rl.integrations.binance_universal_runtime:build_runtime",
         help=(
             "Import target module:function. The callable receives keyword arguments "
-            "algorithm, run_config, and context and must return UniversalTrainingRuntime."
+            "algorithm, run_config, and context and must return UniversalTrainingRuntime. "
+            "Defaults to trade_rl.integrations.binance_universal_runtime:build_runtime."
         ),
     )
-    parser.add_argument("--instrument-artifact-root", required=True, type=Path)
-    parser.add_argument("--postgres-url", required=True)
-    parser.add_argument("--dataset-artifact-root", required=True, type=Path)
-    parser.add_argument("--fold-train-start", required=True, type=int)
-    parser.add_argument("--fold-train-stop", required=True, type=int)
-    parser.add_argument("--normalizer-digest", required=True)
-    parser.add_argument("--feature-schema-digest", required=True)
+    parser.add_argument("--runtime-manifest", required=True, type=Path)
+    parser.add_argument("--frozen-metadata-root", required=True, type=Path)
+    parser.add_argument("--instrument-artifact-root", type=Path)
+    parser.add_argument("--dataset-artifact-root", type=Path)
+    parser.add_argument("--fold-train-start", type=int)
+    parser.add_argument("--fold-train-stop", type=int)
+    parser.add_argument("--normalizer-digest")
+    parser.add_argument("--feature-schema-digest")
     parser.add_argument("--baseline", action="append", required=True)
     parser.add_argument("--fold", action="append", required=True, type=int)
     parser.add_argument("--output-root", required=True, type=Path)
@@ -66,10 +68,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     }
     context = UniversalRuntimeFactoryContext(
+        runtime_manifest_path=args.runtime_manifest,
+        frozen_metadata_root=args.frozen_metadata_root,
         instrument_artifact_root=args.instrument_artifact_root,
-        postgres_url=args.postgres_url,
         dataset_artifact_root=args.dataset_artifact_root,
-        fold_train_range=(args.fold_train_start, args.fold_train_stop),
+        fold_train_range=(
+            (args.fold_train_start, args.fold_train_stop)
+            if args.fold_train_start is not None and args.fold_train_stop is not None
+            else None
+        ),
         normalizer_digest=args.normalizer_digest,
         feature_schema_digest=args.feature_schema_digest,
     )
@@ -90,9 +97,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         selected_architecture=UniversalArchitectureName(args.selected_architecture),
         run_configs=authored_configs,
         runtime_factory=runtime_factory,
-        fold_train_range=context.fold_train_range,
-        normalizer_digest=context.normalizer_digest,
-        feature_schema_digest=context.feature_schema_digest,
+        fold_train_range=context.manifest.fold_train_range,
+        normalizer_digest=context.manifest.statistics_digest,
+        feature_schema_digest=context.manifest.feature_schema_digest,
         baseline_names=tuple(args.baseline),
         folds=tuple(args.fold),
         output_root=args.output_root,

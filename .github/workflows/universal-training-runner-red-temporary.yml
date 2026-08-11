@@ -1,4 +1,4 @@
-name: Temporary Universal Training Runner GREEN
+name: Temporary Universal Training Runner GREEN Retry
 
 on:
   push:

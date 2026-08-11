@@ -1,0 +1,30 @@
+name: Temporary U6 full research TDD
+
+on:
+  push:
+    branches:
+      - integration/universal-research-u3-u6
+    paths:
+      - .github/workflows/u6-full-research-tdd-temporary.yml
+      - tests/workflows/test_universal_full_research_runtime.py
+      - trade_rl/workflows/universal_research.py
+      - trade_rl/workflows/universal_research_runtime.py
+      - scripts/run_full_research_experiment.py
+
+permissions:
+  contents: read
+
+jobs:
+  tdd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra train-sb3
+      - run: uv run ruff check tests/workflows/test_universal_full_research_runtime.py
+      - run: uv run ruff format --check tests/workflows/test_universal_full_research_runtime.py
+      - run: uv run pytest tests/workflows/test_universal_full_research_runtime.py -q

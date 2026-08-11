@@ -34,7 +34,9 @@ class UniversalArchitectureSpec:
         if self.action_shape != (1,):
             raise ValueError("universal single-instrument action shape must be (1,)")
         if self.sequence_dropout != 0.0:
-            raise ValueError("maintained universal candidates use zero sequence dropout")
+            raise ValueError(
+                "maintained universal candidates use zero sequence dropout"
+            )
 
 
 _SPECS = {
@@ -85,7 +87,9 @@ _SPECS = {
 }
 
 
-def architecture_spec(name: UniversalArchitectureName | str) -> UniversalArchitectureSpec:
+def architecture_spec(
+    name: UniversalArchitectureName | str,
+) -> UniversalArchitectureSpec:
     resolved = UniversalArchitectureName(name)
     return _SPECS[resolved]
 

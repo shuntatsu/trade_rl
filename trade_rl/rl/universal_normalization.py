@@ -61,7 +61,9 @@ class SymbolBalancedStandardNormalizer:
             raise ValueError("max_samples_per_symbol must be positive")
         start, stop = fold_train_range
         if start < 0 or stop <= start:
-            raise ValueError("fold_train_range must be an increasing non-negative range")
+            raise ValueError(
+                "fold_train_range must be an increasing non-negative range"
+            )
 
         scoped: dict[str, np.ndarray] = {}
         feature_count: int | None = None

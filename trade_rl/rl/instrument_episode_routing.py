@@ -11,9 +11,7 @@ from trade_rl.domain.common import require_sha256
 
 GENERIC_INSTRUMENT_SYMBOL = "INSTRUMENT"
 GENERIC_INSTRUMENT_SYMBOLS = (GENERIC_INSTRUMENT_SYMBOL,)
-GENERIC_INSTRUMENT_ACTION_NAMES = (
-    f"target_weight:{GENERIC_INSTRUMENT_SYMBOL}",
-)
+GENERIC_INSTRUMENT_ACTION_NAMES = (f"target_weight:{GENERIC_INSTRUMENT_SYMBOL}",)
 
 INSTRUMENT_DATASET_BINDING_SCHEMA = "instrument_dataset_binding_v1"
 INSTRUMENT_EPISODE_BINDING_SCHEMA = "instrument_episode_binding_v1"
@@ -59,9 +57,7 @@ def _require_exact_fields(
     if observed != expected:
         missing = sorted(expected - observed)
         extra = sorted(observed - expected)
-        raise ValueError(
-            f"{field} fields mismatch: missing={missing}, extra={extra}"
-        )
+        raise ValueError(f"{field} fields mismatch: missing={missing}, extra={extra}")
 
 
 _DATASET_BINDING_FIELDS = frozenset(
@@ -160,9 +156,7 @@ class InstrumentDatasetBinding:
             source_dataset_id=payload["source_dataset_id"],  # type: ignore[arg-type]
             symbol_dataset_digest=payload["symbol_dataset_digest"],  # type: ignore[arg-type]
             execution_metadata_digest=payload["execution_metadata_digest"],  # type: ignore[arg-type]
-            instrument_descriptor_digest=payload[
-                "instrument_descriptor_digest"
-            ],  # type: ignore[arg-type]
+            instrument_descriptor_digest=payload["instrument_descriptor_digest"],  # type: ignore[arg-type]
             partition_digest=payload["partition_digest"],  # type: ignore[arg-type]
             split=payload["split"],  # type: ignore[arg-type]
         )
@@ -221,7 +215,9 @@ class DeterministicBalancedInstrumentRouter:
     def __post_init__(self) -> None:
         if not self.bindings:
             raise ValueError("router bindings must not be empty")
-        if any(not isinstance(item, InstrumentDatasetBinding) for item in self.bindings):
+        if any(
+            not isinstance(item, InstrumentDatasetBinding) for item in self.bindings
+        ):
             raise TypeError("router bindings must be InstrumentDatasetBinding values")
         run_seed = _require_non_negative_integer(self.run_seed, field="run_seed")
         environment_index = _require_non_negative_integer(
@@ -238,8 +234,7 @@ class DeterministicBalancedInstrumentRouter:
         ):
             raise ValueError("training router accepts train bindings only")
         if any(
-            binding.partition_digest != partition_digest
-            for binding in self.bindings
+            binding.partition_digest != partition_digest for binding in self.bindings
         ):
             raise ValueError("router binding partition digest mismatch")
         symbols = tuple(binding.concrete_symbol for binding in self.bindings)
@@ -428,9 +423,7 @@ class InstrumentEpisodeBinding:
             source_dataset_id=payload["source_dataset_id"],  # type: ignore[arg-type]
             symbol_dataset_digest=payload["symbol_dataset_digest"],  # type: ignore[arg-type]
             execution_metadata_digest=payload["execution_metadata_digest"],  # type: ignore[arg-type]
-            instrument_descriptor_digest=payload[
-                "instrument_descriptor_digest"
-            ],  # type: ignore[arg-type]
+            instrument_descriptor_digest=payload["instrument_descriptor_digest"],  # type: ignore[arg-type]
             partition_digest=payload["partition_digest"],  # type: ignore[arg-type]
             split=payload["split"],  # type: ignore[arg-type]
         )
@@ -444,9 +437,7 @@ class InstrumentEpisodeBinding:
             dataset_binding=dataset_binding,
             router_digest=payload["router_digest"],  # type: ignore[arg-type]
             environment_index=payload["environment_index"],  # type: ignore[arg-type]
-            completed_episode_count=payload[
-                "completed_episode_count"
-            ],  # type: ignore[arg-type]
+            completed_episode_count=payload["completed_episode_count"],  # type: ignore[arg-type]
             routing_cycle=payload["routing_cycle"],  # type: ignore[arg-type]
             routing_position=payload["routing_position"],  # type: ignore[arg-type]
             episode_start=payload["episode_start"],  # type: ignore[arg-type]

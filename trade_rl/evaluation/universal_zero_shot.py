@@ -66,7 +66,8 @@ def summarize_zero_shot_pairs(
         mean_excess_return=sum(excess) / len(excess),
         worst_symbol_excess_return=min(symbol_means.values()),
         worst_seed_excess_return=min(seed_means.values()),
-        pass_fraction=sum(value > pair_pass_threshold for value in excess) / len(excess),
+        pass_fraction=sum(value > pair_pass_threshold for value in excess)
+        / len(excess),
         hard_safety_violations=sum(row.hard_safety_violations for row in rows),
     )
 

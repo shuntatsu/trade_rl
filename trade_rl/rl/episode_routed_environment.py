@@ -106,7 +106,9 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Observation, np.ndarray]):
         if any(not isinstance(symbol, str) or not symbol for symbol in children):
             raise ValueError("child environment symbols must be non-empty strings")
         if len({id(child) for child in children.values()}) != len(children):
-            raise ValueError("each concrete symbol requires an isolated child environment")
+            raise ValueError(
+                "each concrete symbol requires an isolated child environment"
+            )
 
         self.router = DeterministicBalancedInstrumentRouter(
             bindings,
@@ -171,9 +173,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Observation, np.ndarray]):
         )
         self._environment_digest = content_digest(
             {
-                "schema_version": (
-                    EPISODE_ROUTED_SINGLE_INSTRUMENT_ENVIRONMENT_SCHEMA
-                ),
+                "schema_version": (EPISODE_ROUTED_SINGLE_INSTRUMENT_ENVIRONMENT_SCHEMA),
                 "router_digest": self.router.digest,
                 "generic_symbols": self.symbols,
                 "generic_action_names": self.action_names,
@@ -259,7 +259,9 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Observation, np.ndarray]):
     def _child_reset_seed(self, *, user_seed: int | None) -> int:
         route = self.router.route(self._completed_episode_count)
         if user_seed is not None and (
-            isinstance(user_seed, bool) or not isinstance(user_seed, int) or user_seed < 0
+            isinstance(user_seed, bool)
+            or not isinstance(user_seed, int)
+            or user_seed < 0
         ):
             raise ValueError("reset seed must be a non-negative integer or null")
         digest = content_digest(

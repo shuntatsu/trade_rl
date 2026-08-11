@@ -40,7 +40,9 @@ def test_universal_binance_contract_has_206_target_local_features() -> None:
     assert not any("rolling_beta_to_btc" in feature.name for feature in features)
 
 
-def test_symbol_balanced_normalizer_uses_only_fold_and_weights_symbols_equally() -> None:
+def test_symbol_balanced_normalizer_uses_only_fold_and_weights_symbols_equally() -> (
+    None
+):
     normalizer = SymbolBalancedStandardNormalizer.fit(
         {
             "AAAUSDT": np.asarray([[0.0], [2.0], [9_999.0], [9_999.0]]),

@@ -33,7 +33,9 @@ class NamedFeature(Protocol):
 TFeature = TypeVar("TFeature", bound=NamedFeature)
 
 
-def universal_target_local_features(features: Iterable[TFeature]) -> tuple[TFeature, ...]:
+def universal_target_local_features(
+    features: Iterable[TFeature],
+) -> tuple[TFeature, ...]:
     resolved = tuple(features)
     kept = tuple(
         feature

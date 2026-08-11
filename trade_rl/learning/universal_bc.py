@@ -35,7 +35,9 @@ class SymbolBalancedBatchSampler:
             if not symbol or not indices:
                 raise ValueError("every symbol must have at least one sample index")
 
-    def batch(self, *, batch_size: int, batch_index: int) -> tuple[tuple[str, int], ...]:
+    def batch(
+        self, *, batch_size: int, batch_index: int
+    ) -> tuple[tuple[str, int], ...]:
         symbols = tuple(sorted(self.sample_indices))
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")

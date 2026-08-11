@@ -127,9 +127,7 @@ def test_router_route_is_stateless_and_repeatable() -> None:
 
 
 def test_router_identity_changes_with_environment_index_without_mutable_rng() -> None:
-    bindings = tuple(
-        _binding(symbol) for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT")
-    )
+    bindings = tuple(_binding(symbol) for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT"))
     first = DeterministicBalancedInstrumentRouter(
         bindings,
         run_seed=11,

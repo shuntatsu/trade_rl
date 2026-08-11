@@ -264,10 +264,7 @@ class SingleInstrumentDeploymentBinding:
             expected=_DEPLOYMENT_BINDING_KEYS,
             field="single-instrument deployment binding",
         )
-        if (
-            payload["schema_version"]
-            != SINGLE_INSTRUMENT_DEPLOYMENT_BINDING_SCHEMA
-        ):
+        if payload["schema_version"] != SINGLE_INSTRUMENT_DEPLOYMENT_BINDING_SCHEMA:
             raise ValueError("single-instrument deployment binding schema mismatch")
         seen_in_training = payload["seen_in_training"]
         if not isinstance(seen_in_training, bool):

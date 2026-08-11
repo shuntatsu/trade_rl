@@ -23,9 +23,7 @@ from trade_rl.rl.universal_instrument_binding import (
 )
 
 INSTRUMENT_EPISODE_INFO_KEY: Final = "instrument_episode_binding"
-INSTRUMENT_EPISODE_DIGEST_INFO_KEY: Final = (
-    "instrument_episode_binding_digest"
-)
+INSTRUMENT_EPISODE_DIGEST_INFO_KEY: Final = "instrument_episode_binding_digest"
 
 ConcreteSingleInstrumentEnv = gym.Env[Any, np.ndarray]
 InstrumentEnvironmentFactory = Callable[
@@ -95,9 +93,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             gym.spaces.Space[np.ndarray],
             initial_environment.action_space,
         )
-        self.metadata = dict(
-            getattr(initial_environment, "metadata", self.metadata)
-        )
+        self.metadata = dict(getattr(initial_environment, "metadata", self.metadata))
 
     @property
     def policy_symbols(self) -> tuple[str, ...]:
@@ -154,38 +150,24 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             or action_spec.target_weight_count != 1
             or action_spec.size != 1
         ):
-            raise ValueError(
-                "concrete environment must use one target-weight action"
-            )
-        concrete_action_names = tuple(
-            getattr(environment, "action_names", ())
-        )
-        expected_action_names = (
-            f"target_weight:{binding.concrete_symbol}",
-        )
+            raise ValueError("concrete environment must use one target-weight action")
+        concrete_action_names = tuple(getattr(environment, "action_names", ()))
+        expected_action_names = (f"target_weight:{binding.concrete_symbol}",)
         if concrete_action_names != expected_action_names:
-            raise ValueError(
-                "concrete environment action names do not match binding"
-            )
+            raise ValueError("concrete environment action names do not match binding")
         if not isinstance(environment.action_space, gym.spaces.Box):
             raise TypeError("concrete environment action space must be a Box")
         if environment.action_space.shape != (1,):
-            raise ValueError(
-                "concrete environment action space must have shape (1,)"
-            )
+            raise ValueError("concrete environment action space must have shape (1,)")
         if not isinstance(environment.observation_space, gym.spaces.Space):
-            raise TypeError(
-                "concrete environment observation space is invalid"
-            )
+            raise TypeError("concrete environment observation space is invalid")
 
     def _require_space_compatibility(
         self,
         environment: ConcreteSingleInstrumentEnv,
     ) -> None:
         if environment.observation_space != self.observation_space:
-            raise ValueError(
-                "concrete environment observation space mismatch"
-            )
+            raise ValueError("concrete environment observation space mismatch")
         if environment.action_space != self.action_space:
             raise ValueError("concrete environment action space mismatch")
 
@@ -210,9 +192,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         binding = self._bindings[symbol]
         environment = self._environment_factory(binding)
         if not isinstance(environment, gym.Env):
-            raise TypeError(
-                "environment_factory must return a Gymnasium environment"
-            )
+            raise TypeError("environment_factory must return a Gymnasium environment")
         object_id = id(environment)
         if object_id in self._environment_object_ids:
             raise ValueError(
@@ -264,18 +244,14 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         options: dict[str, Any] | None = None,
     ) -> tuple[Any, dict[str, Any]]:
         if not self._episode_complete:
-            raise RuntimeError(
-                "cannot reset while an active episode is routed"
-            )
+            raise RuntimeError("cannot reset while an active episode is routed")
         if seed is not None:
             resolved_seed = _require_non_negative_int(
                 seed,
                 field="seed",
             )
             if resolved_seed != self._run_seed:
-                raise ValueError(
-                    "reset seed must equal the immutable run_seed"
-                )
+                raise ValueError("reset seed must equal the immutable run_seed")
         super().reset(seed=self._run_seed)
 
         route = self._router.route(self._completed_episode_count)
@@ -290,9 +266,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             options=options,
         )
         if not isinstance(raw_info, Mapping):
-            raise TypeError(
-                "concrete environment reset info must be a mapping"
-            )
+            raise TypeError("concrete environment reset info must be a mapping")
         episode_start = _episode_boundary(
             raw_info,
             field="start_index",
@@ -328,21 +302,15 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         if environment is None or binding is None:
             raise RuntimeError("environment must be reset before step")
         if self._episode_complete:
-            raise RuntimeError(
-                "step called after the routed episode completed"
-            )
+            raise RuntimeError("step called after the routed episode completed")
 
-        observation, reward, terminated, truncated, raw_info = environment.step(
-            action
-        )
+        observation, reward, terminated, truncated, raw_info = environment.step(action)
         if not isinstance(terminated, bool):
             raise TypeError("terminated must be a boolean")
         if not isinstance(truncated, bool):
             raise TypeError("truncated must be a boolean")
         if not isinstance(raw_info, Mapping):
-            raise TypeError(
-                "concrete environment step info must be a mapping"
-            )
+            raise TypeError("concrete environment step info must be a mapping")
         info = self._instrument_info(raw_info, binding)
         if terminated or truncated:
             self._episode_complete = True

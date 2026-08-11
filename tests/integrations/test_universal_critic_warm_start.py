@@ -144,7 +144,9 @@ def _supervised_dataset() -> SupervisedPolicyDataset:
     )
 
 
-def test_critic_only_phase_preserves_actor_then_joint_phase_improves_value_fit() -> None:
+def test_critic_only_phase_preserves_actor_then_joint_phase_improves_value_fit() -> (
+    None
+):
     policy = _Policy()
     dataset = _supervised_dataset()
     result = warm_start_policy_actor_critic(

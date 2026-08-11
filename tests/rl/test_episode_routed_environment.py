@@ -70,8 +70,8 @@ class _SingleSymbolEnv(gym.Env[np.ndarray, np.ndarray]):
             dtype=np.float32,
         )
         self.observation_schema = "single_instrument_observation_v1"
-        self.observation_contract_digest = (
-            observation_contract_digest or _digest("observation-contract")
+        self.observation_contract_digest = observation_contract_digest or _digest(
+            "observation-contract"
         )
         self.environment_digest = _digest(f"environment:{symbol}")
         self.fail_on_reset = fail_on_reset
@@ -289,7 +289,9 @@ def test_child_terminal_flags_must_remain_exclusive() -> None:
     assert wrapper.completed_episode_count == 0
 
 
-def test_construction_rejects_dataset_action_and_observation_contract_mismatch() -> None:
+def test_construction_rejects_dataset_action_and_observation_contract_mismatch() -> (
+    None
+):
     binding = _binding("BTCUSDT")
 
     wrong_dataset = _SingleSymbolEnv("BTCUSDT", dataset_id=_digest("wrong"))

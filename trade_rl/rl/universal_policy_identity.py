@@ -14,13 +14,9 @@ from trade_rl.rl.instrument_episode_routing import (
     GENERIC_INSTRUMENT_SYMBOLS,
 )
 
-UNIVERSAL_SINGLE_INSTRUMENT_POLICY_SCHEMA = (
-    "universal_single_instrument_policy_v1"
-)
+UNIVERSAL_SINGLE_INSTRUMENT_POLICY_SCHEMA = "universal_single_instrument_policy_v1"
 UNIVERSAL_SINGLE_INSTRUMENT_ACTION_SCHEMA = "single_target_weight_action_v1"
-SINGLE_INSTRUMENT_DEPLOYMENT_BINDING_SCHEMA = (
-    "single_instrument_deployment_binding_v1"
-)
+SINGLE_INSTRUMENT_DEPLOYMENT_BINDING_SCHEMA = "single_instrument_deployment_binding_v1"
 
 
 def _require_non_empty_string(value: object, *, field: str) -> str:
@@ -140,7 +136,10 @@ class UniversalSingleInstrumentPolicyIdentity:
             "generic_action_names": self.generic_action_names,
         }
         payload.update(
-            {field_name: getattr(self, field_name) for field_name in _POLICY_DIGEST_FIELDS}
+            {
+                field_name: getattr(self, field_name)
+                for field_name in _POLICY_DIGEST_FIELDS
+            }
         )
         return payload
 
@@ -174,28 +173,16 @@ class UniversalSingleInstrumentPolicyIdentity:
         )
         identity = cls(
             architecture_digest=payload["architecture_digest"],  # type: ignore[arg-type]
-            observation_schema_digest=payload[
-                "observation_schema_digest"
-            ],  # type: ignore[arg-type]
+            observation_schema_digest=payload["observation_schema_digest"],  # type: ignore[arg-type]
             instrument_descriptor_schema_digest=payload[
                 "instrument_descriptor_schema_digest"
             ],  # type: ignore[arg-type]
             normalizer_digest=payload["normalizer_digest"],  # type: ignore[arg-type]
-            reward_environment_digest=payload[
-                "reward_environment_digest"
-            ],  # type: ignore[arg-type]
-            training_catalog_digest=payload[
-                "training_catalog_digest"
-            ],  # type: ignore[arg-type]
-            training_symbol_split_digest=payload[
-                "training_symbol_split_digest"
-            ],  # type: ignore[arg-type]
-            training_symbols_digest=payload[
-                "training_symbols_digest"
-            ],  # type: ignore[arg-type]
-            zero_shot_evidence_digest=payload[
-                "zero_shot_evidence_digest"
-            ],  # type: ignore[arg-type]
+            reward_environment_digest=payload["reward_environment_digest"],  # type: ignore[arg-type]
+            training_catalog_digest=payload["training_catalog_digest"],  # type: ignore[arg-type]
+            training_symbol_split_digest=payload["training_symbol_split_digest"],  # type: ignore[arg-type]
+            training_symbols_digest=payload["training_symbols_digest"],  # type: ignore[arg-type]
+            zero_shot_evidence_digest=payload["zero_shot_evidence_digest"],  # type: ignore[arg-type]
             generic_symbols=_serialized_string_tuple(
                 payload["generic_symbols"],
                 field="generic_symbols",
@@ -309,12 +296,8 @@ class SingleInstrumentDeploymentBinding:
             market_instrument_contract_digest=payload[
                 "market_instrument_contract_digest"
             ],  # type: ignore[arg-type]
-            dataset_feature_schema_digest=payload[
-                "dataset_feature_schema_digest"
-            ],  # type: ignore[arg-type]
-            execution_metadata_digest=payload[
-                "execution_metadata_digest"
-            ],  # type: ignore[arg-type]
+            dataset_feature_schema_digest=payload["dataset_feature_schema_digest"],  # type: ignore[arg-type]
+            execution_metadata_digest=payload["execution_metadata_digest"],  # type: ignore[arg-type]
             instrument_descriptor_evidence_digest=payload[
                 "instrument_descriptor_evidence_digest"
             ],  # type: ignore[arg-type]

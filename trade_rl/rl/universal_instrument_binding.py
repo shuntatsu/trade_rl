@@ -354,7 +354,9 @@ def validate_training_instrument_bindings(
         if symbol in resolved:
             raise ValueError(f"duplicate instrument binding for {symbol}")
         if binding.split != "train":
-            raise ValueError("training instrument bindings must all use the train split")
+            raise ValueError(
+                "training instrument bindings must all use the train split"
+            )
         resolved[symbol] = binding
     if set(resolved) != set(declared):
         raise ValueError("training instrument binding closure mismatch")

@@ -26,10 +26,14 @@ def _load_manifest(path: Path) -> UniversalResearchManifest:
         required_pairs=tuple(str(value) for value in payload["required_pairs"]),
         completed_pairs=tuple(str(value) for value in payload["completed_pairs"]),
         bc_teacher_digest=(
-            None if payload.get("bc_teacher_digest") is None else str(payload["bc_teacher_digest"])
+            None
+            if payload.get("bc_teacher_digest") is None
+            else str(payload["bc_teacher_digest"])
         ),
         software_identity=(
-            None if payload.get("software_identity") is None else str(payload["software_identity"])
+            None
+            if payload.get("software_identity") is None
+            else str(payload["software_identity"])
         ),
     )
 

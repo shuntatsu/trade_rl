@@ -36,7 +36,9 @@ class UniversalFullResearchPlan:
         algorithms: Sequence[FullResearchAlgorithm | str],
     ) -> "UniversalFullResearchPlan":
         if not zero_shot_gate_passed:
-            raise ValueError("U6 requires the zero-shot gate to pass before full research")
+            raise ValueError(
+                "U6 requires the zero-shot gate to pass before full research"
+            )
         resolved = tuple(FullResearchAlgorithm(value) for value in algorithms)
         if len(set(resolved)) != len(resolved):
             raise ValueError("full-research algorithms must be unique")
@@ -106,9 +108,13 @@ def validate_full_research_inputs(manifest: UniversalResearchManifest) -> None:
         "checkpoint_digest": manifest.checkpoint_digest,
         "cost_model_digest": manifest.cost_model_digest,
     }
-    missing_identity = sorted(key for key, value in required_identity.items() if not value)
+    missing_identity = sorted(
+        key for key, value in required_identity.items() if not value
+    )
     if missing_identity:
-        raise ValueError(f"missing required research identity: {', '.join(missing_identity)}")
+        raise ValueError(
+            f"missing required research identity: {', '.join(missing_identity)}"
+        )
     if len(set(manifest.required_pairs)) != len(manifest.required_pairs):
         raise ValueError("required paired deliverables must be unique")
     completed = set(manifest.completed_pairs)
@@ -133,7 +139,9 @@ def build_pair_closure(
     seeds: Sequence[int],
 ) -> tuple[str, ...]:
     if not candidate_names or not baseline_names or not folds or not seeds:
-        raise ValueError("candidate, baseline, fold, and seed dimensions must be non-empty")
+        raise ValueError(
+            "candidate, baseline, fold, and seed dimensions must be non-empty"
+        )
     return tuple(
         f"{candidate}:{baseline}:fold{fold}:seed{seed}"
         for candidate in candidate_names

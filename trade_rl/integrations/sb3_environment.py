@@ -145,6 +145,27 @@ def _compact_filtered_training_environment(
     return _TrainingInfoFilter(environment)
 
 
+class _CompactFilteredEnvironmentFactory:
+    """Preserve worker-index routing while enabling compact sequence observations."""
+
+    def __init__(self, factory: Callable[[], gym.Env[Any, Any]]) -> None:
+        self.factory = factory
+
+    def __call__(self) -> gym.Env[Any, Any]:
+        return _compact_filtered_training_environment(self.factory)
+
+    def for_environment_index(self, index: int) -> Callable[[], gym.Env[Any, Any]]:
+        indexed = getattr(self.factory, "for_environment_index", None)
+        selected = indexed(index) if callable(indexed) else self.factory
+        return partial(_compact_filtered_training_environment, selected)
+
+
+def _compact_filtered_environment_factory(
+    factory: Callable[[], gym.Env[Any, Any]],
+) -> _CompactFilteredEnvironmentFactory:
+    return _CompactFilteredEnvironmentFactory(factory)
+
+
 def _build_parallel_sequence_training_environment(
     factory: Callable[[], gym.Env[Any, Any]],
     n_envs: int,
@@ -155,7 +176,7 @@ def _build_parallel_sequence_training_environment(
     from trade_rl.integrations.parallel_sequence_env import ParallelSequenceVecEnv
 
     workers = _build_training_environment(
-        partial(_compact_filtered_training_environment, factory),
+        _compact_filtered_environment_factory(factory),
         n_envs,
         subprocesses=True,
     )

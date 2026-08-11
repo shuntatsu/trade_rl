@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/u4-train-scope-tdd-temporary.yml
       - tests/integrations/test_universal_critic_warm_start.py
+      - tests/integrations/test_configured_universal_critic_warm_start.py
       - trade_rl/integrations/universal_critic_warm_start.py
 
 permissions:
@@ -25,17 +26,17 @@ jobs:
       - run: uv sync --extra dev --extra train-sb3
       - name: Format focused files
         run: |
-          uv run ruff check --fix tests/integrations/test_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
-          uv run ruff format tests/integrations/test_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
-          uv run ruff check tests/integrations/test_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
+          uv run ruff check --fix tests/integrations/test_universal_critic_warm_start.py tests/integrations/test_configured_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
+          uv run ruff format tests/integrations/test_universal_critic_warm_start.py tests/integrations/test_configured_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
+          uv run ruff check tests/integrations/test_universal_critic_warm_start.py tests/integrations/test_configured_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
       - name: Commit formatting only
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tests/integrations/test_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
+          git add tests/integrations/test_universal_critic_warm_start.py tests/integrations/test_configured_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
           if ! git diff --cached --quiet; then
             git commit -m "style: format U4 critic warm-start files"
             git push origin HEAD:integration/universal-research-u3-u6
           fi
-      - name: Confirm train-scope contract
-        run: uv run pytest tests/integrations/test_universal_critic_warm_start.py -q
+      - name: Confirm configured warm-start contract
+        run: uv run pytest tests/integrations/test_universal_critic_warm_start.py tests/integrations/test_configured_universal_critic_warm_start.py -q

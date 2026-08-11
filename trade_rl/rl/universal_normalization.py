@@ -7,7 +7,6 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 
-
 _NORMALIZER_VERSION = "symbol_balanced_standard_normalizer_v1"
 _EPSILON = 1e-12
 

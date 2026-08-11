@@ -231,6 +231,7 @@ elites_memo.txt
 .agents/
 .worktrees/
 /data_past/
+/artifacts/
 
 .pytest-preflight/
 .pytest-tmp/

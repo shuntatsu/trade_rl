@@ -82,6 +82,8 @@ def test_training_image_requires_and_exports_packaged_git_provenance() -> None:
         assert f"{name}: ${{{name}:-}}" in compose
     assert "^[0-9a-f]{40}$" in dockerfile
     assert '"true"|"false"' in dockerfile
+    assert "TRADE_RL_RUNTIME_MANIFEST_DIGEST" in dockerfile
+    assert "COPY --chown=trainer:trainer scripts ./scripts" in dockerfile
 
 
 def test_training_compose_renders_without_host_provenance_or_generation() -> None:

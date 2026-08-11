@@ -39,3 +39,19 @@ def test_training_compose_separates_market_data_ownership() -> None:
     assert "--legacy-cache-root" in compose
     assert "trade-rl-training-runs:" not in compose
     assert "trade-rl-teacher-cache:" not in compose
+
+
+def test_universal_training_compose_is_gpu_manifest_and_external_db_bound() -> None:
+    compose = (
+        Path(__file__).resolve().parents[1] / "compose.universal-training.yaml"
+    ).read_text(encoding="utf-8")
+    assert "gpus: all" in compose
+    assert "external: true" in compose
+    assert "name: trade_rl_default" in compose
+    assert "/workspace/var/universal" in compose
+    assert "read_only: true" in compose
+    assert "./:/workspace" not in compose
+    assert "restart: \"no\"" in compose
+    assert "universal-u6-ppo.json" in compose
+    assert "universal-u6-lagrangian.json" in compose
+    assert "universal-u6-discounted.json" in compose

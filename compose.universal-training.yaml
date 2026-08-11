@@ -1,0 +1,66 @@
+services:
+  trainer:
+    image: ${TRADE_RL_UNIVERSAL_IMAGE:?required}
+    build:
+      context: .
+      dockerfile: Dockerfile.training
+      target: training-runtime
+      args:
+        TRADE_RL_GIT_COMMIT: ${TRADE_RL_GIT_COMMIT:?required}
+        TRADE_RL_GIT_DIRTY: "false"
+        TRADE_RL_SOURCE_TREE_DIGEST: ${TRADE_RL_SOURCE_TREE_DIGEST:?required}
+        TRADE_RL_LOCKFILE_DIGEST: ${TRADE_RL_LOCKFILE_DIGEST:?required}
+        TRADE_RL_RUNTIME_MANIFEST_DIGEST: ${TRADE_RL_RUNTIME_MANIFEST_DIGEST:?required}
+    command:
+      - python
+      - scripts/run_universal_full_research.py
+      - --selected-architecture
+      - u_medium_direct
+      - --ppo-config
+      - examples/binance-multitimeframe/universal-u6-ppo.json
+      - --lagrangian-config
+      - examples/binance-multitimeframe/universal-u6-lagrangian.json
+      - --discounted-config
+      - examples/binance-multitimeframe/universal-u6-discounted.json
+      - --runtime-factory
+      - trade_rl.integrations.binance_universal_runtime:build_runtime
+      - --runtime-manifest
+      - /workspace/var/universal/runtime-manifest.json
+      - --frozen-metadata-root
+      - /workspace/var/cache/frozen-metadata/usds-m
+      - --baseline
+      - supervised_allocator
+      - --fold
+      - "0"
+      - --fold
+      - "1"
+      - --output-root
+      - /workspace/var/runs/${TRADE_RL_RUN_GENERATION:?required}
+    environment:
+      TRADE_RL_RUN_GENERATION: ${TRADE_RL_RUN_GENERATION:?required}
+      TRADE_RL_RUNTIME_MANIFEST_DIGEST: ${TRADE_RL_RUNTIME_MANIFEST_DIGEST:?required}
+      OMP_NUM_THREADS: "8"
+      MKL_NUM_THREADS: "8"
+      TORCHINDUCTOR_COMPILE_THREADS: "4"
+      TRADE_RL_TEACHER_WORKERS: "1"
+      TRADE_RL_LAGRANGIAN_PROBE_WORKERS: "1"
+    gpus: all
+    networks:
+      - trade-rl
+    volumes:
+      - trade-rl-training-data:/workspace/var
+      - type: bind
+        source: ${TRADE_RL_UNIVERSAL_ARTIFACT_ROOT:-./artifacts/universal}
+        target: /workspace/var/universal
+        read_only: true
+    restart: "no"
+
+networks:
+  trade-rl:
+    external: true
+    name: trade_rl_default
+
+volumes:
+  trade-rl-training-data:
+    external: true
+    name: trade-rl-training-data

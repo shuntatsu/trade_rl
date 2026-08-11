@@ -5,7 +5,6 @@ from typing import Iterable, Protocol, TypeVar
 
 from trade_rl.artifacts.hashing import content_digest
 
-
 UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES = (
     "listing_age_log_days",
     "trailing_30d_quote_notional_log",

@@ -594,6 +594,7 @@ def build_checkpoint_callback(
     training_config_digest: str,
     sequence_diagnostics_enabled: bool = False,
     sequence_diagnostics_interval: int = 1,
+    telemetry_sample_every: int = 1024,
 ) -> Any:
     """Build full-horizon checkpoint and sampled Studio telemetry callbacks."""
 
@@ -615,8 +616,9 @@ def build_checkpoint_callback(
 
     checkpoint_root = Path(checkpoint_root)
     telemetry_callback = build_training_telemetry_callback(
-        path=checkpoint_root.parent / "telemetry" / "training-telemetry.jsonl",
+        path=checkpoint_root.parent / "telemetry.jsonl",
         seed=seed,
+        sample_every=telemetry_sample_every,
     )
     from trade_rl.rl.sequence_diagnostics import build_sequence_diagnostics_callback
 

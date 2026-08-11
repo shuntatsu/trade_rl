@@ -174,6 +174,7 @@ from trade_rl.rl.training_environment_contract import (
     training_environment_identity,
     validate_training_environment,
 )
+from trade_rl.rl.training_heartbeat import build_training_heartbeat_callback
 from trade_rl.rl.training_performance import (
     TrainingPerformanceRecorder,
     activate_training_performance,
@@ -1074,16 +1075,47 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                 training_config_digest=content_digest(config.digest_payload()),
                 sequence_diagnostics_enabled=config.tensorboard_enabled,
                 sequence_diagnostics_interval=config.tensorboard_log_interval,
+                telemetry_sample_every=config.tensorboard_log_interval,
             )
             metrics_callback = build_tensorboard_metrics_callback(
                 enabled=config.tensorboard_enabled,
                 log_interval=config.tensorboard_log_interval,
             )
-            callback: object = checkpoint_callback
+            checkpoint_callbacks = getattr(checkpoint_callback, "callbacks", None)
+            callbacks: list[object] = (
+                list(checkpoint_callbacks)
+                if isinstance(checkpoint_callbacks, list)
+                else [checkpoint_callback]
+            )
             if metrics_callback is not None:
+                callbacks.append(metrics_callback)
+            heartbeat_identity = {
+                "environment_digest": str(identity["environment_digest"]),
+                "training_config_digest": content_digest(config.digest_payload()),
+            }
+            runtime_manifest_digest = os.environ.get(
+                "TRADE_RL_RUNTIME_MANIFEST_DIGEST", ""
+            ).strip()
+            if runtime_manifest_digest:
+                from trade_rl.domain.common import require_sha256
+
+                heartbeat_identity["runtime_manifest_digest"] = require_sha256(
+                    runtime_manifest_digest,
+                    field="TRADE_RL_RUNTIME_MANIFEST_DIGEST",
+                )
+            callbacks.append(
+                build_training_heartbeat_callback(
+                    output_path.parent / "training-heartbeat.json",
+                    seed=seed,
+                    algorithm=config.algorithm,
+                    identity=heartbeat_identity,
+                )
+            )
+            callback: object = callbacks[0]
+            if len(callbacks) > 1:
                 from stable_baselines3.common.callbacks import CallbackList
 
-                callback = CallbackList([checkpoint_callback, metrics_callback])
+                callback = CallbackList(callbacks)
             if config.tensorboard_enabled:
                 model.tensorboard_log = str(output_path.parent / "tensorboard")
             if remaining_timesteps > 0:

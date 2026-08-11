@@ -976,6 +976,13 @@ def test_backend_wires_learning_rate_schedule_and_tensorboard(
     learn = captured["learn"]
     assert isinstance(learn, dict)
     assert learn["tb_log_name"] == "seed-0-ppo"
+    callbacks = learn["callback"].callbacks
+    assert {
+        "AtomicCheckpointCallback",
+        "TensorBoardMetricsCallback",
+        "TrainingTelemetryCallback",
+        "TrainingHeartbeatCallback",
+    }.issubset({type(item).__name__ for item in callbacks})
 
 
 def test_hierarchical_teacher_labels_bind_effective_current_weights() -> None:

@@ -34,8 +34,13 @@ class UniversalResearchStages:
             raise ValueError(
                 "U6 selected architecture differs from the research manifest"
             )
-        if not self.plan.zero_shot_gate_passed or not self.manifest.zero_shot_gate_passed:
-            raise ValueError("U6 selected architecture requires a passed zero-shot gate")
+        if (
+            not self.plan.zero_shot_gate_passed
+            or not self.manifest.zero_shot_gate_passed
+        ):
+            raise ValueError(
+                "U6 selected architecture requires a passed zero-shot gate"
+            )
         for field_name, value in (
             ("selection_authorization_digest", self.selection_authorization_digest),
             ("fresh_confirmation_digest", self.fresh_confirmation_digest),

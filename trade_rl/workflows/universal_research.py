@@ -225,7 +225,10 @@ def _validated_int_dimension(values: Sequence[int], *, field: str) -> tuple[int,
     resolved = tuple(values)
     if not resolved:
         raise ValueError(f"{field} must not be empty")
-    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in resolved):
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in resolved
+    ):
         raise ValueError(f"{field} must contain non-negative integers")
     if len(set(resolved)) != len(resolved):
         raise ValueError(f"{field} must contain unique values")

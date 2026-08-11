@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.universal_features import universal_feature_schema_digest_from_names
 from trade_rl.workflows.binance_metadata_modes import (
     BinanceMetadataMode,
     BinanceMetadataResolution,
@@ -176,7 +177,7 @@ def test_materialize_universal_train_datasets_requires_aligned_feature_contract(
         )
 
 
-def test_fit_universal_shared_normalizer_uses_only_explicit_fold_range() -> None:
+def test_fit_universal_shared_normalizer_uses_canonical_feature_schema() -> None:
     from trade_rl.workflows.universal_training import fit_universal_shared_normalizer
 
     first = _dataset("AAAUSDT")
@@ -196,10 +197,6 @@ def test_fit_universal_shared_normalizer_uses_only_explicit_fold_range() -> None
     assert normalizer.fold_train_range == (2, 6)
     assert normalizer.train_symbols == ("AAAUSDT", "BBBUSDT")
     assert normalizer.sample_count_per_symbol == 4
-    assert normalizer.feature_schema_digest == content_digest(
-        {
-            "feature_names": first.feature_names,
-            "profile": "binance_universal_target_local_v1",
-            "schema_version": "universal_feature_schema_v1",
-        }
+    assert normalizer.feature_schema_digest == universal_feature_schema_digest_from_names(
+        first.feature_names
     )

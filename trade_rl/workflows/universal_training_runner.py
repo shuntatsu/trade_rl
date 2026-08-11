@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -22,11 +22,13 @@ from trade_rl.data.contracts import (
     InstrumentExecutionRule,
     VolumeUnit,
 )
+from trade_rl.domain.common import require_sha256
 from trade_rl.integrations.sb3_training import StableBaselines3Backend
 from trade_rl.integrations.universal_pretraining import (
     UniversalPretrainingBundle,
     build_universal_pretraining_hook,
 )
+from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk
 from trade_rl.rl.actions import ACTION_SCHEMA, ActionMode, ActionSpec
@@ -38,6 +40,9 @@ from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.universal_teacher_runtime import (
     build_universal_oracle_batches,
     build_universal_pretraining_bundle_from_batches,
+)
+from trade_rl.workflows.universal_training import (
+    universal_training_contract_digest,
 )
 
 
@@ -425,6 +430,115 @@ def build_universal_bindings(
     return tuple(bindings)
 
 
+@dataclass(frozen=True, slots=True)
+class UniversalTrainingRuntime:
+    """Immutable candidate-specific Universal runtime identity."""
+
+    train_symbols: tuple[str, ...]
+    catalog_digest: str
+    partition_digest: str
+    split_manifest_digest: str
+    feature_schema_digest: str
+    statistics_digest: str
+    instrument_context_schema_digest: str
+    training_contract_digest: str
+    routed_environment_factory: UniversalRoutedEnvironmentFactory
+    pretraining_artifact_digest: str | None = None
+
+    def __post_init__(self) -> None:
+        symbols = tuple(self.train_symbols)
+        if not symbols or len(set(symbols)) != len(symbols):
+            raise ValueError(
+                "Universal runtime train_symbols must be non-empty and unique"
+            )
+        for field_name, value in (
+            ("catalog_digest", self.catalog_digest),
+            ("partition_digest", self.partition_digest),
+            ("split_manifest_digest", self.split_manifest_digest),
+            ("feature_schema_digest", self.feature_schema_digest),
+            ("statistics_digest", self.statistics_digest),
+            ("instrument_context_schema_digest", self.instrument_context_schema_digest),
+            ("training_contract_digest", self.training_contract_digest),
+        ):
+            require_sha256(value, field=f"Universal runtime {field_name}")
+        if self.pretraining_artifact_digest is not None:
+            require_sha256(
+                self.pretraining_artifact_digest,
+                field="Universal runtime pretraining_artifact_digest",
+            )
+        if not isinstance(
+            self.routed_environment_factory, UniversalRoutedEnvironmentFactory
+        ):
+            raise TypeError(
+                "Universal runtime routed_environment_factory must be UniversalRoutedEnvironmentFactory"
+            )
+        if self.routed_environment_factory.train_symbols != symbols:
+            raise ValueError("Universal runtime routed symbol scope mismatch")
+        if self.routed_environment_factory.partition_digest != self.partition_digest:
+            raise ValueError("Universal runtime routed partition identity mismatch")
+        if (
+            self.routed_environment_factory.training_contract_digest
+            != self.training_contract_digest
+        ):
+            raise ValueError("Universal runtime routed training contract mismatch")
+        object.__setattr__(self, "train_symbols", symbols)
+
+    def with_pretraining_artifact(
+        self, artifact_digest: str
+    ) -> UniversalTrainingRuntime:
+        require_sha256(
+            artifact_digest,
+            field="Universal runtime pretraining_artifact_digest",
+        )
+        return replace(self, pretraining_artifact_digest=artifact_digest)
+
+
+def build_universal_training_runtime(
+    *,
+    train_symbols: Sequence[str],
+    catalog_digest: str,
+    partition_digest: str,
+    split_manifest_digest: str,
+    feature_schema_digest: str,
+    statistics_digest: str,
+    instrument_context_schema_digest: str,
+    routed_environment_factory: UniversalRoutedEnvironmentFactory,
+    training: Any,
+) -> UniversalTrainingRuntime:
+    """Rebind one routed factory to the exact architecture-specific training identity."""
+
+    if not isinstance(routed_environment_factory, UniversalRoutedEnvironmentFactory):
+        raise TypeError(
+            "routed_environment_factory must be a UniversalRoutedEnvironmentFactory"
+        )
+    digest_payload = getattr(training, "digest_payload", None)
+    if not callable(digest_payload):
+        raise TypeError("Universal training config must expose digest_payload")
+    training_config_digest = content_digest(digest_payload())
+    training_contract_digest = universal_training_contract_digest(
+        partition_digest=partition_digest,
+        feature_schema_digest=feature_schema_digest,
+        statistics_digest=statistics_digest,
+        instrument_context_schema_digest=instrument_context_schema_digest,
+        training_config_digest=training_config_digest,
+    )
+    bound_factory = replace(
+        routed_environment_factory,
+        training_contract_digest=training_contract_digest,
+    )
+    return UniversalTrainingRuntime(
+        train_symbols=tuple(train_symbols),
+        catalog_digest=catalog_digest,
+        partition_digest=partition_digest,
+        split_manifest_digest=split_manifest_digest,
+        feature_schema_digest=feature_schema_digest,
+        statistics_digest=statistics_digest,
+        instrument_context_schema_digest=instrument_context_schema_digest,
+        training_contract_digest=training_contract_digest,
+        routed_environment_factory=bound_factory,
+    )
+
+
 def assemble_universal_sb3_training_backend(
     *,
     routed_environment_factory: UniversalRoutedEnvironmentFactory,
@@ -432,6 +546,7 @@ def assemble_universal_sb3_training_backend(
     fold_train_range: tuple[int, int],
     normalizer_digest: str,
     feature_schema_digest: str,
+    oracle_batches: Mapping[str, EpisodeOracleBatch] | None = None,
     verbose: int = 0,
 ) -> tuple[StableBaselines3Backend, UniversalPretrainingBundle]:
     """Assemble the maintained U4 Oracle -> BC/critic -> SB3 training path."""
@@ -484,16 +599,27 @@ def assemble_universal_sb3_training_backend(
     if not callable(provider):
         raise ValueError("Universal U4 requires an instrument context provider")
 
-    batches = build_universal_oracle_batches(
-        train_symbols=routed_environment_factory.train_symbols,
-        bindings=routed_environment_factory.bindings,
-        concrete_environment_factory=(
-            routed_environment_factory.concrete_environment_factory
-        ),
-        fold_train_range=fold_train_range,
-        behavior_cloning_seed=behavior_cloning_seed,
-        n_envs=n_envs,
-    )
+    if oracle_batches is None:
+        batches = build_universal_oracle_batches(
+            train_symbols=routed_environment_factory.train_symbols,
+            bindings=routed_environment_factory.bindings,
+            concrete_environment_factory=(
+                routed_environment_factory.concrete_environment_factory
+            ),
+            fold_train_range=fold_train_range,
+            behavior_cloning_seed=behavior_cloning_seed,
+            n_envs=n_envs,
+        )
+    else:
+        batches = dict(oracle_batches)
+        if set(batches) != set(routed_environment_factory.train_symbols):
+            raise ValueError(
+                "Universal U4 oracle_batches must exactly match train_symbols"
+            )
+        if any(not isinstance(batch, EpisodeOracleBatch) for batch in batches.values()):
+            raise TypeError(
+                "Universal U4 oracle_batches must contain EpisodeOracleBatch"
+            )
     bundle = build_universal_pretraining_bundle_from_batches(
         train_symbols=routed_environment_factory.train_symbols,
         bindings=routed_environment_factory.bindings,
@@ -600,6 +726,8 @@ def train_universal_seeds(
 
 
 __all__ = [
+    "build_universal_training_runtime",
+    "UniversalTrainingRuntime",
     "assemble_universal_sb3_training_backend",
     "UniversalDatasetArtifactEnvironmentFactory",
     "UniversalRoutedEnvironmentFactory",

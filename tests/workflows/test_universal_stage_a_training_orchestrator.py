@@ -89,7 +89,9 @@ def test_build_universal_training_runtime_rebinds_candidate_training_contract() 
         training_config_digest=content_digest(training.digest_payload()),
     )
     assert runtime.training_contract_digest == expected_contract
-    assert runtime.routed_environment_factory.training_contract_digest == expected_contract
+    assert (
+        runtime.routed_environment_factory.training_contract_digest == expected_contract
+    )
     assert runtime.pretraining_artifact_digest is None
 
     bound = runtime.with_pretraining_artifact(_digest("pretraining"))
@@ -102,10 +104,10 @@ def test_train_universal_stage_a_ablation_reuses_oracle_batches_and_closes_four_
     tmp_path,
 ) -> None:
     import trade_rl.workflows.universal_stage_a_training as module
+    from trade_rl.workflows.universal_stage_a import UniversalStageACandidate
     from trade_rl.workflows.universal_stage_a_training import (
         train_universal_stage_a_ablation,
     )
-    from trade_rl.workflows.universal_stage_a import UniversalStageACandidate
     from trade_rl.workflows.universal_training_runner import (
         build_universal_training_runtime,
     )
@@ -177,7 +179,9 @@ def test_train_universal_stage_a_ablation_reuses_oracle_batches_and_closes_four_
 
     monkeypatch.setattr(module, "train_universal_seeds", train)
 
-    def candidate_adapter(*, architecture, training_config, training_manifest, output_root):
+    def candidate_adapter(
+        *, architecture, training_config, training_manifest, output_root
+    ):
         assert training_manifest["architecture_name"] == architecture.value
         assert output_root == tmp_path / architecture.value
         checkpoint_digests = tuple(

@@ -19,124 +19,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - name: Preserve U2 compatibility while enabling strict Universal training identity
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("trade_rl/rl/universal_single_instrument_env.py")
-          text = path.read_text()
-          if "self._training_identity_enabled = training_contract_digest is not None" not in text:
-              text = text.replace(
-                  "        self._training_contract_digest = training_contract_digest\n",
-                  "        self._training_contract_digest = training_contract_digest\n"
-                  "        self._training_identity_enabled = training_contract_digest is not None\n",
-                  1,
-              )
-          start = text.index("        self._initial_capital = float(getattr(initial_environment, \"initial_capital\"))\n")
-          end = text.index("\n    def _policy_observation_space(\n", start)
-          replacement = '''        raw_initial_capital = getattr(initial_environment, "initial_capital", None)
-          raw_decision_hours = getattr(initial_environment, "decision_hours", None)
-          self._initial_capital = (
-              None if raw_initial_capital is None else float(raw_initial_capital)
-          )
-          self._decision_hours = (
-              None if raw_decision_hours is None else float(raw_decision_hours)
-          )
-          concrete_observation_digest = getattr(
-              initial_environment,
-              "observation_contract_digest",
-              None,
-          )
-          source_environment_digest = getattr(
-              initial_environment,
-              "environment_digest",
-              None,
-          )
-          if self._training_identity_enabled:
-              if (
-                  self._initial_capital is None
-                  or not np.isfinite(self._initial_capital)
-                  or self._initial_capital <= 0.0
-              ):
-                  raise ValueError("concrete environment initial_capital must be positive")
-              if (
-                  self._decision_hours is None
-                  or not np.isfinite(self._decision_hours)
-                  or self._decision_hours <= 0.0
-              ):
-                  raise ValueError("concrete environment decision_hours must be positive")
-              if not isinstance(concrete_observation_digest, str):
-                  raise TypeError(
-                      "concrete environment must expose observation_contract_digest"
-                  )
-              require_sha256(
-                  concrete_observation_digest,
-                  field="concrete observation_contract_digest",
-              )
-          context_schema_digest = getattr(
-              instrument_context_provider,
-              "schema_digest",
-              None,
-          )
-          if context_schema_digest is not None:
-              require_sha256(
-                  context_schema_digest,
-                  field="instrument context schema digest",
-              )
-          self._observation_contract_digest = content_digest(
-              {
-                  "concrete_observation_contract_digest": concrete_observation_digest,
-                  "instrument_context_schema_digest": context_schema_digest,
-                  "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,
-                  "training_contract_digest": training_contract_digest,
-              }
-          )
-          if source_environment_digest is not None:
-              if not isinstance(source_environment_digest, str):
-                  raise TypeError("concrete environment_digest must be a string")
-              require_sha256(source_environment_digest, field="concrete environment_digest")
-          self._environment_digest = content_digest(
-              {
-                  "router_digest": self._router.digest,
-                  "schema_version": "universal_routed_environment_v1",
-                  "source_environment_digest": (
-                      source_environment_digest
-                      if training_contract_digest is None
-                      else None
-                  ),
-                  "training_contract_digest": training_contract_digest,
-              }
-          )
-          '''
-          text = text[:start] + replacement + text[end:]
-          text = text.replace(
-              "        return self._initial_capital\n\n    @property\n    def decision_hours(self) -> float:\n        return self._decision_hours\n",
-              "        if self._initial_capital is None:\n"
-              "            raise AttributeError(\"Universal training identity is not enabled\")\n"
-              "        return self._initial_capital\n\n"
-              "    @property\n"
-              "    def decision_hours(self) -> float:\n"
-              "        if self._decision_hours is None:\n"
-              "            raise AttributeError(\"Universal training identity is not enabled\")\n"
-              "        return self._decision_hours\n",
-              1,
-          )
-          text = text.replace(
-              "        if self._training_surface(environment) != self._training_surface(\n"
-              "            self._reference_environment\n"
-              "        ):\n"
-              "            raise ValueError(\"concrete environment training contract mismatch\")\n",
-              "        if self._training_identity_enabled and (\n"
-              "            self._training_surface(environment)\n"
-              "            != self._training_surface(self._reference_environment)\n"
-              "        ):\n"
-              "            raise ValueError(\"concrete environment training contract mismatch\")\n",
-              1,
-          )
-          path.write_text(text)
-          compile(text, str(path), "exec")
-          PY
       - name: Fuse instrument context into sequence extractor
         run: |
           python - <<'PY'
@@ -144,59 +26,114 @@ jobs:
 
           path = Path("trade_rl/rl/policies.py")
           text = path.read_text()
-          class_start = text.index("class SequenceAssetFeatureExtractor")
-          sig = "        n_symbols: int,\n"
-          sig_pos = text.index(sig, class_start)
-          if "        instrument_context_width: int = 0,\n" not in text[class_start : class_start + 2500]:
-              text = text[: sig_pos + len(sig)] + "        instrument_context_width: int = 0,\n" + text[sig_pos + len(sig) :]
-          class_start = text.index("class SequenceAssetFeatureExtractor")
-          if 'expected_shapes["instrument_context"]' not in text[class_start : class_start + 5000]:
-              marker = "        for timeframe in timeframes:\n"
-              pos = text.index(marker, class_start)
-              insertion = '''        if instrument_context_width < 0:
+          old_signature = "        global_width: int,\n        n_symbols: int,\n        current_weight_source: str = CURRENT_WEIGHT_SOURCE,\n"
+          new_signature = "        global_width: int,\n        n_symbols: int,\n        instrument_context_width: int = 0,\n        current_weight_source: str = CURRENT_WEIGHT_SOURCE,\n"
+          if "instrument_context_width: int = 0" not in text:
+              if old_signature not in text:
+                  raise SystemExit("sequence extractor signature anchor not found")
+              text = text.replace(old_signature, new_signature, 1)
+
+          old_shapes = '''        expected_shapes: dict[str, tuple[int, ...]] = {
+              "current_snapshot": (n_symbols, snapshot_width),
+              "asset_state": (n_symbols, asset_state_width),
+              "global_state": (global_width,),
+              "active": (n_symbols,),
+              "current_weights": (n_symbols,),
+          }
+          for timeframe in timeframes:
+          '''.replace("          ", "")
+          new_shapes = '''        expected_shapes: dict[str, tuple[int, ...]] = {
+              "current_snapshot": (n_symbols, snapshot_width),
+              "asset_state": (n_symbols, asset_state_width),
+              "global_state": (global_width,),
+              "active": (n_symbols,),
+              "current_weights": (n_symbols,),
+          }
+          if instrument_context_width < 0:
               raise ValueError("instrument_context_width must be non-negative")
           if instrument_context_width > 0:
               expected_shapes["instrument_context"] = (
                   n_symbols,
                   instrument_context_width,
               )
-          '''
-              text = text[:pos] + insertion + text[pos:]
-          class_start = text.index("class SequenceAssetFeatureExtractor")
-          if "self.instrument_context_encoder" not in text[class_start : class_start + 8000]:
-              pos = text.index("\n\n    def forward", class_start)
-              insertion = '''
-              self.instrument_context_width = instrument_context_width
-              self.instrument_context_encoder = (
-                  None
-                  if instrument_context_width == 0
-                  else nn.Sequential(
-                      nn.Linear(instrument_context_width, d_model),
-                      nn.LayerNorm(d_model),
-                      nn.SiLU(),
-                      nn.Linear(d_model, d_model),
-                      nn.LayerNorm(d_model),
-                  )
+          for timeframe in timeframes:
+          '''.replace("          ", "")
+          if 'expected_shapes["instrument_context"]' not in text:
+              if old_shapes not in text:
+                  raise SystemExit("sequence expected-shapes anchor not found")
+              text = text.replace(old_shapes, new_shapes, 1)
+
+          old_encoder = '''        self.global_encoder = nn.Sequential(
+              nn.Linear(global_width, 256),
+              nn.LayerNorm(256),
+              nn.SiLU(),
+              nn.Linear(256, 128),
+              nn.LayerNorm(128),
+              nn.SiLU(),
+          )
+          \n    def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
+          '''.replace("          ", "")
+          new_encoder = '''        self.global_encoder = nn.Sequential(
+              nn.Linear(global_width, 256),
+              nn.LayerNorm(256),
+              nn.SiLU(),
+              nn.Linear(256, 128),
+              nn.LayerNorm(128),
+              nn.SiLU(),
+          )
+          self.instrument_context_encoder = (
+              None
+              if instrument_context_width == 0
+              else nn.Sequential(
+                  nn.Linear(instrument_context_width, d_model),
+                  nn.LayerNorm(d_model),
+                  nn.SiLU(),
+                  nn.Linear(d_model, d_model),
+                  nn.LayerNorm(d_model),
               )
-          '''
-              text = text[:pos] + insertion + text[pos:]
-          class_start = text.index("class SequenceAssetFeatureExtractor")
-          if "context_tokens = self.instrument_context_encoder" not in text[class_start : class_start + 12000]:
-              marker = '            globals_ = self.global_encoder(observations["global_state"].float())\n'
-              pos = text.index(marker, class_start)
-              insertion = '''            if self.instrument_context_encoder is not None:
+          )
+          \n    def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
+          '''.replace("          ", "")
+          if "self.instrument_context_encoder" not in text:
+              if old_encoder not in text:
+                  raise SystemExit("sequence global-encoder anchor not found")
+              text = text.replace(old_encoder, new_encoder, 1)
+
+          old_forward = '''            asset_tokens, pooled_assets = self.asset_encoder(
+                  sequences=sequences,
+                  available=available,
+                  staleness=staleness_by_timeframe,
+                  snapshot=reference.float(),
+                  asset_state=observations["asset_state"].float(),
+                  active=observations["active"].float(),
+              )
+              globals_ = self.global_encoder(observations["global_state"].float())
+          '''.replace("          ", "")
+          new_forward = '''            asset_tokens, pooled_assets = self.asset_encoder(
+                  sequences=sequences,
+                  available=available,
+                  staleness=staleness_by_timeframe,
+                  snapshot=reference.float(),
+                  asset_state=observations["asset_state"].float(),
+                  active=observations["active"].float(),
+              )
+              if self.instrument_context_encoder is not None:
                   context_tokens = self.instrument_context_encoder(
                       observations["instrument_context"].float()
                   )
                   asset_tokens = asset_tokens + context_tokens
-                  context_active = observations["active"].float().unsqueeze(-1)
-                  denominator = context_active.sum(dim=1).clamp_min(1.0)
+                  active_context = observations["active"].float().unsqueeze(-1)
+                  denominator = active_context.sum(dim=1).clamp_min(1.0)
                   pooled_context = (
-                      (context_tokens * context_active).sum(dim=1) / denominator
+                      (context_tokens * active_context).sum(dim=1) / denominator
                   )
                   pooled_assets = pooled_assets + pooled_context
-          '''
-              text = text[:pos] + insertion + text[pos:]
+              globals_ = self.global_encoder(observations["global_state"].float())
+          '''.replace("          ", "")
+          if "context_tokens = self.instrument_context_encoder" not in text:
+              if old_forward not in text:
+                  raise SystemExit("sequence forward anchor not found")
+              text = text.replace(old_forward, new_forward, 1)
           path.write_text(text)
           compile(text, str(path), "exec")
           PY
@@ -204,29 +141,28 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import textwrap
 
           path = Path("trade_rl/integrations/sb3_model_assembly.py")
           text = path.read_text()
           if "def _is_universal_single_instrument" not in text:
-              pos = text.index("def _rollout_buffer_bytes(\n")
-              helper = textwrap.dedent('''\
-              def _is_universal_single_instrument(probe: object) -> bool:
-                  unwrapped = getattr(probe, "unwrapped", probe)
-                  return bool(
-                      getattr(unwrapped, "is_universal_single_instrument", False)
-                  )
-
-
-              ''')
-              text = text[:pos] + helper + text[pos:]
-          old = '''    estimator = (
+              anchor = "def _rollout_buffer_bytes(\n"
+              if anchor not in text:
+                  raise SystemExit("rollout helper anchor not found")
+              text = text.replace(
+                  anchor,
+                  "def _is_universal_single_instrument(probe: object) -> bool:\n"
+                  "    unwrapped = getattr(probe, \"unwrapped\", probe)\n"
+                  "    return bool(getattr(unwrapped, \"is_universal_single_instrument\", False))\n\n\n"
+                  + anchor,
+                  1,
+              )
+          old_estimator = '''    estimator = (
               estimate_index_backed_ppo_rollout_buffer_bytes
               if config.observation_encoder == "hierarchical_sequence_v2"
               else estimate_ppo_rollout_buffer_bytes
           )
-          '''
-          new = '''    estimator = (
+          '''.replace("          ", "")
+          new_estimator = '''    estimator = (
               estimate_index_backed_ppo_rollout_buffer_bytes
               if (
                   config.observation_encoder == "hierarchical_sequence_v2"
@@ -234,163 +170,123 @@ jobs:
               )
               else estimate_ppo_rollout_buffer_bytes
           )
-          '''
-          if old in text:
-              text = text.replace(old, new, 1)
-          start = text.index("def _sequence_policy_assembly(\n")
-          end = text.index("\n\ndef resolve_sb3_policy_assembly(\n", start)
-          function = textwrap.dedent('''\
-          def _sequence_policy_assembly(
-              *,
-              probe: object,
-              identity: Mapping[str, object],
-              config: ResidualTrainingConfig,
-          ) -> tuple[
-              object,
-              dict[str, object],
-              dict[str, object],
-              SequenceRolloutReconstructor | None,
-              bool,
-          ]:
-              from trade_rl.rl.policies import (
-                  SequenceAssetFeatureExtractor,
-                  SharedPerAssetActorCriticPolicy,
-              )
+          '''.replace("          ", "")
+          if old_estimator in text:
+              text = text.replace(old_estimator, new_estimator, 1)
 
-              unwrapped: Any = getattr(probe, "unwrapped", probe)
-              metadata = getattr(unwrapped, "sequence_layout_metadata", None)
-              if not isinstance(metadata, dict):
+          text = text.replace(
+              "    SequenceRolloutReconstructor,\n    bool,\n]:\n",
+              "    SequenceRolloutReconstructor | None,\n    bool,\n]:\n",
+              1,
+          )
+          old_sequence = '''    dataset = getattr(unwrapped, "dataset", None)
+          raw_symbols = getattr(dataset, "symbols", None)
+          if (
+              not isinstance(raw_symbols, (tuple, list))
+              or not raw_symbols
+              or any(not isinstance(item, str) or not item for item in raw_symbols)
+          ):
+              raise ValueError("sequence training requires ordered dataset symbols")
+          symbols = tuple(raw_symbols)
+          expected_action_names = tuple(f"target_weight:{symbol}" for symbol in symbols)
+          if (
+              _action_size(identity) != int(sequence_metadata["n_symbols"])
+              or action_names != expected_action_names
+          ):
+              raise ValueError(
+                  "hierarchical sequence training requires target_weight actions in exact "
+                  "dataset symbol order"
+              )
+          uses_shared_asset_actor = True
+          sequence_builder = getattr(unwrapped, "sequence_observation_builder", None)
+          if dataset is None or sequence_builder is None:
+              raise ValueError(
+                  "sequence training requires dataset-bound reconstruction metadata"
+              )
+          sequence_reconstructor = SequenceRolloutReconstructor(
+              dataset=dataset,
+              builder=sequence_builder,
+              normalizer=getattr(unwrapped, "sequence_normalizer", None),
+              expected_dataset_id=dataset.dataset_id,
+              expected_layout_digest=sequence_builder.layout_digest(dataset),
+              policy_plane=getattr(unwrapped, "sequence_policy_plane", None),
+          )
+          '''.replace("          ", "")
+          new_sequence = '''    universal_sequence = _is_universal_single_instrument(unwrapped)
+          sequence_reconstructor: SequenceRolloutReconstructor | None = None
+          if universal_sequence:
+              raw_symbols = getattr(unwrapped, "policy_symbols", None)
+              if raw_symbols != ("INSTRUMENT",):
                   raise ValueError(
-                      "sequence training requires environment sequence metadata"
+                      "Universal sequence training requires the generic INSTRUMENT slot"
                   )
-              sequence_metadata = dict(metadata)
-              action_names = _action_names(identity)
-              universal_sequence = _is_universal_single_instrument(unwrapped)
-              sequence_reconstructor: SequenceRolloutReconstructor | None = None
-              if universal_sequence:
-                  raw_symbols = getattr(unwrapped, "policy_symbols", None)
-                  if raw_symbols != ("INSTRUMENT",):
-                      raise ValueError(
-                          "Universal sequence training requires the generic INSTRUMENT slot"
-                      )
-                  if (
-                      int(sequence_metadata["n_symbols"]) != 1
-                      or _action_size(identity) != 1
-                      or action_names != ("target_weight:INSTRUMENT",)
-                  ):
-                      raise ValueError(
-                          "Universal sequence training requires one generic target-weight action"
-                      )
-              else:
-                  dataset = getattr(unwrapped, "dataset", None)
-                  raw_symbols = getattr(dataset, "symbols", None)
-                  if (
-                      not isinstance(raw_symbols, (tuple, list))
-                      or not raw_symbols
-                      or any(not isinstance(item, str) or not item for item in raw_symbols)
-                  ):
-                      raise ValueError(
-                          "sequence training requires ordered dataset symbols"
-                      )
-                  symbols = tuple(raw_symbols)
-                  expected_action_names = tuple(
-                      f"target_weight:{symbol}" for symbol in symbols
+              if (
+                  int(sequence_metadata["n_symbols"]) != 1
+                  or _action_size(identity) != 1
+                  or action_names != ("target_weight:INSTRUMENT",)
+              ):
+                  raise ValueError(
+                      "Universal sequence training requires one generic target-weight action"
                   )
-                  if (
-                      _action_size(identity) != int(sequence_metadata["n_symbols"])
-                      or action_names != expected_action_names
-                  ):
-                      raise ValueError(
-                          "hierarchical sequence training requires target_weight actions in exact "
-                          "dataset symbol order"
-                      )
-                  sequence_builder = getattr(
-                      unwrapped, "sequence_observation_builder", None
+          else:
+              dataset = getattr(unwrapped, "dataset", None)
+              raw_symbols = getattr(dataset, "symbols", None)
+              if (
+                  not isinstance(raw_symbols, (tuple, list))
+                  or not raw_symbols
+                  or any(not isinstance(item, str) or not item for item in raw_symbols)
+              ):
+                  raise ValueError("sequence training requires ordered dataset symbols")
+              symbols = tuple(raw_symbols)
+              expected_action_names = tuple(
+                  f"target_weight:{symbol}" for symbol in symbols
+              )
+              if (
+                  _action_size(identity) != int(sequence_metadata["n_symbols"])
+                  or action_names != expected_action_names
+              ):
+                  raise ValueError(
+                      "hierarchical sequence training requires target_weight actions in exact "
+                      "dataset symbol order"
                   )
-                  if dataset is None or sequence_builder is None:
-                      raise ValueError(
-                          "sequence training requires dataset-bound reconstruction metadata"
-                      )
-                  sequence_reconstructor = SequenceRolloutReconstructor(
-                      dataset=dataset,
-                      builder=sequence_builder,
-                      normalizer=getattr(unwrapped, "sequence_normalizer", None),
-                      expected_dataset_id=dataset.dataset_id,
-                      expected_layout_digest=sequence_builder.layout_digest(dataset),
-                      policy_plane=getattr(unwrapped, "sequence_policy_plane", None),
+              sequence_builder = getattr(unwrapped, "sequence_observation_builder", None)
+              if dataset is None or sequence_builder is None:
+                  raise ValueError(
+                      "sequence training requires dataset-bound reconstruction metadata"
                   )
-              uses_shared_asset_actor = True
-              policy_kwargs: dict[str, object] = {
-                  "net_arch": {
-                      "pi": list(config.policy_net_arch),
-                      "vf": list(config.value_net_arch),
-                  },
-                  "features_extractor_class": SequenceAssetFeatureExtractor,
-                  "features_extractor_kwargs": {
-                      **sequence_metadata,
-                      "sequence_tcn_capacity": config.sequence_tcn_capacity,
-                      "d_model": config.sequence_d_model,
-                      "timeframe_attention_heads": config.sequence_timeframe_attention_heads,
-                      "timeframe_attention_layers": config.sequence_timeframe_attention_layers,
-                      "timeframe_ffn_multiplier": config.sequence_timeframe_ffn_multiplier,
-                      "timeframe_gate_bias": config.sequence_timeframe_gate_bias,
-                      "asset_attention_heads": config.sequence_asset_attention_heads,
-                      "asset_attention_layers": config.sequence_asset_attention_layers,
-                      "asset_ffn_multiplier": config.sequence_asset_ffn_multiplier,
-                      "asset_gate_bias": config.sequence_asset_gate_bias,
-                      "dropout": config.sequence_dropout,
-                  },
+              sequence_reconstructor = SequenceRolloutReconstructor(
+                  dataset=dataset,
+                  builder=sequence_builder,
+                  normalizer=getattr(unwrapped, "sequence_normalizer", None),
+                  expected_dataset_id=dataset.dataset_id,
+                  expected_layout_digest=sequence_builder.layout_digest(dataset),
+                  policy_plane=getattr(unwrapped, "sequence_policy_plane", None),
+              )
+          uses_shared_asset_actor = True
+          '''.replace("          ", "")
+          if "universal_sequence = _is_universal_single_instrument" not in text:
+              if old_sequence not in text:
+                  raise SystemExit("sequence assembly anchor not found")
+              text = text.replace(old_sequence, new_sequence, 1)
+
+          old_resolve = '''        sequence_unwrapped: Any = getattr(probe, "unwrapped", probe)
+              dataset = getattr(sequence_unwrapped, "dataset", None)
+              raw_symbols = getattr(dataset, "symbols", None)
+              if (
+                  not isinstance(raw_symbols, (tuple, list))
+                  or not raw_symbols
+                  or any(not isinstance(item, str) or not item for item in raw_symbols)
+              ):
+                  raise ValueError("sequence training requires ordered dataset symbols")
+              sequence_symbols = tuple(raw_symbols)
+              sequence_action_names = _action_names(identity)
+              rollout_buffer_class = IndexBackedDictRolloutBuffer
+              rollout_buffer_kwargs = {
+                  "sequence_reconstructor": sequence_reconstructor,
+                  "sequence_transfer_mode": config.sequence_transfer_mode,
               }
-              pre_trade_risk = getattr(unwrapped, "pre_trade_risk", None)
-              risk_config = getattr(pre_trade_risk, "config", None)
-              entry_threshold = float(getattr(risk_config, "entry_threshold", 0.0))
-              no_trade_band = float(getattr(risk_config, "no_trade_band", 0.0))
-              policy_kwargs.update(
-                  {
-                      "shared_actor_n_symbols": int(sequence_metadata["n_symbols"]),
-                      "shared_actor_d_model": config.sequence_d_model,
-                      "shared_actor_global_dim": 128,
-                      "shared_actor_net_arch": tuple(config.policy_net_arch),
-                      "shared_actor_head": config.policy_actor_head,
-                      "shared_actor_gate_temperature": config.hierarchical_gate_temperature,
-                      "shared_actor_gate_prediction_threshold": (
-                          config.behavior_cloning_gate_prediction_threshold
-                      ),
-                      "shared_actor_entry_threshold": entry_threshold,
-                      "shared_actor_minimum_deterministic_change": no_trade_band,
-                  }
-              )
-              return (
-                  SharedPerAssetActorCriticPolicy,
-                  policy_kwargs,
-                  sequence_metadata,
-                  sequence_reconstructor,
-                  uses_shared_asset_actor,
-              )
-          ''')
-          text = text[:start] + function + text[end:]
-          block_start = text.index(
-              '    if config.observation_encoder == "hierarchical_sequence_v2":\n',
-              text.index("def resolve_sb3_policy_assembly"),
-          )
-          block_end = text.index(
-              "    elif isinstance(algorithm_config, PPOConfig):\n",
-              block_start,
-          )
-          block = textwrap.dedent('''\
-          if config.observation_encoder == "hierarchical_sequence_v2":
-              (
-                  policy_identifier,
-                  policy_kwargs,
-                  sequence_metadata,
-                  sequence_reconstructor,
-                  uses_shared_asset_actor,
-              ) = _sequence_policy_assembly(
-                  probe=probe,
-                  identity=identity,
-                  config=config,
-              )
-              sequence_unwrapped: Any = getattr(probe, "unwrapped", probe)
+          '''.replace("          ", "")
+          new_resolve = '''        sequence_unwrapped: Any = getattr(probe, "unwrapped", probe)
               sequence_action_names = _action_names(identity)
               if _is_universal_single_instrument(sequence_unwrapped):
                   raw_symbols = getattr(sequence_unwrapped, "policy_symbols", None)
@@ -409,17 +305,18 @@ jobs:
                       or not raw_symbols
                       or any(not isinstance(item, str) or not item for item in raw_symbols)
                   ):
-                      raise ValueError(
-                          "sequence training requires ordered dataset symbols"
-                      )
+                      raise ValueError("sequence training requires ordered dataset symbols")
                   sequence_symbols = tuple(raw_symbols)
                   rollout_buffer_class = IndexBackedDictRolloutBuffer
                   rollout_buffer_kwargs = {
                       "sequence_reconstructor": sequence_reconstructor,
                       "sequence_transfer_mode": config.sequence_transfer_mode,
                   }
-          ''')
-          text = text[:block_start] + textwrap.indent(block, "    ") + text[block_end:]
+          '''.replace("          ", "")
+          if "if _is_universal_single_instrument(sequence_unwrapped):" not in text:
+              if old_resolve not in text:
+                  raise SystemExit("sequence resolve anchor not found")
+              text = text.replace(old_resolve, new_resolve, 1)
           path.write_text(text)
           compile(text, str(path), "exec")
           PY

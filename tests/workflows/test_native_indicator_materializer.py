@@ -10,6 +10,7 @@ from trade_rl.integrations.postgres_universal_source import (
 )
 from trade_rl.workflows.native_indicator_materializer import (
     build_native_indicator_cache,
+    combine_native_indicator_builds,
 )
 
 
@@ -22,13 +23,11 @@ def one_symbol_minutes(start: str, count: int) -> RawSymbolSource:
     open_ = 100.0 + row * 0.01
     close = open_ + 0.005
     base_volume = 2.0 + row * 0.001
-    derivative_values = np.zeros((count, 4), dtype=np.float64)
-    derivative_values[:, 0] = 1_000.0 + row
+    derivative_indices = np.arange(0, count, 10)
+    derivative_values = np.zeros((len(derivative_indices), 4), dtype=np.float64)
+    derivative_values[:, 0] = 1_000.0 + derivative_indices
     orderflow_values = np.zeros((count, 5), dtype=np.float64)
     orderflow_values[:, 0] = 3.0 + row
-    derivative_available = np.zeros(count, dtype=np.bool_)
-    derivative_available[::10] = True
-    orderflow_available = np.ones(count, dtype=np.bool_)
     funding_offset = min(15, count - 1)
     return RawSymbolSource(
         timestamps=timestamps,
@@ -42,10 +41,12 @@ def one_symbol_minutes(start: str, count: int) -> RawSymbolSource:
             dtype="datetime64[ns]",
         ),
         funding_rate=np.asarray([0.0001], dtype=np.float64),
+        derivative_timestamps=(
+            timestamps[derivative_indices] + np.timedelta64(1, "s")
+        ),
         derivative_values=derivative_values,
-        derivative_available=derivative_available,
+        orderflow_timestamps=timestamps.copy(),
         orderflow_values=orderflow_values,
-        orderflow_available=orderflow_available,
     )
 
 
@@ -117,3 +118,31 @@ def test_report_exposes_missing_nonfinite_ohlcv_and_feature_counts() -> None:
     assert len(item.feature_statistics) > 0
     assert all(stat.available_count >= 0 for stat in item.feature_statistics)
     assert len(report.digest) == 64
+
+
+def test_combines_single_symbol_builds_in_declared_scope_order() -> None:
+    start = datetime(2024, 11, 13, tzinfo=UTC)
+    end = start + timedelta(minutes=60)
+    scope = UniversalSourceScope(
+        symbols=("ETHUSDT", "BTCUSDT"), start=start, end=end
+    )
+    builds = tuple(
+        build_native_indicator_cache(
+            {symbol: one_symbol_minutes("2024-11-13T00:00:00Z", 60)},
+            scope=UniversalSourceScope(symbols=(symbol,), start=start, end=end),
+        )
+        for symbol in scope.symbols
+    )
+
+    combined = combine_native_indicator_builds(builds, scope=scope)
+
+    assert combined.manifest.symbols == scope.symbols
+    assert len(combined.artifacts) == 8
+    assert tuple(combined.market_bars) == tuple(
+        (symbol, timeframe)
+        for symbol in scope.symbols
+        for timeframe in ("15m", "1h", "4h", "1d")
+    )
+    assert combined.manifest.digest == combine_native_indicator_builds(
+        builds, scope=scope
+    ).manifest.digest

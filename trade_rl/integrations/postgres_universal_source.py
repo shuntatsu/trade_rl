@@ -104,10 +104,10 @@ class RawSymbolSource:
     base_volume: np.ndarray
     funding_timestamps: np.ndarray
     funding_rate: np.ndarray
+    derivative_timestamps: np.ndarray
     derivative_values: np.ndarray
-    derivative_available: np.ndarray
+    orderflow_timestamps: np.ndarray
     orderflow_values: np.ndarray
-    orderflow_available: np.ndarray
 
     def __post_init__(self) -> None:
         for value in (
@@ -119,10 +119,10 @@ class RawSymbolSource:
             self.base_volume,
             self.funding_timestamps,
             self.funding_rate,
+            self.derivative_timestamps,
             self.derivative_values,
-            self.derivative_available,
+            self.orderflow_timestamps,
             self.orderflow_values,
-            self.orderflow_available,
         ):
             value.setflags(write=False)
 
@@ -199,7 +199,6 @@ def _load_sparse_rows(
     params: tuple[object, ...],
     symbol: str,
     channel: str,
-    expected_ns: np.ndarray,
     width: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     cursor.execute(query, params)
@@ -215,22 +214,17 @@ def _load_sparse_rows(
     )
     if timestamps_ns.size > 1 and np.any(np.diff(timestamps_ns) <= 0):
         raise ValueError(f"raw {channel} timestamps must be strictly increasing for {symbol}")
-    values = np.zeros((len(expected_ns), width), dtype=np.float64)
-    available = np.zeros(len(expected_ns), dtype=np.bool_)
-    if not rows:
-        return values, available
-    positions = np.searchsorted(expected_ns, timestamps_ns)
-    if np.any(positions >= len(expected_ns)) or not np.array_equal(
-        expected_ns[positions], timestamps_ns
-    ):
-        raise ValueError(f"raw {channel} timestamps are outside the minute grid for {symbol}")
-    for row_index, position in enumerate(positions):
-        values[position] = tuple(
-            _finite_float(value, field=f"raw {channel} for {symbol}")
-            for value in rows[row_index][1:]
-        )
-        available[position] = True
-    return values, available
+    values = np.asarray(
+        [
+            [
+                _finite_float(value, field=f"raw {channel} for {symbol}")
+                for value in row[1:]
+            ]
+            for row in rows
+        ],
+        dtype=np.float64,
+    ).reshape(-1, width)
+    return timestamps_ns.astype("datetime64[ns]"), values
 
 
 def _load_funding(
@@ -285,7 +279,7 @@ def load_postgres_universal_source(
                 cursor, scope=scope, symbol=symbol
             )
             params = (scope.source, symbol, scope.start, scope.end)
-            derivative_values, derivative_available = _load_sparse_rows(
+            derivative_timestamps, derivative_values = _load_sparse_rows(
                 cursor,
                 query="""
                     SELECT timestamp, open_interest, ls_ratio, liq_notional,
@@ -298,10 +292,9 @@ def load_postgres_universal_source(
                 params=params,
                 symbol=symbol,
                 channel="derivative",
-                expected_ns=expected_ns,
                 width=4,
             )
-            orderflow_values, orderflow_available = _load_sparse_rows(
+            orderflow_timestamps, orderflow_values = _load_sparse_rows(
                 cursor,
                 query="""
                     SELECT timestamp, buy_volume, sell_volume, trade_count,
@@ -314,7 +307,6 @@ def load_postgres_universal_source(
                 params=params,
                 symbol=symbol,
                 channel="orderflow",
-                expected_ns=expected_ns,
                 width=5,
             )
             result[symbol] = RawSymbolSource(
@@ -326,10 +318,10 @@ def load_postgres_universal_source(
                 base_volume=base_volume,
                 funding_timestamps=funding_timestamps,
                 funding_rate=funding_rate,
+                derivative_timestamps=derivative_timestamps,
                 derivative_values=derivative_values,
-                derivative_available=derivative_available,
+                orderflow_timestamps=orderflow_timestamps,
                 orderflow_values=orderflow_values,
-                orderflow_available=orderflow_available,
             )
     return result
 

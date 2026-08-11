@@ -123,8 +123,8 @@ def test_source_loader_uses_half_open_interval_and_declared_symbol_order() -> No
         item.timestamps[-1] < np.datetime64("2024-11-13T00:03:00")
         for item in rows.values()
     )
-    assert rows["ETHUSDT"].derivative_available.tolist() == [True, False, False]
-    assert rows["ETHUSDT"].orderflow_available.tolist() == [False, False, True]
+    assert len(rows["ETHUSDT"].derivative_timestamps) == 1
+    assert len(rows["ETHUSDT"].orderflow_timestamps) == 1
     assert len(database.queries) == len(scope.symbols) * 4
     for query, params in database.queries:
         assert "timestamp >= %s" in query
@@ -171,3 +171,15 @@ def test_source_scope_and_auxiliary_rows_fail_closed() -> None:
     )
     with pytest.raises(ValueError, match="derivative timestamps.*increasing"):
         load_postgres_universal_source(database, scope=scope)
+
+
+def test_derivative_observation_seconds_are_preserved_for_causal_asof() -> None:
+    scope = _short_scope()
+    database = FakeSourceDatabase.complete(scope)
+    row = list(database.derivatives[scope.symbols[0]][0])
+    row[0] = row[0] + timedelta(seconds=1)
+    database.derivatives[scope.symbols[0]][0] = tuple(row)
+
+    item = load_postgres_universal_source(database, scope=scope)[scope.symbols[0]]
+
+    assert item.derivative_timestamps[0] == np.datetime64("2024-11-13T00:00:01")

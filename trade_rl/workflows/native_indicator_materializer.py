@@ -230,14 +230,12 @@ def _source_slice(
         raw.low,
         raw.close,
         raw.base_volume,
-        raw.derivative_available,
-        raw.orderflow_available,
     )
     if any(len(value) != len(timestamps_ns) for value in arrays):
         raise ValueError(f"native materializer source shape mismatch for {symbol}")
-    if raw.derivative_values.shape != (len(timestamps_ns), 4):
+    if raw.derivative_values.shape != (len(raw.derivative_timestamps), 4):
         raise ValueError(f"native derivative shape mismatch for {symbol}")
-    if raw.orderflow_values.shape != (len(timestamps_ns), 5):
+    if raw.orderflow_values.shape != (len(raw.orderflow_timestamps), 5):
         raise ValueError(f"native orderflow shape mismatch for {symbol}")
     return (
         scoped_times,
@@ -246,10 +244,6 @@ def _source_slice(
         raw.low[selected],
         raw.close[selected],
         raw.base_volume[selected],
-        raw.derivative_values[selected],
-        raw.derivative_available[selected],
-        raw.orderflow_values[selected],
-        raw.orderflow_available[selected],
     )
 
 
@@ -257,21 +251,24 @@ def _align_sparse_asof(
     *,
     source_times_ns: np.ndarray,
     source_values: np.ndarray,
-    source_available: np.ndarray,
     event_time_ms: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     width = source_values.shape[1]
     values = np.zeros((len(event_time_ms), width), dtype=np.float64)
     available = np.zeros(len(event_time_ms), dtype=np.bool_)
     staleness = np.zeros(len(event_time_ms), dtype=np.float64)
-    valid_indices = np.flatnonzero(source_available)
-    if not len(valid_indices) or not len(event_time_ms):
+    if source_values.shape[0] != len(source_times_ns):
+        raise ValueError("sparse auxiliary timestamp/value shape mismatch")
+    if len(source_times_ns) > 1 and np.any(np.diff(source_times_ns) <= 0):
+        raise ValueError("sparse auxiliary timestamps must be strictly increasing")
+    if not np.isfinite(source_values).all():
+        raise ValueError("sparse auxiliary values must be finite")
+    if not len(source_times_ns) or not len(event_time_ms):
         return values, available, staleness
-    valid_times = source_times_ns[valid_indices]
     events_ns = event_time_ms * 1_000_000
-    positions = np.searchsorted(valid_times, events_ns, side="right") - 1
+    positions = np.searchsorted(source_times_ns, events_ns, side="right") - 1
     present = positions >= 0
-    source_indices = valid_indices[np.maximum(positions, 0)]
+    source_indices = np.maximum(positions, 0)
     values[present] = source_values[source_indices[present]]
     available[present] = True
     staleness[present] = (
@@ -316,10 +313,6 @@ def resample_completed_bars(
         low,
         close,
         base_volume,
-        derivative_values,
-        derivative_available,
-        orderflow_values,
-        orderflow_available,
     ) = _source_slice(raw, scope=scope, symbol=symbol)
     complete = len(timestamps_ns) // minutes
     used = complete * minutes
@@ -332,15 +325,13 @@ def resample_completed_bars(
         raw, event_time_ms=event_time_ms
     )
     derivative = _align_sparse_asof(
-        source_times_ns=timestamps_ns,
-        source_values=derivative_values,
-        source_available=derivative_available,
+        source_times_ns=raw.derivative_timestamps.astype("datetime64[ns]").astype(np.int64),
+        source_values=raw.derivative_values,
         event_time_ms=event_time_ms,
     )
     orderflow = _align_sparse_asof(
-        source_times_ns=timestamps_ns,
-        source_values=orderflow_values,
-        source_available=orderflow_available,
+        source_times_ns=raw.orderflow_timestamps.astype("datetime64[ns]").astype(np.int64),
+        source_values=raw.orderflow_values,
         event_time_ms=event_time_ms,
     )
     return NativeBars(
@@ -603,6 +594,90 @@ def build_native_indicator_cache(
     )
 
 
+def combine_native_indicator_builds(
+    builds: Sequence[NativeCacheBuild],
+    *,
+    scope: UniversalSourceScope,
+) -> NativeCacheBuild:
+    """Combine ordered single-symbol builds without retaining all raw sources."""
+
+    resolved = tuple(builds)
+    if len(resolved) != len(scope.symbols):
+        raise ValueError("native build count must match the combined scope")
+    if not resolved:
+        raise ValueError("native builds must not be empty")
+    first = resolved[0]
+    market_bars: dict[tuple[str, str], NativeBars] = {}
+    artifacts: list[NativeArtifactPayload] = []
+    members: list[IntermediateMemberReport] = []
+    for symbol, build in zip(scope.symbols, resolved, strict=True):
+        manifest = build.manifest
+        if manifest.symbols != (symbol,):
+            raise ValueError("single-symbol native build order differs from scope")
+        if manifest.start_time != scope.start or manifest.end_time != scope.end:
+            raise ValueError("single-symbol native build range differs from scope")
+        if (
+            manifest.cache_id != first.manifest.cache_id
+            or manifest.feature_config_digest
+            != first.manifest.feature_config_digest
+            or manifest.feature_count != first.manifest.feature_count
+            or manifest.feature_specs != first.manifest.feature_specs
+            or manifest.volume_conversion_method
+            != first.manifest.volume_conversion_method
+        ):
+            raise ValueError("single-symbol native build contract differs")
+        expected_keys = tuple(
+            (symbol, timeframe) for timeframe in NATIVE_TIMEFRAME_MINUTES
+        )
+        if tuple(build.market_bars) != expected_keys:
+            raise ValueError("single-symbol native bars are incomplete or unordered")
+        market_bars.update(build.market_bars)
+        artifacts.extend(build.artifacts)
+        members.extend(build.report.members)
+
+    manifest_core = {
+        "artifact_digests": tuple(item.payload_sha256 for item in artifacts),
+        "cache_id": first.manifest.cache_id,
+        "end_time": scope.end.isoformat(),
+        "feature_config_digest": first.manifest.feature_config_digest,
+        "feature_count": first.manifest.feature_count,
+        "schema_version": "native_indicator_cache_v1",
+        "start_time": scope.start.isoformat(),
+        "symbols": scope.symbols,
+        "volume_conversion_method": first.manifest.volume_conversion_method,
+    }
+    manifest_digest = content_digest(manifest_core)
+    report_core = {
+        "manifest_digest": manifest_digest,
+        "members": tuple(item.canonical_payload() for item in members),
+        "schema_version": "native_indicator_intermediate_report_v1",
+        "volume_conversion_method": first.manifest.volume_conversion_method,
+    }
+    report = IntermediateDataReport(
+        volume_conversion_method=first.manifest.volume_conversion_method,
+        members=tuple(members),
+        digest=content_digest(report_core),
+    )
+    manifest = NativeCacheManifest(
+        cache_id=first.manifest.cache_id,
+        symbols=scope.symbols,
+        start_time=scope.start,
+        end_time=scope.end,
+        feature_specs=first.manifest.feature_specs,
+        feature_config_digest=first.manifest.feature_config_digest,
+        feature_count=first.manifest.feature_count,
+        artifact_count=len(artifacts),
+        volume_conversion_method=first.manifest.volume_conversion_method,
+        digest=manifest_digest,
+    )
+    return NativeCacheBuild(
+        market_bars=market_bars,
+        artifacts=tuple(artifacts),
+        manifest=manifest,
+        report=report,
+    )
+
+
 __all__ = [
     "NATIVE_TIMEFRAME_MINUTES",
     "VOLUME_CONVERSION_METHOD",
@@ -614,5 +689,6 @@ __all__ = [
     "NativeCacheBuild",
     "NativeCacheManifest",
     "build_native_indicator_cache",
+    "combine_native_indicator_builds",
     "resample_completed_bars",
 ]

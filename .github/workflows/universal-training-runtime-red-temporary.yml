@@ -1,4 +1,4 @@
-name: Temporary Universal Teacher Identity GREEN
+name: Temporary Shared Oracle Config RED
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  green:
+  red:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -20,8 +20,6 @@ jobs:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
       - run: |
-          uv run ruff check --fix trade_rl/workflows/universal_teacher_runtime.py tests/workflows/test_universal_teacher_runtime.py
-          uv run ruff format trade_rl/workflows/universal_teacher_runtime.py tests/workflows/test_universal_teacher_runtime.py
-          uv run ruff check trade_rl/workflows/universal_teacher_runtime.py tests/workflows/test_universal_teacher_runtime.py
-          uv run mypy trade_rl/workflows/universal_teacher_runtime.py
-          uv run pytest tests/workflows/test_universal_teacher_runtime.py tests/workflows/test_universal_training.py -q
+          uv run ruff check --fix tests/integrations/test_sb3_oracle_teacher_config.py
+          uv run ruff format tests/integrations/test_sb3_oracle_teacher_config.py
+          uv run pytest tests/integrations/test_sb3_oracle_teacher_config.py -q

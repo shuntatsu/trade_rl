@@ -62,6 +62,11 @@ def _action_names(identity: Mapping[str, object]) -> tuple[str, ...]:
     return value
 
 
+def _is_universal_single_instrument(probe: object) -> bool:
+    unwrapped = getattr(probe, "unwrapped", probe)
+    return bool(getattr(unwrapped, "is_universal_single_instrument", False))
+
+
 def _rollout_buffer_bytes(
     *,
     probe: object,
@@ -73,7 +78,10 @@ def _rollout_buffer_bytes(
         return None
     estimator = (
         estimate_index_backed_ppo_rollout_buffer_bytes
-        if config.observation_encoder == "hierarchical_sequence_v2"
+        if (
+            config.observation_encoder == "hierarchical_sequence_v2"
+            and not _is_universal_single_instrument(probe)
+        )
         else estimate_ppo_rollout_buffer_bytes
     )
     observation_space = getattr(probe, "observation_space", None)
@@ -112,7 +120,7 @@ def _sequence_policy_assembly(
     object,
     dict[str, object],
     dict[str, object],
-    SequenceRolloutReconstructor,
+    SequenceRolloutReconstructor | None,
     bool,
 ]:
     from trade_rl.rl.policies import (
@@ -126,38 +134,44 @@ def _sequence_policy_assembly(
         raise ValueError("sequence training requires environment sequence metadata")
     sequence_metadata = dict(metadata)
     action_names = _action_names(identity)
-    dataset = getattr(unwrapped, "dataset", None)
-    raw_symbols = getattr(dataset, "symbols", None)
-    if (
-        not isinstance(raw_symbols, (tuple, list))
-        or not raw_symbols
-        or any(not isinstance(item, str) or not item for item in raw_symbols)
-    ):
-        raise ValueError("sequence training requires ordered dataset symbols")
-    symbols = tuple(raw_symbols)
-    expected_action_names = tuple(f"target_weight:{symbol}" for symbol in symbols)
-    if (
-        _action_size(identity) != int(sequence_metadata["n_symbols"])
-        or action_names != expected_action_names
-    ):
-        raise ValueError(
-            "hierarchical sequence training requires target_weight actions in exact "
-            "dataset symbol order"
+    universal = _is_universal_single_instrument(unwrapped)
+    sequence_reconstructor: SequenceRolloutReconstructor | None = None
+    if universal:
+        if getattr(unwrapped, "policy_symbols", None) != ("INSTRUMENT",):
+            raise ValueError(
+                "Universal sequence training requires generic policy symbols"
+            )
+        if int(sequence_metadata["n_symbols"]) != 1 or _action_size(identity) != 1:
+            raise ValueError("Universal sequence training requires one instrument")
+        if action_names != ("target_weight:INSTRUMENT",):
+            raise ValueError("Universal sequence action contract mismatch")
+    else:
+        dataset = getattr(unwrapped, "dataset", None)
+        raw_symbols = getattr(dataset, "symbols", None)
+        if not isinstance(raw_symbols, (tuple, list)) or not raw_symbols:
+            raise ValueError("sequence training requires ordered dataset symbols")
+        symbols = tuple(raw_symbols)
+        if any(not isinstance(item, str) or not item for item in symbols):
+            raise ValueError("sequence training requires ordered dataset symbols")
+        expected = tuple(f"target_weight:{symbol}" for symbol in symbols)
+        if (
+            _action_size(identity) != int(sequence_metadata["n_symbols"])
+            or action_names != expected
+        ):
+            raise ValueError("hierarchical sequence action/symbol order mismatch")
+        builder = getattr(unwrapped, "sequence_observation_builder", None)
+        if dataset is None or builder is None:
+            raise ValueError(
+                "sequence training requires dataset reconstruction metadata"
+            )
+        sequence_reconstructor = SequenceRolloutReconstructor(
+            dataset=dataset,
+            builder=builder,
+            normalizer=getattr(unwrapped, "sequence_normalizer", None),
+            expected_dataset_id=dataset.dataset_id,
+            expected_layout_digest=builder.layout_digest(dataset),
+            policy_plane=getattr(unwrapped, "sequence_policy_plane", None),
         )
-    uses_shared_asset_actor = True
-    sequence_builder = getattr(unwrapped, "sequence_observation_builder", None)
-    if dataset is None or sequence_builder is None:
-        raise ValueError(
-            "sequence training requires dataset-bound reconstruction metadata"
-        )
-    sequence_reconstructor = SequenceRolloutReconstructor(
-        dataset=dataset,
-        builder=sequence_builder,
-        normalizer=getattr(unwrapped, "sequence_normalizer", None),
-        expected_dataset_id=dataset.dataset_id,
-        expected_layout_digest=sequence_builder.layout_digest(dataset),
-        policy_plane=getattr(unwrapped, "sequence_policy_plane", None),
-    )
     policy_kwargs: dict[str, object] = {
         "net_arch": {
             "pi": list(config.policy_net_arch),
@@ -168,9 +182,9 @@ def _sequence_policy_assembly(
             **sequence_metadata,
             "sequence_tcn_capacity": config.sequence_tcn_capacity,
             "d_model": config.sequence_d_model,
-            "timeframe_attention_heads": (config.sequence_timeframe_attention_heads),
-            "timeframe_attention_layers": (config.sequence_timeframe_attention_layers),
-            "timeframe_ffn_multiplier": (config.sequence_timeframe_ffn_multiplier),
+            "timeframe_attention_heads": config.sequence_timeframe_attention_heads,
+            "timeframe_attention_layers": config.sequence_timeframe_attention_layers,
+            "timeframe_ffn_multiplier": config.sequence_timeframe_ffn_multiplier,
             "timeframe_gate_bias": config.sequence_timeframe_gate_bias,
             "asset_attention_heads": config.sequence_asset_attention_heads,
             "asset_attention_layers": config.sequence_asset_attention_layers,
@@ -179,35 +193,30 @@ def _sequence_policy_assembly(
             "dropout": config.sequence_dropout,
         },
     }
-    if uses_shared_asset_actor:
-        pre_trade_risk = getattr(unwrapped, "pre_trade_risk", None)
-        risk_config = getattr(pre_trade_risk, "config", None)
-        entry_threshold = float(getattr(risk_config, "entry_threshold", 0.0))
-        no_trade_band = float(getattr(risk_config, "no_trade_band", 0.0))
-        policy_kwargs.update(
-            {
-                "shared_actor_n_symbols": int(sequence_metadata["n_symbols"]),
-                "shared_actor_d_model": config.sequence_d_model,
-                "shared_actor_global_dim": 128,
-                "shared_actor_net_arch": tuple(config.policy_net_arch),
-                "shared_actor_head": config.policy_actor_head,
-                "shared_actor_gate_temperature": (config.hierarchical_gate_temperature),
-                "shared_actor_gate_prediction_threshold": (
-                    config.behavior_cloning_gate_prediction_threshold
-                ),
-                "shared_actor_entry_threshold": entry_threshold,
-                "shared_actor_minimum_deterministic_change": no_trade_band,
-            }
-        )
-    policy_identifier: object = (
-        SharedPerAssetActorCriticPolicy if uses_shared_asset_actor else config.policy
+    risk_config = getattr(getattr(unwrapped, "pre_trade_risk", None), "config", None)
+    policy_kwargs.update(
+        {
+            "shared_actor_n_symbols": int(sequence_metadata["n_symbols"]),
+            "shared_actor_d_model": config.sequence_d_model,
+            "shared_actor_global_dim": 128,
+            "shared_actor_net_arch": tuple(config.policy_net_arch),
+            "shared_actor_head": config.policy_actor_head,
+            "shared_actor_gate_temperature": config.hierarchical_gate_temperature,
+            "shared_actor_gate_prediction_threshold": config.behavior_cloning_gate_prediction_threshold,
+            "shared_actor_entry_threshold": float(
+                getattr(risk_config, "entry_threshold", 0.0)
+            ),
+            "shared_actor_minimum_deterministic_change": float(
+                getattr(risk_config, "no_trade_band", 0.0)
+            ),
+        }
     )
     return (
-        policy_identifier,
+        SharedPerAssetActorCriticPolicy,
         policy_kwargs,
         sequence_metadata,
         sequence_reconstructor,
-        uses_shared_asset_actor,
+        True,
     )
 
 
@@ -246,21 +255,26 @@ def resolve_sb3_policy_assembly(
             config=config,
         )
         sequence_unwrapped: Any = getattr(probe, "unwrapped", probe)
-        dataset = getattr(sequence_unwrapped, "dataset", None)
-        raw_symbols = getattr(dataset, "symbols", None)
-        if (
-            not isinstance(raw_symbols, (tuple, list))
-            or not raw_symbols
-            or any(not isinstance(item, str) or not item for item in raw_symbols)
-        ):
-            raise ValueError("sequence training requires ordered dataset symbols")
-        sequence_symbols = tuple(raw_symbols)
         sequence_action_names = _action_names(identity)
-        rollout_buffer_class = IndexBackedDictRolloutBuffer
-        rollout_buffer_kwargs = {
-            "sequence_reconstructor": sequence_reconstructor,
-            "sequence_transfer_mode": config.sequence_transfer_mode,
-        }
+        if _is_universal_single_instrument(sequence_unwrapped):
+            if getattr(sequence_unwrapped, "policy_symbols", None) != ("INSTRUMENT",):
+                raise ValueError(
+                    "Universal sequence training requires generic policy symbols"
+                )
+            sequence_symbols = ("INSTRUMENT",)
+            rollout_buffer_class = None
+            rollout_buffer_kwargs = None
+        else:
+            dataset = getattr(sequence_unwrapped, "dataset", None)
+            raw_symbols = getattr(dataset, "symbols", None)
+            if not isinstance(raw_symbols, (tuple, list)) or not raw_symbols:
+                raise ValueError("sequence training requires ordered dataset symbols")
+            sequence_symbols = tuple(raw_symbols)
+            rollout_buffer_class = IndexBackedDictRolloutBuffer
+            rollout_buffer_kwargs = {
+                "sequence_reconstructor": sequence_reconstructor,
+                "sequence_transfer_mode": config.sequence_transfer_mode,
+            }
     elif isinstance(algorithm_config, PPOConfig):
         policy_identifier = config.policy
         policy_kwargs = {

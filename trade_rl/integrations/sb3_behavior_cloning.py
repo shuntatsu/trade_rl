@@ -251,11 +251,16 @@ def _behavior_cloning_gate_thresholds(
                 config, "behavior_cloning_max_causal_holdout_regret"
             )
         ),
-        minimum_causal_holdout_episodes=1,
+        minimum_causal_holdout_episodes=(
+            config.behavior_cloning_min_causal_holdout_episodes
+        ),
         maximum_causal_holdout_regret_upper_bound=float(
             _required_hierarchical_config(
                 config, "behavior_cloning_max_causal_holdout_regret"
             )
+        ),
+        minimum_causal_holdout_net_return_lower_bound=(
+            config.behavior_cloning_min_causal_holdout_net_return_lower_bound
         ),
     )
 

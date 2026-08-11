@@ -141,6 +141,8 @@
     "behavior_cloning_max_causal_holdout_regret": 0.2,
     "behavior_cloning_max_positive_class_weight": 1.4,
     "behavior_cloning_min_activity_ratio": 0.25,
+    "behavior_cloning_min_causal_holdout_episodes": 5,
+    "behavior_cloning_min_causal_holdout_net_return_lower_bound": -0.05,
     "behavior_cloning_min_causal_holdout_trades": 20,
     "behavior_cloning_min_gate_precision": 0.5,
     "behavior_cloning_min_gate_recall": 0.6,

@@ -134,6 +134,10 @@ class ResidualTrainingConfig:
     behavior_cloning_teacher: str = "oracle"
     behavior_cloning_seed: int | None = None
     behavior_cloning_required_relative_improvement: float = 0.0
+    behavior_cloning_critic_warm_start_steps: int = 0
+    behavior_cloning_joint_warm_start_steps: int = 0
+    behavior_cloning_critic_warm_start_learning_rate: float = 3e-4
+    behavior_cloning_joint_warm_start_actor_lr_scale: float = 0.1
     behavior_cloning_gate_loss_weight: float = 1.0
     behavior_cloning_target_loss_weight: float = 1.0
     behavior_cloning_composed_loss_weight: float = 1.0
@@ -146,6 +150,8 @@ class ResidualTrainingConfig:
     behavior_cloning_min_activity_ratio: float = 0.0
     behavior_cloning_max_activity_ratio: float = 1.0
     behavior_cloning_min_causal_holdout_trades: int = 0
+    behavior_cloning_min_causal_holdout_episodes: int = 1
+    behavior_cloning_min_causal_holdout_net_return_lower_bound: float = -1.0
     behavior_cloning_max_causal_holdout_regret: float = 0.0
     behavior_cloning_causal_holdout_bootstrap_resamples: int = 2_000
     behavior_cloning_causal_holdout_confidence_level: float = 0.95
@@ -229,6 +235,40 @@ class ResidualTrainingConfig:
             raise ValueError(
                 "behavior_cloning_required_relative_improvement must be within [0, 1)"
             )
+        warm_start_steps = (
+            self.behavior_cloning_critic_warm_start_steps,
+            self.behavior_cloning_joint_warm_start_steps,
+        )
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in warm_start_steps
+        ):
+            raise ValueError(
+                "behavior cloning warm-start steps must be non-negative integers"
+            )
+        if (warm_start_steps[0] == 0) != (warm_start_steps[1] == 0):
+            raise ValueError(
+                "behavior cloning warm-start phases must both be disabled or enabled"
+            )
+        if (
+            not math.isfinite(self.behavior_cloning_critic_warm_start_learning_rate)
+            or self.behavior_cloning_critic_warm_start_learning_rate <= 0.0
+        ):
+            raise ValueError(
+                "critic warm-start learning rate must be finite and positive"
+            )
+        if (
+            not math.isfinite(self.behavior_cloning_joint_warm_start_actor_lr_scale)
+            or not 0.0 < self.behavior_cloning_joint_warm_start_actor_lr_scale <= 1.0
+        ):
+            raise ValueError("joint actor learning-rate scale must be within (0, 1]")
+        if warm_start_steps[0] > 0:
+            if self.behavior_cloning_epochs <= 0:
+                raise ValueError(
+                    "critic warm-start requires behavior cloning to be enabled"
+                )
+            if self.behavior_cloning_teacher != "oracle":
+                raise ValueError("critic warm-start requires Oracle behavior cloning")
         hierarchical_loss_weights = (
             self.behavior_cloning_gate_loss_weight,
             self.behavior_cloning_target_loss_weight,
@@ -306,6 +346,24 @@ class ResidualTrainingConfig:
         ):
             raise ValueError(
                 "behavior_cloning_min_causal_holdout_trades must be a non-negative integer"
+            )
+        if (
+            isinstance(self.behavior_cloning_min_causal_holdout_episodes, bool)
+            or not isinstance(self.behavior_cloning_min_causal_holdout_episodes, int)
+            or self.behavior_cloning_min_causal_holdout_episodes <= 0
+        ):
+            raise ValueError(
+                "behavior_cloning_min_causal_holdout_episodes must be a positive integer"
+            )
+        if (
+            not math.isfinite(
+                self.behavior_cloning_min_causal_holdout_net_return_lower_bound
+            )
+            or self.behavior_cloning_min_causal_holdout_net_return_lower_bound < -1.0
+        ):
+            raise ValueError(
+                "behavior_cloning_min_causal_holdout_net_return_lower_bound "
+                "must be finite and at least -1"
             )
         if (
             not math.isfinite(self.behavior_cloning_max_causal_holdout_regret)
@@ -928,6 +986,26 @@ class ResidualTrainingConfig:
                         0.0,
                     ),
                     (
+                        "behavior_cloning_critic_warm_start_steps",
+                        self.behavior_cloning_critic_warm_start_steps,
+                        0,
+                    ),
+                    (
+                        "behavior_cloning_joint_warm_start_steps",
+                        self.behavior_cloning_joint_warm_start_steps,
+                        0,
+                    ),
+                    (
+                        "behavior_cloning_critic_warm_start_learning_rate",
+                        self.behavior_cloning_critic_warm_start_learning_rate,
+                        3e-4,
+                    ),
+                    (
+                        "behavior_cloning_joint_warm_start_actor_lr_scale",
+                        self.behavior_cloning_joint_warm_start_actor_lr_scale,
+                        0.1,
+                    ),
+                    (
                         "behavior_cloning_gate_loss_weight",
                         self.behavior_cloning_gate_loss_weight,
                         1.0,
@@ -988,6 +1066,16 @@ class ResidualTrainingConfig:
                         0,
                     ),
                     (
+                        "behavior_cloning_min_causal_holdout_episodes",
+                        self.behavior_cloning_min_causal_holdout_episodes,
+                        1,
+                    ),
+                    (
+                        "behavior_cloning_min_causal_holdout_net_return_lower_bound",
+                        self.behavior_cloning_min_causal_holdout_net_return_lower_bound,
+                        -1.0,
+                    ),
+                    (
                         "behavior_cloning_max_causal_holdout_regret",
                         self.behavior_cloning_max_causal_holdout_regret,
                         0.0,
@@ -1005,6 +1093,10 @@ class ResidualTrainingConfig:
                 ),
                 context="behavior cloning disabled",
             )
+
+    @property
+    def behavior_cloning_critic_warm_start_enabled(self) -> bool:
+        return self.behavior_cloning_critic_warm_start_steps > 0
 
     @property
     def rounded_timesteps(self) -> int:
@@ -1037,6 +1129,18 @@ class ResidualTrainingConfig:
             "behavior_cloning_seed": self.behavior_cloning_seed,
             "behavior_cloning_required_relative_improvement": (
                 self.behavior_cloning_required_relative_improvement
+            ),
+            "behavior_cloning_critic_warm_start_steps": (
+                self.behavior_cloning_critic_warm_start_steps
+            ),
+            "behavior_cloning_joint_warm_start_steps": (
+                self.behavior_cloning_joint_warm_start_steps
+            ),
+            "behavior_cloning_critic_warm_start_learning_rate": (
+                self.behavior_cloning_critic_warm_start_learning_rate
+            ),
+            "behavior_cloning_joint_warm_start_actor_lr_scale": (
+                self.behavior_cloning_joint_warm_start_actor_lr_scale
             ),
             "behavior_cloning_gate_loss_weight": self.behavior_cloning_gate_loss_weight,
             "behavior_cloning_target_loss_weight": self.behavior_cloning_target_loss_weight,
@@ -1128,6 +1232,20 @@ class ResidualTrainingConfig:
             "use_sde": self.use_sde,
             "vf_coef": self.vf_coef,
         }
+        if (
+            self.behavior_cloning_min_causal_holdout_episodes != 1
+            or self.behavior_cloning_min_causal_holdout_net_return_lower_bound != -1.0
+        ):
+            payload.update(
+                {
+                    "behavior_cloning_min_causal_holdout_episodes": (
+                        self.behavior_cloning_min_causal_holdout_episodes
+                    ),
+                    "behavior_cloning_min_causal_holdout_net_return_lower_bound": (
+                        self.behavior_cloning_min_causal_holdout_net_return_lower_bound
+                    ),
+                }
+            )
         if self.algorithm in {"cost_critic_ppo", "lagrangian_ppo"}:
             cost_schema = canonical_cost_learning_schema(
                 continuous_gae_lambda=self.cost_continuous_gae_lambda,

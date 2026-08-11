@@ -5,7 +5,10 @@ from pathlib import Path
 
 import numpy as np
 
-from trade_rl.learning.evaluation import deterministic_bootstrap_upper_bound
+from trade_rl.learning.evaluation import (
+    deterministic_bootstrap_lower_bound,
+    deterministic_bootstrap_upper_bound,
+)
 
 
 def test_bootstrap_upper_bound_is_deterministic_and_one_sided() -> None:
@@ -20,6 +23,18 @@ def test_bootstrap_upper_bound_is_deterministic_and_one_sided() -> None:
     assert first >= float(np.mean(values))
 
 
+def test_bootstrap_lower_bound_is_deterministic_and_one_sided() -> None:
+    values = np.array([-0.08, -0.02, 0.01, 0.04, 0.07])
+    first = deterministic_bootstrap_lower_bound(
+        values, confidence_level=0.95, resamples=2_000, seed_material="b" * 64
+    )
+    second = deterministic_bootstrap_lower_bound(
+        values, confidence_level=0.95, resamples=2_000, seed_material="b" * 64
+    )
+    assert first == second
+    assert first <= float(np.mean(values))
+
+
 def test_maintained_profiles_require_nontrivial_causal_evidence() -> None:
     root = Path(__file__).resolve().parents[2] / "examples/binance-multitimeframe"
     for name in (
@@ -30,5 +45,10 @@ def test_maintained_profiles_require_nontrivial_causal_evidence() -> None:
         training = json.loads((root / name).read_text())["training"]
         assert training["behavior_cloning_required_relative_improvement"] > 0.0
         assert training["behavior_cloning_min_causal_holdout_trades"] >= 20
+        assert training["behavior_cloning_min_causal_holdout_episodes"] >= 5
+        assert (
+            training["behavior_cloning_min_causal_holdout_net_return_lower_bound"]
+            >= -0.05
+        )
         assert training["behavior_cloning_causal_holdout_bootstrap_resamples"] >= 2_000
         assert training["behavior_cloning_causal_holdout_confidence_level"] >= 0.95

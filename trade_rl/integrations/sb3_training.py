@@ -81,6 +81,9 @@ from trade_rl.integrations.sb3_environment import (
     _effective_vector_environment_kind as _effective_vector_environment_kind,
 )
 from trade_rl.integrations.sb3_environment import (
+    _filtered_environment_factory as _filtered_environment_factory,
+)
+from trade_rl.integrations.sb3_environment import (
     _filtered_training_environment as _filtered_training_environment,
 )
 from trade_rl.integrations.sb3_environment import (
@@ -114,8 +117,20 @@ from trade_rl.integrations.sb3_runtime import (
 from trade_rl.integrations.sb3_runtime import (
     _teacher_worker_count as _teacher_worker_count,
 )
+from trade_rl.integrations.sb3_runtime import (
+    oracle_teacher_config_for_environment,
+)
 from trade_rl.integrations.sb3_teacher_pipeline import (
     _StableBaselines3TeacherPipeline,
+)
+from trade_rl.integrations.sb3_universal_pretraining import (
+    _apply_universal_pretraining_if_configured,
+)
+from trade_rl.integrations.sb3_universal_pretraining import (
+    _run_behavior_cloning_critic_warm_start_if_enabled as _run_critic_warm_start_helper,
+)
+from trade_rl.integrations.universal_critic_warm_start import (
+    run_configured_critic_warm_start,
 )
 from trade_rl.learning import (
     BehaviorCloningConfig,
@@ -138,9 +153,7 @@ from trade_rl.learning.episode_oracle_bc import (
     EpisodeBehaviorCloningHoldoutEvaluation,
     evaluate_episode_behavior_cloning_holdout,
 )
-from trade_rl.learning.episode_oracle_teacher import (
-    EpisodeOracleBatch,
-)
+from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.learning.episode_teacher_artifact import (
     EpisodeSupervisedPolicyDataset,
     write_episode_teacher_artifact,
@@ -155,9 +168,7 @@ from trade_rl.rl.replay import (
     verified_replay_buffer_copy,
     write_replay_buffer_artifact,
 )
-from trade_rl.rl.tensorboard_logging import (
-    build_tensorboard_metrics_callback,
-)
+from trade_rl.rl.tensorboard_logging import build_tensorboard_metrics_callback
 from trade_rl.rl.training import PolicyTrainingResult, ResidualTrainingConfig
 from trade_rl.rl.training_environment_contract import (
     training_environment_identity,
@@ -168,6 +179,67 @@ from trade_rl.rl.training_performance import (
     activate_training_performance,
     write_training_performance_evidence,
 )
+
+
+def _run_behavior_cloning_critic_warm_start_if_enabled(**kwargs: Any) -> Any:
+    return _run_critic_warm_start_helper(
+        **kwargs, run_warm_start=run_configured_critic_warm_start
+    )
+
+
+def _resolved_vector_environment_kind(
+    config: ResidualTrainingConfig,
+    *,
+    sequence_reconstructor: object | None,
+) -> str:
+    kind = _effective_vector_environment_kind(config)
+    if kind == "subprocess_compact_sequence" and sequence_reconstructor is None:
+        return "subprocess"
+    return kind
+
+
+def _publish_final_training_checkpoint(
+    *,
+    model: Any,
+    output_root: Path,
+    config: Any,
+    seed: int,
+    environment_digest: str,
+    target_total_timesteps: int,
+) -> Any:
+    """Publish the exact completed policy as the retained Stage A checkpoint."""
+
+    observed_timestep = getattr(model, "num_timesteps", None)
+    if (
+        isinstance(target_total_timesteps, bool)
+        or not isinstance(target_total_timesteps, int)
+        or target_total_timesteps <= 0
+    ):
+        raise ValueError("target_total_timesteps must be a positive integer")
+    if (
+        isinstance(observed_timestep, bool)
+        or not isinstance(observed_timestep, int)
+        or observed_timestep < target_total_timesteps
+    ):
+        raise RuntimeError("model has not reached the target training horizon")
+    algorithm = getattr(config, "algorithm", None)
+    digest_payload = getattr(config, "digest_payload", None)
+    if not isinstance(algorithm, str) or not algorithm:
+        raise ValueError("training algorithm identity is unavailable")
+    if not callable(digest_payload):
+        raise TypeError("training config must expose digest_payload")
+    from trade_rl.rl.checkpointing import publish_checkpoint
+
+    return publish_checkpoint(
+        model=model,
+        checkpoint_root=Path(output_root) / "checkpoints",
+        algorithm=algorithm,
+        seed=seed,
+        requested_timestep=target_total_timesteps,
+        observed_timestep=observed_timestep,
+        environment_digest=environment_digest,
+        training_config_digest=content_digest(digest_payload()),
+    )
 
 
 class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
@@ -181,6 +253,7 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
         resume_replay_artifact: Path | None = None,
         resume_checkpoint_artifacts: Mapping[int, Path] | None = None,
         transfer_checkpoint_artifacts: Mapping[int, Path] | None = None,
+        universal_pretraining_hook: (Callable[..., Mapping[str, object]] | None) = None,
         structured_export_enabled: bool = False,
         structured_export_tolerance: float = 1e-5,
     ) -> None:
@@ -189,6 +262,11 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
         self.resume_replay_artifact = resume_replay_artifact
         self.resume_checkpoint_artifacts = dict(resume_checkpoint_artifacts or {})
         self.transfer_checkpoint_artifacts = dict(transfer_checkpoint_artifacts or {})
+        if universal_pretraining_hook is not None and not callable(
+            universal_pretraining_hook
+        ):
+            raise TypeError("universal_pretraining_hook must be callable")
+        self.universal_pretraining_hook = universal_pretraining_hook
         overlapping_seeds = (
             self.resume_checkpoint_artifacts.keys()
             & self.transfer_checkpoint_artifacts.keys()
@@ -269,10 +347,9 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                         max_workers=_lagrangian_probe_worker_count(config.n_envs),
                     )
                 )
-            # A full-market environment is several GiB.  Do not keep the
+            # A full-market environment is several GiB. Do not keep the
             # identity probe alive while the isolated canonical probe creates
-            # its own environment, otherwise the 15.5 GiB training cgroup can
-            # contain two full environments at once and be OOM killed.
+            # its own environment.
             probe = self.environment_factory()
             identity = training_environment_identity(probe)
             validate_training_environment(identity, config)
@@ -290,7 +367,11 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
             prefetched_episode_batch: EpisodeOracleBatch | None = None
             prefetched_episode_teacher: EpisodeSupervisedPolicyDataset | None = None
             prefetched_oracle_config: OracleTeacherConfig | None = None
-            if fresh_behavior_cloning and config.behavior_cloning_teacher == "oracle":
+            if (
+                fresh_behavior_cloning
+                and self.universal_pretraining_hook is None
+                and config.behavior_cloning_teacher == "oracle"
+            ):
                 unwrapped_probe: Any = getattr(probe, "unwrapped", probe)
                 probe_action_names = tuple(identity["action_names"])
                 if not probe_action_names or not all(
@@ -304,19 +385,8 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                     int(unwrapped_probe.minimum_start_index),
                     int(probe_dataset.n_bars),
                 )
-                risk_config = unwrapped_probe.pre_trade_risk.config
-                prefetched_oracle_config = OracleTeacherConfig(
-                    execution_cost=unwrapped_probe.config.execution_cost,
-                    portfolio_risk=unwrapped_probe.portfolio_risk.config,
-                    max_gross=risk_config.max_gross,
-                    max_abs_weight=risk_config.max_abs_weight,
-                    entry_threshold=risk_config.entry_threshold,
-                    exit_threshold=risk_config.exit_threshold,
-                    no_trade_band=risk_config.no_trade_band,
-                    reference_portfolio_value=unwrapped_probe.initial_capital,
-                    signal_delay_decisions=(
-                        unwrapped_probe.config.signal_delay_decisions
-                    ),
+                prefetched_oracle_config = oracle_teacher_config_for_environment(
+                    unwrapped_probe
                 )
                 sampling_config = _oracle_episode_sampling_config(
                     unwrapped_probe,
@@ -343,9 +413,6 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                     teacher_config=prefetched_oracle_config,
                     max_workers=teacher_workers,
                 )
-            # The CPU-only canonical probe may fork on Linux.  Initialize the
-            # CUDA runtime only after its workers and the forked Oracle teacher
-            # workers have joined so no child inherits a live CUDA context.
             import torch
 
             torch_runtime = _configure_torch_cuda_runtime(
@@ -360,7 +427,9 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                 algorithm_config=algorithm_config,
             )
             sequence_reconstructor = policy.sequence_reconstructor
-            vector_environment_kind = _effective_vector_environment_kind(config)
+            vector_environment_kind = _resolved_vector_environment_kind(
+                config, sequence_reconstructor=sequence_reconstructor
+            )
             full_observation_space = probe.observation_space
 
             def build_parallel_environment() -> Any:
@@ -380,7 +449,7 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                         reconstructor=sequence_reconstructor,
                     )
                 return _build_training_environment(
-                    lambda: _filtered_training_environment(self.environment_factory),
+                    _filtered_environment_factory(self.environment_factory),
                     config.n_envs,
                     subprocesses=vector_environment_kind == "subprocess",
                 )
@@ -436,9 +505,6 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
             sequence_metadata = policy.sequence_metadata
             policy_identifier = policy.policy_identifier
 
-            # Stable-Baselines3 seeds CUDA during model construction/loading and
-            # resets cuDNN to its deterministic, slow dilated-convolution path.
-            # Capture and persist the effective post-construction runtime state.
             torch_runtime = _configure_torch_cuda_runtime(
                 torch,
                 config.device,
@@ -588,15 +654,10 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                 raise RuntimeError("behavior cloning resume state changed unexpectedly")
             environment_suspended_for_teacher = False
             if fresh_behavior_cloning and config.n_envs > 1:
-                # The compact PPO vector environment keeps one full market view in
-                # each subprocess.  It is idle during behavior cloning, while the
-                # Oracle rollout creates its own bounded worker environments.  Do
-                # not retain both groups: on the 15-symbol full-history dataset the
-                # otherwise-idle PPO workers alone consume most of a 24 GiB cgroup.
                 environment.close()
                 environment = None
                 environment_suspended_for_teacher = True
-            if fresh_behavior_cloning:
+            if fresh_behavior_cloning and self.universal_pretraining_hook is None:
                 teacher_environment = self.environment_factory()
                 try:
                     teacher_identity = training_environment_identity(
@@ -933,8 +994,28 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                         raise RuntimeError(
                             "behavior cloning failed the required MSE improvement gate"
                         )
+                    _run_behavior_cloning_critic_warm_start_if_enabled(
+                        policy=model.policy,
+                        teacher_environment=teacher_environment,
+                        teacher_dataset=teacher_dataset,
+                        episode_batch=episode_batch,
+                        episode_split=episode_split,
+                        config=config,
+                        observation_provider=observation_provider,
+                        behavior_cloning_seed=behavior_cloning_seed,
+                        output_root=output_path.parent,
+                    )
                 finally:
                     teacher_environment.close()
+            if fresh_behavior_cloning and self.universal_pretraining_hook is not None:
+                _apply_universal_pretraining_if_configured(
+                    hook=self.universal_pretraining_hook,
+                    policy=model.policy,
+                    config=config,
+                    behavior_cloning_seed=behavior_cloning_seed,
+                    member_seed=seed,
+                    output_root=output_path.parent,
+                )
             if environment_suspended_for_teacher:
                 environment = build_parallel_environment()
                 model.set_env(environment)
@@ -981,8 +1062,12 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                 checkpoint_root=output_path.parent / "checkpoints",
                 algorithm=config.algorithm,
                 seed=seed,
-                interval_steps=config.resolved_checkpoint_interval,
-                max_checkpoints=config.max_checkpoints,
+                interval_steps=(
+                    0
+                    if config.max_checkpoints == 1
+                    else config.resolved_checkpoint_interval
+                ),
+                max_checkpoints=max(1, config.max_checkpoints - 1),
                 total_timesteps=target_total_timesteps,
                 starting_timestep=starting_timestep,
                 environment_digest=str(identity["environment_digest"]),
@@ -1030,6 +1115,14 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                     output_path.parent / "training-performance.json",
                     performance_evidence,
                 )
+            _publish_final_training_checkpoint(
+                model=model,
+                output_root=output_path.parent,
+                config=config,
+                seed=seed,
+                environment_digest=str(identity["environment_digest"]),
+                target_total_timesteps=target_total_timesteps,
+            )
             output_path.parent.mkdir(parents=True, exist_ok=True)
             if resume_manifest is not None:
                 (output_path.parent / "resume.json").write_bytes(

@@ -788,6 +788,10 @@ class MarketCandidateTrainer(CandidateTrainer):
                     for checkpoint in checkpoint_manifests(member_root / "checkpoints")
                 ),
             ]
+            unique_candidates: dict[str, tuple[int, str, Path]] = {}
+            for candidate in candidates:
+                unique_candidates.setdefault(candidate[1], candidate)
+            candidates = list(unique_candidates.values())
             if any(seed != member.seed for seed, _, _ in candidates):
                 raise ValueError("checkpoint seed does not match ensemble member seed")
             for seed, policy_digest, path in candidates:

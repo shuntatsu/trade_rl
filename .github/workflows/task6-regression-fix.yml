@@ -74,6 +74,7 @@ jobs:
 
           rm .github/workflows/task6-regression-fix.yml
           uv sync --extra dev --extra train-sb3
+          uv run ruff check --fix trade_rl/integrations/sb3_training.py trade_rl/integrations/sb3_universal_pretraining.py trade_rl/workflows/_market_walk_forward_core.py
           uv run ruff format trade_rl/integrations/sb3_training.py trade_rl/integrations/sb3_universal_pretraining.py trade_rl/workflows/_market_walk_forward_core.py
           python - <<'PY'
           from pathlib import Path

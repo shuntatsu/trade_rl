@@ -86,9 +86,7 @@ def collect_episode_return_targets(
                     "critic warm-start teacher replay ended before the episode horizon"
                 )
             rewards.append(resolved_reward)
-        all_returns.append(
-            _discounted_return_to_go(rewards, gamma=resolved_gamma)
-        )
+        all_returns.append(_discounted_return_to_go(rewards, gamma=resolved_gamma))
     if not all_returns:
         raise ValueError("critic warm-start requires at least one teacher episode")
     return np.concatenate(all_returns).astype(np.float32, copy=False)
@@ -270,12 +268,14 @@ def warm_start_policy_actor_critic(
     critic_group = [
         parameter
         for parameter in all_parameters
-        if original_requires_grad[id(parameter)] and id(parameter) in critic_parameter_ids
+        if original_requires_grad[id(parameter)]
+        and id(parameter) in critic_parameter_ids
     ]
     actor_group = [
         parameter
         for parameter in all_parameters
-        if original_requires_grad[id(parameter)] and id(parameter) not in critic_parameter_ids
+        if original_requires_grad[id(parameter)]
+        and id(parameter) not in critic_parameter_ids
     ]
     parameter_groups: list[dict[str, object]] = []
     if critic_group:

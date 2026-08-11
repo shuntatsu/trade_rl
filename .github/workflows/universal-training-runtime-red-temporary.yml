@@ -1,4 +1,4 @@
-name: Temporary Universal Full Runtime RED Contract
+name: Temporary Universal Full Runtime RED Finalize Test
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
     paths: [.github/workflows/universal-training-runtime-red-temporary.yml]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   red:
@@ -19,7 +19,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - run: |
-          uv run ruff format --check tests/workflows/test_universal_training_runtime_full.py
+      - name: Format and persist test contract
+        run: |
+          uv run ruff format tests/workflows/test_universal_training_runtime_full.py
           uv run ruff check tests/workflows/test_universal_training_runtime_full.py
-          uv run pytest tests/workflows/test_universal_training_runtime_full.py -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/workflows/test_universal_training_runtime_full.py
+          if ! git diff --cached --quiet; then
+            git commit -m "test: finalize Universal full runtime contract"
+            git push origin HEAD:integration/universal-research-u3-u6
+          fi
+      - name: Verify feature RED
+        run: uv run pytest tests/workflows/test_universal_training_runtime_full.py -q

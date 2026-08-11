@@ -298,6 +298,50 @@ def _resolved_vector_environment_kind(
     return kind
 
 
+def _publish_final_training_checkpoint(
+    *,
+    model: Any,
+    output_root: Path,
+    config: Any,
+    seed: int,
+    environment_digest: str,
+    target_total_timesteps: int,
+) -> Any:
+    """Publish the exact completed policy as the retained Stage A checkpoint."""
+
+    observed_timestep = getattr(model, "num_timesteps", None)
+    if (
+        isinstance(target_total_timesteps, bool)
+        or not isinstance(target_total_timesteps, int)
+        or target_total_timesteps <= 0
+    ):
+        raise ValueError("target_total_timesteps must be a positive integer")
+    if (
+        isinstance(observed_timestep, bool)
+        or not isinstance(observed_timestep, int)
+        or observed_timestep < target_total_timesteps
+    ):
+        raise RuntimeError("model has not reached the target training horizon")
+    algorithm = getattr(config, "algorithm", None)
+    digest_payload = getattr(config, "digest_payload", None)
+    if not isinstance(algorithm, str) or not algorithm:
+        raise ValueError("training algorithm identity is unavailable")
+    if not callable(digest_payload):
+        raise TypeError("training config must expose digest_payload")
+    from trade_rl.rl.checkpointing import publish_checkpoint
+
+    return publish_checkpoint(
+        model=model,
+        checkpoint_root=Path(output_root) / "checkpoints",
+        algorithm=algorithm,
+        seed=seed,
+        requested_timestep=target_total_timesteps,
+        observed_timestep=observed_timestep,
+        environment_digest=environment_digest,
+        training_config_digest=content_digest(digest_payload()),
+    )
+
+
 class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
     """Train one policy with an optional SB3-family algorithm."""
 
@@ -1179,6 +1223,14 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                     output_path.parent / "training-performance.json",
                     performance_evidence,
                 )
+            _publish_final_training_checkpoint(
+                model=model,
+                output_root=output_path.parent,
+                config=config,
+                seed=seed,
+                environment_digest=str(identity["environment_digest"]),
+                target_total_timesteps=target_total_timesteps,
+            )
             output_path.parent.mkdir(parents=True, exist_ok=True)
             if resume_manifest is not None:
                 (output_path.parent / "resume.json").write_bytes(

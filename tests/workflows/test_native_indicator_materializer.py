@@ -102,6 +102,10 @@ def test_indicator_payload_is_deterministic_and_has_206_features() -> None:
     assert all(item.values.dtype == np.dtype(np.float32) for item in first.artifacts)
     assert all(item.available.dtype == np.dtype(np.bool_) for item in first.artifacts)
     assert all(item.event_time_ms.dtype == np.dtype(np.int64) for item in first.artifacts)
+    assert sum(len(item.payload) for item in first.artifacts) < sum(
+        item.event_time_ms.nbytes + item.values.nbytes + item.available.nbytes
+        for item in first.artifacts
+    )
 
 
 def test_report_exposes_missing_nonfinite_ohlcv_and_feature_counts() -> None:
@@ -138,6 +142,8 @@ def test_combines_single_symbol_builds_in_declared_scope_order() -> None:
 
     assert combined.manifest.symbols == scope.symbols
     assert len(combined.artifacts) == 8
+    assert all(item.values.size == 0 for item in combined.artifacts)
+    assert all(item.available_value_count >= 0 for item in combined.artifacts)
     assert tuple(combined.market_bars) == tuple(
         (symbol, timeframe)
         for symbol in scope.symbols

@@ -53,6 +53,7 @@ def test_source_builds_are_loaded_one_symbol_at_a_time(monkeypatch) -> None:
 
     monkeypatch.setattr(module, "load_postgres_universal_source", load_source)
     monkeypatch.setattr(module, "build_native_indicator_cache", build_cache)
+    monkeypatch.setattr(module, "compact_native_indicator_build", lambda build: build)
     monkeypatch.setattr(module, "combine_native_indicator_builds", combine)
 
     assert module._build_source_streaming(object(), scope=scope) is combined

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Final
 
@@ -84,6 +84,7 @@ class NativeArtifactPayload:
     payload_schema: str
     payload_sha256: str
     payload: bytes
+    stored_available_value_count: int | None = None
 
     def __post_init__(self) -> None:
         for value in (self.event_time_ms, self.values, self.available):
@@ -99,7 +100,21 @@ class NativeArtifactPayload:
 
     @property
     def available_value_count(self) -> int:
+        if self.stored_available_value_count is not None:
+            return self.stored_available_value_count
         return int(np.count_nonzero(self.available))
+
+    def compacted(self) -> NativeArtifactPayload:
+        """Drop decoded feature matrices after their report and NPZ are sealed."""
+
+        if self.stored_available_value_count is not None:
+            return self
+        return replace(
+            self,
+            values=np.empty((0, self.feature_count), dtype=np.float32),
+            available=np.empty((0, self.feature_count), dtype=np.bool_),
+            stored_available_value_count=self.available_value_count,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,10 +352,10 @@ def resample_completed_bars(
     return NativeBars(
         open_time_ms=np.asarray(open_time_ms, dtype=np.int64),
         event_time_ms=np.asarray(event_time_ms, dtype=np.int64),
-        open=open_[:used].reshape(shape)[:, 0],
+        open=open_[:used].reshape(shape)[:, 0].copy(),
         high=high[:used].reshape(shape).max(axis=1),
         low=low[:used].reshape(shape).min(axis=1),
-        close=close[:used].reshape(shape)[:, -1],
+        close=close[:used].reshape(shape)[:, -1].copy(),
         quote_volume=(base_volume[:used] * close[:used]).reshape(shape).sum(axis=1),
         funding_rate=funding_rate,
         funding_available=funding_available,
@@ -366,7 +381,7 @@ def _npz_payload(
     event_time_ms: np.ndarray, values: np.ndarray, available: np.ndarray
 ) -> bytes:
     output = io.BytesIO()
-    np.savez(
+    np.savez_compressed(
         output,
         event_time_ms=np.asarray(event_time_ms, dtype=np.int64),
         values=np.asarray(values, dtype=np.float32),
@@ -632,7 +647,7 @@ def combine_native_indicator_builds(
         if tuple(build.market_bars) != expected_keys:
             raise ValueError("single-symbol native bars are incomplete or unordered")
         market_bars.update(build.market_bars)
-        artifacts.extend(build.artifacts)
+        artifacts.extend(artifact.compacted() for artifact in build.artifacts)
         members.extend(build.report.members)
 
     manifest_core = {
@@ -678,6 +693,15 @@ def combine_native_indicator_builds(
     )
 
 
+def compact_native_indicator_build(build: NativeCacheBuild) -> NativeCacheBuild:
+    """Release decoded feature matrices while retaining sealed NPZ evidence."""
+
+    return replace(
+        build,
+        artifacts=tuple(artifact.compacted() for artifact in build.artifacts),
+    )
+
+
 __all__ = [
     "NATIVE_TIMEFRAME_MINUTES",
     "VOLUME_CONVERSION_METHOD",
@@ -689,6 +713,7 @@ __all__ = [
     "NativeCacheBuild",
     "NativeCacheManifest",
     "build_native_indicator_cache",
+    "compact_native_indicator_build",
     "combine_native_indicator_builds",
     "resample_completed_bars",
 ]

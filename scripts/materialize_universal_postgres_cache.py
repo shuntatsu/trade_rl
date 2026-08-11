@@ -27,6 +27,7 @@ from trade_rl.workflows.native_indicator_materializer import (
     NativeCacheBuild,
     build_native_indicator_cache,
     combine_native_indicator_builds,
+    compact_native_indicator_build,
 )
 
 
@@ -75,7 +76,11 @@ def _build_source_streaming(
             source=scope.source,
         )
         source = load_postgres_universal_source(connection, scope=symbol_scope)
-        builds.append(build_native_indicator_cache(source, scope=symbol_scope))
+        builds.append(
+            compact_native_indicator_build(
+                build_native_indicator_cache(source, scope=symbol_scope)
+            )
+        )
     return combine_native_indicator_builds(builds, scope=scope)
 
 

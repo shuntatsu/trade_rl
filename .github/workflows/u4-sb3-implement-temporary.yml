@@ -133,5 +133,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_universal_critic_warm_start.py
-          git commit -m "feat: wire U4 critic warm start into SB3"
+          if ! git diff --cached --quiet; then
+            git commit -m "feat: wire U4 critic warm start into SB3"
+          fi
+          git pull --rebase origin integration/universal-research-u3-u6
           git push origin HEAD:integration/universal-research-u3-u6

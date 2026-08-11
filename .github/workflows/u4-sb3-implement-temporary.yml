@@ -85,33 +85,41 @@ jobs:
                   raise SystemExit("U4 helper anchor not found")
               text = text.replace(class_anchor, helper + class_anchor, 1)
 
-          finally_anchor = '''                finally:
-                              teacher_environment.close()
-          '''
-          finally_anchor = "\n".join(
-              line[10:] if line.startswith("          ") else line
-              for line in finally_anchor.splitlines()
-          ) + "\n"
-          call_block = '''                    _run_behavior_cloning_critic_warm_start_if_enabled(
-                              policy=model.policy,
-                              teacher_environment=teacher_environment,
-                              teacher_dataset=teacher_dataset,
-                              episode_batch=episode_batch,
-                              episode_split=episode_split,
-                              config=config,
-                              observation_provider=observation_provider,
-                              behavior_cloning_seed=behavior_cloning_seed,
-                              output_root=output_path.parent,
-                          )
-          '''
-          call_block = "\n".join(
-              line[10:] if line.startswith("          ") else line
-              for line in call_block.splitlines()
-          ) + "\n"
+          gate_finally_anchor = (
+              "                    if gate_evaluation is not None:\n"
+              "                        _enforce_behavior_cloning_gates(gate_evaluation)\n"
+              "                    elif not quality_passed:\n"
+              "                        raise RuntimeError(\n"
+              "                            \"behavior cloning failed the required MSE improvement gate\"\n"
+              "                        )\n"
+              "                finally:\n"
+              "                    teacher_environment.close()\n"
+          )
+          replacement = (
+              "                    if gate_evaluation is not None:\n"
+              "                        _enforce_behavior_cloning_gates(gate_evaluation)\n"
+              "                    elif not quality_passed:\n"
+              "                        raise RuntimeError(\n"
+              "                            \"behavior cloning failed the required MSE improvement gate\"\n"
+              "                        )\n"
+              "                    _run_behavior_cloning_critic_warm_start_if_enabled(\n"
+              "                        policy=model.policy,\n"
+              "                        teacher_environment=teacher_environment,\n"
+              "                        teacher_dataset=teacher_dataset,\n"
+              "                        episode_batch=episode_batch,\n"
+              "                        episode_split=episode_split,\n"
+              "                        config=config,\n"
+              "                        observation_provider=observation_provider,\n"
+              "                        behavior_cloning_seed=behavior_cloning_seed,\n"
+              "                        output_root=output_path.parent,\n"
+              "                    )\n"
+              "                finally:\n"
+              "                    teacher_environment.close()\n"
+          )
           if text.count("_run_behavior_cloning_critic_warm_start_if_enabled(") == 1:
-              if text.count(finally_anchor) != 1:
-                  raise SystemExit("U4 teacher finally boundary is not unique")
-              text = text.replace(finally_anchor, call_block + finally_anchor, 1)
+              if text.count(gate_finally_anchor) != 1:
+                  raise SystemExit("U4 BC gate/finally boundary is not unique")
+              text = text.replace(gate_finally_anchor, replacement, 1)
           path.write_text(text)
           PY
           uv run ruff check --fix trade_rl/integrations/sb3_training.py tests/integrations/test_sb3_universal_critic_warm_start.py

@@ -1,4 +1,4 @@
-name: Temporary Universal Full Runtime RED Retry
+name: Temporary Universal Full Runtime RED Format
 
 on:
   push:
@@ -6,18 +6,29 @@ on:
     paths: [.github/workflows/universal-training-runtime-red-temporary.yml]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   red:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: integration/universal-research-u3-u6
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - run: |
+      - name: Format test contract
+        run: |
+          uv run ruff format tests/workflows/test_universal_training_runtime_full.py
           uv run ruff check tests/workflows/test_universal_training_runtime_full.py
-          uv run ruff format --check tests/workflows/test_universal_training_runtime_full.py
-          uv run pytest tests/workflows/test_universal_training_runtime_full.py -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/workflows/test_universal_training_runtime_full.py
+          if ! git diff --cached --quiet; then
+            git commit -m "test: format Universal full runtime contract"
+            git push origin HEAD:integration/universal-research-u3-u6
+          fi
+      - name: Verify feature RED
+        run: uv run pytest tests/workflows/test_universal_training_runtime_full.py -q

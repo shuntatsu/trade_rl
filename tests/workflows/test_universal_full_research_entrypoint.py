@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,15 +22,22 @@ def _digest(label: str) -> str:
 
 def _run_configs() -> dict[FullResearchAlgorithm, TrainingRunConfig]:
     root = Path("examples/binance-multitimeframe")
+    common = TrainingRunConfig.from_json(root / "training-target-weight-growth-ppo.json")
+    lagrangian_training = TrainingRunConfig.from_json(
+        root / "training-target-weight-constrained-growth.json"
+    ).training
+    discounted_training = TrainingRunConfig.from_json(
+        root / "training-target-weight-constrained-growth-discounted.json"
+    ).training
     return {
-        FullResearchAlgorithm.PPO: TrainingRunConfig.from_json(
-            root / "training-target-weight-growth-ppo.json"
+        FullResearchAlgorithm.PPO: common,
+        FullResearchAlgorithm.LAGRANGIAN: replace(
+            common,
+            training=lagrangian_training,
         ),
-        FullResearchAlgorithm.LAGRANGIAN: TrainingRunConfig.from_json(
-            root / "training-target-weight-constrained-growth.json"
-        ),
-        FullResearchAlgorithm.DISCOUNTED: TrainingRunConfig.from_json(
-            root / "training-target-weight-constrained-growth-discounted.json"
+        FullResearchAlgorithm.DISCOUNTED: replace(
+            common,
+            training=discounted_training,
         ),
     }
 
@@ -120,8 +128,6 @@ def test_run_universal_full_research_training_binds_projected_full_configs(
 def test_run_universal_full_research_training_rejects_non_training_surface_drift(
     tmp_path: Path,
 ) -> None:
-    from dataclasses import replace
-
     from trade_rl.workflows.universal_full_research_entrypoint import (
         run_universal_full_research_training,
     )
@@ -130,7 +136,7 @@ def test_run_universal_full_research_training_rejects_non_training_surface_drift
     lagrangian = configs[FullResearchAlgorithm.LAGRANGIAN]
     configs[FullResearchAlgorithm.LAGRANGIAN] = replace(
         lagrangian,
-        risk=replace(lagrangian.risk, max_gross=0.9),
+        risk=replace(lagrangian.risk, max_gross=0.9, max_abs_weight=0.9),
     )
 
     with pytest.raises(ValueError, match="non-training run surfaces"):

@@ -1,4 +1,4 @@
-name: Temporary Shared Oracle Config GREEN
+name: Temporary Shared Oracle Config GREEN Retry
 
 on:
   push:

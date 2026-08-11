@@ -24,8 +24,23 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - name: Format and verify U5
+      - name: Repair and verify U5
         run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/universal_stage_a.py")
+          text = path.read_text()
+          replacements = {
+              "spec.sequence_tcn_capacity": "spec.tcn_capacity",
+              "spec.timeframe_attention_heads": "spec.attention_heads",
+              "spec.timeframe_attention_layers": "spec.attention_layers",
+              "spec.timeframe_ffn_multiplier": "spec.ffn_multiplier",
+          }
+          for old, new in replacements.items():
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
           uv run ruff check --fix tests/workflows/test_universal_stage_a.py trade_rl/workflows/universal_stage_a.py trade_rl/rl/universal_architecture.py
           uv run ruff format tests/workflows/test_universal_stage_a.py trade_rl/workflows/universal_stage_a.py trade_rl/rl/universal_architecture.py
           uv run ruff check tests/workflows/test_universal_stage_a.py trade_rl/workflows/universal_stage_a.py trade_rl/rl/universal_architecture.py

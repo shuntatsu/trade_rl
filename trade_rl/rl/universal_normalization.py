@@ -37,10 +37,14 @@ class SymbolBalancedStandardNormalizer:
     catalog_digest: str
     split_manifest_digest: str
     fold_train_range: tuple[int, int]
-    sample_count_per_symbol: int
+    sample_count_per_feature: tuple[int, ...]
     statistics_digest: str
     version: str = _NORMALIZER_VERSION
     clip_value: float = 10.0
+
+    @property
+    def sample_count_per_symbol(self) -> int:
+        return min(self.sample_count_per_feature)
 
     @classmethod
     def fit(
@@ -65,36 +69,54 @@ class SymbolBalancedStandardNormalizer:
         if start < 0 or stop <= start:
             raise ValueError("fold_train_range must be an increasing non-negative range")
 
-        valid_rows: dict[str, np.ndarray] = {}
+        scoped: dict[str, np.ndarray] = {}
         feature_count: int | None = None
         for symbol in ordered_symbols:
             values = np.asarray(symbol_features[symbol], dtype=np.float64)
             if values.ndim != 2:
                 raise ValueError("every symbol feature array must be rank-2")
+            if stop > values.shape[0]:
+                raise ValueError(
+                    f"fold_train_range exceeds available rows for symbol {symbol}"
+                )
             if feature_count is None:
                 feature_count = values.shape[1]
             elif values.shape[1] != feature_count:
                 raise ValueError("all symbols must share the same feature width")
-            finite = np.isfinite(values).all(axis=1)
-            rows = values[finite]
-            if rows.shape[0] == 0:
-                raise ValueError(f"symbol {symbol} has no fully valid feature rows")
-            valid_rows[symbol] = rows
+            scoped[symbol] = values[start:stop]
 
-        sample_count = min(
-            max_samples_per_symbol,
-            min(rows.shape[0] for rows in valid_rows.values()),
-        )
-        sampled = []
-        for symbol in ordered_symbols:
-            rows = valid_rows[symbol]
-            sampled.append(rows[_evenly_spaced_indices(rows.shape[0], sample_count)])
-        matrix = np.concatenate(sampled, axis=0)
-        mean = matrix.mean(axis=0)
-        std = matrix.std(axis=0)
-        constant_mask = std <= _EPSILON
-        safe_std = std.copy()
+        assert feature_count is not None
+        means = np.empty(feature_count, dtype=np.float64)
+        stds = np.empty(feature_count, dtype=np.float64)
+        sample_counts: list[int] = []
+        for feature_index in range(feature_count):
+            finite_by_symbol: dict[str, np.ndarray] = {}
+            for symbol in ordered_symbols:
+                column = scoped[symbol][:, feature_index]
+                finite_values = column[np.isfinite(column)]
+                if finite_values.size == 0:
+                    raise ValueError(
+                        f"symbol {symbol} has no valid observations for feature {feature_index}"
+                    )
+                finite_by_symbol[symbol] = finite_values
+            sample_count = min(
+                max_samples_per_symbol,
+                min(values.size for values in finite_by_symbol.values()),
+            )
+            samples = []
+            for symbol in ordered_symbols:
+                values = finite_by_symbol[symbol]
+                indices = _evenly_spaced_indices(values.size, sample_count)
+                samples.append(values[indices])
+            combined = np.concatenate(samples)
+            means[feature_index] = combined.mean()
+            stds[feature_index] = combined.std()
+            sample_counts.append(sample_count)
+
+        constant_mask = stds <= _EPSILON
+        safe_std = stds.copy()
         safe_std[constant_mask] = 1.0
+        sample_count_per_feature = tuple(sample_counts)
 
         statistics_digest = _canonical_digest(
             {
@@ -104,14 +126,14 @@ class SymbolBalancedStandardNormalizer:
                 "train_symbols": ordered_symbols,
                 "fold_train_range": fold_train_range,
                 "feature_schema_digest": feature_schema_digest,
-                "sample_count_per_symbol": sample_count,
-                "mean": mean.tolist(),
+                "sample_count_per_feature": sample_count_per_feature,
+                "mean": means.tolist(),
                 "std": safe_std.tolist(),
                 "constant_mask": constant_mask.tolist(),
             }
         )
         return cls(
-            mean=mean,
+            mean=means,
             std=safe_std,
             constant_mask=constant_mask,
             train_symbols=ordered_symbols,
@@ -119,7 +141,7 @@ class SymbolBalancedStandardNormalizer:
             catalog_digest=catalog_digest,
             split_manifest_digest=split_manifest_digest,
             fold_train_range=fold_train_range,
-            sample_count_per_symbol=sample_count,
+            sample_count_per_feature=sample_count_per_feature,
             statistics_digest=statistics_digest,
         )
 

@@ -156,7 +156,9 @@ def _config() -> ResidualTrainingConfig:
 def test_configured_critic_warm_start_binds_train_scope_and_artifact(
     tmp_path: Path,
 ) -> None:
-    module = importlib.import_module("trade_rl.integrations.universal_critic_warm_start")
+    module = importlib.import_module(
+        "trade_rl.integrations.universal_critic_warm_start"
+    )
     run_configured = getattr(module, "run_configured_critic_warm_start")
     dataset = _teacher_dataset()
     split = _split()

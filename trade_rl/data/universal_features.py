@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from typing import Iterable, Protocol, TypeVar
+
+from trade_rl.artifacts.hashing import content_digest
 
 
 UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES = (
@@ -51,14 +51,13 @@ def universal_feature_schema_digest(features: Iterable[NamedFeature]) -> str:
     names = tuple(feature.name for feature in features)
     if not names:
         raise ValueError("universal feature schema must not be empty")
-    payload = {
-        "version": "universal_target_local_features_v1",
-        "ordered_feature_names": names,
-        "instrument_descriptors": UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
-    }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    return content_digest(
+        {
+            "version": "universal_target_local_features_v1",
+            "ordered_feature_names": names,
+            "instrument_descriptors": UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
+        }
+    )
 
 
 @dataclass(frozen=True)

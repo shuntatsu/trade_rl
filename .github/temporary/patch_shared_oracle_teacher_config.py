@@ -30,6 +30,15 @@ def oracle_teacher_config_for_environment(environment: Any) -> OracleTeacherConf
     initial_capital = getattr(environment, "initial_capital", None)
     if risk_config is None or portfolio_config is None or execution_cost is None:
         raise TypeError("Oracle teacher environment is missing risk or execution config")
+    if (
+        isinstance(initial_capital, bool)
+        or not isinstance(initial_capital, (int, float))
+        or not np.isfinite(initial_capital)
+        or initial_capital <= 0.0
+    ):
+        raise ValueError("Oracle teacher environment initial_capital must be positive")
+    if isinstance(signal_delay, bool) or not isinstance(signal_delay, int):
+        raise TypeError("Oracle teacher signal_delay_decisions must be an integer")
     return OracleTeacherConfig(
         execution_cost=execution_cost,
         portfolio_risk=portfolio_config,

@@ -1,4 +1,4 @@
-name: Temporary Universal U5 Training GREEN
+name: Temporary Universal U6 Training RED
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
     paths: [.github/workflows/universal-training-runtime-red-temporary.yml]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  green:
+  red:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -19,19 +19,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - run: uv run python .github/temporary/patch_universal_u5_training.py
       - run: |
-          uv run ruff check --fix trade_rl/workflows/universal_training_runner.py trade_rl/workflows/universal_stage_a_training.py tests/workflows/test_universal_stage_a_training_orchestrator.py
-          uv run ruff format trade_rl/workflows/universal_training_runner.py trade_rl/workflows/universal_stage_a_training.py tests/workflows/test_universal_stage_a_training_orchestrator.py
-          uv run ruff check trade_rl/workflows/universal_training_runner.py trade_rl/workflows/universal_stage_a_training.py tests/workflows/test_universal_stage_a_training_orchestrator.py
-          uv run mypy trade_rl/workflows/universal_training_runner.py trade_rl/workflows/universal_stage_a_training.py
-          uv run pytest tests/workflows/test_universal_stage_a_training_orchestrator.py tests/workflows/test_universal_stage_a.py tests/workflows/test_universal_stage_a_training_adapter.py tests/workflows/test_universal_sb3_training_assembly.py tests/workflows/test_universal_oracle_batch_runtime.py tests/workflows/test_universal_teacher_shared_oracle_identity.py -q
-      - name: Commit verified Universal U5 training orchestration
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/workflows/universal_training_runner.py trade_rl/workflows/universal_stage_a_training.py tests/workflows/test_universal_stage_a_training_orchestrator.py
-          if ! git diff --cached --quiet; then
-            git commit -m "feat: orchestrate Universal U5 architecture training"
-            git push origin HEAD:integration/universal-research-u3-u6
-          fi
+          uv run ruff check --fix tests/workflows/test_universal_full_research_training.py
+          uv run ruff format tests/workflows/test_universal_full_research_training.py
+          uv run pytest tests/workflows/test_universal_full_research_training.py -q

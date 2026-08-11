@@ -197,6 +197,7 @@ def test_fit_universal_shared_normalizer_uses_canonical_feature_schema() -> None
     assert normalizer.fold_train_range == (2, 6)
     assert normalizer.train_symbols == ("AAAUSDT", "BBBUSDT")
     assert normalizer.sample_count_per_symbol == 4
-    assert normalizer.feature_schema_digest == universal_feature_schema_digest_from_names(
-        first.feature_names
+    assert (
+        normalizer.feature_schema_digest
+        == universal_feature_schema_digest_from_names(first.feature_names)
     )

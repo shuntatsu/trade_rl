@@ -90,13 +90,19 @@ def test_build_universal_pretraining_bundle_from_batches_closes_train_scope(
         validation_episode_ids=np.asarray([], dtype=np.int64),
     )
 
-    monkeypatch.setattr(module, "build_universal_symbol_teacher_environment", build_environment)
+    monkeypatch.setattr(
+        module, "build_universal_symbol_teacher_environment", build_environment
+    )
     monkeypatch.setattr(module, "collect_universal_episode_teacher", collect)
-    monkeypatch.setattr(module, "behavior_cloning_split", lambda *_args, **_kwargs: split)
+    monkeypatch.setattr(
+        module, "behavior_cloning_split", lambda *_args, **_kwargs: split
+    )
 
     sentinel = object()
 
-    def combine(symbol_teachers, *, train_symbols, normalizer_digest, feature_schema_digest):
+    def combine(
+        symbol_teachers, *, train_symbols, normalizer_digest, feature_schema_digest
+    ):
         combined.update(symbol_teachers)
         assert tuple(train_symbols) == symbols
         assert normalizer_digest == _digest("normalizer")

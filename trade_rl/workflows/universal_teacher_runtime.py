@@ -38,9 +38,13 @@ def build_universal_symbol_teacher_environment(
     if binding.concrete_symbol != symbol or binding.split != "train":
         raise ValueError("Universal teacher binding must match one train symbol")
     if not callable(concrete_environment_factory):
-        raise TypeError("Universal teacher concrete environment factory must be callable")
+        raise TypeError(
+            "Universal teacher concrete environment factory must be callable"
+        )
     if not callable(instrument_context_provider):
-        raise TypeError("Universal teacher instrument context provider must be callable")
+        raise TypeError(
+            "Universal teacher instrument context provider must be callable"
+        )
     return EpisodeRoutedSingleInstrumentEnv(
         train_symbols=(symbol,),
         partition_digest=partition_digest,
@@ -90,7 +94,9 @@ def build_universal_pretraining_bundle_from_batches(
         raise ValueError("Universal teacher run_seed range is invalid")
 
     symbol_teachers: dict[str, tuple[Any, Any, Any]] = {}
-    for index, (symbol, binding) in enumerate(zip(symbols, binding_values, strict=True)):
+    for index, (symbol, binding) in enumerate(
+        zip(symbols, binding_values, strict=True)
+    ):
         batch = batches[symbol]
         if not isinstance(batch, EpisodeOracleBatch):
             raise TypeError("Universal teacher batch must be an EpisodeOracleBatch")

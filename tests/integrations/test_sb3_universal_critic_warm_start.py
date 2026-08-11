@@ -21,7 +21,9 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
     return ResidualTrainingConfig(**values)  # type: ignore[arg-type]
 
 
-def test_sb3_critic_warm_start_is_noop_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sb3_critic_warm_start_is_noop_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     called = False
 
     def unexpected(**kwargs: object) -> object:

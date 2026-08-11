@@ -13,7 +13,7 @@ from torch import nn
 
 from trade_rl.learning.behavior_cloning import ObservationBatchProvider
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
-from trade_rl.learning.teacher_artifact import ObservationBatch, SupervisedPolicyDataset
+from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.learning.universal_bc import CriticWarmStartPlan
 
 TensorObservationBatch = torch.Tensor | dict[str, torch.Tensor]
@@ -108,7 +108,9 @@ def _validated_sample_indices(
     if resolved.size == 0:
         raise ValueError("critic warm-start sample_indices must not be empty")
     if np.any(resolved < 0) or np.any(resolved >= sample_count):
-        raise ValueError("critic warm-start sample_indices contain an out-of-range index")
+        raise ValueError(
+            "critic warm-start sample_indices contain an out-of-range index"
+        )
     if np.unique(resolved).size != resolved.size:
         raise ValueError("critic warm-start sample_indices must not contain duplicates")
     return resolved
@@ -122,7 +124,9 @@ def _observation_batch(
 ) -> object:
     if provider is not None:
         if provider.sample_count != dataset.sample_count:
-            raise ValueError("critic warm-start observation provider sample count mismatch")
+            raise ValueError(
+                "critic warm-start observation provider sample count mismatch"
+            )
         return provider.get(indices)
     observations = dataset.observations
     if isinstance(observations, Mapping):
@@ -183,7 +187,9 @@ def _critic_parameters(policy: Any) -> tuple[nn.Parameter, ...]:
     return parameters
 
 
-def _evaluation_batches(indices: np.ndarray, *, batch_size: int) -> tuple[np.ndarray, ...]:
+def _evaluation_batches(
+    indices: np.ndarray, *, batch_size: int
+) -> tuple[np.ndarray, ...]:
     return tuple(
         indices[offset : offset + batch_size]
         for offset in range(0, len(indices), batch_size)
@@ -323,7 +329,11 @@ def warm_start_policy_actor_critic(
 ) -> CriticWarmStartResult:
     """Fit critic first with actor frozen, then conservatively fine-tune both."""
 
-    if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+    if (
+        isinstance(batch_size, bool)
+        or not isinstance(batch_size, int)
+        or batch_size <= 0
+    ):
         raise ValueError("critic warm-start batch_size must be positive")
     if not math.isfinite(learning_rate) or learning_rate <= 0.0:
         raise ValueError("critic warm-start learning_rate must be finite and positive")

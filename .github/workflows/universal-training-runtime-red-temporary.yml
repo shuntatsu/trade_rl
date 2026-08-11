@@ -1,4 +1,4 @@
-name: Temporary Universal Artifact Factory GREEN
+name: Temporary Universal Artifact Publish RED
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
     paths: [.github/workflows/universal-training-runtime-red-temporary.yml]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  green:
+  red:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -19,19 +19,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - run: uv run python .github/temporary/patch_universal_dataset_artifact_factory.py
       - run: |
-          uv run ruff check --fix trade_rl/workflows/universal_training_runner.py tests/workflows/test_universal_dataset_artifact_runtime.py
-          uv run ruff format trade_rl/workflows/universal_training_runner.py tests/workflows/test_universal_dataset_artifact_runtime.py
-          uv run ruff check trade_rl/workflows/universal_training_runner.py tests/workflows/test_universal_dataset_artifact_runtime.py
-          uv run mypy trade_rl/workflows/universal_training_runner.py
-          uv run pytest tests/workflows/test_universal_dataset_artifact_runtime.py tests/workflows/test_universal_training_runtime.py tests/rl/test_universal_environment_cache.py -q
-      - name: Commit verified artifact factory
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/workflows/universal_training_runner.py
-          if ! git diff --cached --quiet; then
-            git commit -m "feat: lazy-load Universal dataset artifacts"
-            git push origin HEAD:integration/universal-research-u3-u6
-          fi
+          uv run ruff check --fix tests/workflows/test_universal_dataset_artifact_publish.py
+          uv run ruff format tests/workflows/test_universal_dataset_artifact_publish.py
+          uv run pytest tests/workflows/test_universal_dataset_artifact_publish.py -q

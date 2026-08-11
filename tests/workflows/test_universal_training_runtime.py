@@ -61,7 +61,9 @@ class _ChildEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
     def __init__(self, binding: InstrumentDatasetBinding) -> None:
         super().__init__()
         symbol = binding.concrete_symbol
-        self.dataset = SimpleNamespace(symbols=(symbol,), dataset_id=binding.source_dataset_id)
+        self.dataset = SimpleNamespace(
+            symbols=(symbol,), dataset_id=binding.source_dataset_id
+        )
         self.action_spec = ActionSpec(
             mode=ActionMode.TARGET_WEIGHT,
             target_weight_count=1,
@@ -72,7 +74,9 @@ class _ChildEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         self.action_space = spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32)
         self.observation_space = spaces.Dict(
             {
-                "current_snapshot": spaces.Box(-1.0, 1.0, shape=(1, 1), dtype=np.float32),
+                "current_snapshot": spaces.Box(
+                    -1.0, 1.0, shape=(1, 1), dtype=np.float32
+                ),
                 "asset_state": spaces.Box(-1.0, 1.0, shape=(1, 1), dtype=np.float32),
                 "global_state": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32),
                 "active": spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),

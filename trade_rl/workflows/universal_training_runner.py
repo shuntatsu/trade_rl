@@ -54,7 +54,11 @@ def build_universal_instrument_contracts(
     """Build train-only instrument contracts used by causal descriptor generation."""
 
     symbols = tuple(train_symbols)
-    if not symbols or len(set(symbols)) != len(symbols) or any(not value for value in symbols):
+    if (
+        not symbols
+        or len(set(symbols)) != len(symbols)
+        or any(not value for value in symbols)
+    ):
         raise ValueError("Universal train_symbols must be non-empty and unique")
     raw_metadata = getattr(metadata_resolution, "metadata", None)
     if not isinstance(raw_metadata, Mapping):
@@ -86,10 +90,14 @@ def build_universal_instrument_contracts(
             execution_rules = tuple(history)
         contracts[symbol] = InstrumentContract(
             symbol=symbol,
-            listed_at=_aware_datetime(raw.get("listed_at"), field=f"{symbol}.listed_at"),
+            listed_at=_aware_datetime(
+                raw.get("listed_at"), field=f"{symbol}.listed_at"
+            ),
             delisted_at=delisted_at,
             volume_unit=VolumeUnit.QUOTE_NOTIONAL,
-            tick_size=_positive_number(raw.get("tick_size"), field=f"{symbol}.tick_size"),
+            tick_size=_positive_number(
+                raw.get("tick_size"), field=f"{symbol}.tick_size"
+            ),
             lot_size=_positive_number(raw.get("lot_size"), field=f"{symbol}.lot_size"),
             minimum_notional=_positive_number(
                 raw.get("minimum_notional"),
@@ -117,12 +125,20 @@ class UniversalRoutedEnvironmentFactory:
         if not symbols or len(set(symbols)) != len(symbols):
             raise ValueError("Universal routed factory train_symbols are invalid")
         if tuple(binding.concrete_symbol for binding in self.bindings) != symbols:
-            raise ValueError("Universal routed factory bindings must follow train_symbols")
+            raise ValueError(
+                "Universal routed factory bindings must follow train_symbols"
+            )
         if any(binding.split != "train" for binding in self.bindings):
-            raise ValueError("Universal routed training factory accepts train bindings only")
+            raise ValueError(
+                "Universal routed training factory accepts train bindings only"
+            )
         if not callable(self.concrete_environment_factory):
             raise TypeError("concrete_environment_factory must be callable")
-        if isinstance(self.run_seed, bool) or not isinstance(self.run_seed, int) or self.run_seed < 0:
+        if (
+            isinstance(self.run_seed, bool)
+            or not isinstance(self.run_seed, int)
+            or self.run_seed < 0
+        ):
             raise ValueError("Universal routed factory run_seed must be non-negative")
 
     @property

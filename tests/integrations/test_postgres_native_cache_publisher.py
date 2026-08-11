@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -46,6 +47,8 @@ class TransactionRecordingCursor:
             manifest = self.connection.manifests.get(cache_id)
             self.rows = [] if manifest is None else [(manifest[0],)]
         elif normalized.startswith("INSERT INTO") and "indicator_manifests" in normalized:
+            assert isinstance(params[7], str)
+            assert isinstance(json.loads(params[7]), dict)
             self.connection.manifests[cache_id] = (str(params[-1]), int(params[8]))
             self.rows = []
         elif normalized.startswith("SELECT manifest_digest, artifact_count"):

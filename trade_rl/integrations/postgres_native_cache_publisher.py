@@ -6,6 +6,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.integrations.postgres_market_tables import PostgresMarketTableSet
 from trade_rl.workflows.native_indicator_materializer import NativeCacheBuild
 
@@ -203,7 +204,7 @@ def _insert_indicator_rows(
             cache_id, schema_version, market, symbols, start_time, end_time,
             feature_config_digest, feature_specs, artifact_count,
             volume_conversion_method, manifest_digest
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s)
         """,
         (
             build.manifest.cache_id,
@@ -213,7 +214,7 @@ def _insert_indicator_rows(
             build.manifest.start_time,
             build.manifest.end_time,
             build.manifest.feature_config_digest,
-            dict(build.manifest.feature_specs),
+            canonical_json_bytes(dict(build.manifest.feature_specs)).decode("utf-8"),
             len(build.artifacts),
             build.manifest.volume_conversion_method,
             build.manifest.digest,

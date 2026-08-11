@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Sequence
 
 from trade_rl.rl.training_run_config import TrainingRunConfig
 from trade_rl.rl.universal_architecture import UniversalArchitectureName
@@ -13,6 +13,7 @@ from trade_rl.workflows.universal_full_research_entrypoint import (
     run_universal_full_research_training,
 )
 from trade_rl.workflows.universal_research import FullResearchAlgorithm
+from trade_rl.workflows.universal_training_runner import UniversalTrainingRuntime
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -55,7 +56,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    authored_configs = {
+    authored_configs: Mapping[FullResearchAlgorithm | str, TrainingRunConfig] = {
         FullResearchAlgorithm.PPO: TrainingRunConfig.from_json(args.ppo_config),
         FullResearchAlgorithm.LAGRANGIAN: TrainingRunConfig.from_json(
             args.lagrangian_config
@@ -74,7 +75,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     raw_runtime_factory = load_universal_runtime_factory(args.runtime_factory)
 
-    def runtime_factory(*, algorithm, run_config):
+    def runtime_factory(
+        *,
+        algorithm: FullResearchAlgorithm,
+        run_config: TrainingRunConfig,
+    ) -> UniversalTrainingRuntime:
         return raw_runtime_factory(
             algorithm=algorithm,
             run_config=run_config,

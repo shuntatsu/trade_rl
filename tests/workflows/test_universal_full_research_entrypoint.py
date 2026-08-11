@@ -22,7 +22,9 @@ def _digest(label: str) -> str:
 
 def _run_configs() -> dict[FullResearchAlgorithm, TrainingRunConfig]:
     root = Path("examples/binance-multitimeframe")
-    common = TrainingRunConfig.from_json(root / "training-target-weight-growth-ppo.json")
+    common = TrainingRunConfig.from_json(
+        root / "training-target-weight-growth-ppo.json"
+    )
     lagrangian_training = TrainingRunConfig.from_json(
         root / "training-target-weight-constrained-growth.json"
     ).training
@@ -114,7 +116,9 @@ def test_run_universal_full_research_training_binds_projected_full_configs(
         assert projected_config.action == authored[algorithm].action
 
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == "universal_full_research_training_entrypoint_v1"
+    assert (
+        manifest["schema_version"] == "universal_full_research_training_entrypoint_v1"
+    )
     assert manifest["selected_architecture"] == "u_medium_direct"
     assert manifest["comparison_digest"] == _digest("comparison")
     assert manifest["required_pairs"] == ["required-pair"]

@@ -105,7 +105,9 @@ def _resolved_run_configs(
             raise TypeError("Universal U6 run configs must be TrainingRunConfig")
         resolved[algorithm] = config
     if set(resolved) != set(FullResearchAlgorithm):
-        raise ValueError("Universal U6 run configs must close all maintained algorithms")
+        raise ValueError(
+            "Universal U6 run configs must close all maintained algorithms"
+        )
     return resolved
 
 
@@ -148,7 +150,7 @@ def run_universal_full_research_training(
     ):
         raise ValueError("Universal U6 folds must be non-negative integers")
 
-    algorithm_configs: dict[FullResearchAlgorithm, ResidualTrainingConfig] = {
+    algorithm_configs: Mapping[FullResearchAlgorithm | str, ResidualTrainingConfig] = {
         algorithm: config.training for algorithm, config in configs.items()
     }
 

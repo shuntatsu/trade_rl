@@ -25,7 +25,11 @@ class SymbolBalancedBatchSampler:
     seed: int
 
     def __post_init__(self) -> None:
-        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
+        if (
+            isinstance(self.seed, bool)
+            or not isinstance(self.seed, int)
+            or self.seed < 0
+        ):
             raise ValueError("seed must be a non-negative integer")
         if not self.sample_indices:
             raise ValueError("sample_indices must not be empty")
@@ -48,7 +52,11 @@ class SymbolBalancedBatchSampler:
 
     def _batch_shape(self, batch_size: int) -> tuple[tuple[str, ...], int]:
         symbols = tuple(sorted(self.sample_indices))
-        if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+        if (
+            isinstance(batch_size, bool)
+            or not isinstance(batch_size, int)
+            or batch_size <= 0
+        ):
             raise ValueError("batch_size must be positive")
         if batch_size % len(symbols) != 0:
             raise ValueError("batch_size must be divisible by the symbol count")
@@ -58,7 +66,11 @@ class SymbolBalancedBatchSampler:
         self, *, batch_size: int, batch_index: int
     ) -> tuple[tuple[str, int], ...]:
         symbols, per_symbol = self._batch_shape(batch_size)
-        if isinstance(batch_index, bool) or not isinstance(batch_index, int) or batch_index < 0:
+        if (
+            isinstance(batch_index, bool)
+            or not isinstance(batch_index, int)
+            or batch_index < 0
+        ):
             raise ValueError("batch_index must be non-negative")
         result: list[tuple[str, int]] = []
         for symbol in symbols:
@@ -81,7 +93,9 @@ class SymbolBalancedBatchSampler:
         symbols, per_symbol = self._batch_shape(batch_size)
         if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch <= 0:
             raise ValueError("epoch must be a positive integer")
-        maximum_symbol_count = max(len(self.sample_indices[symbol]) for symbol in symbols)
+        maximum_symbol_count = max(
+            len(self.sample_indices[symbol]) for symbol in symbols
+        )
         batch_count = math.ceil(maximum_symbol_count / per_symbol)
         target_per_symbol = batch_count * per_symbol
         streams: dict[str, tuple[int, ...]] = {}

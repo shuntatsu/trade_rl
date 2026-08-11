@@ -168,10 +168,14 @@ def _positive_zero_shot_pairs() -> tuple[UniversalZeroShotPair, ...]:
 
 
 def test_zero_shot_gate_uses_symbol_seed_and_safety_worst_cases() -> None:
-    summary = summarize_zero_shot_pairs(_positive_zero_shot_pairs())
+    pairs = _positive_zero_shot_pairs()
+    summary = summarize_zero_shot_pairs(pairs)
+    bootstrap = zero_shot_bootstrap(pairs, n_bootstrap=200, seed=9, block_size=2)
     assert summary.worst_symbol_excess_return > 0.0
     assert summary.worst_seed_excess_return > 0.0
-    assert passes_zero_shot_gate(summary)
+    assert passes_zero_shot_gate(summary, bootstrap=bootstrap)
+    with pytest.raises(ValueError, match="bootstrap evidence"):
+        passes_zero_shot_gate(summary, bootstrap=None)
 
 
 def test_zero_shot_bootstrap_reports_paired_excess_lower_bound() -> None:

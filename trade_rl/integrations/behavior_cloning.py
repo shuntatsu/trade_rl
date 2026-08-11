@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import math
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -363,6 +363,9 @@ def pretrain_policy(
     seed: int,
     split: BehaviorCloningSplit | None = None,
     observation_provider: ObservationBatchProvider | None = None,
+    training_batch_provider: (
+        Callable[[int, np.ndarray, int], Sequence[np.ndarray]] | None
+    ) = None,
     hierarchical_labels: HierarchicalTeacherLabels | None = None,
     progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> BehaviorCloningResult:
@@ -435,10 +438,46 @@ def pretrain_policy(
     stale_epochs = 0
     started_at = time.monotonic()
     for epoch in range(1, config.epochs + 1):
-        permutation = torch.randperm(train_count, generator=generator).numpy()
-        shuffled = train_indices[permutation]
-        for offset in range(0, train_count, config.batch_size):
-            batch_indices = shuffled[offset : offset + config.batch_size]
+        if training_batch_provider is None:
+            permutation = torch.randperm(train_count, generator=generator).numpy()
+            shuffled = train_indices[permutation]
+            training_batches = tuple(
+                shuffled[offset : offset + config.batch_size]
+                for offset in range(0, train_count, config.batch_size)
+            )
+        else:
+            raw_batches = tuple(
+                training_batch_provider(epoch, train_indices.copy(), config.batch_size)
+            )
+            if not raw_batches:
+                raise ValueError("behavior-cloning batch provider returned no batches")
+            train_scope = frozenset(int(value) for value in train_indices)
+            covered: set[int] = set()
+            validated_batches: list[np.ndarray] = []
+            for raw_batch in raw_batches:
+                raw_array = np.asarray(raw_batch)
+                if (
+                    raw_array.ndim != 1
+                    or not np.issubdtype(raw_array.dtype, np.integer)
+                    or raw_array.size == 0
+                    or raw_array.size > config.batch_size
+                ):
+                    raise ValueError(
+                        "behavior-cloning batch provider returned an invalid batch"
+                    )
+                batch = np.asarray(raw_array, dtype=np.int64).copy(order="C")
+                if any(int(value) not in train_scope for value in batch):
+                    raise ValueError(
+                        "behavior-cloning batch provider left the train scope"
+                    )
+                covered.update(int(value) for value in batch)
+                validated_batches.append(batch)
+            if covered != train_scope:
+                raise ValueError(
+                    "behavior-cloning batch provider must cover the full train scope"
+                )
+            training_batches = tuple(validated_batches)
+        for batch_indices in training_batches:
             observations = _tensor_observations(
                 _observation_batch(
                     dataset, batch_indices, provider=observation_provider

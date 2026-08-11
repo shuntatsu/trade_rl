@@ -29,10 +29,16 @@ def _validated_symbol_sample_indices(
     split: BehaviorCloningSplit,
 ) -> dict[str, tuple[int, ...]]:
     symbols = tuple(train_symbols)
-    if not symbols or len(set(symbols)) != len(symbols) or any(not symbol for symbol in symbols):
+    if (
+        not symbols
+        or len(set(symbols)) != len(symbols)
+        or any(not symbol for symbol in symbols)
+    ):
         raise ValueError("Universal BC train_symbols must be non-empty and unique")
     if set(symbol_sample_indices) != set(symbols):
-        raise ValueError("Universal BC symbol sample scope must exactly match train_symbols")
+        raise ValueError(
+            "Universal BC symbol sample scope must exactly match train_symbols"
+        )
 
     expected_train = {int(value) for value in split.train_indices}
     resolved: dict[str, tuple[int, ...]] = {}
@@ -44,20 +50,28 @@ def _validated_symbol_sample_indices(
         indices: list[int] = []
         for value in raw:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError("Universal BC sample indices must be non-negative integers")
+                raise ValueError(
+                    "Universal BC sample indices must be non-negative integers"
+                )
             indices.append(value)
         values = tuple(indices)
         if len(set(values)) != len(values):
-            raise ValueError("Universal BC sample indices must be unique within each symbol")
+            raise ValueError(
+                "Universal BC sample indices must be unique within each symbol"
+            )
         if not set(values) <= expected_train:
-            raise ValueError("Universal BC symbol samples must remain inside the BC train scope")
+            raise ValueError(
+                "Universal BC symbol samples must remain inside the BC train scope"
+            )
         overlap = observed.intersection(values)
         if overlap:
             raise ValueError("Universal BC samples cannot belong to multiple symbols")
         observed.update(values)
         resolved[symbol] = values
     if observed != expected_train:
-        raise ValueError("Universal BC symbol samples must close exactly over the BC train scope")
+        raise ValueError(
+            "Universal BC symbol samples must close exactly over the BC train scope"
+        )
     return resolved
 
 
@@ -92,7 +106,9 @@ def pretrain_universal_policy(
         if supplied.ndim != 1 or not np.array_equal(
             np.sort(supplied), np.sort(expected_train)
         ):
-            raise ValueError("Universal BC batch provider received a different train scope")
+            raise ValueError(
+                "Universal BC batch provider received a different train scope"
+            )
         return tuple(
             np.asarray(batch, dtype=np.int64)
             for batch in sampler.epoch_batches(batch_size=batch_size, epoch=epoch)

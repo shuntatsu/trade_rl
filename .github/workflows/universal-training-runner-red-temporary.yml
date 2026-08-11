@@ -1,4 +1,4 @@
-name: Temporary Universal Training Runner GREEN Retry
+name: Temporary Universal Training Runner GREEN Final
 
 on:
   push:
@@ -21,6 +21,7 @@ jobs:
       - run: uv sync --extra dev --extra train-sb3
       - run: uv run python .github/temporary/patch_universal_training_data.py
       - run: |
+          uv run ruff check --fix trade_rl/workflows/universal_training.py tests/workflows/test_universal_training_runner.py
           uv run ruff format trade_rl/workflows/universal_training.py tests/workflows/test_universal_training_runner.py
           uv run ruff check trade_rl/workflows/universal_training.py tests/workflows/test_universal_training_runner.py
           uv run mypy trade_rl/workflows/universal_training.py

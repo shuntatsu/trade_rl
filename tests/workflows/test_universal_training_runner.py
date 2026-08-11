@@ -149,7 +149,9 @@ def test_materialize_universal_train_datasets_never_builds_validation_or_test() 
     assert "TESTUSDT" not in dataset_calls
 
 
-def test_materialize_universal_train_datasets_requires_aligned_feature_contract() -> None:
+def test_materialize_universal_train_datasets_requires_aligned_feature_contract() -> (
+    None
+):
     from trade_rl.workflows.universal_training import (
         materialize_universal_train_datasets,
     )

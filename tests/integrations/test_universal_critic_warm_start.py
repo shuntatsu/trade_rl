@@ -1,21 +1,28 @@
 from __future__ import annotations
 
+import importlib
+import importlib.util
+
 import numpy as np
 import pytest
 import torch
 from torch import nn
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.integrations.universal_critic_warm_start import (
-    collect_episode_return_targets,
-    warm_start_policy_actor_critic,
-)
 from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
     OracleEpisodeContract,
 )
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.learning.universal_bc import CriticWarmStartPlan
+
+
+def _runtime() -> tuple[object, object]:
+    module_name = "trade_rl.integrations.universal_critic_warm_start"
+    spec = importlib.util.find_spec(module_name)
+    assert spec is not None, "universal critic warm-start runtime is not implemented"
+    module = importlib.import_module(module_name)
+    return module.collect_episode_return_targets, module.warm_start_policy_actor_critic
 
 
 def _digest(label: str) -> str:
@@ -87,6 +94,7 @@ def _oracle_batch() -> EpisodeOracleBatch:
 
 
 def test_collect_episode_return_targets_resets_at_each_episode_boundary() -> None:
+    collect_episode_return_targets, _ = _runtime()
     returns = collect_episode_return_targets(
         _RewardEnvironment(),
         _oracle_batch(),
@@ -147,6 +155,7 @@ def _supervised_dataset() -> SupervisedPolicyDataset:
 def test_critic_only_phase_preserves_actor_then_joint_phase_improves_value_fit() -> (
     None
 ):
+    _, warm_start_policy_actor_critic = _runtime()
     policy = _Policy()
     dataset = _supervised_dataset()
     result = warm_start_policy_actor_critic(
@@ -170,6 +179,7 @@ def test_critic_only_phase_preserves_actor_then_joint_phase_improves_value_fit()
 
 
 def test_critic_warm_start_rejects_target_count_mismatch() -> None:
+    _, warm_start_policy_actor_critic = _runtime()
     with pytest.raises(ValueError, match="critic target count"):
         warm_start_policy_actor_critic(
             _Policy(),

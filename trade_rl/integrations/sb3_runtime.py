@@ -15,6 +15,7 @@ from trade_rl.learning.oracle_bellman_contracts import (
     SolverSelection,
 )
 from trade_rl.learning.oracle_solver import OracleBatchBackend
+from trade_rl.learning.oracle_teacher import OracleTeacherConfig
 from trade_rl.rl.training import ResidualTrainingConfig
 from trade_rl.rl.training_modes import CudaRuntimeMode
 
@@ -30,6 +31,43 @@ def _lagrangian_probe_worker_count(n_envs: int) -> int:
     if configured <= 0:
         raise ValueError("TRADE_RL_LAGRANGIAN_PROBE_WORKERS must be positive")
     return min(n_envs, configured)
+
+
+def oracle_teacher_config_for_environment(environment: Any) -> OracleTeacherConfig:
+    """Derive the exact deterministic Oracle contract from a training environment."""
+
+    risk_service = getattr(environment, "pre_trade_risk", None)
+    portfolio_service = getattr(environment, "portfolio_risk", None)
+    environment_config = getattr(environment, "config", None)
+    risk_config = getattr(risk_service, "config", None)
+    portfolio_config = getattr(portfolio_service, "config", None)
+    execution_cost = getattr(environment_config, "execution_cost", None)
+    signal_delay = getattr(environment_config, "signal_delay_decisions", None)
+    initial_capital = getattr(environment, "initial_capital", None)
+    if risk_config is None or portfolio_config is None or execution_cost is None:
+        raise TypeError(
+            "Oracle teacher environment is missing risk or execution config"
+        )
+    if (
+        isinstance(initial_capital, bool)
+        or not isinstance(initial_capital, (int, float))
+        or not np.isfinite(initial_capital)
+        or initial_capital <= 0.0
+    ):
+        raise ValueError("Oracle teacher environment initial_capital must be positive")
+    if isinstance(signal_delay, bool) or not isinstance(signal_delay, int):
+        raise TypeError("Oracle teacher signal_delay_decisions must be an integer")
+    return OracleTeacherConfig(
+        execution_cost=execution_cost,
+        portfolio_risk=portfolio_config,
+        max_gross=risk_config.max_gross,
+        max_abs_weight=risk_config.max_abs_weight,
+        entry_threshold=risk_config.entry_threshold,
+        exit_threshold=risk_config.exit_threshold,
+        no_trade_band=risk_config.no_trade_band,
+        reference_portfolio_value=float(initial_capital),
+        signal_delay_decisions=signal_delay,
+    )
 
 
 def _oracle_solver_config() -> OracleSolverConfig:

@@ -118,6 +118,9 @@ from trade_rl.integrations.sb3_runtime import (
 from trade_rl.integrations.sb3_runtime import (
     _teacher_worker_count as _teacher_worker_count,
 )
+from trade_rl.integrations.sb3_runtime import (
+    oracle_teacher_config_for_environment,
+)
 from trade_rl.integrations.sb3_teacher_pipeline import (
     _StableBaselines3TeacherPipeline,
 )
@@ -439,19 +442,8 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                     int(unwrapped_probe.minimum_start_index),
                     int(probe_dataset.n_bars),
                 )
-                risk_config = unwrapped_probe.pre_trade_risk.config
-                prefetched_oracle_config = OracleTeacherConfig(
-                    execution_cost=unwrapped_probe.config.execution_cost,
-                    portfolio_risk=unwrapped_probe.portfolio_risk.config,
-                    max_gross=risk_config.max_gross,
-                    max_abs_weight=risk_config.max_abs_weight,
-                    entry_threshold=risk_config.entry_threshold,
-                    exit_threshold=risk_config.exit_threshold,
-                    no_trade_band=risk_config.no_trade_band,
-                    reference_portfolio_value=unwrapped_probe.initial_capital,
-                    signal_delay_decisions=(
-                        unwrapped_probe.config.signal_delay_decisions
-                    ),
+                prefetched_oracle_config = oracle_teacher_config_for_environment(
+                    unwrapped_probe
                 )
                 sampling_config = _oracle_episode_sampling_config(
                     unwrapped_probe,

@@ -86,18 +86,18 @@ jobs:
           path = Path("tests/rl/test_universal_research_u3_u6.py")
           text = path.read_text()
           old = '''def test_zero_shot_gate_uses_symbol_seed_and_safety_worst_cases() -> None:\n    summary = summarize_zero_shot_pairs(_positive_zero_shot_pairs())\n    assert summary.worst_symbol_excess_return > 0.0\n    assert summary.worst_seed_excess_return > 0.0\n    assert passes_zero_shot_gate(summary)\n'''
-          new = '''def test_zero_shot_gate_uses_symbol_seed_and_safety_worst_cases() -> None:\n    pairs = _positive_zero_shot_pairs()\n    summary = summarize_zero_shot_pairs(pairs)\n    bootstrap = zero_shot_bootstrap(pairs, n_bootstrap=200, seed=9, block_size=2)\n    assert summary.worst_symbol_excess_return > 0.0\n    assert summary.worst_seed_excess_return > 0.0\n    assert passes_zero_shot_gate(summary, bootstrap=bootstrap)\n    assert not passes_zero_shot_gate(summary, bootstrap=None)\n'''
+          new = '''def test_zero_shot_gate_uses_symbol_seed_and_safety_worst_cases() -> None:\n    pairs = _positive_zero_shot_pairs()\n    summary = summarize_zero_shot_pairs(pairs)\n    bootstrap = zero_shot_bootstrap(pairs, n_bootstrap=200, seed=9, block_size=2)\n    assert summary.worst_symbol_excess_return > 0.0\n    assert summary.worst_seed_excess_return > 0.0\n    assert passes_zero_shot_gate(summary, bootstrap=bootstrap)\n    with pytest.raises(ValueError, match="bootstrap evidence"):\n        passes_zero_shot_gate(summary, bootstrap=None)\n'''
           if old in text:
               text = text.replace(old, new, 1)
-          elif "assert not passes_zero_shot_gate(summary, bootstrap=None)" not in text:
+          elif "with pytest.raises(ValueError, match=\"bootstrap evidence\")" not in text:
               raise SystemExit("zero-shot gate test anchor not found")
           path.write_text(text)
           PY
       - name: Verify Universal BC
         run: |
-          uv run ruff format trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
-          uv run ruff check trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
-          uv run mypy trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py
+          uv run ruff format trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py trade_rl/evaluation/universal_zero_shot.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
+          uv run ruff check trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py trade_rl/evaluation/universal_zero_shot.py tests/integrations/test_universal_behavior_cloning.py tests/learning/test_behavior_cloning_batch_provider.py tests/rl/test_universal_research_u3_u6.py
+          uv run mypy trade_rl/integrations/behavior_cloning.py trade_rl/integrations/universal_behavior_cloning.py trade_rl/learning/universal_bc.py trade_rl/evaluation/universal_zero_shot.py
           uv run pytest tests/learning/test_behavior_cloning_batch_provider.py tests/learning/test_behavior_cloning.py tests/integrations/test_universal_behavior_cloning.py tests/rl/test_universal_research_u3_u6.py -q
           git diff --check
       - name: Commit Universal BC implementation

@@ -25,6 +25,7 @@ jobs:
       - run: uv sync --extra dev --extra train-sb3
       - name: Format focused files
         run: |
+          uv run ruff check --fix tests/integrations/test_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
           uv run ruff format tests/integrations/test_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
           uv run ruff check tests/integrations/test_universal_critic_warm_start.py trade_rl/integrations/universal_critic_warm_start.py
       - name: Commit formatting only

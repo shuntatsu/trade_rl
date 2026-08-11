@@ -1,0 +1,2 @@
+# Keep the size-constrained SB3 coordinator byte-stable across platforms.
+trade_rl/integrations/sb3_training.py text eol=lf

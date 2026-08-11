@@ -92,7 +92,7 @@ def zero_shot_bootstrap(
 def passes_zero_shot_gate(
     summary: UniversalZeroShotSummary,
     *,
-    bootstrap: BootstrapResult,
+    bootstrap: BootstrapResult | None,
     minimum_mean_excess_return: float = 0.0,
     minimum_worst_symbol_excess_return: float = 0.0,
     minimum_worst_seed_excess_return: float = 0.0,
@@ -100,10 +100,12 @@ def passes_zero_shot_gate(
 ) -> bool:
     """Evaluate an analysis-only gate with mandatory paired uncertainty evidence.
 
-    The maintained U5 authorization path is Stage A.  This helper is deliberately
-    unable to declare a pass without a moving-block bootstrap lower bound.
+    The maintained U5 authorization path is Stage A. This helper deliberately
+    fails closed when moving-block bootstrap evidence is absent.
     """
 
+    if bootstrap is None:
+        raise ValueError("zero-shot gate requires bootstrap evidence")
     return (
         bootstrap.lower_ci > 0.0
         and summary.hard_safety_violations == 0

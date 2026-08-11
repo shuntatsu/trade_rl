@@ -9,7 +9,9 @@ import gymnasium as gym
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.rl.actions import ActionMode, ActionSpec
+from trade_rl.data.universal_features import UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES
+from trade_rl.domain.common import require_sha256
+from trade_rl.rl.actions import ActionMode, ActionSpec, ActionValidationMode
 from trade_rl.rl.universal_episode_router import (
     DeterministicBalancedInstrumentRouter,
     InstrumentRoute,
@@ -24,11 +26,16 @@ from trade_rl.rl.universal_instrument_binding import (
 
 INSTRUMENT_EPISODE_INFO_KEY: Final = "instrument_episode_binding"
 INSTRUMENT_EPISODE_DIGEST_INFO_KEY: Final = "instrument_episode_binding_digest"
+UNIVERSAL_OBSERVATION_SCHEMA: Final = "universal_single_instrument_observation_v1"
 
 ConcreteSingleInstrumentEnv = gym.Env[Any, np.ndarray]
 InstrumentEnvironmentFactory = Callable[
     [InstrumentDatasetBinding],
     ConcreteSingleInstrumentEnv,
+]
+InstrumentContextProvider = Callable[
+    [object, InstrumentDatasetBinding],
+    np.ndarray,
 ]
 
 
@@ -48,10 +55,23 @@ def _episode_boundary(
     return _require_non_negative_int(info[field], field=field)
 
 
+def _optional_digest(value: object) -> str | None:
+    if value is None:
+        return None
+    digest = getattr(value, "digest", None)
+    if digest is None:
+        return None
+    if not isinstance(digest, str):
+        raise TypeError("training component digest must be a string")
+    require_sha256(digest, field="training component digest")
+    return digest
+
+
 class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
     """Expose one generic action while routing complete episodes by symbol."""
 
     metadata = {"render_modes": []}
+    is_universal_single_instrument: Final = True
 
     def __init__(
         self,
@@ -62,10 +82,21 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         environment_factory: InstrumentEnvironmentFactory,
         run_seed: int,
         environment_index: int,
+        instrument_context_provider: InstrumentContextProvider | None = None,
+        training_contract_digest: str | None = None,
     ) -> None:
         super().__init__()
         if not callable(environment_factory):
             raise TypeError("environment_factory must be callable")
+        if instrument_context_provider is not None and not callable(
+            instrument_context_provider
+        ):
+            raise TypeError("instrument_context_provider must be callable")
+        if training_contract_digest is not None:
+            training_contract_digest = require_sha256(
+                training_contract_digest,
+                field="training_contract_digest",
+            )
         self._bindings = validate_training_instrument_bindings(
             train_symbols,
             bindings,
@@ -77,6 +108,8 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             environment_index=environment_index,
         )
         self._environment_factory = environment_factory
+        self._instrument_context_provider = instrument_context_provider
+        self._training_contract_digest = training_contract_digest
         self._run_seed = self._router.run_seed
         self._environment_index = self._router.environment_index
         self._environments: dict[str, ConcreteSingleInstrumentEnv] = {}
@@ -88,20 +121,200 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
 
         initial_route = self._router.route(0)
         initial_environment = self._load_environment(initial_route)
-        self.observation_space = initial_environment.observation_space
+        self._reference_environment = initial_environment
+        self._concrete_observation_space = initial_environment.observation_space
+        self.observation_space = self._policy_observation_space(
+            initial_environment.observation_space
+        )
         self.action_space = cast(
             gym.spaces.Space[np.ndarray],
             initial_environment.action_space,
         )
+        self.action_spec = ActionSpec(
+            mode=ActionMode.TARGET_WEIGHT,
+            risk_tilt_enabled=False,
+            target_weight_count=1,
+            validation_mode=ActionValidationMode.FAIL_CLOSED,
+        )
         self.metadata = dict(getattr(initial_environment, "metadata", self.metadata))
+        self._sequence_layout_metadata = self._resolve_sequence_layout_metadata(
+            initial_environment
+        )
+        self._initial_capital = float(getattr(initial_environment, "initial_capital"))
+        self._decision_hours = float(getattr(initial_environment, "decision_hours"))
+        if not np.isfinite(self._initial_capital) or self._initial_capital <= 0.0:
+            raise ValueError("concrete environment initial_capital must be positive")
+        if not np.isfinite(self._decision_hours) or self._decision_hours <= 0.0:
+            raise ValueError("concrete environment decision_hours must be positive")
+        concrete_observation_digest = getattr(
+            initial_environment,
+            "observation_contract_digest",
+            None,
+        )
+        if not isinstance(concrete_observation_digest, str):
+            raise TypeError("concrete environment must expose observation_contract_digest")
+        require_sha256(
+            concrete_observation_digest,
+            field="concrete observation_contract_digest",
+        )
+        context_schema_digest = getattr(
+            instrument_context_provider,
+            "schema_digest",
+            None,
+        )
+        if context_schema_digest is not None:
+            require_sha256(context_schema_digest, field="instrument context schema digest")
+        self._observation_contract_digest = content_digest(
+            {
+                "concrete_observation_contract_digest": concrete_observation_digest,
+                "instrument_context_schema_digest": context_schema_digest,
+                "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,
+                "training_contract_digest": training_contract_digest,
+            }
+        )
+        source_environment_digest = getattr(initial_environment, "environment_digest", None)
+        if not isinstance(source_environment_digest, str):
+            raise TypeError("concrete environment must expose environment_digest")
+        require_sha256(source_environment_digest, field="concrete environment_digest")
+        self._environment_digest = content_digest(
+            {
+                "router_digest": self._router.digest,
+                "schema_version": "universal_routed_environment_v1",
+                "source_environment_digest": (
+                    source_environment_digest
+                    if training_contract_digest is None
+                    else None
+                ),
+                "training_contract_digest": training_contract_digest,
+            }
+        )
+
+    def _policy_observation_space(
+        self,
+        observation_space: gym.spaces.Space[Any],
+    ) -> gym.spaces.Space[Any]:
+        if self._instrument_context_provider is None:
+            return observation_space
+        if not isinstance(observation_space, gym.spaces.Dict):
+            raise TypeError(
+                "instrument context requires a Dict concrete observation space"
+            )
+        if "instrument_context" in observation_space.spaces:
+            raise ValueError("concrete observation already contains instrument_context")
+        return gym.spaces.Dict(
+            {
+                **observation_space.spaces,
+                "instrument_context": gym.spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(1, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES)),
+                    dtype=np.float32,
+                ),
+            }
+        )
+
+    def _resolve_sequence_layout_metadata(
+        self,
+        environment: ConcreteSingleInstrumentEnv,
+    ) -> dict[str, Any] | None:
+        raw = getattr(environment, "sequence_layout_metadata", None)
+        if raw is None:
+            return None
+        if not isinstance(raw, dict):
+            raise TypeError("concrete sequence_layout_metadata must be a dict")
+        resolved = dict(raw)
+        if self._instrument_context_provider is not None:
+            resolved["instrument_context_width"] = len(
+                UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES
+            )
+        return resolved
+
+    def _training_surface(self, environment: ConcreteSingleInstrumentEnv) -> dict[str, object]:
+        return {
+            "action_space": environment.action_space,
+            "decision_hours": float(getattr(environment, "decision_hours")),
+            "initial_capital": float(getattr(environment, "initial_capital")),
+            "normalizer_digest": _optional_digest(getattr(environment, "normalizer", None)),
+            "observation_contract_digest": getattr(
+                environment, "observation_contract_digest", None
+            ),
+            "observation_schema": getattr(environment, "observation_schema", None),
+            "sequence_layout_metadata": self._resolve_sequence_layout_metadata(environment),
+            "sequence_normalizer_digest": _optional_digest(
+                getattr(environment, "sequence_normalizer", None)
+            ),
+        }
 
     @property
     def policy_symbols(self) -> tuple[str, ...]:
         return GENERIC_INSTRUMENT_SYMBOLS
 
     @property
+    def symbols(self) -> tuple[str, ...]:
+        return GENERIC_INSTRUMENT_SYMBOLS
+
+    @property
     def action_names(self) -> tuple[str, ...]:
         return GENERIC_TARGET_WEIGHT_ACTION_NAMES
+
+    @property
+    def action_spec_digest(self) -> str:
+        return content_digest(
+            {
+                "action_names": GENERIC_TARGET_WEIGHT_ACTION_NAMES,
+                "mode": ActionMode.TARGET_WEIGHT.value,
+                "schema_version": "universal_scalar_target_weight_action_v1",
+                "size": 1,
+            }
+        )
+
+    @property
+    def observation_schema(self) -> str:
+        return UNIVERSAL_OBSERVATION_SCHEMA
+
+    @property
+    def observation_contract_digest(self) -> str:
+        return self._observation_contract_digest
+
+    @property
+    def environment_digest(self) -> str:
+        return self._environment_digest
+
+    @property
+    def initial_capital(self) -> float:
+        return self._initial_capital
+
+    @property
+    def decision_hours(self) -> float:
+        return self._decision_hours
+
+    @property
+    def sequence_layout_metadata(self) -> dict[str, Any] | None:
+        return (
+            None
+            if self._sequence_layout_metadata is None
+            else dict(self._sequence_layout_metadata)
+        )
+
+    @property
+    def pre_trade_risk(self) -> object | None:
+        return getattr(self._reference_environment, "pre_trade_risk", None)
+
+    @property
+    def normalizer(self) -> object | None:
+        return getattr(self._reference_environment, "normalizer", None)
+
+    @property
+    def sequence_normalizer(self) -> object | None:
+        return getattr(self._reference_environment, "sequence_normalizer", None)
+
+    @property
+    def alpha_artifact_digest(self) -> str | None:
+        return getattr(self._reference_environment, "alpha_artifact_digest", None)
+
+    @property
+    def factor_artifact_digest(self) -> str | None:
+        return getattr(self._reference_environment, "factor_artifact_digest", None)
 
     @property
     def router_digest(self) -> str:
@@ -167,10 +380,14 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         self,
         environment: ConcreteSingleInstrumentEnv,
     ) -> None:
-        if environment.observation_space != self.observation_space:
+        if environment.observation_space != self._concrete_observation_space:
             raise ValueError("concrete environment observation space mismatch")
         if environment.action_space != self.action_space:
             raise ValueError("concrete environment action space mismatch")
+        if self._training_surface(environment) != self._training_surface(
+            self._reference_environment
+        ):
+            raise ValueError("concrete environment training contract mismatch")
 
     @staticmethod
     def _close_rejected_environment(
@@ -201,7 +418,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             )
         try:
             self._validate_concrete_environment(environment, binding)
-            if self._environments:
+            if self._environments and hasattr(self, "_reference_environment"):
                 self._require_space_compatibility(environment)
         except Exception:
             self._close_rejected_environment(environment)
@@ -238,6 +455,24 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         resolved[INSTRUMENT_EPISODE_DIGEST_INFO_KEY] = binding.digest
         return resolved
 
+    def _policy_observation(
+        self,
+        observation: Any,
+        *,
+        environment: ConcreteSingleInstrumentEnv,
+        binding: InstrumentDatasetBinding,
+    ) -> Any:
+        provider = self._instrument_context_provider
+        if provider is None:
+            return observation
+        if not isinstance(observation, Mapping):
+            raise TypeError("instrument context requires mapping observations")
+        context = np.asarray(provider(environment, binding), dtype=np.float32)
+        expected = (1, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES))
+        if context.shape != expected or not np.isfinite(context).all():
+            raise ValueError("instrument_context must be a finite (1, 9) matrix")
+        return {**dict(observation), "instrument_context": context.copy()}
+
     def reset(
         self,
         *,
@@ -268,14 +503,8 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         )
         if not isinstance(raw_info, Mapping):
             raise TypeError("concrete environment reset info must be a mapping")
-        episode_start = _episode_boundary(
-            raw_info,
-            field="start_index",
-        )
-        episode_stop = _episode_boundary(
-            raw_info,
-            field="end_index",
-        )
+        episode_start = _episode_boundary(raw_info, field="start_index")
+        episode_stop = _episode_boundary(raw_info, field="end_index")
         episode_binding = InstrumentEpisodeBinding(
             dataset_binding=dataset_binding,
             episode_start=episode_start,
@@ -289,10 +518,11 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         self._active_environment = environment
         self._active_episode_binding = episode_binding
         self._episode_complete = False
-        return observation, self._instrument_info(
-            raw_info,
-            episode_binding,
-        )
+        return self._policy_observation(
+            observation,
+            environment=environment,
+            binding=dataset_binding,
+        ), self._instrument_info(raw_info, episode_binding)
 
     def step(
         self,
@@ -313,10 +543,15 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         if not isinstance(raw_info, Mapping):
             raise TypeError("concrete environment step info must be a mapping")
         info = self._instrument_info(raw_info, binding)
+        policy_observation = self._policy_observation(
+            observation,
+            environment=environment,
+            binding=binding.dataset_binding,
+        )
         if terminated or truncated:
             self._episode_complete = True
             self._completed_episode_count += 1
-        return observation, float(reward), terminated, truncated, info
+        return policy_observation, float(reward), terminated, truncated, info
 
     def close(self) -> None:
         first_error: Exception | None = None
@@ -333,6 +568,8 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
 __all__ = [
     "INSTRUMENT_EPISODE_DIGEST_INFO_KEY",
     "INSTRUMENT_EPISODE_INFO_KEY",
+    "UNIVERSAL_OBSERVATION_SCHEMA",
     "EpisodeRoutedSingleInstrumentEnv",
+    "InstrumentContextProvider",
     "InstrumentEnvironmentFactory",
 ]

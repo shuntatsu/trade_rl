@@ -1,4 +1,4 @@
-name: Temporary Universal Training Runtime GREEN
+name: Temporary Universal Training Execution RED
 
 on:
   push:
@@ -6,31 +6,18 @@ on:
     paths: [.github/workflows/universal-training-runtime-red-temporary.yml]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  green:
+  red:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: integration/universal-research-u3-u6
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
       - run: |
-          uv run ruff check --fix trade_rl/workflows/universal_training_runner.py tests/workflows/test_universal_training_runtime.py
-          uv run ruff format trade_rl/workflows/universal_training_runner.py tests/workflows/test_universal_training_runtime.py
-          uv run ruff check trade_rl/workflows/universal_training_runner.py tests/workflows/test_universal_training_runtime.py
-          uv run mypy trade_rl/workflows/universal_training_runner.py
-          uv run pytest tests/workflows/test_universal_training_runtime.py tests/rl/test_universal_training_environment.py tests/integrations/test_sb3_indexed_environment_factory.py -q
-      - name: Commit verified runtime assembly
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/workflows/universal_training_runner.py tests/workflows/test_universal_training_runtime.py
-          if ! git diff --cached --quiet; then
-            git commit -m "feat: verify Universal routed runtime assembly"
-            git push origin HEAD:integration/universal-research-u3-u6
-          fi
+          uv run ruff check --fix tests/workflows/test_universal_training_execution.py
+          uv run ruff format tests/workflows/test_universal_training_execution.py
+          uv run pytest tests/workflows/test_universal_training_execution.py -q

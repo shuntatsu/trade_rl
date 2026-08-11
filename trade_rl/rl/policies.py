@@ -116,6 +116,7 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
         asset_state_width: int,
         global_width: int,
         n_symbols: int,
+        instrument_context_width: int = 0,
         current_weight_source: str = CURRENT_WEIGHT_SOURCE,
         current_weight_shape: tuple[int, ...] | None = None,
         sequence_tcn_capacity: str = "standard",
@@ -155,6 +156,13 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
             "active": (n_symbols,),
             "current_weights": (n_symbols,),
         }
+        if instrument_context_width < 0:
+            raise ValueError("instrument_context_width must be non-negative")
+        if instrument_context_width > 0:
+            expected_shapes["instrument_context"] = (
+                n_symbols,
+                instrument_context_width,
+            )
         for timeframe in timeframes:
             sequence_shape = (
                 n_symbols,
@@ -203,6 +211,17 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
             nn.LayerNorm(128),
             nn.SiLU(),
         )
+        self.instrument_context_encoder = (
+            None
+            if instrument_context_width == 0
+            else nn.Sequential(
+                nn.Linear(instrument_context_width, d_model),
+                nn.LayerNorm(d_model),
+                nn.SiLU(),
+                nn.Linear(d_model, d_model),
+                nn.LayerNorm(d_model),
+            )
+        )
 
     def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
         reference = observations["current_snapshot"]
@@ -228,6 +247,17 @@ class SequenceAssetFeatureExtractor(BaseFeaturesExtractor):
                 asset_state=observations["asset_state"].float(),
                 active=observations["active"].float(),
             )
+            if self.instrument_context_encoder is not None:
+                context_tokens = self.instrument_context_encoder(
+                    observations["instrument_context"].float()
+                )
+                asset_tokens = asset_tokens + context_tokens
+                active_context = observations["active"].float().unsqueeze(-1)
+                denominator = active_context.sum(dim=1).clamp_min(1.0)
+                pooled_context = (context_tokens * active_context).sum(
+                    dim=1
+                ) / denominator
+                pooled_assets = pooled_assets + pooled_context
             globals_ = self.global_encoder(observations["global_state"].float())
             ordered_assets = asset_tokens.reshape(asset_tokens.shape[0], -1)
             active = observations["active"].float()

@@ -166,7 +166,9 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
                 or not np.isfinite(self._initial_capital)
                 or self._initial_capital <= 0.0
             ):
-                raise ValueError("concrete environment initial_capital must be positive")
+                raise ValueError(
+                    "concrete environment initial_capital must be positive"
+                )
             if (
                 self._decision_hours is None
                 or not np.isfinite(self._decision_hours)

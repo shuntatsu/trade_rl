@@ -97,9 +97,13 @@ class CausalInstrumentContextProvider:
         try:
             contract = self.contracts[binding.concrete_symbol]
         except KeyError as error:
-            raise ValueError("instrument context contract is missing for routed symbol") from error
+            raise ValueError(
+                "instrument context contract is missing for routed symbol"
+            ) from error
         if contract.volume_unit is not VolumeUnit.QUOTE_NOTIONAL:
-            raise ValueError("instrument context requires quote-notional volume semantics")
+            raise ValueError(
+                "instrument context requires quote-notional volume semantics"
+            )
 
         dataset: Any = getattr(environment, "dataset", None)
         symbols = tuple(getattr(dataset, "symbols", ()))
@@ -107,7 +111,9 @@ class CausalInstrumentContextProvider:
             raise ValueError("instrument context dataset symbol does not match binding")
         volume_units = tuple(getattr(dataset, "volume_units", ()))
         if volume_units != (VolumeUnit.QUOTE_NOTIONAL,):
-            raise ValueError("instrument context requires quote-notional dataset volume")
+            raise ValueError(
+                "instrument context requires quote-notional dataset volume"
+            )
         index = getattr(environment, "current_index", None)
         if isinstance(index, bool) or not isinstance(index, int) or index < 0:
             raise ValueError("instrument context requires a valid current_index")
@@ -115,15 +121,25 @@ class CausalInstrumentContextProvider:
         listed_at = np.datetime64(
             contract.listed_at.astimezone(UTC).replace(tzinfo=None), "ns"
         ).astype(np.int64)
-        listing_age_days = max(0.0, (timestamp_ns - int(listed_at)) / 86_400_000_000_000)
+        listing_age_days = max(
+            0.0, (timestamp_ns - int(listed_at)) / 86_400_000_000_000
+        )
 
-        timestamps_ns = np.asarray(dataset.timestamps).astype("datetime64[ns]").astype(np.int64)
-        window_start = int(np.searchsorted(timestamps_ns, timestamp_ns - _TRAILING_WINDOW_NS, side="left"))
+        timestamps_ns = (
+            np.asarray(dataset.timestamps).astype("datetime64[ns]").astype(np.int64)
+        )
+        window_start = int(
+            np.searchsorted(
+                timestamps_ns, timestamp_ns - _TRAILING_WINDOW_NS, side="left"
+            )
+        )
         volume = np.asarray(dataset.volume, dtype=np.float64)
         if volume.ndim != 2 or volume.shape[1] != 1 or index >= volume.shape[0]:
             raise ValueError("instrument context volume shape is invalid")
         trailing_quote_notional = volume[window_start : index + 1, 0]
-        if not np.isfinite(trailing_quote_notional).all() or np.any(trailing_quote_notional < 0.0):
+        if not np.isfinite(trailing_quote_notional).all() or np.any(
+            trailing_quote_notional < 0.0
+        ):
             raise ValueError("instrument context quote-notional history is invalid")
 
         mark = _single_value(dataset.mark_price, index=index, field="mark_price")
@@ -131,7 +147,9 @@ class CausalInstrumentContextProvider:
             mark = _single_value(dataset.close, index=index, field="close")
         if mark <= _EPSILON:
             raise ValueError("instrument context mark price must be positive")
-        equity = float(getattr(getattr(environment, "hybrid", None), "portfolio_value", math.nan))
+        equity = float(
+            getattr(getattr(environment, "hybrid", None), "portfolio_value", math.nan)
+        )
         if not math.isfinite(equity) or equity <= _EPSILON:
             raise ValueError("instrument context requires positive portfolio equity")
 
@@ -141,7 +159,9 @@ class CausalInstrumentContextProvider:
             dataset.minimum_notional, index=index, field="minimum_notional"
         )
         fee_rate = _single_value(dataset.fee_rate, index=index, field="fee_rate")
-        spread_rate = _single_value(dataset.spread_rate, index=index, field="spread_rate")
+        spread_rate = _single_value(
+            dataset.spread_rate, index=index, field="spread_rate"
+        )
         max_participation_rate = _single_value(
             dataset.max_participation_rate,
             index=index,
@@ -155,7 +175,9 @@ class CausalInstrumentContextProvider:
             )
         )
         if not math.isfinite(impact_rate) or impact_rate < 0.0:
-            raise ValueError("instrument context impact_rate must be finite and non-negative")
+            raise ValueError(
+                "instrument context impact_rate must be finite and non-negative"
+            )
 
         context = np.asarray(
             [

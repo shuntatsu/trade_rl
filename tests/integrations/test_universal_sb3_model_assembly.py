@@ -33,7 +33,9 @@ class _UniversalSequenceProbe:
             "global_state": spaces.Box(-10.0, 10.0, shape=(2,), dtype=np.float32),
             "active": spaces.Box(0.0, 1.0, shape=(1,), dtype=np.float32),
             "current_weights": spaces.Box(-1.0, 1.0, shape=(1,), dtype=np.float32),
-            "instrument_context": spaces.Box(-np.inf, np.inf, shape=(1, 9), dtype=np.float32),
+            "instrument_context": spaces.Box(
+                -np.inf, np.inf, shape=(1, 9), dtype=np.float32
+            ),
             **{
                 f"sequence_{timeframe}_{suffix}": spaces.Box(
                     0.0 if suffix != "values" else -10.0,

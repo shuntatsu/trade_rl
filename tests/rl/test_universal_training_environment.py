@@ -130,8 +130,12 @@ class _DictSingleSymbolEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         }
         for timeframe in ("15m", "1h", "4h", "1d"):
             obs[f"sequence_{timeframe}_values"] = np.zeros((1, 4, 2), dtype=np.float32)
-            obs[f"sequence_{timeframe}_available"] = np.ones((1, 4, 2), dtype=np.float32)
-            obs[f"sequence_{timeframe}_staleness"] = np.zeros((1, 4, 2), dtype=np.float32)
+            obs[f"sequence_{timeframe}_available"] = np.ones(
+                (1, 4, 2), dtype=np.float32
+            )
+            obs[f"sequence_{timeframe}_staleness"] = np.zeros(
+                (1, 4, 2), dtype=np.float32
+            )
         return obs
 
     def reset(
@@ -215,7 +219,9 @@ def test_causal_instrument_context_rejects_non_quote_notional_volume() -> None:
 
 def test_routed_environment_adds_context_and_exposes_training_identity() -> None:
     from trade_rl.rl.universal_instrument_context import CausalInstrumentContextProvider
-    from trade_rl.rl.universal_single_instrument_env import EpisodeRoutedSingleInstrumentEnv
+    from trade_rl.rl.universal_single_instrument_env import (
+        EpisodeRoutedSingleInstrumentEnv,
+    )
 
     symbols = ("BTCUSDT", "ETHUSDT")
     bindings = tuple(_binding(symbol) for symbol in symbols)

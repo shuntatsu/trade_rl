@@ -1,0 +1,38 @@
+name: Format universal integration temporary
+
+on:
+  push:
+    branches:
+      - codex/universal-real-data-training
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: codex/universal-real-data-training
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Format repository
+        run: uvx ruff==0.15.21 format .
+      - name: Commit formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No formatting changes needed.'
+            exit 0
+          fi
+          git commit -m 'style: format universal integration branch'
+          git push origin HEAD:codex/universal-real-data-training

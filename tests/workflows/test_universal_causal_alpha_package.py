@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.workflows.universal_causal_alpha_teacher import (
     UniversalCausalAlphaTeacherPackage,
@@ -48,13 +49,18 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
             self.minimum_start_index = 1
             self.episode_bars = 4
             self.decision_bars = 1
-            self.config = SimpleNamespace(initial_state_modes=("cash",))
+            self.config = SimpleNamespace(
+                initial_state_modes=("cash",),
+                episode_hours=720.0,
+            )
             self.pre_trade_risk = SimpleNamespace(
-                config=SimpleNamespace(
+                config=PreTradeRiskConfig(
+                    max_gross=1.0,
+                    max_abs_weight=1.0,
+                    max_turnover=1.0,
                     entry_threshold=0.10,
                     exit_threshold=0.03,
                     no_trade_band=0.05,
-                    max_abs_weight=1.0,
                 )
             )
             opened.append(binding.concrete_symbol)
@@ -71,9 +77,21 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
 
     def build_partition(environment, *, train_range):
         value = SimpleNamespace(
-            contracts=(SimpleNamespace(digest=_digest(f"contract:{environment.binding.concrete_symbol}:0")),),
-            selection_contracts=(SimpleNamespace(digest=_digest(f"selection:{environment.binding.concrete_symbol}")),),
-            holdout_contract=SimpleNamespace(digest=_digest(f"holdout:{environment.binding.concrete_symbol}")),
+            contracts=(
+                SimpleNamespace(
+                    digest=_digest(
+                        f"contract:{environment.binding.concrete_symbol}:0"
+                    )
+                ),
+            ),
+            selection_contracts=(
+                SimpleNamespace(
+                    digest=_digest(f"selection:{environment.binding.concrete_symbol}")
+                ),
+            ),
+            holdout_contract=SimpleNamespace(
+                digest=_digest(f"holdout:{environment.binding.concrete_symbol}")
+            ),
             digest=_digest(f"partition:{environment.binding.concrete_symbol}"),
         )
         partitions[environment.binding.concrete_symbol] = value
@@ -85,7 +103,11 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
         samples[binding.concrete_symbol] = value
         return value
 
-    candidate = SimpleNamespace(digest=_digest("candidate"))
+    candidate = SimpleNamespace(
+        digest=_digest("candidate"),
+        ridge=SimpleNamespace(digest=_digest("ridge")),
+        controller=SimpleNamespace(digest=_digest("controller")),
+    )
     selection = SimpleNamespace(
         selected_candidate_digest=candidate.digest,
         digest=_digest("selection"),
@@ -93,8 +115,21 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
     )
     monkeypatch.setattr(module, "build_chronological_episode_partition", build_partition)
     monkeypatch.setattr(module, "build_causal_alpha_symbol_samples", build_samples)
-    monkeypatch.setattr(module, "default_causal_alpha_candidate_grid", lambda _risk: (candidate,))
-    monkeypatch.setattr(module, "evaluate_causal_alpha_selection", lambda **_kwargs: selection)
+    monkeypatch.setattr(
+        module,
+        "validate_universal_causal_alpha_partitions",
+        lambda **kwargs: dict(kwargs["partitions"]),
+    )
+    monkeypatch.setattr(
+        module,
+        "default_causal_alpha_candidate_grid",
+        lambda _risk: (candidate,),
+    )
+    monkeypatch.setattr(
+        module,
+        "evaluate_causal_alpha_selection",
+        lambda **_kwargs: selection,
+    )
 
     batch_calls: list[tuple[str, str]] = []
 

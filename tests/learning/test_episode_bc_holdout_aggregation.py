@@ -44,7 +44,9 @@ def _evidence() -> ActionPathCollapseEvidence:
     )
 
 
-def _holdout(episode_id: int, net_return: float) -> EpisodeBehaviorCloningHoldoutEvaluation:
+def _holdout(
+    episode_id: int, net_return: float
+) -> EpisodeBehaviorCloningHoldoutEvaluation:
     performance = _performance(net_return)
     record = EpisodeBehaviorCloningRecord(
         episode_id=episode_id,

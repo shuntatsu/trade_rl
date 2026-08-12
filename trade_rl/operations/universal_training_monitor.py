@@ -97,7 +97,9 @@ def _parse_time(value: object) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _trend(points: list[tuple[int, float]], *, lower_is_better: bool = False) -> ScalarTrend:
+def _trend(
+    points: list[tuple[int, float]], *, lower_is_better: bool = False
+) -> ScalarTrend:
     finite = [(step, value) for step, value in points if math.isfinite(value)]
     if not finite:
         return ScalarTrend()
@@ -128,10 +130,14 @@ def _trend(points: list[tuple[int, float]], *, lower_is_better: bool = False) ->
     )
 
 
-def _tensorboard_scalars(member: Path) -> tuple[dict[str, list[tuple[int, float]]], int]:
+def _tensorboard_scalars(
+    member: Path,
+) -> tuple[dict[str, list[tuple[int, float]]], int]:
     values: dict[str, list[tuple[int, float]]] = {}
     nonfinite = 0
-    directories = sorted({path.parent for path in member.rglob("events.out.tfevents.*")})
+    directories = sorted(
+        {path.parent for path in member.rglob("events.out.tfevents.*")}
+    )
     for directory in directories:
         accumulator = EventAccumulator(str(directory), size_guidance={"scalars": 0})
         accumulator.Reload()
@@ -166,9 +172,19 @@ def _telemetry(member: Path) -> tuple[int, dict[str, int], int]:
         symbol = payload.get("symbol")
         if isinstance(symbol, str) and symbol:
             symbols[symbol] += 1
-        for key in ("reward", "portfolio_value", "baseline_portfolio_value", "drawdown", "interval_cost"):
+        for key in (
+            "reward",
+            "portfolio_value",
+            "baseline_portfolio_value",
+            "drawdown",
+            "interval_cost",
+        ):
             value = payload.get(key)
-            if isinstance(value, (int, float)) and not isinstance(value, bool) and not math.isfinite(float(value)):
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and not math.isfinite(float(value))
+            ):
                 nonfinite += 1
     return count, dict(sorted(symbols.items())), nonfinite
 
@@ -190,7 +206,11 @@ def _member_snapshot(member: Path, *, now: datetime) -> UniversalTrainingMemberS
     if phase == "completed" and not checkpoints:
         findings.append("completed member has no checkpoint manifest")
     trends = {
-        tag: _trend(points, lower_is_better=tag in {"trade_rl/drawdown_mean", "trade_rl/interval_cost_mean"})
+        tag: _trend(
+            points,
+            lower_is_better=tag
+            in {"trade_rl/drawdown_mean", "trade_rl/interval_cost_mean"},
+        )
         for tag, points in scalars.items()
     }
     reward_total = trends.get("trade_rl/reward_mean", ScalarTrend())
@@ -231,7 +251,9 @@ def inspect_universal_training_generation(
     findings: list[str] = []
     log = container_log
     if log is None and (generation / "container.log").is_file():
-        log = (generation / "container.log").read_text(encoding="utf-8", errors="replace")
+        log = (generation / "container.log").read_text(
+            encoding="utf-8", errors="replace"
+        )
     if log:
         if re.search(r"out of memory|oomkilled|\boom\b", log, re.IGNORECASE):
             findings.append("OOM evidence found in container log")
@@ -240,8 +262,13 @@ def inspect_universal_training_generation(
     if container_state:
         if bool(container_state.get("OOMKilled")):
             findings.append("container state reports OOMKilled")
-        if container_state.get("Status") == "exited" and int(container_state.get("ExitCode", 0)) != 0:
-            findings.append(f"container exited with code {container_state.get('ExitCode')}")
+        if (
+            container_state.get("Status") == "exited"
+            and int(container_state.get("ExitCode", 0)) != 0
+        ):
+            findings.append(
+                f"container exited with code {container_state.get('ExitCode')}"
+            )
     members: list[UniversalTrainingMemberSnapshot] = []
     for heartbeat in sorted(generation.glob("*/seed-*/training-heartbeat.json")):
         try:

@@ -12,9 +12,7 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def test_preflight_materializes_only_train_symbols(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_preflight_materializes_only_train_symbols(tmp_path: Path, monkeypatch) -> None:
     train = MAINTAINED_SYMBOLS[:9]
     validation = MAINTAINED_SYMBOLS[9:12]
     test = MAINTAINED_SYMBOLS[12:]
@@ -66,12 +64,16 @@ def test_preflight_materializes_only_train_symbols(
         observed["dataset_kwargs"] = kwargs
         return datasets
 
-    monkeypatch.setattr(module, "materialize_universal_train_datasets", materialize_datasets)
+    monkeypatch.setattr(
+        module, "materialize_universal_train_datasets", materialize_datasets
+    )
     normalizer = SimpleNamespace(
         statistics_digest=_digest("statistics"),
         feature_schema_digest=_digest("features"),
     )
-    monkeypatch.setattr(module, "fit_universal_shared_normalizer", lambda *a, **k: normalizer)
+    monkeypatch.setattr(
+        module, "fit_universal_shared_normalizer", lambda *a, **k: normalizer
+    )
     monkeypatch.setattr(
         module,
         "write_universal_shared_normalizer",
@@ -87,7 +89,9 @@ def test_preflight_materializes_only_train_symbols(
         return {symbol: Path(artifact_root) / symbol for symbol in train}
 
     monkeypatch.setattr(module, "publish_universal_train_dataset_artifacts", publish)
-    by_path = {str(tmp_path / "datasets" / symbol): datasets[symbol] for symbol in train}
+    by_path = {
+        str(tmp_path / "datasets" / symbol): datasets[symbol] for symbol in train
+    }
     monkeypatch.setattr(
         module, "load_market_dataset_artifact", lambda path: by_path[str(path)]
     )
@@ -106,4 +110,6 @@ def test_preflight_materializes_only_train_symbols(
     assert manifest.test_symbols == test
     assert manifest.fold_train_range == (0, 50_000)
     assert tuple(symbol for symbol, _ in manifest.dataset_digests) == train
-    assert set(observed["dataset_kwargs"]["instrument_bundle"].partition.train_symbols) == set(train)  # type: ignore[index,union-attr]
+    assert set(
+        observed["dataset_kwargs"]["instrument_bundle"].partition.train_symbols
+    ) == set(train)  # type: ignore[index,union-attr]

@@ -163,7 +163,10 @@ def _load_klines(
     if any(len(row) != 6 for row in rows):
         raise ValueError(f"raw OHLCV row contract failed for {symbol}")
     timestamps_ns = np.asarray(
-        [_timestamp_ns(row[0], field=f"raw kline timestamp for {symbol}") for row in rows],
+        [
+            _timestamp_ns(row[0], field=f"raw kline timestamp for {symbol}")
+            for row in rows
+        ],
         dtype=np.int64,
     )
     if timestamps_ns.size > 1 and np.any(np.diff(timestamps_ns) <= 0):
@@ -172,10 +175,7 @@ def _load_klines(
         raise ValueError(f"raw one-minute timestamps are not contiguous for {symbol}")
     ohlcv = np.asarray(
         [
-            [
-                _finite_float(value, field=f"raw OHLCV for {symbol}")
-                for value in row[1:]
-            ]
+            [_finite_float(value, field=f"raw OHLCV for {symbol}") for value in row[1:]]
             for row in rows
         ],
         dtype=np.float64,
@@ -213,7 +213,9 @@ def _load_sparse_rows(
         dtype=np.int64,
     )
     if timestamps_ns.size > 1 and np.any(np.diff(timestamps_ns) <= 0):
-        raise ValueError(f"raw {channel} timestamps must be strictly increasing for {symbol}")
+        raise ValueError(
+            f"raw {channel} timestamps must be strictly increasing for {symbol}"
+        )
     values = np.asarray(
         [
             [
@@ -247,11 +249,16 @@ def _load_funding(
     if any(len(row) != 2 for row in rows):
         raise ValueError(f"raw funding row contract failed for {symbol}")
     timestamps_ns = np.asarray(
-        [_timestamp_ns(row[0], field=f"raw funding timestamp for {symbol}") for row in rows],
+        [
+            _timestamp_ns(row[0], field=f"raw funding timestamp for {symbol}")
+            for row in rows
+        ],
         dtype=np.int64,
     )
     if timestamps_ns.size > 1 and np.any(np.diff(timestamps_ns) <= 0):
-        raise ValueError(f"raw funding timestamps must be strictly increasing for {symbol}")
+        raise ValueError(
+            f"raw funding timestamps must be strictly increasing for {symbol}"
+        )
     rates = np.asarray(
         [_finite_float(row[1], field=f"raw funding rate for {symbol}") for row in rows],
         dtype=np.float64,

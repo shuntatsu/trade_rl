@@ -457,7 +457,9 @@ def collect_universal_episode_teacher(
             if bool(terminated or truncated) != final_step:
                 raise ValueError("Universal teacher environment ended outside contract")
         episode_returns = _discounted_return_to_go(rewards, gamma=gamma)
-        return_targets.append(episode_returns[np.asarray(sampled_offsets, dtype=np.int64)])
+        return_targets.append(
+            episode_returns[np.asarray(sampled_offsets, dtype=np.int64)]
+        )
 
     if expected_keys is None or not actions:
         raise ValueError("Universal teacher requires at least one episode sample")

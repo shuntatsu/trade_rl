@@ -24,7 +24,9 @@ def test_launcher_builds_clean_digest_bound_image_and_generation(
         "load_universal_runtime_manifest",
         lambda _path: SimpleNamespace(manifest_digest="d" * 64),
     )
-    monkeypatch.setattr(module, "_run", lambda command, **_kwargs: calls.append(tuple(command)))
+    monkeypatch.setattr(
+        module, "_run", lambda command, **_kwargs: calls.append(tuple(command))
+    )
     monkeypatch.setattr(module, "_container_exists", lambda _name: False)
 
     result = module.launch_generation(
@@ -43,7 +45,9 @@ def test_launcher_builds_clean_digest_bound_image_and_generation(
     assert result.container_name == "trade-rl-universal-u6-20260812T120000Z"
 
 
-def test_launcher_rejects_dirty_tree(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_launcher_rejects_dirty_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(module, "_git_status", lambda _root: " M trade_rl/x.py")
     with pytest.raises(RuntimeError, match="clean Git tree"):
         module.launch_generation(

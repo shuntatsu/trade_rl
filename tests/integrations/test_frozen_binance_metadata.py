@@ -56,9 +56,7 @@ def test_frozen_transport_loads_verified_snapshot_without_network(
     assert snapshot.retrieved_at == datetime(2024, 11, 13, tzinfo=UTC)
 
 
-@pytest.mark.parametrize(
-    "mutation", ("missing_manifest", "bad_digest", "wrong_market")
-)
+@pytest.mark.parametrize("mutation", ("missing_manifest", "bad_digest", "wrong_market"))
 def test_frozen_transport_fails_closed_on_incomplete_or_drifted_cache(
     tmp_path: Path, mutation: str
 ) -> None:
@@ -74,6 +72,6 @@ def test_frozen_transport_fails_closed_on_incomplete_or_drifted_cache(
         (tmp_path / "exchange-info.raw.json").write_bytes(raw + b" ")
 
     with pytest.raises((RuntimeError, ValueError)):
-        FrozenBinanceExchangeInfoTransport(
-            tmp_path
-        ).load_exchange_information_snapshot(market=BinanceMarket.USDS_M)
+        FrozenBinanceExchangeInfoTransport(tmp_path).load_exchange_information_snapshot(
+            market=BinanceMarket.USDS_M
+        )

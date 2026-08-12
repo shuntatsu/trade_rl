@@ -13,7 +13,9 @@ from trade_rl.operations.universal_training_monitor import (
 NOW = datetime(2026, 8, 12, 12, 1, tzinfo=UTC)
 
 
-def _generation(root: Path, *, stale: bool = False, nonfinite_log: bool = False) -> Path:
+def _generation(
+    root: Path, *, stale: bool = False, nonfinite_log: bool = False
+) -> Path:
     member = root / "ppo" / "seed-0"
     member.mkdir(parents=True)
     updated = NOW - (timedelta(hours=1) if stale else timedelta(minutes=1))
@@ -44,7 +46,12 @@ def _generation(root: Path, *, stale: bool = False, nonfinite_log: bool = False)
                     "interval_cost": 0.001,
                 }
             )
-            for step, reward, drawdown in ((1, -0.4, 0.2), (2, -0.2, 0.18), (3, 0.1, 0.15), (4, 0.3, 0.1))
+            for step, reward, drawdown in (
+                (1, -0.4, 0.2),
+                (2, -0.2, 0.18),
+                (3, 0.1, 0.15),
+                (4, 0.3, 0.1),
+            )
         )
         + "\n",
         encoding="utf-8",
@@ -61,7 +68,9 @@ def _generation(root: Path, *, stale: bool = False, nonfinite_log: bool = False)
         writer.add_scalar("trade_rl/drawdown_mean", drawdown, step)
     writer.close()
     (member / "checkpoints" / "step-4096").mkdir(parents=True)
-    (member / "checkpoints" / "step-4096" / "manifest.json").write_text("{}", encoding="utf-8")
+    (member / "checkpoints" / "step-4096" / "manifest.json").write_text(
+        "{}", encoding="utf-8"
+    )
     if nonfinite_log:
         (root / "container.log").write_text("CUDA out of memory", encoding="utf-8")
     return root

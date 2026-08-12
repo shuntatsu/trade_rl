@@ -70,7 +70,9 @@ def discover_universal_policy_artifacts(
         try:
             step = int(raw_step)
         except ValueError as error:
-            raise ValueError(f"invalid checkpoint step directory: {path.parent}") from error
+            raise ValueError(
+                f"invalid checkpoint step directory: {path.parent}"
+            ) from error
         if step <= 0:
             raise ValueError(f"checkpoint step must be positive: {path.parent}")
         artifacts.append(
@@ -224,7 +226,11 @@ def evaluate_universal_policy_stages(
 ) -> dict[str, object]:
     """Evaluate every saved policy stage on identical real-data ranges."""
 
-    if isinstance(member_seed, bool) or not isinstance(member_seed, int) or member_seed < 0:
+    if (
+        isinstance(member_seed, bool)
+        or not isinstance(member_seed, int)
+        or member_seed < 0
+    ):
         raise ValueError("member_seed must be a non-negative integer")
     if isinstance(decisions, bool) or not isinstance(decisions, int) or decisions <= 1:
         raise ValueError("decisions must be an integer greater than one")

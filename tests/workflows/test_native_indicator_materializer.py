@@ -41,9 +41,7 @@ def one_symbol_minutes(start: str, count: int) -> RawSymbolSource:
             dtype="datetime64[ns]",
         ),
         funding_rate=np.asarray([0.0001], dtype=np.float64),
-        derivative_timestamps=(
-            timestamps[derivative_indices] + np.timedelta64(1, "s")
-        ),
+        derivative_timestamps=(timestamps[derivative_indices] + np.timedelta64(1, "s")),
         derivative_values=derivative_values,
         orderflow_timestamps=timestamps.copy(),
         orderflow_values=orderflow_values,
@@ -101,7 +99,9 @@ def test_indicator_payload_is_deterministic_and_has_206_features() -> None:
     assert sum(item.feature_count for item in first.artifacts) == 206
     assert all(item.values.dtype == np.dtype(np.float32) for item in first.artifacts)
     assert all(item.available.dtype == np.dtype(np.bool_) for item in first.artifacts)
-    assert all(item.event_time_ms.dtype == np.dtype(np.int64) for item in first.artifacts)
+    assert all(
+        item.event_time_ms.dtype == np.dtype(np.int64) for item in first.artifacts
+    )
     assert sum(len(item.payload) for item in first.artifacts) < sum(
         item.event_time_ms.nbytes + item.values.nbytes + item.available.nbytes
         for item in first.artifacts
@@ -127,9 +127,7 @@ def test_report_exposes_missing_nonfinite_ohlcv_and_feature_counts() -> None:
 def test_combines_single_symbol_builds_in_declared_scope_order() -> None:
     start = datetime(2024, 11, 13, tzinfo=UTC)
     end = start + timedelta(minutes=60)
-    scope = UniversalSourceScope(
-        symbols=("ETHUSDT", "BTCUSDT"), start=start, end=end
-    )
+    scope = UniversalSourceScope(symbols=("ETHUSDT", "BTCUSDT"), start=start, end=end)
     builds = tuple(
         build_native_indicator_cache(
             {symbol: one_symbol_minutes("2024-11-13T00:00:00Z", 60)},
@@ -149,6 +147,7 @@ def test_combines_single_symbol_builds_in_declared_scope_order() -> None:
         for symbol in scope.symbols
         for timeframe in ("15m", "1h", "4h", "1d")
     )
-    assert combined.manifest.digest == combine_native_indicator_builds(
-        builds, scope=scope
-    ).manifest.digest
+    assert (
+        combined.manifest.digest
+        == combine_native_indicator_builds(builds, scope=scope).manifest.digest
+    )

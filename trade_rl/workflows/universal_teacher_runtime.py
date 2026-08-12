@@ -44,7 +44,9 @@ def causal_trend_teacher_digest(environment: Any) -> str:
 
     trend_strategy = getattr(environment, "trend_strategy", None)
     trend_config = getattr(trend_strategy, "config", None)
-    signal_delay = getattr(getattr(environment, "config", None), "signal_delay_decisions", None)
+    signal_delay = getattr(
+        getattr(environment, "config", None), "signal_delay_decisions", None
+    )
     if trend_config is None:
         raise ValueError("causal trend teacher requires an environment trend strategy")
     if isinstance(signal_delay, bool) or not isinstance(signal_delay, int):
@@ -104,7 +106,9 @@ def build_episode_trend_batch_for_environment(
     targets = tuple(
         np.stack(
             [
-                np.asarray(trend_strategy.targets(dataset, index).base, dtype=np.float32)
+                np.asarray(
+                    trend_strategy.targets(dataset, index).base, dtype=np.float32
+                )
                 for index in range(contract.start, contract.stop - 1)
             ],
             axis=0,
@@ -233,17 +237,23 @@ def build_universal_oracle_batches(
         environment = concrete_environment_factory(binding)
         try:
             minimum_start = getattr(environment, "minimum_start_index", None)
-            dataset_bars = getattr(getattr(environment, "dataset", None), "n_bars", None)
+            dataset_bars = getattr(
+                getattr(environment, "dataset", None), "n_bars", None
+            )
             if (
                 isinstance(minimum_start, bool)
                 or not isinstance(minimum_start, int)
                 or isinstance(dataset_bars, bool)
                 or not isinstance(dataset_bars, int)
             ):
-                raise ValueError("Universal Oracle environment trainable range is unavailable")
+                raise ValueError(
+                    "Universal Oracle environment trainable range is unavailable"
+                )
             effective_range = (max(start, minimum_start), min(stop, dataset_bars))
             if effective_range[1] <= effective_range[0]:
-                raise ValueError("Universal Oracle environment trainable range is empty")
+                raise ValueError(
+                    "Universal Oracle environment trainable range is empty"
+                )
             batch = build_episode_oracle_batch_for_environment(
                 environment,
                 train_range=effective_range,

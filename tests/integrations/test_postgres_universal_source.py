@@ -52,16 +52,13 @@ class FakeSourceDatabase:
             ]
             for symbol in scope.symbols
         }
-        self.funding = {
-            symbol: [(timestamps[1], 0.0001)] for symbol in scope.symbols
-        }
+        self.funding = {symbol: [(timestamps[1], 0.0001)] for symbol in scope.symbols}
         self.derivatives = {
             symbol: [(timestamps[0], 100.0, 1.1, 2.0, 0.0002)]
             for symbol in scope.symbols
         }
         self.orderflow = {
-            symbol: [(timestamps[2], 3.0, 2.0, 7, 0.5, 0.2)]
-            for symbol in scope.symbols
+            symbol: [(timestamps[2], 3.0, 2.0, 7, 0.5, 0.2)] for symbol in scope.symbols
         }
 
     @classmethod
@@ -69,9 +66,7 @@ class FakeSourceDatabase:
         return cls(scope)
 
     @classmethod
-    def mutated(
-        cls, scope: UniversalSourceScope, mutation: str
-    ) -> FakeSourceDatabase:
+    def mutated(cls, scope: UniversalSourceScope, mutation: str) -> FakeSourceDatabase:
         database = cls(scope)
         symbol = scope.symbols[0]
         rows = database.klines[symbol]
@@ -145,9 +140,7 @@ def test_source_loader_uses_half_open_interval_and_declared_symbol_order() -> No
         ("nan", "finite"),
     ),
 )
-def test_source_loader_rejects_invalid_raw_rows(
-    mutation: str, message: str
-) -> None:
+def test_source_loader_rejects_invalid_raw_rows(mutation: str, message: str) -> None:
     scope = _short_scope()
     with pytest.raises(ValueError, match=message):
         load_postgres_universal_source(

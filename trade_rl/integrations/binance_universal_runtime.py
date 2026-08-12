@@ -105,7 +105,9 @@ def build_runtime(
     if set(
         (*manifest.train_symbols, *manifest.validation_symbols, *manifest.test_symbols)
     ) != set(MAINTAINED_SYMBOLS):
-        raise ValueError("Universal runtime manifest maintained symbol identity mismatch")
+        raise ValueError(
+            "Universal runtime manifest maintained symbol identity mismatch"
+        )
     bundle, datasets, dataset_paths, shared = _require_static_artifact_closure(context)
     resolution = resolve_frozen_snapshot(
         transport=FrozenBinanceExchangeInfoTransport(context.frozen_metadata_root),
@@ -134,7 +136,9 @@ def build_runtime(
             action_size=1,
             n_factors=0,
             finite_horizon=True,
-            candidate_config_digest=content_digest(run_config.candidate_digest_payload()),
+            candidate_config_digest=content_digest(
+                run_config.candidate_digest_payload()
+            ),
         )
         for symbol in manifest.train_symbols
     }

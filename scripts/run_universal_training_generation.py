@@ -125,7 +125,16 @@ def launch_generation(
         "TRADE_RL_LOCKFILE_DIGEST",
         "TRADE_RL_RUNTIME_MANIFEST_DIGEST",
     )
-    command = ["docker", "build", "--target", "training-runtime", "-f", "Dockerfile.training", "-t", image]
+    command = [
+        "docker",
+        "build",
+        "--target",
+        "training-runtime",
+        "-f",
+        "Dockerfile.training",
+        "-t",
+        image,
+    ]
     for name in build_args:
         command.extend(("--build-arg", f"{name}={environment[name]}"))
     command.append(".")
@@ -133,8 +142,16 @@ def launch_generation(
     compose = str(Path(compose_file).resolve())
     _run(
         (
-            "docker", "compose", "-f", compose, "run", "--rm", "--no-deps",
-            "trainer", "python", "-c",
+            "docker",
+            "compose",
+            "-f",
+            compose,
+            "run",
+            "--rm",
+            "--no-deps",
+            "trainer",
+            "python",
+            "-c",
             "from trade_rl.workflows.universal_runtime_manifest import load_universal_runtime_manifest as load; print(load('/workspace/var/universal/runtime-manifest.json').manifest_digest)",
         ),
         cwd=root,
@@ -157,8 +174,15 @@ def launch_generation(
     )
     _run(
         (
-            "docker", "compose", "-f", compose, "run", "--detach", "--name",
-            container_name, "trainer",
+            "docker",
+            "compose",
+            "-f",
+            compose,
+            "run",
+            "--detach",
+            "--name",
+            container_name,
+            "trainer",
         ),
         cwd=root,
         env=environment,
@@ -167,9 +191,13 @@ def launch_generation(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Launch immutable Universal U6 training")
+    parser = argparse.ArgumentParser(
+        description="Launch immutable Universal U6 training"
+    )
     parser.add_argument("--generation", required=True)
-    parser.add_argument("--compose-file", type=Path, default=Path("compose.universal-training.yaml"))
+    parser.add_argument(
+        "--compose-file", type=Path, default=Path("compose.universal-training.yaml")
+    )
     parser.add_argument("--runtime-manifest", required=True, type=Path)
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     return parser

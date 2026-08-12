@@ -114,7 +114,9 @@ class UniversalRuntimeManifest:
             or self.shared_complete_row_count <= 0
             or self.fold_train_range != (0, self.shared_complete_row_count)
         ):
-            raise ValueError("runtime manifest train range is not maximal shared closure")
+            raise ValueError(
+                "runtime manifest train range is not maximal shared closure"
+            )
         for item in (
             "catalog_digest",
             "partition_digest",
@@ -193,9 +195,7 @@ class UniversalRuntimeManifest:
                 instrument_artifact_relpath=Path(
                     str(value["instrument_artifact_relpath"])
                 ),
-                dataset_artifact_relpath=Path(
-                    str(value["dataset_artifact_relpath"])
-                ),
+                dataset_artifact_relpath=Path(str(value["dataset_artifact_relpath"])),
                 normalizer_artifact_relpath=Path(
                     str(value["normalizer_artifact_relpath"])
                 ),
@@ -214,8 +214,7 @@ class UniversalRuntimeManifest:
                 metadata_evidence_digest=str(value["metadata_evidence_digest"]),
                 source_manifest_digest=str(value["source_manifest_digest"]),
                 dataset_digests=tuple(
-                    (str(item[0]), str(item[1]))
-                    for item in value["dataset_digests"]
+                    (str(item[0]), str(item[1])) for item in value["dataset_digests"]
                 ),
                 schema_version=str(value["schema_version"]),
                 manifest_digest=str(value["manifest_digest"]),

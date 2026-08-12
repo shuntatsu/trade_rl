@@ -54,7 +54,9 @@ class PublishedNativeCache:
             cache_id=build.manifest.cache_id,
             manifest_digest=build.manifest.digest,
             artifact_count=len(build.artifacts),
-            kline_row_count=sum(len(bars.open_time_ms) for bars in build.market_bars.values()),
+            kline_row_count=sum(
+                len(bars.open_time_ms) for bars in build.market_bars.values()
+            ),
             funding_row_count=sum(
                 int(bars.funding_available.sum())
                 for (_, timeframe), bars in build.market_bars.items()
@@ -295,7 +297,9 @@ def _verify_published_cache(
         )
         count_row = cursor.fetchone()
         if count_row is None or tuple(count_row) != (expected_count,):
-            raise FileExistsError("cache identity already exists with different content")
+            raise FileExistsError(
+                "cache identity already exists with different content"
+            )
 
 
 def publish_native_cache(

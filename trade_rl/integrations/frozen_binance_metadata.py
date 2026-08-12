@@ -60,9 +60,7 @@ class FrozenBinanceExchangeInfoTransport:
     def __post_init__(self) -> None:
         object.__setattr__(self, "root", Path(self.root))
 
-    def _load(
-        self, *, market: BinanceMarket
-    ) -> BinanceExchangeInfoSnapshot | None:
+    def _load(self, *, market: BinanceMarket) -> BinanceExchangeInfoSnapshot | None:
         raw_path = self.root / "exchange-info.raw.json"
         manifest_path = self.root / "manifest.json"
         if raw_path.is_file() != manifest_path.is_file():

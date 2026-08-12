@@ -51,7 +51,7 @@ def test_universal_training_compose_is_gpu_manifest_and_external_db_bound() -> N
     assert "/workspace/var/universal" in compose
     assert "read_only: true" in compose
     assert "./:/workspace" not in compose
-    assert "restart: \"no\"" in compose
+    assert 'restart: "no"' in compose
     assert "universal-u6-ppo.json" in compose
     assert "universal-u6-lagrangian.json" in compose
     assert "universal-u6-discounted.json" in compose

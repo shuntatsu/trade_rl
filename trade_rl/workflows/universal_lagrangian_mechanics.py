@@ -72,9 +72,7 @@ def verify_lagrangian_mechanics_model(model: object) -> dict[str, object]:
                 updated_names.add(name)
     missing = tuple(name for name in names if name not in updated_names)
     if missing:
-        raise RuntimeError(
-            "Lagrangian mechanics did not update: " + ", ".join(missing)
-        )
+        raise RuntimeError("Lagrangian mechanics did not update: " + ", ".join(missing))
     controller = getattr(model, "lagrangian_controller", None)
     state_dict = getattr(controller, "state_dict", None)
     if not callable(state_dict):
@@ -86,9 +84,7 @@ def verify_lagrangian_mechanics_model(model: object) -> dict[str, object]:
         "updated_cost_names": [name for name in names if name in updated_names],
         "dual_report_history_count": len(history),
         "controller_state": state_dict(),
-        "final_dual_reports": {
-            name: asdict(final_reports[name]) for name in names
-        },
+        "final_dual_reports": {name: asdict(final_reports[name]) for name in names},
     }
 
 

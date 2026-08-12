@@ -27,7 +27,11 @@ def write_policy_stage_snapshot(
     save = getattr(policy, "save", None)
     if not callable(save):
         raise TypeError("policy stage snapshot requires a save-capable policy")
-    if isinstance(member_seed, bool) or not isinstance(member_seed, int) or member_seed < 0:
+    if (
+        isinstance(member_seed, bool)
+        or not isinstance(member_seed, int)
+        or member_seed < 0
+    ):
         raise ValueError("member_seed must be a non-negative integer")
     root = output_root / "policy-stages" / stage
     if root.exists():

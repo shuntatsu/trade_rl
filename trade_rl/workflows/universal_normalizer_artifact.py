@@ -126,7 +126,9 @@ def load_universal_shared_normalizer(
         raise ValueError("shared normalizer train symbols are invalid")
     if (
         len(fold_range) != 2
-        or any(isinstance(item, bool) or not isinstance(item, int) for item in fold_range)
+        or any(
+            isinstance(item, bool) or not isinstance(item, int) for item in fold_range
+        )
         or fold_range[0] < 0
         or fold_range[1] <= fold_range[0]
     ):
@@ -140,7 +142,10 @@ def load_universal_shared_normalizer(
         or std.shape != mean.shape
         or constant_mask.shape != mean.shape
         or len(sample_counts) != len(mean)
-        or any(isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in sample_counts)
+        or any(
+            isinstance(item, bool) or not isinstance(item, int) or item <= 0
+            for item in sample_counts
+        )
         or not np.isfinite(mean).all()
         or not np.isfinite(std).all()
         or np.any(std <= 0.0)

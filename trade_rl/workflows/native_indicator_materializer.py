@@ -336,16 +336,18 @@ def resample_completed_bars(
     event_time_ms = (
         timestamps_ns[:used].reshape(shape)[:, -1] + _MINUTE_NS
     ) // 1_000_000
-    funding_rate, funding_available = _align_funding(
-        raw, event_time_ms=event_time_ms
-    )
+    funding_rate, funding_available = _align_funding(raw, event_time_ms=event_time_ms)
     derivative = _align_sparse_asof(
-        source_times_ns=raw.derivative_timestamps.astype("datetime64[ns]").astype(np.int64),
+        source_times_ns=raw.derivative_timestamps.astype("datetime64[ns]").astype(
+            np.int64
+        ),
         source_values=raw.derivative_values,
         event_time_ms=event_time_ms,
     )
     orderflow = _align_sparse_asof(
-        source_times_ns=raw.orderflow_timestamps.astype("datetime64[ns]").astype(np.int64),
+        source_times_ns=raw.orderflow_timestamps.astype("datetime64[ns]").astype(
+            np.int64
+        ),
         source_values=raw.orderflow_values,
         event_time_ms=event_time_ms,
     )
@@ -433,14 +435,20 @@ def _build_artifact(
     )
 
 
-def _feature_statistics(artifact: NativeArtifactPayload) -> tuple[FeatureStatistic, ...]:
+def _feature_statistics(
+    artifact: NativeArtifactPayload,
+) -> tuple[FeatureStatistic, ...]:
     result: list[FeatureStatistic] = []
     for index, name in enumerate(artifact.feature_names):
         sample = artifact.values[artifact.available[:, index], index].astype(np.float64)
         nonfinite = int(np.count_nonzero(~np.isfinite(sample)))
         finite = sample[np.isfinite(sample)]
         if not finite.size:
-            result.append(FeatureStatistic(name, len(sample), nonfinite, None, None, None, None, 0))
+            result.append(
+                FeatureStatistic(
+                    name, len(sample), nonfinite, None, None, None, None, 0
+                )
+            )
             continue
         mean = float(np.mean(finite))
         std = float(np.std(finite))
@@ -633,8 +641,7 @@ def combine_native_indicator_builds(
             raise ValueError("single-symbol native build range differs from scope")
         if (
             manifest.cache_id != first.manifest.cache_id
-            or manifest.feature_config_digest
-            != first.manifest.feature_config_digest
+            or manifest.feature_config_digest != first.manifest.feature_config_digest
             or manifest.feature_count != first.manifest.feature_count
             or manifest.feature_specs != first.manifest.feature_specs
             or manifest.volume_conversion_method

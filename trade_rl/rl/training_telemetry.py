@@ -431,9 +431,14 @@ class TrainingTelemetrySampler:
                 shadow_return = _number(info.get("shadow_interval_net_return"))
                 target = _vector(info.get("executed_target"), fallback=weights_after)
                 target_delta_l1 = (
-                    float(sum(abs(after - before) for before, after in zip(
-                        weights_before, target, strict=True
-                    )))
+                    float(
+                        sum(
+                            abs(after - before)
+                            for before, after in zip(
+                                weights_before, target, strict=True
+                            )
+                        )
+                    )
                     if len(weights_before) == len(target)
                     else None
                 )

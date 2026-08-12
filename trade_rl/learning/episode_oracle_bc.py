@@ -67,9 +67,8 @@ def _action_comparison_diagnostics(
     teacher_flat = teacher.ravel()
     policy_flat = policy.ravel()
     direction_agreement = (
-        ((np.abs(teacher_flat) <= tolerance) & (np.abs(policy_flat) <= tolerance))
-        | (teacher_flat * policy_flat > 0.0)
-    )
+        (np.abs(teacher_flat) <= tolerance) & (np.abs(policy_flat) <= tolerance)
+    ) | (teacher_flat * policy_flat > 0.0)
 
     def summary(
         prefix: str,
@@ -357,9 +356,7 @@ def aggregate_episode_behavior_cloning_holdouts(
     records = tuple(
         record for evaluation in evaluations for record in evaluation.records
     )
-    evidence_values = tuple(
-        record.causal_policy_evidence for record in records
-    )
+    evidence_values = tuple(record.causal_policy_evidence for record in records)
     first = evidence_values[0]
     if any(
         value.action_dimension_count != first.action_dimension_count
@@ -411,9 +408,7 @@ def aggregate_episode_behavior_cloning_holdouts(
         action_agreement_rate=min(record.action_agreement_rate for record in records),
         action_mae=max(record.action_mae for record in records),
         action_rmse=max(record.action_rmse for record in records),
-        heldout_oracle_regret=max(
-            record.heldout_oracle_regret for record in records
-        ),
+        heldout_oracle_regret=max(record.heldout_oracle_regret for record in records),
         normalized_oracle_regret=max(
             record.normalized_oracle_regret for record in records
         ),

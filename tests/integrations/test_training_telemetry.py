@@ -154,7 +154,9 @@ def test_sampler_accepts_torch_rollout_tensors(tmp_path: Path) -> None:
 
     assert emitted == 1
     assert sampler.last_error is None
-    assert read_training_telemetry(path, limit=10).items[0].reward == pytest.approx(0.214)
+    assert read_training_telemetry(path, limit=10).items[0].reward == pytest.approx(
+        0.214
+    )
 
 
 def test_sampler_reads_execution_scalars_from_compact_training_info(
@@ -167,13 +169,16 @@ def test_sampler_reads_execution_scalars_from_compact_training_info(
     compact["telemetry_filled_turnover"] = 0.75
     compact["telemetry_fill_count"] = 3
 
-    assert sampler.consume(
-        global_step=1,
-        actions=np.asarray([[0.1]]),
-        rewards=np.asarray([0.2]),
-        dones=np.asarray([False]),
-        infos=(compact,),
-    ) == 1
+    assert (
+        sampler.consume(
+            global_step=1,
+            actions=np.asarray([[0.1]]),
+            rewards=np.asarray([0.2]),
+            dones=np.asarray([False]),
+            infos=(compact,),
+        )
+        == 1
+    )
     sampler.close()
 
     record = read_training_telemetry(path, limit=10).items[0]
@@ -220,13 +225,16 @@ def test_sampler_recovers_concrete_symbol_from_instrument_binding(
     routed.pop("telemetry_symbol")
     routed["instrument_episode_binding"] = {"concrete_symbol": "SOLUSDT"}
 
-    assert sampler.consume(
-        global_step=1,
-        actions=np.asarray([[0.1]]),
-        rewards=np.asarray([0.2]),
-        dones=np.asarray([False]),
-        infos=(routed,),
-    ) == 1
+    assert (
+        sampler.consume(
+            global_step=1,
+            actions=np.asarray([[0.1]]),
+            rewards=np.asarray([0.2]),
+            dones=np.asarray([False]),
+            infos=(routed,),
+        )
+        == 1
+    )
     sampler.close()
 
     assert read_training_telemetry(path, limit=10).items[0].symbol == "SOLUSDT"

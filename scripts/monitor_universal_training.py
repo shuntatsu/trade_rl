@@ -22,7 +22,9 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _docker_evidence(container: str | None) -> tuple[dict[str, object] | None, str | None]:
+def _docker_evidence(
+    container: str | None,
+) -> tuple[dict[str, object] | None, str | None]:
     if not container:
         return None, None
     inspect = subprocess.run(

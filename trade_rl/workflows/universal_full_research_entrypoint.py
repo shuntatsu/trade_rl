@@ -51,15 +51,21 @@ class UniversalRuntimeFactoryContext:
         instrument_root = base / manifest.instrument_artifact_relpath
         dataset_root = base / manifest.dataset_artifact_relpath
         normalizer_root = base / manifest.normalizer_artifact_relpath
-        if self.instrument_artifact_root is not None and Path(
-            self.instrument_artifact_root
-        ).resolve() != instrument_root.resolve():
+        if (
+            self.instrument_artifact_root is not None
+            and Path(self.instrument_artifact_root).resolve()
+            != instrument_root.resolve()
+        ):
             raise ValueError("instrument artifact root compatibility mismatch")
-        if self.dataset_artifact_root is not None and Path(
-            self.dataset_artifact_root
-        ).resolve() != dataset_root.resolve():
+        if (
+            self.dataset_artifact_root is not None
+            and Path(self.dataset_artifact_root).resolve() != dataset_root.resolve()
+        ):
             raise ValueError("dataset artifact root compatibility mismatch")
-        if self.fold_train_range is not None and self.fold_train_range != manifest.fold_train_range:
+        if (
+            self.fold_train_range is not None
+            and self.fold_train_range != manifest.fold_train_range
+        ):
             raise ValueError("fold train range compatibility mismatch")
         if self.normalizer_digest is not None:
             require_sha256(self.normalizer_digest, field="normalizer_digest")
@@ -76,7 +82,9 @@ class UniversalRuntimeFactoryContext:
         object.__setattr__(self, "normalizer_artifact_root", normalizer_root)
         object.__setattr__(self, "fold_train_range", manifest.fold_train_range)
         object.__setattr__(self, "normalizer_digest", manifest.statistics_digest)
-        object.__setattr__(self, "feature_schema_digest", manifest.feature_schema_digest)
+        object.__setattr__(
+            self, "feature_schema_digest", manifest.feature_schema_digest
+        )
         object.__setattr__(self, "manifest", manifest)
 
     @property

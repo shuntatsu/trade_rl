@@ -58,7 +58,9 @@ def _relative_to_manifest(path: Path, *, manifest_path: Path, field: str) -> Pat
     try:
         return target.relative_to(base)
     except ValueError as error:
-        raise ValueError(f"{field} must be below the runtime manifest directory") from error
+        raise ValueError(
+            f"{field} must be below the runtime manifest directory"
+        ) from error
 
 
 def materialize_universal_runtime_inputs(

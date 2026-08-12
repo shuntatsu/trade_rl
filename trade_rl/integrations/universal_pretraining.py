@@ -546,7 +546,9 @@ def build_universal_pretraining_hook(
                     config=config,
                 )
                 if teacher_changes is None:
-                    raise RuntimeError("Universal teacher change labels are unavailable")
+                    raise RuntimeError(
+                        "Universal teacher change labels are unavailable"
+                    )
                 gate = evaluate_direct_behavior_cloning_gates(
                     initial_mse=float(bc_result.initial_mse),
                     final_mse=float(bc_result.final_mse),

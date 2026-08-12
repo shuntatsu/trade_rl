@@ -207,7 +207,9 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
             actor_max_abs_drift_joint=0.01,
         )
 
-    def fake_holdout(*args: object, **kwargs: object) -> tuple[dict[str, object], object]:
+    def fake_holdout(
+        *args: object, **kwargs: object
+    ) -> tuple[dict[str, object], object]:
         calls.append("holdout")
         return {}, SimpleNamespace(symbol=kwargs["output_root"].name)
 
@@ -226,7 +228,9 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
 
     monkeypatch.setattr(module, "pretrain_universal_policy", fake_bc)
     monkeypatch.setattr(module, "warm_start_policy_actor_critic", fake_warm)
-    monkeypatch.setattr(module, "evaluate_episode_behavior_cloning_holdout", fake_holdout)
+    monkeypatch.setattr(
+        module, "evaluate_episode_behavior_cloning_holdout", fake_holdout
+    )
     monkeypatch.setattr(
         module,
         "aggregate_episode_behavior_cloning_holdouts",

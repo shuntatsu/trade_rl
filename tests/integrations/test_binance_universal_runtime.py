@@ -47,7 +47,9 @@ def _manifest(path: Path) -> UniversalRuntimeManifest:
         statistics_digest=_digest("statistics"),
         metadata_evidence_digest=_digest("metadata"),
         source_manifest_digest=_digest("source"),
-        dataset_digests=tuple((symbol, _digest(f"dataset:{symbol}")) for symbol in train),
+        dataset_digests=tuple(
+            (symbol, _digest(f"dataset:{symbol}")) for symbol in train
+        ),
     )
     write_universal_runtime_manifest(path, manifest)
     return manifest
@@ -118,6 +120,7 @@ def test_concrete_factory_returns_runtime_for_all_algorithms_with_shared_static_
             train_symbols=manifest.train_symbols,
         ),
     )
+
     def resolve(**kwargs):
         assert tuple(kwargs["symbols"]) == MAINTAINED_SYMBOLS
         return SimpleNamespace(evidence_digest=manifest.metadata_evidence_digest)
@@ -126,7 +129,9 @@ def test_concrete_factory_returns_runtime_for_all_algorithms_with_shared_static_
     monkeypatch.setattr(
         module,
         "build_universal_instrument_contracts",
-        lambda _resolution, *, train_symbols: {symbol: object() for symbol in train_symbols},
+        lambda _resolution, *, train_symbols: {
+            symbol: object() for symbol in train_symbols
+        },
     )
     monkeypatch.setattr(
         module,
@@ -141,7 +146,9 @@ def test_concrete_factory_returns_runtime_for_all_algorithms_with_shared_static_
         "CausalInstrumentContextProvider",
         lambda **_kwargs: SimpleNamespace(schema_digest=_digest("context")),
     )
-    monkeypatch.setattr(module, "bind_universal_normalizers", lambda *a, **k: (object(), object()))
+    monkeypatch.setattr(
+        module, "bind_universal_normalizers", lambda *a, **k: (object(), object())
+    )
 
     runtimes = [
         module.build_runtime(algorithm=algorithm, run_config=config, context=context)
@@ -170,7 +177,9 @@ def test_concrete_factory_rejects_dataset_identity_drift(
     monkeypatch.setattr(
         module,
         "load_market_dataset_artifact",
-        lambda path: SimpleNamespace(symbols=(Path(path).name,), dataset_id=_digest("drift")),
+        lambda path: SimpleNamespace(
+            symbols=(Path(path).name,), dataset_id=_digest("drift")
+        ),
     )
     monkeypatch.setattr(
         module,

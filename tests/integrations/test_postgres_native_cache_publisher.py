@@ -46,7 +46,9 @@ class TransactionRecordingCursor:
         if normalized.startswith("SELECT manifest_digest FROM"):
             manifest = self.connection.manifests.get(cache_id)
             self.rows = [] if manifest is None else [(manifest[0],)]
-        elif normalized.startswith("INSERT INTO") and "indicator_manifests" in normalized:
+        elif (
+            normalized.startswith("INSERT INTO") and "indicator_manifests" in normalized
+        ):
             assert isinstance(params[7], str)
             assert isinstance(json.loads(params[7]), dict)
             self.connection.manifests[cache_id] = (str(params[-1]), int(params[8]))
@@ -68,15 +70,13 @@ class TransactionRecordingCursor:
         else:  # pragma: no cover - proves the publisher's SQL surface stays explicit
             raise AssertionError(normalized)
 
-    def executemany(
-        self, query: str, params: list[tuple[object, ...]]
-    ) -> None:
+    def executemany(self, query: str, params: list[tuple[object, ...]]) -> None:
         normalized = " ".join(query.split())
         self.connection.queries.append((normalized, tuple(params)))
         if "indicator_artifacts" in normalized:
             for row in params:
-                self.connection.artifacts[(str(row[0]), str(row[1]), str(row[2]))] = str(
-                    row[9]
+                self.connection.artifacts[(str(row[0]), str(row[1]), str(row[2]))] = (
+                    str(row[9])
                 )
         elif "funding_202411_202607" in normalized:
             for row in params:
@@ -188,16 +188,12 @@ def test_publish_rolls_back_any_insert_failure() -> None:
     original = connection.cursor
 
     class FailingCursor(TransactionRecordingCursor):
-        def executemany(
-            self, query: str, params: list[tuple[object, ...]]
-        ) -> None:
+        def executemany(self, query: str, params: list[tuple[object, ...]]) -> None:
             raise RuntimeError("injected insert failure")
 
     connection.cursor = lambda: FailingCursor(connection)  # type: ignore[method-assign]
     with pytest.raises(RuntimeError, match="injected"):
-        publish_native_cache(
-            connection, build, tables=UNIVERSAL_202411_202607_TABLES
-        )
+        publish_native_cache(connection, build, tables=UNIVERSAL_202411_202607_TABLES)
     connection.cursor = original  # type: ignore[method-assign]
     assert connection.commit_count == 0
     assert connection.rollback_count == 1

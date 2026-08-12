@@ -89,6 +89,7 @@ def test_assemble_universal_sb3_training_backend_connects_oracle_bundle_and_hook
         "build_universal_pretraining_bundle_from_batches",
         build_bundle,
     )
+
     def build_hook(value: object, **kwargs: object) -> object:
         observed["hook_bundle"] = value
         observed["hook_kwargs"] = kwargs

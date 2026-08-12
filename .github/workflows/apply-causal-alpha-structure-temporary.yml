@@ -1,0 +1,77 @@
+name: Apply causal alpha structure temporary
+
+on:
+  push:
+    branches:
+      - feature/universal-causal-alpha-teacher
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feature/universal-causal-alpha-teacher
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Apply responsibility split
+        run: python tools/_temporary_split_causal_alpha_workflow.py
+      - name: Verify split
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          files=(
+            trade_rl/workflows/universal_causal_alpha_contracts.py
+            trade_rl/workflows/universal_causal_alpha_fitting.py
+            trade_rl/workflows/universal_causal_alpha_selection.py
+            trade_rl/workflows/universal_causal_alpha_teacher.py
+            tests/architecture/test_universal_causal_alpha_teacher_structure.py
+          )
+          uv run ruff check --fix --select I "${files[@]}"
+          uv run ruff format "${files[@]}"
+          uv run ruff check "${files[@]}"
+          uv run ruff format --check "${files[@]}"
+          uv run mypy \
+            trade_rl/workflows/universal_causal_alpha_contracts.py \
+            trade_rl/workflows/universal_causal_alpha_fitting.py \
+            trade_rl/workflows/universal_causal_alpha_selection.py \
+            trade_rl/workflows/universal_causal_alpha_teacher.py
+          uv run lint-imports
+          uv run pytest \
+            tests/architecture/test_universal_causal_alpha_teacher_structure.py \
+            tests/learning/test_causal_alpha_teacher.py \
+            tests/learning/test_causal_alpha_teacher_admission.py \
+            tests/integrations/test_universal_causal_teacher_admission.py \
+            tests/integrations/test_universal_pretraining_bundle.py \
+            tests/workflows/test_universal_causal_alpha_teacher.py \
+            tests/workflows/test_universal_causal_alpha_fitting.py \
+            tests/workflows/test_universal_causal_alpha_samples.py \
+            tests/workflows/test_universal_causal_alpha_selection.py \
+            tests/workflows/test_universal_causal_alpha_package.py \
+            tests/workflows/test_universal_causal_alpha_assembly.py \
+            tests/workflows/test_universal_causal_alpha_shared_training.py \
+            tests/workflows/test_universal_teacher_bundle_runtime.py \
+            tests/workflows/test_universal_u6_example_configs.py \
+            -q
+      - name: Commit verified split and remove temporary assets
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -f \
+            tools/_temporary_split_causal_alpha_workflow.py \
+            .github/workflows/apply-causal-alpha-structure-temporary.yml \
+            .github/workflows/causal-alpha-structure-red-temporary.yml
+          git add \
+            trade_rl/workflows/universal_causal_alpha_contracts.py \
+            trade_rl/workflows/universal_causal_alpha_fitting.py \
+            trade_rl/workflows/universal_causal_alpha_selection.py \
+            trade_rl/workflows/universal_causal_alpha_teacher.py \
+            tests/architecture/test_universal_causal_alpha_teacher_structure.py
+          git commit -m 'refactor: split causal alpha workflow responsibilities'
+          git push origin HEAD:feature/universal-causal-alpha-teacher

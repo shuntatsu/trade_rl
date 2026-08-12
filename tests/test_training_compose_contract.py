@@ -57,5 +57,5 @@ def test_universal_training_compose_is_gpu_manifest_and_external_db_bound() -> N
     assert "universal-u6-discounted.json" in compose
     assert (
         "TRADE_RL_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL: "
-        "${TRADE_RL_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL:-10}" in compose
+        "${TRADE_RL_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL:-3}" in compose
     )

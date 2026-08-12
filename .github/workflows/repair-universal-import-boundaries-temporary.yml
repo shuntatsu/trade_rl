@@ -97,12 +97,21 @@ jobs:
         run: |
           set -euo pipefail
           uv sync --extra dev --extra train-sb3
-          uv run ruff format trade_rl/workflows/binance_universal_runtime.py trade_rl/integrations/native_indicator_materializer.py trade_rl/integrations/postgres_native_cache_publisher.py trade_rl/integrations/universal_policy_stage_models.py trade_rl/workflows/universal_policy_stage_evaluation.py tests/workflows/test_binance_universal_runtime.py
+          files=(
+            trade_rl/workflows/binance_universal_runtime.py
+            trade_rl/integrations/native_indicator_materializer.py
+            trade_rl/integrations/postgres_native_cache_publisher.py
+            trade_rl/integrations/universal_policy_stage_models.py
+            trade_rl/workflows/universal_policy_stage_evaluation.py
+            tests/workflows/test_binance_universal_runtime.py
+          )
           if test -f tests/integrations/test_native_indicator_materializer.py; then
-            uv run ruff format tests/integrations/test_native_indicator_materializer.py
+            files+=(tests/integrations/test_native_indicator_materializer.py)
           fi
-          uv run ruff check trade_rl/workflows/binance_universal_runtime.py trade_rl/integrations/native_indicator_materializer.py trade_rl/integrations/postgres_native_cache_publisher.py trade_rl/integrations/universal_policy_stage_models.py trade_rl/workflows/universal_policy_stage_evaluation.py tests/workflows/test_binance_universal_runtime.py
-          uv run ruff format --check trade_rl/workflows/binance_universal_runtime.py trade_rl/integrations/native_indicator_materializer.py trade_rl/integrations/postgres_native_cache_publisher.py trade_rl/integrations/universal_policy_stage_models.py trade_rl/workflows/universal_policy_stage_evaluation.py tests/workflows/test_binance_universal_runtime.py
+          uv run ruff check --fix --select I "${files[@]}"
+          uv run ruff format "${files[@]}"
+          uv run ruff check "${files[@]}"
+          uv run ruff format --check "${files[@]}"
           uv run mypy .
           uv run lint-imports
 

@@ -134,7 +134,11 @@ def test_assemble_routes_causal_teacher_through_shared_package(monkeypatch) -> N
     assert package_kwargs["feature_schema_digest"] == _digest("features")
     bundle_kwargs = observed["bundle_kwargs"]
     assert isinstance(bundle_kwargs, dict)
-    assert bundle_kwargs["batches"] is package.batches
+    assert bundle_kwargs["batches"] == package.batches
+    assert all(
+        bundle_kwargs["batches"][symbol] is package.batches[symbol]
+        for symbol in routed.train_symbols
+    )
     assert bundle_kwargs["teacher_kind"] == "causal_alpha_ridge"
     assert bundle_kwargs["causal_teacher_package"] is package
 

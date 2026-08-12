@@ -108,9 +108,21 @@ def build_universal_oracle_batches(
     for symbol, binding in zip(symbols, binding_values, strict=True):
         environment = concrete_environment_factory(binding)
         try:
+            minimum_start = getattr(environment, "minimum_start_index", None)
+            dataset_bars = getattr(getattr(environment, "dataset", None), "n_bars", None)
+            if (
+                isinstance(minimum_start, bool)
+                or not isinstance(minimum_start, int)
+                or isinstance(dataset_bars, bool)
+                or not isinstance(dataset_bars, int)
+            ):
+                raise ValueError("Universal Oracle environment trainable range is unavailable")
+            effective_range = (max(start, minimum_start), min(stop, dataset_bars))
+            if effective_range[1] <= effective_range[0]:
+                raise ValueError("Universal Oracle environment trainable range is empty")
             batch = build_episode_oracle_batch_for_environment(
                 environment,
-                train_range=(start, stop),
+                train_range=effective_range,
                 seed=behavior_cloning_seed,
                 n_envs=n_envs,
             )

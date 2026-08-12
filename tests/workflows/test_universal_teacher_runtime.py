@@ -137,3 +137,36 @@ def test_symbol_teacher_environment_uses_generic_identity_for_every_ticker() -> 
             environment.close()
 
     assert digests[0] == digests[1]
+
+
+def test_oracle_batches_clip_manifest_range_to_environment_trainable_closure(
+    monkeypatch,
+) -> None:
+    import trade_rl.workflows.universal_teacher_runtime as module
+
+    binding = _binding("AAAUSDT")
+    observed: list[tuple[int, int]] = []
+
+    class Environment:
+        minimum_start_index = 96
+        dataset = SimpleNamespace(n_bars=900, dataset_id=binding.source_dataset_id)
+
+        def close(self) -> None:
+            return None
+
+    def build(_environment, *, train_range, **_kwargs):
+        observed.append(train_range)
+        return SimpleNamespace(dataset_id=binding.source_dataset_id)
+
+    monkeypatch.setattr(module, "build_episode_oracle_batch_for_environment", build)
+    result = module.build_universal_oracle_batches(
+        train_symbols=("AAAUSDT",),
+        bindings=(binding,),
+        concrete_environment_factory=lambda _binding: Environment(),
+        fold_train_range=(0, 1_000),
+        behavior_cloning_seed=17,
+        n_envs=1,
+    )
+
+    assert tuple(result) == ("AAAUSDT",)
+    assert observed == [(96, 900)]

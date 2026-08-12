@@ -598,6 +598,12 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             raise ValueError("instrument_context must be a finite (1, 9) matrix")
         return {**dict(observation), "instrument_context": context.copy()}
 
+    @property
+    def canonical_probe_seed(self) -> int:
+        """Return the only reset seed accepted by this immutable environment."""
+
+        return self._run_seed
+
     def reset(
         self,
         *,

@@ -153,6 +153,30 @@ def test_target_weight_zero_action_is_recorded_as_cash() -> None:
     assert len(closes) == 2
 
 
+def test_probe_uses_environment_immutable_reset_seed() -> None:
+    reset_seeds: list[int | None] = []
+
+    class _ImmutableSeedEnvironment(_ProbeEnvironment):
+        canonical_probe_seed = 41
+
+        def reset(self, *, seed=None, options=None):
+            reset_seeds.append(seed)
+            return super().reset(seed=seed, options=options)
+
+    run_canonical_action_feasibility_probe(
+        environment_factory=lambda: _ImmutableSeedEnvironment(
+            mode=ActionMode.TARGET_WEIGHT,
+            recorded_actions=[],
+            close_calls=[],
+        ),
+        schema=_schema(),
+        episode_count=1,
+        max_steps_per_episode=4,
+    )
+
+    assert reset_seeds == [41]
+
+
 def test_residual_zero_action_is_recorded_as_baseline() -> None:
     actions: list[np.ndarray] = []
     closes: list[int] = []

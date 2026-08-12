@@ -272,7 +272,8 @@ def _run_probe_episode(
             ):
                 raise ValueError("canonical probe environment contract changed")
 
-            environment.reset(seed=episode_index)
+            reset_seed = getattr(environment, "canonical_probe_seed", episode_index)
+            environment.reset(seed=reset_seed)
             attempt_finished = False
             while steps_for_episode < maximum_steps:
                 transition = environment.step(action.copy())

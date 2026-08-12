@@ -125,10 +125,11 @@ def build_tensorboard_metrics_callback(
                 # while SB3 keeps the policy module in eval mode. The hierarchical
                 # BC output already forces operational=False, so prefer it before
                 # generic or operational action-stage diagnostics.
-                output_factory = getattr(
-                    policy,
-                    "hierarchical_behavior_cloning_outputs",
-                    None,
+                actor_head = getattr(policy, "shared_actor_head", None)
+                output_factory = (
+                    getattr(policy, "hierarchical_behavior_cloning_outputs", None)
+                    if actor_head in {None, "hierarchical_gate_target_v1"}
+                    else None
                 )
                 if not callable(output_factory):
                     output_factory = getattr(policy, "action_stage_outputs", None)

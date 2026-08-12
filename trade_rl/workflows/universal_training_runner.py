@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -125,9 +125,15 @@ def concrete_action_spec_digest(action: ActionSpec, symbol: str) -> str:
         )
     return content_digest(
         {
-            "action_schema": ACTION_SCHEMA,
+            "schema_version": ACTION_SCHEMA,
+            "alpha_enabled": action.alpha_enabled,
+            "mode": ActionMode(action.mode).value,
+            "risk_tilt_enabled": action.risk_tilt_enabled,
+            "n_factors": action.n_factors,
             "names": action.names_for_symbols((symbol,)),
-            "spec": asdict(action),
+            "residual_scale": action.residual_scale,
+            "target_weight_count": action.target_weight_count,
+            "validation_mode": action.validation_mode.value,
         }
     )
 

@@ -258,6 +258,7 @@ def test_routed_environment_adds_context_and_exposes_training_identity() -> None
     assert identity["initial_capital"] == 10_000.0
     assert env.sequence_layout_metadata["instrument_context_width"] == 9
     assert env.is_universal_single_instrument is True
+    assert env.dataset.symbols == ("BTCUSDT",)
 
 
 def test_sequence_extractor_actually_uses_instrument_context() -> None:

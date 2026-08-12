@@ -421,6 +421,18 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         return _require_non_negative_int(value, field="current_index")
 
     @property
+    def dataset(self) -> Any:
+        """Expose the active concrete dataset for evaluation and telemetry."""
+
+        environment = self._active_environment
+        if environment is None:
+            raise RuntimeError("environment must be reset before dataset access")
+        dataset = getattr(environment, "dataset", None)
+        if dataset is None:
+            raise AttributeError("active environment does not expose a dataset")
+        return dataset
+
+    @property
     def active_episode_binding(self) -> InstrumentEpisodeBinding:
         binding = self._active_episode_binding
         if binding is None:

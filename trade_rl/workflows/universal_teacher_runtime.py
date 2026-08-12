@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -21,6 +22,22 @@ from trade_rl.rl.universal_single_instrument_env import (
     InstrumentContextProvider,
 )
 from trade_rl.workflows.universal_training import collect_universal_episode_teacher
+
+DEFAULT_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL = 2
+
+
+def _oracle_max_episodes_per_symbol() -> int:
+    name = "TRADE_RL_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL"
+    raw = os.environ.get(
+        name, str(DEFAULT_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL)
+    ).strip()
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise ValueError(f"{name} must be a positive integer") from error
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
 
 
 def build_universal_symbol_teacher_environment(
@@ -105,6 +122,7 @@ def build_universal_oracle_batches(
         raise ValueError("Universal Oracle n_envs must be a positive integer")
 
     batches: dict[str, EpisodeOracleBatch] = {}
+    max_episodes = _oracle_max_episodes_per_symbol()
     for symbol, binding in zip(symbols, binding_values, strict=True):
         environment = concrete_environment_factory(binding)
         try:
@@ -125,6 +143,7 @@ def build_universal_oracle_batches(
                 train_range=effective_range,
                 seed=behavior_cloning_seed,
                 n_envs=n_envs,
+                max_episodes=max_episodes,
             )
         finally:
             environment.close()
@@ -227,6 +246,7 @@ def build_universal_pretraining_bundle_from_batches(
 
 
 __all__ = [
+    "DEFAULT_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL",
     "build_universal_oracle_batches",
     "build_universal_pretraining_bundle_from_batches",
     "build_universal_symbol_teacher_environment",

@@ -394,9 +394,13 @@ def build_universal_pretraining_hook(
             config=config,
         )
 
+        progress_history: list[dict[str, object]] = []
+
         def write_behavior_cloning_progress(progress: dict[str, object]) -> None:
+            progress_history.append(dict(progress))
             payload = {
                 "behavior_cloning_seed": behavior_cloning_seed,
+                "history": tuple(progress_history),
                 "member_seed": member_seed,
                 "schema_version": "universal_behavior_cloning_progress_v1",
                 **progress,

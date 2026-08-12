@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -143,6 +144,15 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
                 "early_stopping": False,
             }
         )
+        progress_callback(
+            {
+                "epoch": 2,
+                "total_epochs": 2,
+                "best_epoch": 1,
+                "validation_loss": 0.6,
+                "early_stopping": True,
+            }
+        )
         return SimpleNamespace(
             initial_mse=1.0,
             final_mse=0.5,
@@ -233,10 +243,11 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
     assert len(evidence["critic_warm_start_digest"]) == 64
     assert len(evidence["behavior_cloning_holdout_digest"]) == 64
     assert len(evidence["behavior_cloning_gate_digest"]) == 64
-    progress = (tmp_path / "behavior-cloning-progress.json").read_text(
-        encoding="utf-8"
+    progress = json.loads(
+        (tmp_path / "behavior-cloning-progress.json").read_text(encoding="utf-8")
     )
-    assert '"epoch":1' in progress
+    assert progress["epoch"] == 2
+    assert [item["epoch"] for item in progress["history"]] == [1, 2]
     result = (tmp_path / "behavior-cloning-result.json").read_text(encoding="utf-8")
     assert '"best_epoch":1' in result
     assert '"validation_mse":0.4' in result

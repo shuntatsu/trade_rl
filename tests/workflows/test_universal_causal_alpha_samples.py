@@ -25,9 +25,7 @@ class _Dataset:
         self.regular_cadence = True
         self.feature_names = ("momentum", "volatility")
         base = np.arange(self.n_bars, dtype=np.float64)
-        self.features = np.column_stack((base, base * 0.1)).reshape(
-            self.n_bars, 1, 2
-        )
+        self.features = np.column_stack((base, base * 0.1)).reshape(self.n_bars, 1, 2)
         self.feature_available = np.ones_like(self.features, dtype=np.bool_)
         self.feature_available[5, 0, 1] = False
         self.open = (100.0 + base).reshape(-1, 1)
@@ -83,7 +81,9 @@ def _environment(dataset: _Dataset) -> SimpleNamespace:
     )
 
 
-def test_symbol_sample_extraction_is_train_scoped_causal_and_reference_equity_anchored() -> None:
+def test_symbol_sample_extraction_is_train_scoped_causal_and_reference_equity_anchored() -> (
+    None
+):
     dataset = _Dataset()
     provider = _ContextProvider()
     environment = _environment(dataset)

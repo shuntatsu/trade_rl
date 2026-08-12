@@ -30,6 +30,8 @@ def _samples(symbol: str, offset: float) -> CausalAlphaSymbolSamples:
         feature_names=("signal", "descriptor"),
         feature_schema_digest=content_digest("feature-schema"),
         context_digest=content_digest(f"context:{symbol}"),
+        reference_equity_mode="initial_capital",
+        reference_equity=1_000.0,
         decision_indices=decisions,
         features=features,
         feature_available=np.ones_like(features, dtype=np.bool_),
@@ -98,7 +100,9 @@ def _partition(symbol: str) -> CausalAlphaEpisodePartition:
     )
 
 
-def test_episode_batch_fits_each_episode_at_its_own_cutoff_and_preserves_initial_state() -> None:
+def test_episode_batch_fits_each_episode_at_its_own_cutoff_and_preserves_initial_state() -> (
+    None
+):
     symbol = "AAAUSDT"
     samples = {symbol: _samples(symbol, 0.0)}
     controller = CausalAlphaControllerConfig(
@@ -121,8 +125,12 @@ def test_episode_batch_fits_each_episode_at_its_own_cutoff_and_preserves_initial
     assert batch.contracts == _partition(symbol).contracts
     assert batch.episode_count == 2
     assert tuple(item.knowledge_cutoff for item in evidence.episodes) == (10, 20)
-    assert all(item.max_label_end_24h < item.knowledge_cutoff for item in evidence.episodes)
-    assert all(item.max_label_end_72h < item.knowledge_cutoff for item in evidence.episodes)
+    assert all(
+        item.max_label_end_24h < item.knowledge_cutoff for item in evidence.episodes
+    )
+    assert all(
+        item.max_label_end_72h < item.knowledge_cutoff for item in evidence.episodes
+    )
     assert batch.targets[0].shape == (4, 1)
     assert batch.targets[1].shape == (4, 1)
     assert evidence.episodes[1].initial_weight == pytest.approx(0.25)
@@ -139,6 +147,8 @@ def test_sample_identity_drift_changes_fit_digest() -> None:
         feature_names=original.feature_names,
         feature_schema_digest=original.feature_schema_digest,
         context_digest=original.context_digest,
+        reference_equity_mode=original.reference_equity_mode,
+        reference_equity=original.reference_equity,
         decision_indices=original.decision_indices,
         features=changed_features,
         feature_available=original.feature_available,

@@ -17,11 +17,11 @@ services:
       - --selected-architecture
       - u_medium_direct
       - --ppo-config
-      - examples/binance-multitimeframe/universal-u6-ppo.json
+      - ${TRADE_RL_PPO_CONFIG:-examples/binance-multitimeframe/universal-u6-ppo.json}
       - --lagrangian-config
-      - examples/binance-multitimeframe/universal-u6-lagrangian.json
+      - ${TRADE_RL_LAGRANGIAN_CONFIG:-examples/binance-multitimeframe/universal-u6-lagrangian.json}
       - --discounted-config
-      - examples/binance-multitimeframe/universal-u6-discounted.json
+      - ${TRADE_RL_DISCOUNTED_CONFIG:-examples/binance-multitimeframe/universal-u6-discounted.json}
       - --runtime-factory
       - trade_rl.integrations.binance_universal_runtime:build_runtime
       - --runtime-manifest

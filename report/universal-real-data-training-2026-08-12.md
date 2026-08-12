@@ -267,3 +267,28 @@ r12 completed the calibrated 45-epoch BC stage before the user-directed pause:
 The process was explicitly stopped on request. Docker recorded exit 137 and `OOMKilled=false`. Eleven files (22,889,603 bytes), including the restored BC policy and APT holdout, were copied to `artifacts/universal/smoke/cuda-low-std-bc45-patience45-gate-balanced-r12` before restart.
 
 The current Universal workflow supports PPO checkpoint resume but not mid-BC-holdout continuation. After the user requested resume, generation `universal-u6-20260812-cuda-low-std-bc45-patience45-gate-balanced-r13` was therefore launched from the same immutable image and exact r12 calibration. The r12 evidence remains preserved; r13 recomputes the shared teacher/BC stage before completing the causal holdouts.
+
+### r13 independent reproduction and causal state-distribution failure
+
+r13 independently reproduced the balanced supervised gate despite CUDA performance-mode variation:
+
+- Restored best epoch: 11.
+- Initial/final MSE: 0.87294 / 0.82474, a 5.52% improvement.
+- Epoch-45 gate precision/recall: 0.8883 / 0.8590.
+- Epoch-45 activity ratio: 0.9670.
+- Both `all_trade_collapse` and `all_hold_collapse`: false.
+
+Autonomous causal evaluation nevertheless failed immediately:
+
+| Symbol | Gross | Net | Cost | Turnover | Submitted | Policy short rate | Teacher correlation |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| APTUSDT | -0.49% | -7.34% | 6,806.1 | 97.04 | 2,877 / 2,880 | 99.9% | -0.0050 |
+| ARBUSDT | +0.75% | -6.43% | 7,186.6 | 102.55 | 2,849 / 2,880 | 99.2% | +0.0119 |
+| BCHUSDT | -1.49% | -14.05% | 12,587.6 | 188.56 | 2,764 / 2,880 | 97.8% | -0.0340 |
+| BNBUSDT | -0.53% | -12.62% | 12,277.2 | 181.27 | 2,086 / 2,880 | 97.8% | -0.0006 |
+
+Four independent symbols were sufficient to reject the candidate, so r13 was explicitly stopped with OOM false and preserved under `artifacts/universal/smoke/cuda-low-std-bc45-patience45-gate-balanced-r13` (17 files, 22,904,747 bytes).
+
+The split between good teacher-forced validation and failed autonomous rollout identifies state-distribution shift. BC validation observations are collected while the Oracle target path controls `current_weights`; causal evaluation feeds back the policy's own positions. Once the policy deviates, it enters states absent from the teacher trajectory and converges to an almost permanent short target. Class balancing repaired the supervised change/HOLD null solution but did not make the hindsight Oracle causally predictable.
+
+Commit `4e0f1185` upgrades future `behavior-cloning-result.json` artifacts to schema v2 and persists initial/final/validation hierarchical losses and metrics. This closes the audit gap that previously discarded validation-only precision, recall, target RMSE, activity ratio, event recalls, and collapse flags after a run.

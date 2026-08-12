@@ -95,7 +95,9 @@ def test_candidate_ranking_is_lexicographic_and_worst_case_first() -> None:
 
     assert evidence.lower_tail_definition == "minimum_symbol_episode_net_return"
     assert evidence.selected_candidate_digest == d.digest
-    selected = next(item for item in evidence.candidates if item.candidate.digest == d.digest)
+    selected = next(
+        item for item in evidence.candidates if item.candidate.digest == d.digest
+    )
     assert selected.lower_tail_net_return == pytest.approx(0.01)
     assert selected.mean_net_return == pytest.approx(0.03)
     assert selected.turnover_per_day == pytest.approx(1.0)

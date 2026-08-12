@@ -292,3 +292,85 @@ Four independent symbols were sufficient to reject the candidate, so r13 was exp
 The split between good teacher-forced validation and failed autonomous rollout identifies state-distribution shift. BC validation observations are collected while the Oracle target path controls `current_weights`; causal evaluation feeds back the policy's own positions. Once the policy deviates, it enters states absent from the teacher trajectory and converges to an almost permanent short target. Class balancing repaired the supervised change/HOLD null solution but did not make the hindsight Oracle causally predictable.
 
 Commit `4e0f1185` upgrades future `behavior-cloning-result.json` artifacts to schema v2 and persists initial/final/validation hierarchical losses and metrics. This closes the audit gap that previously discarded validation-only precision, recall, target RMSE, activity ratio, event recalls, and collapse flags after a run.
+
+## Checkpoint update: causal trend teacher implementation and r14 integration failure
+
+The hindsight Oracle remained economically strong but was not causally predictable from the policy observation. Commit `033c3e06` therefore added an explicit `trend_baseline` Universal teacher using the existing point-in-time `TrendStrategy` target on the same PostgreSQL-backed Binance datasets, episode contracts, multi-timeframe observations, execution model, reward, and economic gates. No reward term or admission threshold was changed.
+
+Generation `universal-u6-20260812-cuda-trend-gate-r14` used image `trade-rl-universal:033c3e060c6f-6726b3737df9`. It assembled the causal teacher successfully, then exited 1 before BC because `trade_rl/integrations/sb3_universal_pretraining.py` retained an Oracle-only guard. Docker reported `OOMKilled=false`. Commit `1994108b` changed that integration guard to accept only the two supported teachers, `oracle` and `trend_baseline`. The targeted integration suite passed 19 tests, and Ruff plus mypy passed before the corrected image was built.
+
+Corrected immutable image:
+
+- Image: `trade-rl-universal:1994108bc8e0-6726b3737df9`.
+- Git commit: `1994108bc8e0b37aae9564b2ae3e52667fc56d63`.
+- Source-tree digest: `e381aa518eb865fd16cc1630abf675d8be23129d1ac3a9c91acf6fbf3752c865`.
+- Lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`.
+- Runtime-manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
+
+## Checkpoint update: r15 causal teacher admission
+
+Generation `universal-u6-20260812-cuda-trend-gate-r15` ran the corrected image with three complete episodes per train symbol, two train episodes and one untouched causal holdout, BC seed 17, 45 epochs, and the calibrated hierarchical gate head. It evaluated all nine 720h holdouts and then exited 1 at the pre-PPO economic gate, as intended. Docker reported `OOMKilled=false`; critic warm-start and PPO performed zero updates. Twenty-eight files (22,969,058 bytes) were preserved under `artifacts/universal/smoke/cuda-low-std-bc45-patience45-gate-balanced-trend-r15`.
+
+BC itself learned the causal teacher accurately:
+
+- Restored best epoch: 23.
+- Initial/final MSE: `0.218522 / 0.002895`.
+- Validation MSE: `0.003765`.
+- Validation composed RMSE: `0.06136`.
+- Validation active-target RMSE: `0.07835`.
+- Validation gate precision/recall/F1: `0.98369 / 0.92967 / 0.95592`.
+- Teacher/policy validation activity: `0.64074 / 0.60556`.
+- All-hold, all-trade, and constant-action collapse: false.
+
+The autonomous holdout action correlations were also high (`0.8811` to `0.9871`), unlike the Oracle state-distribution failure. The teacher itself was economically invalid, however:
+
+| Symbol | Policy gross | Policy net | Teacher gross | Teacher net | Policy cost | Policy turnover | Correlation |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| APTUSDT | -5.024% | -11.113% | -5.482% | -11.631% | 6,067.0 | 91.01 | 0.9824 |
+| ARBUSDT | -0.404% | -7.395% | -0.605% | -7.708% | 6,952.4 | 99.32 | 0.9871 |
+| BCHUSDT | -3.960% | -10.460% | -5.230% | -11.913% | 6,599.1 | 98.39 | 0.9566 |
+| BNBUSDT | -0.475% | -6.647% | -0.690% | -7.627% | 6,128.7 | 89.88 | 0.8831 |
+| BTCUSDT | -3.202% | -7.192% | -4.059% | -5.943% | 4,011.2 | 58.63 | 0.9393 |
+| LINKUSDT | -7.734% | -16.456% | -6.303% | -15.631% | 8,948.7 | 137.96 | 0.9705 |
+| LTCUSDT | -0.744% | -6.883% | -1.197% | -7.634% | 6,160.8 | 89.23 | 0.9649 |
+| SOLUSDT | -10.015% | -15.211% | -11.988% | -15.469% | 5,285.5 | 83.43 | 0.9316 |
+| XRPUSDT | -4.675% | -10.734% | -4.527% | -9.103% | 6,038.4 | 92.08 | 0.8811 |
+
+Aggregate causal net-return 95% lower bound was `-12.149%` versus the required `-5.000%` floor. The reconstruction gate passed, while only this after-cost economic metric failed. This localizes the failure upstream of RL: the policy successfully reproduced a causal teacher that had negative gross alpha on every held-out symbol and high turnover. Adding another cost penalty to reward would neither repair the teacher's negative gross return nor be economically correct because costs are already present in net-equity reward.
+
+## Trend-teacher root-cause diagnostics
+
+An initial same-holdout counterfactual compared the raw 168h trend target, its sign reversal, and 1h/4h target holding. Sign reversal improved gross return on most symbols and 4h holding reduced some turnover, but this diagnostic had observed the holdout and was not eligible for model selection. It was retained only as a root-cause clue.
+
+A second diagnostic enforced a strict split. It selected direction, holding interval, and exposure from the two BC-train episodes only across 18 candidates (`trend/contrarian` x `4h/1d/1w hold` x `25%/50%/100% exposure`), then evaluated the selected condition once on the untouched third episode. Train-only selection chose ordinary trend, 1-day holding, and 100% exposure:
+
+- Train mean net return: `+1.620%`.
+- Train 10th-percentile net return: `-15.940%`.
+- Train worst net return: `-18.140%`.
+
+The untouched holdout rejected it on every symbol:
+
+| Symbol | Gross | Net | Cost | Turnover |
+| --- | ---: | ---: | ---: | ---: |
+| APTUSDT | -3.324% | -9.198% | 5,878.5 | 86.34 |
+| ARBUSDT | +0.213% | -7.064% | 7,232.9 | 104.09 |
+| BCHUSDT | -4.217% | -10.863% | 6,736.1 | 99.60 |
+| BNBUSDT | -0.109% | -6.287% | 6,166.2 | 88.82 |
+| BTCUSDT | -3.401% | -3.967% | 586.8 | 8.71 |
+| LINKUSDT | -7.489% | -16.030% | 8,724.4 | 134.57 |
+| LTCUSDT | -0.668% | -6.893% | 6,223.0 | 89.60 |
+| SOLUSDT | -12.576% | -14.795% | 2,175.3 | 34.29 |
+| XRPUSDT | -3.318% | -6.581% | 3,182.4 | 46.79 |
+
+Holdout mean gross/net were `-3.877% / -9.075%`; worst net was `-16.030%`; positive-net symbols were `0/9`. The train-only candidate was already unstable, and it did not generalize. Therefore the causal trend teacher is rejected rather than tuned against the holdout.
+
+Current decision:
+
+- Runtime and data integrity: PASS.
+- Hierarchical BC mechanics: PASS.
+- Causal teacher reproduction: PASS for trend teacher.
+- Causal teacher economic validity: FAIL.
+- PPO/Lagrangian/discounted comparison: still not admissible.
+- Canonical 3 algorithms x 3 seeds x 524,288 timesteps: NO-GO.
+
+Three teacher/head paths have now failed for distinct reasons: direct Oracle BC averaged a multimodal target into a constant short action; hierarchical Oracle BC remained vulnerable to autonomous state-distribution shift; causal trend BC reproduced its teacher but the teacher had negative held-out gross alpha and excessive turnover. This is now a teacher-architecture problem, not a reward-shaping or optimizer-tuning problem. The next candidate must be a genuinely causal, train-only-fitted policy with explicit turnover-aware target construction and untouched validation/test promotion, not another hand-tuned transform of the failed trend holdout.

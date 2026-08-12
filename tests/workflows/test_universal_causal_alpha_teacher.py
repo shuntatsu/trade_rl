@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.workflows.universal_causal_alpha_teacher import (
     build_chronological_episode_partition,
     latest_complete_episode_split,
@@ -81,28 +80,12 @@ def test_partition_rejects_missing_selection_history() -> None:
         build_chronological_episode_partition(environment, train_range=(1, 11))
 
 
-def _episode_dataset() -> SupervisedPolicyDataset:
-    dataset = SupervisedPolicyDataset(
-        observations=np.arange(18, dtype=np.float32).reshape(9, 2),
-        actions=np.linspace(-0.3, 0.3, 9, dtype=np.float32)[:, None],
-        dataset_id=content_digest("teacher-dataset"),
-        train_start=0,
-        train_stop=10,
-        environment_digest=content_digest("environment"),
-        action_spec_digest=content_digest("action"),
-        teacher_config_digest=content_digest("teacher"),
+def _episode_dataset() -> SimpleNamespace:
+    return SimpleNamespace(
+        sample_count=9,
+        episode_ids=np.asarray([0, 0, 0, 1, 1, 1, 2, 2, 2], dtype=np.int64),
+        decision_indices=np.asarray([0, 1, 2, 4, 5, 6, 8, 9, 10], dtype=np.int64),
     )
-    object.__setattr__(
-        dataset,
-        "episode_ids",
-        np.asarray([0, 0, 0, 1, 1, 1, 2, 2, 2], dtype=np.int64),
-    )
-    object.__setattr__(
-        dataset,
-        "decision_indices",
-        np.asarray([0, 1, 2, 4, 5, 6, 8, 9, 10], dtype=np.int64),
-    )
-    return dataset
 
 
 def test_latest_complete_episode_split_holds_out_exact_episode() -> None:

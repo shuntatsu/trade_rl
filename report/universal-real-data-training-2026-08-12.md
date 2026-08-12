@@ -155,3 +155,39 @@ All symbol holdouts:
 | XRPUSDT | -0.66% | -1.62% | +216.20% | 963.8 | 13.48 | 0.843 | 0% |
 
 Oracle results are hindsight diagnostics, not deployable baselines. The decisive causal evidence is that the BC policy is negative after costs on every symbol, has zero action agreement, and proposes changes at every decision. The next run will retain exact epoch and early-stopping evidence via commit `c3e6b17a` before any optimization hyperparameter is changed.
+
+## Checkpoint update: BC early stopping and patience isolation
+
+Commit `3f90b9bc` extended the BC progress artifact to retain the full epoch history. Run `universal-u6-20260812-cuda-low-std-bc45-r8` reproduced the original patience-3 condition and established:
+
+- Requested epochs: 45.
+- Actual stopping epoch: 5.
+- Restored best epoch: 2.
+- Initial MSE: 0.84300.
+- Final MSE: 0.80670.
+- Validation MSE: 0.77635.
+
+The run was intentionally stopped after this evidence was persisted, before repeating all nine unchanged economic holdouts. It was not an OOM event; Docker reports exit 137 because the running evaluation was explicitly stopped after the diagnostic objective was met.
+
+Run `universal-u6-20260812-cuda-low-std-bc45-patience45-r9` changed only BC patience from 3 to 45. The three algorithm configurations retained one common fixed-condition digest: `c4e7ed995ddfe464a9304ee973070a34a1ce7f3e0f49f9356b873173a66bb364`.
+
+The full learning curve showed that patience 3 was too short:
+
+- Epoch 2 validation loss: 0.79758.
+- Epoch 18 validation loss: 0.77535.
+- Best epoch 29 validation loss: 0.76686.
+- Epoch 45 validation loss: 0.91281; the implementation correctly restored epoch 29.
+- Final MSE at restored epoch 29: 0.78941, a 6.36% improvement from initialization.
+
+However, the causal economics did not improve enough:
+
+| Metric | r7 patience 3 | r9 patience 45 | Change |
+| --- | ---: | ---: | ---: |
+| Net-return 95% lower bound | -6.93% | -7.07% | -0.15 pp |
+| Worst-symbol net return | -9.10% | -9.34% | -0.24 pp |
+| Executed changes | 14,219 | 13,854 | -365 |
+| Aggregate action MAE | 0.9558 | 0.9538 | -0.0020 |
+
+The r9 per-symbol net returns were APT -7.30%, ARB -6.88%, BCH -9.33%, BNB -4.04%, BTC -2.57%, LINK -9.34%, LTC -6.06%, SOL -4.05%, and XRP -1.02%. PPO again performed zero updates because the causal gate stopped the run first.
+
+Conclusion: patience 3 did miss a later validation optimum and should not be treated as a true 45-epoch run. Increasing patience improves supervised loss modestly but does not solve the economic admission failure. The remaining pattern—submitted changes at every decision and near-zero held-out Oracle agreement—requires an action-head/HOLD representation comparison rather than further reward shaping or gate relaxation.

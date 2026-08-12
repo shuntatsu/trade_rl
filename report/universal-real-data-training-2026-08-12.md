@@ -77,6 +77,7 @@ This verifies that Lagrangian mechanics work when complete episodes and warm-up 
 | `520e743d` | Ten episodes per symbol (90 total) exceeded the Docker memory limit while combining observations. | Bound the default to three episodes per symbol. With seed 17, two temporally separated train episodes and one complete holdout remain per symbol. |
 | `61bc7fbc` | The explicit complete-episode split (one of three episodes) disagreed with the scalar 10% validation fraction. | Pass the realized explicit episode split fraction into BC without fragmenting episodes or disabling the gate. |
 | `c3e6b17a` | Universal BC persisted only a result digest, so best epoch, validation MSE, and early-stopping progression could not be audited after a failed admission. | Persist epoch-level `behavior-cloning-progress.json` and final `behavior-cloning-result.json` before the causal gate. |
+| `f00bbecf` | Aggregate loss and terminal equity could not show whether BC reproduced the Oracle's direction changes or collapsed to a narrow action mode. | Persist per-holdout teacher/policy quantiles, histograms, direction rates, sign flips, target deltas, signed error, and correlation. |
 
 ## Current BC admission run
 
@@ -191,3 +192,36 @@ However, the causal economics did not improve enough:
 The r9 per-symbol net returns were APT -7.30%, ARB -6.88%, BCH -9.33%, BNB -4.04%, BTC -2.57%, LINK -9.34%, LTC -6.06%, SOL -4.05%, and XRP -1.02%. PPO again performed zero updates because the causal gate stopped the run first.
 
 Conclusion: patience 3 did miss a later validation optimum and should not be treated as a true 45-epoch run. Increasing patience improves supervised loss modestly but does not solve the economic admission failure. The remaining pattern—submitted changes at every decision and near-zero held-out Oracle agreement—requires an action-head/HOLD representation comparison rather than further reward shaping or gate relaxation.
+
+## Checkpoint update: r10 direct-head action-distribution diagnosis
+
+Generation: `universal-u6-20260812-cuda-low-std-bc45-patience45-r10`
+
+The r10 run used commit `f00bbecf5411d7874182b290f88a31836893bdd1`, the same PostgreSQL-backed Binance manifest, the same two-train/one-holdout episode split, seed 17, BC patience 45, and `u_medium_direct`. Only diagnostic persistence changed. It completed all nine 720h causal holdouts, stopped at the BC gate with exit 1, reported OOM false, and performed zero PPO updates.
+
+- Teacher reconstruction relative improvement: 4.12%, passed.
+- Causal net-return 95% lower bound: -5.033% versus floor -5.000%, failed.
+- Worst-symbol net return: BCH -6.486%.
+- Mean symbol net return: -3.546%; mean gross return: -0.215%.
+- Aggregate executed changes: 12,132; submitted changes: 25,919 of 25,920 decisions.
+- Aggregate worst action MAE: 0.9551; agreement within 0.05: 0%.
+
+The new action diagnostics identify a direct-head mode collapse before critic warm-start or PPO:
+
+| Symbol | Gross | Net | Cost | Turnover | Policy mean | Policy std | Policy short rate | Teacher short/flat/long | Correlation | Teacher/Policy sign flips |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| APTUSDT | -0.248% | -5.586% | 5,275.9 | 74.64 | -0.1681 | 0.0265 | 100% | 48.1% / 19.1% / 32.8% | -0.0127 | 872 / 0 |
+| ARBUSDT | -0.782% | -6.357% | 5,674.9 | 80.40 | -0.1690 | 0.0291 | 100% | 51.8% / 14.0% / 34.2% | +0.0154 | 997 / 0 |
+| BCHUSDT | -0.556% | -6.486% | 5,943.5 | 85.24 | -0.1707 | 0.0222 | 100% | 47.2% / 20.9% / 31.9% | +0.0282 | 749 / 0 |
+| BNBUSDT | +0.850% | -0.033% | 896.3 | 12.49 | -0.1907 | 0.0170 | 100% | 44.3% / 20.6% / 35.1% | +0.0282 | 655 / 0 |
+| BTCUSDT | -1.101% | -1.280% | 170.6 | 2.43 | -0.1887 | 0.0188 | 100% | 46.5% / 5.7% / 47.7% | +0.0081 | 939 / 0 |
+| LINKUSDT | -0.799% | -6.108% | 5,416.2 | 77.06 | -0.1822 | 0.0212 | 100% | 49.9% / 18.4% / 31.7% | +0.0550 | 784 / 0 |
+| LTCUSDT | +0.516% | -5.725% | 6,272.2 | 89.12 | -0.1646 | 0.0222 | 100% | 45.6% / 25.8% / 28.6% | +0.0536 | 619 / 0 |
+| SOLUSDT | -0.113% | -0.382% | 202.3 | 2.85 | -0.1981 | 0.0139 | 100% | 48.0% / 12.2% / 39.9% | -0.0142 | 909 / 0 |
+| XRPUSDT | +0.302% | +0.040% | 238.4 | 3.35 | -0.1939 | 0.0156 | 100% | 49.9% / 15.6% / 34.6% | +0.0103 | 800 / 0 |
+
+The teacher is predominantly ternary (`-1`, `0`, `+1`) and changes direction hundreds of times. The direct BC policy instead emits a narrow negative band on every symbol, with an average symbol mean of -0.181, no sign flips, and teacher correlation ranging only from -0.014 to +0.055. Its small numerical target variations still submit a change on nearly every decision; execution-layer suppression determines whether those proposals become high turnover (APT/ARB/BCH/LINK/LTC) or almost no trading (BTC/SOL/XRP). This is evidence that the direct regression head averages a multimodal teacher target into an almost constant short position. It is not a PPO failure and does not justify adding a duplicate cost penalty to reward.
+
+r10 also exposed GPU nondeterminism in the performance runtime. Although r9 and r10 used the same seed, data, and fixed-condition configuration, r9 restored epoch 29 at validation MSE 0.76686, while r10 restored epoch 2 at 0.77969 and deteriorated to 1.0395 by epoch 45. The architecture artifact records `cudnn_benchmark=true`, `cudnn_deterministic=false`, and `deterministic_algorithms=false`. Any candidate that passes economics must therefore be repeated in deterministic mode before canonical admission.
+
+An existing-head ablation, generation `universal-u6-20260812-cuda-low-std-bc45-patience45-gate-r11`, was launched from the same commit and fixed condition with only `u_medium_direct` replaced by `u_medium_gate`. The hierarchical head explicitly learns change/HOLD and target components. This is a diagnostic comparison, not yet a canonical default change; reward, teacher, data, split, seed, and economic gates remain fixed.

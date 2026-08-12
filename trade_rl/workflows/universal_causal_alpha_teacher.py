@@ -44,7 +44,7 @@ class CausalAlphaEpisodePartition:
         dataset_ids = {contract.dataset_id for contract in contracts}
         if len(dataset_ids) != 1:
             raise ValueError("causal alpha episode dataset identity drifted")
-        for previous, current in zip(contracts, contracts[1:], strict=True):
+        for previous, current in zip(contracts[:-1], contracts[1:], strict=True):
             if previous.start >= current.start or previous.stop > current.start:
                 raise ValueError("causal alpha chronological episodes overlap")
         if selection[-1].stop > self.holdout_contract.start:

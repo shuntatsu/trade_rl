@@ -39,6 +39,7 @@ def build_lagrangian_mechanics_config(
         checkpoint_interval_steps=training.n_steps,
         max_checkpoints=rollout_count,
         lagrangian_probe_max_steps_per_episode=episode_decisions,
+        behavior_cloning_validation_fraction=0.0,
     )
     mechanics_environment = replace(base.environment, episode_hours=episode_hours)
     resolved = replace(

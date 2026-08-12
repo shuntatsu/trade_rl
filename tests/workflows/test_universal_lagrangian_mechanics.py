@@ -25,6 +25,7 @@ def test_mechanics_config_preserves_reward_and_exercises_dual_requirements() -> 
     assert mechanics.environment.episode_hours == 8.0
     assert base.environment.episode_hours == 720.0
     assert mechanics.training.timesteps == 1_024
+    assert mechanics.training.behavior_cloning_validation_fraction == 0.0
     assert mechanics.training.lagrangian_probe_max_steps_per_episode == 32
     assert 1_024 // 32 >= max(
         mechanics.training.lagrangian_minimum_completed_episodes

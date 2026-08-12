@@ -21,8 +21,8 @@ jobs:
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: '3.12'
-      - name: Apply admission patch
-        run: python tools/_temporary_apply_causal_teacher_admission.py
+      - name: Apply admission patch with typing repair
+        run: python tools/_temporary_fix_and_apply_causal_teacher_admission.py
       - name: Verify admission gate
         run: |
           set -euo pipefail
@@ -55,12 +55,16 @@ jobs:
             tests/workflows/test_universal_causal_alpha_shared_training.py \
             tests/workflows/test_universal_teacher_bundle_runtime.py \
             -q
-      - name: Commit verified admission gate and self-delete
+      - name: Commit verified admission gate and remove temporary assets
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm -f tools/_temporary_apply_causal_teacher_admission.py .github/workflows/apply-causal-teacher-admission-temporary.yml
+          git rm -f \
+            tools/_temporary_apply_causal_teacher_admission.py \
+            tools/_temporary_fix_and_apply_causal_teacher_admission.py \
+            .github/workflows/apply-causal-teacher-admission-temporary.yml \
+            .github/workflows/causal-alpha-teacher-focused-temporary.yml
           git add \
             trade_rl/learning/causal_alpha_teacher.py \
             trade_rl/integrations/universal_pretraining.py \

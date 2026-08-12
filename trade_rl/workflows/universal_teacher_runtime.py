@@ -452,6 +452,16 @@ def build_universal_pretraining_bundle_from_batches(
             feature_schema_digest=feature_schema_digest,
         ),
         episode_batches=dict(batches),
+        causal_teacher_selection_evidence=(
+            None
+            if causal_teacher_package is None
+            else causal_teacher_package.selection.to_payload()
+        ),
+        causal_teacher_episode_hours=(
+            None
+            if causal_teacher_package is None
+            else causal_teacher_package.episode_hours
+        ),
     )
 
 

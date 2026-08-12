@@ -437,6 +437,152 @@ def causal_alpha_target_path(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class CausalAlphaTeacherHoldoutMetric:
+    """One untouched train-symbol holdout replay for teacher pre-admission."""
+
+    symbol: str
+    gross_return: float
+    net_return: float
+    turnover_per_day: float
+    total_execution_cost: float
+    trade_count: int
+    maximum_drawdown: float
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.symbol:
+            raise ValueError("causal alpha teacher holdout symbol must be non-empty")
+        for field, value in (
+            ("gross_return", self.gross_return),
+            ("net_return", self.net_return),
+            ("turnover_per_day", self.turnover_per_day),
+            ("total_execution_cost", self.total_execution_cost),
+            ("maximum_drawdown", self.maximum_drawdown),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(f"causal alpha teacher {field} must be finite")
+        if self.turnover_per_day < 0.0 or self.total_execution_cost < 0.0:
+            raise ValueError("causal alpha teacher turnover/cost must be non-negative")
+        if (
+            isinstance(self.trade_count, bool)
+            or not isinstance(self.trade_count, int)
+            or self.trade_count < 0
+        ):
+            raise ValueError("causal alpha teacher trade_count must be non-negative")
+        expected = content_digest(
+            {
+                "gross_return": self.gross_return,
+                "maximum_drawdown": self.maximum_drawdown,
+                "net_return": self.net_return,
+                "schema_version": "causal_alpha_teacher_holdout_metric_v1",
+                "symbol": self.symbol,
+                "total_execution_cost": self.total_execution_cost,
+                "trade_count": self.trade_count,
+                "turnover_per_day": self.turnover_per_day,
+            }
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha teacher holdout metric digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "artifact_digest": self.digest,
+            "gross_return": self.gross_return,
+            "maximum_drawdown": self.maximum_drawdown,
+            "net_return": self.net_return,
+            "schema_version": "causal_alpha_teacher_holdout_metric_v1",
+            "symbol": self.symbol,
+            "total_execution_cost": self.total_execution_cost,
+            "trade_count": self.trade_count,
+            "turnover_per_day": self.turnover_per_day,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaTeacherAdmissionEvidence:
+    metrics: tuple[CausalAlphaTeacherHoldoutMetric, ...]
+    aggregate_gross_return: float
+    aggregate_net_return: float
+    negative_gross_symbol_count: int
+    passed: bool
+    rejection_reasons: tuple[str, ...]
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        metrics = tuple(self.metrics)
+        if not metrics or len({item.symbol for item in metrics}) != len(metrics):
+            raise ValueError("causal alpha teacher holdout symbols must be unique")
+        if not math.isfinite(self.aggregate_gross_return) or not math.isfinite(
+            self.aggregate_net_return
+        ):
+            raise ValueError("causal alpha teacher aggregate returns must be finite")
+        if (
+            isinstance(self.negative_gross_symbol_count, bool)
+            or not isinstance(self.negative_gross_symbol_count, int)
+            or not 0 <= self.negative_gross_symbol_count <= len(metrics)
+        ):
+            raise ValueError("causal alpha teacher negative holdout count is invalid")
+        reasons = tuple(self.rejection_reasons)
+        if self.passed == bool(reasons):
+            raise ValueError("causal alpha teacher admission reasons are inconsistent")
+        expected = content_digest(
+            {
+                "aggregate_gross_return": self.aggregate_gross_return,
+                "aggregate_net_return": self.aggregate_net_return,
+                "metric_digests": tuple(item.digest for item in metrics),
+                "negative_gross_symbol_count": self.negative_gross_symbol_count,
+                "passed": self.passed,
+                "rejection_reasons": reasons,
+                "schema_version": "causal_alpha_teacher_admission_v1",
+            }
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha teacher admission digest mismatch")
+        object.__setattr__(self, "metrics", metrics)
+        object.__setattr__(self, "rejection_reasons", reasons)
+        object.__setattr__(self, "digest", expected)
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "aggregate_gross_return": self.aggregate_gross_return,
+            "aggregate_net_return": self.aggregate_net_return,
+            "artifact_digest": self.digest,
+            "metrics": [item.to_payload() for item in self.metrics],
+            "negative_gross_symbol_count": self.negative_gross_symbol_count,
+            "passed": self.passed,
+            "rejection_reasons": list(self.rejection_reasons),
+            "schema_version": "causal_alpha_teacher_admission_v1",
+        }
+
+
+def evaluate_causal_alpha_teacher_admission(
+    metrics: tuple[CausalAlphaTeacherHoldoutMetric, ...],
+) -> CausalAlphaTeacherAdmissionEvidence:
+    """Apply the maintained pre-BC teacher economics gate to untouched holdouts."""
+
+    values = tuple(metrics)
+    if not values or len({item.symbol for item in values}) != len(values):
+        raise ValueError("causal alpha teacher holdout symbols must be unique")
+    aggregate_gross = float(sum(item.gross_return for item in values))
+    aggregate_net = float(sum(item.net_return for item in values))
+    negative_count = sum(item.gross_return < 0.0 for item in values)
+    reasons: list[str] = []
+    if aggregate_gross < 0.0:
+        reasons.append("negative_aggregate_gross_return")
+    if negative_count > len(values) // 2:
+        reasons.append("majority_negative_gross_holdouts")
+    return CausalAlphaTeacherAdmissionEvidence(
+        metrics=values,
+        aggregate_gross_return=aggregate_gross,
+        aggregate_net_return=aggregate_net,
+        negative_gross_symbol_count=negative_count,
+        passed=not reasons,
+        rejection_reasons=tuple(reasons),
+    )
+
+
 __all__ = [
     "CAUSAL_ALPHA_TEACHER_KIND",
     "CausalAlphaControllerConfig",
@@ -444,6 +590,8 @@ __all__ = [
     "CausalAlphaRidgeConfig",
     "CausalAlphaRidgeModel",
     "CausalAlphaTargetPath",
+    "CausalAlphaTeacherAdmissionEvidence",
+    "CausalAlphaTeacherHoldoutMetric",
     "ForwardLogReturnLabel",
     "causal_alpha_target_path",
     "combine_causal_alpha_predictions",

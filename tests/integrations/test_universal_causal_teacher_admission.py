@@ -105,6 +105,7 @@ def test_failed_teacher_holdout_stops_before_behavior_cloning(
             "artifact_digest": content_digest("selection-evidence"),
             "selected_candidate_digest": content_digest("candidate"),
         },
+        causal_teacher_episode_hours=720.0,
     )
     calls: list[str] = []
 

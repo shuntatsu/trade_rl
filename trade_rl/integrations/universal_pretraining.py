@@ -26,6 +26,10 @@ from trade_rl.integrations.universal_behavior_cloning import pretrain_universal_
 from trade_rl.integrations.universal_critic_warm_start import (
     warm_start_policy_actor_critic,
 )
+from trade_rl.learning.causal_alpha_teacher import (
+    CausalAlphaTeacherHoldoutMetric,
+    evaluate_causal_alpha_teacher_admission,
+)
 from trade_rl.learning.direct_bc_evaluation import (
     evaluate_direct_behavior_cloning_gates,
 )
@@ -33,6 +37,7 @@ from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
 from trade_rl.learning.episode_oracle_bc import (
     EpisodeBehaviorCloningHoldoutEvaluation,
     aggregate_episode_behavior_cloning_holdouts,
+    evaluate_episode_action_path,
     evaluate_episode_behavior_cloning_holdout,
 )
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
@@ -56,6 +61,8 @@ class UniversalPretrainingBundle:
     train_symbols: tuple[str, ...]
     teacher_artifact: UniversalTeacherArtifact
     episode_batches: Mapping[str, EpisodeOracleBatch] = field(default_factory=dict)
+    causal_teacher_selection_evidence: Mapping[str, object] | None = None
+    causal_teacher_episode_hours: float | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.dataset, SupervisedPolicyDataset):
@@ -109,10 +116,37 @@ class UniversalPretrainingBundle:
         targets.setflags(write=False)
         if self.teacher_artifact.train_symbols != symbols:
             raise ValueError("teacher artifact train symbol scope mismatch")
+        selection_evidence = self.causal_teacher_selection_evidence
+        episode_hours = self.causal_teacher_episode_hours
+        if selection_evidence is None:
+            if episode_hours is not None:
+                raise ValueError(
+                    "causal teacher episode hours require selection evidence"
+                )
+        else:
+            selection_evidence = dict(selection_evidence)
+            if (
+                selection_evidence.get("schema_version")
+                != "causal_alpha_selection_evidence_v1"
+            ):
+                raise ValueError("causal teacher selection evidence schema mismatch")
+            artifact_digest = selection_evidence.get("artifact_digest")
+            if not isinstance(artifact_digest, str) or len(artifact_digest) != 64:
+                raise ValueError("causal teacher selection evidence digest is invalid")
+            if (
+                episode_hours is None
+                or not math.isfinite(episode_hours)
+                or episode_hours <= 0.0
+            ):
+                raise ValueError("causal teacher episode hours must be positive")
         object.__setattr__(self, "train_symbols", symbols)
         object.__setattr__(self, "symbol_sample_indices", normalized)
         object.__setattr__(self, "symbol_splits", dict(self.symbol_splits))
         object.__setattr__(self, "episode_batches", episode_batches)
+        object.__setattr__(
+            self, "causal_teacher_selection_evidence", selection_evidence
+        )
+        object.__setattr__(self, "causal_teacher_episode_hours", episode_hours)
         object.__setattr__(self, "critic_targets", targets)
 
 
@@ -373,6 +407,62 @@ def build_universal_pretraining_hook(
         member_seed: int,
         output_root: Path,
     ) -> dict[str, object]:
+        if config.behavior_cloning_teacher == "causal_alpha_ridge":
+            selection = bundle.causal_teacher_selection_evidence
+            episode_hours = bundle.causal_teacher_episode_hours
+            if selection is None or episode_hours is None:
+                raise RuntimeError(
+                    "Universal causal teacher selection evidence is unavailable"
+                )
+            if not bundle.episode_batches:
+                raise RuntimeError(
+                    "Universal causal teacher episode batches are unavailable"
+                )
+            if set(environment_factories) != set(bundle.train_symbols):
+                raise RuntimeError(
+                    "Universal causal teacher holdout environment factories are unavailable"
+                )
+            atomic_write_bytes(
+                output_root / "causal-teacher-selection.json",
+                canonical_json_bytes(selection) + b"\n",
+            )
+            episode_days = episode_hours / 24.0
+            teacher_metrics: list[CausalAlphaTeacherHoldoutMetric] = []
+            for symbol in bundle.train_symbols:
+                batch = bundle.episode_batches[symbol]
+                if not batch.contracts or len(batch.targets) != len(batch.contracts):
+                    raise RuntimeError(
+                        f"Universal causal teacher holdout batch is invalid for {symbol}"
+                    )
+                evaluation = evaluate_episode_action_path(
+                    environment_factories[symbol],
+                    batch.contracts[-1],
+                    actions=batch.targets[-1],
+                )
+                performance = evaluation.performance
+                teacher_metrics.append(
+                    CausalAlphaTeacherHoldoutMetric(
+                        symbol=symbol,
+                        gross_return=float(performance.gross_return),
+                        net_return=float(performance.net_return),
+                        turnover_per_day=float(performance.turnover_total)
+                        / episode_days,
+                        total_execution_cost=float(performance.cost_total),
+                        trade_count=int(performance.trade_count),
+                        maximum_drawdown=float(performance.maximum_drawdown),
+                    )
+                )
+            teacher_admission = evaluate_causal_alpha_teacher_admission(
+                tuple(teacher_metrics)
+            )
+            atomic_write_bytes(
+                output_root / "causal-teacher-admission.json",
+                canonical_json_bytes(teacher_admission.to_payload()) + b"\n",
+            )
+            if not teacher_admission.passed:
+                raise RuntimeError(
+                    "Universal causal teacher admission failed before behavior cloning"
+                )
         bc_config = _hierarchical_behavior_cloning_config(config)
         validation_count = int(bundle.split.validation_indices.size)
         if validation_count:

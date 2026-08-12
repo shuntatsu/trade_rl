@@ -20,10 +20,14 @@ def _metric(symbol: str, gross: float, *, net: float | None = None):
     )
 
 
-def test_teacher_admission_accepts_nonnegative_aggregate_without_majority_losses() -> None:
+def test_teacher_admission_accepts_nonnegative_aggregate_without_majority_losses() -> (
+    None
+):
     metrics = tuple(
         _metric(f"S{index}", gross)
-        for index, gross in enumerate((-0.01, -0.01, -0.01, -0.01, 0.10, 0.10, 0.10, 0.10, 0.10))
+        for index, gross in enumerate(
+            (-0.01, -0.01, -0.01, -0.01, 0.10, 0.10, 0.10, 0.10, 0.10)
+        )
     )
     evidence = evaluate_causal_alpha_teacher_admission(metrics)
 
@@ -46,7 +50,9 @@ def test_teacher_admission_rejects_negative_aggregate_gross() -> None:
 def test_teacher_admission_rejects_one_winner_carrying_majority_losers() -> None:
     metrics = tuple(
         _metric(f"S{index}", gross)
-        for index, gross in enumerate((-0.01, -0.01, -0.01, -0.01, -0.01, 0.10, 0.10, 0.10, 0.10))
+        for index, gross in enumerate(
+            (-0.01, -0.01, -0.01, -0.01, -0.01, 0.10, 0.10, 0.10, 0.10)
+        )
     )
     evidence = evaluate_causal_alpha_teacher_admission(metrics)
 

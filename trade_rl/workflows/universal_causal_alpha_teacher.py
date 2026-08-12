@@ -530,6 +530,63 @@ class CausalAlphaSelectionEvidence:
         object.__setattr__(self, "holdout_episode_digests", holdouts)
         object.__setattr__(self, "digest", expected)
 
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "artifact_digest": self.digest,
+            "candidates": [
+                {
+                    "admissible": item.admissible,
+                    "candidate": {
+                        "controller": {
+                            "digest": item.candidate.controller.digest,
+                            "entry_threshold": item.candidate.controller.entry_threshold,
+                            "exit_threshold": item.candidate.controller.exit_threshold,
+                            "horizon_mix": CausalAlphaHorizonMix(
+                                item.candidate.controller.horizon_mix
+                            ).value,
+                            "max_target_delta": item.candidate.controller.max_target_delta,
+                            "no_trade_band": item.candidate.controller.no_trade_band,
+                            "score_scale": item.candidate.controller.score_scale,
+                        },
+                        "digest": item.candidate.digest,
+                        "name": item.candidate.name,
+                        "ridge": {
+                            "digest": item.candidate.ridge.digest,
+                            "ridge_strength": item.candidate.ridge.ridge_strength,
+                        },
+                    },
+                    "episode_metrics": [
+                        {
+                            "artifact_digest": metric.digest,
+                            "episode_index": metric.episode_index,
+                            "gross_return": metric.gross_return,
+                            "net_return": metric.net_return,
+                            "risk_violation": metric.risk_violation,
+                            "symbol": metric.symbol,
+                            "total_execution_cost": metric.total_execution_cost,
+                            "trade_count": metric.trade_count,
+                            "turnover_per_day": metric.turnover_per_day,
+                        }
+                        for metric in item.episode_metrics
+                    ],
+                    "lower_tail_net_return": item.lower_tail_net_return,
+                    "mean_net_return": item.mean_net_return,
+                    "negative_gross_episode_count": item.negative_gross_episode_count,
+                    "rejection_reasons": list(item.rejection_reasons),
+                    "risk_violation": item.risk_violation,
+                    "total_execution_cost": item.total_execution_cost,
+                    "total_trade_count": item.total_trade_count,
+                    "turnover_per_day": item.turnover_per_day,
+                }
+                for item in self.candidates
+            ],
+            "grid_digest": self.grid_digest,
+            "holdout_episode_digests": dict(self.holdout_episode_digests),
+            "lower_tail_definition": self.lower_tail_definition,
+            "schema_version": "causal_alpha_selection_evidence_v1",
+            "selected_candidate_digest": self.selected_candidate_digest,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class UniversalCausalAlphaTeacherPackage:
@@ -542,6 +599,7 @@ class UniversalCausalAlphaTeacherPackage:
     selection: CausalAlphaSelectionEvidence
     selected_candidate_digest: str
     teacher_config_digest: str
+    episode_hours: float
     batch_evidence: Mapping[str, CausalAlphaBatchEvidence]
     digest: str = ""
 
@@ -565,6 +623,8 @@ class UniversalCausalAlphaTeacherPackage:
                 )
         if self.selection.selected_candidate_digest != self.selected_candidate_digest:
             raise ValueError("causal alpha package selected candidate identity drifted")
+        if not np.isfinite(self.episode_hours) or self.episode_hours <= 0.0:
+            raise ValueError("causal alpha package episode_hours must be positive")
         for field, value in (
             ("selected_candidate_digest", self.selected_candidate_digest),
             ("teacher_config_digest", self.teacher_config_digest),
@@ -595,6 +655,7 @@ class UniversalCausalAlphaTeacherPackage:
                 "sample_digests": {
                     symbol: samples[symbol].digest for symbol in symbols
                 },
+                "episode_hours": self.episode_hours,
                 "schema_version": "universal_causal_alpha_teacher_package_v1",
                 "selected_candidate_digest": self.selected_candidate_digest,
                 "selection_digest": self.selection.digest,
@@ -1512,6 +1573,7 @@ def build_universal_causal_alpha_teacher_package(
         selection=selection,
         selected_candidate_digest=selected.digest,
         teacher_config_digest=teacher_config_digest,
+        episode_hours=resolved_episode_hours,
         batch_evidence=batch_evidence,
     )
 

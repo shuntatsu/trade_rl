@@ -56,4 +56,4 @@ def test_universal_u6_example_configs_close_the_maintained_comparison() -> None:
 def test_start_uses_canonical_universal_u6_example_configs() -> None:
     start = Path("START.md").read_text(encoding="utf-8")
     for path in _PATHS.values():
-        assert str(path) in start
+        assert path.as_posix() in start

@@ -62,6 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           uv sync --extra dev --extra train-sb3
+          uv run ruff format trade_rl/integrations/sb3_training_callbacks.py trade_rl/integrations/universal_pretraining.py trade_rl/workflows/universal_training_runner.py
           uv run ruff check trade_rl/integrations/sb3_training_callbacks.py trade_rl/integrations/universal_pretraining.py trade_rl/workflows/universal_training_runner.py
           uv run ruff format --check trade_rl/integrations/sb3_training_callbacks.py trade_rl/integrations/universal_pretraining.py trade_rl/workflows/universal_training_runner.py
           uv run mypy .

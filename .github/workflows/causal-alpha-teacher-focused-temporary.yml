@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install focused dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra train-sb3
       - name: Ruff focused
         run: >-
           uv run ruff check

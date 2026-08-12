@@ -147,7 +147,9 @@ def test_concrete_factory_returns_runtime_for_all_algorithms_with_shared_static_
         lambda **_kwargs: SimpleNamespace(schema_digest=_digest("context")),
     )
     monkeypatch.setattr(
-        module, "bind_universal_normalizers", lambda *a, **k: (object(), object())
+        module,
+        "bind_universal_normalizers",
+        lambda *_args, **_kwargs: (object(), object()),
     )
 
     runtimes = [

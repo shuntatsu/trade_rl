@@ -72,7 +72,7 @@ def test_preflight_materializes_only_train_symbols(tmp_path: Path, monkeypatch) 
         feature_schema_digest=_digest("features"),
     )
     monkeypatch.setattr(
-        module, "fit_universal_shared_normalizer", lambda *a, **k: normalizer
+        module, "fit_universal_shared_normalizer", lambda *_args, **_kwargs: normalizer
     )
     monkeypatch.setattr(
         module,

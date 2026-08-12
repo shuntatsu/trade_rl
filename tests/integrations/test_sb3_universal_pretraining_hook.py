@@ -24,6 +24,11 @@ def _config(**overrides: object) -> ResidualTrainingConfig:
     return ResidualTrainingConfig(**values)  # type: ignore[arg-type]
 
 
+class _SavablePolicy:
+    def save(self, path: str) -> None:
+        Path(path).write_bytes(b"policy")
+
+
 def test_universal_pretraining_hook_is_fail_closed_and_persisted(
     tmp_path: Path,
 ) -> None:
@@ -39,7 +44,7 @@ def test_universal_pretraining_hook_is_fail_closed_and_persisted(
             "critic_warm_start_digest": "c" * 64,
         }
 
-    policy = object()
+    policy = _SavablePolicy()
     config = _config()
     result = sb3_training._apply_universal_pretraining_if_configured(
         hook=hook,
@@ -59,6 +64,7 @@ def test_universal_pretraining_hook_is_fail_closed_and_persisted(
     assert result["passed"] is True
     assert len(result["artifact_digest"]) == 64
     assert (tmp_path / "universal-pretraining.json").is_file()
+    assert (tmp_path / "policy-stages/random/policy.zip").is_file()
 
 
 def test_universal_pretraining_hook_rejects_failed_evidence(tmp_path: Path) -> None:
@@ -72,7 +78,7 @@ def test_universal_pretraining_hook_rejects_failed_evidence(tmp_path: Path) -> N
     with pytest.raises(RuntimeError, match="failed"):
         sb3_training._apply_universal_pretraining_if_configured(
             hook=hook,
-            policy=object(),
+            policy=_SavablePolicy(),
             config=_config(),
             behavior_cloning_seed=13,
             member_seed=7,

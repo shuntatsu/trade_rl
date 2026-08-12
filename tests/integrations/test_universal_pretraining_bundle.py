@@ -114,6 +114,10 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
     )
     calls: list[str] = []
 
+    class _Policy:
+        def save(self, path: str) -> None:
+            Path(path).write_bytes(b"policy")
+
     def fake_bc(*args: object, **kwargs: object) -> object:
         calls.append("bc")
         assert kwargs["symbol_sample_indices"] == combined.symbol_sample_indices
@@ -150,7 +154,7 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
     )
     hook = module.build_universal_pretraining_hook(combined)
     evidence = hook(
-        policy=object(),
+        policy=_Policy(),
         config=config,
         behavior_cloning_seed=13,
         member_seed=7,
@@ -164,3 +168,5 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
     )
     assert len(evidence["behavior_cloning_digest"]) == 64
     assert len(evidence["critic_warm_start_digest"]) == 64
+    assert (tmp_path / "policy-stages/behavior_cloning/policy.zip").is_file()
+    assert (tmp_path / "policy-stages/behavior_cloning_critic/policy.zip").is_file()

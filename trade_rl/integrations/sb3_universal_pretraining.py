@@ -10,6 +10,7 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.integrations.policy_stage_snapshot import write_policy_stage_snapshot
 from trade_rl.integrations.universal_critic_warm_start import (
     ConfiguredCriticWarmStart,
     run_configured_critic_warm_start,
@@ -41,6 +42,12 @@ def _apply_universal_pretraining_if_configured(
         )
     if not callable(hook):
         raise TypeError("Universal pretraining hook must be callable")
+    write_policy_stage_snapshot(
+        policy,
+        output_root=output_root,
+        stage="random",
+        member_seed=member_seed,
+    )
     evidence = hook(
         policy=policy,
         config=config,

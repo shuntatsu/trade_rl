@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.integrations.policy_stage_snapshot import write_policy_stage_snapshot
 from trade_rl.integrations.sb3_behavior_cloning import (
     _behavior_cloning_quality,
     _hierarchical_behavior_cloning_config,
@@ -360,6 +361,12 @@ def build_universal_pretraining_hook(
         bc_digest = getattr(bc_result, "digest", None)
         if not isinstance(bc_digest, str) or len(bc_digest) != 64:
             raise ValueError("Universal behavior cloning result digest is invalid")
+        write_policy_stage_snapshot(
+            policy,
+            output_root=output_root,
+            stage="behavior_cloning",
+            member_seed=member_seed,
+        )
 
         critic_digest: str | None = None
         critic_only_steps = config.behavior_cloning_critic_warm_start_steps
@@ -412,6 +419,12 @@ def build_universal_pretraining_hook(
                     "teacher_artifact_digest": bundle.teacher_artifact.artifact_digest,
                 }
             )
+        write_policy_stage_snapshot(
+            policy,
+            output_root=output_root,
+            stage="behavior_cloning_critic",
+            member_seed=member_seed,
+        )
 
         return {
             "schema_version": "universal_pretraining_evidence_v1",

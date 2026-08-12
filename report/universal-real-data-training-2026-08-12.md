@@ -225,3 +225,30 @@ The teacher is predominantly ternary (`-1`, `0`, `+1`) and changes direction hun
 r10 also exposed GPU nondeterminism in the performance runtime. Although r9 and r10 used the same seed, data, and fixed-condition configuration, r9 restored epoch 29 at validation MSE 0.76686, while r10 restored epoch 2 at 0.77969 and deteriorated to 1.0395 by epoch 45. The architecture artifact records `cudnn_benchmark=true`, `cudnn_deterministic=false`, and `deterministic_algorithms=false`. Any candidate that passes economics must therefore be repeated in deterministic mode before canonical admission.
 
 An existing-head ablation, generation `universal-u6-20260812-cuda-low-std-bc45-patience45-gate-r11`, was launched from the same commit and fixed condition with only `u_medium_direct` replaced by `u_medium_gate`. The hierarchical head explicitly learns change/HOLD and target components. This is a diagnostic comparison, not yet a canonical default change; reward, teacher, data, split, seed, and economic gates remain fixed.
+
+## Checkpoint update: r11 hierarchical-head collapse and r12 calibration
+
+r11 completed all 45 BC epochs and restored epoch 39. Initial MSE was 0.87294 and final MSE was 0.83570, a 4.27% reconstruction improvement. The hierarchical diagnostics nevertheless reported the same invalid decision at every epoch:
+
+- Teacher change/activity rate: 82.28% on the sampled BC set.
+- Gate precision: 82.28%; recall: 100%.
+- Policy activity ratio: 1.2153.
+- `all_trade_collapse=true`; `all_hold_collapse=false`.
+
+The precision exactly equalled teacher prevalence because the gate predicted change for every active sample. The fixed config explained the collapse: `behavior_cloning_max_positive_class_weight=1.4` bounded the majority-positive correction at `1/1.4 = 0.714`, even though the observed negative/positive ratio required about `0.215`. The operational threshold of 0.49 then placed the constant optimum on the trade side.
+
+Two causal holdouts confirmed that this was not only a supervised metric artifact:
+
+| Symbol | Gross | Net | Cost | Turnover | Submitted / decisions | Executed | Policy short rate | Teacher correlation |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| APTUSDT | -0.87% | -6.46% | 5,526.9 | 78.69 | 2,880 / 2,880 | 2,779 | 100% | -0.0086 |
+| ARBUSDT | -1.07% | -7.05% | 6,094.8 | 86.57 | 2,880 / 2,880 | 2,776 | 100% | -0.0359 |
+
+Because the predeclared collapse diagnostic and two independent symbol economics agreed, r11 was intentionally stopped instead of spending another seven full 720h holdouts on the same failed candidate. Docker exit 137 records that explicit stop; OOM was false, and the partial artifacts were preserved under `artifacts/universal/smoke/cuda-low-std-bc45-patience45-gate-r11`.
+
+Generation `universal-u6-20260812-cuda-low-std-bc45-patience45-gate-balanced-r12` was then launched with the same source image, real data, teacher, seed, epochs, patience, reward, and gates. Its ignored diagnostic configs change only the two coupled calibration values:
+
+- `behavior_cloning_max_positive_class_weight`: 1.4 to 20.0, matching the established gate-head profile/default and allowing the observed 0.215 class ratio.
+- `behavior_cloning_gate_prediction_threshold`: 0.49 to 0.51, putting an uninformative balanced probability on the HOLD side rather than admitting an all-trade null predictor.
+
+Canonical example configs remain unchanged until the calibrated candidate produces non-collapsed held-out actions and passes after-cost economics.

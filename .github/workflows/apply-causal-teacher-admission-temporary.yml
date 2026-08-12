@@ -34,6 +34,7 @@ jobs:
             trade_rl/workflows/universal_teacher_runtime.py
             tests/learning/test_causal_alpha_teacher_admission.py
             tests/integrations/test_universal_causal_teacher_admission.py
+            tests/workflows/test_universal_teacher_bundle_runtime.py
           )
           uv run ruff check --fix --select I "${files[@]}"
           uv run ruff format "${files[@]}"
@@ -71,6 +72,7 @@ jobs:
             trade_rl/workflows/universal_causal_alpha_teacher.py \
             trade_rl/workflows/universal_teacher_runtime.py \
             tests/learning/test_causal_alpha_teacher_admission.py \
-            tests/integrations/test_universal_causal_teacher_admission.py
+            tests/integrations/test_universal_causal_teacher_admission.py \
+            tests/workflows/test_universal_teacher_bundle_runtime.py
           git commit -m 'feat: gate causal teacher before Universal BC'
           git push origin HEAD:feature/universal-causal-alpha-teacher

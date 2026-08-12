@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -31,15 +31,21 @@ from trade_rl.integrations.universal_pretraining import (
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk
-from trade_rl.rl.actions import ACTION_SCHEMA, ActionMode, ActionSpec
+from trade_rl.rl.actions import (
+    ACTION_SCHEMA,
+    ActionMode,
+    ActionSpec,
+    ActionValidationMode,
+)
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.rl.universal_instrument_context import CausalInstrumentContextProvider
 from trade_rl.rl.universal_single_instrument_env import EpisodeRoutedSingleInstrumentEnv
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.universal_teacher_runtime import (
-    build_universal_oracle_batches,
     build_universal_pretraining_bundle_from_batches,
+    build_universal_symbol_teacher_environment,
+    build_universal_teacher_batches,
 )
 from trade_rl.workflows.universal_training import (
     universal_training_contract_digest,
@@ -125,9 +131,15 @@ def concrete_action_spec_digest(action: ActionSpec, symbol: str) -> str:
         )
     return content_digest(
         {
-            "action_schema": ACTION_SCHEMA,
+            "schema_version": ACTION_SCHEMA,
+            "alpha_enabled": action.alpha_enabled,
+            "mode": ActionMode(action.mode).value,
+            "risk_tilt_enabled": action.risk_tilt_enabled,
+            "n_factors": action.n_factors,
             "names": action.names_for_symbols((symbol,)),
-            "spec": asdict(action),
+            "residual_scale": action.residual_scale,
+            "target_weight_count": action.target_weight_count,
+            "validation_mode": ActionValidationMode(action.validation_mode).value,
         }
     )
 
@@ -562,8 +574,9 @@ def assemble_universal_sb3_training_backend(
         or behavior_cloning_epochs <= 0
     ):
         raise ValueError("Universal U4 requires behavior cloning to be enabled")
-    if getattr(training, "behavior_cloning_teacher", None) != "oracle":
-        raise ValueError("Universal U4 requires the Oracle behavior-cloning teacher")
+    teacher_kind = getattr(training, "behavior_cloning_teacher", None)
+    if teacher_kind not in {"oracle", "trend_baseline"}:
+        raise ValueError("Universal U4 behavior-cloning teacher is unsupported")
     behavior_cloning_seed = getattr(training, "behavior_cloning_seed", None)
     if (
         isinstance(behavior_cloning_seed, bool)
@@ -600,7 +613,8 @@ def assemble_universal_sb3_training_backend(
         raise ValueError("Universal U4 requires an instrument context provider")
 
     if oracle_batches is None:
-        batches = build_universal_oracle_batches(
+        batches = build_universal_teacher_batches(
+            teacher_kind=teacher_kind,
             train_symbols=routed_environment_factory.train_symbols,
             bindings=routed_environment_factory.bindings,
             concrete_environment_factory=(
@@ -635,11 +649,36 @@ def assemble_universal_sb3_training_backend(
         validation_fraction=float(validation_fraction),
         normalizer_digest=normalizer_digest,
         feature_schema_digest=feature_schema_digest,
+        teacher_kind=teacher_kind,
     )
+    binding_by_symbol = {
+        binding.concrete_symbol: binding
+        for binding in routed_environment_factory.bindings
+    }
+    symbol_environment_factories = {
+        symbol: partial(
+            build_universal_symbol_teacher_environment,
+            symbol=symbol,
+            binding=binding_by_symbol[symbol],
+            concrete_environment_factory=(
+                routed_environment_factory.concrete_environment_factory
+            ),
+            instrument_context_provider=provider,
+            partition_digest=routed_environment_factory.partition_digest,
+            training_contract_digest=(
+                routed_environment_factory.training_contract_digest
+            ),
+            run_seed=routed_environment_factory.run_seed + index,
+        )
+        for index, symbol in enumerate(routed_environment_factory.train_symbols)
+    }
     backend = StableBaselines3Backend(
         routed_environment_factory,
         verbose=verbose,
-        universal_pretraining_hook=build_universal_pretraining_hook(bundle),
+        universal_pretraining_hook=build_universal_pretraining_hook(
+            bundle,
+            symbol_environment_factories=symbol_environment_factories,
+        ),
     )
     return backend, bundle
 

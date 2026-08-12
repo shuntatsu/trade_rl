@@ -17,7 +17,7 @@ from trade_rl.workflows.universal_research import (
     FullResearchAlgorithm,
     build_full_research_pair_closure,
 )
-from trade_rl.workflows.universal_teacher_runtime import build_universal_oracle_batches
+from trade_rl.workflows.universal_teacher_runtime import build_universal_teacher_batches
 from trade_rl.workflows.universal_training_runner import (
     UniversalTrainingRuntime,
     assemble_universal_sb3_training_backend,
@@ -315,7 +315,8 @@ def train_universal_full_research_comparison(
         or not 0 <= behavior_cloning_seed <= 0xFFFFFFFF
     ):
         raise ValueError("U6 requires an explicit uint32 behavior_cloning_seed")
-    shared_batches = build_universal_oracle_batches(
+    shared_batches = build_universal_teacher_batches(
+        teacher_kind=first_spec.training_config.behavior_cloning_teacher,
         train_symbols=first_runtime.train_symbols,
         bindings=first_runtime.routed_environment_factory.bindings,
         concrete_environment_factory=(

@@ -13,10 +13,12 @@ from trade_rl.catalog.stored_instrument_catalog import (
 )
 from trade_rl.domain.common import require_aware_datetime, require_sha256
 from trade_rl.integrations.postgres_indicator_artifacts import (
-    INDICATOR_ARTIFACT_TABLE,
     INDICATOR_CACHE_ID,
-    INDICATOR_MANIFEST_TABLE,
     IndicatorArtifactConnection,
+)
+from trade_rl.integrations.postgres_market_tables import (
+    LEGACY_MARKET_TABLES,
+    PostgresMarketTableSet,
 )
 
 _MANIFEST_SCHEMA: Final = "native_indicator_cache_v1"
@@ -255,6 +257,7 @@ def load_postgres_indicator_source_inventory(
     connection: IndicatorArtifactConnection,
     *,
     cache_id: str = INDICATOR_CACHE_ID,
+    tables: PostgresMarketTableSet = LEGACY_MARKET_TABLES,
 ) -> StoredIndicatorSourceInventory:
     """Load verified manifest and artifact metadata without reading NPZ payloads."""
 
@@ -264,7 +267,7 @@ def load_postgres_indicator_source_inventory(
             f"""
             SELECT cache_id, schema_version, market, symbols, start_time, end_time,
                    feature_config_digest, feature_specs, artifact_count
-            FROM {INDICATOR_MANIFEST_TABLE}
+            FROM {tables.indicator_manifest}
             WHERE cache_id = %s
             """,
             (requested_cache_id,),
@@ -280,7 +283,7 @@ def load_postgres_indicator_source_inventory(
             SELECT symbol, timeframe, row_count, feature_count,
                    available_value_count, first_event_time_ms, last_event_time_ms,
                    payload_schema, payload_sha256, payload_bytes
-            FROM {INDICATOR_ARTIFACT_TABLE}
+            FROM {tables.indicator_artifact}
             WHERE cache_id = %s
             ORDER BY symbol, timeframe
             """,

@@ -10,7 +10,6 @@ import sys
 from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime
-from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -28,12 +27,14 @@ from trade_rl.evaluation.research_gate import (
     paired_block_bootstrap_excess_lower_bound,
 )
 from trade_rl.integrations.binance import (
-    BinanceExchangeInfoSnapshot,
     BinanceMarket,
     BinancePublicTransport,
     BinanceTransportMode,
     binance_multitimeframe_feature_specs,
     build_binance_market_dataset,
+)
+from trade_rl.integrations.frozen_binance_metadata import (
+    FrozenBinanceExchangeInfoTransport,
 )
 from trade_rl.integrations.postgres_market_dataset import (
     build_postgres_market_dataset,
@@ -93,69 +94,7 @@ _TRAIN_RUN_COMMAND = ("train", "run")
 _WALK_FORWARD_RUN_COMMAND = ("walk-forward", "run")
 
 
-class _PersistentFrozenSnapshotTransport:
-    """Persist one audited exchange-info snapshot across supervised retries."""
-
-    def __init__(self, delegate: BinancePublicTransport, root: Path) -> None:
-        self._delegate = delegate
-        self._root = root
-
-    def load_exchange_information_snapshot(
-        self,
-        *,
-        market: BinanceMarket | str,
-        mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
-    ) -> BinanceExchangeInfoSnapshot:
-        resolved_market = BinanceMarket(market)
-        raw_path = self._root / "exchange-info.raw.json"
-        manifest_path = self._root / "manifest.json"
-        if raw_path.exists() != manifest_path.exists():
-            raise RuntimeError("frozen metadata cache is incomplete")
-        if raw_path.exists():
-            raw = raw_path.read_bytes()
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if not isinstance(manifest, dict):
-                raise ValueError("frozen metadata cache manifest must be an object")
-            digest = sha256(raw).hexdigest()
-            if manifest.get("schema_version") != "frozen_metadata_cache_v1":
-                raise ValueError("frozen metadata cache schema mismatch")
-            if manifest.get("market") != resolved_market.value:
-                raise ValueError("frozen metadata cache market mismatch")
-            if manifest.get("raw_payload_sha256") != digest:
-                raise ValueError("frozen metadata cache digest mismatch")
-            payload = json.loads(raw)
-            if not isinstance(payload, dict):
-                raise ValueError("cached exchange information must be an object")
-            return BinanceExchangeInfoSnapshot(
-                payload=payload,
-                raw_payload=raw,
-                source_uri=str(manifest["source_uri"]),
-                retrieved_at=_parse_utc(str(manifest["retrieved_at"])),
-                raw_payload_sha256=digest,
-            )
-
-        snapshot = self._delegate.load_exchange_information_snapshot(
-            market=resolved_market,
-            mode=mode,
-        )
-        self._root.mkdir(parents=True, exist_ok=True)
-        manifest = {
-            "market": resolved_market.value,
-            "raw_payload_sha256": snapshot.raw_payload_sha256,
-            "retrieved_at": snapshot.retrieved_at.isoformat(),
-            "schema_version": "frozen_metadata_cache_v1",
-            "source_uri": snapshot.source_uri,
-        }
-        raw_temporary = raw_path.with_suffix(f".raw.{os.getpid()}.tmp")
-        manifest_temporary = manifest_path.with_suffix(f".{os.getpid()}.tmp")
-        raw_temporary.write_bytes(snapshot.raw_payload)
-        manifest_temporary.write_text(
-            json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
-            encoding="utf-8",
-        )
-        raw_temporary.replace(raw_path)
-        manifest_temporary.replace(manifest_path)
-        return snapshot
+_PersistentFrozenSnapshotTransport = FrozenBinanceExchangeInfoTransport
 
 
 def _activate_symbol_triplet(
@@ -436,8 +375,7 @@ def _resolve_metadata(
         cache_root = os.environ.get("TRADE_RL_FROZEN_METADATA_CACHE_ROOT", "").strip()
         if cache_root:
             snapshot_transport = _PersistentFrozenSnapshotTransport(
-                transport,
-                Path(cache_root),
+                Path(cache_root), delegate=transport
             )
         return resolve_frozen_snapshot(
             transport=snapshot_transport,

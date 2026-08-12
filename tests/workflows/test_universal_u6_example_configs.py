@@ -37,7 +37,9 @@ def test_universal_u6_example_configs_close_the_maintained_comparison() -> None:
         assert training.behavior_cloning_critic_warm_start_steps > 0
         assert training.behavior_cloning_joint_warm_start_steps > 0
         assert training.behavior_cloning_teacher == "oracle"
+        assert training.behavior_cloning_batch_size % 9 == 0
         assert training.gamma > 0.0
+        assert training.log_std_init == -4.0
 
     prepared = prepare_universal_full_research_training_configs(
         selected_architecture=UniversalArchitectureName.U_MEDIUM_DIRECT,
@@ -56,4 +58,4 @@ def test_universal_u6_example_configs_close_the_maintained_comparison() -> None:
 def test_start_uses_canonical_universal_u6_example_configs() -> None:
     start = Path("START.md").read_text(encoding="utf-8")
     for path in _PATHS.values():
-        assert str(path) in start
+        assert path.as_posix() in start

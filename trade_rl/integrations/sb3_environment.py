@@ -32,6 +32,7 @@ def _compact_training_info(info: dict[str, object]) -> dict[str, object]:
 
     compact = dict(info)
     execution = compact.get("hybrid_execution")
+    liquidation = compact.get("hybrid_liquidation")
     book = getattr(execution, "book", None)
     weights = getattr(book, "weights", None)
     if weights is not None:
@@ -39,6 +40,16 @@ def _compact_training_info(info: dict[str, object]) -> dict[str, object]:
             weights,
             dtype=np.float64,
         ).copy()
+    filled_turnover = getattr(execution, "filled_turnover", None)
+    if filled_turnover is not None:
+        compact["telemetry_filled_turnover"] = float(filled_turnover) + float(
+            getattr(liquidation, "filled_turnover", 0.0)
+        )
+    fill_count = getattr(execution, "fill_count", None)
+    if fill_count is not None:
+        compact["telemetry_fill_count"] = int(fill_count) + int(
+            getattr(liquidation, "fill_count", 0)
+        )
     if "telemetry_risk_reasons" not in compact:
         risk = compact.get("hybrid_risk")
         reasons = getattr(risk, "reasons", ())

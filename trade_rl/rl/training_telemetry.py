@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,6 +60,20 @@ def _number(value: object, *, fallback: float | None = None) -> float | None:
         return fallback
     resolved = float(value)
     return resolved if np.isfinite(resolved) else fallback
+
+
+def _rollout_array(value: object, *, dtype: Any) -> np.ndarray:
+    candidate = value
+    detach = getattr(candidate, "detach", None)
+    if callable(detach):
+        candidate = detach()
+    cpu = getattr(candidate, "cpu", None)
+    if callable(cpu):
+        candidate = cpu()
+    numpy = getattr(candidate, "numpy", None)
+    if callable(numpy):
+        candidate = numpy()
+    return np.asarray(candidate, dtype=dtype)
 
 
 def _transition_flags(
@@ -161,7 +176,11 @@ def _market_values(
     float | None,
     float | None,
 ]:
-    symbol = str(info.get("telemetry_symbol") or "ASSET-0")
+    binding = info.get("instrument_episode_binding")
+    routed_symbol = (
+        binding.get("concrete_symbol") if isinstance(binding, dict) else None
+    )
+    symbol = str(info.get("telemetry_symbol") or routed_symbol or "ASSET-0")
     raw_index = info.get("telemetry_market_index")
     market_index = (
         int(raw_index)
@@ -224,6 +243,7 @@ class TrainingTelemetrySampler:
         )
         self.sequence = training_telemetry_status(path).last_sequence
         self.disabled = False
+        self.last_error: str | None = None
         self._previous_weights: dict[int, tuple[float, ...]] = {}
         self._previous_close: dict[int, float] = {}
         self._episode_ids: dict[int, int] = {}
@@ -304,11 +324,11 @@ class TrainingTelemetrySampler:
         if self.disabled:
             return 0
         try:
-            action_rows = np.asarray(actions, dtype=np.float64)
+            action_rows = _rollout_array(actions, dtype=np.float64)
             if action_rows.ndim == 1:
                 action_rows = action_rows.reshape(1, -1)
-            reward_rows = np.asarray(rewards, dtype=np.float64).reshape(-1)
-            done_rows = np.asarray(dones, dtype=np.bool_).reshape(-1)
+            reward_rows = _rollout_array(rewards, dtype=np.float64).reshape(-1)
+            done_rows = _rollout_array(dones, dtype=np.bool_).reshape(-1)
             if not isinstance(infos, (tuple, list)):
                 raise ValueError("infos must be a vector sequence")
             emitted = 0
@@ -389,6 +409,54 @@ class TrainingTelemetrySampler:
                     info.get("baseline_portfolio_value_after"),
                     fallback=shadow_fallback,
                 )
+                execution = info.get("hybrid_execution")
+                filled_turnover = _number(
+                    getattr(execution, "filled_turnover", None),
+                    fallback=_number(info.get("telemetry_filled_turnover")),
+                )
+                raw_fill_count = getattr(
+                    execution,
+                    "fill_count",
+                    info.get("telemetry_fill_count"),
+                )
+                fill_count = (
+                    int(raw_fill_count)
+                    if isinstance(raw_fill_count, (int, np.integer))
+                    and not isinstance(raw_fill_count, bool)
+                    and raw_fill_count >= 0
+                    else None
+                )
+                gross_return = _number(info.get("interval_gross_return"))
+                net_return = _number(info.get("interval_net_return"))
+                shadow_return = _number(info.get("shadow_interval_net_return"))
+                target = _vector(info.get("executed_target"), fallback=weights_after)
+                target_delta_l1 = (
+                    float(
+                        sum(
+                            abs(after - before)
+                            for before, after in zip(
+                                weights_before, target, strict=True
+                            )
+                        )
+                    )
+                    if len(weights_before) == len(target)
+                    else None
+                )
+                sign_flip_count = (
+                    sum(
+                        1
+                        for before, after in zip(weights_before, target, strict=True)
+                        if before * after < 0.0
+                    )
+                    if len(weights_before) == len(target)
+                    else None
+                )
+                growth = _number(info.get("reward_growth_raw"))
+                starting_value = (
+                    portfolio_value / math.exp(growth)
+                    if portfolio_value is not None and growth is not None
+                    else None
+                )
                 self.sequence += 1
                 action = (
                     tuple(
@@ -435,6 +503,26 @@ class TrainingTelemetrySampler:
                         drawdown=_number(info.get("drawdown_after")),
                         interval_cost=_number(info.get("interval_cost")),
                         interval_return=_number(info.get("interval_net_return")),
+                        filled_turnover=filled_turnover,
+                        fill_count=fill_count,
+                        interval_gross_return=gross_return,
+                        baseline_excess_return=(
+                            net_return - shadow_return
+                            if net_return is not None and shadow_return is not None
+                            else None
+                        ),
+                        target_delta_l1=target_delta_l1,
+                        sign_flip_count=sign_flip_count,
+                        gross_pnl=(
+                            starting_value * gross_return
+                            if starting_value is not None and gross_return is not None
+                            else None
+                        ),
+                        net_pnl=(
+                            starting_value * net_return
+                            if starting_value is not None and net_return is not None
+                            else None
+                        ),
                         risk_reasons=reasons,
                         emergency_deleverage=bool(info.get("emergency_deleverage")),
                         terminated=terminated,
@@ -450,7 +538,8 @@ class TrainingTelemetrySampler:
                 ):
                     self._finish_episode(environment_id)
             return emitted
-        except Exception:
+        except Exception as error:
+            self.last_error = f"{type(error).__name__}: {error}"
             self.close()
             return 0
 

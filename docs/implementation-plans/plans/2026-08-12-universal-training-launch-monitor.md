@@ -394,7 +394,7 @@ command:
   - --discounted-config
   - examples/binance-multitimeframe/universal-u6-discounted.json
   - --runtime-factory
-  - trade_rl.integrations.binance_universal_runtime:build_runtime
+  - trade_rl.workflows.binance_universal_runtime:build_runtime
   - --runtime-manifest
   - /workspace/var/universal/runtime-manifest.json
   - --postgres-url

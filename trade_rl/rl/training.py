@@ -267,8 +267,6 @@ class ResidualTrainingConfig:
                 raise ValueError(
                     "critic warm-start requires behavior cloning to be enabled"
                 )
-            if self.behavior_cloning_teacher != "oracle":
-                raise ValueError("critic warm-start requires Oracle behavior cloning")
         hierarchical_loss_weights = (
             self.behavior_cloning_gate_loss_weight,
             self.behavior_cloning_target_loss_weight,

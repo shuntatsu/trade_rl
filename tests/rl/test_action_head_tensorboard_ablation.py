@@ -98,3 +98,35 @@ def test_tensorboard_uses_soft_rollout_mean_for_exploration_telemetry() -> None:
     assert logger.values["trade_rl/deterministic_change_l1_mean"] == pytest.approx(0.1)
     assert logger.values["trade_rl/exploration_l1_mean"] == pytest.approx(0.3)
     assert logger.values["trade_rl/sampled_change_l1_mean"] == pytest.approx(0.4)
+
+
+def test_direct_head_does_not_call_hierarchical_diagnostics() -> None:
+    callback = build_tensorboard_metrics_callback(enabled=True)
+    assert callback is not None
+    logger = FakeLogger()
+    outputs = SimpleNamespace(
+        change_intensity=None,
+        current_weights=torch.tensor([[0.1, -0.1]]),
+        deterministic_actions=torch.tensor([[0.1, -0.1]]),
+        active_mask=torch.tensor([[True, True]]),
+    )
+
+    def invalid_hierarchical(_observations: object) -> object:
+        raise RuntimeError("policy does not use hierarchical_gate_target_v1")
+
+    policy = SimpleNamespace(
+        shared_actor_head="shared_target_v1",
+        action_stage_outputs=lambda _observations: outputs,
+        hierarchical_behavior_cloning_outputs=invalid_hierarchical,
+    )
+    callback.model = SimpleNamespace(logger=logger, policy=policy)
+    callback.locals = {
+        "rewards": (),
+        "obs_tensor": {"current_weights": torch.tensor([[0.1, -0.1]])},
+        "actions": np.array([[0.2, -0.1]]),
+        "infos": [{}],
+    }
+
+    assert callback._on_step()
+    callback._on_rollout_end()
+    assert logger.values["trade_rl/exploration_l1_mean"] == pytest.approx(0.1)

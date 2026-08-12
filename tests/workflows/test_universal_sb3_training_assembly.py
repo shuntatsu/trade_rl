@@ -83,17 +83,19 @@ def test_assemble_universal_sb3_training_backend_connects_oracle_bundle_and_hook
         observed["bundle_kwargs"] = kwargs
         return bundle
 
-    monkeypatch.setattr(module, "build_universal_oracle_batches", build_batches)
+    monkeypatch.setattr(module, "build_universal_teacher_batches", build_batches)
     monkeypatch.setattr(
         module,
         "build_universal_pretraining_bundle_from_batches",
         build_bundle,
     )
-    monkeypatch.setattr(
-        module,
-        "build_universal_pretraining_hook",
-        lambda value: hook if value is bundle else None,
-    )
+
+    def build_hook(value: object, **kwargs: object) -> object:
+        observed["hook_bundle"] = value
+        observed["hook_kwargs"] = kwargs
+        return hook
+
+    monkeypatch.setattr(module, "build_universal_pretraining_hook", build_hook)
 
     class Backend:
         def __init__(
@@ -122,6 +124,7 @@ def test_assemble_universal_sb3_training_backend_connects_oracle_bundle_and_hook
     assert actual_bundle is bundle
     batch_kwargs = observed["batch_kwargs"]
     assert isinstance(batch_kwargs, dict)
+    assert batch_kwargs["teacher_kind"] == "oracle"
     assert batch_kwargs["train_symbols"] == routed.train_symbols
     assert batch_kwargs["bindings"] == routed.bindings
     assert (
@@ -146,9 +149,16 @@ def test_assemble_universal_sb3_training_backend_connects_oracle_bundle_and_hook
     assert bundle_kwargs["validation_fraction"] == pytest.approx(0.1)
     assert bundle_kwargs["normalizer_digest"] == _digest("normalizer")
     assert bundle_kwargs["feature_schema_digest"] == _digest("features")
+    assert bundle_kwargs["teacher_kind"] == "oracle"
     assert observed["backend_environment_factory"] is routed
     assert observed["backend_verbose"] == 2
     assert observed["backend_hook"] is hook
+    assert observed["hook_bundle"] is bundle
+    hook_kwargs = observed["hook_kwargs"]
+    assert isinstance(hook_kwargs, dict)
+    factories = hook_kwargs["symbol_environment_factories"]
+    assert isinstance(factories, dict)
+    assert set(factories) == set(routed.train_symbols)
 
 
 def test_assemble_universal_sb3_training_backend_requires_fixed_bc_seed() -> None:

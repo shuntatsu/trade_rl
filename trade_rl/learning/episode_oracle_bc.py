@@ -28,7 +28,91 @@ from trade_rl.learning.rollout_evaluation import (
     evaluate_action_path,
 )
 
-EPISODE_ORACLE_BC_EVALUATION_SCHEMA = "episode_oracle_bc_evaluation_v2"
+EPISODE_ORACLE_BC_EVALUATION_SCHEMA = "episode_oracle_bc_evaluation_v3"
+
+_ACTION_QUANTILES = np.asarray(
+    (0.0, 0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1.0),
+    dtype=np.float64,
+)
+_ACTION_HISTOGRAM_EDGES = np.asarray(
+    (-1.0, -0.75, -0.5, -0.25, -0.05, 0.05, 0.25, 0.5, 0.75, 1.0),
+    dtype=np.float64,
+)
+
+
+def _action_comparison_diagnostics(
+    teacher_actions: np.ndarray,
+    policy_actions: np.ndarray,
+    *,
+    initial_weights: np.ndarray,
+    tolerance: float,
+) -> dict[str, object]:
+    teacher = np.asarray(teacher_actions, dtype=np.float64)
+    policy = np.asarray(policy_actions, dtype=np.float64)
+    initial = np.asarray(initial_weights, dtype=np.float64)
+    if (
+        teacher.ndim != 2
+        or policy.shape != teacher.shape
+        or initial.shape != (teacher.shape[1],)
+        or not np.isfinite(teacher).all()
+        or not np.isfinite(policy).all()
+        or not np.isfinite(initial).all()
+    ):
+        raise ValueError("BC action diagnostics require aligned finite action paths")
+
+    teacher_previous = np.vstack((initial[None, :], teacher[:-1]))
+    policy_previous = np.vstack((initial[None, :], policy[:-1]))
+    teacher_delta = np.abs(teacher - teacher_previous)
+    policy_delta = np.abs(policy - policy_previous)
+    teacher_flat = teacher.ravel()
+    policy_flat = policy.ravel()
+    direction_agreement = (
+        (np.abs(teacher_flat) <= tolerance) & (np.abs(policy_flat) <= tolerance)
+    ) | (teacher_flat * policy_flat > 0.0)
+
+    def summary(
+        prefix: str,
+        values: np.ndarray,
+        delta: np.ndarray,
+    ) -> dict[str, object]:
+        flat = values.ravel()
+        histogram, _ = np.histogram(flat, bins=_ACTION_HISTOGRAM_EDGES)
+        return {
+            f"{prefix}_absolute_mean": float(np.mean(np.abs(flat))),
+            f"{prefix}_absolute_target_delta_mean": float(delta.mean()),
+            f"{prefix}_absolute_target_delta_total": float(delta.sum()),
+            f"{prefix}_change_count": int(np.count_nonzero(delta > tolerance)),
+            f"{prefix}_histogram_counts": histogram.astype(int).tolist(),
+            f"{prefix}_mean": float(flat.mean()),
+            f"{prefix}_near_zero_rate": float(np.mean(np.abs(flat) <= tolerance)),
+            f"{prefix}_negative_rate": float(np.mean(flat < -tolerance)),
+            f"{prefix}_positive_rate": float(np.mean(flat > tolerance)),
+            f"{prefix}_quantiles": np.quantile(flat, _ACTION_QUANTILES).tolist(),
+            f"{prefix}_saturation_rate": float(np.mean(np.abs(flat) >= 0.95)),
+            f"{prefix}_sign_flip_count": int(
+                np.count_nonzero(values[1:] * values[:-1] < 0.0)
+            ),
+            f"{prefix}_std": float(flat.std()),
+        }
+
+    teacher_std = float(teacher_flat.std())
+    policy_std = float(policy_flat.std())
+    correlation = (
+        None
+        if teacher_std == 0.0 or policy_std == 0.0
+        else float(np.corrcoef(teacher_flat, policy_flat)[0, 1])
+    )
+    return {
+        "action_count": int(teacher_flat.size),
+        "action_tolerance": float(tolerance),
+        "direction_agreement_rate": float(np.mean(direction_agreement)),
+        "histogram_edges": _ACTION_HISTOGRAM_EDGES.tolist(),
+        "mean_signed_error": float(np.mean(policy_flat - teacher_flat)),
+        "pearson_correlation": correlation,
+        "quantile_probabilities": _ACTION_QUANTILES.tolist(),
+        **summary("teacher", teacher, teacher_delta),
+        **summary("policy", policy, policy_delta),
+    }
 
 
 def oracle_episode_sampling_config(
@@ -150,6 +234,7 @@ class EpisodeBehaviorCloningRecord:
     action_agreement_rate: float
     action_mae: float
     action_rmse: float
+    action_diagnostics: dict[str, object]
     heldout_oracle_regret: float
     normalized_oracle_regret: float
 
@@ -251,6 +336,99 @@ def _aggregate_collapse_evidence(
     )
 
 
+def aggregate_episode_behavior_cloning_holdouts(
+    evaluations: tuple[EpisodeBehaviorCloningHoldoutEvaluation, ...],
+    *,
+    seed_material: str,
+) -> EpisodeBehaviorCloningHoldoutEvaluation:
+    """Combine per-symbol causal holdouts without losing episode support."""
+
+    if not evaluations:
+        raise ValueError("Universal BC holdout requires at least one evaluation")
+    confidence = evaluations[0].bootstrap_confidence_level
+    resamples = evaluations[0].bootstrap_resamples
+    if any(
+        evaluation.bootstrap_confidence_level != confidence
+        or evaluation.bootstrap_resamples != resamples
+        for evaluation in evaluations
+    ):
+        raise ValueError("Universal BC holdout bootstrap contracts differ")
+    records = tuple(
+        record for evaluation in evaluations for record in evaluation.records
+    )
+    evidence_values = tuple(record.causal_policy_evidence for record in records)
+    first = evidence_values[0]
+    if any(
+        value.action_dimension_count != first.action_dimension_count
+        for value in evidence_values
+    ):
+        raise ValueError("Universal BC holdout action dimensions differ")
+    evidence = ActionPathCollapseEvidence(
+        decision_count=sum(value.decision_count for value in evidence_values),
+        action_dimension_count=first.action_dimension_count,
+        active_dimension_count=sum(
+            value.active_dimension_count for value in evidence_values
+        ),
+        inactive_dimension_count=sum(
+            value.inactive_dimension_count for value in evidence_values
+        ),
+        proposal_distance_count=sum(
+            value.proposal_distance_count for value in evidence_values
+        ),
+        submitted_change_count=sum(
+            value.submitted_change_count for value in evidence_values
+        ),
+        downstream_no_trade_suppression_count=sum(
+            value.downstream_no_trade_suppression_count for value in evidence_values
+        ),
+        execution_rejection_count=sum(
+            value.execution_rejection_count for value in evidence_values
+        ),
+        executed_change_count=sum(
+            value.executed_change_count for value in evidence_values
+        ),
+        trade_count=sum(value.trade_count for value in evidence_values),
+        constant_submitted_actions=all(
+            value.constant_submitted_actions for value in evidence_values
+        ),
+    )
+    causal_returns = np.asarray(
+        [record.causal_policy_performance.net_return for record in records],
+        dtype=np.float64,
+    )
+    normalized_regrets = np.asarray(
+        [record.normalized_oracle_regret for record in records],
+        dtype=np.float64,
+    )
+    worst = min(records, key=lambda record: record.causal_policy_performance.net_return)
+    return EpisodeBehaviorCloningHoldoutEvaluation(
+        records=records,
+        causal_policy_performance=worst.causal_policy_performance,
+        causal_policy_evidence=evidence,
+        action_agreement_rate=min(record.action_agreement_rate for record in records),
+        action_mae=max(record.action_mae for record in records),
+        action_rmse=max(record.action_rmse for record in records),
+        heldout_oracle_regret=max(record.heldout_oracle_regret for record in records),
+        normalized_oracle_regret=max(
+            record.normalized_oracle_regret for record in records
+        ),
+        causal_regret_upper_confidence_bound=deterministic_bootstrap_upper_bound(
+            normalized_regrets,
+            confidence_level=confidence,
+            resamples=resamples,
+            seed_material=f"{seed_material}:oracle-regret",
+        ),
+        causal_net_return_lower_confidence_bound=deterministic_bootstrap_lower_bound(
+            causal_returns,
+            confidence_level=confidence,
+            resamples=resamples,
+            seed_material=f"{seed_material}:causal-return",
+        ),
+        bootstrap_confidence_level=confidence,
+        bootstrap_resamples=resamples,
+    )
+
+
 def _write_evaluation(path: Path, payload: dict[str, object]) -> str:
     digest = content_digest(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -336,6 +514,12 @@ def evaluate_episode_behavior_cloning_holdout(
                 action_mae=float(np.mean(np.abs(difference), dtype=np.float64)),
                 action_rmse=float(
                     np.sqrt(np.mean(np.square(difference), dtype=np.float64))
+                ),
+                action_diagnostics=_action_comparison_diagnostics(
+                    oracle_path.actions,
+                    policy_path.actions,
+                    initial_weights=contract.initial_weights,
+                    tolerance=action_tolerance,
                 ),
                 heldout_oracle_regret=float(regret),
                 normalized_oracle_regret=float(regret / regret_scale),
@@ -442,6 +626,7 @@ __all__ = [
     "EPISODE_ORACLE_BC_EVALUATION_SCHEMA",
     "EpisodeBehaviorCloningHoldoutEvaluation",
     "EpisodeBehaviorCloningRecord",
+    "aggregate_episode_behavior_cloning_holdouts",
     "evaluate_episode_action_path",
     "evaluate_episode_behavior_cloning_holdout",
     "oracle_episode_sampling_config",

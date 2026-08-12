@@ -7,6 +7,9 @@ import pytest
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.integrations.postgres_indicator_artifacts import INDICATOR_CACHE_ID
+from trade_rl.integrations.postgres_market_tables import (
+    UNIVERSAL_202411_202607_TABLES,
+)
 from trade_rl.workflows.postgres_universal_instrument_artifacts import (
     materialize_postgres_universal_instrument_artifacts,
 )
@@ -149,6 +152,23 @@ def test_materializes_postgres_inventory_into_exact_bundle(tmp_path: Path) -> No
     for query, params in database.queries:
         assert params == (cache_id,)
         assert "npz_payload" not in query
+
+
+def test_explicit_table_set_routes_workflow_inventory_queries(tmp_path: Path) -> None:
+    database = FakeDatabase()
+
+    materialize_postgres_universal_instrument_artifacts(
+        database,
+        output_dir=tmp_path / "universal-instruments",
+        research_start=_START,
+        research_end=_END,
+        metadata_digests=_metadata(database.symbols),
+        seed=17,
+        tables=UNIVERSAL_202411_202607_TABLES,
+    )
+
+    assert UNIVERSAL_202411_202607_TABLES.indicator_manifest in database.queries[0][0]
+    assert UNIVERSAL_202411_202607_TABLES.indicator_artifact in database.queries[1][0]
 
 
 def test_missing_execution_metadata_fails_before_publication(tmp_path: Path) -> None:

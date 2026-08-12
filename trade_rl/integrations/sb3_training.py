@@ -123,6 +123,7 @@ from trade_rl.integrations.sb3_runtime import (
 from trade_rl.integrations.sb3_teacher_pipeline import (
     _StableBaselines3TeacherPipeline,
 )
+from trade_rl.integrations.sb3_training_callbacks import assemble_training_callbacks
 from trade_rl.integrations.sb3_universal_pretraining import (
     _apply_universal_pretraining_if_configured,
 )
@@ -1074,16 +1075,21 @@ class StableBaselines3Backend(_StableBaselines3TeacherPipeline):
                 training_config_digest=content_digest(config.digest_payload()),
                 sequence_diagnostics_enabled=config.tensorboard_enabled,
                 sequence_diagnostics_interval=config.tensorboard_log_interval,
+                telemetry_sample_every=config.tensorboard_log_interval,
             )
             metrics_callback = build_tensorboard_metrics_callback(
                 enabled=config.tensorboard_enabled,
                 log_interval=config.tensorboard_log_interval,
             )
-            callback: object = checkpoint_callback
-            if metrics_callback is not None:
-                from stable_baselines3.common.callbacks import CallbackList
-
-                callback = CallbackList([checkpoint_callback, metrics_callback])
+            callback = assemble_training_callbacks(
+                checkpoint_callback=checkpoint_callback,
+                metrics_callback=metrics_callback,
+                output_root=output_path.parent,
+                seed=seed,
+                algorithm=config.algorithm,
+                environment_digest=str(identity["environment_digest"]),
+                training_config_digest=content_digest(config.digest_payload()),
+            )
             if config.tensorboard_enabled:
                 model.tensorboard_log = str(output_path.parent / "tensorboard")
             if remaining_timesteps > 0:

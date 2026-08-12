@@ -380,10 +380,17 @@ def collect_universal_episode_teacher(
     *,
     teacher_config_digest: str,
     gamma: float,
+    sample_stride: int = 1,
 ) -> UniversalCollectedTeacher:
     """Collect full multi-dataset-safe Dict observations and finite-horizon targets."""
 
     require_sha256(teacher_config_digest, field="Universal teacher_config_digest")
+    if (
+        isinstance(sample_stride, bool)
+        or not isinstance(sample_stride, int)
+        or sample_stride <= 0
+    ):
+        raise ValueError("Universal teacher sample_stride must be a positive integer")
     expected_keys: tuple[str, ...] | None = None
     expected_shapes: dict[str, tuple[int, ...]] = {}
     observations: dict[str, list[np.ndarray]] = {}
@@ -414,6 +421,7 @@ def collect_universal_episode_teacher(
                 raise ValueError("Universal teacher reset weights mismatch contract")
 
         rewards: list[float] = []
+        sampled_offsets: list[int] = []
         for offset, target in enumerate(targets):
             expected_index = contract.start + offset
             current_index = getattr(environment, "current_index", expected_index)
@@ -421,23 +429,25 @@ def collect_universal_episode_teacher(
                 raise ValueError(
                     "Universal teacher environment left its episode contract"
                 )
-            keys = tuple(sorted(observation))
-            if expected_keys is None:
-                expected_keys = keys
-                observations = {key: [] for key in keys}
-                expected_shapes = {
-                    key: tuple(np.asarray(observation[key]).shape) for key in keys
-                }
-            if keys != expected_keys:
-                raise ValueError("Universal teacher observation keys changed")
-            for key in keys:
-                value = np.asarray(observation[key])
-                if tuple(value.shape) != expected_shapes[key]:
-                    raise ValueError("Universal teacher observation shape changed")
-                observations[key].append(value.copy(order="C"))
-            actions.append(np.asarray(target, dtype=np.float32).copy(order="C"))
-            decision_indices.append(expected_index)
-            episode_ids.append(contract.episode_index)
+            if offset % sample_stride == 0:
+                sampled_offsets.append(offset)
+                keys = tuple(sorted(observation))
+                if expected_keys is None:
+                    expected_keys = keys
+                    observations = {key: [] for key in keys}
+                    expected_shapes = {
+                        key: tuple(np.asarray(observation[key]).shape) for key in keys
+                    }
+                if keys != expected_keys:
+                    raise ValueError("Universal teacher observation keys changed")
+                for key in keys:
+                    value = np.asarray(observation[key])
+                    if tuple(value.shape) != expected_shapes[key]:
+                        raise ValueError("Universal teacher observation shape changed")
+                    observations[key].append(value.copy(order="C"))
+                actions.append(np.asarray(target, dtype=np.float32).copy(order="C"))
+                decision_indices.append(expected_index)
+                episode_ids.append(contract.episode_index)
             observation, reward, terminated, truncated, _ = environment.step(target)
             resolved_reward = float(reward)
             if not math.isfinite(resolved_reward):
@@ -446,7 +456,10 @@ def collect_universal_episode_teacher(
             final_step = offset == expected_steps - 1
             if bool(terminated or truncated) != final_step:
                 raise ValueError("Universal teacher environment ended outside contract")
-        return_targets.append(_discounted_return_to_go(rewards, gamma=gamma))
+        episode_returns = _discounted_return_to_go(rewards, gamma=gamma)
+        return_targets.append(
+            episode_returns[np.asarray(sampled_offsets, dtype=np.int64)]
+        )
 
     if expected_keys is None or not actions:
         raise ValueError("Universal teacher requires at least one episode sample")
@@ -464,7 +477,17 @@ def collect_universal_episode_teacher(
         dataset_id=batch.dataset_id,
         train_start=min(contract.start for contract in batch.contracts),
         train_stop=max(contract.stop for contract in batch.contracts),
-        environment_digest=environment_digest,
+        environment_digest=(
+            environment_digest
+            if sample_stride == 1
+            else content_digest(
+                {
+                    "environment_digest": environment_digest,
+                    "sample_stride": sample_stride,
+                    "schema_version": "universal_teacher_sampling_v1",
+                }
+            )
+        ),
         action_spec_digest=action_spec_digest,
         teacher_config_digest=teacher_config_digest,
         decision_indices=np.asarray(decision_indices, dtype=np.int64),

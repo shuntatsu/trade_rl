@@ -516,7 +516,7 @@ uv run python scripts/run_universal_full_research.py --help
 ```
 
 Expected: all tests and static checks pass; help names
-`trade_rl.integrations.binance_universal_runtime:build_runtime` and requires the
+`trade_rl.workflows.binance_universal_runtime:build_runtime` and requires the
 runtime manifest.
 
 - [ ] **Step 5: Commit**

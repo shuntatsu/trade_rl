@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from typing import Any, cast
 
 import numpy as np
@@ -84,6 +85,7 @@ def build_episode_oracle_batch_for_environment(
     train_range: tuple[int, int],
     seed: int,
     n_envs: int,
+    max_episodes: int | None = None,
 ) -> EpisodeOracleBatch:
     """Build Oracle episode evidence inside one explicit train-only index range."""
 
@@ -128,6 +130,17 @@ def build_episode_oracle_batch_for_environment(
         train_range=(start, stop),
         seed=seed,
     )
+    if max_episodes is not None:
+        if (
+            isinstance(max_episodes, bool)
+            or not isinstance(max_episodes, int)
+            or max_episodes <= 0
+        ):
+            raise ValueError("Oracle max_episodes must be positive when set")
+        sampling_config = replace(
+            sampling_config,
+            episode_count=min(sampling_config.episode_count, max_episodes),
+        )
     solver_config = _oracle_solver_config()
     workers = _teacher_worker_count(n_envs, solver_config=solver_config)
     return build_episode_oracle_batch(

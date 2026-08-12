@@ -33,20 +33,24 @@ def test_build_universal_oracle_batches_is_train_scoped_and_closes_children(
     bindings = (_binding("AAAUSDT"), _binding("BBBUSDT"))
     opened: list[str] = []
     closed: list[str] = []
-    calls: list[tuple[str, tuple[int, int], int, int]] = []
+    calls: list[tuple[str, tuple[int, int], int, int, int | None]] = []
 
     class Child:
         def __init__(self, binding: InstrumentDatasetBinding) -> None:
             self.binding = binding
-            self.dataset = SimpleNamespace(dataset_id=binding.source_dataset_id)
+            self.minimum_start_index = 11
+            self.dataset = SimpleNamespace(
+                dataset_id=binding.source_dataset_id,
+                n_bars=100,
+            )
             opened.append(binding.concrete_symbol)
 
         def close(self) -> None:
             closed.append(self.binding.concrete_symbol)
 
-    def build_batch(environment, *, train_range, seed, n_envs):
+    def build_batch(environment, *, train_range, seed, n_envs, max_episodes):
         symbol = environment.binding.concrete_symbol
-        calls.append((symbol, train_range, seed, n_envs))
+        calls.append((symbol, train_range, seed, n_envs, max_episodes))
         return SimpleNamespace(dataset_id=environment.binding.source_dataset_id)
 
     monkeypatch.setattr(
@@ -68,8 +72,8 @@ def test_build_universal_oracle_batches_is_train_scoped_and_closes_children(
     assert opened == ["AAAUSDT", "BBBUSDT"]
     assert closed == opened
     assert calls == [
-        ("AAAUSDT", (11, 73), 29, 4),
-        ("BBBUSDT", (11, 73), 29, 4),
+        ("AAAUSDT", (11, 73), 29, 4, 1),
+        ("BBBUSDT", (11, 73), 29, 4, 1),
     ]
 
 
@@ -87,7 +91,8 @@ def test_build_universal_oracle_batches_rejects_batch_dataset_identity_mismatch(
     closed: list[bool] = []
 
     class Child:
-        dataset = SimpleNamespace(dataset_id=binding.source_dataset_id)
+        minimum_start_index = 5
+        dataset = SimpleNamespace(dataset_id=binding.source_dataset_id, n_bars=40)
 
         def close(self) -> None:
             closed.append(True)

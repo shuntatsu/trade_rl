@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import torch
 
 from trade_rl.integrations.training_telemetry import (
     TrainingTelemetrySampler,
@@ -38,7 +39,10 @@ def info(
         "reward_total_scaled": 0.214,
         "drawdown_after": 0.0086,
         "interval_cost": 4.25,
+        "interval_gross_return": 0.0013,
         "interval_net_return": 0.0012,
+        "shadow_interval_net_return": 0.0004,
+        "hybrid_execution": SimpleNamespace(filled_turnover=0.25, fill_count=1),
         "telemetry_risk_reasons": risk_reasons,
         "emergency_deleverage": emergency,
         "hybrid_terminated": terminated,
@@ -128,6 +132,112 @@ def test_sampler_skips_unimportant_steps_and_preserves_position_risk_and_termina
     ]
     assert [item.sequence for item in page.items] == [1, 2, 3]
     assert page.items[0].action == pytest.approx((0.4,))
+    assert page.items[0].filled_turnover == pytest.approx(0.25)
+    assert page.items[0].fill_count == 1
+    assert page.items[0].interval_gross_return == pytest.approx(0.0013)
+    assert page.items[0].baseline_excess_return == pytest.approx(0.0008)
+    assert page.items[0].target_delta_l1 == pytest.approx(0.2)
+
+
+def test_sampler_accepts_torch_rollout_tensors(tmp_path: Path) -> None:
+    path = tmp_path / "training-telemetry.jsonl"
+    sampler = TrainingTelemetrySampler(path, seed=7, sample_every=1)
+
+    emitted = sampler.consume(
+        global_step=1,
+        actions=torch.tensor([[0.1]]),
+        rewards=torch.tensor([0.2]),
+        dones=torch.tensor([False]),
+        infos=(info(1),),
+    )
+    sampler.close()
+
+    assert emitted == 1
+    assert sampler.last_error is None
+    assert read_training_telemetry(path, limit=10).items[0].reward == pytest.approx(
+        0.214
+    )
+
+
+def test_sampler_reads_execution_scalars_from_compact_training_info(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "training-telemetry.jsonl"
+    sampler = TrainingTelemetrySampler(path, seed=7, sample_every=1)
+    compact = info(1)
+    compact.pop("hybrid_execution")
+    compact["telemetry_filled_turnover"] = 0.75
+    compact["telemetry_fill_count"] = 3
+
+    assert (
+        sampler.consume(
+            global_step=1,
+            actions=np.asarray([[0.1]]),
+            rewards=np.asarray([0.2]),
+            dones=np.asarray([False]),
+            infos=(compact,),
+        )
+        == 1
+    )
+    sampler.close()
+
+    record = read_training_telemetry(path, limit=10).items[0]
+    assert record.filled_turnover == pytest.approx(0.75)
+    assert record.fill_count == 3
+
+
+def test_sampler_moves_device_tensors_to_cpu_before_numpy(tmp_path: Path) -> None:
+    class _DeviceTensor:
+        def __init__(self, values: object) -> None:
+            self.values = np.asarray(values)
+
+        def __array__(self, *_args: object) -> np.ndarray:
+            raise TypeError("cannot convert cuda tensor to numpy")
+
+        def detach(self) -> _DeviceTensor:
+            return self
+
+        def cpu(self) -> SimpleNamespace:
+            return SimpleNamespace(numpy=lambda: self.values)
+
+    path = tmp_path / "training-telemetry.jsonl"
+    sampler = TrainingTelemetrySampler(path, seed=7, sample_every=1)
+
+    emitted = sampler.consume(
+        global_step=1,
+        actions=_DeviceTensor([[0.1]]),
+        rewards=_DeviceTensor([0.2]),
+        dones=_DeviceTensor([False]),
+        infos=(info(1),),
+    )
+    sampler.close()
+
+    assert emitted == 1
+    assert sampler.last_error is None
+
+
+def test_sampler_recovers_concrete_symbol_from_instrument_binding(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "training-telemetry.jsonl"
+    sampler = TrainingTelemetrySampler(path, seed=7, sample_every=1)
+    routed = info(1)
+    routed.pop("telemetry_symbol")
+    routed["instrument_episode_binding"] = {"concrete_symbol": "SOLUSDT"}
+
+    assert (
+        sampler.consume(
+            global_step=1,
+            actions=np.asarray([[0.1]]),
+            rewards=np.asarray([0.2]),
+            dones=np.asarray([False]),
+            infos=(routed,),
+        )
+        == 1
+    )
+    sampler.close()
+
+    assert read_training_telemetry(path, limit=10).items[0].symbol == "SOLUSDT"
 
 
 def test_sampler_preserves_vecenv_termination_semantics(tmp_path: Path) -> None:

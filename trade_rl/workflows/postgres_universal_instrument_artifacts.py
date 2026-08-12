@@ -13,6 +13,10 @@ from trade_rl.integrations.postgres_indicator_artifacts import (
 from trade_rl.integrations.postgres_indicator_inventory import (
     load_postgres_indicator_source_inventory,
 )
+from trade_rl.integrations.postgres_market_tables import (
+    LEGACY_MARKET_TABLES,
+    PostgresMarketTableSet,
+)
 from trade_rl.workflows.universal_instrument_artifacts import (
     UniversalInstrumentArtifactPaths,
     materialize_universal_instrument_artifacts,
@@ -28,12 +32,14 @@ def materialize_postgres_universal_instrument_artifacts(
     metadata_digests: Mapping[str, str],
     seed: int,
     cache_id: str = INDICATOR_CACHE_ID,
+    tables: PostgresMarketTableSet = LEGACY_MARKET_TABLES,
 ) -> UniversalInstrumentArtifactPaths:
     """Load metadata-only PostgreSQL evidence and publish one bound bundle."""
 
     source = load_postgres_indicator_source_inventory(
         connection,
         cache_id=cache_id,
+        tables=tables,
     )
     return materialize_universal_instrument_artifacts(
         output_dir,

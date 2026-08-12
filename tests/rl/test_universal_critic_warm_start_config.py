@@ -33,14 +33,15 @@ def test_universal_critic_warm_start_requires_both_phases() -> None:
         )
 
 
-def test_universal_critic_warm_start_requires_oracle_bc() -> None:
-    with pytest.raises(ValueError, match="Oracle behavior cloning"):
-        _config(
-            behavior_cloning_epochs=2,
-            behavior_cloning_teacher="trend_baseline",
-            behavior_cloning_critic_warm_start_steps=10,
-            behavior_cloning_joint_warm_start_steps=5,
-        )
+def test_universal_critic_warm_start_accepts_causal_trend_returns() -> None:
+    config = _config(
+        behavior_cloning_epochs=2,
+        behavior_cloning_teacher="trend_baseline",
+        behavior_cloning_critic_warm_start_steps=10,
+        behavior_cloning_joint_warm_start_steps=5,
+    )
+
+    assert config.behavior_cloning_critic_warm_start_enabled is True
 
 
 def test_universal_critic_warm_start_requires_behavior_cloning() -> None:

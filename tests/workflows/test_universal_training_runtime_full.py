@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from types import SimpleNamespace
 
 import pytest
@@ -89,8 +88,14 @@ def test_concrete_action_spec_digest_is_symbol_specific_but_deterministic() -> N
     assert len(first) == 64
     assert first == content_digest(
         {
-            "action_schema": ACTION_SCHEMA,
+            "schema_version": ACTION_SCHEMA,
+            "alpha_enabled": action.alpha_enabled,
+            "mode": "target_weight",
+            "risk_tilt_enabled": action.risk_tilt_enabled,
+            "n_factors": action.n_factors,
             "names": ("target_weight:AAAUSDT",),
-            "spec": asdict(action),
+            "residual_scale": action.residual_scale,
+            "target_weight_count": action.target_weight_count,
+            "validation_mode": action.validation_mode.value,
         }
     )

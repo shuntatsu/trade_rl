@@ -102,3 +102,30 @@ def test_action_path_reports_where_submitted_changes_disappear(
     assert evidence.executed_change_count == 2
     assert evidence.constant_submitted_actions is False
     assert evidence.inactive_mask_rate == 0.5
+
+
+def test_action_path_can_request_stochastic_model_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(rollout_evaluation, "ClosedTradeTracker", _Trades)
+    environment = _Environment()
+
+    class _Model:
+        modes: list[bool] = []
+
+        def predict(
+            self, observation: object, *, deterministic: bool
+        ) -> tuple[np.ndarray, None]:
+            del observation
+            self.modes.append(deterministic)
+            return np.asarray([0.2, 0.0], dtype=np.float32), None
+
+    model = _Model()
+    rollout_evaluation.evaluate_action_path(
+        environment,
+        evaluation_range=(0, 4),
+        model=model,
+        deterministic=False,
+    )
+
+    assert model.modes == [False, False, False]

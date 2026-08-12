@@ -2,24 +2,41 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+import math
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from trade_rl.artifacts.atomic_write import atomic_write_bytes
+from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.integrations.policy_stage_snapshot import write_policy_stage_snapshot
 from trade_rl.integrations.sb3_behavior_cloning import (
+    _behavior_cloning_gate_thresholds,
     _behavior_cloning_quality,
+    _evaluate_hierarchical_behavior_cloning_gate,
     _hierarchical_behavior_cloning_config,
     _hierarchical_teacher_labels,
+    _teacher_change_labels,
 )
 from trade_rl.integrations.universal_behavior_cloning import pretrain_universal_policy
 from trade_rl.integrations.universal_critic_warm_start import (
     warm_start_policy_actor_critic,
 )
+from trade_rl.learning.direct_bc_evaluation import (
+    evaluate_direct_behavior_cloning_gates,
+)
 from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
+from trade_rl.learning.episode_oracle_bc import (
+    EpisodeBehaviorCloningHoldoutEvaluation,
+    aggregate_episode_behavior_cloning_holdouts,
+    evaluate_episode_behavior_cloning_holdout,
+)
+from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
+from trade_rl.learning.evaluation import write_learning_evaluation
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.learning.universal_bc import CriticWarmStartPlan, UniversalTeacherArtifact
 from trade_rl.rl.training import ResidualTrainingConfig
@@ -34,9 +51,11 @@ class UniversalPretrainingBundle:
     dataset: SupervisedPolicyDataset
     split: BehaviorCloningSplit
     symbol_sample_indices: Mapping[str, tuple[int, ...]]
+    symbol_splits: Mapping[str, BehaviorCloningSplit]
     critic_targets: np.ndarray
     train_symbols: tuple[str, ...]
     teacher_artifact: UniversalTeacherArtifact
+    episode_batches: Mapping[str, EpisodeOracleBatch] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.dataset, SupervisedPolicyDataset):
@@ -48,6 +67,20 @@ class UniversalPretrainingBundle:
             raise ValueError("train_symbols must be non-empty and unique")
         if set(self.symbol_sample_indices) != set(symbols):
             raise ValueError("symbol sample scope must exactly match train_symbols")
+        if set(self.symbol_splits) != set(symbols) or any(
+            not isinstance(split, BehaviorCloningSplit)
+            for split in self.symbol_splits.values()
+        ):
+            raise ValueError("symbol split scope must exactly match train_symbols")
+        episode_batches = dict(self.episode_batches)
+        if episode_batches and (
+            set(episode_batches) != set(symbols)
+            or any(
+                not isinstance(batch, EpisodeOracleBatch)
+                for batch in episode_batches.values()
+            )
+        ):
+            raise ValueError("episode batch scope must exactly match train_symbols")
         train_scope = {int(value) for value in self.split.train_indices}
         observed: set[int] = set()
         normalized: dict[str, tuple[int, ...]] = {}
@@ -78,6 +111,8 @@ class UniversalPretrainingBundle:
             raise ValueError("teacher artifact train symbol scope mismatch")
         object.__setattr__(self, "train_symbols", symbols)
         object.__setattr__(self, "symbol_sample_indices", normalized)
+        object.__setattr__(self, "symbol_splits", dict(self.symbol_splits))
+        object.__setattr__(self, "episode_batches", episode_batches)
         object.__setattr__(self, "critic_targets", targets)
 
 
@@ -100,7 +135,7 @@ def _validated_local_partition(
 
 def _concatenate_observations(
     datasets: Sequence[SupervisedPolicyDataset],
-) -> object:
+) -> np.ndarray | Mapping[str, np.ndarray]:
     first = datasets[0].observations
     if isinstance(first, Mapping):
         keys = tuple(sorted(first))
@@ -169,6 +204,7 @@ def combine_symbol_teachers(
     validation_episode_ids: list[np.ndarray] = []
     purged_episode_ids: list[np.ndarray] = []
     symbol_sample_indices: dict[str, tuple[int, ...]] = {}
+    symbol_splits: dict[str, BehaviorCloningSplit] = {}
     offset = 0
     next_episode_id = 0
     action_spec_digest: str | None = None
@@ -207,6 +243,7 @@ def combine_symbol_teachers(
         validation_indices.append(shifted_validation)
         purged_indices.append(shifted_purged)
         symbol_sample_indices[symbol] = tuple(int(value) for value in shifted_train)
+        symbol_splits[symbol] = split
 
         local_episode_ids = sorted(
             {
@@ -260,7 +297,7 @@ def combine_symbol_teachers(
     )
     total = int(actions.shape[0])
     combined_dataset = SupervisedPolicyDataset(
-        observations=observations,  # type: ignore[arg-type]
+        observations=observations,
         actions=actions,
         dataset_id=content_digest(
             {
@@ -306,6 +343,7 @@ def combine_symbol_teachers(
         dataset=combined_dataset,
         split=combined_split,
         symbol_sample_indices=symbol_sample_indices,
+        symbol_splits=symbol_splits,
         critic_targets=np.concatenate(targets),
         train_symbols=symbols,
         teacher_artifact=teacher_artifact,
@@ -314,11 +352,18 @@ def combine_symbol_teachers(
 
 def build_universal_pretraining_hook(
     bundle: UniversalPretrainingBundle,
+    *,
+    symbol_environment_factories: Mapping[str, Callable[[], Any]] | None = None,
 ) -> Any:
     """Return the SB3 pretraining hook for one immutable Universal teacher bundle."""
 
     if not isinstance(bundle, UniversalPretrainingBundle):
         raise TypeError("bundle must be UniversalPretrainingBundle")
+    environment_factories = dict(symbol_environment_factories or {})
+    if environment_factories and set(environment_factories) != set(
+        bundle.train_symbols
+    ):
+        raise ValueError("Universal holdout environment scope mismatch")
 
     def hook(
         *,
@@ -329,11 +374,42 @@ def build_universal_pretraining_hook(
         output_root: Path,
     ) -> dict[str, object]:
         bc_config = _hierarchical_behavior_cloning_config(config)
+        validation_count = int(bundle.split.validation_indices.size)
+        if validation_count:
+            validation_fraction = math.nextafter(
+                validation_count / bundle.dataset.sample_count,
+                1.0,
+            )
+            if validation_fraction >= 0.5:
+                raise ValueError(
+                    "Universal episode holdout must remain below half the samples"
+                )
+            bc_config = replace(
+                bc_config,
+                validation_fraction=validation_fraction,
+            )
         labels = _hierarchical_teacher_labels(
             policy=policy,
             teacher_dataset=bundle.dataset,
             config=config,
         )
+
+        progress_history: list[dict[str, object]] = []
+
+        def write_behavior_cloning_progress(progress: dict[str, object]) -> None:
+            progress_history.append(dict(progress))
+            payload = {
+                "behavior_cloning_seed": behavior_cloning_seed,
+                "history": tuple(progress_history),
+                "member_seed": member_seed,
+                "schema_version": "universal_behavior_cloning_progress_v1",
+                **progress,
+            }
+            atomic_write_bytes(
+                output_root / "behavior-cloning-progress.json",
+                canonical_json_bytes(payload) + b"\n",
+            )
+
         bc_result = pretrain_universal_policy(
             policy,
             bundle.dataset,
@@ -345,6 +421,7 @@ def build_universal_pretraining_hook(
             observation_provider=None,
             output_root=output_root / "behavior-cloning",
             hierarchical_labels=labels,
+            progress_callback=write_behavior_cloning_progress,
         )
         relative_improvement, bc_passed = _behavior_cloning_quality(
             initial_mse=float(bc_result.initial_mse),
@@ -360,6 +437,132 @@ def build_universal_pretraining_hook(
         bc_digest = getattr(bc_result, "digest", None)
         if not isinstance(bc_digest, str) or len(bc_digest) != 64:
             raise ValueError("Universal behavior cloning result digest is invalid")
+        hierarchical_payload = {
+            name: (
+                None
+                if (value := getattr(bc_result, attribute, None)) is None
+                else asdict(value)
+            )
+            for name, attribute in (
+                ("initial_losses", "initial_hierarchical_losses"),
+                ("final_losses", "final_hierarchical_losses"),
+                ("validation_losses", "validation_hierarchical_losses"),
+                ("initial_metrics", "initial_hierarchical_metrics"),
+                ("final_metrics", "final_hierarchical_metrics"),
+                ("validation_metrics", "validation_hierarchical_metrics"),
+            )
+        }
+        result_payload = {
+            "behavior_cloning_digest": bc_digest,
+            "best_epoch": int(bc_result.best_epoch),
+            "excluded_sample_count": int(bc_result.excluded_sample_count),
+            "final_mse": float(bc_result.final_mse),
+            "hierarchical": hierarchical_payload,
+            "initial_mse": float(bc_result.initial_mse),
+            "sample_count": int(bc_result.sample_count),
+            "schema_version": "universal_behavior_cloning_result_v2",
+            "training_sample_count": int(bc_result.training_sample_count),
+            "validation_mse": (
+                None
+                if bc_result.validation_mse is None
+                else float(bc_result.validation_mse)
+            ),
+            "validation_sample_count": int(bc_result.validation_sample_count),
+        }
+        result_artifact_digest = content_digest(result_payload)
+        atomic_write_bytes(
+            output_root / "behavior-cloning-result.json",
+            canonical_json_bytes(
+                {**result_payload, "artifact_digest": result_artifact_digest}
+            )
+            + b"\n",
+        )
+        write_policy_stage_snapshot(
+            policy,
+            output_root=output_root,
+            stage="behavior_cloning",
+            member_seed=member_seed,
+        )
+
+        holdout_digest: str | None = None
+        gate_digest: str | None = None
+        if config.behavior_cloning_validation_fraction > 0.0:
+            if not bundle.episode_batches:
+                raise RuntimeError("Universal Oracle episode batches are unavailable")
+            if set(environment_factories) != set(bundle.train_symbols):
+                raise RuntimeError(
+                    "Universal causal holdout environment factories are unavailable"
+                )
+            holdouts: list[EpisodeBehaviorCloningHoldoutEvaluation] = []
+            for symbol in bundle.train_symbols:
+                _, holdout = evaluate_episode_behavior_cloning_holdout(
+                    environment_factory=environment_factories[symbol],
+                    model=policy,
+                    batch=bundle.episode_batches[symbol],
+                    split=bundle.symbol_splits[symbol],
+                    output_root=output_root / "behavior-cloning-holdout" / symbol,
+                    bootstrap_confidence_level=(
+                        config.behavior_cloning_causal_holdout_confidence_level
+                    ),
+                    bootstrap_resamples=(
+                        config.behavior_cloning_causal_holdout_bootstrap_resamples
+                    ),
+                )
+                if holdout is None:
+                    raise RuntimeError(
+                        f"Universal causal holdout is empty for {symbol}"
+                    )
+                holdouts.append(holdout)
+            aggregate_holdout = aggregate_episode_behavior_cloning_holdouts(
+                tuple(holdouts),
+                seed_material=content_digest(
+                    {
+                        "member_seed": member_seed,
+                        "teacher_artifact_digest": (
+                            bundle.teacher_artifact.artifact_digest
+                        ),
+                    }
+                ),
+            )
+            holdout_payload = aggregate_holdout.to_dict()
+            holdout_digest = content_digest(holdout_payload)
+            atomic_write_bytes(
+                output_root / "behavior-cloning-holdout.json",
+                canonical_json_bytes(
+                    {**holdout_payload, "artifact_digest": holdout_digest}
+                )
+                + b"\n",
+            )
+            thresholds = _behavior_cloning_gate_thresholds(config)
+            if labels is not None:
+                gate = _evaluate_hierarchical_behavior_cloning_gate(
+                    cloning=bc_result,
+                    holdout=aggregate_holdout,
+                    thresholds=thresholds,
+                )
+            else:
+                teacher_changes = _teacher_change_labels(
+                    teacher_dataset=bundle.dataset,
+                    config=config,
+                )
+                if teacher_changes is None:
+                    raise RuntimeError(
+                        "Universal teacher change labels are unavailable"
+                    )
+                gate = evaluate_direct_behavior_cloning_gates(
+                    initial_mse=float(bc_result.initial_mse),
+                    final_mse=float(bc_result.final_mse),
+                    teacher_change_support=(
+                        teacher_changes.diagnostics.gate_positive_count
+                    ),
+                    holdout=aggregate_holdout,
+                    thresholds=thresholds,
+                )
+            gate_digest = write_learning_evaluation(
+                output_root / "behavior-cloning-gates.json",
+                gate,
+            )
+            gate.require_passed()
 
         critic_digest: str | None = None
         critic_only_steps = config.behavior_cloning_critic_warm_start_steps
@@ -412,14 +615,23 @@ def build_universal_pretraining_hook(
                     "teacher_artifact_digest": bundle.teacher_artifact.artifact_digest,
                 }
             )
+        write_policy_stage_snapshot(
+            policy,
+            output_root=output_root,
+            stage="behavior_cloning_critic",
+            member_seed=member_seed,
+        )
 
         return {
             "schema_version": "universal_pretraining_evidence_v1",
             "passed": True,
             "teacher_artifact_digest": bundle.teacher_artifact.artifact_digest,
             "behavior_cloning_digest": bc_digest,
+            "behavior_cloning_result_artifact_digest": result_artifact_digest,
             "critic_warm_start_digest": critic_digest,
             "behavior_cloning_relative_improvement": relative_improvement,
+            "behavior_cloning_holdout_digest": holdout_digest,
+            "behavior_cloning_gate_digest": gate_digest,
             "train_symbols": bundle.train_symbols,
             "train_sample_count": int(bundle.split.train_indices.size),
             "validation_sample_count": int(bundle.split.validation_indices.size),

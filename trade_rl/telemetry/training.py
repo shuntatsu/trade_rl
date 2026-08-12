@@ -147,6 +147,14 @@ class TrainingTelemetryRecord:
     terminated: bool
     truncated: bool
     episode_id: int | None = None
+    filled_turnover: float | None = None
+    fill_count: int | None = None
+    interval_gross_return: float | None = None
+    baseline_excess_return: float | None = None
+    target_delta_l1: float | None = None
+    sign_flip_count: int | None = None
+    gross_pnl: float | None = None
+    net_pnl: float | None = None
     schema_version: str = TELEMETRY_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -177,6 +185,14 @@ class TrainingTelemetryRecord:
             or self.episode_id < 0
         ):
             raise ValueError("episode_id is invalid")
+        for name, count in (
+            ("fill_count", self.fill_count),
+            ("sign_flip_count", self.sign_flip_count),
+        ):
+            if count is not None and (
+                isinstance(count, bool) or not isinstance(count, int) or count < 0
+            ):
+                raise ValueError(f"{name} is invalid")
         try:
             recorded = datetime.fromisoformat(self.recorded_at.replace("Z", "+00:00"))
         except ValueError as error:
@@ -200,6 +216,12 @@ class TrainingTelemetryRecord:
             ("drawdown", self.drawdown),
             ("interval_cost", self.interval_cost),
             ("interval_return", self.interval_return),
+            ("filled_turnover", self.filled_turnover),
+            ("interval_gross_return", self.interval_gross_return),
+            ("baseline_excess_return", self.baseline_excess_return),
+            ("target_delta_l1", self.target_delta_l1),
+            ("gross_pnl", self.gross_pnl),
+            ("net_pnl", self.net_pnl),
         ):
             _finite(metric_value, field=field)
         for field, values in (
@@ -242,6 +264,14 @@ class TrainingTelemetryRecord:
             "drawdown": self.drawdown,
             "interval_cost": self.interval_cost,
             "interval_return": self.interval_return,
+            "filled_turnover": self.filled_turnover,
+            "fill_count": self.fill_count,
+            "interval_gross_return": self.interval_gross_return,
+            "baseline_excess_return": self.baseline_excess_return,
+            "target_delta_l1": self.target_delta_l1,
+            "sign_flip_count": self.sign_flip_count,
+            "gross_pnl": self.gross_pnl,
+            "net_pnl": self.net_pnl,
             "risk_reasons": list(self.risk_reasons),
             "emergency_deleverage": self.emergency_deleverage,
             "terminated": self.terminated,
@@ -292,6 +322,14 @@ class TrainingTelemetryRecord:
             drawdown=_optional_float(raw, "drawdown"),
             interval_cost=_optional_float(raw, "interval_cost"),
             interval_return=_optional_float(raw, "interval_return"),
+            filled_turnover=_optional_float(raw, "filled_turnover"),
+            fill_count=_optional_int(raw, "fill_count"),
+            interval_gross_return=_optional_float(raw, "interval_gross_return"),
+            baseline_excess_return=_optional_float(raw, "baseline_excess_return"),
+            target_delta_l1=_optional_float(raw, "target_delta_l1"),
+            sign_flip_count=_optional_int(raw, "sign_flip_count"),
+            gross_pnl=_optional_float(raw, "gross_pnl"),
+            net_pnl=_optional_float(raw, "net_pnl"),
             risk_reasons=_string_tuple(raw, "risk_reasons"),
             emergency_deleverage=_required_bool(raw, "emergency_deleverage"),
             terminated=terminated,

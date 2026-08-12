@@ -177,3 +177,27 @@ def test_load_universal_runtime_factory_requires_module_function(
     assert callable(factory)
     with pytest.raises(ValueError, match="module:function"):
         load_universal_runtime_factory("fake_universal_runtime")
+
+
+def test_runtime_factory_context_loads_manifest_and_rejects_compatibility_drift(
+    tmp_path: Path,
+) -> None:
+    from tests.workflows.test_binance_universal_runtime import _manifest
+    from trade_rl.workflows.universal_full_research_entrypoint import (
+        UniversalRuntimeFactoryContext,
+    )
+
+    manifest = _manifest(tmp_path / "runtime.json")
+    context = UniversalRuntimeFactoryContext(
+        runtime_manifest_path=tmp_path / "runtime.json",
+        frozen_metadata_root=tmp_path / "frozen",
+        normalizer_digest=manifest.statistics_digest,
+    )
+    assert context.manifest == manifest
+    assert context.dataset_artifact_root == tmp_path / "datasets"
+    with pytest.raises(ValueError, match="normalizer digest"):
+        UniversalRuntimeFactoryContext(
+            runtime_manifest_path=tmp_path / "runtime.json",
+            frozen_metadata_root=tmp_path / "frozen",
+            normalizer_digest=_digest("drift"),
+        )

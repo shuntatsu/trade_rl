@@ -13,14 +13,14 @@ from typing import Any, Final, Protocol
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.integrations.postgres_market_tables import (
+    LEGACY_MARKET_TABLES,
+    PostgresMarketTableSet,
+)
 
 INDICATOR_CACHE_ID: Final = "binance-usds-m-native-indicators-15x-202101-202606-v1"
-INDICATOR_ARTIFACT_TABLE: Final = (
-    "market_raw.binance_usds_m_indicator_artifacts_202101_202606"
-)
-INDICATOR_MANIFEST_TABLE: Final = (
-    "market_raw.binance_usds_m_indicator_manifests_202101_202606"
-)
+INDICATOR_ARTIFACT_TABLE: Final = LEGACY_MARKET_TABLES.indicator_artifact
+INDICATOR_MANIFEST_TABLE: Final = LEGACY_MARKET_TABLES.indicator_manifest
 _MANIFEST_SCHEMA: Final = "native_indicator_cache_v1"
 _PAYLOAD_SCHEMA_PREFIX: Final = "npz_native_indicator_v1:"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -235,6 +235,7 @@ def load_postgres_indicator_artifacts(
     symbols: Sequence[str],
     timeframes: Sequence[str],
     cache_id: str = INDICATOR_CACHE_ID,
+    tables: PostgresMarketTableSet = LEGACY_MARKET_TABLES,
 ) -> NativeIndicatorArtifactBundle:
     """Load and verify only the requested PostgreSQL NPZ artifacts."""
 
@@ -245,7 +246,7 @@ def load_postgres_indicator_artifacts(
             f"""
             SELECT cache_id, schema_version, market, symbols, start_time, end_time,
                    feature_config_digest, feature_specs, artifact_count
-            FROM {INDICATOR_MANIFEST_TABLE}
+            FROM {tables.indicator_manifest}
             WHERE cache_id = %s
             """,
             (cache_id,),
@@ -258,7 +259,7 @@ def load_postgres_indicator_artifacts(
             SELECT symbol, timeframe, row_count, feature_count,
                    available_value_count, first_event_time_ms, last_event_time_ms,
                    payload_schema, payload_sha256, payload_bytes, npz_payload
-            FROM {INDICATOR_ARTIFACT_TABLE}
+            FROM {tables.indicator_artifact}
             WHERE cache_id = %s
               AND symbol = ANY(%s)
               AND timeframe = ANY(%s)

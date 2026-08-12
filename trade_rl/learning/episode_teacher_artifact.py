@@ -130,12 +130,11 @@ class EpisodeSupervisedPolicyDataset(SupervisedPolicyDataset):
             ):
                 raise ValueError("episode teacher samples must be grouped by episode")
             indices = decision_indices[mask]
-            if len(indices) == 0 or not np.array_equal(
-                indices,
-                np.arange(indices[0], indices[0] + len(indices), dtype=np.int64),
+            if len(indices) == 0 or (
+                len(indices) > 1 and np.any(np.diff(indices) <= 0)
             ):
                 raise ValueError(
-                    "episode teacher decisions must be contiguous per episode"
+                    "episode teacher decisions must be strictly increasing per episode"
                 )
         if isinstance(observations, Mapping) and "decision_index" in observations:
             observed = np.asarray(

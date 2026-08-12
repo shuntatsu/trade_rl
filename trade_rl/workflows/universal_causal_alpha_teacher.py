@@ -1,4 +1,4 @@
-"""Train-only chronological episode contracts for the Universal causal alpha teacher."""
+"""Train-only chronological fitting contracts for the Universal causal alpha teacher."""
 
 from __future__ import annotations
 
@@ -8,11 +8,32 @@ from typing import Any, Mapping
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.identity import content_and_arrays_digest
+from trade_rl.learning.causal_alpha_teacher import (
+    CausalAlphaControllerConfig,
+    CausalAlphaRidgeConfig,
+    CausalAlphaRidgeModel,
+    causal_alpha_target_path,
+    combine_causal_alpha_predictions,
+    fit_causal_alpha_ridge,
+)
 from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
 from trade_rl.learning.episode_oracle_bc import resolve_episode_initial_weights
-from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeContract,
+)
 
 _CAUSAL_ALPHA_EPISODE_PARTITION_SCHEMA = "universal_causal_alpha_episode_partition_v1"
+_CAUSAL_ALPHA_SYMBOL_SAMPLES_SCHEMA = "universal_causal_alpha_symbol_samples_v1"
+_CAUSAL_ALPHA_EXPANDING_FIT_SCHEMA = "universal_causal_alpha_expanding_fit_v1"
+_CAUSAL_ALPHA_BATCH_EVIDENCE_SCHEMA = "universal_causal_alpha_batch_evidence_v1"
+
+
+def _readonly(value: object, *, dtype: Any) -> np.ndarray:
+    array = np.asarray(value, dtype=dtype).copy(order="C")
+    array.setflags(write=False)
+    return array
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +83,210 @@ class CausalAlphaEpisodePartition:
             raise ValueError("causal alpha episode partition digest mismatch")
         object.__setattr__(self, "contracts", contracts)
         object.__setattr__(self, "selection_contracts", selection)
+        object.__setattr__(self, "digest", expected)
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaSymbolSamples:
+    """One train-symbol causal feature/label table with explicit realization times."""
+
+    symbol: str
+    dataset_id: str
+    feature_names: tuple[str, ...]
+    feature_schema_digest: str
+    context_digest: str
+    decision_indices: np.ndarray
+    features: np.ndarray
+    feature_available: np.ndarray
+    labels_24h: np.ndarray
+    label_end_indices_24h: np.ndarray
+    labels_72h: np.ndarray
+    label_end_indices_72h: np.ndarray
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.symbol:
+            raise ValueError("causal alpha sample symbol must be non-empty")
+        for field, value in (
+            ("dataset_id", self.dataset_id),
+            ("feature_schema_digest", self.feature_schema_digest),
+            ("context_digest", self.context_digest),
+        ):
+            if not isinstance(value, str) or len(value) != 64:
+                raise ValueError(f"{field} must be a SHA-256 digest")
+        names = tuple(self.feature_names)
+        if not names or len(set(names)) != len(names) or any(not name for name in names):
+            raise ValueError("causal alpha sample feature names must be unique")
+        decisions = _readonly(self.decision_indices, dtype=np.int64).reshape(-1)
+        features = _readonly(self.features, dtype=np.float64)
+        available = _readonly(self.feature_available, dtype=np.bool_)
+        labels_24h = _readonly(self.labels_24h, dtype=np.float64).reshape(-1)
+        labels_72h = _readonly(self.labels_72h, dtype=np.float64).reshape(-1)
+        ends_24h = _readonly(self.label_end_indices_24h, dtype=np.int64).reshape(-1)
+        ends_72h = _readonly(self.label_end_indices_72h, dtype=np.int64).reshape(-1)
+        rows = decisions.size
+        if rows == 0 or np.any(decisions < 0) or np.any(np.diff(decisions) <= 0):
+            raise ValueError("causal alpha decision indices must be strictly increasing")
+        if features.shape != (rows, len(names)) or available.shape != features.shape:
+            raise ValueError("causal alpha feature arrays are not schema aligned")
+        if not np.isfinite(features).all():
+            raise ValueError("causal alpha features must be finite")
+        for field, labels, ends in (
+            ("24h", labels_24h, ends_24h),
+            ("72h", labels_72h, ends_72h),
+        ):
+            if labels.shape != (rows,) or ends.shape != (rows,):
+                raise ValueError(f"causal alpha {field} labels are not sample aligned")
+            valid = ends >= 0
+            if np.any(valid & ~np.isfinite(labels)):
+                raise ValueError(f"causal alpha {field} realized labels must be finite")
+            if np.any(~valid & np.isfinite(labels)):
+                raise ValueError(
+                    f"causal alpha {field} unavailable labels require non-finite values"
+                )
+        expected = content_and_arrays_digest(
+            {
+                "context_digest": self.context_digest,
+                "dataset_id": self.dataset_id,
+                "feature_names": names,
+                "feature_schema_digest": self.feature_schema_digest,
+                "schema_version": _CAUSAL_ALPHA_SYMBOL_SAMPLES_SCHEMA,
+                "symbol": self.symbol,
+            },
+            (
+                ("decision_indices", decisions),
+                ("features", features),
+                ("feature_available", available),
+                ("labels_24h", labels_24h),
+                ("label_end_indices_24h", ends_24h),
+                ("labels_72h", labels_72h),
+                ("label_end_indices_72h", ends_72h),
+            ),
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha symbol sample digest mismatch")
+        object.__setattr__(self, "feature_names", names)
+        object.__setattr__(self, "decision_indices", decisions)
+        object.__setattr__(self, "features", features)
+        object.__setattr__(self, "feature_available", available)
+        object.__setattr__(self, "labels_24h", labels_24h)
+        object.__setattr__(self, "labels_72h", labels_72h)
+        object.__setattr__(self, "label_end_indices_24h", ends_24h)
+        object.__setattr__(self, "label_end_indices_72h", ends_72h)
+        object.__setattr__(self, "digest", expected)
+
+    def features_for_decisions(self, decision_indices: object) -> np.ndarray:
+        requested = np.asarray(decision_indices, dtype=np.int64).reshape(-1)
+        positions = np.searchsorted(self.decision_indices, requested)
+        if (
+            np.any(positions >= self.decision_indices.size)
+            or not np.array_equal(self.decision_indices[positions], requested)
+        ):
+            raise ValueError("causal alpha prediction decisions are absent from samples")
+        if not np.all(self.feature_available[positions]):
+            raise ValueError("causal alpha prediction features are unavailable")
+        return np.asarray(self.features[positions], dtype=np.float64)
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaExpandingFit:
+    train_symbols: tuple[str, ...]
+    knowledge_cutoff: int
+    model_24h: CausalAlphaRidgeModel
+    model_72h: CausalAlphaRidgeModel
+    sample_count_24h: int
+    sample_count_72h: int
+    max_label_end_24h: int
+    max_label_end_72h: int
+    sample_scope_digest: str
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.train_symbols or len(set(self.train_symbols)) != len(self.train_symbols):
+            raise ValueError("causal alpha fit train_symbols must be unique")
+        if self.knowledge_cutoff <= 0:
+            raise ValueError("causal alpha knowledge cutoff must be positive")
+        for field, count in (
+            ("sample_count_24h", self.sample_count_24h),
+            ("sample_count_72h", self.sample_count_72h),
+        ):
+            if count < 2:
+                raise ValueError(f"{field} must contain fitted samples")
+        if self.max_label_end_24h >= self.knowledge_cutoff:
+            raise ValueError("24h fit crosses the causal knowledge cutoff")
+        if self.max_label_end_72h >= self.knowledge_cutoff:
+            raise ValueError("72h fit crosses the causal knowledge cutoff")
+        expected = content_digest(
+            {
+                "knowledge_cutoff": self.knowledge_cutoff,
+                "max_label_end_24h": self.max_label_end_24h,
+                "max_label_end_72h": self.max_label_end_72h,
+                "model_24h_digest": self.model_24h.digest,
+                "model_72h_digest": self.model_72h.digest,
+                "sample_count_24h": self.sample_count_24h,
+                "sample_count_72h": self.sample_count_72h,
+                "sample_scope_digest": self.sample_scope_digest,
+                "schema_version": _CAUSAL_ALPHA_EXPANDING_FIT_SCHEMA,
+                "train_symbols": self.train_symbols,
+            }
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha expanding fit digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaEpisodeEvidence:
+    episode_index: int
+    knowledge_cutoff: int
+    initial_weight: float
+    fit_digest: str
+    max_label_end_24h: int
+    max_label_end_72h: int
+    target_path_digest: str
+    prediction_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaBatchEvidence:
+    symbol: str
+    train_symbols: tuple[str, ...]
+    partition_digest: str
+    sample_scope_digest: str
+    ridge_config_digest: str
+    controller_config_digest: str
+    episodes: tuple[CausalAlphaEpisodeEvidence, ...]
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.episodes:
+            raise ValueError("causal alpha batch evidence must contain episodes")
+        expected = content_digest(
+            {
+                "controller_config_digest": self.controller_config_digest,
+                "episodes": tuple(
+                    {
+                        "episode_index": item.episode_index,
+                        "fit_digest": item.fit_digest,
+                        "initial_weight": item.initial_weight,
+                        "knowledge_cutoff": item.knowledge_cutoff,
+                        "max_label_end_24h": item.max_label_end_24h,
+                        "max_label_end_72h": item.max_label_end_72h,
+                        "prediction_digest": item.prediction_digest,
+                        "target_path_digest": item.target_path_digest,
+                    }
+                    for item in self.episodes
+                ),
+                "partition_digest": self.partition_digest,
+                "ridge_config_digest": self.ridge_config_digest,
+                "sample_scope_digest": self.sample_scope_digest,
+                "schema_version": _CAUSAL_ALPHA_BATCH_EVIDENCE_SCHEMA,
+                "symbol": self.symbol,
+                "train_symbols": self.train_symbols,
+            }
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha batch evidence digest mismatch")
         object.__setattr__(self, "digest", expected)
 
 
@@ -266,9 +491,187 @@ def validate_universal_causal_alpha_partitions(
     return ordered
 
 
+def _validated_sample_scope(
+    train_symbols: tuple[str, ...],
+    samples: Mapping[str, CausalAlphaSymbolSamples],
+) -> tuple[tuple[str, ...], tuple[CausalAlphaSymbolSamples, ...], str]:
+    symbols = tuple(train_symbols)
+    if not symbols or len(set(symbols)) != len(symbols):
+        raise ValueError("causal alpha train_symbols must be non-empty and unique")
+    if set(samples) != set(symbols):
+        raise ValueError("causal alpha samples must exactly match train_symbols")
+    blocks = tuple(samples[symbol] for symbol in symbols)
+    for symbol, block in zip(symbols, blocks, strict=True):
+        if not isinstance(block, CausalAlphaSymbolSamples) or block.symbol != symbol:
+            raise ValueError("causal alpha sample symbol identity drifted")
+    names = {block.feature_names for block in blocks}
+    schemas = {block.feature_schema_digest for block in blocks}
+    if len(names) != 1 or len(schemas) != 1:
+        raise ValueError("causal alpha sample feature schema drifted across symbols")
+    scope_digest = content_digest(
+        {
+            "sample_digests": tuple(block.digest for block in blocks),
+            "schema_version": "universal_causal_alpha_sample_scope_v1",
+            "train_symbols": symbols,
+        }
+    )
+    return symbols, blocks, scope_digest
+
+
+def fit_expanding_causal_alpha_models(
+    *,
+    train_symbols: tuple[str, ...],
+    samples: Mapping[str, CausalAlphaSymbolSamples],
+    knowledge_cutoff: int,
+    ridge_config: CausalAlphaRidgeConfig,
+) -> CausalAlphaExpandingFit:
+    """Fit both horizons on pooled train-symbol labels realized before a cutoff."""
+
+    symbols, blocks, scope_digest = _validated_sample_scope(train_symbols, samples)
+    features = np.concatenate(tuple(block.features for block in blocks), axis=0)
+    available = np.concatenate(tuple(block.feature_available for block in blocks), axis=0)
+    labels_24h = np.concatenate(tuple(block.labels_24h for block in blocks), axis=0)
+    labels_72h = np.concatenate(tuple(block.labels_72h for block in blocks), axis=0)
+    ends_24h = np.concatenate(tuple(block.label_end_indices_24h for block in blocks))
+    ends_72h = np.concatenate(tuple(block.label_end_indices_72h for block in blocks))
+    feature_names = blocks[0].feature_names
+    model_24h = fit_causal_alpha_ridge(
+        features=features,
+        labels=labels_24h,
+        feature_available=available,
+        label_end_indices=ends_24h,
+        knowledge_cutoff=knowledge_cutoff,
+        feature_names=feature_names,
+        config=ridge_config,
+    )
+    model_72h = fit_causal_alpha_ridge(
+        features=features,
+        labels=labels_72h,
+        feature_available=available,
+        label_end_indices=ends_72h,
+        knowledge_cutoff=knowledge_cutoff,
+        feature_names=feature_names,
+        config=ridge_config,
+    )
+    fitted_ends_24h = ends_24h[model_24h.eligible_indices]
+    fitted_ends_72h = ends_72h[model_72h.eligible_indices]
+    return CausalAlphaExpandingFit(
+        train_symbols=symbols,
+        knowledge_cutoff=knowledge_cutoff,
+        model_24h=model_24h,
+        model_72h=model_72h,
+        sample_count_24h=model_24h.sample_count,
+        sample_count_72h=model_72h.sample_count,
+        max_label_end_24h=int(np.max(fitted_ends_24h)),
+        max_label_end_72h=int(np.max(fitted_ends_72h)),
+        sample_scope_digest=scope_digest,
+    )
+
+
+def build_causal_alpha_episode_batch(
+    *,
+    symbol: str,
+    train_symbols: tuple[str, ...],
+    samples: Mapping[str, CausalAlphaSymbolSamples],
+    partition: CausalAlphaEpisodePartition,
+    ridge_config: CausalAlphaRidgeConfig,
+    controller_config: CausalAlphaControllerConfig,
+) -> tuple[EpisodeOracleBatch, CausalAlphaBatchEvidence]:
+    """Fit at each episode start and generate one causal target path per contract."""
+
+    symbols, _, scope_digest = _validated_sample_scope(train_symbols, samples)
+    if symbol not in samples or symbol not in symbols:
+        raise ValueError("causal alpha batch symbol must be inside train_symbols")
+    block = samples[symbol]
+    if any(contract.dataset_id != block.dataset_id for contract in partition.contracts):
+        raise ValueError("causal alpha partition dataset identity drifted")
+    targets: list[np.ndarray] = []
+    episode_evidence: list[CausalAlphaEpisodeEvidence] = []
+    for contract in partition.contracts:
+        fitted = fit_expanding_causal_alpha_models(
+            train_symbols=symbols,
+            samples=samples,
+            knowledge_cutoff=contract.start,
+            ridge_config=ridge_config,
+        )
+        decisions = np.arange(contract.start, contract.stop - 1, dtype=np.int64)
+        prediction_features = block.features_for_decisions(decisions)
+        prediction_24h = fitted.model_24h.predict(prediction_features)
+        prediction_72h = fitted.model_72h.predict(prediction_features)
+        scores = combine_causal_alpha_predictions(
+            prediction_24h,
+            prediction_72h,
+            controller_config.horizon_mix,
+        )
+        initial_weight = float(contract.initial_weights[0])
+        target_path = causal_alpha_target_path(
+            scores,
+            config=controller_config,
+            initial_weight=initial_weight,
+        )
+        target_matrix = np.asarray(target_path.targets, dtype=np.float32).reshape(-1, 1)
+        prediction_digest = content_and_arrays_digest(
+            {
+                "episode_index": contract.episode_index,
+                "fit_digest": fitted.digest,
+                "knowledge_cutoff": contract.start,
+                "schema_version": "causal_alpha_episode_predictions_v1",
+                "symbol": symbol,
+            },
+            (
+                ("prediction_24h", prediction_24h),
+                ("prediction_72h", prediction_72h),
+                ("scores", scores),
+                ("targets", target_matrix),
+            ),
+        )
+        targets.append(target_matrix)
+        episode_evidence.append(
+            CausalAlphaEpisodeEvidence(
+                episode_index=contract.episode_index,
+                knowledge_cutoff=contract.start,
+                initial_weight=initial_weight,
+                fit_digest=fitted.digest,
+                max_label_end_24h=fitted.max_label_end_24h,
+                max_label_end_72h=fitted.max_label_end_72h,
+                target_path_digest=target_path.digest,
+                prediction_digest=prediction_digest,
+            )
+        )
+    evidence = CausalAlphaBatchEvidence(
+        symbol=symbol,
+        train_symbols=symbols,
+        partition_digest=partition.digest,
+        sample_scope_digest=scope_digest,
+        ridge_config_digest=ridge_config.digest,
+        controller_config_digest=controller_config.digest,
+        episodes=tuple(episode_evidence),
+    )
+    batch = EpisodeOracleBatch(
+        dataset_id=block.dataset_id,
+        teacher_config_digest=evidence.digest,
+        sampling_config_digest=content_digest(
+            {
+                "partition_digest": partition.digest,
+                "sample_scope_digest": scope_digest,
+                "schema_version": "causal_alpha_episode_sampling_v1",
+            }
+        ),
+        contracts=partition.contracts,
+        targets=tuple(targets),
+    )
+    return batch, evidence
+
+
 __all__ = [
+    "CausalAlphaBatchEvidence",
+    "CausalAlphaEpisodeEvidence",
     "CausalAlphaEpisodePartition",
+    "CausalAlphaExpandingFit",
+    "CausalAlphaSymbolSamples",
+    "build_causal_alpha_episode_batch",
     "build_chronological_episode_partition",
+    "fit_expanding_causal_alpha_models",
     "latest_complete_episode_split",
     "validate_universal_causal_alpha_partitions",
 ]

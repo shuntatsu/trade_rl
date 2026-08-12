@@ -36,10 +36,8 @@ def _apply_universal_pretraining_if_configured(
         raise ValueError(
             "Universal pretraining requires behavior cloning to be enabled"
         )
-    if config.behavior_cloning_teacher != "oracle":
-        raise ValueError(
-            "Universal pretraining requires the Oracle behavior cloning teacher"
-        )
+    if config.behavior_cloning_teacher not in {"oracle", "trend_baseline"}:
+        raise ValueError("Universal pretraining teacher is unsupported")
     if not callable(hook):
         raise TypeError("Universal pretraining hook must be callable")
     write_policy_stage_snapshot(

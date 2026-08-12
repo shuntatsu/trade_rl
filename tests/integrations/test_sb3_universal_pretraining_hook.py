@@ -67,6 +67,28 @@ def test_universal_pretraining_hook_is_fail_closed_and_persisted(
     assert (tmp_path / "policy-stages/random/policy.zip").is_file()
 
 
+def test_universal_pretraining_hook_accepts_causal_trend_teacher(
+    tmp_path: Path,
+) -> None:
+    result = sb3_training._apply_universal_pretraining_if_configured(
+        hook=lambda **_: {
+            "schema_version": "universal_pretraining_evidence_v1",
+            "passed": True,
+            "teacher_artifact_digest": "a" * 64,
+            "behavior_cloning_digest": "b" * 64,
+            "critic_warm_start_digest": None,
+        },
+        policy=_SavablePolicy(),
+        config=_config(behavior_cloning_teacher="trend_baseline"),
+        behavior_cloning_seed=13,
+        member_seed=7,
+        output_root=tmp_path,
+    )
+
+    assert result is not None
+    assert result["passed"] is True
+
+
 def test_universal_pretraining_hook_rejects_failed_evidence(tmp_path: Path) -> None:
     def hook(**kwargs: object) -> dict[str, object]:
         del kwargs

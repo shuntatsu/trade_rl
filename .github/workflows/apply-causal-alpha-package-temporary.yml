@@ -1,0 +1,77 @@
+name: Apply causal alpha package temporary
+
+on:
+  push:
+    branches:
+      - feature/universal-causal-alpha-teacher
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feature/universal-causal-alpha-teacher
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Apply package and runtime patches
+        run: |
+          python tools/_temporary_apply_causal_alpha_package.py
+          python tools/_temporary_apply_causal_alpha_runtime.py
+      - name: Verify package integration
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          files=(
+            trade_rl/learning/causal_alpha_teacher.py
+            trade_rl/workflows/universal_causal_alpha_teacher.py
+            trade_rl/workflows/universal_teacher_runtime.py
+            trade_rl/workflows/universal_training_runner.py
+            tests/workflows/test_universal_causal_alpha_package.py
+            tests/workflows/test_universal_causal_alpha_assembly.py
+          )
+          uv run ruff check --fix --select I "${files[@]}"
+          uv run ruff format "${files[@]}"
+          uv run ruff check "${files[@]}"
+          uv run ruff format --check "${files[@]}"
+          uv run mypy \
+            trade_rl/learning/causal_alpha_teacher.py \
+            trade_rl/workflows/universal_causal_alpha_teacher.py \
+            trade_rl/workflows/universal_teacher_runtime.py \
+            trade_rl/workflows/universal_training_runner.py
+          uv run pytest \
+            tests/learning/test_causal_alpha_teacher.py \
+            tests/rl/test_causal_alpha_teacher_config.py \
+            tests/workflows/test_universal_causal_alpha_teacher.py \
+            tests/workflows/test_universal_causal_alpha_fitting.py \
+            tests/workflows/test_universal_causal_alpha_samples.py \
+            tests/workflows/test_universal_causal_alpha_selection.py \
+            tests/workflows/test_universal_causal_alpha_package.py \
+            tests/workflows/test_universal_causal_alpha_assembly.py \
+            tests/workflows/test_universal_teacher_bundle_runtime.py \
+            tests/workflows/test_universal_sb3_training_assembly.py \
+            -q
+      - name: Commit verified package integration and self-delete
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -f \
+            tools/_temporary_apply_causal_alpha_package.py \
+            tools/_temporary_apply_causal_alpha_runtime.py \
+            .github/workflows/apply-causal-alpha-package-temporary.yml
+          git add \
+            trade_rl/workflows/universal_causal_alpha_teacher.py \
+            trade_rl/workflows/universal_teacher_runtime.py \
+            trade_rl/workflows/universal_training_runner.py \
+            tests/workflows/test_universal_causal_alpha_package.py \
+            tests/workflows/test_universal_causal_alpha_assembly.py
+          git commit -m 'feat: integrate shared causal alpha teacher package'
+          git push origin HEAD:feature/universal-causal-alpha-teacher

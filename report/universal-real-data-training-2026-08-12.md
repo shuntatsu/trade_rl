@@ -252,3 +252,18 @@ Generation `universal-u6-20260812-cuda-low-std-bc45-patience45-gate-balanced-r12
 - `behavior_cloning_gate_prediction_threshold`: 0.49 to 0.51, putting an uninformative balanced probability on the HOLD side rather than admitting an all-trade null predictor.
 
 Canonical example configs remain unchanged until the calibrated candidate produces non-collapsed held-out actions and passes after-cost economics.
+
+### r12 user-directed stop and r13 resume
+
+r12 completed the calibrated 45-epoch BC stage before the user-directed pause:
+
+- Restored best epoch: 12.
+- Initial/final MSE: 0.87294 / 0.82718, a 5.24% improvement.
+- Final gate precision/recall: 0.9042 / 0.6512.
+- Final activity ratio: 0.7202.
+- Both `all_trade_collapse` and `all_hold_collapse`: false.
+- Completed causal holdouts before the pause: APTUSDT only.
+
+The process was explicitly stopped on request. Docker recorded exit 137 and `OOMKilled=false`. Eleven files (22,889,603 bytes), including the restored BC policy and APT holdout, were copied to `artifacts/universal/smoke/cuda-low-std-bc45-patience45-gate-balanced-r12` before restart.
+
+The current Universal workflow supports PPO checkpoint resume but not mid-BC-holdout continuation. After the user requested resume, generation `universal-u6-20260812-cuda-low-std-bc45-patience45-gate-balanced-r13` was therefore launched from the same immutable image and exact r12 calibration. The r12 evidence remains preserved; r13 recomputes the shared teacher/BC stage before completing the causal holdouts.

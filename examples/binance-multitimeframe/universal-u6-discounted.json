@@ -150,7 +150,7 @@
     "behavior_cloning_patience": 10,
     "behavior_cloning_required_relative_improvement": 0.005,
     "behavior_cloning_target_loss_weight": 1.5,
-    "behavior_cloning_teacher": "oracle",
+    "behavior_cloning_teacher": "causal_alpha_ridge",
     "behavior_cloning_validation_fraction": 0.1,
     "checkpoint_interval_steps": 32768,
     "decision_hours": 0.25,

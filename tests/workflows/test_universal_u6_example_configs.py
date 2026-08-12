@@ -46,7 +46,9 @@ def test_universal_u6_example_configs_close_the_maintained_comparison() -> None:
         # reconstruction/economic gates just to admit a new teacher.
         assert training.behavior_cloning_max_causal_holdout_regret == 0.2
         assert training.behavior_cloning_min_causal_holdout_episodes == 5
-        assert training.behavior_cloning_min_causal_holdout_net_return_lower_bound == -0.05
+        assert (
+            training.behavior_cloning_min_causal_holdout_net_return_lower_bound == -0.05
+        )
         assert training.behavior_cloning_min_causal_holdout_trades == 20
         assert training.behavior_cloning_min_gate_precision == 0.5
         assert training.behavior_cloning_min_gate_recall == 0.6

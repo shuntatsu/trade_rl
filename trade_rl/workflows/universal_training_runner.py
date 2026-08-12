@@ -38,9 +38,9 @@ from trade_rl.rl.universal_instrument_context import CausalInstrumentContextProv
 from trade_rl.rl.universal_single_instrument_env import EpisodeRoutedSingleInstrumentEnv
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.universal_teacher_runtime import (
-    build_universal_oracle_batches,
     build_universal_pretraining_bundle_from_batches,
     build_universal_symbol_teacher_environment,
+    build_universal_teacher_batches,
 )
 from trade_rl.workflows.universal_training import (
     universal_training_contract_digest,
@@ -569,8 +569,9 @@ def assemble_universal_sb3_training_backend(
         or behavior_cloning_epochs <= 0
     ):
         raise ValueError("Universal U4 requires behavior cloning to be enabled")
-    if getattr(training, "behavior_cloning_teacher", None) != "oracle":
-        raise ValueError("Universal U4 requires the Oracle behavior-cloning teacher")
+    teacher_kind = getattr(training, "behavior_cloning_teacher", None)
+    if teacher_kind not in {"oracle", "trend_baseline"}:
+        raise ValueError("Universal U4 behavior-cloning teacher is unsupported")
     behavior_cloning_seed = getattr(training, "behavior_cloning_seed", None)
     if (
         isinstance(behavior_cloning_seed, bool)
@@ -607,7 +608,8 @@ def assemble_universal_sb3_training_backend(
         raise ValueError("Universal U4 requires an instrument context provider")
 
     if oracle_batches is None:
-        batches = build_universal_oracle_batches(
+        batches = build_universal_teacher_batches(
+            teacher_kind=teacher_kind,
             train_symbols=routed_environment_factory.train_symbols,
             bindings=routed_environment_factory.bindings,
             concrete_environment_factory=(
@@ -642,6 +644,7 @@ def assemble_universal_sb3_training_backend(
         validation_fraction=float(validation_fraction),
         normalizer_digest=normalizer_digest,
         feature_schema_digest=feature_schema_digest,
+        teacher_kind=teacher_kind,
     )
     binding_by_symbol = {
         binding.concrete_symbol: binding

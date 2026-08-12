@@ -175,7 +175,7 @@ def test_train_full_research_comparison_reuses_oracle_targets_and_closes_algorit
         oracle_calls.append(dict(kwargs))
         return shared_batches
 
-    monkeypatch.setattr(module, "build_universal_oracle_batches", oracle_batches)
+    monkeypatch.setattr(module, "build_universal_teacher_batches", oracle_batches)
 
     prepared_configs = {
         item.algorithm: item.training_config
@@ -237,6 +237,7 @@ def test_train_full_research_comparison_reuses_oracle_targets_and_closes_algorit
     )
 
     assert len(oracle_calls) == 1
+    assert oracle_calls[0]["teacher_kind"] == "oracle"
     assert tuple(assembled) == tuple(FullResearchAlgorithm)
     assert tuple(trained) == tuple(FullResearchAlgorithm)
     assert tuple(run.algorithm for run in comparison.runs) == tuple(

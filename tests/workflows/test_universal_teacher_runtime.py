@@ -8,8 +8,10 @@ import numpy as np
 from gymnasium import spaces
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.market import MarketDataset
 from trade_rl.rl.actions import ActionMode, ActionSpec, ActionValidationMode
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
+from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
 def _digest(label: str) -> str:
@@ -171,3 +173,70 @@ def test_oracle_batches_clip_manifest_range_to_environment_trainable_closure(
 
     assert tuple(result) == ("AAAUSDT",)
     assert observed == [(96, 900)]
+
+
+def test_causal_trend_batch_uses_point_in_time_targets_without_solver() -> None:
+    from trade_rl.workflows.universal_teacher_runtime import (
+        build_episode_trend_batch_for_environment,
+        causal_trend_teacher_digest,
+    )
+
+    n_bars = 24
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+        n_bars
+    ) * np.timedelta64(1, "h")
+    close = np.exp(np.arange(n_bars, dtype=np.float64) * 0.01)[:, None]
+    open_price = np.vstack((close[0], close[:-1]))
+    dataset = MarketDataset(
+        dataset_id="b" * 64,
+        symbols=("AAAUSDT",),
+        timestamps=timestamps,
+        features=np.zeros((n_bars, 1, 1), dtype=np.float32),
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=open_price,
+        high=np.maximum(open_price, close) * 1.001,
+        low=np.minimum(open_price, close) * 0.999,
+        close=close,
+        volume=np.full((n_bars, 1), 1_000.0),
+        funding_rate=np.zeros((n_bars, 1)),
+        tradable=np.ones((n_bars, 1), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 1, 1), dtype=np.bool_),
+        feature_names=("dummy",),
+        global_feature_names=("dummy_global",),
+        periods_per_year=8_760,
+        symbol_active=np.ones((n_bars, 1), dtype=np.bool_),
+    )
+    trend = TrendStrategy(
+        TrendConfig(fast_lookback=1, base_lookback=2, slow_lookback=3)
+    )
+    environment = SimpleNamespace(
+        config=SimpleNamespace(
+            initial_state_modes=("cash",),
+            signal_delay_decisions=1,
+        ),
+        dataset=dataset,
+        decision_bars=1,
+        episode_bars=4,
+        minimum_start_index=3,
+        trend_strategy=trend,
+        initial_weights_for_reset=lambda _mode, _start: np.zeros(1),
+    )
+
+    batch = build_episode_trend_batch_for_environment(
+        environment,
+        train_range=(3, n_bars),
+        seed=17,
+        max_episodes=2,
+    )
+
+    assert batch.episode_count == 2
+    assert batch.solver_provenance is None
+    assert batch.teacher_config_digest == causal_trend_teacher_digest(environment)
+    for contract, targets in zip(batch.contracts, batch.targets, strict=True):
+        expected = np.stack(
+            [
+                trend.targets(dataset, index).base
+                for index in range(contract.start, contract.stop - 1)
+            ]
+        ).astype(np.float32)
+        assert np.array_equal(targets, expected)

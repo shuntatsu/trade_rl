@@ -393,6 +393,19 @@ def build_universal_pretraining_hook(
             teacher_dataset=bundle.dataset,
             config=config,
         )
+
+        def write_behavior_cloning_progress(progress: dict[str, object]) -> None:
+            payload = {
+                "behavior_cloning_seed": behavior_cloning_seed,
+                "member_seed": member_seed,
+                "schema_version": "universal_behavior_cloning_progress_v1",
+                **progress,
+            }
+            atomic_write_bytes(
+                output_root / "behavior-cloning-progress.json",
+                canonical_json_bytes(payload) + b"\n",
+            )
+
         bc_result = pretrain_universal_policy(
             policy,
             bundle.dataset,
@@ -404,6 +417,7 @@ def build_universal_pretraining_hook(
             observation_provider=None,
             output_root=output_root / "behavior-cloning",
             hierarchical_labels=labels,
+            progress_callback=write_behavior_cloning_progress,
         )
         relative_improvement, bc_passed = _behavior_cloning_quality(
             initial_mse=float(bc_result.initial_mse),
@@ -419,6 +433,30 @@ def build_universal_pretraining_hook(
         bc_digest = getattr(bc_result, "digest", None)
         if not isinstance(bc_digest, str) or len(bc_digest) != 64:
             raise ValueError("Universal behavior cloning result digest is invalid")
+        result_payload = {
+            "behavior_cloning_digest": bc_digest,
+            "best_epoch": int(bc_result.best_epoch),
+            "excluded_sample_count": int(bc_result.excluded_sample_count),
+            "final_mse": float(bc_result.final_mse),
+            "initial_mse": float(bc_result.initial_mse),
+            "sample_count": int(bc_result.sample_count),
+            "schema_version": "universal_behavior_cloning_result_v1",
+            "training_sample_count": int(bc_result.training_sample_count),
+            "validation_mse": (
+                None
+                if bc_result.validation_mse is None
+                else float(bc_result.validation_mse)
+            ),
+            "validation_sample_count": int(bc_result.validation_sample_count),
+        }
+        result_artifact_digest = content_digest(result_payload)
+        atomic_write_bytes(
+            output_root / "behavior-cloning-result.json",
+            canonical_json_bytes(
+                {**result_payload, "artifact_digest": result_artifact_digest}
+            )
+            + b"\n",
+        )
         write_policy_stage_snapshot(
             policy,
             output_root=output_root,
@@ -567,6 +605,7 @@ def build_universal_pretraining_hook(
             "passed": True,
             "teacher_artifact_digest": bundle.teacher_artifact.artifact_digest,
             "behavior_cloning_digest": bc_digest,
+            "behavior_cloning_result_artifact_digest": result_artifact_digest,
             "critic_warm_start_digest": critic_digest,
             "behavior_cloning_relative_improvement": relative_improvement,
             "behavior_cloning_holdout_digest": holdout_digest,

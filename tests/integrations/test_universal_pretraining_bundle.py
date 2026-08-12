@@ -133,9 +133,25 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
         cloning_config = kwargs["config"]
         assert isinstance(cloning_config, BehaviorCloningConfig)
         assert cloning_config.validation_fraction == pytest.approx(1.0 / 3.0)
+        progress_callback = kwargs["progress_callback"]
+        progress_callback(
+            {
+                "epoch": 1,
+                "total_epochs": 2,
+                "best_epoch": 1,
+                "validation_loss": 0.5,
+                "early_stopping": False,
+            }
+        )
         return SimpleNamespace(
             initial_mse=1.0,
             final_mse=0.5,
+            validation_mse=0.4,
+            best_epoch=1,
+            sample_count=12,
+            training_sample_count=8,
+            validation_sample_count=4,
+            excluded_sample_count=0,
             digest=content_digest("bc-result"),
         )
 
@@ -217,5 +233,12 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
     assert len(evidence["critic_warm_start_digest"]) == 64
     assert len(evidence["behavior_cloning_holdout_digest"]) == 64
     assert len(evidence["behavior_cloning_gate_digest"]) == 64
+    progress = (tmp_path / "behavior-cloning-progress.json").read_text(
+        encoding="utf-8"
+    )
+    assert '"epoch":1' in progress
+    result = (tmp_path / "behavior-cloning-result.json").read_text(encoding="utf-8")
+    assert '"best_epoch":1' in result
+    assert '"validation_mse":0.4' in result
     assert (tmp_path / "policy-stages/behavior_cloning/policy.zip").is_file()
     assert (tmp_path / "policy-stages/behavior_cloning_critic/policy.zip").is_file()

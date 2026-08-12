@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +88,7 @@ def pretrain_universal_policy(
     observation_provider: ObservationBatchProvider | None,
     output_root: Path,
     hierarchical_labels: HierarchicalTeacherLabels | None = None,
+    progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> BehaviorCloningResult:
     """Run shared BC with equal symbol contribution in every training mini-batch."""
 
@@ -125,6 +126,7 @@ def pretrain_universal_policy(
         observation_provider=observation_provider,
         training_batch_provider=training_batch_provider,
         hierarchical_labels=hierarchical_labels,
+        progress_callback=progress_callback,
     )
     if isinstance(result, BehaviorCloningResult):
         payload: dict[str, object] = {

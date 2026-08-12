@@ -1,0 +1,124 @@
+name: Repair universal import boundaries temporary
+
+on:
+  push:
+    branches:
+      - codex/universal-real-data-training
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: codex/universal-real-data-training
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Restore dependency direction
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git mv trade_rl/integrations/binance_universal_runtime.py trade_rl/workflows/binance_universal_runtime.py
+          git mv tests/integrations/test_binance_universal_runtime.py tests/workflows/test_binance_universal_runtime.py
+          git mv trade_rl/workflows/native_indicator_materializer.py trade_rl/integrations/native_indicator_materializer.py
+          if test -f tests/workflows/test_native_indicator_materializer.py; then
+            git mv tests/workflows/test_native_indicator_materializer.py tests/integrations/test_native_indicator_materializer.py
+          fi
+
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          replacements = {
+              "trade_rl.integrations.binance_universal_runtime": "trade_rl.workflows.binance_universal_runtime",
+              "trade_rl.workflows.native_indicator_materializer": "trade_rl.integrations.native_indicator_materializer",
+          }
+          result = subprocess.run(
+              ["git", "grep", "-Il", "-e", "trade_rl.integrations.binance_universal_runtime", "-e", "trade_rl.workflows.native_indicator_materializer"],
+              check=False,
+              capture_output=True,
+              text=True,
+          )
+          for raw_path in result.stdout.splitlines():
+              path = Path(raw_path)
+              text = path.read_text(encoding="utf-8")
+              for old, new in replacements.items():
+                  text = text.replace(old, new)
+              path.write_text(text, encoding="utf-8")
+
+          helper = Path("trade_rl/integrations/universal_policy_stage_models.py")
+          helper.write_text(
+              '''"""Framework-specific loading and RNG helpers for Universal stage audits."""\n\nfrom __future__ import annotations\n\nfrom pathlib import Path\nfrom typing import Any\n\nfrom trade_rl.rl.policies import SharedPerAssetActorCriticPolicy\n\n\ndef load_universal_policy_stage_model(\n    path: Path,\n    *,\n    policy_only: bool,\n    algorithm_identifier: str,\n    device: str,\n) -> Any:\n    """Load one stage artifact without leaking model frameworks into workflows."""\n\n    resolved = Path(path)\n    if policy_only:\n        return SharedPerAssetActorCriticPolicy.load(str(resolved), device=device)\n    if algorithm_identifier == "ppo":\n        from stable_baselines3 import PPO\n\n        return PPO.load(str(resolved), device=device)\n    if algorithm_identifier == "lagrangian_ppo":\n        from trade_rl.integrations.lagrangian_ppo import LagrangianPPO\n\n        return LagrangianPPO.load(str(resolved), device=device)\n    raise ValueError(f"unsupported checkpoint algorithm: {algorithm_identifier}")\n\n\ndef seed_universal_policy_stage_torch(seed: int) -> None:\n    """Seed the framework RNG used by stochastic policy-stage evaluation."""\n\n    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:\n        raise ValueError("stage evaluation seed must be a non-negative integer")\n    import torch\n\n    torch.manual_seed(seed)\n\n\n__all__ = [\n    "load_universal_policy_stage_model",\n    "seed_universal_policy_stage_torch",\n]\n''',
+              encoding="utf-8",
+          )
+
+          evaluator = Path("trade_rl/workflows/universal_policy_stage_evaluation.py")
+          text = evaluator.read_text(encoding="utf-8")
+          text = text.replace("import torch\n", "")
+          text = text.replace(
+              "from trade_rl.rl.policies import SharedPerAssetActorCriticPolicy\n",
+              "",
+          )
+          anchor = "from trade_rl.artifacts.hashing import content_digest\n"
+          integration_import = (
+              "from trade_rl.integrations.universal_policy_stage_models import (\n"
+              "    load_universal_policy_stage_model,\n"
+              "    seed_universal_policy_stage_torch,\n"
+              ")\n"
+          )
+          if integration_import not in text:
+              if anchor not in text:
+                  raise SystemExit("stage evaluator import anchor drifted")
+              text = text.replace(anchor, anchor + integration_import)
+
+          start = text.index("def _load_policy(\n")
+          stop = text.index("\n\ndef _action_diagnostics", start)
+          replacement = '''def _load_policy(\n    artifact: UniversalPolicyArtifact,\n    *,\n    algorithm_identifier: str,\n    device: str,\n) -> Any:\n    return load_universal_policy_stage_model(\n        artifact.path,\n        policy_only=artifact.policy_only,\n        algorithm_identifier=algorithm_identifier,\n        device=device,\n    )\n'''
+          text = text[:start] + replacement + text[stop:]
+          if "torch.manual_seed(member_seed)" not in text:
+              raise SystemExit("stage evaluator torch seed target drifted")
+          text = text.replace(
+              "torch.manual_seed(member_seed)",
+              "seed_universal_policy_stage_torch(member_seed)",
+          )
+          evaluator.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Verify architecture repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run ruff format trade_rl/workflows/binance_universal_runtime.py trade_rl/integrations/native_indicator_materializer.py trade_rl/integrations/postgres_native_cache_publisher.py trade_rl/integrations/universal_policy_stage_models.py trade_rl/workflows/universal_policy_stage_evaluation.py tests/workflows/test_binance_universal_runtime.py
+          if test -f tests/integrations/test_native_indicator_materializer.py; then
+            uv run ruff format tests/integrations/test_native_indicator_materializer.py
+          fi
+          uv run ruff check trade_rl/workflows/binance_universal_runtime.py trade_rl/integrations/native_indicator_materializer.py trade_rl/integrations/postgres_native_cache_publisher.py trade_rl/integrations/universal_policy_stage_models.py trade_rl/workflows/universal_policy_stage_evaluation.py tests/workflows/test_binance_universal_runtime.py
+          uv run ruff format --check trade_rl/workflows/binance_universal_runtime.py trade_rl/integrations/native_indicator_materializer.py trade_rl/integrations/postgres_native_cache_publisher.py trade_rl/integrations/universal_policy_stage_models.py trade_rl/workflows/universal_policy_stage_evaluation.py tests/workflows/test_binance_universal_runtime.py
+          uv run mypy .
+          uv run lint-imports
+
+          tests=(tests/workflows/test_binance_universal_runtime.py tests/integrations/test_postgres_native_cache_publisher.py)
+          for candidate in tests/integrations/test_native_indicator_materializer.py tests/workflows/test_universal_policy_stage_evaluation.py tests/workflows/test_universal_policy_stage_economics.py; do
+            if test -f "$candidate"; then tests+=("$candidate"); fi
+          done
+          uv run pytest "${tests[@]}" -q
+
+      - name: Commit repaired tree and self-delete workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/repair-universal-import-boundaries-temporary.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'refactor: restore universal dependency boundaries'
+          git push origin HEAD:codex/universal-real-data-training

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.integrations.native_indicator_materializer import NativeCacheBuild
 from trade_rl.integrations.postgres_market_tables import PostgresMarketTableSet
-from trade_rl.workflows.native_indicator_materializer import NativeCacheBuild
 
 
 class _Cursor(Protocol):

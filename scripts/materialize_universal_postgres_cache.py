@@ -23,7 +23,7 @@ from trade_rl.integrations.postgres_universal_source import (
     UniversalSourceScope,
     load_postgres_universal_source,
 )
-from trade_rl.workflows.native_indicator_materializer import (
+from trade_rl.integrations.native_indicator_materializer import (
     NativeCacheBuild,
     build_native_indicator_cache,
     combine_native_indicator_builds,

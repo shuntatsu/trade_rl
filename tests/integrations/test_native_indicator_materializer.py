@@ -4,13 +4,13 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
+from trade_rl.integrations.native_indicator_materializer import (
+    build_native_indicator_cache,
+    combine_native_indicator_builds,
+)
 from trade_rl.integrations.postgres_universal_source import (
     RawSymbolSource,
     UniversalSourceScope,
-)
-from trade_rl.workflows.native_indicator_materializer import (
-    build_native_indicator_cache,
-    combine_native_indicator_builds,
 )
 
 

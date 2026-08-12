@@ -34,11 +34,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--discounted-config", required=True, type=Path)
     parser.add_argument(
         "--runtime-factory",
-        default="trade_rl.integrations.binance_universal_runtime:build_runtime",
+        default="trade_rl.workflows.binance_universal_runtime:build_runtime",
         help=(
             "Import target module:function. The callable receives keyword arguments "
             "algorithm, run_config, and context and must return UniversalTrainingRuntime. "
-            "Defaults to trade_rl.integrations.binance_universal_runtime:build_runtime."
+            "Defaults to trade_rl.workflows.binance_universal_runtime:build_runtime."
         ),
     )
     parser.add_argument("--runtime-manifest", required=True, type=Path)

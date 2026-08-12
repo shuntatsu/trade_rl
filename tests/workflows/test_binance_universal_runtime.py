@@ -78,7 +78,7 @@ def _configs() -> dict[FullResearchAlgorithm, TrainingRunConfig]:
 def test_concrete_factory_returns_runtime_for_all_algorithms_with_shared_static_identity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import trade_rl.integrations.binance_universal_runtime as module
+    import trade_rl.workflows.binance_universal_runtime as module
     from trade_rl.workflows.universal_full_research_entrypoint import (
         UniversalRuntimeFactoryContext,
     )
@@ -164,7 +164,7 @@ def test_concrete_factory_returns_runtime_for_all_algorithms_with_shared_static_
 def test_concrete_factory_rejects_dataset_identity_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import trade_rl.integrations.binance_universal_runtime as module
+    import trade_rl.workflows.binance_universal_runtime as module
     from trade_rl.workflows.universal_full_research_entrypoint import (
         UniversalRuntimeFactoryContext,
     )

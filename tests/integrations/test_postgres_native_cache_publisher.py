@@ -18,7 +18,7 @@ from trade_rl.integrations.postgres_universal_source import (
     RawSymbolSource,
     UniversalSourceScope,
 )
-from trade_rl.workflows.native_indicator_materializer import (
+from trade_rl.integrations.native_indicator_materializer import (
     NativeCacheBuild,
     build_native_indicator_cache,
 )

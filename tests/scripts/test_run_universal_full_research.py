@@ -13,7 +13,7 @@ def test_parser_requires_runtime_manifest_and_defaults_concrete_factory() -> Non
         action for action in parser._actions if action.dest == "runtime_factory"
     )
     assert factory_action.default == (
-        "trade_rl.integrations.binance_universal_runtime:build_runtime"
+        "trade_rl.workflows.binance_universal_runtime:build_runtime"
     )
     with pytest.raises(SystemExit):
         parser.parse_args([])

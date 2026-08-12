@@ -19,7 +19,7 @@ def test_start_documents_executable_universal_full_research_training_command() -
     ):
         assert option in start
 
-    assert "trade_rl.integrations.binance_universal_runtime:build_runtime" in start
+    assert "trade_rl.workflows.binance_universal_runtime:build_runtime" in start
 
     assert "research_success=false" in start
     assert "sealed" in start.lower()

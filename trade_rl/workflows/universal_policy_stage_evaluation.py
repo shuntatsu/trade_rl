@@ -8,15 +8,17 @@ from pathlib import Path
 from typing import Any, Sequence, cast
 
 import numpy as np
-import torch
 
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.integrations.binance_universal_runtime import build_runtime
+from trade_rl.integrations.universal_policy_stage_models import (
+    load_universal_policy_stage_model,
+    seed_universal_policy_stage_torch,
+)
 from trade_rl.learning.rollout_evaluation import evaluate_action_path
-from trade_rl.rl.policies import SharedPerAssetActorCriticPolicy
 from trade_rl.rl.training_run_config import TrainingRunConfig
+from trade_rl.workflows.binance_universal_runtime import build_runtime
 from trade_rl.workflows.universal_full_research_entrypoint import (
     UniversalRuntimeFactoryContext,
 )
@@ -93,17 +95,12 @@ def _load_policy(
     algorithm_identifier: str,
     device: str,
 ) -> Any:
-    if artifact.policy_only:
-        return SharedPerAssetActorCriticPolicy.load(str(artifact.path), device=device)
-    if algorithm_identifier == "ppo":
-        from stable_baselines3 import PPO
-
-        return PPO.load(str(artifact.path), device=device)
-    if algorithm_identifier == "lagrangian_ppo":
-        from trade_rl.integrations.lagrangian_ppo import LagrangianPPO
-
-        return LagrangianPPO.load(str(artifact.path), device=device)
-    raise ValueError(f"unsupported checkpoint algorithm: {algorithm_identifier}")
+    return load_universal_policy_stage_model(
+        artifact.path,
+        policy_only=artifact.policy_only,
+        algorithm_identifier=algorithm_identifier,
+        device=device,
+    )
 
 
 def _action_diagnostics(actions: np.ndarray) -> dict[str, object]:
@@ -268,7 +265,7 @@ def evaluate_universal_policy_stages(
         symbol_results: list[dict[str, object]] = []
         for symbol in selected_symbols:
             np.random.seed(member_seed)
-            torch.manual_seed(member_seed)
+            seed_universal_policy_stage_torch(member_seed)
             environment = build_universal_symbol_teacher_environment(
                 symbol=symbol,
                 binding=binding_by_symbol[symbol],

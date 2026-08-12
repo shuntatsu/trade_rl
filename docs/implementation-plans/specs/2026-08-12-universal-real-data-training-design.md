@@ -79,7 +79,7 @@ validated against a strict allowlist before interpolation into SQL.
 
 Add the maintained project-local factory:
 
-`trade_rl.integrations.binance_universal_runtime:build_runtime`
+`trade_rl.workflows.binance_universal_runtime:build_runtime`
 
 It receives `algorithm`, the architecture-projected `run_config`, and a strict
 runtime context. It loads the instrument bundle and native indicator cache,

@@ -157,4 +157,11 @@ def test_episode_bc_holdout_persists_causal_net_return_lower_bound(
     assert payload["causal_net_return_lower_confidence_bound"] == (
         holdout.causal_net_return_lower_confidence_bound
     )
-    assert payload["schema_version"] == "episode_oracle_bc_evaluation_v2"
+    record = payload["records"][0]
+    diagnostics = record["action_diagnostics"]
+    assert diagnostics["direction_agreement_rate"] == 1.0
+    assert diagnostics["teacher_absolute_target_delta_total"] == 0.0
+    assert diagnostics["policy_absolute_target_delta_total"] == 0.0
+    assert diagnostics["teacher_quantiles"] == [0.0] * 9
+    assert diagnostics["policy_quantiles"] == [0.0] * 9
+    assert payload["schema_version"] == "episode_oracle_bc_evaluation_v3"

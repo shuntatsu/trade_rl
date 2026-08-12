@@ -57,6 +57,7 @@ def _holdout(episode_id: int, net_return: float) -> EpisodeBehaviorCloningHoldou
         action_agreement_rate=0.5,
         action_mae=0.2,
         action_rmse=0.3,
+        action_diagnostics={},
         heldout_oracle_regret=0.10 - net_return,
         normalized_oracle_regret=1.0,
     )

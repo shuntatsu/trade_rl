@@ -5,7 +5,9 @@ from types import SimpleNamespace
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.rl.training import ResidualTrainingConfig
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
-from trade_rl.workflows.universal_training_runner import UniversalRoutedEnvironmentFactory
+from trade_rl.workflows.universal_training_runner import (
+    UniversalRoutedEnvironmentFactory,
+)
 
 
 def _digest(label: str) -> str:
@@ -94,8 +96,16 @@ def test_assemble_routes_causal_teacher_through_shared_package(monkeypatch) -> N
         observed["bundle_kwargs"] = kwargs
         return bundle
 
-    monkeypatch.setattr(module, "build_universal_pretraining_bundle_from_batches", build_bundle)
-    monkeypatch.setattr(module, "build_universal_pretraining_hook", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        module,
+        "build_universal_pretraining_bundle_from_batches",
+        build_bundle,
+    )
+    monkeypatch.setattr(
+        module,
+        "build_universal_pretraining_hook",
+        lambda *_args, **_kwargs: object(),
+    )
 
     class Backend:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -152,8 +162,16 @@ def test_assemble_reuses_explicit_causal_package(monkeypatch) -> None:
         "build_universal_pretraining_bundle_from_batches",
         lambda **_kwargs: bundle,
     )
-    monkeypatch.setattr(module, "build_universal_pretraining_hook", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(module, "StableBaselines3Backend", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        module,
+        "build_universal_pretraining_hook",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        module,
+        "StableBaselines3Backend",
+        lambda *_args, **_kwargs: object(),
+    )
 
     _, actual_bundle = assemble_universal_sb3_training_backend(
         routed_environment_factory=routed,

@@ -26,13 +26,21 @@ jobs:
         run: >-
           uv run ruff check
           trade_rl/learning/causal_alpha_teacher.py
+          trade_rl/workflows/universal_causal_alpha_teacher.py
           tests/learning/test_causal_alpha_teacher.py
           tests/rl/test_causal_alpha_teacher_config.py
           tests/workflows/test_universal_causal_alpha_teacher.py
+          tests/workflows/test_universal_causal_alpha_fitting.py
+      - name: Mypy focused
+        run: >-
+          uv run mypy
+          trade_rl/learning/causal_alpha_teacher.py
+          trade_rl/workflows/universal_causal_alpha_teacher.py
       - name: Focused tests
         run: >-
           uv run pytest
           tests/learning/test_causal_alpha_teacher.py
           tests/rl/test_causal_alpha_teacher_config.py
           tests/workflows/test_universal_causal_alpha_teacher.py
+          tests/workflows/test_universal_causal_alpha_fitting.py
           -q

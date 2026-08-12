@@ -25,6 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           uv sync --extra dev --extra train-sb3
+          uv run ruff format tests/workflows/test_universal_u6_example_configs.py
           uv run ruff check tests/workflows/test_universal_u6_example_configs.py
           uv run ruff format --check tests/workflows/test_universal_u6_example_configs.py
           uv run pytest tests/workflows/test_universal_u6_example_configs.py tests/rl/test_algorithm_configs.py -q

@@ -129,7 +129,7 @@
   "training": {
     "algorithm": "ppo",
     "batch_size": 256,
-    "behavior_cloning_batch_size": 256,
+    "behavior_cloning_batch_size": 252,
     "behavior_cloning_composed_loss_weight": 1.0,
     "behavior_cloning_epochs": 45,
     "behavior_cloning_gate_change_threshold": 0.05,

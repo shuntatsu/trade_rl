@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -54,10 +53,14 @@ def test_forward_label_starts_at_first_executable_bar_and_respects_delay() -> No
 
     assert immediate.execution_start_index == 11
     assert immediate.label_end_index == 106
-    assert immediate.value == pytest.approx(np.log(dataset.close[106, 0] / dataset.open[11, 0]))
+    assert immediate.value == pytest.approx(
+        np.log(dataset.close[106, 0] / dataset.open[11, 0])
+    )
     assert delayed.execution_start_index == 12
     assert delayed.label_end_index == 107
-    assert delayed.value == pytest.approx(np.log(dataset.close[107, 0] / dataset.open[12, 0]))
+    assert delayed.value == pytest.approx(
+        np.log(dataset.close[107, 0] / dataset.open[12, 0])
+    )
 
 
 def test_forward_label_rejects_incomplete_horizon() -> None:
@@ -104,7 +107,8 @@ def test_pooled_ridge_fits_prefix_only_and_zeroes_constant_columns() -> None:
     assert model.knowledge_cutoff == 10
     assert model.constant_mask.tolist() == [False, True]
     assert model.scaled_training_features[:, 1].tolist() == [0.0, 0.0, 0.0]
-    assert model.predict(np.asarray([[7.0, 7.0]], dtype=np.float64))[0] == pytest.approx(15.0, rel=1e-6)
+    prediction = model.predict(np.asarray([[7.0, 7.0]], dtype=np.float64))[0]
+    assert prediction == pytest.approx(15.0, rel=1e-6)
 
 
 def test_pooled_ridge_serialization_is_stable_and_identity_sensitive() -> None:
@@ -122,7 +126,9 @@ def test_pooled_ridge_serialization_is_stable_and_identity_sensitive() -> None:
     first = fit_causal_alpha_ridge(**kwargs)
     second = fit_causal_alpha_ridge(**kwargs)
 
-    assert canonical_json_bytes(first.to_payload()) == canonical_json_bytes(second.to_payload())
+    assert canonical_json_bytes(first.to_payload()) == canonical_json_bytes(
+        second.to_payload()
+    )
     assert first.digest == second.digest
 
     changed = fit_causal_alpha_ridge(
@@ -134,9 +140,15 @@ def test_pooled_ridge_serialization_is_stable_and_identity_sensitive() -> None:
 def test_prediction_mix_is_declared_and_deterministic() -> None:
     p24 = np.asarray([0.1, -0.2])
     p72 = np.asarray([0.3, 0.4])
-    assert combine_causal_alpha_predictions(p24, p72, CausalAlphaHorizonMix.H24).tolist() == pytest.approx([0.1, -0.2])
-    assert combine_causal_alpha_predictions(p24, p72, CausalAlphaHorizonMix.H72).tolist() == pytest.approx([0.3, 0.4])
-    assert combine_causal_alpha_predictions(p24, p72, CausalAlphaHorizonMix.EQUAL).tolist() == pytest.approx([0.2, 0.1])
+    assert combine_causal_alpha_predictions(
+        p24, p72, CausalAlphaHorizonMix.H24
+    ).tolist() == pytest.approx([0.1, -0.2])
+    assert combine_causal_alpha_predictions(
+        p24, p72, CausalAlphaHorizonMix.H72
+    ).tolist() == pytest.approx([0.3, 0.4])
+    assert combine_causal_alpha_predictions(
+        p24, p72, CausalAlphaHorizonMix.EQUAL
+    ).tolist() == pytest.approx([0.2, 0.1])
 
 
 def test_controller_hysteresis_has_no_holding_lock_and_respects_initial_weight() -> None:
@@ -180,7 +192,8 @@ def test_controller_no_trade_band_and_delta_cap_reduce_target_changes() -> None:
     assert path.targets[0] == pytest.approx(0.20)
     assert path.targets[1] == pytest.approx(0.40)
     assert path.targets[2] == pytest.approx(0.20)
-    assert np.max(np.abs(np.diff(np.concatenate(([0.0], path.targets))))) <= 0.20 + 1e-12
+    changes = np.diff(np.concatenate(([0.0], path.targets)))
+    assert np.max(np.abs(changes)) <= 0.20 + 1e-12
 
 
 def test_controller_config_rejects_invalid_hysteresis() -> None:

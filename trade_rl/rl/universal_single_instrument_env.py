@@ -433,6 +433,37 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         return dataset
 
     @property
+    def minimum_start_index(self) -> int:
+        """Expose the concrete lower bound used by exact rollout evaluators."""
+
+        value = getattr(self._reference_environment, "minimum_start_index", None)
+        return _require_non_negative_int(value, field="minimum_start_index")
+
+    @property
+    def hybrid(self) -> Any:
+        """Expose the active policy portfolio for economic audits."""
+
+        environment = self._active_environment
+        if environment is None:
+            raise RuntimeError("environment must be reset before hybrid access")
+        value = getattr(environment, "hybrid", None)
+        if value is None:
+            raise AttributeError("active environment does not expose hybrid")
+        return value
+
+    @property
+    def shadow(self) -> Any:
+        """Expose the active baseline portfolio for economic audits."""
+
+        environment = self._active_environment
+        if environment is None:
+            raise RuntimeError("environment must be reset before shadow access")
+        value = getattr(environment, "shadow", None)
+        if value is None:
+            raise AttributeError("active environment does not expose shadow")
+        return value
+
+    @property
     def active_episode_binding(self) -> InstrumentEpisodeBinding:
         binding = self._active_episode_binding
         if binding is None:

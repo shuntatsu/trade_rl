@@ -68,6 +68,8 @@ class _DictSingleSymbolEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         )
         self.current_index = 128
         self.hybrid = SimpleNamespace(portfolio_value=10_000.0)
+        self.shadow = SimpleNamespace(portfolio_value=10_500.0)
+        self.minimum_start_index = 128
         self.config = SimpleNamespace(
             initial_capital=10_000.0,
             execution_cost=SimpleNamespace(impact_rate=0.0001),
@@ -259,6 +261,9 @@ def test_routed_environment_adds_context_and_exposes_training_identity() -> None
     assert env.sequence_layout_metadata["instrument_context_width"] == 9
     assert env.is_universal_single_instrument is True
     assert env.dataset.symbols == ("BTCUSDT",)
+    assert env.minimum_start_index == 128
+    assert env.hybrid.portfolio_value == 10_000.0
+    assert env.shadow.portfolio_value == 10_500.0
 
 
 def test_sequence_extractor_actually_uses_instrument_context() -> None:

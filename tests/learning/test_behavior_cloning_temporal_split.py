@@ -72,3 +72,15 @@ def test_episode_split_fails_when_temporal_purge_removes_every_training_episode(
 
     with pytest.raises(ValueError, match="purging leaves no training episodes"):
         behavior_cloning_split(dataset, validation_fraction=0.34)
+
+
+def test_episode_split_accepts_strictly_increasing_strided_decisions() -> None:
+    dataset = _episode_dataset(
+        episode_ids=[0, 0, 0, 1, 1, 1],
+        decision_indices=[0, 16, 32, 64, 80, 96],
+    )
+
+    split = behavior_cloning_split(dataset, validation_fraction=0.25)
+
+    np.testing.assert_array_equal(split.train_indices, np.arange(3))
+    np.testing.assert_array_equal(split.validation_indices, np.arange(3, 6))

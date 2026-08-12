@@ -73,9 +73,10 @@ def test_build_universal_pretraining_bundle_from_batches_closes_train_scope(
         opened.append((symbol, kwargs["run_seed"]))
         return _Environment(symbol)
 
-    def collect(environment, batch, *, teacher_config_digest, gamma):
+    def collect(environment, batch, *, teacher_config_digest, gamma, sample_stride):
         assert teacher_config_digest == batch.teacher_config_digest
         assert gamma == 1.0
+        assert sample_stride == 16
         collected.append(environment.symbol)
         dataset = SimpleNamespace(sample_count=1)
         return SimpleNamespace(

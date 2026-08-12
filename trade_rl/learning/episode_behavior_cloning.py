@@ -98,13 +98,8 @@ def _temporal_episode_records(
         decisions = np.sort(decision_indices[episode_ids == episode_id])
         if decisions.size == 0 or np.unique(decisions).size != decisions.size:
             raise ValueError("episode decisions must be non-empty and unique")
-        expected = np.arange(
-            int(decisions[0]),
-            int(decisions[0]) + decisions.size,
-            dtype=np.int64,
-        )
-        if not np.array_equal(decisions, expected):
-            raise ValueError("episode decisions must be contiguous")
+        if decisions.size > 1 and np.any(np.diff(decisions) <= 0):
+            raise ValueError("episode decisions must be strictly increasing")
         records.append(
             (
                 int(decisions[0]),

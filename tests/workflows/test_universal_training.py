@@ -257,3 +257,43 @@ def test_universal_teacher_collector_keeps_full_dict_and_aligned_return_targets(
         1,
     )
     assert collected.critic_targets.tolist() == pytest.approx([3.0, 2.0])
+
+
+def test_universal_teacher_collector_causally_subsamples_observations() -> None:
+    from trade_rl.workflows.universal_training import collect_universal_episode_teacher
+
+    dataset_id = _digest("teacher-dataset-strided")
+    teacher_digest = _digest("teacher-config")
+    batch = EpisodeOracleBatch(
+        dataset_id=dataset_id,
+        teacher_config_digest=teacher_digest,
+        sampling_config_digest=_digest("sampling-strided"),
+        contracts=(
+            OracleEpisodeContract(
+                dataset_id=dataset_id,
+                episode_index=0,
+                start=10,
+                stop=15,
+                initial_state_mode="cash",
+                initial_weights=np.zeros(1, dtype=np.float64),
+            ),
+        ),
+        targets=(np.asarray([[1.0], [2.0], [3.0], [4.0]], dtype=np.float32),),
+        solver_provenance=None,
+    )
+
+    collected = collect_universal_episode_teacher(
+        _FullDictTeacherEnv(),
+        batch,
+        teacher_config_digest=teacher_digest,
+        gamma=1.0,
+        sample_stride=2,
+    )
+
+    assert collected.dataset.sample_count == 2
+    np.testing.assert_array_equal(
+        collected.dataset.decision_indices,
+        np.asarray([10, 12], dtype=np.int64),
+    )
+    assert collected.critic_targets.tolist() == pytest.approx([10.0, 7.0])
+    assert collected.dataset.environment_digest != _digest("environment")

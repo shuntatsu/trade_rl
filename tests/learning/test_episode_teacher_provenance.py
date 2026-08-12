@@ -52,6 +52,23 @@ def _provenance() -> OracleSolverProvenance:
     )
 
 
+def test_episode_teacher_accepts_strictly_increasing_strided_decisions() -> None:
+    dataset = EpisodeSupervisedPolicyDataset(
+        observations=np.zeros((3, 1), dtype=np.float32),
+        actions=np.zeros((3, 1), dtype=np.float32),
+        dataset_id="a" * 64,
+        train_start=1,
+        train_stop=35,
+        environment_digest="b" * 64,
+        action_spec_digest="c" * 64,
+        teacher_config_digest="d" * 64,
+        decision_indices=np.array([1, 17, 33], dtype=np.int64),
+        episode_ids=np.array([0, 0, 0], dtype=np.int64),
+    )
+
+    np.testing.assert_array_equal(dataset.decision_indices, [1, 17, 33])
+
+
 def test_legacy_artifact_round_trip_does_not_fabricate_solver_provenance(
     tmp_path: Path,
 ) -> None:

@@ -24,6 +24,7 @@ from trade_rl.rl.universal_single_instrument_env import (
 from trade_rl.workflows.universal_training import collect_universal_episode_teacher
 
 DEFAULT_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL = 1
+DEFAULT_UNIVERSAL_TEACHER_SAMPLE_STRIDE = 16
 
 
 def _oracle_max_episodes_per_symbol() -> int:
@@ -31,6 +32,18 @@ def _oracle_max_episodes_per_symbol() -> int:
     raw = os.environ.get(
         name, str(DEFAULT_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL)
     ).strip()
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise ValueError(f"{name} must be a positive integer") from error
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def _teacher_sample_stride() -> int:
+    name = "TRADE_RL_UNIVERSAL_TEACHER_SAMPLE_STRIDE"
+    raw = os.environ.get(name, str(DEFAULT_UNIVERSAL_TEACHER_SAMPLE_STRIDE)).strip()
     try:
         value = int(raw)
     except ValueError as error:
@@ -189,6 +202,7 @@ def build_universal_pretraining_bundle_from_batches(
         raise ValueError("Universal teacher run_seed range is invalid")
 
     symbol_teachers: dict[str, tuple[Any, Any, Any]] = {}
+    sample_stride = _teacher_sample_stride()
     for index, (symbol, binding) in enumerate(
         zip(symbols, binding_values, strict=True)
     ):
@@ -224,6 +238,7 @@ def build_universal_pretraining_bundle_from_batches(
                 batch,
                 teacher_config_digest=batch.teacher_config_digest,
                 gamma=gamma,
+                sample_stride=sample_stride,
             )
         finally:
             environment.close()
@@ -247,6 +262,7 @@ def build_universal_pretraining_bundle_from_batches(
 
 __all__ = [
     "DEFAULT_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL",
+    "DEFAULT_UNIVERSAL_TEACHER_SAMPLE_STRIDE",
     "build_universal_oracle_batches",
     "build_universal_pretraining_bundle_from_batches",
     "build_universal_symbol_teacher_environment",

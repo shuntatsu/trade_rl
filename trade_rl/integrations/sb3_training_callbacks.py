@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import cast
 
 from trade_rl.domain.common import require_sha256
 from trade_rl.rl.training_heartbeat import build_training_heartbeat_callback
@@ -49,18 +50,15 @@ def assemble_training_callbacks(
             identity=identity,
         )
     )
+    if len(callbacks) == 1:
+        return callbacks[0]
+
     from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 
-    if not all(isinstance(callback, BaseCallback) for callback in callbacks):
-        raise TypeError(
-            "training callbacks must be Stable-Baselines3 BaseCallback instances"
-        )
-    typed_callbacks = [
-        callback for callback in callbacks if isinstance(callback, BaseCallback)
-    ]
-    if len(typed_callbacks) == 1:
-        return typed_callbacks[0]
-    return CallbackList(typed_callbacks)
+    # Runtime callback compatibility belongs to SB3 itself.  Keep test doubles and
+    # custom maintained callbacks accepted here while narrowing only for Mypy's
+    # CallbackList constructor contract.
+    return CallbackList(cast(list[BaseCallback], callbacks))
 
 
 __all__ = ["assemble_training_callbacks"]

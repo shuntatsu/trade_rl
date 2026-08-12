@@ -39,6 +39,7 @@ def test_universal_u6_example_configs_close_the_maintained_comparison() -> None:
         assert training.behavior_cloning_teacher == "oracle"
         assert training.behavior_cloning_batch_size % 9 == 0
         assert training.gamma > 0.0
+        assert training.log_std_init == -4.0
 
     prepared = prepare_universal_full_research_training_configs(
         selected_architecture=UniversalArchitectureName.U_MEDIUM_DIRECT,

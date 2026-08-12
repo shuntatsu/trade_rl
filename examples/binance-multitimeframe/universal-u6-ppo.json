@@ -162,7 +162,7 @@
     "learning_rate": 0.00012,
     "learning_rate_final_ratio": 0.1,
     "learning_rate_schedule": "linear",
-    "log_std_init": -2.3,
+    "log_std_init": -4.0,
     "max_checkpoints": 8,
     "max_policy_parameters": 12000000,
     "max_rollout_buffer_bytes": 805306368,

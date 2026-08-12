@@ -79,10 +79,14 @@ def test_assemble_routes_causal_teacher_through_shared_package(monkeypatch) -> N
     )
     observed: dict[str, object] = {}
 
+    def build_package(**kwargs):
+        observed["package_kwargs"] = kwargs
+        return package
+
     monkeypatch.setattr(
         module,
         "build_universal_causal_alpha_teacher_package",
-        lambda **kwargs: observed.setdefault("package_kwargs", kwargs) or package,
+        build_package,
     )
     monkeypatch.setattr(
         module,

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Mapping
+from dataclasses import asdict, replace
 
+from trade_rl.rl.lagrangian import DualUpdateReport
 from trade_rl.rl.training_run_config import TrainingRunConfig
 
 
@@ -49,4 +51,47 @@ def build_lagrangian_mechanics_config(
     return resolved
 
 
-__all__ = ["build_lagrangian_mechanics_config"]
+def verify_lagrangian_mechanics_model(model: object) -> dict[str, object]:
+    """Fail closed unless every maintained dual actuator actually updated."""
+
+    schema = getattr(model, "lagrangian_schema", None)
+    names = tuple(getattr(schema, "names", ()))
+    history = getattr(model, "dual_report_history", None)
+    if not names or not isinstance(history, list) or not history:
+        raise RuntimeError("Lagrangian mechanics evidence is unavailable")
+    updated_names: set[str] = set()
+    for report_set in history:
+        if not isinstance(report_set, Mapping) or tuple(report_set) != names:
+            raise RuntimeError("Lagrangian dual report history is invalid")
+        for name in names:
+            report = report_set[name]
+            if not isinstance(report, DualUpdateReport) or report.name != name:
+                raise RuntimeError("Lagrangian dual report identity is invalid")
+            if report.updated:
+                updated_names.add(name)
+    missing = tuple(name for name in names if name not in updated_names)
+    if missing:
+        raise RuntimeError(
+            "Lagrangian mechanics did not update: " + ", ".join(missing)
+        )
+    controller = getattr(model, "lagrangian_controller", None)
+    state_dict = getattr(controller, "state_dict", None)
+    if not callable(state_dict):
+        raise RuntimeError("Lagrangian controller state is unavailable")
+    final_reports = history[-1]
+    return {
+        "schema_version": "lagrangian_mechanics_evidence_v1",
+        "cost_names": list(names),
+        "updated_cost_names": [name for name in names if name in updated_names],
+        "dual_report_history_count": len(history),
+        "controller_state": state_dict(),
+        "final_dual_reports": {
+            name: asdict(final_reports[name]) for name in names
+        },
+    }
+
+
+__all__ = [
+    "build_lagrangian_mechanics_config",
+    "verify_lagrangian_mechanics_model",
+]

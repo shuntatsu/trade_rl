@@ -17,6 +17,7 @@ from trade_rl.workflows.universal_full_research_entrypoint import (
 )
 from trade_rl.workflows.universal_lagrangian_mechanics import (
     build_lagrangian_mechanics_config,
+    verify_lagrangian_mechanics_model,
 )
 from trade_rl.workflows.universal_research import FullResearchAlgorithm
 from trade_rl.workflows.universal_training_runner import (
@@ -67,6 +68,13 @@ def main() -> None:
         output_root=args.output_root,
         architecture_name="u_medium_direct",
     )
+    from trade_rl.integrations.lagrangian_ppo import LagrangianPPO
+
+    model = LagrangianPPO.load(
+        str(args.output_root / f"seed-{config.training.seeds[0]}" / "policy.zip"),
+        device="cpu",
+    )
+    mechanics_evidence = verify_lagrangian_mechanics_model(model)
     payload: dict[str, object] = {
         "schema_version": "universal_lagrangian_mechanics_v1",
         "episode_hours": config.environment.episode_hours,
@@ -74,6 +82,7 @@ def main() -> None:
         "reward_config_digest": content_digest(asdict(config.reward)),
         "training_config_digest": content_digest(config.training.digest_payload()),
         "runtime_manifest_digest": context.manifest.manifest_digest,
+        "mechanics_evidence": mechanics_evidence,
         "training_manifest": training_manifest,
     }
     result = {**payload, "artifact_digest": content_digest(payload)}

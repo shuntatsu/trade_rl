@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -437,14 +437,30 @@ def build_universal_pretraining_hook(
         bc_digest = getattr(bc_result, "digest", None)
         if not isinstance(bc_digest, str) or len(bc_digest) != 64:
             raise ValueError("Universal behavior cloning result digest is invalid")
+        hierarchical_payload = {
+            name: (
+                None
+                if (value := getattr(bc_result, attribute, None)) is None
+                else asdict(value)
+            )
+            for name, attribute in (
+                ("initial_losses", "initial_hierarchical_losses"),
+                ("final_losses", "final_hierarchical_losses"),
+                ("validation_losses", "validation_hierarchical_losses"),
+                ("initial_metrics", "initial_hierarchical_metrics"),
+                ("final_metrics", "final_hierarchical_metrics"),
+                ("validation_metrics", "validation_hierarchical_metrics"),
+            )
+        }
         result_payload = {
             "behavior_cloning_digest": bc_digest,
             "best_epoch": int(bc_result.best_epoch),
             "excluded_sample_count": int(bc_result.excluded_sample_count),
             "final_mse": float(bc_result.final_mse),
+            "hierarchical": hierarchical_payload,
             "initial_mse": float(bc_result.initial_mse),
             "sample_count": int(bc_result.sample_count),
-            "schema_version": "universal_behavior_cloning_result_v1",
+            "schema_version": "universal_behavior_cloning_result_v2",
             "training_sample_count": int(bc_result.training_sample_count),
             "validation_mse": (
                 None

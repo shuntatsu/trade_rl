@@ -10,6 +10,10 @@ import pytest
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.behavior_cloning import BehaviorCloningConfig
 from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
+from trade_rl.learning.hierarchical_bc_metrics import (
+    HierarchicalBehaviorCloningLosses,
+    HierarchicalBehaviorCloningMetrics,
+)
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.rl.training import ResidualTrainingConfig
 
@@ -153,6 +157,30 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
                 "early_stopping": True,
             }
         )
+        metrics = HierarchicalBehaviorCloningMetrics(
+            active_support=4,
+            positive_support=3,
+            predicted_positive_support=2,
+            gate_precision=0.75,
+            gate_recall=0.5,
+            gate_f1=0.6,
+            active_target_rmse=0.25,
+            composed_rmse=0.3,
+            teacher_activity_rate=0.75,
+            policy_activity_rate=0.5,
+            activity_ratio=2.0 / 3.0,
+            event_recalls=(0.5, None, 1.0, 0.0),
+            constant_action_collapse=False,
+            all_hold_collapse=False,
+            all_trade_collapse=False,
+            insufficient_target_support=False,
+        )
+        losses = HierarchicalBehaviorCloningLosses(
+            gate=0.2,
+            target=0.3,
+            composed=0.4,
+            weighted=0.9,
+        )
         return SimpleNamespace(
             initial_mse=1.0,
             final_mse=0.5,
@@ -163,6 +191,12 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
             validation_sample_count=4,
             excluded_sample_count=0,
             digest=content_digest("bc-result"),
+            initial_hierarchical_losses=losses,
+            final_hierarchical_losses=losses,
+            validation_hierarchical_losses=losses,
+            initial_hierarchical_metrics=metrics,
+            final_hierarchical_metrics=metrics,
+            validation_hierarchical_metrics=metrics,
         )
 
     def fake_warm(*args: object, **kwargs: object) -> object:
@@ -248,8 +282,20 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
     )
     assert progress["epoch"] == 2
     assert [item["epoch"] for item in progress["history"]] == [1, 2]
-    result = (tmp_path / "behavior-cloning-result.json").read_text(encoding="utf-8")
-    assert '"best_epoch":1' in result
-    assert '"validation_mse":0.4' in result
+    result = json.loads(
+        (tmp_path / "behavior-cloning-result.json").read_text(encoding="utf-8")
+    )
+    assert result["schema_version"] == "universal_behavior_cloning_result_v2"
+    assert result["best_epoch"] == 1
+    assert result["validation_mse"] == pytest.approx(0.4)
+    assert result["hierarchical"]["validation_metrics"]["gate_precision"] == (
+        pytest.approx(0.75)
+    )
+    assert result["hierarchical"]["validation_metrics"]["event_recalls"] == [
+        0.5,
+        None,
+        1.0,
+        0.0,
+    ]
     assert (tmp_path / "policy-stages/behavior_cloning/policy.zip").is_file()
     assert (tmp_path / "policy-stages/behavior_cloning_critic/policy.zip").is_file()

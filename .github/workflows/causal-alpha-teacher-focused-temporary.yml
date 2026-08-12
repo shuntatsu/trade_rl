@@ -26,13 +26,16 @@ jobs:
         run: >-
           uv run ruff check
           trade_rl/learning/causal_alpha_teacher.py
+          trade_rl/integrations/universal_pretraining.py
           trade_rl/workflows/universal_causal_alpha_teacher.py
           trade_rl/workflows/universal_teacher_runtime.py
           trade_rl/workflows/universal_training_runner.py
           trade_rl/workflows/universal_stage_a_training.py
           trade_rl/workflows/universal_full_research_training.py
           tests/learning/test_causal_alpha_teacher.py
+          tests/learning/test_causal_alpha_teacher_admission.py
           tests/rl/test_causal_alpha_teacher_config.py
+          tests/integrations/test_universal_causal_teacher_admission.py
           tests/workflows/test_universal_causal_alpha_teacher.py
           tests/workflows/test_universal_causal_alpha_fitting.py
           tests/workflows/test_universal_causal_alpha_samples.py
@@ -44,6 +47,7 @@ jobs:
         run: >-
           uv run mypy
           trade_rl/learning/causal_alpha_teacher.py
+          trade_rl/integrations/universal_pretraining.py
           trade_rl/workflows/universal_causal_alpha_teacher.py
           trade_rl/workflows/universal_teacher_runtime.py
           trade_rl/workflows/universal_training_runner.py
@@ -53,7 +57,9 @@ jobs:
         run: >-
           uv run pytest
           tests/learning/test_causal_alpha_teacher.py
+          tests/learning/test_causal_alpha_teacher_admission.py
           tests/rl/test_causal_alpha_teacher_config.py
+          tests/integrations/test_universal_causal_teacher_admission.py
           tests/workflows/test_universal_causal_alpha_teacher.py
           tests/workflows/test_universal_causal_alpha_fitting.py
           tests/workflows/test_universal_causal_alpha_samples.py

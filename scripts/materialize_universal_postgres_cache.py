@@ -9,6 +9,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Sequence, cast
 
+from trade_rl.integrations.native_indicator_materializer import (
+    NativeCacheBuild,
+    build_native_indicator_cache,
+    combine_native_indicator_builds,
+    compact_native_indicator_build,
+)
 from trade_rl.integrations.postgres_market_tables import (
     UNIVERSAL_202411_202607_CACHE_ID,
     UNIVERSAL_202411_202607_TABLES,
@@ -22,12 +28,6 @@ from trade_rl.integrations.postgres_universal_source import (
     UniversalSourceConnection,
     UniversalSourceScope,
     load_postgres_universal_source,
-)
-from trade_rl.integrations.native_indicator_materializer import (
-    NativeCacheBuild,
-    build_native_indicator_cache,
-    combine_native_indicator_builds,
-    compact_native_indicator_build,
 )
 
 

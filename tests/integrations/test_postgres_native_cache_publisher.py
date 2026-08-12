@@ -8,6 +8,10 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
+from trade_rl.integrations.native_indicator_materializer import (
+    NativeCacheBuild,
+    build_native_indicator_cache,
+)
 from trade_rl.integrations.postgres_market_tables import (
     UNIVERSAL_202411_202607_TABLES,
 )
@@ -17,10 +21,6 @@ from trade_rl.integrations.postgres_native_cache_publisher import (
 from trade_rl.integrations.postgres_universal_source import (
     RawSymbolSource,
     UniversalSourceScope,
-)
-from trade_rl.integrations.native_indicator_materializer import (
-    NativeCacheBuild,
-    build_native_indicator_cache,
 )
 
 

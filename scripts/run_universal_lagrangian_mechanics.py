@@ -10,8 +10,8 @@ from pathlib import Path
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.workflows.binance_universal_runtime import build_runtime
 from trade_rl.rl.training_run_config import TrainingRunConfig
+from trade_rl.workflows.binance_universal_runtime import build_runtime
 from trade_rl.workflows.universal_full_research_entrypoint import (
     UniversalRuntimeFactoryContext,
 )

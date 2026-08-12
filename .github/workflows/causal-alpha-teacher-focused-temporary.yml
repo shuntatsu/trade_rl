@@ -31,6 +31,7 @@ jobs:
           tests/rl/test_causal_alpha_teacher_config.py
           tests/workflows/test_universal_causal_alpha_teacher.py
           tests/workflows/test_universal_causal_alpha_fitting.py
+          tests/workflows/test_universal_causal_alpha_samples.py
       - name: Mypy focused
         run: >-
           uv run mypy
@@ -43,4 +44,5 @@ jobs:
           tests/rl/test_causal_alpha_teacher_config.py
           tests/workflows/test_universal_causal_alpha_teacher.py
           tests/workflows/test_universal_causal_alpha_fitting.py
+          tests/workflows/test_universal_causal_alpha_samples.py
           -q

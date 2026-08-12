@@ -156,7 +156,7 @@ def test_oracle_batches_clip_manifest_range_to_environment_trainable_closure(
 
     def build(_environment, *, train_range, max_episodes, **_kwargs):
         observed.append(train_range)
-        assert max_episodes == 2
+        assert max_episodes == 1
         return SimpleNamespace(dataset_id=binding.source_dataset_id)
 
     monkeypatch.setattr(module, "build_episode_oracle_batch_for_environment", build)

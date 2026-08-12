@@ -23,7 +23,7 @@ from trade_rl.rl.universal_single_instrument_env import (
 )
 from trade_rl.workflows.universal_training import collect_universal_episode_teacher
 
-DEFAULT_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL = 2
+DEFAULT_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL = 1
 
 
 def _oracle_max_episodes_per_symbol() -> int:

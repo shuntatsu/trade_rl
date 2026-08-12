@@ -55,7 +55,7 @@ def assemble_training_callbacks(
 
     from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 
-    # Runtime callback compatibility belongs to SB3 itself.  Keep test doubles and
+    # Runtime callback compatibility belongs to SB3 itself. Keep test doubles and
     # custom maintained callbacks accepted here while narrowing only for Mypy's
     # CallbackList constructor contract.
     return CallbackList(cast(list[BaseCallback], callbacks))

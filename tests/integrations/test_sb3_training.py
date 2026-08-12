@@ -364,7 +364,9 @@ def test_compact_training_info_removes_history_bearing_execution_results() -> No
         book=SimpleNamespace(
             weights=np.asarray((0.25, -0.5), dtype=np.float64),
             returns_history=history,
-        )
+        ),
+        filled_turnover=0.75,
+        fill_count=3,
     )
     info: dict[str, object] = {
         "hybrid_execution": execution,
@@ -387,6 +389,8 @@ def test_compact_training_info_removes_history_bearing_execution_results() -> No
         )
     )
     assert compact["telemetry_weights_after"] == pytest.approx((0.25, -0.5))
+    assert compact["telemetry_filled_turnover"] == pytest.approx(0.75)
+    assert compact["telemetry_fill_count"] == 3
     assert compact["telemetry_risk_reasons"] == ("drawdown_deleveraging",)
     assert compact["portfolio_value_after"] == 99_000.0
     assert info["hybrid_execution"] is execution

@@ -157,6 +157,30 @@ def test_sampler_accepts_torch_rollout_tensors(tmp_path: Path) -> None:
     assert read_training_telemetry(path, limit=10).items[0].reward == pytest.approx(0.214)
 
 
+def test_sampler_reads_execution_scalars_from_compact_training_info(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "training-telemetry.jsonl"
+    sampler = TrainingTelemetrySampler(path, seed=7, sample_every=1)
+    compact = info(1)
+    compact.pop("hybrid_execution")
+    compact["telemetry_filled_turnover"] = 0.75
+    compact["telemetry_fill_count"] = 3
+
+    assert sampler.consume(
+        global_step=1,
+        actions=np.asarray([[0.1]]),
+        rewards=np.asarray([0.2]),
+        dones=np.asarray([False]),
+        infos=(compact,),
+    ) == 1
+    sampler.close()
+
+    record = read_training_telemetry(path, limit=10).items[0]
+    assert record.filled_turnover == pytest.approx(0.75)
+    assert record.fill_count == 3
+
+
 def test_sampler_moves_device_tensors_to_cpu_before_numpy(tmp_path: Path) -> None:
     class _DeviceTensor:
         def __init__(self, values: object) -> None:

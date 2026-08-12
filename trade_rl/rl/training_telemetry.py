@@ -410,8 +410,15 @@ class TrainingTelemetrySampler:
                     fallback=shadow_fallback,
                 )
                 execution = info.get("hybrid_execution")
-                filled_turnover = _number(getattr(execution, "filled_turnover", None))
-                raw_fill_count = getattr(execution, "fill_count", None)
+                filled_turnover = _number(
+                    getattr(execution, "filled_turnover", None),
+                    fallback=_number(info.get("telemetry_filled_turnover")),
+                )
+                raw_fill_count = getattr(
+                    execution,
+                    "fill_count",
+                    info.get("telemetry_fill_count"),
+                )
                 fill_count = (
                     int(raw_fill_count)
                     if isinstance(raw_fill_count, (int, np.integer))

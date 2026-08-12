@@ -29,6 +29,8 @@ jobs:
           trade_rl/workflows/universal_causal_alpha_teacher.py
           trade_rl/workflows/universal_teacher_runtime.py
           trade_rl/workflows/universal_training_runner.py
+          trade_rl/workflows/universal_stage_a_training.py
+          trade_rl/workflows/universal_full_research_training.py
           tests/learning/test_causal_alpha_teacher.py
           tests/rl/test_causal_alpha_teacher_config.py
           tests/workflows/test_universal_causal_alpha_teacher.py
@@ -37,6 +39,7 @@ jobs:
           tests/workflows/test_universal_causal_alpha_selection.py
           tests/workflows/test_universal_causal_alpha_package.py
           tests/workflows/test_universal_causal_alpha_assembly.py
+          tests/workflows/test_universal_causal_alpha_shared_training.py
       - name: Mypy focused
         run: >-
           uv run mypy
@@ -44,6 +47,8 @@ jobs:
           trade_rl/workflows/universal_causal_alpha_teacher.py
           trade_rl/workflows/universal_teacher_runtime.py
           trade_rl/workflows/universal_training_runner.py
+          trade_rl/workflows/universal_stage_a_training.py
+          trade_rl/workflows/universal_full_research_training.py
       - name: Focused tests
         run: >-
           uv run pytest
@@ -55,4 +60,5 @@ jobs:
           tests/workflows/test_universal_causal_alpha_selection.py
           tests/workflows/test_universal_causal_alpha_package.py
           tests/workflows/test_universal_causal_alpha_assembly.py
+          tests/workflows/test_universal_causal_alpha_shared_training.py
           -q

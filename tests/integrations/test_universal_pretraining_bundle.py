@@ -64,6 +64,9 @@ def test_combine_symbol_teachers_preserves_exact_symbol_train_scope() -> None:
         "AAAUSDT": (0, 1, 2, 3),
         "BBBUSDT": (6, 7, 8, 9),
     }
+    assert set(combined.symbol_splits) == {"AAAUSDT", "BBBUSDT"}
+    assert combined.symbol_splits["AAAUSDT"].train_indices.tolist() == [0, 1, 2, 3]
+    assert combined.symbol_splits["AAAUSDT"].validation_indices.tolist() == [4, 5]
     assert combined.critic_targets.tolist() == [
         0.0,
         1.0,
@@ -112,6 +115,11 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
         normalizer_digest=content_digest("normalizer"),
         feature_schema_digest=content_digest("features"),
     )
+    object.__setattr__(
+        combined,
+        "episode_batches",
+        {"AAAUSDT": object(), "BBBUSDT": object()},
+    )
     calls: list[str] = []
 
     class _Policy:
@@ -135,8 +143,36 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
             actor_max_abs_drift_joint=0.01,
         )
 
+    def fake_holdout(*args: object, **kwargs: object) -> tuple[dict[str, object], object]:
+        calls.append("holdout")
+        return {}, SimpleNamespace(symbol=kwargs["output_root"].name)
+
+    aggregate = SimpleNamespace(to_dict=lambda: {"schema_version": "aggregate"})
+
+    def fake_aggregate(values: object, **_kwargs: object) -> object:
+        assert len(values) == 2  # type: ignore[arg-type]
+        return aggregate
+
+    class _Gate:
+        def to_dict(self) -> dict[str, object]:
+            return {"passed": True, "schema_version": "gate"}
+
+        def require_passed(self) -> None:
+            calls.append("gate")
+
     monkeypatch.setattr(module, "pretrain_universal_policy", fake_bc)
     monkeypatch.setattr(module, "warm_start_policy_actor_critic", fake_warm)
+    monkeypatch.setattr(module, "evaluate_episode_behavior_cloning_holdout", fake_holdout)
+    monkeypatch.setattr(
+        module,
+        "aggregate_episode_behavior_cloning_holdouts",
+        fake_aggregate,
+    )
+    monkeypatch.setattr(
+        module,
+        "evaluate_direct_behavior_cloning_gates",
+        lambda **_kwargs: _Gate(),
+    )
 
     config = ResidualTrainingConfig(
         timesteps=32,
@@ -147,12 +183,19 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
         behavior_cloning_epochs=2,
         behavior_cloning_teacher="oracle",
         behavior_cloning_required_relative_improvement=0.1,
+        behavior_cloning_validation_fraction=0.1,
         behavior_cloning_critic_warm_start_steps=2,
         behavior_cloning_joint_warm_start_steps=2,
         behavior_cloning_critic_warm_start_learning_rate=1e-3,
         behavior_cloning_joint_warm_start_actor_lr_scale=0.1,
     )
-    hook = module.build_universal_pretraining_hook(combined)
+    hook = module.build_universal_pretraining_hook(
+        combined,
+        symbol_environment_factories={
+            "AAAUSDT": lambda: object(),
+            "BBBUSDT": lambda: object(),
+        },
+    )
     evidence = hook(
         policy=_Policy(),
         config=config,
@@ -161,12 +204,14 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
         output_root=tmp_path,
     )
 
-    assert calls == ["bc", "critic"]
+    assert calls == ["bc", "holdout", "holdout", "gate", "critic"]
     assert evidence["passed"] is True
     assert (
         evidence["teacher_artifact_digest"] == combined.teacher_artifact.artifact_digest
     )
     assert len(evidence["behavior_cloning_digest"]) == 64
     assert len(evidence["critic_warm_start_digest"]) == 64
+    assert len(evidence["behavior_cloning_holdout_digest"]) == 64
+    assert len(evidence["behavior_cloning_gate_digest"]) == 64
     assert (tmp_path / "policy-stages/behavior_cloning/policy.zip").is_file()
     assert (tmp_path / "policy-stages/behavior_cloning_critic/policy.zip").is_file()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 from trade_rl.integrations.sb3_runtime import (
@@ -252,11 +253,14 @@ def build_universal_pretraining_bundle_from_batches(
             collected.critic_targets,
         )
 
-    return combine_symbol_teachers(
-        symbol_teachers,
-        train_symbols=symbols,
-        normalizer_digest=normalizer_digest,
-        feature_schema_digest=feature_schema_digest,
+    return replace(
+        combine_symbol_teachers(
+            symbol_teachers,
+            train_symbols=symbols,
+            normalizer_digest=normalizer_digest,
+            feature_schema_digest=feature_schema_digest,
+        ),
+        episode_batches=dict(batches),
     )
 
 

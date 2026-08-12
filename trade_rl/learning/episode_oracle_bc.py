@@ -251,6 +251,103 @@ def _aggregate_collapse_evidence(
     )
 
 
+def aggregate_episode_behavior_cloning_holdouts(
+    evaluations: tuple[EpisodeBehaviorCloningHoldoutEvaluation, ...],
+    *,
+    seed_material: str,
+) -> EpisodeBehaviorCloningHoldoutEvaluation:
+    """Combine per-symbol causal holdouts without losing episode support."""
+
+    if not evaluations:
+        raise ValueError("Universal BC holdout requires at least one evaluation")
+    confidence = evaluations[0].bootstrap_confidence_level
+    resamples = evaluations[0].bootstrap_resamples
+    if any(
+        evaluation.bootstrap_confidence_level != confidence
+        or evaluation.bootstrap_resamples != resamples
+        for evaluation in evaluations
+    ):
+        raise ValueError("Universal BC holdout bootstrap contracts differ")
+    records = tuple(
+        record for evaluation in evaluations for record in evaluation.records
+    )
+    evidence_values = tuple(
+        record.causal_policy_evidence for record in records
+    )
+    first = evidence_values[0]
+    if any(
+        value.action_dimension_count != first.action_dimension_count
+        for value in evidence_values
+    ):
+        raise ValueError("Universal BC holdout action dimensions differ")
+    evidence = ActionPathCollapseEvidence(
+        decision_count=sum(value.decision_count for value in evidence_values),
+        action_dimension_count=first.action_dimension_count,
+        active_dimension_count=sum(
+            value.active_dimension_count for value in evidence_values
+        ),
+        inactive_dimension_count=sum(
+            value.inactive_dimension_count for value in evidence_values
+        ),
+        proposal_distance_count=sum(
+            value.proposal_distance_count for value in evidence_values
+        ),
+        submitted_change_count=sum(
+            value.submitted_change_count for value in evidence_values
+        ),
+        downstream_no_trade_suppression_count=sum(
+            value.downstream_no_trade_suppression_count for value in evidence_values
+        ),
+        execution_rejection_count=sum(
+            value.execution_rejection_count for value in evidence_values
+        ),
+        executed_change_count=sum(
+            value.executed_change_count for value in evidence_values
+        ),
+        trade_count=sum(value.trade_count for value in evidence_values),
+        constant_submitted_actions=all(
+            value.constant_submitted_actions for value in evidence_values
+        ),
+    )
+    causal_returns = np.asarray(
+        [record.causal_policy_performance.net_return for record in records],
+        dtype=np.float64,
+    )
+    normalized_regrets = np.asarray(
+        [record.normalized_oracle_regret for record in records],
+        dtype=np.float64,
+    )
+    worst = min(records, key=lambda record: record.causal_policy_performance.net_return)
+    return EpisodeBehaviorCloningHoldoutEvaluation(
+        records=records,
+        causal_policy_performance=worst.causal_policy_performance,
+        causal_policy_evidence=evidence,
+        action_agreement_rate=min(record.action_agreement_rate for record in records),
+        action_mae=max(record.action_mae for record in records),
+        action_rmse=max(record.action_rmse for record in records),
+        heldout_oracle_regret=max(
+            record.heldout_oracle_regret for record in records
+        ),
+        normalized_oracle_regret=max(
+            record.normalized_oracle_regret for record in records
+        ),
+        causal_regret_upper_confidence_bound=deterministic_bootstrap_upper_bound(
+            normalized_regrets,
+            confidence_level=confidence,
+            resamples=resamples,
+            seed_material=f"{seed_material}:oracle-regret",
+        ),
+        causal_net_return_lower_confidence_bound=deterministic_bootstrap_lower_bound(
+            causal_returns,
+            confidence_level=confidence,
+            resamples=resamples,
+            seed_material=f"{seed_material}:causal-return",
+        ),
+        bootstrap_confidence_level=confidence,
+        bootstrap_resamples=resamples,
+    )
+
+
 def _write_evaluation(path: Path, payload: dict[str, object]) -> str:
     digest = content_digest(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -442,6 +539,7 @@ __all__ = [
     "EPISODE_ORACLE_BC_EVALUATION_SCHEMA",
     "EpisodeBehaviorCloningHoldoutEvaluation",
     "EpisodeBehaviorCloningRecord",
+    "aggregate_episode_behavior_cloning_holdouts",
     "evaluate_episode_action_path",
     "evaluate_episode_behavior_cloning_holdout",
     "oracle_episode_sampling_config",

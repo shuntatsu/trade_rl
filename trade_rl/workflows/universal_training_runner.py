@@ -40,6 +40,7 @@ from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.universal_teacher_runtime import (
     build_universal_oracle_batches,
     build_universal_pretraining_bundle_from_batches,
+    build_universal_symbol_teacher_environment,
 )
 from trade_rl.workflows.universal_training import (
     universal_training_contract_digest,
@@ -642,10 +643,34 @@ def assemble_universal_sb3_training_backend(
         normalizer_digest=normalizer_digest,
         feature_schema_digest=feature_schema_digest,
     )
+    binding_by_symbol = {
+        binding.concrete_symbol: binding
+        for binding in routed_environment_factory.bindings
+    }
+    symbol_environment_factories = {
+        symbol: partial(
+            build_universal_symbol_teacher_environment,
+            symbol=symbol,
+            binding=binding_by_symbol[symbol],
+            concrete_environment_factory=(
+                routed_environment_factory.concrete_environment_factory
+            ),
+            instrument_context_provider=provider,
+            partition_digest=routed_environment_factory.partition_digest,
+            training_contract_digest=(
+                routed_environment_factory.training_contract_digest
+            ),
+            run_seed=routed_environment_factory.run_seed + index,
+        )
+        for index, symbol in enumerate(routed_environment_factory.train_symbols)
+    }
     backend = StableBaselines3Backend(
         routed_environment_factory,
         verbose=verbose,
-        universal_pretraining_hook=build_universal_pretraining_hook(bundle),
+        universal_pretraining_hook=build_universal_pretraining_hook(
+            bundle,
+            symbol_environment_factories=symbol_environment_factories,
+        ),
     )
     return backend, bundle
 

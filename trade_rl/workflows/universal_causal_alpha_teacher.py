@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from types import SimpleNamespace
 from typing import Any, Mapping
 
@@ -16,6 +17,7 @@ from trade_rl.data.universal_features import (
 )
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
+    CausalAlphaHorizonMix,
     CausalAlphaRidgeConfig,
     CausalAlphaRidgeModel,
     causal_alpha_target_path,
@@ -32,6 +34,7 @@ from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
     OracleEpisodeContract,
 )
+from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 
 _CAUSAL_ALPHA_EPISODE_PARTITION_SCHEMA = "universal_causal_alpha_episode_partition_v1"
@@ -526,6 +529,175 @@ class CausalAlphaSelectionEvidence:
         object.__setattr__(self, "candidates", candidates)
         object.__setattr__(self, "holdout_episode_digests", holdouts)
         object.__setattr__(self, "digest", expected)
+
+
+@dataclass(frozen=True, slots=True)
+class UniversalCausalAlphaTeacherPackage:
+    """One immutable train-only teacher identity shared across Universal consumers."""
+
+    train_symbols: tuple[str, ...]
+    batches: Mapping[str, EpisodeOracleBatch]
+    partitions: Mapping[str, CausalAlphaEpisodePartition]
+    samples: Mapping[str, CausalAlphaSymbolSamples]
+    selection: CausalAlphaSelectionEvidence
+    selected_candidate_digest: str
+    teacher_config_digest: str
+    batch_evidence: Mapping[str, CausalAlphaBatchEvidence]
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        symbols = tuple(self.train_symbols)
+        if not symbols or len(set(symbols)) != len(symbols):
+            raise ValueError("causal alpha package train_symbols must be unique")
+        batches = dict(self.batches)
+        partitions = dict(self.partitions)
+        samples = dict(self.samples)
+        batch_evidence = dict(self.batch_evidence)
+        for field, values in (
+            ("batches", batches),
+            ("partitions", partitions),
+            ("samples", samples),
+            ("batch_evidence", batch_evidence),
+        ):
+            if set(values) != set(symbols):
+                raise ValueError(
+                    f"causal alpha package {field} must exactly match train_symbols"
+                )
+        if self.selection.selected_candidate_digest != self.selected_candidate_digest:
+            raise ValueError("causal alpha package selected candidate identity drifted")
+        for field, value in (
+            ("selected_candidate_digest", self.selected_candidate_digest),
+            ("teacher_config_digest", self.teacher_config_digest),
+        ):
+            if not isinstance(value, str) or len(value) != 64:
+                raise ValueError(f"causal alpha package {field} is invalid")
+        for symbol in symbols:
+            batch = batches[symbol]
+            if batch.teacher_config_digest != self.teacher_config_digest:
+                raise ValueError("causal alpha package batch teacher identity drifted")
+            if len(partitions[symbol].digest) != 64:
+                raise ValueError("causal alpha package partition digest is unavailable")
+            if len(samples[symbol].digest) != 64:
+                raise ValueError("causal alpha package sample digest is unavailable")
+            if len(batch_evidence[symbol].digest) != 64:
+                raise ValueError(
+                    "causal alpha package batch evidence digest is unavailable"
+                )
+        expected = content_digest(
+            {
+                "batch_digests": {symbol: batches[symbol].digest for symbol in symbols},
+                "batch_evidence_digests": {
+                    symbol: batch_evidence[symbol].digest for symbol in symbols
+                },
+                "partition_digests": {
+                    symbol: partitions[symbol].digest for symbol in symbols
+                },
+                "sample_digests": {
+                    symbol: samples[symbol].digest for symbol in symbols
+                },
+                "schema_version": "universal_causal_alpha_teacher_package_v1",
+                "selected_candidate_digest": self.selected_candidate_digest,
+                "selection_digest": self.selection.digest,
+                "teacher_config_digest": self.teacher_config_digest,
+                "train_symbols": symbols,
+            }
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha teacher package digest mismatch")
+        object.__setattr__(self, "train_symbols", symbols)
+        object.__setattr__(self, "batches", batches)
+        object.__setattr__(self, "partitions", partitions)
+        object.__setattr__(self, "samples", samples)
+        object.__setattr__(self, "batch_evidence", batch_evidence)
+        object.__setattr__(self, "digest", expected)
+
+
+def _candidate(
+    *,
+    name: str,
+    ridge_strength: float,
+    horizon_mix: CausalAlphaHorizonMix,
+    score_scale: float,
+    entry_threshold: float,
+    exit_threshold: float,
+    no_trade_band: float,
+    max_target_delta: float,
+) -> CausalAlphaCandidateConfig:
+    return CausalAlphaCandidateConfig(
+        name=name,
+        ridge=CausalAlphaRidgeConfig(ridge_strength=ridge_strength),
+        controller=CausalAlphaControllerConfig(
+            horizon_mix=horizon_mix,
+            score_scale=score_scale,
+            entry_threshold=entry_threshold,
+            exit_threshold=exit_threshold,
+            no_trade_band=no_trade_band,
+            max_target_delta=max_target_delta,
+        ),
+    )
+
+
+def default_causal_alpha_candidate_grid(
+    risk_config: PreTradeRiskConfig,
+) -> tuple[CausalAlphaCandidateConfig, ...]:
+    """Return the maintained bounded one-factor-at-a-time causal teacher grid."""
+
+    if not isinstance(risk_config, PreTradeRiskConfig):
+        raise TypeError("causal alpha default grid requires PreTradeRiskConfig")
+    no_trade = float(risk_config.no_trade_band)
+    max_delta = min(0.25, float(risk_config.max_abs_weight))
+    if max_delta <= 0.0:
+        raise ValueError("causal alpha max target delta cannot be resolved")
+    base = dict(
+        ridge_strength=0.01,
+        horizon_mix=CausalAlphaHorizonMix.EQUAL,
+        score_scale=50.0,
+        entry_threshold=0.003,
+        exit_threshold=0.001,
+        no_trade_band=no_trade,
+        max_target_delta=max_delta,
+    )
+    variants: tuple[tuple[str, dict[str, object]], ...] = (
+        ("baseline", {}),
+        ("ridge-strong", {"ridge_strength": 0.1}),
+        ("horizon-24h", {"horizon_mix": CausalAlphaHorizonMix.H24}),
+        ("horizon-72h", {"horizon_mix": CausalAlphaHorizonMix.H72}),
+        ("scale-low", {"score_scale": 25.0}),
+        ("scale-high", {"score_scale": 100.0}),
+        (
+            "threshold-low",
+            {"entry_threshold": 0.0015, "exit_threshold": 0.0005},
+        ),
+        (
+            "threshold-high",
+            {"entry_threshold": 0.006, "exit_threshold": 0.002},
+        ),
+        ("no-trade-low", {"no_trade_band": no_trade * 0.5}),
+        (
+            "no-trade-high",
+            {"no_trade_band": min(float(risk_config.max_abs_weight), no_trade * 2.0)},
+        ),
+        ("delta-low", {"max_target_delta": max_delta * 0.5}),
+        (
+            "delta-high",
+            {
+                "max_target_delta": min(
+                    float(risk_config.max_abs_weight), max_delta * 2.0
+                )
+            },
+        ),
+    )
+    result: list[CausalAlphaCandidateConfig] = []
+    observed: set[str] = set()
+    for name, overrides in variants:
+        kwargs = {**base, **overrides, "name": name}
+        candidate = _candidate(**kwargs)  # type: ignore[arg-type]
+        if candidate.digest not in observed:
+            observed.add(candidate.digest)
+            result.append(candidate)
+    if len(result) < 8:
+        raise ValueError("causal alpha default grid collapsed unexpectedly")
+    return tuple(result)
 
 
 def _train_range(
@@ -1200,6 +1372,150 @@ def evaluate_causal_alpha_selection(
     )
 
 
+def build_universal_causal_alpha_teacher_package(
+    *,
+    train_symbols: tuple[str, ...],
+    bindings: tuple[InstrumentDatasetBinding, ...],
+    concrete_environment_factory: Any,
+    instrument_context_provider: Any,
+    fold_train_range: tuple[int, int],
+    feature_schema_digest: str,
+    episode_hours: float | None = None,
+    candidates: tuple[CausalAlphaCandidateConfig, ...] | None = None,
+) -> UniversalCausalAlphaTeacherPackage:
+    """Build the causal teacher exactly once for all Universal consumers."""
+
+    symbols = tuple(train_symbols)
+    binding_values = tuple(bindings)
+    if not symbols or len(set(symbols)) != len(symbols):
+        raise ValueError("causal alpha package train_symbols must be unique")
+    if tuple(binding.concrete_symbol for binding in binding_values) != symbols:
+        raise ValueError("causal alpha package bindings must follow train_symbols")
+    if any(binding.split != "train" for binding in binding_values):
+        raise ValueError("causal alpha package accepts train bindings only")
+    if not callable(concrete_environment_factory):
+        raise TypeError("causal alpha concrete environment factory must be callable")
+
+    partitions: dict[str, CausalAlphaEpisodePartition] = {}
+    samples: dict[str, CausalAlphaSymbolSamples] = {}
+    risk_configs: list[PreTradeRiskConfig] = []
+    observed_episode_hours: list[float] = []
+    for symbol, binding in zip(symbols, binding_values, strict=True):
+        environment = concrete_environment_factory(binding)
+        close = getattr(environment, "close", None)
+        if not callable(close):
+            raise TypeError("causal alpha concrete environment must be closable")
+        try:
+            partitions[symbol] = build_chronological_episode_partition(
+                environment,
+                train_range=fold_train_range,
+            )
+            samples[symbol] = build_causal_alpha_symbol_samples(
+                environment=environment,
+                binding=binding,
+                instrument_context_provider=instrument_context_provider,
+                train_range=fold_train_range,
+                feature_schema_digest=feature_schema_digest,
+            )
+            risk_config = getattr(
+                getattr(environment, "pre_trade_risk", None), "config", None
+            )
+            if not isinstance(risk_config, PreTradeRiskConfig):
+                raise TypeError("causal alpha environment risk config is unavailable")
+            risk_configs.append(risk_config)
+            environment_episode_hours = getattr(
+                getattr(environment, "config", None), "episode_hours", None
+            )
+            if isinstance(environment_episode_hours, bool) or not isinstance(
+                environment_episode_hours, int | float
+            ):
+                raise ValueError(
+                    "causal alpha environment episode_hours is unavailable"
+                )
+            observed_episode_hours.append(float(environment_episode_hours))
+        finally:
+            close()
+    validate_universal_causal_alpha_partitions(
+        train_symbols=symbols,
+        partitions=partitions,
+    )
+    if len({content_digest(config) for config in risk_configs}) != 1:
+        raise ValueError("causal alpha train-symbol risk configs differ")
+    if len(set(observed_episode_hours)) != 1:
+        raise ValueError("causal alpha train-symbol episode horizons differ")
+    resolved_episode_hours = (
+        observed_episode_hours[0] if episode_hours is None else float(episode_hours)
+    )
+    if not np.isfinite(resolved_episode_hours) or resolved_episode_hours <= 0.0:
+        raise ValueError("causal alpha package episode_hours must be positive")
+    if any(
+        abs(value - resolved_episode_hours) > 1e-12 for value in observed_episode_hours
+    ):
+        raise ValueError(
+            "causal alpha requested episode_hours differs from environment"
+        )
+
+    candidate_values = (
+        default_causal_alpha_candidate_grid(risk_configs[0])
+        if candidates is None
+        else tuple(candidates)
+    )
+    if not candidate_values:
+        raise ValueError("causal alpha candidate grid must be non-empty")
+    binding_by_symbol = {binding.concrete_symbol: binding for binding in binding_values}
+    selection = evaluate_causal_alpha_selection(
+        train_symbols=symbols,
+        samples=samples,
+        partitions=partitions,
+        candidates=candidate_values,
+        environment_factories={
+            symbol: partial(concrete_environment_factory, binding_by_symbol[symbol])
+            for symbol in symbols
+        },
+        episode_hours=resolved_episode_hours,
+    )
+    selected_evidence = tuple(
+        item
+        for item in selection.candidates
+        if item.candidate.digest == selection.selected_candidate_digest
+    )
+    if len(selected_evidence) != 1:
+        raise RuntimeError("causal alpha selected candidate cannot be resolved")
+    selected = selected_evidence[0].candidate
+    teacher_config_digest = content_digest(
+        {
+            "feature_schema_digest": feature_schema_digest,
+            "schema_version": "universal_causal_alpha_teacher_config_v1",
+            "selected_candidate_digest": selected.digest,
+            "selection_digest": selection.digest,
+        }
+    )
+    batches: dict[str, EpisodeOracleBatch] = {}
+    batch_evidence: dict[str, CausalAlphaBatchEvidence] = {}
+    for symbol in symbols:
+        batch, evidence = build_causal_alpha_episode_batch(
+            symbol=symbol,
+            train_symbols=symbols,
+            samples=samples,
+            partition=partitions[symbol],
+            ridge_config=selected.ridge,
+            controller_config=selected.controller,
+            teacher_config_digest=teacher_config_digest,
+        )
+        batches[symbol] = batch
+        batch_evidence[symbol] = evidence
+    return UniversalCausalAlphaTeacherPackage(
+        train_symbols=symbols,
+        batches=batches,
+        partitions=partitions,
+        samples=samples,
+        selection=selection,
+        selected_candidate_digest=selected.digest,
+        teacher_config_digest=teacher_config_digest,
+        batch_evidence=batch_evidence,
+    )
+
+
 def build_causal_alpha_episode_batch(
     *,
     symbol: str,
@@ -1208,6 +1524,7 @@ def build_causal_alpha_episode_batch(
     partition: CausalAlphaEpisodePartition,
     ridge_config: CausalAlphaRidgeConfig,
     controller_config: CausalAlphaControllerConfig,
+    teacher_config_digest: str | None = None,
 ) -> tuple[EpisodeOracleBatch, CausalAlphaBatchEvidence]:
     """Fit at each episode start and generate one causal target path per contract."""
 
@@ -1279,9 +1596,17 @@ def build_causal_alpha_episode_batch(
         controller_config_digest=controller_config.digest,
         episodes=tuple(episode_evidence),
     )
+    resolved_teacher_config_digest = (
+        evidence.digest if teacher_config_digest is None else teacher_config_digest
+    )
+    if (
+        not isinstance(resolved_teacher_config_digest, str)
+        or len(resolved_teacher_config_digest) != 64
+    ):
+        raise ValueError("causal alpha teacher_config_digest must be SHA-256")
     batch = EpisodeOracleBatch(
         dataset_id=block.dataset_id,
-        teacher_config_digest=evidence.digest,
+        teacher_config_digest=resolved_teacher_config_digest,
         sampling_config_digest=content_digest(
             {
                 "partition_digest": partition.digest,
@@ -1305,9 +1630,12 @@ __all__ = [
     "CausalAlphaExpandingFit",
     "CausalAlphaSelectionEvidence",
     "CausalAlphaSymbolSamples",
+    "UniversalCausalAlphaTeacherPackage",
     "build_causal_alpha_episode_batch",
     "build_causal_alpha_symbol_samples",
     "build_chronological_episode_partition",
+    "build_universal_causal_alpha_teacher_package",
+    "default_causal_alpha_candidate_grid",
     "evaluate_causal_alpha_selection",
     "fit_expanding_causal_alpha_models",
     "latest_complete_episode_split",

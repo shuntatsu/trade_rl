@@ -42,6 +42,10 @@ from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.rl.universal_instrument_context import CausalInstrumentContextProvider
 from trade_rl.rl.universal_single_instrument_env import EpisodeRoutedSingleInstrumentEnv
 from trade_rl.strategies.trend import TrendStrategy
+from trade_rl.workflows.universal_causal_alpha_teacher import (
+    UniversalCausalAlphaTeacherPackage,
+    build_universal_causal_alpha_teacher_package,
+)
 from trade_rl.workflows.universal_teacher_runtime import (
     build_universal_pretraining_bundle_from_batches,
     build_universal_symbol_teacher_environment,
@@ -559,6 +563,7 @@ def assemble_universal_sb3_training_backend(
     normalizer_digest: str,
     feature_schema_digest: str,
     oracle_batches: Mapping[str, EpisodeOracleBatch] | None = None,
+    causal_teacher_package: UniversalCausalAlphaTeacherPackage | None = None,
     verbose: int = 0,
 ) -> tuple[StableBaselines3Backend, UniversalPretrainingBundle]:
     """Assemble the maintained U4 Oracle -> BC/critic -> SB3 training path."""
@@ -575,7 +580,7 @@ def assemble_universal_sb3_training_backend(
     ):
         raise ValueError("Universal U4 requires behavior cloning to be enabled")
     teacher_kind = getattr(training, "behavior_cloning_teacher", None)
-    if teacher_kind not in {"oracle", "trend_baseline"}:
+    if teacher_kind not in {"oracle", "trend_baseline", "causal_alpha_ridge"}:
         raise ValueError("Universal U4 behavior-cloning teacher is unsupported")
     behavior_cloning_seed = getattr(training, "behavior_cloning_seed", None)
     if (
@@ -612,28 +617,53 @@ def assemble_universal_sb3_training_backend(
     if not callable(provider):
         raise ValueError("Universal U4 requires an instrument context provider")
 
-    if oracle_batches is None:
-        batches = build_universal_teacher_batches(
-            teacher_kind=teacher_kind,
-            train_symbols=routed_environment_factory.train_symbols,
-            bindings=routed_environment_factory.bindings,
-            concrete_environment_factory=(
-                routed_environment_factory.concrete_environment_factory
-            ),
-            fold_train_range=fold_train_range,
-            behavior_cloning_seed=behavior_cloning_seed,
-            n_envs=n_envs,
-        )
-    else:
-        batches = dict(oracle_batches)
-        if set(batches) != set(routed_environment_factory.train_symbols):
+    resolved_causal_package = causal_teacher_package
+    if teacher_kind == "causal_alpha_ridge":
+        if oracle_batches is not None:
             raise ValueError(
-                "Universal U4 oracle_batches must exactly match train_symbols"
+                "Universal causal alpha training cannot accept legacy oracle_batches"
             )
-        if any(not isinstance(batch, EpisodeOracleBatch) for batch in batches.values()):
-            raise TypeError(
-                "Universal U4 oracle_batches must contain EpisodeOracleBatch"
+        if resolved_causal_package is None:
+            resolved_causal_package = build_universal_causal_alpha_teacher_package(
+                train_symbols=routed_environment_factory.train_symbols,
+                bindings=routed_environment_factory.bindings,
+                concrete_environment_factory=(
+                    routed_environment_factory.concrete_environment_factory
+                ),
+                instrument_context_provider=provider,
+                fold_train_range=fold_train_range,
+                feature_schema_digest=feature_schema_digest,
             )
+        batches = dict(resolved_causal_package.batches)
+    else:
+        if resolved_causal_package is not None:
+            raise ValueError(
+                "Universal causal teacher package requires causal_alpha_ridge"
+            )
+        if oracle_batches is None:
+            batches = build_universal_teacher_batches(
+                teacher_kind=teacher_kind,
+                train_symbols=routed_environment_factory.train_symbols,
+                bindings=routed_environment_factory.bindings,
+                concrete_environment_factory=(
+                    routed_environment_factory.concrete_environment_factory
+                ),
+                fold_train_range=fold_train_range,
+                behavior_cloning_seed=behavior_cloning_seed,
+                n_envs=n_envs,
+            )
+        else:
+            batches = dict(oracle_batches)
+            if set(batches) != set(routed_environment_factory.train_symbols):
+                raise ValueError(
+                    "Universal U4 oracle_batches must exactly match train_symbols"
+                )
+            if any(
+                not isinstance(batch, EpisodeOracleBatch) for batch in batches.values()
+            ):
+                raise TypeError(
+                    "Universal U4 oracle_batches must contain EpisodeOracleBatch"
+                )
     bundle = build_universal_pretraining_bundle_from_batches(
         train_symbols=routed_environment_factory.train_symbols,
         bindings=routed_environment_factory.bindings,
@@ -650,6 +680,7 @@ def assemble_universal_sb3_training_backend(
         normalizer_digest=normalizer_digest,
         feature_schema_digest=feature_schema_digest,
         teacher_kind=teacher_kind,
+        causal_teacher_package=resolved_causal_package,
     )
     binding_by_symbol = {
         binding.concrete_symbol: binding

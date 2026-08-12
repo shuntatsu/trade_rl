@@ -79,9 +79,7 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
         value = SimpleNamespace(
             contracts=(
                 SimpleNamespace(
-                    digest=_digest(
-                        f"contract:{environment.binding.concrete_symbol}:0"
-                    )
+                    digest=_digest(f"contract:{environment.binding.concrete_symbol}:0")
                 ),
             ),
             selection_contracts=(
@@ -113,7 +111,9 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
         digest=_digest("selection"),
         candidates=(SimpleNamespace(candidate=candidate),),
     )
-    monkeypatch.setattr(module, "build_chronological_episode_partition", build_partition)
+    monkeypatch.setattr(
+        module, "build_chronological_episode_partition", build_partition
+    )
     monkeypatch.setattr(module, "build_causal_alpha_symbol_samples", build_samples)
     monkeypatch.setattr(
         module,

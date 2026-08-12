@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -373,6 +374,20 @@ def build_universal_pretraining_hook(
         output_root: Path,
     ) -> dict[str, object]:
         bc_config = _hierarchical_behavior_cloning_config(config)
+        validation_count = int(bundle.split.validation_indices.size)
+        if validation_count:
+            validation_fraction = math.nextafter(
+                validation_count / bundle.dataset.sample_count,
+                1.0,
+            )
+            if validation_fraction >= 0.5:
+                raise ValueError(
+                    "Universal episode holdout must remain below half the samples"
+                )
+            bc_config = replace(
+                bc_config,
+                validation_fraction=validation_fraction,
+            )
         labels = _hierarchical_teacher_labels(
             policy=policy,
             teacher_dataset=bundle.dataset,

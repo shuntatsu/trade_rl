@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.learning.behavior_cloning import BehaviorCloningConfig
 from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.rl.training import ResidualTrainingConfig
@@ -129,6 +130,9 @@ def test_build_universal_pretraining_hook_runs_balanced_bc_then_critic(
     def fake_bc(*args: object, **kwargs: object) -> object:
         calls.append("bc")
         assert kwargs["symbol_sample_indices"] == combined.symbol_sample_indices
+        cloning_config = kwargs["config"]
+        assert isinstance(cloning_config, BehaviorCloningConfig)
+        assert cloning_config.validation_fraction == pytest.approx(1.0 / 3.0)
         return SimpleNamespace(
             initial_mse=1.0,
             final_mse=0.5,

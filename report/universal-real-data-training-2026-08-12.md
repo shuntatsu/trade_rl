@@ -76,6 +76,7 @@ This verifies that Lagrangian mechanics work when complete episodes and warm-up 
 | `cbc48103` | With one Oracle episode per symbol, the causal validation episode set was empty. | Require multiple complete Oracle episodes whenever Universal causal BC admission is enabled. |
 | `520e743d` | Ten episodes per symbol (90 total) exceeded the Docker memory limit while combining observations. | Bound the default to three episodes per symbol. With seed 17, two temporally separated train episodes and one complete holdout remain per symbol. |
 | `61bc7fbc` | The explicit complete-episode split (one of three episodes) disagreed with the scalar 10% validation fraction. | Pass the realized explicit episode split fraction into BC without fragmenting episodes or disabling the gate. |
+| `c3e6b17a` | Universal BC persisted only a result digest, so best epoch, validation MSE, and early-stopping progression could not be audited after a failed admission. | Persist epoch-level `behavior-cloning-progress.json` and final `behavior-cloning-result.json` before the causal gate. |
 
 ## Current BC admission run
 
@@ -124,3 +125,33 @@ Next actions:
 5. Admit and complete the canonical 3 algorithms × 3 seeds × 524,288 timesteps only after the economic GO conditions pass.
 
 This report is a checkpoint, not a completion claim. It will be updated as the active training goal progresses.
+
+## Checkpoint update: r7 final causal admission
+
+The r7 run completed all nine 720h causal holdouts and then stopped before critic warm-start or PPO, as required by the fail-closed admission contract.
+
+- Container OOM: false.
+- Teacher reconstruction relative improvement: 5.06%, gate passed.
+- Causal net-return 95% lower confidence bound: -6.93% versus required floor -5.00%, gate failed.
+- Cash-baseline after-cost regret: 9.10% versus allowed 20.00%, gate passed.
+- Aggregate executed changes: 14,219.
+- Aggregate submitted changes: 25,920, meaning every held-out decision proposed a change.
+- Aggregate action agreement within tolerance: 0%.
+- Aggregate action MAE: 0.956.
+- PPO updates performed: zero.
+
+All symbol holdouts:
+
+| Symbol | BC gross | BC net | Oracle net diagnostic | Cost | Turnover | Action MAE | Agreement |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| APTUSDT | -1.41% | -7.44% | +38.96% | 6,007.7 | 85.77 | 0.816 | 0% |
+| ARBUSDT | -0.84% | -7.38% | +35.17% | 6,657.2 | 94.84 | 0.848 | 0% |
+| BCHUSDT | -0.63% | -9.10% | +33.17% | 8,501.1 | 123.60 | 0.799 | 0% |
+| BNBUSDT | +0.85% | -1.16% | +83.12% | 2,045.7 | 28.57 | 0.814 | 0% |
+| BTCUSDT | -1.80% | -2.92% | +1,121.37% | 1,134.6 | 16.21 | 0.956 | 0% |
+| LINKUSDT | -0.36% | -8.83% | +64.80% | 8,632.8 | 124.12 | 0.812 | 0% |
+| LTCUSDT | +0.87% | -7.00% | +16.24% | 7,892.3 | 112.74 | 0.758 | 0% |
+| SOLUSDT | -0.97% | -2.18% | +750.27% | 1,164.9 | 16.43 | 0.885 | 0% |
+| XRPUSDT | -0.66% | -1.62% | +216.20% | 963.8 | 13.48 | 0.843 | 0% |
+
+Oracle results are hindsight diagnostics, not deployable baselines. The decisive causal evidence is that the BC policy is negative after costs on every symbol, has zero action agreement, and proposes changes at every decision. The next run will retain exact epoch and early-stopping evidence via commit `c3e6b17a` before any optimization hyperparameter is changed.

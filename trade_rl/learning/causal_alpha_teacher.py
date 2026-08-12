@@ -189,12 +189,6 @@ class CausalAlphaRidgeModel:
         scaled[:, self.constant_mask] = 0.0
         return scaled
 
-    @property
-    def scaled_training_features(self) -> np.ndarray:
-        """Deprecated diagnostic seam; callers should use ``transform`` explicitly."""
-
-        return np.zeros((self.sample_count, len(self.feature_names)), dtype=np.float64)
-
     def predict(self, features: object) -> np.ndarray:
         scaled = self.transform(features)
         prediction = self.intercept + scaled @ self.coefficients
@@ -293,7 +287,11 @@ def combine_causal_alpha_predictions(
 ) -> np.ndarray:
     first = np.asarray(prediction_24h, dtype=np.float64)
     second = np.asarray(prediction_72h, dtype=np.float64)
-    if first.shape != second.shape or not np.isfinite(first).all() or not np.isfinite(second).all():
+    if (
+        first.shape != second.shape
+        or not np.isfinite(first).all()
+        or not np.isfinite(second).all()
+    ):
         raise ValueError("causal alpha horizon predictions must be aligned and finite")
     mix = CausalAlphaHorizonMix(horizon_mix)
     if mix is CausalAlphaHorizonMix.H24:
@@ -377,7 +375,9 @@ class CausalAlphaTargetPath:
         object.__setattr__(self, "digest", expected)
 
 
-def _desired_target(score: float, previous: float, config: CausalAlphaControllerConfig) -> float:
+def _desired_target(
+    score: float, previous: float, config: CausalAlphaControllerConfig
+) -> float:
     previous_sign = 0 if abs(previous) <= _EPSILON else (1 if previous > 0.0 else -1)
     score_sign = 0 if abs(score) <= _EPSILON else (1 if score > 0.0 else -1)
     magnitude = abs(score)

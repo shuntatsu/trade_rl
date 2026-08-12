@@ -106,7 +106,8 @@ def test_pooled_ridge_fits_prefix_only_and_zeroes_constant_columns() -> None:
     assert model.sample_count == 3
     assert model.knowledge_cutoff == 10
     assert model.constant_mask.tolist() == [False, True]
-    assert model.scaled_training_features[:, 1].tolist() == [0.0, 0.0, 0.0]
+    scaled = model.transform(features[model.eligible_indices])
+    assert scaled[:, 1].tolist() == [0.0, 0.0, 0.0]
     prediction = model.predict(np.asarray([[7.0, 7.0]], dtype=np.float64))[0]
     assert prediction == pytest.approx(15.0, rel=1e-6)
 
@@ -151,7 +152,9 @@ def test_prediction_mix_is_declared_and_deterministic() -> None:
     ).tolist() == pytest.approx([0.2, 0.1])
 
 
-def test_controller_hysteresis_has_no_holding_lock_and_respects_initial_weight() -> None:
+def test_controller_hysteresis_has_no_holding_lock_and_respects_initial_weight() -> (
+    None
+):
     config = CausalAlphaControllerConfig(
         horizon_mix=CausalAlphaHorizonMix.EQUAL,
         score_scale=10.0,

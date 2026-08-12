@@ -24,6 +24,7 @@ def main() -> None:
     parser.add_argument("--decisions", type=int, default=384)
     parser.add_argument("--symbol", action="append", dest="symbols")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--stochastic", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     result = evaluate_universal_policy_stages(
@@ -37,6 +38,7 @@ def main() -> None:
         output_path=args.output,
         symbols=args.symbols,
         device=args.device,
+        deterministic=not args.stochastic,
     )
     print(json.dumps(result["stages"], sort_keys=True))
 

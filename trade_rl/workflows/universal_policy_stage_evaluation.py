@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Sequence, cast
 
 import numpy as np
+import torch
 
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
@@ -126,12 +127,14 @@ def _evaluate_symbol(
     symbol: str,
     start: int,
     decisions: int,
+    deterministic: bool,
 ) -> dict[str, object]:
     stop = start + decisions + 1
     evaluated = evaluate_action_path(
         environment,
         evaluation_range=(start, stop),
         model=model,
+        deterministic=deterministic,
     )
     initial_capital = float(environment.initial_capital)
     policy_final_equity = float(environment.hybrid.portfolio_value)
@@ -217,6 +220,7 @@ def evaluate_universal_policy_stages(
     output_path: Path,
     symbols: Sequence[str] | None = None,
     device: str = "cpu",
+    deterministic: bool = True,
 ) -> dict[str, object]:
     """Evaluate every saved policy stage on identical real-data ranges."""
 
@@ -224,6 +228,8 @@ def evaluate_universal_policy_stages(
         raise ValueError("member_seed must be a non-negative integer")
     if isinstance(decisions, bool) or not isinstance(decisions, int) or decisions <= 1:
         raise ValueError("decisions must be an integer greater than one")
+    if not isinstance(deterministic, bool):
+        raise TypeError("deterministic must be a boolean")
     resolved_algorithm = FullResearchAlgorithm(algorithm)
     config = TrainingRunConfig.from_json(Path(config_path))
     context = UniversalRuntimeFactoryContext(
@@ -255,6 +261,8 @@ def evaluate_universal_policy_stages(
         )
         symbol_results: list[dict[str, object]] = []
         for symbol in selected_symbols:
+            np.random.seed(member_seed)
+            torch.manual_seed(member_seed)
             environment = build_universal_symbol_teacher_environment(
                 symbol=symbol,
                 binding=binding_by_symbol[symbol],
@@ -278,6 +286,7 @@ def evaluate_universal_policy_stages(
                         symbol=symbol,
                         start=start,
                         decisions=decisions,
+                        deterministic=deterministic,
                     )
                 )
             finally:
@@ -298,6 +307,7 @@ def evaluate_universal_policy_stages(
         "algorithm_identifier": config.training.algorithm,
         "member_seed": member_seed,
         "decision_count_per_symbol": decisions,
+        "evaluation_mode": "deterministic" if deterministic else "stochastic",
         "symbols": list(selected_symbols),
         "runtime_manifest_digest": context.manifest.manifest_digest,
         "training_config_digest": content_digest(config.training.digest_payload()),

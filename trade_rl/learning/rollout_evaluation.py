@@ -82,6 +82,7 @@ def evaluate_action_path(
     evaluation_range: tuple[int, int],
     actions: object | None = None,
     model: object | None = None,
+    deterministic: bool = True,
     action_change_tolerance: float = 1e-6,
 ) -> ActionPathEvaluation:
     """Execute either a declared target path or one causal deterministic policy."""
@@ -98,6 +99,8 @@ def evaluate_action_path(
         raise ValueError("evaluation_range must contain at least one decision")
     if (actions is None) == (model is None):
         raise ValueError("provide exactly one of actions or model")
+    if not isinstance(deterministic, bool):
+        raise TypeError("deterministic must be a boolean")
     if (
         isinstance(action_change_tolerance, bool)
         or not np.isfinite(action_change_tolerance)
@@ -155,7 +158,7 @@ def evaluate_action_path(
             action = declared[offset]
         else:
             assert callable(predict)
-            raw_action, _ = predict(observation, deterministic=True)
+            raw_action, _ = predict(observation, deterministic=deterministic)
             action = np.asarray(raw_action, dtype=np.float32).reshape(-1)
         action = np.asarray(action, dtype=np.float32).reshape(-1)
         if action_dimension_count is None:

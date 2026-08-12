@@ -49,11 +49,18 @@ def assemble_training_callbacks(
             identity=identity,
         )
     )
-    if len(callbacks) == 1:
-        return callbacks[0]
-    from stable_baselines3.common.callbacks import CallbackList
+    from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 
-    return CallbackList(callbacks)
+    if not all(isinstance(callback, BaseCallback) for callback in callbacks):
+        raise TypeError(
+            "training callbacks must be Stable-Baselines3 BaseCallback instances"
+        )
+    typed_callbacks = [
+        callback for callback in callbacks if isinstance(callback, BaseCallback)
+    ]
+    if len(typed_callbacks) == 1:
+        return typed_callbacks[0]
+    return CallbackList(typed_callbacks)
 
 
 __all__ = ["assemble_training_callbacks"]

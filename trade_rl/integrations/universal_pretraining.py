@@ -135,7 +135,7 @@ def _validated_local_partition(
 
 def _concatenate_observations(
     datasets: Sequence[SupervisedPolicyDataset],
-) -> object:
+) -> np.ndarray | Mapping[str, np.ndarray]:
     first = datasets[0].observations
     if isinstance(first, Mapping):
         keys = tuple(sorted(first))

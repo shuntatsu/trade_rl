@@ -31,7 +31,12 @@ from trade_rl.integrations.universal_pretraining import (
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.risk.portfolio import PortfolioRiskModel
 from trade_rl.risk.pretrade import PreTradeRisk
-from trade_rl.rl.actions import ACTION_SCHEMA, ActionMode, ActionSpec
+from trade_rl.rl.actions import (
+    ACTION_SCHEMA,
+    ActionMode,
+    ActionSpec,
+    ActionValidationMode,
+)
 from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.rl.universal_instrument_context import CausalInstrumentContextProvider
@@ -134,7 +139,7 @@ def concrete_action_spec_digest(action: ActionSpec, symbol: str) -> str:
             "names": action.names_for_symbols((symbol,)),
             "residual_scale": action.residual_scale,
             "target_weight_count": action.target_weight_count,
-            "validation_mode": action.validation_mode.value,
+            "validation_mode": ActionValidationMode(action.validation_mode).value,
         }
     )
 

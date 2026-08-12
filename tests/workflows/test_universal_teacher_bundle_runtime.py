@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import numpy as np
@@ -104,7 +105,11 @@ def test_build_universal_pretraining_bundle_from_batches_closes_train_scope(
         module, "behavior_cloning_split", lambda *_args, **_kwargs: split
     )
 
-    sentinel = object()
+    @dataclass(frozen=True)
+    class _BundleStub:
+        episode_batches: dict[str, EpisodeOracleBatch] | None = None
+
+    sentinel = _BundleStub()
 
     def combine(
         symbol_teachers, *, train_symbols, normalizer_digest, feature_schema_digest
@@ -133,7 +138,10 @@ def test_build_universal_pretraining_bundle_from_batches_closes_train_scope(
         feature_schema_digest=_digest("features"),
     )
 
-    assert result is sentinel
+    assert isinstance(result, _BundleStub)
+    assert result is not sentinel
+    assert result.episode_batches is not None
+    assert set(result.episode_batches) == set(symbols)
     assert opened == [("AAAUSDT", 100), ("BBBUSDT", 101)]
     assert collected == list(symbols)
     assert closed == list(symbols)

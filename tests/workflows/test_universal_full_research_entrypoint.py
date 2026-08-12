@@ -182,7 +182,7 @@ def test_load_universal_runtime_factory_requires_module_function(
 def test_runtime_factory_context_loads_manifest_and_rejects_compatibility_drift(
     tmp_path: Path,
 ) -> None:
-    from tests.integrations.test_binance_universal_runtime import _manifest
+    from tests.workflows.test_binance_universal_runtime import _manifest
     from trade_rl.workflows.universal_full_research_entrypoint import (
         UniversalRuntimeFactoryContext,
     )

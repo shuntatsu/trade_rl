@@ -78,7 +78,7 @@ def test_shared_oracle_batches_reject_candidate_execution_identity_drift(
         ),
     )
 
-    with pytest.raises(ValueError, match="Oracle teacher config identity"):
+    with pytest.raises(ValueError, match="Universal teacher config identity"):
         build_universal_pretraining_bundle_from_batches(
             train_symbols=("AAAUSDT",),
             bindings=(binding,),

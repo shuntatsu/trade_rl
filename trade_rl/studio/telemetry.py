@@ -59,6 +59,14 @@ class TelemetryRecordResponse(StudioModel):
     drawdown: float | None = None
     interval_cost: float | None = None
     interval_return: float | None = None
+    filled_turnover: float | None = None
+    fill_count: int | None = Field(default=None, ge=0)
+    interval_gross_return: float | None = None
+    baseline_excess_return: float | None = None
+    target_delta_l1: float | None = None
+    sign_flip_count: int | None = Field(default=None, ge=0)
+    gross_pnl: float | None = None
+    net_pnl: float | None = None
     risk_reasons: tuple[str, ...]
     emergency_deleverage: bool
     terminated: bool

@@ -38,7 +38,11 @@ def test_build_universal_oracle_batches_is_train_scoped_and_closes_children(
     class Child:
         def __init__(self, binding: InstrumentDatasetBinding) -> None:
             self.binding = binding
-            self.dataset = SimpleNamespace(dataset_id=binding.source_dataset_id)
+            self.minimum_start_index = 11
+            self.dataset = SimpleNamespace(
+                dataset_id=binding.source_dataset_id,
+                n_bars=100,
+            )
             opened.append(binding.concrete_symbol)
 
         def close(self) -> None:
@@ -87,7 +91,8 @@ def test_build_universal_oracle_batches_rejects_batch_dataset_identity_mismatch(
     closed: list[bool] = []
 
     class Child:
-        dataset = SimpleNamespace(dataset_id=binding.source_dataset_id)
+        minimum_start_index = 5
+        dataset = SimpleNamespace(dataset_id=binding.source_dataset_id, n_bars=40)
 
         def close(self) -> None:
             closed.append(True)

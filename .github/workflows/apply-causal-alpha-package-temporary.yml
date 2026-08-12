@@ -25,6 +25,7 @@ jobs:
         run: |
           python tools/_temporary_apply_causal_alpha_package.py
           python tools/_temporary_apply_causal_alpha_runtime.py
+          python tools/_temporary_fix_causal_alpha_package_types.py
       - name: Verify package integration
         run: |
           set -euo pipefail
@@ -66,6 +67,7 @@ jobs:
           git rm -f \
             tools/_temporary_apply_causal_alpha_package.py \
             tools/_temporary_apply_causal_alpha_runtime.py \
+            tools/_temporary_fix_causal_alpha_package_types.py \
             .github/workflows/apply-causal-alpha-package-temporary.yml
           git add \
             trade_rl/workflows/universal_causal_alpha_teacher.py \

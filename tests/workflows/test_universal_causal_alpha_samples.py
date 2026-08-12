@@ -73,15 +73,20 @@ class _ContextProvider:
         )
 
 
-def test_symbol_sample_extraction_is_train_scoped_causal_and_reference_equity_anchored() -> None:
-    dataset = _Dataset()
-    provider = _ContextProvider()
-    environment = SimpleNamespace(
+def _environment(dataset: _Dataset) -> SimpleNamespace:
+    return SimpleNamespace(
         dataset=dataset,
+        minimum_start_index=2,
         initial_capital=1_000.0,
         decision_bars=1,
         config=SimpleNamespace(signal_delay_decisions=1, execution_cost=object()),
     )
+
+
+def test_symbol_sample_extraction_is_train_scoped_causal_and_reference_equity_anchored() -> None:
+    dataset = _Dataset()
+    provider = _ContextProvider()
+    environment = _environment(dataset)
     schema_digest = universal_feature_schema_digest_from_names(dataset.feature_names)
 
     samples = build_causal_alpha_symbol_samples(
@@ -125,12 +130,7 @@ def test_symbol_sample_extraction_is_train_scoped_causal_and_reference_equity_an
 
 def test_symbol_sample_extraction_rejects_non_train_binding_and_schema_drift() -> None:
     dataset = _Dataset()
-    environment = SimpleNamespace(
-        dataset=dataset,
-        initial_capital=1_000.0,
-        decision_bars=1,
-        config=SimpleNamespace(signal_delay_decisions=1, execution_cost=object()),
-    )
+    environment = _environment(dataset)
     provider = _ContextProvider()
     binding = _binding(dataset.dataset_id)
     bad_binding = InstrumentDatasetBinding(

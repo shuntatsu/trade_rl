@@ -368,10 +368,11 @@ def test_compact_training_info_removes_history_bearing_execution_results() -> No
         filled_turnover=0.75,
         fill_count=3,
     )
+    liquidation = SimpleNamespace(filled_turnover=0.25, fill_count=1)
     info: dict[str, object] = {
         "hybrid_execution": execution,
         "shadow_execution": execution,
-        "hybrid_liquidation": execution,
+        "hybrid_liquidation": liquidation,
         "shadow_liquidation": execution,
         "hybrid_risk": SimpleNamespace(reasons=("drawdown_deleveraging",)),
         "portfolio_value_after": 99_000.0,
@@ -389,8 +390,8 @@ def test_compact_training_info_removes_history_bearing_execution_results() -> No
         )
     )
     assert compact["telemetry_weights_after"] == pytest.approx((0.25, -0.5))
-    assert compact["telemetry_filled_turnover"] == pytest.approx(0.75)
-    assert compact["telemetry_fill_count"] == 3
+    assert compact["telemetry_filled_turnover"] == pytest.approx(1.0)
+    assert compact["telemetry_fill_count"] == 4
     assert compact["telemetry_risk_reasons"] == ("drawdown_deleveraging",)
     assert compact["portfolio_value_after"] == 99_000.0
     assert info["hybrid_execution"] is execution

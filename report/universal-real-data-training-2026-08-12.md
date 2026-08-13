@@ -413,3 +413,34 @@ At this report checkpoint, r3 is running with `OOMKilled=false`, approximately 2
 | Aggregate | 26 | -1.423% | -12.563% | -19.164% | 5.568x | 288,859.2 | 700 | 26/26 |
 
 This sample covers only one train symbol and is not a final selection result. It is nevertheless already unfavorable: every observed episode is negative after costs and has a risk violation. The workflow will continue fail-closed. Only a selected teacher that subsequently passes admission may advance to the real-data CUDA random -> BC -> critic -> RL smoke. PPO reward trajectories do not exist yet for this generation because the teacher gate has not been reached.
+
+## Checkpoint update: cost-aware causal-alpha v2 (2026-08-13)
+
+The historical r3 run confirmed that the v1 controller was not merely paying too much execution cost. At `264 / 1,728` durable replay records, spanning APTUSDT and the beginning of ARBUSDT, its aggregate mean gross return was `-0.707%`, mean net return was `-10.950%`, worst net return was `-19.672%`, and mean turnover was `5.039x/day`. It accumulated `2,695,876.95` of execution cost and `7,481` trades; all `264 / 264` records carried a risk violation. Thus position selection was already negative before costs, while churn amplified the loss. This evidence does not justify changing the scalar reward.
+
+The approved A correction was implemented without adding a minimum holding period and without changing pure net-log-growth reward:
+
+- `51abf8c6` adds the cost-aware causal target controller;
+- `29c5c5fb` classifies execution rejections and risk projections instead of treating every projection as unexplained teacher failure;
+- `2435cbd9` adds prediction-versus-realized-return signal diagnostics;
+- `4e01d4bc` completes the v2 candidate grid, exact execution timing/cost inputs, fail-closed economic selection, resumable v2 checkpoints, cost-aware teacher-batch propagation, and bounded live checkpoint aggregation.
+
+The v2 selection gate rejects hard-risk or unexplained-rejection evidence, zero-trade candidates, negative mean net return, net lower-tail below `-5%`, mean turnover above `1.0x/day`, and candidates with a majority of negative-gross episodes. Admissible candidates rank by lower-tail net return, mean net return, lower turnover, then lower execution cost. Signal Pearson/rank correlation and directional accuracy are diagnostic fields rather than reward terms.
+
+Verification at commit `4e01d4bc`:
+
+- targeted causal teacher, selection, fitting, BC integration, learning evaluation, and monitor suite: `82 passed`;
+- monitor-only suite: `6 passed`;
+- Ruff: pass for all changed source and tests;
+- mypy: pass for all six changed source modules;
+- `git diff --check`: pass.
+
+Immutable corrected image `trade-rl:causal-cost-aware-v2-r1` was built from the clean pushed commit:
+
+- image ID: `sha256:a25c89d3df2c02f91b4ee09e09c6a7cbde8b951e8128db8fbbacd2fad42aa748`;
+- source revision: `4e01d4bca5e69ae8fb323a26f6da92fc5fd0cd31`;
+- source-tree digest: `d93357ed9553017c8a245e8b4e0a90ad8c4b444ceb6de8615d9d4e33bb6e8646`;
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`;
+- runtime-manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
+
+The corrected v2 generation has intentionally not been started concurrently with r3. At the latest check r3 was `OOMKilled=false`, used approximately `2.88 GiB / 7.63 GiB`, and saturated one CPU. Launching a second pooled-fit process would reintroduce the same global-memory pressure that killed the first r3 attempt. The next safe transition is one v2 container with a distinct generation/checkpoint after r3 releases resources; it must not reuse the v1 checkpoint. CUDA random -> BC -> critic -> RL remains conditional on v2 teacher selection and admission.

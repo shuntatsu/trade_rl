@@ -33,6 +33,10 @@ from trade_rl.rl.universal_single_instrument_env import (
     EpisodeRoutedSingleInstrumentEnv,
     InstrumentContextProvider,
 )
+from trade_rl.workflows.universal_causal_alpha_teacher import (
+    UniversalCausalAlphaTeacherPackage,
+    latest_complete_episode_split,
+)
 from trade_rl.workflows.universal_training import collect_universal_episode_teacher
 
 DEFAULT_UNIVERSAL_ORACLE_MAX_EPISODES_PER_SYMBOL = 1
@@ -334,6 +338,7 @@ def build_universal_pretraining_bundle_from_batches(
     normalizer_digest: str,
     feature_schema_digest: str,
     teacher_kind: str = "oracle",
+    causal_teacher_package: UniversalCausalAlphaTeacherPackage | None = None,
 ) -> UniversalPretrainingBundle:
     """Collect, split, and combine train-only Oracle batches on the generic surface."""
 
@@ -347,6 +352,22 @@ def build_universal_pretraining_bundle_from_batches(
         raise ValueError("Universal teacher accepts train bindings only")
     if set(batches) != set(symbols):
         raise ValueError("Universal teacher batches must exactly match train_symbols")
+    if teacher_kind not in {"oracle", "trend_baseline", "causal_alpha_ridge"}:
+        raise ValueError("Universal teacher kind is unsupported")
+    if teacher_kind == "causal_alpha_ridge":
+        if causal_teacher_package is None:
+            raise ValueError("Universal causal teacher package is required")
+        if causal_teacher_package.train_symbols != symbols:
+            raise ValueError("Universal causal teacher package symbol scope mismatch")
+        if set(causal_teacher_package.batches) != set(symbols):
+            raise ValueError("Universal causal teacher package batch scope mismatch")
+        if any(
+            causal_teacher_package.batches[symbol] is not batches[symbol]
+            for symbol in symbols
+        ):
+            raise ValueError("Universal causal teacher package batches must be reused")
+    elif causal_teacher_package is not None:
+        raise ValueError("Universal causal teacher package requires causal_alpha_ridge")
     if (
         isinstance(run_seed, bool)
         or not isinstance(run_seed, int)
@@ -365,18 +386,25 @@ def build_universal_pretraining_bundle_from_batches(
             raise TypeError("Universal teacher batch must be an EpisodeOracleBatch")
         if batch.dataset_id != binding.source_dataset_id:
             raise ValueError("Universal teacher batch dataset identity mismatch")
-        concrete_environment = concrete_environment_factory(binding)
-        close_concrete = getattr(concrete_environment, "close", None)
-        if not callable(close_concrete):
-            raise TypeError("Universal teacher concrete environment must be closable")
-        try:
-            candidate_teacher_digest = (
-                oracle_teacher_config_for_environment(concrete_environment).digest
-                if teacher_kind == "oracle"
-                else causal_trend_teacher_digest(concrete_environment)
-            )
-        finally:
-            close_concrete()
+        if teacher_kind == "causal_alpha_ridge":
+            if causal_teacher_package is None:
+                raise RuntimeError("Universal causal teacher package disappeared")
+            candidate_teacher_digest = causal_teacher_package.teacher_config_digest
+        else:
+            concrete_environment = concrete_environment_factory(binding)
+            close_concrete = getattr(concrete_environment, "close", None)
+            if not callable(close_concrete):
+                raise TypeError(
+                    "Universal teacher concrete environment must be closable"
+                )
+            try:
+                candidate_teacher_digest = (
+                    oracle_teacher_config_for_environment(concrete_environment).digest
+                    if teacher_kind == "oracle"
+                    else causal_trend_teacher_digest(concrete_environment)
+                )
+            finally:
+                close_concrete()
         if candidate_teacher_digest != batch.teacher_config_digest:
             raise ValueError("Universal teacher config identity mismatch")
         environment = build_universal_symbol_teacher_environment(
@@ -398,10 +426,18 @@ def build_universal_pretraining_bundle_from_batches(
             )
         finally:
             environment.close()
-        split = behavior_cloning_split(
-            collected.dataset,
-            validation_fraction=validation_fraction,
-        )
+        if teacher_kind == "causal_alpha_ridge":
+            if not batch.contracts:
+                raise ValueError("Universal causal teacher batch has no episodes")
+            split = latest_complete_episode_split(
+                collected.dataset,
+                holdout_episode_id=batch.contracts[-1].episode_index,
+            )
+        else:
+            split = behavior_cloning_split(
+                collected.dataset,
+                validation_fraction=validation_fraction,
+            )
         symbol_teachers[symbol] = (
             collected.dataset,
             split,
@@ -416,6 +452,26 @@ def build_universal_pretraining_bundle_from_batches(
             feature_schema_digest=feature_schema_digest,
         ),
         episode_batches=dict(batches),
+        causal_teacher_selection_evidence=(
+            None
+            if causal_teacher_package is None
+            else causal_teacher_package.selection.to_payload()
+        ),
+        causal_teacher_admission_evidence=(
+            None
+            if causal_teacher_package is None
+            else causal_teacher_package.teacher_admission.to_payload()
+        ),
+        causal_teacher_package_evidence=(
+            None
+            if causal_teacher_package is None
+            else causal_teacher_package.to_payload()
+        ),
+        causal_teacher_episode_hours=(
+            None
+            if causal_teacher_package is None
+            else causal_teacher_package.episode_hours
+        ),
     )
 
 

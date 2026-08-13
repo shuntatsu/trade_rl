@@ -11,6 +11,9 @@ from trade_rl.rl.universal_architecture import (
     UniversalArchitectureName,
     apply_architecture_to_training_config,
 )
+from trade_rl.workflows.universal_causal_alpha_teacher import (
+    build_universal_causal_alpha_teacher_package,
+)
 from trade_rl.workflows.universal_stage_a import (
     UniversalStageACandidate,
     build_universal_stage_a_candidate_from_training,
@@ -95,16 +98,40 @@ def train_universal_stage_a_ablation(
         or not 0 <= behavior_cloning_seed <= 0xFFFFFFFF
     ):
         raise ValueError("U5 requires an explicit uint32 behavior_cloning_seed")
-    shared_batches = build_universal_oracle_batches(
-        train_symbols=first_runtime.train_symbols,
-        bindings=first_runtime.routed_environment_factory.bindings,
-        concrete_environment_factory=(
-            first_runtime.routed_environment_factory.concrete_environment_factory
-        ),
-        fold_train_range=fold_train_range,
-        behavior_cloning_seed=behavior_cloning_seed,
-        n_envs=first_training.n_envs,
-    )
+
+    teacher_kind = first_training.behavior_cloning_teacher
+    if any(
+        training.behavior_cloning_teacher != teacher_kind for _, training, _ in prepared
+    ):
+        raise ValueError("U5 architecture candidates must share one BC teacher kind")
+    if teacher_kind == "causal_alpha_ridge":
+        routed = first_runtime.routed_environment_factory
+        shared_causal_package = build_universal_causal_alpha_teacher_package(
+            train_symbols=first_runtime.train_symbols,
+            bindings=routed.bindings,
+            concrete_environment_factory=routed.concrete_environment_factory,
+            instrument_context_provider=routed.instrument_context_provider,
+            fold_train_range=fold_train_range,
+            feature_schema_digest=feature_schema_digest,
+            selection_evidence_path=(
+                Path(output_root)
+                / "_shared-causal-teacher"
+                / "causal-teacher-selection.json"
+            ),
+        )
+        shared_batches = None
+    else:
+        shared_causal_package = None
+        shared_batches = build_universal_oracle_batches(
+            train_symbols=first_runtime.train_symbols,
+            bindings=first_runtime.routed_environment_factory.bindings,
+            concrete_environment_factory=(
+                first_runtime.routed_environment_factory.concrete_environment_factory
+            ),
+            fold_train_range=fold_train_range,
+            behavior_cloning_seed=behavior_cloning_seed,
+            n_envs=first_training.n_envs,
+        )
 
     candidates: list[UniversalStageACandidate] = []
     for architecture, training, runtime in prepared:
@@ -115,6 +142,7 @@ def train_universal_stage_a_ablation(
             normalizer_digest=normalizer_digest,
             feature_schema_digest=feature_schema_digest,
             oracle_batches=shared_batches,
+            causal_teacher_package=shared_causal_package,
             verbose=verbose,
         )
         bound_runtime = runtime.with_pretraining_artifact(

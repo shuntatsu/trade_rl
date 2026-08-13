@@ -197,7 +197,7 @@ cost_critic_ppo
 lagrangian_ppo
 ```
 
-`behavior_cloning_epochs > 0`はPPO-familyでだけ有効です。Teacherは`oracle`または`trend_baseline`です。
+`behavior_cloning_epochs > 0`はPPO-familyでだけ有効です。Teacherは`oracle`、`trend_baseline`、またはtrain-only fitted teacherの`causal_alpha_ridge`です。Canonical Universal U6は`causal_alpha_ridge`を使用し、`oracle`/`trend_baseline`は診断・互換経路としてのみ保持します。
 
 ```json
 {
@@ -206,7 +206,7 @@ lagrangian_ppo
     "behavior_cloning_epochs": 10,
     "behavior_cloning_learning_rate": 0.001,
     "behavior_cloning_batch_size": 256,
-    "behavior_cloning_teacher": "oracle"
+    "behavior_cloning_teacher": "causal_alpha_ridge"
   }
 }
 ```

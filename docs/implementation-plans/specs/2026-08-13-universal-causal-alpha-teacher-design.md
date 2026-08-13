@@ -67,7 +67,7 @@ multi-timeframe 15m/1h/4h/1d information and availability channels. A row is
 eligible only when:
 
 - the symbol is active and tradable;
-- every selected feature is finite and causally available;
+- selected feature values are finite and their causal availability mask is explicit;
 - the complete forward label horizon lies within the fit prefix; and
 - the decision-to-execution delay can be represented without crossing the fit
   cutoff.

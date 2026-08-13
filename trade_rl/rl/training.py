@@ -216,9 +216,14 @@ class ResidualTrainingConfig:
             raise ValueError(
                 "behavior_cloning_minimum_improvement must be non-negative"
             )
-        if self.behavior_cloning_teacher not in {"oracle", "trend_baseline"}:
+        if self.behavior_cloning_teacher not in {
+            "oracle",
+            "trend_baseline",
+            "causal_alpha_ridge",
+        }:
             raise ValueError(
-                "behavior_cloning_teacher must be oracle or trend_baseline"
+                "behavior_cloning_teacher must be oracle, trend_baseline, or "
+                "causal_alpha_ridge"
             )
         if self.behavior_cloning_seed is not None and (
             isinstance(self.behavior_cloning_seed, bool)

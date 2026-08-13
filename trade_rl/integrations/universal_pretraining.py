@@ -56,6 +56,10 @@ class UniversalPretrainingBundle:
     train_symbols: tuple[str, ...]
     teacher_artifact: UniversalTeacherArtifact
     episode_batches: Mapping[str, EpisodeOracleBatch] = field(default_factory=dict)
+    causal_teacher_selection_evidence: Mapping[str, object] | None = None
+    causal_teacher_admission_evidence: Mapping[str, object] | None = None
+    causal_teacher_package_evidence: Mapping[str, object] | None = None
+    causal_teacher_episode_hours: float | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.dataset, SupervisedPolicyDataset):
@@ -109,10 +113,78 @@ class UniversalPretrainingBundle:
         targets.setflags(write=False)
         if self.teacher_artifact.train_symbols != symbols:
             raise ValueError("teacher artifact train symbol scope mismatch")
+        selection_evidence = self.causal_teacher_selection_evidence
+        admission_evidence = self.causal_teacher_admission_evidence
+        package_evidence = self.causal_teacher_package_evidence
+        episode_hours = self.causal_teacher_episode_hours
+        if selection_evidence is None:
+            if (
+                admission_evidence is not None
+                or package_evidence is not None
+                or episode_hours is not None
+            ):
+                raise ValueError(
+                    "causal teacher package/admission/episode hours require selection evidence"
+                )
+        else:
+            selection_evidence = dict(selection_evidence)
+            if (
+                selection_evidence.get("schema_version")
+                != "causal_alpha_selection_evidence_v1"
+            ):
+                raise ValueError("causal teacher selection evidence schema mismatch")
+            artifact_digest = selection_evidence.get("artifact_digest")
+            if not isinstance(artifact_digest, str) or len(artifact_digest) != 64:
+                raise ValueError("causal teacher selection evidence digest is invalid")
+            if admission_evidence is None or package_evidence is None:
+                raise ValueError(
+                    "causal teacher package/admission evidence is unavailable"
+                )
+            admission_evidence = dict(admission_evidence)
+            package_evidence = dict(package_evidence)
+            if (
+                package_evidence.get("schema_version")
+                != "universal_causal_alpha_teacher_package_evidence_v1"
+            ):
+                raise ValueError("causal teacher package evidence schema mismatch")
+            package_digest = package_evidence.get("artifact_digest")
+            if not isinstance(package_digest, str) or len(package_digest) != 64:
+                raise ValueError("causal teacher package evidence digest is invalid")
+            if (
+                admission_evidence.get("schema_version")
+                != "causal_alpha_teacher_admission_v1"
+            ):
+                raise ValueError("causal teacher admission evidence schema mismatch")
+            admission_digest = admission_evidence.get("artifact_digest")
+            if not isinstance(admission_digest, str) or len(admission_digest) != 64:
+                raise ValueError("causal teacher admission evidence digest is invalid")
+            metrics = admission_evidence.get("metrics")
+            if (
+                not isinstance(metrics, list)
+                or tuple(
+                    item.get("symbol") for item in metrics if isinstance(item, dict)
+                )
+                != symbols
+            ):
+                raise ValueError("causal teacher admission symbol scope mismatch")
+            if (
+                episode_hours is None
+                or not math.isfinite(episode_hours)
+                or episode_hours <= 0.0
+            ):
+                raise ValueError("causal teacher episode hours must be positive")
         object.__setattr__(self, "train_symbols", symbols)
         object.__setattr__(self, "symbol_sample_indices", normalized)
         object.__setattr__(self, "symbol_splits", dict(self.symbol_splits))
         object.__setattr__(self, "episode_batches", episode_batches)
+        object.__setattr__(
+            self, "causal_teacher_selection_evidence", selection_evidence
+        )
+        object.__setattr__(
+            self, "causal_teacher_admission_evidence", admission_evidence
+        )
+        object.__setattr__(self, "causal_teacher_package_evidence", package_evidence)
+        object.__setattr__(self, "causal_teacher_episode_hours", episode_hours)
         object.__setattr__(self, "critic_targets", targets)
 
 
@@ -373,6 +445,30 @@ def build_universal_pretraining_hook(
         member_seed: int,
         output_root: Path,
     ) -> dict[str, object]:
+        if config.behavior_cloning_teacher == "causal_alpha_ridge":
+            selection = bundle.causal_teacher_selection_evidence
+            admission = bundle.causal_teacher_admission_evidence
+            package = bundle.causal_teacher_package_evidence
+            if selection is None or admission is None or package is None:
+                raise RuntimeError(
+                    "Universal causal teacher package/selection/admission evidence is unavailable"
+                )
+            atomic_write_bytes(
+                output_root / "causal-teacher-selection.json",
+                canonical_json_bytes(selection) + b"\n",
+            )
+            atomic_write_bytes(
+                output_root / "causal-teacher-admission.json",
+                canonical_json_bytes(admission) + b"\n",
+            )
+            atomic_write_bytes(
+                output_root / "causal-teacher-package.json",
+                canonical_json_bytes(package) + b"\n",
+            )
+            if admission.get("passed") is not True:
+                raise RuntimeError(
+                    "Universal causal teacher admission failed before behavior cloning"
+                )
         bc_config = _hierarchical_behavior_cloning_config(config)
         validation_count = int(bundle.split.validation_indices.size)
         if validation_count:

@@ -25,6 +25,8 @@ one maintained run
 
 詳細は[Maintained single-symbol workflow](docs/SINGLE_SYMBOL.md)を参照してください。旧Multi-asset Artifactは書き換えずRead-onlyで保持します。
 
+Universal U3-U6は別の**研究用共有Policy学習経路**です。複数のtrain symbolから同じPolicyを学習しますが、各episodeと推論対象は常に1つのconcrete instrumentであり、複数銘柄を同時にportfolio配分するPolicyではありません。現行契約は[Universal Training](docs/UNIVERSAL_TRAINING.md)を参照してください。
+
 ### Repository map
 
 ```text
@@ -62,7 +64,7 @@ uv run trade-rl train run \
 
 - 因果的な市場データとMulti-Timeframe特徴量artifactの構築
 - PPO、CostCriticPPO、LagrangianPPO、SAC、TD3、TQCによる学習
-- OracleまたはTrend teacherを使ったBehavior CloningからPPOへの初期化
+- Oracle／Trend診断teacherに加え、train-only `causal_alpha_ridge` teacherを使うUniversal Behavior Cloning・critic warm start・PPO-family研究経路
 - Nested walk-forward、Seed分布、Checkpoint選択、Sealed outer test
 - Market・Limit・Stop-market注文を扱う状態付きOHLCV約定シミュレーション
 - Trade RL Studioでの学習中探索・TensorBoard診断のRead-only表示
@@ -150,6 +152,7 @@ Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学
 
 - [ドキュメント一覧](docs/README.md)
 - [Maintained single-symbol workflow](docs/SINGLE_SYMBOL.md)
+- [Universal U3-U6 training](docs/UNIVERSAL_TRAINING.md)
 - [最初の学習](START.md)
 - [アーキテクチャ](docs/ARCHITECTURE.md)
 - [設定リファレンス](docs/CONFIGURATION.md)

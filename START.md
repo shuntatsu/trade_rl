@@ -172,6 +172,8 @@ PPO-familyでは、`behavior_cloning_epochs`を正数にすると、同じFeatur
 }
 ```
 
+この`oracle`例はgeneric / single-symbol BCの説明用です。Universal U6のcanonical teacherはtrain-only fitted `causal_alpha_ridge`であり、Oracle/Trendは診断・互換経路として保持します。Universalのholdout、teacher admission、shared packageの契約は[Universal Training](docs/UNIVERSAL_TRAINING.md)を参照してください。
+
 BC、PPO、CostCriticPPO、LagrangianPPOは、組み立て済みPolicyのArchitecture identityを共有します。異なる構造のCheckpointはResume時に拒否されます。
 
 ## 8. TensorBoard診断を有効にする
@@ -264,12 +266,11 @@ uv run trade-rl walk-forward run \
 
 最終判断には、複数Seed、複数Fold、複数AUM、保守的Execution、未使用Outer test、Fresh confirmation、Paper reconciliationが必要です。[研究状態](docs/RESEARCH_STATUS.md)を参照してください。
 
-
 ## 13. Universal U3-U6 full-research trainingを実行する
 
-Universal系のmaintained contractは、複数銘柄で1つのPolicyを学習し、Policy-facing symbol/actionを`INSTRUMENT`へ固定したまま、推論時は1銘柄だけを取引する構成です。U3は206 target-local market features + 9 continuous instrument descriptorsとsymbol-balanced train-only normalization、U4はsymbol-balanced Oracle BC + critic warm start、U5は4 architectureのablation + zero-shot Stage A、U6はU5選抜architectureだけをPPO / Lagrangian PPO / Discounted Lagrangian PPOへ接続します。
+Universal系のmaintained research contractは、複数train symbolで1つのPolicyを学習し、Policy-facing symbol/actionを`INSTRUMENT`へ固定したまま、各episodeと推論時は1銘柄だけを取引する構成です。U3はtarget-local market featuresとcontinuous instrument descriptorsをsymbol-balanced train-only normalizationへ通します。U4はtrain-only fitted `causal_alpha_ridge` teacherのselection/admission後にBCとcritic warm startを行い、U5は4 architectureのablation + zero-shot Stage A、U6はU5選抜architectureだけをPPO / Lagrangian PPO / Discounted Lagrangian PPOへ接続します。
 
-U6の実学習入口は次です。事前に`materialize_universal_runtime.py`で作ったsecret-free runtime manifestを必須入力にします。maintained runtime factoryはmanifestからinstrument / 9 train datasets / shared normalizerを再読込し、全digestとfrozen metadata evidenceを照合します。`--runtime-factory`を省略すると`trade_rl.workflows.binance_universal_runtime:build_runtime`を使います。互換用のartifact root、train fold、normalizer/feature schema digestを明示した場合は、manifestと一致しなければ起動前に失敗します。validation/test symbolは学習前処理へ混入しません。
+U6の実学習入口は次です。事前に`materialize_universal_runtime.py`で作ったsecret-free runtime manifestを必須入力にします。maintained runtime factoryはmanifestからinstrument / train datasets / shared normalizerを再読込し、全digestとfrozen metadata evidenceを照合します。`--runtime-factory`を省略すると`trade_rl.workflows.binance_universal_runtime:build_runtime`を使います。互換用のartifact root、train fold、normalizer/feature schema digestを明示した場合は、manifestと一致しなければ起動前に失敗します。validation/test symbolはteacher fitting、candidate selection、BCを含む学習前処理へ混入しません。
 
 ```bash
 uv sync --extra dev --extra train-sb3 --extra postgres
@@ -287,8 +288,20 @@ uv run python scripts/run_universal_full_research.py \
   --output-root artifacts/universal/full-research
 ```
 
-3つのauthored `TrainingRunConfig`は、training algorithm/cost-family/gammaの比較上必要な差分を除き、Environment / Risk / Reward / Trend / Action / Executionを同一にしてください。 上のcanonical U6 configはBC seedを17に固定し、critic-only warm startを512 step、conservative joint warm startを128 step有効化した初期maintained設定です。これらのstep数はソフトウェア契約用の初期値であり、実データ上の最適性を主張しません。CLIは非training surfaceの差分を先に拒否し、U6本体もPPO対Lagrangianの非algorithm条件と、Lagrangian対Discountedのgamma以外の差分をfail-closedで拒否します。
+Canonical U6の3方式は同じcausal teacher packageを共有し、各Algorithm/Seedでholdoutを再評価しません。Teacher selectionの結果を先に永続化し、各train symbolの最新complete 720h holdoutをexactly once replayしてteacher admissionを固定します。Admissionが失敗した場合はBC、critic warm start、PPO updateへ進みません。
 
-学習完了時は`universal-full-research-training.json`が生成されます。この時点の`research_success=false`は意図した状態です。training完走はSoftware successであり、Research successではありません。U5のvalidation selectionと一度だけのsealed unseen-symbol test、paired baseline evidence、bootstrap lower bound、worst-symbol/worst-seed/pass-fraction gate、hard-safety violation=0がそろうまでは`NO-GO`を維持してください。
+Teacher生成中を含む進捗確認:
 
-U5/U6の評価・状態遷移には既存の`StageAZeroShotEvaluationOrchestrator`、`UniversalResearchManifest`、`scripts/run_full_research_experiment.py`を使います。sealed evidenceを作る前に`zero_shot_gate_passed=true`を手動で偽装しないでください。
+```bash
+uv run python scripts/monitor_universal_training.py \
+  --generation-root artifacts/universal/full-research \
+  --output-root artifacts/universal/monitor
+```
+
+`_shared-causal-teacher/causal-teacher-progress.json`、selection/admission/package artifactに加え、学習開始後はgross/net PnL、baseline excess、turnover、execution cost、target delta、sign flip等のtelemetry trendを確認できます。Monitorは診断用であり、sealed model-selection evidenceではありません。
+
+3つのauthored `TrainingRunConfig`は、training algorithm/cost-family/gammaの比較上必要な差分を除き、Environment / Risk / Reward / Trend / Action / Executionを同一にしてください。Canonical U6 configはBC seedを17に固定し、critic-only warm startを512 step、conservative joint warm startを128 step有効化した初期maintained設定です。これらのstep数はソフトウェア契約用の初期値であり、実データ上の最適性を主張しません。CLIは非training surfaceの差分を先に拒否し、U6本体もPPO対Lagrangianの非algorithm条件と、Lagrangian対Discountedのgamma以外の差分をfail-closedで拒否します。
+
+学習完了時は`universal-full-research-training.json`が生成されます。この時点の`research_success=false`は意図した状態です。Training完走はSoftware successであり、Research successではありません。実データteacher admission、U5 validation selection、一度だけのsealed unseen-symbol test、paired baseline evidence、bootstrap lower bound、worst-symbol/worst-seed/pass-fraction gate、hard-safety violation=0がそろうまでは`NO-GO`を維持してください。
+
+U5/U6の評価・状態遷移には既存の`StageAZeroShotEvaluationOrchestrator`、`UniversalResearchManifest`、`scripts/run_full_research_experiment.py`を使います。sealed evidenceを作る前に`zero_shot_gate_passed=true`を手動で偽装しないでください。Universal teacherの詳細な因果・holdout・artifact契約は[Universal Training](docs/UNIVERSAL_TRAINING.md)を正本とします。

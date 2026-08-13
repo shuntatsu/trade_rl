@@ -36,7 +36,11 @@ def _apply_universal_pretraining_if_configured(
         raise ValueError(
             "Universal pretraining requires behavior cloning to be enabled"
         )
-    if config.behavior_cloning_teacher not in {"oracle", "trend_baseline"}:
+    if config.behavior_cloning_teacher not in {
+        "oracle",
+        "trend_baseline",
+        "causal_alpha_ridge",
+    }:
         raise ValueError("Universal pretraining teacher is unsupported")
     if not callable(hook):
         raise TypeError("Universal pretraining hook must be callable")

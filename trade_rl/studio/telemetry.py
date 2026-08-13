@@ -65,6 +65,8 @@ class TelemetryRecordResponse(StudioModel):
     baseline_excess_return: float | None = None
     target_delta_l1: float | None = None
     sign_flip_count: int | None = Field(default=None, ge=0)
+    command_target_delta_l1: float | None = None
+    command_target_sign_flip_count: int | None = Field(default=None, ge=0)
     gross_pnl: float | None = None
     net_pnl: float | None = None
     risk_reasons: tuple[str, ...]

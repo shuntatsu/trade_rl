@@ -20,12 +20,59 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaCandidateConfig,
     CausalAlphaCandidateEpisodeMetrics,
     CausalAlphaCandidateEvidence,
+    CausalAlphaExpandingFit,
     CausalAlphaSelectionEvidence,
     CausalAlphaSymbolSamples,
 )
 from trade_rl.workflows.universal_causal_alpha_fitting import (
+    CausalAlphaExpandingFitCache,
     fit_expanding_causal_alpha_models,
 )
+
+
+class _CausalAlphaPredictionCache:
+    """Reuse ridge predictions across controller-only candidate variants."""
+
+    def __init__(self) -> None:
+        self._cache: dict[
+            tuple[str, str, str],
+            tuple[np.ndarray, np.ndarray, np.ndarray],
+        ] = {}
+        self.prediction_count = 0
+        self.hit_count = 0
+
+    def resolve(
+        self,
+        *,
+        symbol: str,
+        block: CausalAlphaSymbolSamples,
+        contract: OracleEpisodeContract,
+        fitted: CausalAlphaExpandingFit,
+        ridge_digest: str,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        key = (symbol, contract.digest, ridge_digest)
+        cached = self._cache.get(key)
+        if cached is not None:
+            self.hit_count += 1
+            return cached
+        decisions = np.arange(contract.start, contract.stop - 1, dtype=np.int64)
+        prediction_features, prediction_available, actionable = (
+            block.prediction_inputs_for_decisions(decisions)
+        )
+        resolved = (
+            fitted.model_24h.predict(
+                prediction_features,
+                feature_available=prediction_available,
+            ),
+            fitted.model_72h.predict(
+                prediction_features,
+                feature_available=prediction_available,
+            ),
+            actionable,
+        )
+        self._cache[key] = resolved
+        self.prediction_count += 1
+        return resolved
 
 
 def _candidate(
@@ -208,25 +255,33 @@ def _causal_alpha_target_for_contract(
     samples: Mapping[str, CausalAlphaSymbolSamples],
     contract: OracleEpisodeContract,
     candidate: CausalAlphaCandidateConfig,
+    fit_cache: CausalAlphaExpandingFitCache | None = None,
+    prediction_cache: _CausalAlphaPredictionCache | None = None,
 ) -> np.ndarray:
-    fitted = fit_expanding_causal_alpha_models(
-        train_symbols=train_symbols,
-        samples=samples,
-        knowledge_cutoff=contract.start,
-        ridge_config=candidate.ridge,
+    fitted = (
+        fit_expanding_causal_alpha_models(
+            train_symbols=train_symbols,
+            samples=samples,
+            knowledge_cutoff=contract.start,
+            ridge_config=candidate.ridge,
+        )
+        if fit_cache is None
+        else fit_cache.resolve(
+            knowledge_cutoff=contract.start,
+            ridge_config=candidate.ridge,
+        )
     )
     block = samples[symbol]
     if contract.dataset_id != block.dataset_id:
         raise ValueError("causal alpha selection contract dataset identity drifted")
-    decisions = np.arange(contract.start, contract.stop - 1, dtype=np.int64)
-    prediction_features, prediction_available, actionable = (
-        block.prediction_inputs_for_decisions(decisions)
-    )
-    prediction_24h = fitted.model_24h.predict(
-        prediction_features, feature_available=prediction_available
-    )
-    prediction_72h = fitted.model_72h.predict(
-        prediction_features, feature_available=prediction_available
+    if prediction_cache is None:
+        prediction_cache = _CausalAlphaPredictionCache()
+    prediction_24h, prediction_72h, actionable = prediction_cache.resolve(
+        symbol=symbol,
+        block=block,
+        contract=contract,
+        fitted=fitted,
+        ridge_digest=candidate.ridge.digest,
     )
     scores = combine_causal_alpha_predictions(
         prediction_24h,

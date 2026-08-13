@@ -153,6 +153,8 @@ class TrainingTelemetryRecord:
     baseline_excess_return: float | None = None
     target_delta_l1: float | None = None
     sign_flip_count: int | None = None
+    command_target_delta_l1: float | None = None
+    command_target_sign_flip_count: int | None = None
     gross_pnl: float | None = None
     net_pnl: float | None = None
     schema_version: str = TELEMETRY_SCHEMA_VERSION
@@ -188,6 +190,7 @@ class TrainingTelemetryRecord:
         for name, count in (
             ("fill_count", self.fill_count),
             ("sign_flip_count", self.sign_flip_count),
+            ("command_target_sign_flip_count", self.command_target_sign_flip_count),
         ):
             if count is not None and (
                 isinstance(count, bool) or not isinstance(count, int) or count < 0
@@ -220,6 +223,7 @@ class TrainingTelemetryRecord:
             ("interval_gross_return", self.interval_gross_return),
             ("baseline_excess_return", self.baseline_excess_return),
             ("target_delta_l1", self.target_delta_l1),
+            ("command_target_delta_l1", self.command_target_delta_l1),
             ("gross_pnl", self.gross_pnl),
             ("net_pnl", self.net_pnl),
         ):
@@ -270,6 +274,8 @@ class TrainingTelemetryRecord:
             "baseline_excess_return": self.baseline_excess_return,
             "target_delta_l1": self.target_delta_l1,
             "sign_flip_count": self.sign_flip_count,
+            "command_target_delta_l1": self.command_target_delta_l1,
+            "command_target_sign_flip_count": self.command_target_sign_flip_count,
             "gross_pnl": self.gross_pnl,
             "net_pnl": self.net_pnl,
             "risk_reasons": list(self.risk_reasons),
@@ -328,6 +334,10 @@ class TrainingTelemetryRecord:
             baseline_excess_return=_optional_float(raw, "baseline_excess_return"),
             target_delta_l1=_optional_float(raw, "target_delta_l1"),
             sign_flip_count=_optional_int(raw, "sign_flip_count"),
+            command_target_delta_l1=_optional_float(raw, "command_target_delta_l1"),
+            command_target_sign_flip_count=_optional_int(
+                raw, "command_target_sign_flip_count"
+            ),
             gross_pnl=_optional_float(raw, "gross_pnl"),
             net_pnl=_optional_float(raw, "net_pnl"),
             risk_reasons=_string_tuple(raw, "risk_reasons"),

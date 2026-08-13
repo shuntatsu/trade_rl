@@ -44,6 +44,16 @@ def _generation(
                     "baseline_portfolio_value": 100_000,
                     "drawdown": drawdown,
                     "interval_cost": 0.001,
+                    "interval_gross_return": reward + 0.01,
+                    "baseline_excess_return": reward - 0.05,
+                    "filled_turnover": 5.0 - step,
+                    "fill_count": 5 - step,
+                    "target_delta_l1": 0.5 - step * 0.05,
+                    "sign_flip_count": 5 - step,
+                    "command_target_delta_l1": 0.6 - step * 0.05,
+                    "command_target_sign_flip_count": 5 - step,
+                    "gross_pnl": reward * 100.0,
+                    "net_pnl": reward * 90.0,
                 }
             )
             for step, reward, drawdown in (
@@ -84,6 +94,12 @@ def test_monitor_reports_reward_components_and_training_health(tmp_path: Path) -
     assert member.drawdown.direction == "improving"
     assert member.telemetry_records == 4
     assert member.per_symbol_counts == {"BTCUSDT": 4}
+    assert member.telemetry_trends["baseline_excess_return"].direction == "improving"
+    assert member.telemetry_trends["filled_turnover"].direction == "improving"
+    assert member.telemetry_trends["gross_pnl"].count == 4
+    assert member.telemetry_trends["net_pnl"].count == 4
+    assert member.telemetry_trends["sign_flip_count"].direction == "improving"
+    assert member.telemetry_trends["command_target_delta_l1"].direction == "improving"
     assert snapshot.status == "healthy"
 
 
@@ -101,3 +117,56 @@ def test_monitor_fails_closed_on_oom_log(tmp_path: Path) -> None:
     )
     assert snapshot.status == "failed"
     assert any("oom" in item.lower() for item in snapshot.findings)
+
+
+def test_telemetry_trend_sampling_stays_bounded(monkeypatch, tmp_path: Path) -> None:
+    import trade_rl.operations.universal_training_monitor as module
+
+    monkeypatch.setattr(module, "MAX_TELEMETRY_TREND_POINTS", 3, raising=False)
+    member = tmp_path / "member"
+    member.mkdir()
+    (member / "telemetry.jsonl").write_text(
+        "".join(
+            json.dumps(
+                {
+                    "global_step": step,
+                    "reward": float(step),
+                    "symbol": "BTCUSDT",
+                }
+            )
+            + "\n"
+            for step in range(10)
+        ),
+        encoding="utf-8",
+    )
+
+    count, _, points, nonfinite = module._telemetry(member)
+
+    assert count == 10
+    assert nonfinite == 0
+    assert len(points["reward"]) <= 3
+    assert points["reward"][0] == (0, 0.0)
+    assert points["reward"][-1] == (9, 9.0)
+
+
+def test_monitor_reports_teacher_progress_before_member_heartbeat(
+    tmp_path: Path,
+) -> None:
+    teacher_root = tmp_path / "_shared-causal-teacher"
+    teacher_root.mkdir()
+    progress = {
+        "completed_replays": 17,
+        "phase": "causal_teacher_selection",
+        "symbol": "BTCUSDT",
+        "total_replays": 100,
+    }
+    (teacher_root / "causal-teacher-progress.json").write_text(
+        json.dumps(progress),
+        encoding="utf-8",
+    )
+
+    snapshot = inspect_universal_training_generation(tmp_path, now=NOW)
+
+    assert snapshot.status == "incomplete"
+    assert snapshot.teacher_progress == progress
+    assert snapshot.findings == ("causal teacher selection in progress 17/100",)

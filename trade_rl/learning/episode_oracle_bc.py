@@ -208,18 +208,35 @@ def evaluate_episode_action_path(
 ) -> ActionPathEvaluation:
     environment = environment_factory()
     try:
-        wrapped = _InitialStateEvaluationEnvironment(
+        return evaluate_episode_action_path_on_environment(
             environment,
-            contract.initial_state_mode,
-        )
-        return evaluate_action_path(
-            wrapped,
-            evaluation_range=(contract.start, contract.stop),
+            contract,
             actions=actions,
             model=model,
         )
     finally:
         environment.close()
+
+
+def evaluate_episode_action_path_on_environment(
+    environment: Any,
+    contract: OracleEpisodeContract,
+    *,
+    actions: object | None = None,
+    model: object | None = None,
+) -> ActionPathEvaluation:
+    """Evaluate an episode without taking ownership of the environment lifecycle."""
+
+    wrapped = _InitialStateEvaluationEnvironment(
+        environment,
+        contract.initial_state_mode,
+    )
+    return evaluate_action_path(
+        wrapped,
+        evaluation_range=(contract.start, contract.stop),
+        actions=actions,
+        model=model,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -628,6 +645,7 @@ __all__ = [
     "EpisodeBehaviorCloningRecord",
     "aggregate_episode_behavior_cloning_holdouts",
     "evaluate_episode_action_path",
+    "evaluate_episode_action_path_on_environment",
     "evaluate_episode_behavior_cloning_holdout",
     "oracle_episode_sampling_config",
     "resolve_episode_initial_weights",

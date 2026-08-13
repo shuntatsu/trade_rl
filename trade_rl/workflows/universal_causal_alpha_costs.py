@@ -29,6 +29,8 @@ def causal_alpha_one_way_cost_rates(
     signal_delay_decisions: int,
     decision_bars: int,
 ) -> np.ndarray:
+    """Estimate one-way costs using only state available at each decision close."""
+
     if not isinstance(execution_cost, ExecutionCostConfig):
         raise TypeError("causal alpha cost rates require ExecutionCostConfig")
     decisions = np.asarray(decision_indices, dtype=np.int64).reshape(-1)
@@ -70,21 +72,25 @@ def causal_alpha_one_way_cost_rates(
     ):
         raise ValueError("causal alpha dataset spread/participation rates are invalid")
 
+    # These arrays are historical bar observations. The future execution row is
+    # deliberately used only for the executable-range check above; pricing a
+    # target with execution-row spread or participation would leak information
+    # unavailable when the target is chosen.
     selected_participation = np.minimum(
-        execution_cost.max_participation_rate, participation[execution_indices]
+        execution_cost.max_participation_rate, participation[decisions]
     )
     limit = execution_cost.order_type == "limit"
     venue_fee = (
-        execution_cost.maker_fee_rate + maker[execution_indices]
+        execution_cost.maker_fee_rate + maker[decisions]
         if limit
-        else execution_cost.taker_fee_rate + taker[execution_indices]
+        else execution_cost.taker_fee_rate + taker[decisions]
     )
     spread_multiplier = 0.5 if limit else 1.0
     rates = execution_cost.multiplier * (
         execution_cost.fee_rate
-        + fee[execution_indices]
+        + fee[decisions]
         + venue_fee
-        + spread_multiplier * (execution_cost.spread_rate + spread[execution_indices])
+        + spread_multiplier * (execution_cost.spread_rate + spread[decisions])
         + execution_cost.impact_rate * np.sqrt(selected_participation)
     )
     if not np.isfinite(rates).all() or np.any(rates < 0.0):
@@ -141,7 +147,9 @@ def causal_alpha_liquidity_weight_caps(
     if notionals.ndim != 2 or notionals.shape[1] != 1:
         raise ValueError("causal alpha liquidity requires single-symbol history")
     if not np.isfinite(notionals).all() or np.any(notionals < 0.0):
-        raise ValueError("causal alpha liquidity history must be finite and non-negative")
+        raise ValueError(
+            "causal alpha liquidity history must be finite and non-negative"
+        )
 
     caps = np.empty(decisions.size, dtype=np.float64)
     for offset, decision in enumerate(decisions):

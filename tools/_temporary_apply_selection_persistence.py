@@ -50,13 +50,13 @@ replace_once(
 )
 replace_once(
     runner,
-    '''        if causal_teacher_package is None:\n            causal_teacher_package = build_universal_causal_alpha_teacher_package(\n''',
-    '''        if causal_teacher_package is None:\n            if causal_teacher_evidence_root is None:\n                raise ValueError(\n                    "Universal causal teacher auto-build requires causal_teacher_evidence_root"\n                )\n            causal_teacher_package = build_universal_causal_alpha_teacher_package(\n''',
+    '''        if resolved_causal_package is None:\n            resolved_causal_package = build_universal_causal_alpha_teacher_package(\n''',
+    '''        if resolved_causal_package is None:\n            if causal_teacher_evidence_root is None:\n                raise ValueError(\n                    "Universal causal teacher auto-build requires causal_teacher_evidence_root"\n                )\n            resolved_causal_package = build_universal_causal_alpha_teacher_package(\n''',
 )
 replace_once(
     runner,
-    '''                fold_train_range=fold_train_range,\n                feature_schema_digest=feature_schema_digest,\n            )\n''',
-    '''                fold_train_range=fold_train_range,\n                feature_schema_digest=feature_schema_digest,\n                selection_evidence_path=(\n                    Path(causal_teacher_evidence_root)\n                    / "causal-teacher-selection.json"\n                ),\n            )\n''',
+    '''                fold_train_range=fold_train_range,\n                feature_schema_digest=feature_schema_digest,\n            )\n        batches = dict(resolved_causal_package.batches)\n''',
+    '''                fold_train_range=fold_train_range,\n                feature_schema_digest=feature_schema_digest,\n                selection_evidence_path=(\n                    Path(causal_teacher_evidence_root)\n                    / "causal-teacher-selection.json"\n                ),\n            )\n        batches = dict(resolved_causal_package.batches)\n''',
 )
 
 shared_test = "tests/workflows/test_universal_causal_alpha_shared_training.py"

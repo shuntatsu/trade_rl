@@ -174,3 +174,18 @@ def test_assemble_universal_sb3_training_backend_requires_fixed_bc_seed() -> Non
             normalizer_digest=_digest("normalizer"),
             feature_schema_digest=_digest("features"),
         )
+
+
+def test_causal_teacher_auto_build_requires_evidence_root() -> None:
+    from trade_rl.workflows.universal_training_runner import (
+        assemble_universal_sb3_training_backend,
+    )
+
+    with pytest.raises(ValueError, match="causal_teacher_evidence_root"):
+        assemble_universal_sb3_training_backend(
+            routed_environment_factory=_routed_factory(),
+            training=_training(behavior_cloning_teacher="causal_alpha_ridge"),
+            fold_train_range=(5, 30),
+            normalizer_digest=_digest("normalizer"),
+            feature_schema_digest=_digest("features"),
+        )

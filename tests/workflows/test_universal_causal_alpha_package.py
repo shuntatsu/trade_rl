@@ -35,7 +35,9 @@ def _binding(symbol: str) -> InstrumentDatasetBinding:
     )
 
 
-def test_package_builds_one_shared_teacher_identity(monkeypatch, tmp_path: Path) -> None:
+def test_package_builds_one_shared_teacher_identity(
+    monkeypatch, tmp_path: Path
+) -> None:
     import trade_rl.workflows.universal_causal_alpha_teacher as module
 
     symbols = ("AAAUSDT", "BBBUSDT")
@@ -179,7 +181,9 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch, tmp_path: Path)
     selection_path = tmp_path / "causal-teacher-selection.json"
 
     def evaluate_holdouts(**kwargs):
-        assert selection_path.is_file(), "selection must be persisted before holdout replay"
+        assert selection_path.is_file(), (
+            "selection must be persisted before holdout replay"
+        )
         persisted = json.loads(selection_path.read_text(encoding="utf-8"))
         assert persisted == selection_payload
         admission_calls.append(tuple(kwargs["train_symbols"]))

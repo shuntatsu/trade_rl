@@ -564,6 +564,7 @@ def assemble_universal_sb3_training_backend(
     feature_schema_digest: str,
     oracle_batches: Mapping[str, EpisodeOracleBatch] | None = None,
     causal_teacher_package: UniversalCausalAlphaTeacherPackage | None = None,
+    causal_teacher_evidence_root: Path | None = None,
     verbose: int = 0,
 ) -> tuple[StableBaselines3Backend, UniversalPretrainingBundle]:
     """Assemble the maintained U4 Oracle -> BC/critic -> SB3 training path."""
@@ -624,6 +625,10 @@ def assemble_universal_sb3_training_backend(
                 "Universal causal alpha training cannot accept legacy oracle_batches"
             )
         if resolved_causal_package is None:
+            if causal_teacher_evidence_root is None:
+                raise ValueError(
+                    "Universal causal teacher auto-build requires causal_teacher_evidence_root"
+                )
             resolved_causal_package = build_universal_causal_alpha_teacher_package(
                 train_symbols=routed_environment_factory.train_symbols,
                 bindings=routed_environment_factory.bindings,
@@ -633,6 +638,9 @@ def assemble_universal_sb3_training_backend(
                 instrument_context_provider=provider,
                 fold_train_range=fold_train_range,
                 feature_schema_digest=feature_schema_digest,
+                selection_evidence_path=(
+                    Path(causal_teacher_evidence_root) / "causal-teacher-selection.json"
+                ),
             )
         batches = dict(resolved_causal_package.batches)
     else:

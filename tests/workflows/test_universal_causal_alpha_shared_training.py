@@ -121,6 +121,9 @@ def test_u5_builds_causal_package_once_and_reuses_it_for_all_architectures(
 
     assert len(result) == len(tuple(UniversalArchitectureName))
     assert len(package_calls) == 1
+    assert package_calls[0]["selection_evidence_path"] == (
+        tmp_path / "_shared-causal-teacher" / "causal-teacher-selection.json"
+    )
     assert len(assembly_packages) == len(tuple(UniversalArchitectureName))
     assert all(value is package for value in assembly_packages)
 
@@ -216,5 +219,8 @@ def test_u6_builds_causal_package_once_and_reuses_it_for_all_algorithms(
 
     assert len(result.runs) == len(tuple(FullResearchAlgorithm))
     assert len(package_calls) == 1
+    assert package_calls[0]["selection_evidence_path"] == (
+        tmp_path / "_shared-causal-teacher" / "causal-teacher-selection.json"
+    )
     assert len(assembly_packages) == len(tuple(FullResearchAlgorithm))
     assert all(value is package for value in assembly_packages)

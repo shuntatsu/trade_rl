@@ -113,6 +113,11 @@ def train_universal_stage_a_ablation(
             instrument_context_provider=routed.instrument_context_provider,
             fold_train_range=fold_train_range,
             feature_schema_digest=feature_schema_digest,
+            selection_evidence_path=(
+                Path(output_root)
+                / "_shared-causal-teacher"
+                / "causal-teacher-selection.json"
+            ),
         )
         shared_batches = None
     else:

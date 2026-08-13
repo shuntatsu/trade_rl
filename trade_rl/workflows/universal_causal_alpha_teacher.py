@@ -13,6 +13,8 @@ import trade_rl.learning.causal_alpha_teacher as _causal_learning_module
 import trade_rl.workflows.universal_causal_alpha_contracts as _causal_contracts_module
 import trade_rl.workflows.universal_causal_alpha_fitting as _causal_fitting_module
 import trade_rl.workflows.universal_causal_alpha_selection as _causal_selection_module
+from trade_rl.artifacts.atomic_write import atomic_write_bytes
+from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaTeacherAdmissionEvidence,
@@ -208,6 +210,7 @@ def build_universal_causal_alpha_teacher_package(
     instrument_context_provider: Any,
     fold_train_range: tuple[int, int],
     feature_schema_digest: str,
+    selection_evidence_path: Path,
     episode_hours: float | None = None,
     candidates: tuple[CausalAlphaCandidateConfig, ...] | None = None,
 ) -> UniversalCausalAlphaTeacherPackage:
@@ -302,6 +305,11 @@ def build_universal_causal_alpha_teacher_package(
         candidates=candidate_values,
         environment_factories=environment_factories,
         episode_hours=resolved_episode_hours,
+    )
+    selection_path = Path(selection_evidence_path)
+    atomic_write_bytes(
+        selection_path,
+        canonical_json_bytes(selection.to_payload()) + b"\n",
     )
     selected_evidence = tuple(
         item

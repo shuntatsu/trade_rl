@@ -12,7 +12,10 @@ from trade_rl.learning.causal_alpha_teacher import (
     evaluate_causal_alpha_teacher_admission,
 )
 from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
-from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch, OracleEpisodeContract
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeContract,
+)
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.rl.training import ResidualTrainingConfig
 

@@ -457,6 +457,11 @@ def build_universal_pretraining_bundle_from_batches(
             if causal_teacher_package is None
             else causal_teacher_package.selection.to_payload()
         ),
+        causal_teacher_admission_evidence=(
+            None
+            if causal_teacher_package is None
+            else causal_teacher_package.teacher_admission.to_payload()
+        ),
         causal_teacher_episode_hours=(
             None
             if causal_teacher_package is None

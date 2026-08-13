@@ -14,6 +14,7 @@ from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaHorizonMix,
     CausalAlphaRidgeConfig,
     CausalAlphaRidgeModel,
+    CausalAlphaTeacherAdmissionEvidence,
 )
 from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
@@ -607,6 +608,7 @@ class UniversalCausalAlphaTeacherPackage:
     partitions: Mapping[str, CausalAlphaEpisodePartition]
     samples: Mapping[str, CausalAlphaSymbolSamples]
     selection: CausalAlphaSelectionEvidence
+    teacher_admission: CausalAlphaTeacherAdmissionEvidence
     selected_candidate_digest: str
     teacher_config_digest: str
     episode_hours: float
@@ -633,6 +635,12 @@ class UniversalCausalAlphaTeacherPackage:
                 )
         if self.selection.selected_candidate_digest != self.selected_candidate_digest:
             raise ValueError("causal alpha package selected candidate identity drifted")
+        if not isinstance(self.teacher_admission, CausalAlphaTeacherAdmissionEvidence):
+            raise TypeError("causal alpha package teacher admission is invalid")
+        if tuple(metric.symbol for metric in self.teacher_admission.metrics) != symbols:
+            raise ValueError(
+                "causal alpha package teacher admission symbol scope drifted"
+            )
         if not np.isfinite(self.episode_hours) or self.episode_hours <= 0.0:
             raise ValueError("causal alpha package episode_hours must be positive")
         for field, value in (
@@ -669,6 +677,7 @@ class UniversalCausalAlphaTeacherPackage:
                 "schema_version": "universal_causal_alpha_teacher_package_v1",
                 "selected_candidate_digest": self.selected_candidate_digest,
                 "selection_digest": self.selection.digest,
+                "teacher_admission_digest": self.teacher_admission.digest,
                 "teacher_config_digest": self.teacher_config_digest,
                 "train_symbols": symbols,
             }

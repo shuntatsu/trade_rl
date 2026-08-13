@@ -8,6 +8,11 @@ from typing import Any, Mapping
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.learning.causal_alpha_teacher import (
+    CausalAlphaTeacherAdmissionEvidence,
+    CausalAlphaTeacherHoldoutMetric,
+    evaluate_causal_alpha_teacher_admission,
+)
 from trade_rl.learning.episode_oracle_bc import evaluate_episode_action_path
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.risk.pretrade import PreTradeRiskConfig
@@ -114,6 +119,55 @@ def evaluate_causal_alpha_selection(
     )
 
 
+def evaluate_causal_alpha_teacher_holdouts(
+    *,
+    train_symbols: tuple[str, ...],
+    batches: Mapping[str, EpisodeOracleBatch],
+    environment_factories: Mapping[str, Any],
+    episode_hours: float,
+) -> CausalAlphaTeacherAdmissionEvidence:
+    """Replay each untouched teacher holdout exactly once and freeze admission."""
+
+    symbols = tuple(train_symbols)
+    if not symbols or len(set(symbols)) != len(symbols):
+        raise ValueError("causal alpha teacher holdout symbols must be unique")
+    if set(batches) != set(symbols) or set(environment_factories) != set(symbols):
+        raise ValueError("causal alpha teacher holdout scope must match train_symbols")
+    if not np.isfinite(episode_hours) or episode_hours <= 0.0:
+        raise ValueError("causal alpha teacher holdout episode_hours must be positive")
+    episode_days = float(episode_hours) / 24.0
+    metrics: list[CausalAlphaTeacherHoldoutMetric] = []
+    for symbol in symbols:
+        batch = batches[symbol]
+        if not isinstance(batch, EpisodeOracleBatch):
+            raise TypeError("causal alpha teacher holdout batch type is invalid")
+        if not batch.contracts or len(batch.targets) != len(batch.contracts):
+            raise ValueError(
+                f"causal alpha teacher holdout batch is invalid for {symbol}"
+            )
+        factory = environment_factories[symbol]
+        if not callable(factory):
+            raise TypeError("causal alpha teacher holdout factory must be callable")
+        evaluation = evaluate_episode_action_path(
+            factory,
+            batch.contracts[-1],
+            actions=batch.targets[-1],
+        )
+        performance = evaluation.performance
+        metrics.append(
+            CausalAlphaTeacherHoldoutMetric(
+                symbol=symbol,
+                gross_return=float(performance.gross_return),
+                net_return=float(performance.net_return),
+                turnover_per_day=float(performance.turnover_total) / episode_days,
+                total_execution_cost=float(performance.cost_total),
+                trade_count=int(performance.trade_count),
+                maximum_drawdown=float(performance.maximum_drawdown),
+            )
+        )
+    return evaluate_causal_alpha_teacher_admission(tuple(metrics))
+
+
 def build_universal_causal_alpha_teacher_package(
     *,
     train_symbols: tuple[str, ...],
@@ -205,15 +259,16 @@ def build_universal_causal_alpha_teacher_package(
     if not candidate_values:
         raise ValueError("causal alpha candidate grid must be non-empty")
     binding_by_symbol = {binding.concrete_symbol: binding for binding in binding_values}
+    environment_factories = {
+        symbol: partial(concrete_environment_factory, binding_by_symbol[symbol])
+        for symbol in symbols
+    }
     selection = evaluate_causal_alpha_selection(
         train_symbols=symbols,
         samples=samples,
         partitions=partitions,
         candidates=candidate_values,
-        environment_factories={
-            symbol: partial(concrete_environment_factory, binding_by_symbol[symbol])
-            for symbol in symbols
-        },
+        environment_factories=environment_factories,
         episode_hours=resolved_episode_hours,
     )
     selected_evidence = tuple(
@@ -246,12 +301,19 @@ def build_universal_causal_alpha_teacher_package(
         )
         batches[symbol] = batch
         batch_evidence[symbol] = evidence
+    teacher_admission = evaluate_causal_alpha_teacher_holdouts(
+        train_symbols=symbols,
+        batches=batches,
+        environment_factories=environment_factories,
+        episode_hours=resolved_episode_hours,
+    )
     return UniversalCausalAlphaTeacherPackage(
         train_symbols=symbols,
         batches=batches,
         partitions=partitions,
         samples=samples,
         selection=selection,
+        teacher_admission=teacher_admission,
         selected_candidate_digest=selected.digest,
         teacher_config_digest=teacher_config_digest,
         episode_hours=resolved_episode_hours,
@@ -276,6 +338,7 @@ __all__ = [
     "build_universal_causal_alpha_teacher_package",
     "default_causal_alpha_candidate_grid",
     "evaluate_causal_alpha_selection",
+    "evaluate_causal_alpha_teacher_holdouts",
     "fit_expanding_causal_alpha_models",
     "latest_complete_episode_split",
     "rank_causal_alpha_candidates",

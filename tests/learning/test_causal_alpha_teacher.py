@@ -234,6 +234,10 @@ def test_cost_aware_config_has_stable_digest() -> None:
         ("strong_reversal_threshold", 0.0),
         ("max_abs_target", 0.0),
         ("max_abs_target", 1.1),
+        ("max_position_to_market_notional", 0.0),
+        ("liquidity_lookback_decisions", 0),
+        ("liquidity_lower_quantile", 0.6),
+        ("liquidity_safety_multiplier", 1.1),
     ),
 )
 def test_cost_aware_config_rejects_invalid_economic_limits(
@@ -245,6 +249,10 @@ def test_cost_aware_config_rejects_invalid_economic_limits(
         "confirmation_count": 2,
         "strong_reversal_threshold": 0.02,
         "max_abs_target": 0.5,
+        "max_position_to_market_notional": 0.02,
+        "liquidity_lookback_decisions": 96,
+        "liquidity_lower_quantile": 0.10,
+        "liquidity_safety_multiplier": 0.80,
     }
     kwargs[field] = value
 
@@ -360,3 +368,34 @@ def test_cost_aware_path_deleverages_initial_state_above_target_cap() -> None:
     assert path.proposed_turnover[0] == pytest.approx(0.3)
     assert path.estimated_cost_hurdle[0] == pytest.approx(0.00075)
     assert path.submitted_change_count == 1
+
+
+def test_cost_aware_path_prices_targets_against_causal_liquidity_caps() -> None:
+    controller = CausalAlphaControllerConfig(
+        horizon_mix=CausalAlphaHorizonMix.H24,
+        score_scale=25.0,
+        entry_threshold=0.001,
+        exit_threshold=0.0005,
+        no_trade_band=0.0,
+        max_target_delta=1.0,
+    )
+    economic = CausalAlphaCostAwareConfig(
+        execution_cost_multiplier=1.5,
+        edge_margin=0.0,
+        confirmation_count=1,
+        strong_reversal_threshold=0.02,
+        max_abs_target=0.5,
+    )
+
+    path = causal_alpha_cost_aware_target_path(
+        np.asarray([0.02, 0.02, 0.02]),
+        one_way_cost_rates=np.zeros(3),
+        liquidity_weight_caps=np.asarray([0.10, 0.05, 0.08]),
+        controller=controller,
+        economic=economic,
+        initial_weight=0.0,
+    )
+
+    assert path.targets.tolist() == pytest.approx([0.10, 0.05, 0.08])
+    assert np.all(np.abs(path.targets) <= path.liquidity_weight_caps)
+    assert path.liquidity_deleveraging_count == 1

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -91,4 +92,77 @@ def causal_alpha_one_way_cost_rates(
     return rates.astype(np.float64, copy=False)
 
 
-__all__ = ["causal_alpha_one_way_cost_rates"]
+def causal_alpha_liquidity_weight_caps(
+    dataset: Any,
+    *,
+    decision_indices: object,
+    reference_portfolio_value: float,
+    max_position_to_market_notional: float,
+    lookback_decisions: int,
+    lower_quantile: float,
+    safety_multiplier: float,
+) -> np.ndarray:
+    """Estimate conservative executable weights from strictly prior liquidity."""
+
+    decisions = np.asarray(decision_indices, dtype=np.int64).reshape(-1)
+    if decisions.size == 0 or np.any(decisions < 0) or np.any(np.diff(decisions) <= 0):
+        raise ValueError("causal alpha liquidity decisions must be strictly increasing")
+    if not math.isfinite(reference_portfolio_value) or reference_portfolio_value <= 0.0:
+        raise ValueError("reference_portfolio_value must be finite and positive")
+    if (
+        not math.isfinite(max_position_to_market_notional)
+        or max_position_to_market_notional <= 0.0
+    ):
+        raise ValueError("max_position_to_market_notional must be finite and positive")
+    if (
+        isinstance(lookback_decisions, bool)
+        or not isinstance(lookback_decisions, int)
+        or lookback_decisions <= 0
+    ):
+        raise ValueError("lookback_decisions must be a positive integer")
+    if not math.isfinite(lower_quantile) or not 0.0 <= lower_quantile <= 0.5:
+        raise ValueError("lower_quantile must be finite and within [0, 0.5]")
+    if not math.isfinite(safety_multiplier) or not 0.0 < safety_multiplier <= 1.0:
+        raise ValueError("safety_multiplier must be finite and within (0, 1]")
+    market_notional = getattr(dataset, "market_notional", None)
+    if not callable(market_notional):
+        raise TypeError("causal alpha liquidity dataset must expose market_notional")
+
+    first_history_index = int(decisions[0]) - lookback_decisions
+    if first_history_index < 0:
+        raise ValueError("causal alpha liquidity history is incomplete")
+    notionals = np.asarray(
+        [
+            np.asarray(market_notional(index), dtype=np.float64).reshape(-1)
+            for index in range(first_history_index, int(decisions[-1]))
+        ],
+        dtype=np.float64,
+    )
+    if notionals.ndim != 2 or notionals.shape[1] != 1:
+        raise ValueError("causal alpha liquidity requires single-symbol history")
+    if not np.isfinite(notionals).all() or np.any(notionals < 0.0):
+        raise ValueError("causal alpha liquidity history must be finite and non-negative")
+
+    caps = np.empty(decisions.size, dtype=np.float64)
+    for offset, decision in enumerate(decisions):
+        stop = int(decision) - first_history_index
+        start = stop - lookback_decisions
+        history = notionals[start:stop]
+        if history.shape != (lookback_decisions, 1):
+            raise ValueError("causal alpha liquidity history is incomplete")
+        conservative_notional = float(
+            np.quantile(history[:, 0], lower_quantile, method="linear")
+        )
+        caps[offset] = (
+            conservative_notional
+            * max_position_to_market_notional
+            * safety_multiplier
+            / reference_portfolio_value
+        )
+    return caps
+
+
+__all__ = [
+    "causal_alpha_liquidity_weight_caps",
+    "causal_alpha_one_way_cost_rates",
+]

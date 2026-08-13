@@ -40,6 +40,7 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaSymbolSamples,
 )
 from trade_rl.workflows.universal_causal_alpha_costs import (
+    causal_alpha_liquidity_weight_caps,
     causal_alpha_one_way_cost_rates,
 )
 
@@ -749,9 +750,31 @@ def build_causal_alpha_episode_batch(
                 signal_delay_decisions=signal_delay_decisions,
                 decision_bars=decision_bars,
             )
+            liquidity_caps = (
+                None
+                if economic_controller_config.max_position_to_market_notional is None
+                else causal_alpha_liquidity_weight_caps(
+                    dataset,
+                    decision_indices=decisions,
+                    reference_portfolio_value=block.reference_equity,
+                    max_position_to_market_notional=(
+                        economic_controller_config.max_position_to_market_notional
+                    ),
+                    lookback_decisions=(
+                        economic_controller_config.liquidity_lookback_decisions
+                    ),
+                    lower_quantile=(
+                        economic_controller_config.liquidity_lower_quantile
+                    ),
+                    safety_multiplier=(
+                        economic_controller_config.liquidity_safety_multiplier
+                    ),
+                )
+            )
             economic_path = causal_alpha_cost_aware_target_path(
                 scores,
                 one_way_cost_rates=cost_rates,
+                liquidity_weight_caps=liquidity_caps,
                 controller=controller_config,
                 economic=economic_controller_config,
                 initial_weight=initial_weight,

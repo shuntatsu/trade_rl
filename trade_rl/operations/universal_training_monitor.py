@@ -15,7 +15,7 @@ from typing import Any
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 from trade_rl.workflows.universal_causal_alpha_teacher import (
-    _causal_alpha_candidate_metric_v2_from_payload,
+    causal_alpha_candidate_metric_v2_from_payload,
 )
 
 REWARD_TAGS = (
@@ -82,6 +82,10 @@ class _TeacherCandidateAggregate:
     execution_rejection_reason_counts: Counter[str] = field(default_factory=Counter)
     gross_returns: list[float] = field(default_factory=list)
     hard_risk_violation: bool = False
+    liquidity_deleveraging_count: int = 0
+    liquidity_weight_cap_max: list[float] = field(default_factory=list)
+    liquidity_weight_cap_median: list[float] = field(default_factory=list)
+    liquidity_weight_cap_min: list[float] = field(default_factory=list)
     net_returns: list[float] = field(default_factory=list)
     risk_projection_reason_counts: Counter[str] = field(default_factory=Counter)
     signal_24h_direction_accuracy: list[float] = field(default_factory=list)
@@ -334,7 +338,7 @@ def _causal_teacher_checkpoint_summary(path: Path) -> dict[str, object]:
             grid_digest = row_grid
         elif grid_digest != row_grid:
             raise ValueError("causal teacher checkpoint grid digest drifted")
-        metric = _causal_alpha_candidate_metric_v2_from_payload(raw)
+        metric = causal_alpha_candidate_metric_v2_from_payload(raw)
         aggregate = candidates.setdefault(
             metric.candidate_digest, _TeacherCandidateAggregate()
         )
@@ -350,6 +354,10 @@ def _causal_teacher_checkpoint_summary(path: Path) -> dict[str, object]:
             aggregate.signal_24h_rank.append(metric.signal_24h.rank_correlation)
         aggregate.command_sign_flip_count += metric.command_sign_flip_count
         aggregate.cost_suppressed_change_count += metric.cost_suppressed_change_count
+        aggregate.liquidity_deleveraging_count += metric.liquidity_deleveraging_count
+        aggregate.liquidity_weight_cap_min.append(metric.liquidity_weight_cap_min)
+        aggregate.liquidity_weight_cap_median.append(metric.liquidity_weight_cap_median)
+        aggregate.liquidity_weight_cap_max.append(metric.liquidity_weight_cap_max)
         aggregate.execution_rejection_count += metric.execution_rejection_count
         aggregate.strong_reversal_count += metric.strong_reversal_count
         aggregate.submitted_change_count += metric.submitted_change_count
@@ -374,6 +382,12 @@ def _causal_teacher_checkpoint_summary(path: Path) -> dict[str, object]:
             ),
             "gross_return_mean": statistics.fmean(aggregate.gross_returns),
             "hard_risk_violation": aggregate.hard_risk_violation,
+            "liquidity_deleveraging_count": aggregate.liquidity_deleveraging_count,
+            "liquidity_weight_cap_max": max(aggregate.liquidity_weight_cap_max),
+            "liquidity_weight_cap_median_mean": statistics.fmean(
+                aggregate.liquidity_weight_cap_median
+            ),
+            "liquidity_weight_cap_min": min(aggregate.liquidity_weight_cap_min),
             "net_return_lower_tail": min(aggregate.net_returns),
             "net_return_mean": statistics.fmean(aggregate.net_returns),
             "record_count": len(aggregate.net_returns),

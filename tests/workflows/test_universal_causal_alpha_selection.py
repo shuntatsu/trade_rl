@@ -299,7 +299,8 @@ def test_v2_metric_digest_changes_with_signal_diagnostics() -> None:
 
 def test_cost_aware_candidate_grid_has_exact_one_factor_variants() -> None:
     grid = default_cost_aware_causal_alpha_candidate_grid(
-        risk_config=PreTradeRiskConfig(max_abs_weight=1.0, no_trade_band=0.05)
+        risk_config=PreTradeRiskConfig(max_abs_weight=1.0, no_trade_band=0.05),
+        max_position_to_market_notional=0.03,
     )
 
     assert tuple(item.name for item in grid) == (
@@ -317,6 +318,11 @@ def test_cost_aware_candidate_grid_has_exact_one_factor_variants() -> None:
         "delta-low",
     )
     assert all(isinstance(item.economic_controller, CausalAlphaCostAwareConfig) for item in grid)
+    assert all(
+        item.economic_controller is not None
+        and item.economic_controller.max_position_to_market_notional == pytest.approx(0.03)
+        for item in grid
+    )
 
     def identity(candidate: CausalAlphaCandidateConfig) -> dict[str, object]:
         economic = candidate.economic_controller
@@ -644,6 +650,8 @@ def test_cost_aware_production_selection_persists_complete_v2_metric(
             signal_72h=signal,
             target_path=SimpleNamespace(
                 cost_suppressed_change_count=4,
+                liquidity_deleveraging_count=2,
+                liquidity_weight_caps=np.asarray([0.02, 0.01, 0.03, 0.02]),
                 submitted_change_count=3,
                 strong_reversal_count=1,
                 sign_flip_count=1,
@@ -694,6 +702,10 @@ def test_cost_aware_production_selection_persists_complete_v2_metric(
     assert len(metrics) == 2
     assert metrics[0].signal_24h.digest == signal.digest
     assert metrics[0].cost_suppressed_change_count == 4
+    assert metrics[0].liquidity_deleveraging_count == 2
+    assert metrics[0].liquidity_weight_cap_min == pytest.approx(0.01)
+    assert metrics[0].liquidity_weight_cap_median == pytest.approx(0.02)
+    assert metrics[0].liquidity_weight_cap_max == pytest.approx(0.03)
     assert metrics[0].risk_projection_reason_counts == (("no_trade_band", 2),)
     assert progress[-1]["episode_metric"]["schema_version"] == (
         "causal_alpha_candidate_episode_metrics_v2"

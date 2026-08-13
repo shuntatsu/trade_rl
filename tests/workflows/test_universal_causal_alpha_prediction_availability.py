@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
+import trade_rl.workflows.universal_causal_alpha_selection as selection_module
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
@@ -106,6 +109,47 @@ class _CostDataset:
     def resolved_array(self, name: str) -> np.ndarray:
         return self._values[name]
 
+    def market_notional(self, index: int) -> np.ndarray:
+        return np.asarray([1_000.0 + index], dtype=np.float64)
+
+
+def test_liquidity_cap_cache_reuses_contract_estimate() -> None:
+    cache = selection_module._CausalAlphaLiquidityCapCache()
+    contract = OracleEpisodeContract(
+        dataset_id=content_digest("cache-dataset"),
+        episode_index=0,
+        start=10,
+        stop=15,
+        initial_state_mode="cash",
+        initial_weights=np.asarray([0.0], dtype=np.float64),
+    )
+    economic = CausalAlphaCostAwareConfig(
+        execution_cost_multiplier=1.5,
+        edge_margin=0.001,
+        confirmation_count=2,
+        strong_reversal_threshold=0.02,
+        max_abs_target=0.5,
+        max_position_to_market_notional=0.02,
+        liquidity_lookback_decisions=2,
+    )
+    kwargs = {
+        "symbol": "AAAUSDT",
+        "dataset": _CostDataset(),
+        "contract": contract,
+        "decision_indices": np.arange(10, 14),
+        "reference_portfolio_value": 1_000.0,
+        "economic": economic,
+    }
+
+    first = cache.resolve(**kwargs)
+    second = cache.resolve(
+        **{**kwargs, "economic": replace(economic, execution_cost_multiplier=2.0)}
+    )
+
+    assert second is first
+    assert cache.calculation_count == 1
+    assert cache.hit_count == 1
+
 
 def test_one_way_cost_rate_uses_first_executable_row_after_signal_delay() -> None:
     config = ExecutionCostConfig(
@@ -161,6 +205,10 @@ def test_cost_aware_contract_targets_bind_signal_diagnostics_and_cost_path() -> 
             confirmation_count=2,
             strong_reversal_threshold=0.02,
             max_abs_target=0.5,
+            max_position_to_market_notional=0.02,
+            liquidity_lookback_decisions=2,
+            liquidity_lower_quantile=0.10,
+            liquidity_safety_multiplier=0.80,
         ),
     )
 
@@ -180,4 +228,10 @@ def test_cost_aware_contract_targets_bind_signal_diagnostics_and_cost_path() -> 
     assert result.signal_24h.sample_count == 2
     assert result.signal_72h.sample_count == 2
     assert result.target_path.targets[2] == pytest.approx(result.target_path.targets[1])
+    assert result.target_path.liquidity_weight_caps.tolist() == pytest.approx(
+        [0.0161296, 0.0161456, 0.0161616, 0.0161776]
+    )
+    assert np.all(
+        np.abs(result.actions[:, 0]) <= result.target_path.liquidity_weight_caps
+    )
     assert result.target_path.digest

@@ -38,6 +38,7 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaSymbolSamples,
 )
 from trade_rl.workflows.universal_causal_alpha_costs import (
+    causal_alpha_liquidity_weight_caps,
     causal_alpha_one_way_cost_rates,
 )
 from trade_rl.workflows.universal_causal_alpha_fitting import (
@@ -208,6 +209,67 @@ class _CausalAlphaPredictionCache:
         return resolved
 
 
+class _CausalAlphaLiquidityCapCache:
+    """Reuse causal liquidity estimates across controller-only candidates."""
+
+    def __init__(self) -> None:
+        self._cache: dict[tuple[str, str, str, float], np.ndarray] = {}
+        self.calculation_count = 0
+        self.hit_count = 0
+
+    def resolve(
+        self,
+        *,
+        symbol: str,
+        dataset: Any,
+        contract: OracleEpisodeContract,
+        decision_indices: np.ndarray,
+        reference_portfolio_value: float,
+        economic: CausalAlphaCostAwareConfig,
+    ) -> np.ndarray:
+        if economic.max_position_to_market_notional is None:
+            raise ValueError("causal alpha liquidity cache requires an enabled cap")
+        key = (
+            symbol,
+            contract.digest,
+            content_digest(
+                {
+                    "liquidity_lookback_decisions": (
+                        economic.liquidity_lookback_decisions
+                    ),
+                    "liquidity_lower_quantile": economic.liquidity_lower_quantile,
+                    "liquidity_safety_multiplier": (
+                        economic.liquidity_safety_multiplier
+                    ),
+                    "max_position_to_market_notional": (
+                        economic.max_position_to_market_notional
+                    ),
+                    "schema_version": "causal_alpha_liquidity_cap_v1",
+                }
+            ),
+            float(reference_portfolio_value),
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            self.hit_count += 1
+            return cached
+        resolved = causal_alpha_liquidity_weight_caps(
+            dataset,
+            decision_indices=decision_indices,
+            reference_portfolio_value=reference_portfolio_value,
+            max_position_to_market_notional=(
+                economic.max_position_to_market_notional
+            ),
+            lookback_decisions=economic.liquidity_lookback_decisions,
+            lower_quantile=economic.liquidity_lower_quantile,
+            safety_multiplier=economic.liquidity_safety_multiplier,
+        )
+        resolved.setflags(write=False)
+        self._cache[key] = resolved
+        self.calculation_count += 1
+        return resolved
+
+
 @dataclass(frozen=True, slots=True)
 class CausalAlphaCostAwareContractTargets:
     actions: np.ndarray
@@ -314,12 +376,21 @@ def default_causal_alpha_candidate_grid(
 
 
 def default_cost_aware_causal_alpha_candidate_grid(
-    *, risk_config: PreTradeRiskConfig
+    *,
+    risk_config: PreTradeRiskConfig,
+    max_position_to_market_notional: float = 0.02,
 ) -> tuple[CausalAlphaCandidateConfig, ...]:
     if not isinstance(risk_config, PreTradeRiskConfig):
         raise TypeError("cost-aware causal alpha grid requires PreTradeRiskConfig")
     if risk_config.max_abs_weight < 0.5 or risk_config.max_gross < 0.5:
         raise ValueError("cost-aware causal alpha baseline requires 0.5 exposure support")
+    if (
+        not math.isfinite(max_position_to_market_notional)
+        or max_position_to_market_notional <= 0.0
+    ):
+        raise ValueError(
+            "max_position_to_market_notional must be finite and positive"
+        )
     controller_base: dict[str, object] = {
         "horizon_mix": CausalAlphaHorizonMix.EQUAL,
         "score_scale": 25.0,
@@ -334,6 +405,10 @@ def default_cost_aware_causal_alpha_candidate_grid(
         "confirmation_count": 2,
         "strong_reversal_threshold": 0.02,
         "max_abs_target": 0.5,
+        "max_position_to_market_notional": max_position_to_market_notional,
+        "liquidity_lookback_decisions": 96,
+        "liquidity_lower_quantile": 0.10,
+        "liquidity_safety_multiplier": 0.80,
     }
     variants: tuple[tuple[str, dict[str, object], dict[str, object]], ...] = (
         ("cost-aware-baseline", {}, {}),
@@ -626,6 +701,7 @@ def _cost_aware_causal_alpha_target_for_contract(
     decision_bars: int,
     fit_cache: CausalAlphaExpandingFitCache | None = None,
     prediction_cache: _CausalAlphaPredictionCache | None = None,
+    liquidity_cache: _CausalAlphaLiquidityCapCache | None = None,
 ) -> CausalAlphaCostAwareContractTargets:
     economic = candidate.economic_controller
     if economic is None:
@@ -696,9 +772,36 @@ def _cost_aware_causal_alpha_target_for_contract(
         signal_delay_decisions=signal_delay_decisions,
         decision_bars=decision_bars,
     )
+    liquidity_caps = (
+        None
+        if economic.max_position_to_market_notional is None
+        else (
+            causal_alpha_liquidity_weight_caps(
+                dataset,
+                decision_indices=decisions,
+                reference_portfolio_value=block.reference_equity,
+                max_position_to_market_notional=(
+                    economic.max_position_to_market_notional
+                ),
+                lookback_decisions=economic.liquidity_lookback_decisions,
+                lower_quantile=economic.liquidity_lower_quantile,
+                safety_multiplier=economic.liquidity_safety_multiplier,
+            )
+            if liquidity_cache is None
+            else liquidity_cache.resolve(
+                symbol=symbol,
+                dataset=dataset,
+                contract=contract,
+                decision_indices=decisions,
+                reference_portfolio_value=block.reference_equity,
+                economic=economic,
+            )
+        )
+    )
     target_path = causal_alpha_cost_aware_target_path(
         scores,
         one_way_cost_rates=cost_rates,
+        liquidity_weight_caps=liquidity_caps,
         controller=candidate.controller,
         economic=economic,
         initial_weight=float(contract.initial_weights[0]),

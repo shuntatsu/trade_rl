@@ -705,6 +705,10 @@ class CausalAlphaCandidateEpisodeMetricsV2:
     execution_rejection_reason_counts: tuple[tuple[str, int], ...]
     risk_projection_reason_counts: tuple[tuple[str, int], ...]
     hard_risk_violation: bool
+    liquidity_deleveraging_count: int = 0
+    liquidity_weight_cap_min: float = 0.0
+    liquidity_weight_cap_median: float = 0.0
+    liquidity_weight_cap_max: float = 0.0
     digest: str = ""
 
     def __post_init__(self) -> None:
@@ -732,6 +736,7 @@ class CausalAlphaCandidateEpisodeMetricsV2:
             "strong_reversal_count",
             "command_sign_flip_count",
             "execution_rejection_count",
+            "liquidity_deleveraging_count",
         ):
             value = getattr(self, field)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -757,6 +762,15 @@ class CausalAlphaCandidateEpisodeMetricsV2:
             raise ValueError("causal alpha v2 execution rejection reasons do not reconcile")
         if not isinstance(self.hard_risk_violation, bool):
             raise TypeError("causal alpha v2 hard_risk_violation must be boolean")
+        liquidity_caps = (
+            self.liquidity_weight_cap_min,
+            self.liquidity_weight_cap_median,
+            self.liquidity_weight_cap_max,
+        )
+        if any(not math.isfinite(value) or value < 0.0 for value in liquidity_caps):
+            raise ValueError("causal alpha v2 liquidity weight caps are invalid")
+        if liquidity_caps != tuple(sorted(liquidity_caps)):
+            raise ValueError("causal alpha v2 liquidity weight caps are not ordered")
         expected = content_digest(self._payload_without_digest())
         if self.digest and self.digest != expected:
             raise ValueError("causal alpha v2 candidate metric digest mismatch")
@@ -772,6 +786,10 @@ class CausalAlphaCandidateEpisodeMetricsV2:
             "execution_rejection_reason_counts": self.execution_rejection_reason_counts,
             "gross_return": self.gross_return,
             "hard_risk_violation": self.hard_risk_violation,
+            "liquidity_deleveraging_count": self.liquidity_deleveraging_count,
+            "liquidity_weight_cap_max": self.liquidity_weight_cap_max,
+            "liquidity_weight_cap_median": self.liquidity_weight_cap_median,
+            "liquidity_weight_cap_min": self.liquidity_weight_cap_min,
             "net_return": self.net_return,
             "risk_projection_reason_counts": self.risk_projection_reason_counts,
             "schema_version": "causal_alpha_candidate_episode_metrics_v2",

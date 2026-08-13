@@ -12,6 +12,7 @@ from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaTeacherHoldoutMetric,
     evaluate_causal_alpha_teacher_admission,
 )
+from trade_rl.risk.portfolio import PortfolioRiskConfig
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -75,6 +76,9 @@ def test_package_builds_one_shared_teacher_identity(
                     no_trade_band=0.05,
                 )
             )
+            self.portfolio_risk = SimpleNamespace(
+                config=PortfolioRiskConfig(max_position_to_market_notional=0.02)
+            )
             opened.append(binding.concrete_symbol)
 
         def initial_weights_for_reset(self, mode: str, start: int) -> np.ndarray:
@@ -130,6 +134,7 @@ def test_package_builds_one_shared_teacher_identity(
             confirmation_count=2,
             strong_reversal_threshold=0.02,
             max_abs_target=0.5,
+            max_position_to_market_notional=0.02,
         ),
     )
     selection_payload = {
@@ -152,10 +157,11 @@ def test_package_builds_one_shared_teacher_identity(
         "validate_universal_causal_alpha_partitions",
         lambda **kwargs: dict(kwargs["partitions"]),
     )
+    grid_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         module,
         "default_cost_aware_causal_alpha_candidate_grid",
-        lambda **_kwargs: (candidate,),
+        lambda **kwargs: grid_calls.append(dict(kwargs)) or (candidate,),
     )
     progress_payload = {
         "completed_replays": 1,
@@ -254,6 +260,8 @@ def test_package_builds_one_shared_teacher_identity(
         episode_hours=720.0,
         selection_evidence_path=selection_path,
     )
+
+    assert grid_calls[0]["max_position_to_market_notional"] == 0.02
 
     assert isinstance(package, UniversalCausalAlphaTeacherPackage)
     assert opened == list(symbols)

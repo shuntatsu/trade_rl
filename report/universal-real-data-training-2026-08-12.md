@@ -483,3 +483,23 @@ All 12 candidates completed all 16 APTUSDT selection episodes. None produced a p
 At 193 durable records (192 complete APTUSDT records plus the first ARBUSDT record), code and evidence were checked together. The v2 selection lower tail is the minimum net return over every symbol episode, and the configured floor is `-5%`. Every candidate had already recorded an APTUSDT minimum between `-12.905%` and `-18.138%`. Additional symbols cannot increase a minimum, so all 12 candidates were irreversibly rejected before the remaining 1,535 replays. The run was stopped to avoid spending compute on an unchangeable gate outcome. Progress and checkpoint evidence were copied to `artifacts/universal/diagnostics/causal-teacher-v2-r2-terminal`; Docker reported `OOMKilled=false` and exit 137 after the process exceeded the 30-second graceful-stop window.
 
 The result is a teacher-controller FAIL, not an RL reward result. Teacher admission, BC, critic warm-start, PPO, Lagrangian, and discounted PPO did not run. The scalar reward remains pure net log growth. The next correction must preserve the hard `max_position_to_market_notional=0.02` rule while exposing a causal executable liquidity cap to target construction, so downstream risk projection cannot silently introduce unpriced target changes.
+
+### Approved liquidity-aware correction
+
+Option 1 was approved after the v2-r2 stop. The hard
+`max_position_to_market_notional=0.02` contract remains unchanged. Target
+construction now uses only the preceding 96 decisions of quote-notional volume,
+takes the 10th percentile, applies an 80% safety multiplier, and converts that
+notional capacity to a weight using the artifact-bound reference equity. This
+cap is applied before the controller's turnover, edge, cost-hurdle,
+confirmation, max-delta, and no-trade decisions. A falling cap is handled as an
+explicit teacher deleveraging rather than an implicit downstream risk
+projection. Float32 action rounding is constrained inward by one ULP.
+
+The cap parameters are bound into every candidate digest and checked against
+the environment's hard portfolio-risk ratio before selection. Repeated
+controller candidates reuse a per-contract cap cache. Durable v2 checkpoint
+metrics now include liquidity-deleveraging count and cap min/median/max, and the
+monitor aggregates these alongside gross/net return, turnover, execution cost,
+trades, signal quality, and risk projection reasons. The reward remains pure
+net log growth with no added cost, baseline, or drawdown penalty.

@@ -252,6 +252,34 @@ Execution validation proceeds in this order:
   success.
 - Weakening economic, risk, reproducibility, or artifact-identity gates.
 
+## Approved Liquidity-Aware Correction After v2-r2
+
+The v2-r2 APTUSDT evidence showed that every predeclared candidate breached the
+`-5%` lower-tail net floor. The best low-exposure candidate still returned
+`-6.370%` mean net with `3.230x/day` turnover, while the maintained portfolio
+risk layer repeatedly projected targets through the hard
+`max_position_to_market_notional=0.02` cap. The scalar reward remains pure net
+log growth; this correction addresses the target/risk boundary instead.
+
+The causal controller now estimates an executable weight cap from the strictly
+prior 96 decisions (24 hours at the canonical 15-minute cadence), using the 10th
+percentile of quote-notional liquidity, an 80% safety multiplier, the unchanged
+hard 2% market-notional ratio, and the artifact-bound reference equity. It never
+uses the decision bar or any future volume. The desired target is clipped to
+this cap before turnover, incremental-edge, execution-cost hurdle, confirmation,
+maximum-delta, and no-trade decisions. If a falling cap leaves the previous
+target outside the executable range, the teacher emits the required
+deleveraging directly rather than allowing downstream risk projection to create
+an unpriced action.
+
+The liquidity contract is part of the economic-controller digest and must match
+the canonical environment's hard portfolio-risk ratio before selection begins.
+Float32 actions use a zero-directed one-ULP safety bound so serialization cannot
+round a boundary target above the cap. Selection caches the cap per
+symbol/episode/liquidity identity across controller-only candidates and records
+cache counts, liquidity-deleveraging count, and per-episode cap min/median/max in
+the durable checkpoint and monitor summary.
+
 ## Approved Corrective Design After r3 Diagnostics
 
 The first production selection results showed that the baseline and stronger-ridge

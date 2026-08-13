@@ -32,6 +32,7 @@ from trade_rl.learning.episode_oracle_bc import (
     evaluate_episode_action_path_on_environment,
 )
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
+from trade_rl.risk.portfolio import PortfolioRiskConfig
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -65,6 +66,7 @@ from trade_rl.workflows.universal_causal_alpha_selection import (
     CausalAlphaSelectionRejectedV2,
     CausalAlphaSelectionThresholds,
     _causal_alpha_target_for_contract,
+    _CausalAlphaLiquidityCapCache,
     _CausalAlphaPredictionCache,
     _cost_aware_causal_alpha_target_for_contract,
     cost_aware_causal_alpha_grid_digest,
@@ -183,7 +185,7 @@ def write_causal_alpha_selection_checkpoint_metric_v2(
         os.fsync(checkpoint.fileno())
 
 
-def _causal_alpha_candidate_metric_v2_from_payload(
+def causal_alpha_candidate_metric_v2_from_payload(
     raw: Mapping[str, Any],
 ) -> CausalAlphaCandidateEpisodeMetricsV2:
     return CausalAlphaCandidateEpisodeMetricsV2(
@@ -211,6 +213,14 @@ def _causal_alpha_candidate_metric_v2_from_payload(
             for reason, count in raw["risk_projection_reason_counts"]
         ),
         hard_risk_violation=bool(raw["hard_risk_violation"]),
+        liquidity_deleveraging_count=int(
+            raw.get("liquidity_deleveraging_count", 0)
+        ),
+        liquidity_weight_cap_min=float(raw.get("liquidity_weight_cap_min", 0.0)),
+        liquidity_weight_cap_median=float(
+            raw.get("liquidity_weight_cap_median", 0.0)
+        ),
+        liquidity_weight_cap_max=float(raw.get("liquidity_weight_cap_max", 0.0)),
         digest=str(raw["artifact_digest"]),
     )
 
@@ -232,7 +242,7 @@ def load_causal_alpha_selection_checkpoint_v2(
                 raise ValueError("causal alpha v2 selection checkpoint schema mismatch")
             if raw.get("grid_digest") != expected_grid_digest:
                 raise ValueError("causal alpha v2 selection checkpoint grid digest mismatch")
-            metric = _causal_alpha_candidate_metric_v2_from_payload(raw)
+            metric = causal_alpha_candidate_metric_v2_from_payload(raw)
             identity = (metric.candidate_digest, metric.symbol, metric.episode_index)
             if identity in identities:
                 raise ValueError("causal alpha v2 selection checkpoint is duplicated")
@@ -447,6 +457,7 @@ def evaluate_cost_aware_causal_alpha_selection(
         for item in values
     }
     prediction_cache = _CausalAlphaPredictionCache()
+    liquidity_cache = _CausalAlphaLiquidityCapCache()
     completed_replays = len(completed)
     for symbol in symbols:
         environment = environment_factories[symbol]()
@@ -489,6 +500,7 @@ def evaluate_cost_aware_causal_alpha_selection(
                         decision_bars=decision_bars,
                         fit_cache=fit_cache,
                         prediction_cache=prediction_cache,
+                        liquidity_cache=liquidity_cache,
                     )
                     evaluation = evaluate_episode_action_path_on_environment(
                         environment, contract, actions=targets.actions
@@ -528,6 +540,18 @@ def evaluate_cost_aware_causal_alpha_selection(
                             collapse.risk_projection_reason_counts
                         ),
                         hard_risk_violation=collapse.hard_risk_violation,
+                        liquidity_deleveraging_count=(
+                            targets.target_path.liquidity_deleveraging_count
+                        ),
+                        liquidity_weight_cap_min=float(
+                            np.min(targets.target_path.liquidity_weight_caps)
+                        ),
+                        liquidity_weight_cap_median=float(
+                            np.median(targets.target_path.liquidity_weight_caps)
+                        ),
+                        liquidity_weight_cap_max=float(
+                            np.max(targets.target_path.liquidity_weight_caps)
+                        ),
                     )
                     records[candidate.digest].append(metric)
                     completed.add(identity)
@@ -549,6 +573,10 @@ def evaluate_cost_aware_causal_alpha_selection(
                                     fit_cache.fit_count if fit_cache is not None else 0
                                 ),
                                 "phase": "causal_teacher_selection_v2",
+                                "liquidity_cap_cache_hits": liquidity_cache.hit_count,
+                                "liquidity_cap_calculation_count": (
+                                    liquidity_cache.calculation_count
+                                ),
                                 "prediction_cache_hits": prediction_cache.hit_count,
                                 "prediction_count": prediction_cache.prediction_count,
                                 "symbol": symbol,
@@ -670,6 +698,7 @@ def build_universal_causal_alpha_teacher_package(
     partitions: dict[str, CausalAlphaEpisodePartition] = {}
     samples: dict[str, CausalAlphaSymbolSamples] = {}
     risk_configs: list[PreTradeRiskConfig] = []
+    portfolio_risk_configs: list[PortfolioRiskConfig] = []
     observed_episode_hours: list[float] = []
     datasets: dict[str, Any] = {}
     execution_costs: dict[str, Any] = {}
@@ -698,6 +727,14 @@ def build_universal_causal_alpha_teacher_package(
             if not isinstance(risk_config, PreTradeRiskConfig):
                 raise TypeError("causal alpha environment risk config is unavailable")
             risk_configs.append(risk_config)
+            portfolio_risk_config = getattr(
+                getattr(environment, "portfolio_risk", None), "config", None
+            )
+            if not isinstance(portfolio_risk_config, PortfolioRiskConfig):
+                raise TypeError(
+                    "causal alpha environment portfolio risk config is unavailable"
+                )
+            portfolio_risk_configs.append(portfolio_risk_config)
             environment_episode_hours = getattr(
                 getattr(environment, "config", None), "episode_hours", None
             )
@@ -730,6 +767,15 @@ def build_universal_causal_alpha_teacher_package(
     )
     if len({content_digest(config) for config in risk_configs}) != 1:
         raise ValueError("causal alpha train-symbol risk configs differ")
+    if len({content_digest(config) for config in portfolio_risk_configs}) != 1:
+        raise ValueError("causal alpha train-symbol portfolio risk configs differ")
+    max_position_to_market_notional = portfolio_risk_configs[
+        0
+    ].max_position_to_market_notional
+    if max_position_to_market_notional is None:
+        raise ValueError(
+            "causal alpha canonical package requires a hard market-notional cap"
+        )
     if len(set(observed_episode_hours)) != 1:
         raise ValueError("causal alpha train-symbol episode horizons differ")
     resolved_episode_hours = (
@@ -746,7 +792,8 @@ def build_universal_causal_alpha_teacher_package(
 
     candidate_values = (
         default_cost_aware_causal_alpha_candidate_grid(
-            risk_config=risk_configs[0]
+            risk_config=risk_configs[0],
+            max_position_to_market_notional=max_position_to_market_notional,
         )
         if candidates is None
         else tuple(candidates)
@@ -755,6 +802,15 @@ def build_universal_causal_alpha_teacher_package(
         candidate.economic_controller is None for candidate in candidate_values
     ):
         raise ValueError("causal alpha canonical package requires v2 candidates")
+    if any(
+        candidate.economic_controller is None
+        or candidate.economic_controller.max_position_to_market_notional
+        != max_position_to_market_notional
+        for candidate in candidate_values
+    ):
+        raise ValueError(
+            "causal alpha candidate liquidity cap differs from hard portfolio risk"
+        )
     thresholds = CausalAlphaSelectionThresholds()
     grid_digest = cost_aware_causal_alpha_grid_digest(candidate_values, thresholds)
     binding_by_symbol = {binding.concrete_symbol: binding for binding in binding_values}
@@ -780,7 +836,7 @@ def build_universal_causal_alpha_teacher_package(
     def persist_selection_progress(payload: Mapping[str, object]) -> None:
         raw_metric = payload.get("episode_metric")
         if isinstance(raw_metric, Mapping):
-            metric = _causal_alpha_candidate_metric_v2_from_payload(raw_metric)
+            metric = causal_alpha_candidate_metric_v2_from_payload(raw_metric)
             write_causal_alpha_selection_checkpoint_metric_v2(
                 checkpoint_path,
                 metric,
@@ -924,6 +980,7 @@ __all__ = [
     "build_chronological_episode_partition",
     "build_universal_causal_alpha_teacher_package",
     "causal_alpha_generator_code_digest",
+    "causal_alpha_candidate_metric_v2_from_payload",
     "default_causal_alpha_candidate_grid",
     "evaluate_causal_alpha_selection",
     "evaluate_cost_aware_causal_alpha_selection",

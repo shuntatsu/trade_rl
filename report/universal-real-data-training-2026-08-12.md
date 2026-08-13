@@ -374,3 +374,42 @@ Current decision:
 - Canonical 3 algorithms x 3 seeds x 524,288 timesteps: NO-GO.
 
 Three teacher/head paths have now failed for distinct reasons: direct Oracle BC averaged a multimodal target into a constant short action; hierarchical Oracle BC remained vulnerable to autonomous state-distribution shift; causal trend BC reproduced its teacher but the teacher had negative held-out gross alpha and excessive turnover. This is now a teacher-architecture problem, not a reward-shaping or optimizer-tuning problem. The next candidate must be a genuinely causal, train-only-fitted policy with explicit turnover-aware target construction and untouched validation/test promotion, not another hand-tuned transform of the failed trend holdout.
+
+## Checkpoint update: pooled causal-alpha teacher selection (2026-08-13)
+
+The next teacher route is a pooled, expanding-window causal ridge model. It predicts 24h and 72h forward returns from the existing point-in-time Universal features, then applies a bounded controller grid. The 24h and 72h values are prediction horizons, not minimum holding periods. The reward remains pure net log growth; execution costs are still represented exactly once through net equity.
+
+### Branch and commits
+
+- Branch: `codex/universal-real-data-training`.
+- `56acc0e4` (`perf: unblock causal teacher training`): enabled `causal_alpha_ridge` in the SB3 integration, cached expanding fits and predictions, reused selection environments, added progress/telemetry fields, bounded monitor reads, and recorded submitted-command delta/sign-flip metrics.
+- `bae7b020` (`fix: persist causal teacher rejection evidence`): made all-candidate rejection preserve complete evidence, added an fsync-backed per-replay checkpoint, enabled restart from completed replay identities, and persisted intermediate gross/net return, turnover, cost, trades, and risk flags.
+- Both commits were pushed to `origin/codex/universal-real-data-training` before this checkpoint.
+
+### r2 complete selection and fail-closed result
+
+Container `trade-rl-causal-teacher-smoke-r2` completed all `1,728 / 1,728` production replays across 12 candidates, 9 train symbols, and 16 earlier complete episodes per symbol. The fit/prediction cache reduced the computation to 32 unique pooled fits and 288 unique predictions, with 1,696 fit-cache hits and 1,440 prediction-cache hits. Runtime was approximately 6h04m; Docker reported `OOMKilled=false`.
+
+The run then failed closed with `RuntimeError: no admissible causal alpha candidate`. No teacher admission, BC, critic warm-start, or PPO update ran. Because the pre-r2 implementation wrote selection evidence only after a winner existed, the exact candidate rejection table was lost. Commit `bae7b020` corrects that durability defect without relaxing the gate or changing reward.
+
+### r3 OOM and evidence-backed resume
+
+Container `trade-rl-causal-teacher-smoke-r3` uses immutable image `trade-rl:causal-main-smoke-r3` with:
+
+- image ID: `sha256:f5504be21c9be8af050a856b83147888ea03836f80d54510516faed3f0cc60a9`;
+- source revision: `56acc0e474497009fc1d2df2b24c78f0eac35f81`;
+- source-tree digest: `387ef7cd8d9cdd8b0d20c5d011042fa8572843028b0dc72ab958e2b7ec6c972b`;
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`;
+- runtime-manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
+
+The first r3 attempt was globally OOM-killed during its first pooled fit at 13:25:40Z. The Linux OOM record identified the training Python process at approximately 4.28 GiB anonymous RSS. Docker had 7.63 GiB total, while an unrelated CVAT stack consumed roughly another 2.5 GiB. No replay had completed, so no checkpoint row yet existed. After the user stopped CVAT, Docker available memory recovered to approximately 6.8 GiB plus 1.9 GiB free swap. The exact same r3 container was restarted at 13:30:09Z; no duplicate run or container was created.
+
+At this report checkpoint, r3 is running with `OOMKilled=false`, approximately 2.63 GiB RAM, and `26 / 1,728` replay metrics durably recorded. It is processing APTUSDT and has entered the second candidate. The aggregate early evidence is:
+
+| Scope | Replays | Mean gross | Mean net | Lower-tail net | Turnover/day | Execution cost | Trades | Risk violations |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Candidate 1 | 16 | -0.883% | -11.267% | -19.092% | 5.148x | 165,471.4 | 452 | 16/16 |
+| Candidate 2 (partial) | 10 | -2.287% | -14.636% | -19.308% | 6.239x | 123,387.8 | 248 | 10/10 |
+| Aggregate | 26 | -1.423% | -12.563% | -19.164% | 5.568x | 288,859.2 | 700 | 26/26 |
+
+This sample covers only one train symbol and is not a final selection result. It is nevertheless already unfavorable: every observed episode is negative after costs and has a risk violation. The workflow will continue fail-closed. Only a selected teacher that subsequently passes admission may advance to the real-data CUDA random -> BC -> critic -> RL smoke. PPO reward trajectories do not exist yet for this generation because the teacher gate has not been reached.

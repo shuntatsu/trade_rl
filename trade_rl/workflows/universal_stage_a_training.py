@@ -100,7 +100,9 @@ def train_universal_stage_a_ablation(
         raise ValueError("U5 requires an explicit uint32 behavior_cloning_seed")
 
     teacher_kind = first_training.behavior_cloning_teacher
-    if any(training.behavior_cloning_teacher != teacher_kind for _, training, _ in prepared):
+    if any(
+        training.behavior_cloning_teacher != teacher_kind for _, training, _ in prepared
+    ):
         raise ValueError("U5 architecture candidates must share one BC teacher kind")
     if teacher_kind == "causal_alpha_ridge":
         routed = first_runtime.routed_environment_factory

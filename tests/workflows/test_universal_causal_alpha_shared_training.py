@@ -185,13 +185,15 @@ def test_u6_builds_causal_package_once_and_reuses_it_for_all_algorithms(
     monkeypatch.setattr(
         module,
         "UniversalFullResearchAlgorithmRun",
-        lambda *, algorithm, selected_architecture, training_config, training_manifest, output_root: SimpleNamespace(
-            algorithm=algorithm,
-            selected_architecture=selected_architecture,
-            training_config=training_config,
-            training_manifest=training_manifest,
-            output_root=output_root,
-            digest=_digest(f"run:{algorithm.value}"),
+        lambda *, algorithm, selected_architecture, training_config, training_manifest, output_root: (
+            SimpleNamespace(
+                algorithm=algorithm,
+                selected_architecture=selected_architecture,
+                training_config=training_config,
+                training_manifest=training_manifest,
+                output_root=output_root,
+                digest=_digest(f"run:{algorithm.value}"),
+            )
         ),
     )
     monkeypatch.setattr(

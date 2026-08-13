@@ -257,22 +257,39 @@ def fit_causal_alpha_ridge(
     if isinstance(knowledge_cutoff, bool) or not isinstance(knowledge_cutoff, int):
         raise ValueError("knowledge_cutoff must be an integer")
     finite_rows = np.isfinite(values).all(axis=1) & np.isfinite(target)
-    eligible_mask = (
-        finite_rows
-        & available.all(axis=1)
-        & (label_end >= 0)
-        & (label_end < knowledge_cutoff)
-    )
+    eligible_mask = finite_rows & (label_end >= 0) & (label_end < knowledge_cutoff)
     eligible_indices = np.flatnonzero(eligible_mask).astype(np.int64)
     if eligible_indices.size < 2:
         raise ValueError("causal alpha prefix contains insufficient fitted samples")
     x = values[eligible_indices]
+    x_available = available[eligible_indices]
     y = target[eligible_indices]
-    location = x.mean(axis=0, dtype=np.float64)
-    raw_scale = x.std(axis=0, dtype=np.float64)
-    constant_mask = raw_scale <= _EPSILON
+
+    # Mirror the Universal observation contract: unavailable feature values are
+    # represented by standardized zero rather than discarding the entire row.
+    # Statistics are feature-local and use only values known to be available.
+    available_count = x_available.sum(axis=0, dtype=np.int64)
+    available_sum = np.where(x_available, x, 0.0).sum(axis=0, dtype=np.float64)
+    location = np.zeros(x.shape[1], dtype=np.float64)
+    np.divide(
+        available_sum,
+        available_count,
+        out=location,
+        where=available_count > 0,
+    )
+    centered = np.where(x_available, x - location, 0.0)
+    squared_sum = np.square(centered).sum(axis=0, dtype=np.float64)
+    variance = np.zeros(x.shape[1], dtype=np.float64)
+    np.divide(
+        squared_sum,
+        available_count,
+        out=variance,
+        where=available_count > 0,
+    )
+    raw_scale = np.sqrt(variance)
+    constant_mask = (available_count < 2) | (raw_scale <= _EPSILON)
     scale = np.where(constant_mask, 1.0, raw_scale)
-    scaled = (x - location) / scale
+    scaled = np.where(x_available, (x - location) / scale, 0.0)
     scaled[:, constant_mask] = 0.0
     design = np.column_stack((np.ones(scaled.shape[0], dtype=np.float64), scaled))
     gram = design.T @ design

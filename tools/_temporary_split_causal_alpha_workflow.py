@@ -206,6 +206,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.episode_oracle_bc import evaluate_episode_action_path
+from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.workflows.universal_causal_alpha_contracts import (

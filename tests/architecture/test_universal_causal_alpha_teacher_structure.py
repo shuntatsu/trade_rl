@@ -21,12 +21,18 @@ def test_causal_alpha_facade_reexports_responsibility_modules() -> None:
         facade.build_chronological_episode_partition
         is fitting.build_chronological_episode_partition
     )
-    assert facade.build_causal_alpha_symbol_samples is fitting.build_causal_alpha_symbol_samples
+    assert (
+        facade.build_causal_alpha_symbol_samples
+        is fitting.build_causal_alpha_symbol_samples
+    )
     assert (
         facade.fit_expanding_causal_alpha_models
         is fitting.fit_expanding_causal_alpha_models
     )
-    assert facade.build_causal_alpha_episode_batch is fitting.build_causal_alpha_episode_batch
+    assert (
+        facade.build_causal_alpha_episode_batch
+        is fitting.build_causal_alpha_episode_batch
+    )
 
     assert (
         facade.default_causal_alpha_candidate_grid

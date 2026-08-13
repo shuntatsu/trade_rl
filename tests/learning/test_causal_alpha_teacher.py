@@ -327,3 +327,36 @@ def test_cost_aware_path_suppresses_marginal_edge_and_preserves_inactive_state()
     assert np.max(np.abs(path.targets)) <= economic.max_abs_target
     assert not path.targets.flags.writeable
     assert not path.actionable_mask.flags.writeable
+
+
+def test_cost_aware_path_deleverages_initial_state_above_target_cap() -> None:
+    controller = CausalAlphaControllerConfig(
+        horizon_mix=CausalAlphaHorizonMix.H24,
+        score_scale=25.0,
+        entry_threshold=0.001,
+        exit_threshold=0.0005,
+        no_trade_band=0.05,
+        max_target_delta=0.125,
+    )
+    economic = CausalAlphaCostAwareConfig(
+        execution_cost_multiplier=1.5,
+        edge_margin=0.001,
+        confirmation_count=2,
+        strong_reversal_threshold=0.02,
+        max_abs_target=0.5,
+    )
+
+    path = causal_alpha_cost_aware_target_path(
+        np.asarray([0.0, 0.0]),
+        one_way_cost_rates=np.full(2, 0.001),
+        controller=controller,
+        economic=economic,
+        initial_weight=0.8,
+        actionable_mask=np.asarray([False, True]),
+    )
+
+    assert path.initial_weight == pytest.approx(0.8)
+    assert path.targets.tolist() == pytest.approx([0.5, 0.5])
+    assert path.proposed_turnover[0] == pytest.approx(0.3)
+    assert path.estimated_cost_hurdle[0] == pytest.approx(0.00075)
+    assert path.submitted_change_count == 1

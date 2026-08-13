@@ -633,8 +633,8 @@ def causal_alpha_cost_aware_target_path(
         raise ValueError("one_way_cost_rates must align with scores and be finite")
     if np.any(cost_rates < 0.0):
         raise ValueError("one_way_cost_rates must be non-negative")
-    if not math.isfinite(initial_weight) or abs(initial_weight) > economic.max_abs_target:
-        raise ValueError("initial_weight must be finite and within max_abs_target")
+    if not math.isfinite(initial_weight):
+        raise ValueError("initial_weight must be finite")
     if actionable_mask is None:
         actionable = np.ones(values.shape, dtype=np.bool_)
     else:
@@ -657,6 +657,26 @@ def causal_alpha_cost_aware_target_path(
     sign_flips = 0
 
     for index, score_value in enumerate(values):
+        if abs(previous) > economic.max_abs_target:
+            target = float(
+                np.clip(
+                    previous,
+                    -economic.max_abs_target,
+                    economic.max_abs_target,
+                )
+            )
+            turnover = abs(target - previous)
+            proposed_turnover[index] = turnover
+            cost_hurdle[index] = turnover * (
+                float(cost_rates[index]) * economic.execution_cost_multiplier
+                + economic.edge_margin
+            )
+            previous = target
+            targets[index] = previous
+            submitted += 1
+            pending_direction = 0
+            pending_count = 0
+            continue
         if not bool(actionable[index]):
             targets[index] = previous
             confirmation_state[index] = pending_direction * pending_count

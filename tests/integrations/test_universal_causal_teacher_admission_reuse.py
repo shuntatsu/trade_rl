@@ -12,10 +12,7 @@ from trade_rl.learning.causal_alpha_teacher import (
     evaluate_causal_alpha_teacher_admission,
 )
 from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
-from trade_rl.learning.episode_oracle_teacher import (
-    EpisodeOracleBatch,
-    OracleEpisodeContract,
-)
+from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch, OracleEpisodeContract
 from trade_rl.learning.teacher_artifact import SupervisedPolicyDataset
 from trade_rl.rl.training import ResidualTrainingConfig
 
@@ -112,6 +109,10 @@ def test_pretraining_hook_reuses_stored_teacher_admission_without_replay(
             "selected_candidate_digest": content_digest("candidate"),
         },
         causal_teacher_admission_evidence=admission.to_payload(),
+        causal_teacher_package_evidence={
+            "schema_version": "universal_causal_alpha_teacher_package_evidence_v1",
+            "artifact_digest": content_digest("package"),
+        },
         causal_teacher_episode_hours=720.0,
     )
 
@@ -148,3 +149,4 @@ def test_pretraining_hook_reuses_stored_teacher_admission_without_replay(
 
     assert (tmp_path / "causal-teacher-selection.json").is_file()
     assert (tmp_path / "causal-teacher-admission.json").is_file()
+    assert (tmp_path / "causal-teacher-package.json").is_file()

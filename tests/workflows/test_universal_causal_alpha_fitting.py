@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import trade_rl.workflows.universal_causal_alpha_teacher as causal_alpha_module
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
@@ -64,6 +65,28 @@ def test_expanding_fit_uses_only_labels_realized_before_episode_start() -> None:
     assert fitted.train_symbols == ("AAAUSDT", "BBBUSDT")
 
 
+def test_expanding_fit_cache_reuses_identical_scope_cutoff_and_ridge() -> None:
+    blocks = {
+        "AAAUSDT": _samples("AAAUSDT", 0.0),
+        "BBBUSDT": _samples("BBBUSDT", 10.0),
+    }
+    assert hasattr(causal_alpha_module, "CausalAlphaExpandingFitCache")
+    cache_type = causal_alpha_module.CausalAlphaExpandingFitCache
+    cache = cache_type(
+        train_symbols=("AAAUSDT", "BBBUSDT"),
+        samples=blocks,
+    )
+    config = CausalAlphaRidgeConfig(ridge_strength=0.1)
+
+    first = cache.resolve(knowledge_cutoff=16, ridge_config=config)
+    second = cache.resolve(knowledge_cutoff=16, ridge_config=config)
+
+    assert second is first
+    assert cache.fit_count == 1
+    assert cache.hit_count == 1
+    assert cache.entry_count == 1
+
+
 def test_expanding_fit_scope_is_exactly_train_symbols() -> None:
     blocks = {
         "AAAUSDT": _samples("AAAUSDT", 0.0),
@@ -105,6 +128,10 @@ def test_episode_batch_fits_each_episode_at_its_own_cutoff_and_preserves_initial
 ):
     symbol = "AAAUSDT"
     samples = {symbol: _samples(symbol, 0.0)}
+    fit_cache = causal_alpha_module.CausalAlphaExpandingFitCache(
+        train_symbols=(symbol,),
+        samples=samples,
+    )
     controller = CausalAlphaControllerConfig(
         horizon_mix=CausalAlphaHorizonMix.EQUAL,
         score_scale=2.0,
@@ -120,6 +147,7 @@ def test_episode_batch_fits_each_episode_at_its_own_cutoff_and_preserves_initial
         partition=_partition(symbol),
         ridge_config=CausalAlphaRidgeConfig(ridge_strength=0.1),
         controller_config=controller,
+        fit_cache=fit_cache,
     )
 
     assert batch.contracts == _partition(symbol).contracts
@@ -135,6 +163,7 @@ def test_episode_batch_fits_each_episode_at_its_own_cutoff_and_preserves_initial
     assert batch.targets[1].shape == (4, 1)
     assert evidence.episodes[1].initial_weight == pytest.approx(0.25)
     assert batch.teacher_config_digest == evidence.digest
+    assert fit_cache.fit_count == 2
 
 
 def test_sample_identity_drift_changes_fit_digest() -> None:

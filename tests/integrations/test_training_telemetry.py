@@ -137,6 +137,8 @@ def test_sampler_skips_unimportant_steps_and_preserves_position_risk_and_termina
     assert page.items[0].interval_gross_return == pytest.approx(0.0013)
     assert page.items[0].baseline_excess_return == pytest.approx(0.0008)
     assert page.items[0].target_delta_l1 == pytest.approx(0.2)
+    assert page.items[0].command_target_delta_l1 == pytest.approx(0.2)
+    assert page.items[0].command_target_sign_flip_count == 0
 
 
 def test_sampler_accepts_torch_rollout_tensors(tmp_path: Path) -> None:

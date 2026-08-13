@@ -465,6 +465,115 @@ def _validated_sample_scope(
     return symbols, blocks, scope_digest
 
 
+class CausalAlphaExpandingFitCache:
+    """Reuse pooled train-symbol arrays and expanding fits within one package build."""
+
+    __slots__ = (
+        "_available",
+        "_blocks",
+        "_cache",
+        "_ends_24h",
+        "_ends_72h",
+        "_features",
+        "_labels_24h",
+        "_labels_72h",
+        "_scope_digest",
+        "_symbols",
+        "fit_count",
+        "hit_count",
+    )
+
+    def __init__(
+        self,
+        *,
+        train_symbols: tuple[str, ...],
+        samples: Mapping[str, CausalAlphaSymbolSamples],
+    ) -> None:
+        symbols, blocks, scope_digest = _validated_sample_scope(
+            train_symbols,
+            samples,
+        )
+        self._symbols = symbols
+        self._blocks = blocks
+        self._scope_digest = scope_digest
+        self._features = np.concatenate(
+            tuple(block.features for block in blocks), axis=0
+        )
+        self._available = np.concatenate(
+            tuple(block.feature_available for block in blocks), axis=0
+        )
+        self._labels_24h = np.concatenate(
+            tuple(block.labels_24h for block in blocks), axis=0
+        )
+        self._labels_72h = np.concatenate(
+            tuple(block.labels_72h for block in blocks), axis=0
+        )
+        self._ends_24h = np.concatenate(
+            tuple(block.label_end_indices_24h for block in blocks)
+        )
+        self._ends_72h = np.concatenate(
+            tuple(block.label_end_indices_72h for block in blocks)
+        )
+        self._cache: dict[tuple[int, str], CausalAlphaExpandingFit] = {}
+        self.fit_count = 0
+        self.hit_count = 0
+
+    @property
+    def entry_count(self) -> int:
+        return len(self._cache)
+
+    @property
+    def sample_scope_digest(self) -> str:
+        return self._scope_digest
+
+    def resolve(
+        self,
+        *,
+        knowledge_cutoff: int,
+        ridge_config: CausalAlphaRidgeConfig,
+    ) -> CausalAlphaExpandingFit:
+        key = (knowledge_cutoff, ridge_config.digest)
+        cached = self._cache.get(key)
+        if cached is not None:
+            self.hit_count += 1
+            return cached
+        feature_names = self._blocks[0].feature_names
+        model_24h = fit_causal_alpha_ridge(
+            features=self._features,
+            labels=self._labels_24h,
+            feature_available=self._available,
+            label_end_indices=self._ends_24h,
+            knowledge_cutoff=knowledge_cutoff,
+            feature_names=feature_names,
+            config=ridge_config,
+        )
+        model_72h = fit_causal_alpha_ridge(
+            features=self._features,
+            labels=self._labels_72h,
+            feature_available=self._available,
+            label_end_indices=self._ends_72h,
+            knowledge_cutoff=knowledge_cutoff,
+            feature_names=feature_names,
+            config=ridge_config,
+        )
+        fitted_ends_24h = self._ends_24h[model_24h.eligible_indices]
+        fitted_ends_72h = self._ends_72h[model_72h.eligible_indices]
+        fitted = CausalAlphaExpandingFit(
+            train_symbols=self._symbols,
+            knowledge_cutoff=knowledge_cutoff,
+            model_24h=model_24h,
+            model_72h=model_72h,
+            sample_count_24h=model_24h.sample_count,
+            sample_count_72h=model_72h.sample_count,
+            max_label_end_24h=int(np.max(fitted_ends_24h)),
+            max_label_end_72h=int(np.max(fitted_ends_72h)),
+            sample_scope_digest=self._scope_digest,
+        )
+        self._cache[key] = fitted
+        self.fit_count += 1
+        return fitted
+
+
 def fit_expanding_causal_alpha_models(
     *,
     train_symbols: tuple[str, ...],
@@ -474,46 +583,12 @@ def fit_expanding_causal_alpha_models(
 ) -> CausalAlphaExpandingFit:
     """Fit both horizons on pooled train-symbol labels realized before a cutoff."""
 
-    symbols, blocks, scope_digest = _validated_sample_scope(train_symbols, samples)
-    features = np.concatenate(tuple(block.features for block in blocks), axis=0)
-    available = np.concatenate(
-        tuple(block.feature_available for block in blocks), axis=0
-    )
-    labels_24h = np.concatenate(tuple(block.labels_24h for block in blocks), axis=0)
-    labels_72h = np.concatenate(tuple(block.labels_72h for block in blocks), axis=0)
-    ends_24h = np.concatenate(tuple(block.label_end_indices_24h for block in blocks))
-    ends_72h = np.concatenate(tuple(block.label_end_indices_72h for block in blocks))
-    feature_names = blocks[0].feature_names
-    model_24h = fit_causal_alpha_ridge(
-        features=features,
-        labels=labels_24h,
-        feature_available=available,
-        label_end_indices=ends_24h,
+    return CausalAlphaExpandingFitCache(
+        train_symbols=train_symbols,
+        samples=samples,
+    ).resolve(
         knowledge_cutoff=knowledge_cutoff,
-        feature_names=feature_names,
-        config=ridge_config,
-    )
-    model_72h = fit_causal_alpha_ridge(
-        features=features,
-        labels=labels_72h,
-        feature_available=available,
-        label_end_indices=ends_72h,
-        knowledge_cutoff=knowledge_cutoff,
-        feature_names=feature_names,
-        config=ridge_config,
-    )
-    fitted_ends_24h = ends_24h[model_24h.eligible_indices]
-    fitted_ends_72h = ends_72h[model_72h.eligible_indices]
-    return CausalAlphaExpandingFit(
-        train_symbols=symbols,
-        knowledge_cutoff=knowledge_cutoff,
-        model_24h=model_24h,
-        model_72h=model_72h,
-        sample_count_24h=model_24h.sample_count,
-        sample_count_72h=model_72h.sample_count,
-        max_label_end_24h=int(np.max(fitted_ends_24h)),
-        max_label_end_72h=int(np.max(fitted_ends_72h)),
-        sample_scope_digest=scope_digest,
+        ridge_config=ridge_config,
     )
 
 
@@ -572,6 +647,7 @@ def build_causal_alpha_episode_batch(
     ridge_config: CausalAlphaRidgeConfig,
     controller_config: CausalAlphaControllerConfig,
     teacher_config_digest: str | None = None,
+    fit_cache: CausalAlphaExpandingFitCache | None = None,
 ) -> tuple[EpisodeOracleBatch, CausalAlphaBatchEvidence]:
     """Fit at each episode start and generate one causal target path per contract."""
 
@@ -585,11 +661,18 @@ def build_causal_alpha_episode_batch(
     episode_evidence: list[CausalAlphaEpisodeEvidence] = []
     fits: dict[str, CausalAlphaExpandingFit] = {}
     for contract in partition.contracts:
-        fitted = fit_expanding_causal_alpha_models(
-            train_symbols=symbols,
-            samples=samples,
-            knowledge_cutoff=contract.start,
-            ridge_config=ridge_config,
+        fitted = (
+            fit_expanding_causal_alpha_models(
+                train_symbols=symbols,
+                samples=samples,
+                knowledge_cutoff=contract.start,
+                ridge_config=ridge_config,
+            )
+            if fit_cache is None
+            else fit_cache.resolve(
+                knowledge_cutoff=contract.start,
+                ridge_config=ridge_config,
+            )
         )
         decisions = np.arange(contract.start, contract.stop - 1, dtype=np.int64)
         prediction_features, prediction_available, actionable = (
@@ -703,6 +786,7 @@ def build_causal_alpha_episode_batch(
 
 
 __all__ = [
+    "CausalAlphaExpandingFitCache",
     "build_causal_alpha_episode_batch",
     "build_causal_alpha_symbol_samples",
     "build_chronological_episode_partition",

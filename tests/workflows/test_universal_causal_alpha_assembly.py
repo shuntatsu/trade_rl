@@ -62,7 +62,9 @@ def _training() -> ResidualTrainingConfig:
     )
 
 
-def test_assemble_routes_causal_teacher_through_shared_package(monkeypatch) -> None:
+def test_assemble_routes_causal_teacher_through_shared_package(
+    monkeypatch, tmp_path
+) -> None:
     import trade_rl.workflows.universal_training_runner as module
     from trade_rl.workflows.universal_training_runner import (
         assemble_universal_sb3_training_backend,
@@ -123,6 +125,7 @@ def test_assemble_routes_causal_teacher_through_shared_package(monkeypatch) -> N
         fold_train_range=(19, 211),
         normalizer_digest=_digest("normalizer"),
         feature_schema_digest=_digest("features"),
+        causal_teacher_evidence_root=tmp_path,
     )
 
     assert actual_bundle is bundle
@@ -132,6 +135,9 @@ def test_assemble_routes_causal_teacher_through_shared_package(monkeypatch) -> N
     assert package_kwargs["bindings"] == routed.bindings
     assert package_kwargs["fold_train_range"] == (19, 211)
     assert package_kwargs["feature_schema_digest"] == _digest("features")
+    assert package_kwargs["selection_evidence_path"] == (
+        tmp_path / "causal-teacher-selection.json"
+    )
     bundle_kwargs = observed["bundle_kwargs"]
     assert isinstance(bundle_kwargs, dict)
     assert bundle_kwargs["batches"] == package.batches

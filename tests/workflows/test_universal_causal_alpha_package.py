@@ -106,7 +106,13 @@ def test_package_builds_one_shared_teacher_identity(
 
     def build_samples(**kwargs):
         binding = kwargs["binding"]
-        value = SimpleNamespace(digest=_digest(f"samples:{binding.concrete_symbol}"))
+        value = SimpleNamespace(
+            digest=_digest(f"samples:{binding.concrete_symbol}"),
+            context_digest=_digest(f"context:{binding.concrete_symbol}"),
+            feature_schema_digest=_digest("feature-schema"),
+            reference_equity=100_000.0,
+            reference_equity_mode="fixed",
+        )
         samples[binding.concrete_symbol] = value
         return value
 
@@ -140,10 +146,21 @@ def test_package_builds_one_shared_teacher_identity(
         "default_causal_alpha_candidate_grid",
         lambda _risk: (candidate,),
     )
+    progress_payload = {
+        "completed_replays": 1,
+        "phase": "causal_teacher_selection",
+        "total_replays": 1,
+    }
+
+    def evaluate_selection(**kwargs):
+        kwargs["progress_callback"](progress_payload)
+        return selection
+
+    monkeypatch.setattr(module, "evaluate_causal_alpha_selection", evaluate_selection)
     monkeypatch.setattr(
         module,
-        "evaluate_causal_alpha_selection",
-        lambda **_kwargs: selection,
+        "CausalAlphaExpandingFitCache",
+        lambda **_kwargs: object(),
     )
 
     batch_calls: list[tuple[str, str]] = []
@@ -152,13 +169,20 @@ def test_package_builds_one_shared_teacher_identity(
         shared_digest = kwargs["teacher_config_digest"]
         symbol = kwargs["symbol"]
         batch_calls.append((symbol, shared_digest))
+        evidence_payload = {
+            "artifact_digest": _digest(f"evidence:{symbol}"),
+            "schema_version": "test_batch_evidence_v1",
+        }
         return (
             SimpleNamespace(
                 dataset_id=_digest(f"dataset:{symbol}"),
                 teacher_config_digest=shared_digest,
                 digest=_digest(f"batch:{symbol}"),
             ),
-            SimpleNamespace(digest=_digest(f"evidence:{symbol}")),
+            SimpleNamespace(
+                digest=evidence_payload["artifact_digest"],
+                to_payload=lambda payload=evidence_payload: dict(payload),
+            ),
         )
 
     monkeypatch.setattr(module, "build_causal_alpha_episode_batch", build_batch)
@@ -222,4 +246,20 @@ def test_package_builds_one_shared_teacher_identity(
     assert all(
         batch.teacher_config_digest == package.teacher_config_digest
         for batch in package.batches.values()
+    )
+    admission_path = tmp_path / "causal-teacher-admission.json"
+    package_path = tmp_path / "causal-teacher-package.json"
+    progress_path = tmp_path / "causal-teacher-progress.json"
+    assert json.loads(progress_path.read_text(encoding="utf-8")) == {
+        **progress_payload,
+        "package_digest": package.digest,
+        "phase": "causal_teacher_package_completed",
+        "teacher_admission_digest": admission.digest,
+        "teacher_admission_passed": True,
+    }
+    assert json.loads(admission_path.read_text(encoding="utf-8")) == (
+        admission.to_payload()
+    )
+    assert json.loads(package_path.read_text(encoding="utf-8")) == (
+        package.to_payload()
     )

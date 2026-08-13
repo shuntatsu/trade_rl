@@ -69,6 +69,9 @@ include = ["trade_rl*"]
 [tool.setuptools.package-data]
 "trade_rl.catalog.sql" = ["*.sql"]
 
+[tool.uv]
+required-version = "==0.10.0"
+
 [tool.ruff]
 line-length = 88
 target-version = "py312"

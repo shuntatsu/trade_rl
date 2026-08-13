@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Baseline-anchored residual reinforcement learning for portfolio research"
 readme = "README.md"
 license = "LGPL-3.0-or-later"
-license-files = ["LICENSE", "LICENSES/*", "THIRD_PARTY_NOTICES.md"]
+license-files = ["LICENSE", "LICENSES/*"]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=1.26.0,<2.0.0",

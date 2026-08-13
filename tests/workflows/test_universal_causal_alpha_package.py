@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -33,7 +35,7 @@ def _binding(symbol: str) -> InstrumentDatasetBinding:
     )
 
 
-def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
+def test_package_builds_one_shared_teacher_identity(monkeypatch, tmp_path: Path) -> None:
     import trade_rl.workflows.universal_causal_alpha_teacher as module
 
     symbols = ("AAAUSDT", "BBBUSDT")
@@ -111,10 +113,16 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
         ridge=SimpleNamespace(digest=_digest("ridge")),
         controller=SimpleNamespace(digest=_digest("controller")),
     )
+    selection_payload = {
+        "schema_version": "causal_alpha_selection_evidence_v1",
+        "artifact_digest": _digest("selection"),
+        "selected_candidate_digest": candidate.digest,
+    }
     selection = SimpleNamespace(
         selected_candidate_digest=candidate.digest,
         digest=_digest("selection"),
         candidates=(SimpleNamespace(candidate=candidate),),
+        to_payload=lambda: dict(selection_payload),
     )
     monkeypatch.setattr(
         module, "build_chronological_episode_partition", build_partition
@@ -168,8 +176,12 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
         )
     )
     admission_calls: list[tuple[str, ...]] = []
+    selection_path = tmp_path / "causal-teacher-selection.json"
 
     def evaluate_holdouts(**kwargs):
+        assert selection_path.is_file(), "selection must be persisted before holdout replay"
+        persisted = json.loads(selection_path.read_text(encoding="utf-8"))
+        assert persisted == selection_payload
         admission_calls.append(tuple(kwargs["train_symbols"]))
         return admission
 
@@ -188,6 +200,7 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
         fold_train_range=(1, 80),
         feature_schema_digest=_digest("feature-schema"),
         episode_hours=720.0,
+        selection_evidence_path=selection_path,
     )
 
     assert isinstance(package, UniversalCausalAlphaTeacherPackage)

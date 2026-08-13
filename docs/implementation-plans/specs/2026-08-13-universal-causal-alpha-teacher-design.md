@@ -335,8 +335,12 @@ Candidate evidence must no longer label any nonzero execution rejection as a
 generic `risk_violation`. The selection gate remains strict: any configured
 nonzero rejection allowance must be explicitly declared and artifact-bound; the
 initial corrected configuration keeps zero tolerated unexplained rejections.
-Expected operational suppressions are reported separately and cannot silently
-turn into accepted fills.
+Expected operational no-fills are reported separately and cannot silently turn
+into accepted fills. The maintained explained set is limited to
+`zero_quantity_after_rounding` and `below_minimum_notional`; both are
+deterministic executable no-ops in the simulator. Raw counts and reason
+identities remain in evidence. Every identity, eligibility, side, borrow,
+execution-rule, or leverage rejection remains unexplained and fail closed.
 
 ### Cost-aware stateful controller
 

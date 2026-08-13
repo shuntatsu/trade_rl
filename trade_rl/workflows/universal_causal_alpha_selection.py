@@ -47,7 +47,7 @@ from trade_rl.workflows.universal_causal_alpha_fitting import (
 )
 
 _EXPLAINED_EXECUTION_NO_FILL_REASONS = frozenset(
-    {"zero_quantity_after_rounding"}
+    {"below_minimum_notional", "zero_quantity_after_rounding"}
 )
 
 

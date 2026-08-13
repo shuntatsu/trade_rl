@@ -531,3 +531,41 @@ gate now keeps raw rejection counts/reasons but classifies only this maintained
 lot-size no-fill as explained. Identity, eligibility, execution-rule, leverage,
 and all other rejection reasons remain fail-closed. The monitor reports raw,
 explained, and unexplained counts separately.
+
+### Liquidity-aware r2 APT checkpoint and minimum-notional classification
+
+The second immutable generation, `causal-teacher-liquidity-r2`, used image
+`trade-rl-universal:2f0fd9c66023-6726b3737df9`, commit
+`2f0fd9c6602371c17400c90b87892f65d08ee6f3`, source-tree digest
+`d1335d813b6c5e88cdd84a5027c4d3c3df7a1bc8c8806a7e2f690291fc096195`,
+and the unchanged runtime-manifest digest
+`6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
+Docker remained `OOMKilled=false`, saturated one CPU, and stabilized near
+2.9 GiB RAM.
+
+All 12 candidates completed the 16 APTUSDT selection episodes. The best APT
+candidate was `no-trade-high`: mean gross/net `-0.012% / -0.111%`, worst net
+`-1.605%`, turnover `0.048x/day`, cost `1,634.15`, and 44 trades. The baseline
+was mean gross/net `-0.253% / -0.392%`, worst net `-4.725%`, turnover
+`0.071x/day`, cost `2,417.37`, and 71 trades. Every candidate remained
+negative-gross on this symbol, but the liquidity-aware route retained the
+approximately 98.5% churn/cost reduction from r1.
+
+Each candidate also recorded between one and nine
+`below_minimum_notional` outcomes. Code and existing Oracle regression evidence
+identify this exact reason as a deterministic executable no-op, like
+`zero_quantity_after_rounding`, rather than an identity, eligibility, rule, or
+leverage failure. The gate had therefore contradicted the maintained execution
+semantics by counting it as unexplained. r2 was stopped after preserving 193
+records (the complete 192-record APT comparison plus one next-symbol record) at
+`artifacts/universal/diagnostics/causal-teacher-liquidity-r2-apt-terminal`.
+Docker exceeded the 30-second graceful-stop window and exited 137 with
+`OOMKilled=false`.
+
+The correction preserves every raw rejection count and reason but treats only
+`zero_quantity_after_rounding` and `below_minimum_notional` as explained
+no-fills. All other reasons remain fail closed, the maximum unexplained count
+remains zero, the hard liquidity rule remains `0.02`, and the reward remains
+pure net log growth. A new provenance-bound image/generation is required before
+resuming selection; teacher admission and CUDA stage evaluation remain blocked
+until selection actually passes.

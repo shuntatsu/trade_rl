@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from typing import Any, Mapping
@@ -21,7 +22,10 @@ from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaTeacherHoldoutMetric,
     evaluate_causal_alpha_teacher_admission,
 )
-from trade_rl.learning.episode_oracle_bc import evaluate_episode_action_path
+from trade_rl.learning.episode_oracle_bc import (
+    evaluate_episode_action_path,
+    evaluate_episode_action_path_on_environment,
+)
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
@@ -39,6 +43,7 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
     UniversalCausalAlphaTeacherPackage,
 )
 from trade_rl.workflows.universal_causal_alpha_fitting import (
+    CausalAlphaExpandingFitCache,
     _validated_sample_scope,
     build_causal_alpha_episode_batch,
     build_causal_alpha_symbol_samples,
@@ -49,6 +54,7 @@ from trade_rl.workflows.universal_causal_alpha_fitting import (
 )
 from trade_rl.workflows.universal_causal_alpha_selection import (
     _causal_alpha_target_for_contract,
+    _CausalAlphaPredictionCache,
     default_causal_alpha_candidate_grid,
     rank_causal_alpha_candidates,
 )
@@ -62,6 +68,8 @@ def evaluate_causal_alpha_selection(
     candidates: tuple[CausalAlphaCandidateConfig, ...],
     environment_factories: Mapping[str, Any],
     episode_hours: float,
+    fit_cache: CausalAlphaExpandingFitCache | None = None,
+    progress_callback: Callable[[Mapping[str, object]], None] | None = None,
 ) -> CausalAlphaSelectionEvidence:
     """Replay only earlier selection episodes through the production environment."""
 
@@ -77,47 +85,91 @@ def evaluate_causal_alpha_selection(
     if not np.isfinite(episode_hours) or episode_hours <= 0.0:
         raise ValueError("causal alpha episode_hours must be finite and positive")
     episode_days = float(episode_hours) / 24.0
-    by_candidate: dict[str, tuple[CausalAlphaCandidateEpisodeMetrics, ...]] = {}
-    for candidate in candidates:
-        records: list[CausalAlphaCandidateEpisodeMetrics] = []
-        for symbol in symbols:
-            factory = environment_factories[symbol]
-            if not callable(factory):
-                raise TypeError(
-                    "causal alpha selection environment factory is not callable"
-                )
+    total_replays = len(candidates) * sum(
+        len(partition_values[symbol].selection_contracts) for symbol in symbols
+    )
+    completed_replays = 0
+    prediction_cache = _CausalAlphaPredictionCache()
+    records_by_candidate: dict[str, list[CausalAlphaCandidateEpisodeMetrics]] = {
+        candidate.digest: [] for candidate in candidates
+    }
+    for symbol in symbols:
+        factory = environment_factories[symbol]
+        if not callable(factory):
+            raise TypeError(
+                "causal alpha selection environment factory is not callable"
+            )
+        environment = factory()
+        close = getattr(environment, "close", None)
+        if not callable(close):
+            raise TypeError("causal alpha selection environment is not closable")
+        try:
             partition = partition_values[symbol]
-            for contract in partition.selection_contracts:
-                actions = _causal_alpha_target_for_contract(
-                    symbol=symbol,
-                    train_symbols=symbols,
-                    samples=samples,
-                    contract=contract,
-                    candidate=candidate,
-                )
-                evaluation = evaluate_episode_action_path(
-                    factory,
-                    contract,
-                    actions=actions,
-                )
-                performance = evaluation.performance
-                collapse = evaluation.collapse_evidence
-                records.append(
-                    CausalAlphaCandidateEpisodeMetrics(
-                        candidate_digest=candidate.digest,
+            for candidate in candidates:
+                for contract in partition.selection_contracts:
+                    actions = _causal_alpha_target_for_contract(
                         symbol=symbol,
-                        episode_index=contract.episode_index,
-                        gross_return=float(performance.gross_return),
-                        net_return=float(performance.net_return),
-                        turnover_per_day=(
-                            float(performance.turnover_total) / episode_days
-                        ),
-                        total_execution_cost=float(performance.cost_total),
-                        trade_count=int(performance.trade_count),
-                        risk_violation=(int(collapse.execution_rejection_count) > 0),
+                        train_symbols=symbols,
+                        samples=samples,
+                        contract=contract,
+                        candidate=candidate,
+                        fit_cache=fit_cache,
+                        prediction_cache=prediction_cache,
                     )
-                )
-        by_candidate[candidate.digest] = tuple(records)
+                    evaluation = evaluate_episode_action_path_on_environment(
+                        environment,
+                        contract,
+                        actions=actions,
+                    )
+                    performance = evaluation.performance
+                    collapse = evaluation.collapse_evidence
+                    records_by_candidate[candidate.digest].append(
+                        CausalAlphaCandidateEpisodeMetrics(
+                            candidate_digest=candidate.digest,
+                            symbol=symbol,
+                            episode_index=contract.episode_index,
+                            gross_return=float(performance.gross_return),
+                            net_return=float(performance.net_return),
+                            turnover_per_day=(
+                                float(performance.turnover_total) / episode_days
+                            ),
+                            total_execution_cost=float(performance.cost_total),
+                            trade_count=int(performance.trade_count),
+                            risk_violation=(
+                                int(collapse.execution_rejection_count) > 0
+                            ),
+                        )
+                    )
+                    completed_replays += 1
+                    if progress_callback is not None:
+                        progress_callback(
+                            {
+                                "candidate_digest": candidate.digest,
+                                "completed_replays": completed_replays,
+                                "episode_index": contract.episode_index,
+                                "fit_cache_entries": (
+                                    fit_cache.entry_count
+                                    if fit_cache is not None
+                                    else 0
+                                ),
+                                "fit_cache_hits": (
+                                    fit_cache.hit_count if fit_cache is not None else 0
+                                ),
+                                "fit_count": (
+                                    fit_cache.fit_count if fit_cache is not None else 0
+                                ),
+                                "phase": "causal_teacher_selection",
+                                "prediction_cache_hits": prediction_cache.hit_count,
+                                "prediction_count": prediction_cache.prediction_count,
+                                "symbol": symbol,
+                                "total_replays": total_replays,
+                            }
+                        )
+        finally:
+            close()
+    by_candidate = {
+        digest: tuple(records) for digest, records in records_by_candidate.items()
+    }
     return rank_causal_alpha_candidates(
         candidates=tuple(candidates),
         metrics=by_candidate,
@@ -298,6 +350,22 @@ def build_universal_causal_alpha_teacher_package(
         symbol: partial(concrete_environment_factory, binding_by_symbol[symbol])
         for symbol in symbols
     }
+    fit_cache = CausalAlphaExpandingFitCache(
+        train_symbols=symbols,
+        samples=samples,
+    )
+    selection_path = Path(selection_evidence_path)
+    progress_path = selection_path.parent / "causal-teacher-progress.json"
+    latest_progress: dict[str, object] = {}
+
+    def persist_selection_progress(payload: Mapping[str, object]) -> None:
+        latest_progress.clear()
+        latest_progress.update(payload)
+        atomic_write_bytes(
+            progress_path,
+            canonical_json_bytes(dict(payload)) + b"\n",
+        )
+
     selection = evaluate_causal_alpha_selection(
         train_symbols=symbols,
         samples=samples,
@@ -305,8 +373,9 @@ def build_universal_causal_alpha_teacher_package(
         candidates=candidate_values,
         environment_factories=environment_factories,
         episode_hours=resolved_episode_hours,
+        fit_cache=fit_cache,
+        progress_callback=persist_selection_progress,
     )
-    selection_path = Path(selection_evidence_path)
     atomic_write_bytes(
         selection_path,
         canonical_json_bytes(selection.to_payload()) + b"\n",
@@ -340,6 +409,7 @@ def build_universal_causal_alpha_teacher_package(
             ridge_config=selected.ridge,
             controller_config=selected.controller,
             teacher_config_digest=teacher_config_digest,
+            fit_cache=fit_cache,
         )
         batches[symbol] = batch
         batch_evidence[symbol] = evidence
@@ -349,7 +419,12 @@ def build_universal_causal_alpha_teacher_package(
         environment_factories=environment_factories,
         episode_hours=resolved_episode_hours,
     )
-    return UniversalCausalAlphaTeacherPackage(
+    evidence_root = selection_path.parent
+    atomic_write_bytes(
+        evidence_root / "causal-teacher-admission.json",
+        canonical_json_bytes(teacher_admission.to_payload()) + b"\n",
+    )
+    package = UniversalCausalAlphaTeacherPackage(
         train_symbols=symbols,
         batches=batches,
         partitions=partitions,
@@ -362,9 +437,24 @@ def build_universal_causal_alpha_teacher_package(
         episode_hours=resolved_episode_hours,
         batch_evidence=batch_evidence,
     )
+    atomic_write_bytes(
+        evidence_root / "causal-teacher-package.json",
+        canonical_json_bytes(package.to_payload()) + b"\n",
+    )
+    persist_selection_progress(
+        {
+            **latest_progress,
+            "package_digest": package.digest,
+            "phase": "causal_teacher_package_completed",
+            "teacher_admission_digest": teacher_admission.digest,
+            "teacher_admission_passed": teacher_admission.passed,
+        }
+    )
+    return package
 
 
 __all__ = [
+    "CausalAlphaExpandingFitCache",
     "CausalAlphaBatchEvidence",
     "CausalAlphaCandidateConfig",
     "CausalAlphaCandidateEpisodeMetrics",

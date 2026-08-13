@@ -16,6 +16,7 @@ from trade_rl.workflows.universal_causal_alpha_teacher import (
     CausalAlphaCandidateConfig,
     CausalAlphaCandidateEpisodeMetrics,
     CausalAlphaEpisodePartition,
+    CausalAlphaExpandingFitCache,
     CausalAlphaSymbolSamples,
     evaluate_causal_alpha_selection,
     rank_causal_alpha_candidates,
@@ -184,12 +185,12 @@ def _partition(symbol: str) -> CausalAlphaEpisodePartition:
             initial_state_mode="cash",
             initial_weights=np.zeros(1, dtype=np.float64),
         )
-        for index, start in enumerate((10, 20))
+        for index, start in enumerate((8, 14, 20))
     )
     return CausalAlphaEpisodePartition(
         contracts=contracts,
-        selection_contracts=(contracts[0],),
-        holdout_contract=contracts[1],
+        selection_contracts=contracts[:2],
+        holdout_contract=contracts[2],
         train_start=2,
         train_stop=25,
     )
@@ -201,11 +202,18 @@ def test_production_selection_replays_only_selection_contracts(monkeypatch) -> N
     symbols = ("AAAUSDT", "BBBUSDT")
     samples = {symbol: _samples(symbol) for symbol in symbols}
     partitions = {symbol: _partition(symbol) for symbol in symbols}
-    candidate = _candidate("selected")
+    candidates = (_candidate("selected"), _candidate("alternate", scale=2.0))
+    fit_cache = CausalAlphaExpandingFitCache(
+        train_symbols=symbols,
+        samples=samples,
+    )
     evaluated: list[tuple[str, int, int]] = []
+    opened: list[str] = []
+    closed: list[str] = []
+    progress: list[dict[str, object]] = []
 
-    def evaluate(environment_factory, contract, *, actions):
-        symbol = environment_factory().symbol
+    def evaluate(environment, contract, *, actions):
+        symbol = environment.symbol
         assert contract != partitions[symbol].holdout_contract
         evaluated.append((symbol, contract.episode_index, len(actions)))
         return SimpleNamespace(
@@ -219,26 +227,73 @@ def test_production_selection_replays_only_selection_contracts(monkeypatch) -> N
             collapse_evidence=SimpleNamespace(execution_rejection_count=0),
         )
 
-    monkeypatch.setattr(module, "evaluate_episode_action_path", evaluate)
+    monkeypatch.setattr(
+        module,
+        "evaluate_episode_action_path_on_environment",
+        evaluate,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        module,
+        "evaluate_episode_action_path",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("selection must reuse one open environment per symbol")
+        ),
+    )
+
+    def environment_factory(symbol: str):
+        opened.append(symbol)
+        return SimpleNamespace(
+            symbol=symbol,
+            close=lambda: closed.append(symbol),
+        )
+
     selection = evaluate_causal_alpha_selection(
         train_symbols=symbols,
         samples=samples,
         partitions=partitions,
-        candidates=(candidate,),
+        candidates=candidates,
         environment_factories={
-            symbol: (lambda symbol=symbol: SimpleNamespace(symbol=symbol))
+            symbol: (lambda symbol=symbol: environment_factory(symbol))
             for symbol in symbols
         },
         episode_hours=720.0,
+        fit_cache=fit_cache,
+        progress_callback=lambda payload: progress.append(dict(payload)),
     )
 
-    assert evaluated == [("AAAUSDT", 0, 4), ("BBBUSDT", 0, 4)]
-    assert selection.selected_candidate_digest == candidate.digest
+    assert set(evaluated) == {
+        ("AAAUSDT", 0, 4),
+        ("AAAUSDT", 1, 4),
+        ("BBBUSDT", 0, 4),
+        ("BBBUSDT", 1, 4),
+    }
+    assert len(evaluated) == 8
+    assert selection.selected_candidate_digest in {
+        candidate.digest for candidate in candidates
+    }
     assert selection.holdout_episode_digests == {
         symbol: partitions[symbol].holdout_contract.digest for symbol in symbols
     }
     assert all(
-        record.episode_index == 0
+        record.episode_index in {0, 1}
         for item in selection.candidates
         for record in item.episode_metrics
     )
+    assert fit_cache.fit_count == 2
+    assert fit_cache.hit_count == 6
+    assert opened == list(symbols)
+    assert closed == list(symbols)
+    assert progress[-1] == {
+        "candidate_digest": candidates[-1].digest,
+        "completed_replays": 8,
+        "episode_index": partitions[symbols[-1]].selection_contracts[-1].episode_index,
+        "fit_cache_entries": 2,
+        "fit_cache_hits": 6,
+        "fit_count": 2,
+        "phase": "causal_teacher_selection",
+        "prediction_cache_hits": 4,
+        "prediction_count": 4,
+        "symbol": symbols[-1],
+        "total_replays": 8,
+    }

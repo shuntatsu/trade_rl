@@ -245,6 +245,7 @@ class TrainingTelemetrySampler:
         self.disabled = False
         self.last_error: str | None = None
         self._previous_weights: dict[int, tuple[float, ...]] = {}
+        self._previous_submitted_targets: dict[int, tuple[float, ...]] = {}
         self._previous_close: dict[int, float] = {}
         self._episode_ids: dict[int, int] = {}
         self._next_episode_id = self.sequence + 1
@@ -261,6 +262,7 @@ class TrainingTelemetrySampler:
     def _finish_episode(self, environment_id: int) -> None:
         self._episode_ids.pop(environment_id, None)
         self._previous_weights.pop(environment_id, None)
+        self._previous_submitted_targets.pop(environment_id, None)
         self._previous_close.pop(environment_id, None)
 
     def _weights(
@@ -347,6 +349,47 @@ class TrainingTelemetrySampler:
                     info,
                     environment_id,
                 )
+                submitted_target = _vector(
+                    info.get("submitted_target"),
+                    fallback=_vector(
+                        info.get("executed_target"),
+                        fallback=weights_after,
+                    ),
+                )
+                previous_submitted_target = self._previous_submitted_targets.get(
+                    environment_id
+                )
+                command_target_delta_l1 = (
+                    float(
+                        sum(
+                            abs(current - previous)
+                            for previous, current in zip(
+                                previous_submitted_target,
+                                submitted_target,
+                                strict=True,
+                            )
+                        )
+                    )
+                    if previous_submitted_target is not None
+                    and len(previous_submitted_target) == len(submitted_target)
+                    else None
+                )
+                command_target_sign_flip_count = (
+                    sum(
+                        1
+                        for previous, current in zip(
+                            previous_submitted_target,
+                            submitted_target,
+                            strict=True,
+                        )
+                        if previous * current < 0.0
+                    )
+                    if previous_submitted_target is not None
+                    and len(previous_submitted_target) == len(submitted_target)
+                    else None
+                )
+                if submitted_target:
+                    self._previous_submitted_targets[environment_id] = submitted_target
                 reasons = _risk_reasons(info)
                 done = (
                     bool(done_rows[environment_id])
@@ -513,6 +556,8 @@ class TrainingTelemetrySampler:
                         ),
                         target_delta_l1=target_delta_l1,
                         sign_flip_count=sign_flip_count,
+                        command_target_delta_l1=command_target_delta_l1,
+                        command_target_sign_flip_count=(command_target_sign_flip_count),
                         gross_pnl=(
                             starting_value * gross_return
                             if starting_value is not None and gross_return is not None

@@ -39,6 +39,34 @@ TRAIN_TAGS = (
     "train/entropy_loss",
     "train/std",
 )
+TELEMETRY_TREND_FIELDS = (
+    "reward",
+    "portfolio_value",
+    "baseline_portfolio_value",
+    "drawdown",
+    "interval_cost",
+    "interval_return",
+    "filled_turnover",
+    "fill_count",
+    "interval_gross_return",
+    "baseline_excess_return",
+    "target_delta_l1",
+    "sign_flip_count",
+    "command_target_delta_l1",
+    "command_target_sign_flip_count",
+    "gross_pnl",
+    "net_pnl",
+)
+TELEMETRY_LOWER_IS_BETTER = {
+    "drawdown",
+    "interval_cost",
+    "filled_turnover",
+    "target_delta_l1",
+    "sign_flip_count",
+    "command_target_delta_l1",
+    "command_target_sign_flip_count",
+}
+MAX_TELEMETRY_TREND_POINTS = 4_096
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +94,7 @@ class UniversalTrainingMemberSnapshot:
     reward_growth: ScalarTrend
     drawdown: ScalarTrend
     scalar_trends: dict[str, ScalarTrend]
+    telemetry_trends: dict[str, ScalarTrend]
     telemetry_records: int
     per_symbol_counts: dict[str, int]
     checkpoint_count: int
@@ -80,6 +109,7 @@ class UniversalTrainingSnapshot:
     inspected_at: str
     status: str
     members: tuple[UniversalTrainingMemberSnapshot, ...]
+    teacher_progress: dict[str, object] | None
     findings: tuple[str, ...]
 
     def to_json_dict(self) -> dict[str, object]:
@@ -153,40 +183,49 @@ def _tensorboard_scalars(
     return values, nonfinite
 
 
-def _telemetry(member: Path) -> tuple[int, dict[str, int], int]:
+def _telemetry(
+    member: Path,
+) -> tuple[int, dict[str, int], dict[str, list[tuple[int, float]]], int]:
     path = member / "telemetry.jsonl"
     if not path.is_file():
-        return 0, {}, 0
+        return 0, {}, {}, 0
     count = 0
     nonfinite = 0
     symbols: Counter[str] = Counter()
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        count += 1
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            nonfinite += 1
-            continue
-        symbol = payload.get("symbol")
-        if isinstance(symbol, str) and symbol:
-            symbols[symbol] += 1
-        for key in (
-            "reward",
-            "portfolio_value",
-            "baseline_portfolio_value",
-            "drawdown",
-            "interval_cost",
-        ):
-            value = payload.get(key)
-            if (
-                isinstance(value, (int, float))
-                and not isinstance(value, bool)
-                and not math.isfinite(float(value))
-            ):
+    trends: dict[str, list[tuple[int, float]]] = {}
+    with path.open("r", encoding="utf-8") as telemetry_file:
+        for line in telemetry_file:
+            if not line.strip():
+                continue
+            count += 1
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
                 nonfinite += 1
-    return count, dict(sorted(symbols.items())), nonfinite
+                continue
+            symbol = payload.get("symbol")
+            if isinstance(symbol, str) and symbol:
+                symbols[symbol] += 1
+            raw_step = payload.get("global_step")
+            step = (
+                int(raw_step)
+                if isinstance(raw_step, int) and not isinstance(raw_step, bool)
+                else count
+            )
+            for key in TELEMETRY_TREND_FIELDS:
+                value = payload.get(key)
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    continue
+                number = float(value)
+                if not math.isfinite(number):
+                    nonfinite += 1
+                    continue
+                points = trends.setdefault(key, [])
+                points.append((step, number))
+                overflow = len(points) - MAX_TELEMETRY_TREND_POINTS
+                if overflow > 0:
+                    del points[1 : 1 + overflow]
+    return count, dict(sorted(symbols.items())), trends, nonfinite
 
 
 def _member_snapshot(member: Path, *, now: datetime) -> UniversalTrainingMemberSnapshot:
@@ -197,7 +236,9 @@ def _member_snapshot(member: Path, *, now: datetime) -> UniversalTrainingMemberS
     if now - updated > timedelta(minutes=30):
         findings.append("stale training heartbeat")
     scalars, scalar_nonfinite = _tensorboard_scalars(member)
-    telemetry_records, symbol_counts, telemetry_nonfinite = _telemetry(member)
+    telemetry_records, symbol_counts, telemetry_points, telemetry_nonfinite = (
+        _telemetry(member)
+    )
     nonfinite = scalar_nonfinite + telemetry_nonfinite
     if nonfinite:
         findings.append(f"non-finite evidence count={nonfinite}")
@@ -212,6 +253,13 @@ def _member_snapshot(member: Path, *, now: datetime) -> UniversalTrainingMemberS
             in {"trade_rl/drawdown_mean", "trade_rl/interval_cost_mean"},
         )
         for tag, points in scalars.items()
+    }
+    telemetry_trends = {
+        field: _trend(
+            points,
+            lower_is_better=field in TELEMETRY_LOWER_IS_BETTER,
+        )
+        for field, points in telemetry_points.items()
     }
     reward_total = trends.get("trade_rl/reward_mean", ScalarTrend())
     reward_growth = trends.get("trade_rl/reward_growth_raw_mean", ScalarTrend())
@@ -228,6 +276,7 @@ def _member_snapshot(member: Path, *, now: datetime) -> UniversalTrainingMemberS
         reward_growth=reward_growth,
         drawdown=drawdown,
         scalar_trends=trends,
+        telemetry_trends=telemetry_trends,
         telemetry_records=telemetry_records,
         per_symbol_counts=symbol_counts,
         checkpoint_count=len(checkpoints),
@@ -269,6 +318,20 @@ def inspect_universal_training_generation(
             findings.append(
                 f"container exited with code {container_state.get('ExitCode')}"
             )
+    teacher_progress: dict[str, object] | None = None
+    teacher_progress_path = (
+        generation / "_shared-causal-teacher" / "causal-teacher-progress.json"
+    )
+    if teacher_progress_path.is_file():
+        try:
+            raw_teacher_progress = json.loads(
+                teacher_progress_path.read_text(encoding="utf-8")
+            )
+            if not isinstance(raw_teacher_progress, dict):
+                raise TypeError("teacher progress must be an object")
+            teacher_progress = raw_teacher_progress
+        except (OSError, TypeError, json.JSONDecodeError) as error:
+            findings.append(f"invalid causal teacher progress: {error}")
     members: list[UniversalTrainingMemberSnapshot] = []
     for heartbeat in sorted(generation.glob("*/seed-*/training-heartbeat.json")):
         try:
@@ -276,7 +339,12 @@ def inspect_universal_training_generation(
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
             findings.append(f"invalid member evidence {heartbeat.parent}: {error}")
     if not members:
-        findings.append("no member heartbeat evidence")
+        if teacher_progress is None:
+            findings.append("no member heartbeat evidence")
+        else:
+            completed = teacher_progress.get("completed_replays", 0)
+            total = teacher_progress.get("total_replays", 0)
+            findings.append(f"causal teacher selection in progress {completed}/{total}")
     findings.extend(item for member in members for item in member.findings)
     status = "healthy"
     if findings:
@@ -286,6 +354,7 @@ def inspect_universal_training_generation(
         inspected_at=current.isoformat(),
         status=status,
         members=tuple(members),
+        teacher_progress=teacher_progress,
         findings=tuple(findings),
     )
 

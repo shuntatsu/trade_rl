@@ -71,6 +71,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "scalar_trends": {
                     tag: asdict(trend) for tag, trend in member.scalar_trends.items()
                 },
+                "telemetry_trends": {
+                    field: asdict(trend)
+                    for field, trend in member.telemetry_trends.items()
+                },
             }
             for member in snapshot.members
         ],

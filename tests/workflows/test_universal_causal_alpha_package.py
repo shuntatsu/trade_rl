@@ -5,6 +5,10 @@ from types import SimpleNamespace
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.learning.causal_alpha_teacher import (
+    CausalAlphaTeacherHoldoutMetric,
+    evaluate_causal_alpha_teacher_admission,
+)
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.workflows.universal_causal_alpha_teacher import (
@@ -76,6 +80,7 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
     samples: dict[str, object] = {}
 
     def build_partition(environment, *, train_range):
+        del train_range
         value = SimpleNamespace(
             contracts=(
                 SimpleNamespace(
@@ -148,6 +153,33 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
 
     monkeypatch.setattr(module, "build_causal_alpha_episode_batch", build_batch)
 
+    admission = evaluate_causal_alpha_teacher_admission(
+        tuple(
+            CausalAlphaTeacherHoldoutMetric(
+                symbol=symbol,
+                gross_return=0.02,
+                net_return=0.01,
+                turnover_per_day=0.1,
+                total_execution_cost=0.2,
+                trade_count=4,
+                maximum_drawdown=0.03,
+            )
+            for symbol in symbols
+        )
+    )
+    admission_calls: list[tuple[str, ...]] = []
+
+    def evaluate_holdouts(**kwargs):
+        admission_calls.append(tuple(kwargs["train_symbols"]))
+        return admission
+
+    monkeypatch.setattr(
+        module,
+        "evaluate_causal_alpha_teacher_holdouts",
+        evaluate_holdouts,
+        raising=False,
+    )
+
     package = build_universal_causal_alpha_teacher_package(
         train_symbols=symbols,
         bindings=bindings,
@@ -165,6 +197,8 @@ def test_package_builds_one_shared_teacher_identity(monkeypatch) -> None:
     assert set(package.partitions) == set(symbols)
     assert set(package.samples) == set(symbols)
     assert package.selection is selection
+    assert package.teacher_admission is admission
+    assert admission_calls == [symbols]
     assert package.selected_candidate_digest == candidate.digest
     assert len({digest for _, digest in batch_calls}) == 1
     assert batch_calls[0][1] == package.teacher_config_digest

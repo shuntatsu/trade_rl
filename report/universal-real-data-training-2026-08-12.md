@@ -444,3 +444,11 @@ Immutable corrected image `trade-rl:causal-cost-aware-v2-r1` was built from the 
 - runtime-manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
 
 The corrected v2 generation has intentionally not been started concurrently with r3. At the latest check r3 was `OOMKilled=false`, used approximately `2.88 GiB / 7.63 GiB`, and saturated one CPU. Launching a second pooled-fit process would reintroduce the same global-memory pressure that killed the first r3 attempt. The next safe transition is one v2 container with a distinct generation/checkpoint after r3 releases resources; it must not reuse the v1 checkpoint. CUDA random -> BC -> critic -> RL remains conditional on v2 teacher selection and admission.
+
+### Safe r3 termination and v2 launch
+
+The r3 checkpoint later reached 271 durable records. Code inspection confirmed that v1 rejects a candidate if any episode has `risk_violation=true`; checkpoint inspection confirmed all 12 candidate digests had already accumulated between 16 and 32 such violations. The final no-admissible-candidate result was therefore irreversible regardless of the remaining replays. Continuing r3 could not change the gate outcome and would only delay the corrected route.
+
+The terminal r3 progress and checkpoint were copied to `artifacts/universal/diagnostics/causal-teacher-r3-terminal` before the container was stopped. Docker reported `OOMKilled=false`; the process did not exit within the 30-second stop grace period and was terminated with exit code 137. The named container and its complete shared-volume evidence remain available and restartable.
+
+One corrected generation, `trade-rl-causal-teacher-smoke-v2-r1`, was launched at `2026-08-13T14:37:33Z` from image `trade-rl:causal-cost-aware-v2-r1`. It writes to the distinct generation root `causal-teacher-main-20260813-v2-r1` and the distinct v2 checkpoint `causal-teacher-selection-checkpoint-v2.jsonl`; no v1 checkpoint is reused. Initial Docker inspection showed `state=running`, `OOMKilled=false`, and approximately `1.36 GiB / 7.63 GiB` memory while the first pooled fit was in progress. No second selection container is running.

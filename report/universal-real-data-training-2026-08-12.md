@@ -452,3 +452,20 @@ The r3 checkpoint later reached 271 durable records. Code inspection confirmed t
 The terminal r3 progress and checkpoint were copied to `artifacts/universal/diagnostics/causal-teacher-r3-terminal` before the container was stopped. Docker reported `OOMKilled=false`; the process did not exit within the 30-second stop grace period and was terminated with exit code 137. The named container and its complete shared-volume evidence remain available and restartable.
 
 One corrected generation, `trade-rl-causal-teacher-smoke-v2-r1`, was launched at `2026-08-13T14:37:33Z` from image `trade-rl:causal-cost-aware-v2-r1`. It writes to the distinct generation root `causal-teacher-main-20260813-v2-r1` and the distinct v2 checkpoint `causal-teacher-selection-checkpoint-v2.jsonl`; no v1 checkpoint is reused. Initial Docker inspection showed `state=running`, `OOMKilled=false`, and approximately `1.36 GiB / 7.63 GiB` memory while the first pooled fit was in progress. No second selection container is running.
+
+### v2 initial-state boundary fix and r2 restart
+
+The first v2 generation wrote three complete APTUSDT records and then exited 1, `OOMKilled=false`, before episode 3. The failure was `ValueError: initial_weight must be finite and within max_abs_target`. Runtime probing reproduced the boundary: baseline reset weight was `0.799449` for episode 3 while the candidate's `max_abs_target` was `0.5`. The latter constrains submitted target exposure, not the immutable real portfolio state at reset, so rejecting the episode was a controller-boundary defect.
+
+Commit `3e9e1268` preserves the real initial weight in evidence and forces the first target to deleverage to the configured cap, including the transition in proposed turnover and estimated cost. The fix does not bypass execution accounting, change reward, add a holding lock, or discard baseline reset coverage. A regression test observed the pre-fix exception before implementation. Post-fix verification passed 18 controller tests, 22 directly related workflow tests, the full 83-test causal/BC/monitor surface, Ruff, mypy, and `git diff --check`. The commit and the earlier launch report were pushed to `origin/codex/universal-real-data-training`.
+
+The failed r1 progress, v2 checkpoint, and container log were preserved under `artifacts/universal/diagnostics/causal-teacher-v2-r1-failure`. Its three metrics are not resumed because doing so would mix target-controller behavior across source revisions. Image `trade-rl:causal-cost-aware-v2-r2` was built from clean commit `3e9e1268` with:
+
+- image ID: `sha256:c95e4f3f6e83275b0bbb0d2bcdc9b544a25cfaece3df100ae60de5444111ddb9`;
+- source-tree digest: `0edfe838ddf23994107a6ea185e81829157f223c65e569b496ccaacba69324c8`;
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`;
+- runtime-manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
+
+Exactly one corrected container, `trade-rl-causal-teacher-smoke-v2-r2`, now runs against the distinct root `causal-teacher-main-20260813-v2-r2`. Docker launch inspection reported `state=running` and `OOMKilled=false`. CUDA stage evaluation remains fail-closed behind complete v2 selection and teacher admission.
+
+The r2 runtime crossed the previously failing baseline-reset episode 3 and wrote four durable v2 records, proving the initial-state correction against the real environment rather than only unit fixtures. Docker remained `OOMKilled=false`. The first candidate's four-episode APTUSDT aggregate was mean gross `+1.781%`, mean net `-9.896%`, worst net `-15.229%`, mean turnover `5.627x/day`, execution cost `45,591.87`, and 58 trades, with zero hard-risk failures. Mean 24h/72h Pearson correlations were `0.054 / 0.052`. Although `2,075` proposed command changes were cost-suppressed and only `432` were submitted, the environment reported thousands of `portfolio:liquidity_cap` projections. This points to executable-target projection and repeated rebalancing as the dominant remaining churn path; candidate-level exposure and scale variants must be compared before changing the controller again.

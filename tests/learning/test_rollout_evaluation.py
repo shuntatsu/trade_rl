@@ -66,7 +66,9 @@ class _Environment:
             order_events=(
                 ()
                 if rejected == 0 or self._omit_rejected_event
-                else (SimpleNamespace(event_type="rejected", reason="minimum_notional"),)
+                else (
+                    SimpleNamespace(event_type="rejected", reason="minimum_notional"),
+                )
             ),
         )
         info = {

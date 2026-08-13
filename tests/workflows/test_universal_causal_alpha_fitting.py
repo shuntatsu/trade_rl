@@ -214,7 +214,9 @@ def test_episode_batch_uses_selected_cost_aware_controller_for_teacher_targets()
     assert batch.episode_count == 2
     assert evidence.economic_controller_config_digest == economic.digest
     assert all(item.cost_aware_target_path_digest for item in evidence.episodes)
-    assert all(item.cost_suppressed_change_count is not None for item in evidence.episodes)
+    assert all(
+        item.cost_suppressed_change_count is not None for item in evidence.episodes
+    )
 
 
 def test_sample_identity_drift_changes_fit_digest() -> None:

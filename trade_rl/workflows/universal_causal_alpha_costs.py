@@ -61,15 +61,12 @@ def causal_alpha_one_way_cost_rates(
     spread = _single_symbol_cost_array(dataset, "spread_rate")
     participation = _single_symbol_cost_array(dataset, "max_participation_rate")
     if any(
-        values.size != n_bars
-        for values in (fee, maker, taker, spread, participation)
+        values.size != n_bars for values in (fee, maker, taker, spread, participation)
     ):
         raise ValueError("causal alpha dataset cost arrays must align with n_bars")
     if np.any(fee < 0.0) or np.any(maker < 0.0) or np.any(taker < 0.0):
         raise ValueError("causal alpha dataset fee rates must be non-negative")
-    if np.any(spread < 0.0) or np.any(
-        (participation <= 0.0) | (participation > 1.0)
-    ):
+    if np.any(spread < 0.0) or np.any((participation <= 0.0) | (participation > 1.0)):
         raise ValueError("causal alpha dataset spread/participation rates are invalid")
 
     # These arrays are historical bar observations. The future execution row is

@@ -524,8 +524,13 @@ def causal_alpha_prediction_diagnostics(
     realized = np.asarray(labels, dtype=np.float64).reshape(-1)
     if predicted.shape != realized.shape or predicted.size == 0:
         raise ValueError("causal alpha prediction diagnostics require aligned samples")
-    if not np.isfinite(predicted).all() or not np.isfinite(realized).all():
-        raise ValueError("causal alpha prediction diagnostics require finite samples")
+    if not np.isfinite(predicted).all():
+        raise ValueError("causal alpha predictions must be finite")
+    realized_mask = np.isfinite(realized)
+    if not np.any(realized_mask):
+        raise ValueError("causal alpha prediction diagnostics have no realized labels")
+    predicted = predicted[realized_mask]
+    realized = realized[realized_mask]
     predicted_std = float(predicted.std())
     realized_std = float(realized.std())
     correlation = (

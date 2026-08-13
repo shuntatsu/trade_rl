@@ -30,6 +30,62 @@ from trade_rl.workflows.universal_causal_alpha_fitting import (
 )
 
 
+def _candidate_rejection_payload(
+    evidence: CausalAlphaCandidateEvidence,
+) -> dict[str, object]:
+    return {
+        "admissible": evidence.admissible,
+        "candidate_digest": evidence.candidate.digest,
+        "candidate_name": evidence.candidate.name,
+        "episode_metrics": [
+            {
+                "artifact_digest": metric.digest,
+                "episode_index": metric.episode_index,
+                "gross_return": metric.gross_return,
+                "net_return": metric.net_return,
+                "risk_violation": metric.risk_violation,
+                "symbol": metric.symbol,
+                "total_execution_cost": metric.total_execution_cost,
+                "trade_count": metric.trade_count,
+                "turnover_per_day": metric.turnover_per_day,
+            }
+            for metric in evidence.episode_metrics
+        ],
+        "lower_tail_net_return": evidence.lower_tail_net_return,
+        "mean_net_return": evidence.mean_net_return,
+        "negative_gross_episode_count": evidence.negative_gross_episode_count,
+        "rejection_reasons": list(evidence.rejection_reasons),
+        "risk_violation": evidence.risk_violation,
+        "total_execution_cost": evidence.total_execution_cost,
+        "total_trade_count": evidence.total_trade_count,
+        "turnover_per_day": evidence.turnover_per_day,
+    }
+
+
+class CausalAlphaSelectionRejected(RuntimeError):
+    """Complete causal selection evidence when every candidate is rejected."""
+
+    def __init__(self, candidates: tuple[CausalAlphaCandidateEvidence, ...]) -> None:
+        self.candidates = tuple(candidates)
+        payload = {
+            "candidates": [
+                _candidate_rejection_payload(item) for item in self.candidates
+            ],
+            "schema_version": "causal_alpha_selection_rejection_v1",
+        }
+        self.digest = content_digest(payload)
+        super().__init__("no admissible causal alpha candidate")
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "artifact_digest": self.digest,
+            "candidates": [
+                _candidate_rejection_payload(item) for item in self.candidates
+            ],
+            "schema_version": "causal_alpha_selection_rejection_v1",
+        }
+
+
 class _CausalAlphaPredictionCache:
     """Reuse ridge predictions across controller-only candidate variants."""
 
@@ -221,7 +277,7 @@ def rank_causal_alpha_candidates(
     )
     admissible = tuple(item for item in evidence if item.admissible)
     if not admissible:
-        raise RuntimeError("no admissible causal alpha candidate")
+        raise CausalAlphaSelectionRejected(evidence)
     selected = max(
         admissible,
         key=lambda item: (
@@ -298,6 +354,7 @@ def _causal_alpha_target_for_contract(
 
 
 __all__ = [
+    "CausalAlphaSelectionRejected",
     "default_causal_alpha_candidate_grid",
     "rank_causal_alpha_candidates",
 ]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -12,6 +14,9 @@ from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaRidgeConfig,
 )
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
+from trade_rl.workflows.universal_causal_alpha_selection import (
+    CausalAlphaSelectionRejected,
+)
 from trade_rl.workflows.universal_causal_alpha_teacher import (
     CausalAlphaCandidateConfig,
     CausalAlphaCandidateEpisodeMetrics,
@@ -19,7 +24,10 @@ from trade_rl.workflows.universal_causal_alpha_teacher import (
     CausalAlphaExpandingFitCache,
     CausalAlphaSymbolSamples,
     evaluate_causal_alpha_selection,
+    load_causal_alpha_selection_checkpoint,
+    persist_causal_alpha_selection_rejection,
     rank_causal_alpha_candidates,
+    write_causal_alpha_selection_checkpoint_metric,
 )
 
 
@@ -144,11 +152,63 @@ def test_candidate_inadmissibility_is_fail_closed() -> None:
             ),
         ),
     }
-    with pytest.raises(RuntimeError, match="no admissible causal alpha candidate"):
+    with pytest.raises(CausalAlphaSelectionRejected) as caught:
         rank_causal_alpha_candidates(
             candidates=(negative, no_trade, risk),
             metrics=metrics,
         )
+    payload = caught.value.to_payload()
+    assert payload["schema_version"] == "causal_alpha_selection_rejection_v1"
+    assert payload["artifact_digest"] == caught.value.digest
+    assert [item["rejection_reasons"] for item in payload["candidates"]] == [
+        ["majority_negative_gross_return"],
+        ["no_meaningful_trades"],
+        ["risk_contract_violation"],
+    ]
+
+
+def test_selection_rejection_is_persisted_before_reraising(tmp_path: Path) -> None:
+    rejected = _candidate("rejected")
+    with pytest.raises(CausalAlphaSelectionRejected) as caught:
+        rank_causal_alpha_candidates(
+            candidates=(rejected,),
+            metrics={
+                rejected.digest: (
+                    _metric(
+                        rejected,
+                        0,
+                        gross=-0.1,
+                        net=-0.2,
+                        turnover=2.0,
+                        cost=3.0,
+                        trades=1,
+                    ),
+                )
+            },
+        )
+    path = tmp_path / "causal-teacher-selection-rejected.json"
+
+    persist_causal_alpha_selection_rejection(path, caught.value)
+
+    assert json.loads(path.read_text(encoding="utf-8")) == caught.value.to_payload()
+
+
+def test_selection_checkpoint_round_trips_episode_metrics(tmp_path: Path) -> None:
+    candidate = _candidate("checkpoint")
+    metric = _metric(
+        candidate,
+        3,
+        gross=0.02,
+        net=0.01,
+        turnover=0.3,
+        cost=4.0,
+    )
+    path = tmp_path / "causal-teacher-selection-checkpoint.jsonl"
+
+    write_causal_alpha_selection_checkpoint_metric(path, metric)
+    restored = load_causal_alpha_selection_checkpoint(path)
+
+    assert restored == {candidate.digest: (metric,)}
 
 
 def _samples(symbol: str) -> CausalAlphaSymbolSamples:
@@ -211,6 +271,17 @@ def test_production_selection_replays_only_selection_contracts(monkeypatch) -> N
     opened: list[str] = []
     closed: list[str] = []
     progress: list[dict[str, object]] = []
+    resumed_metric = CausalAlphaCandidateEpisodeMetrics(
+        candidate_digest=candidates[0].digest,
+        symbol=symbols[0],
+        episode_index=0,
+        gross_return=0.02,
+        net_return=0.01,
+        turnover_per_day=0.1,
+        total_execution_cost=1.0,
+        trade_count=2,
+        risk_violation=False,
+    )
 
     def evaluate(environment, contract, *, actions):
         symbol = environment.symbol
@@ -260,6 +331,7 @@ def test_production_selection_replays_only_selection_contracts(monkeypatch) -> N
         episode_hours=720.0,
         fit_cache=fit_cache,
         progress_callback=lambda payload: progress.append(dict(payload)),
+        initial_metrics={candidates[0].digest: (resumed_metric,)},
     )
 
     assert set(evaluated) == {
@@ -268,7 +340,8 @@ def test_production_selection_replays_only_selection_contracts(monkeypatch) -> N
         ("BBBUSDT", 0, 4),
         ("BBBUSDT", 1, 4),
     }
-    assert len(evaluated) == 8
+    assert len(evaluated) == 7
+    assert evaluated.count(("AAAUSDT", 0, 4)) == 1
     assert selection.selected_candidate_digest in {
         candidate.digest for candidate in candidates
     }
@@ -281,18 +354,24 @@ def test_production_selection_replays_only_selection_contracts(monkeypatch) -> N
         for record in item.episode_metrics
     )
     assert fit_cache.fit_count == 2
-    assert fit_cache.hit_count == 6
+    assert fit_cache.hit_count == 5
     assert opened == list(symbols)
     assert closed == list(symbols)
-    assert progress[-1] == {
+    last_progress = dict(progress[-1])
+    episode_metric = last_progress.pop("episode_metric")
+    assert episode_metric["candidate_digest"] == candidates[-1].digest
+    assert episode_metric["symbol"] == symbols[-1]
+    assert episode_metric["episode_index"] == 1
+    assert episode_metric["net_return"] == pytest.approx(0.01)
+    assert last_progress == {
         "candidate_digest": candidates[-1].digest,
         "completed_replays": 8,
         "episode_index": partitions[symbols[-1]].selection_contracts[-1].episode_index,
         "fit_cache_entries": 2,
-        "fit_cache_hits": 6,
+        "fit_cache_hits": 5,
         "fit_count": 2,
         "phase": "causal_teacher_selection",
-        "prediction_cache_hits": 4,
+        "prediction_cache_hits": 3,
         "prediction_count": 4,
         "symbol": symbols[-1],
         "total_replays": 8,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -53,11 +55,98 @@ from trade_rl.workflows.universal_causal_alpha_fitting import (
     validate_universal_causal_alpha_partitions,
 )
 from trade_rl.workflows.universal_causal_alpha_selection import (
+    CausalAlphaSelectionRejected,
     _causal_alpha_target_for_contract,
     _CausalAlphaPredictionCache,
     default_causal_alpha_candidate_grid,
     rank_causal_alpha_candidates,
 )
+
+
+def persist_causal_alpha_selection_rejection(
+    path: Path,
+    rejection: CausalAlphaSelectionRejected,
+) -> None:
+    """Durably preserve complete candidate economics before failing closed."""
+
+    atomic_write_bytes(
+        Path(path),
+        canonical_json_bytes(rejection.to_payload()) + b"\n",
+    )
+
+
+def _selection_checkpoint_payload(
+    metric: CausalAlphaCandidateEpisodeMetrics,
+) -> dict[str, object]:
+    return {
+        "artifact_digest": metric.digest,
+        "candidate_digest": metric.candidate_digest,
+        "episode_index": metric.episode_index,
+        "gross_return": metric.gross_return,
+        "net_return": metric.net_return,
+        "risk_violation": metric.risk_violation,
+        "schema_version": "causal_alpha_selection_checkpoint_metric_v1",
+        "symbol": metric.symbol,
+        "total_execution_cost": metric.total_execution_cost,
+        "trade_count": metric.trade_count,
+        "turnover_per_day": metric.turnover_per_day,
+    }
+
+
+def write_causal_alpha_selection_checkpoint_metric(
+    path: Path,
+    metric: CausalAlphaCandidateEpisodeMetrics,
+) -> None:
+    """Append and fsync one completed production replay metric."""
+
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("ab") as checkpoint:
+        checkpoint.write(canonical_json_bytes(_selection_checkpoint_payload(metric)))
+        checkpoint.write(b"\n")
+        checkpoint.flush()
+        os.fsync(checkpoint.fileno())
+
+
+def load_causal_alpha_selection_checkpoint(
+    path: Path,
+) -> dict[str, tuple[CausalAlphaCandidateEpisodeMetrics, ...]]:
+    """Load a durable replay checkpoint and reject malformed or duplicate rows."""
+
+    source = Path(path)
+    if not source.is_file():
+        return {}
+    by_candidate: dict[str, list[CausalAlphaCandidateEpisodeMetrics]] = {}
+    identities: set[tuple[str, str, int]] = set()
+    with source.open("r", encoding="utf-8") as checkpoint:
+        for line in checkpoint:
+            raw = json.loads(line)
+            if raw.get("schema_version") != (
+                "causal_alpha_selection_checkpoint_metric_v1"
+            ):
+                raise ValueError("causal alpha selection checkpoint schema mismatch")
+            metric = CausalAlphaCandidateEpisodeMetrics(
+                candidate_digest=str(raw["candidate_digest"]),
+                symbol=str(raw["symbol"]),
+                episode_index=int(raw["episode_index"]),
+                gross_return=float(raw["gross_return"]),
+                net_return=float(raw["net_return"]),
+                turnover_per_day=float(raw["turnover_per_day"]),
+                total_execution_cost=float(raw["total_execution_cost"]),
+                trade_count=int(raw["trade_count"]),
+                risk_violation=bool(raw["risk_violation"]),
+                digest=str(raw["artifact_digest"]),
+            )
+            identity = (
+                metric.candidate_digest,
+                metric.symbol,
+                metric.episode_index,
+            )
+            if identity in identities:
+                raise ValueError("causal alpha selection checkpoint is duplicated")
+            identities.add(identity)
+            by_candidate.setdefault(metric.candidate_digest, []).append(metric)
+    return {digest: tuple(metrics) for digest, metrics in by_candidate.items()}
 
 
 def evaluate_causal_alpha_selection(
@@ -70,6 +159,8 @@ def evaluate_causal_alpha_selection(
     episode_hours: float,
     fit_cache: CausalAlphaExpandingFitCache | None = None,
     progress_callback: Callable[[Mapping[str, object]], None] | None = None,
+    initial_metrics: Mapping[str, tuple[CausalAlphaCandidateEpisodeMetrics, ...]]
+    | None = None,
 ) -> CausalAlphaSelectionEvidence:
     """Replay only earlier selection episodes through the production environment."""
 
@@ -88,11 +179,35 @@ def evaluate_causal_alpha_selection(
     total_replays = len(candidates) * sum(
         len(partition_values[symbol].selection_contracts) for symbol in symbols
     )
-    completed_replays = 0
+    candidate_digests = {candidate.digest for candidate in candidates}
+    resumed = {} if initial_metrics is None else dict(initial_metrics)
+    if not set(resumed).issubset(candidate_digests):
+        raise ValueError("causal alpha resumed metrics contain an unknown candidate")
     prediction_cache = _CausalAlphaPredictionCache()
     records_by_candidate: dict[str, list[CausalAlphaCandidateEpisodeMetrics]] = {
-        candidate.digest: [] for candidate in candidates
+        candidate.digest: list(resumed.get(candidate.digest, ()))
+        for candidate in candidates
     }
+    completed_identities: set[tuple[str, str, int]] = set()
+    selection_indices = {
+        symbol: {
+            contract.episode_index
+            for contract in partition_values[symbol].selection_contracts
+        }
+        for symbol in symbols
+    }
+    for candidate_digest, records in records_by_candidate.items():
+        for record in records:
+            identity = (candidate_digest, record.symbol, record.episode_index)
+            if (
+                record.candidate_digest != candidate_digest
+                or record.symbol not in selection_indices
+                or record.episode_index not in selection_indices[record.symbol]
+                or identity in completed_identities
+            ):
+                raise ValueError("causal alpha resumed metric identity is invalid")
+            completed_identities.add(identity)
+    completed_replays = len(completed_identities)
     for symbol in symbols:
         factory = environment_factories[symbol]
         if not callable(factory):
@@ -107,6 +222,9 @@ def evaluate_causal_alpha_selection(
             partition = partition_values[symbol]
             for candidate in candidates:
                 for contract in partition.selection_contracts:
+                    identity = (candidate.digest, symbol, contract.episode_index)
+                    if identity in completed_identities:
+                        continue
                     actions = _causal_alpha_target_for_contract(
                         symbol=symbol,
                         train_symbols=symbols,
@@ -124,7 +242,7 @@ def evaluate_causal_alpha_selection(
                     performance = evaluation.performance
                     collapse = evaluation.collapse_evidence
                     records_by_candidate[candidate.digest].append(
-                        CausalAlphaCandidateEpisodeMetrics(
+                        metric := CausalAlphaCandidateEpisodeMetrics(
                             candidate_digest=candidate.digest,
                             symbol=symbol,
                             episode_index=contract.episode_index,
@@ -141,12 +259,27 @@ def evaluate_causal_alpha_selection(
                         )
                     )
                     completed_replays += 1
+                    completed_identities.add(identity)
                     if progress_callback is not None:
                         progress_callback(
                             {
                                 "candidate_digest": candidate.digest,
                                 "completed_replays": completed_replays,
                                 "episode_index": contract.episode_index,
+                                "episode_metric": {
+                                    "artifact_digest": metric.digest,
+                                    "candidate_digest": metric.candidate_digest,
+                                    "episode_index": metric.episode_index,
+                                    "gross_return": metric.gross_return,
+                                    "net_return": metric.net_return,
+                                    "risk_violation": metric.risk_violation,
+                                    "symbol": metric.symbol,
+                                    "total_execution_cost": (
+                                        metric.total_execution_cost
+                                    ),
+                                    "trade_count": metric.trade_count,
+                                    "turnover_per_day": metric.turnover_per_day,
+                                },
                                 "fit_cache_entries": (
                                     fit_cache.entry_count
                                     if fit_cache is not None
@@ -356,9 +489,31 @@ def build_universal_causal_alpha_teacher_package(
     )
     selection_path = Path(selection_evidence_path)
     progress_path = selection_path.parent / "causal-teacher-progress.json"
+    checkpoint_path = (
+        selection_path.parent / "causal-teacher-selection-checkpoint.jsonl"
+    )
+    initial_selection_metrics = load_causal_alpha_selection_checkpoint(checkpoint_path)
     latest_progress: dict[str, object] = {}
 
     def persist_selection_progress(payload: Mapping[str, object]) -> None:
+        raw_metric = payload.get("episode_metric")
+        if isinstance(raw_metric, Mapping):
+            metric = CausalAlphaCandidateEpisodeMetrics(
+                candidate_digest=str(raw_metric["candidate_digest"]),
+                symbol=str(raw_metric["symbol"]),
+                episode_index=int(raw_metric["episode_index"]),
+                gross_return=float(raw_metric["gross_return"]),
+                net_return=float(raw_metric["net_return"]),
+                turnover_per_day=float(raw_metric["turnover_per_day"]),
+                total_execution_cost=float(raw_metric["total_execution_cost"]),
+                trade_count=int(raw_metric["trade_count"]),
+                risk_violation=bool(raw_metric["risk_violation"]),
+                digest=str(raw_metric["artifact_digest"]),
+            )
+            write_causal_alpha_selection_checkpoint_metric(
+                checkpoint_path,
+                metric,
+            )
         latest_progress.clear()
         latest_progress.update(payload)
         atomic_write_bytes(
@@ -366,16 +521,31 @@ def build_universal_causal_alpha_teacher_package(
             canonical_json_bytes(dict(payload)) + b"\n",
         )
 
-    selection = evaluate_causal_alpha_selection(
-        train_symbols=symbols,
-        samples=samples,
-        partitions=partitions,
-        candidates=candidate_values,
-        environment_factories=environment_factories,
-        episode_hours=resolved_episode_hours,
-        fit_cache=fit_cache,
-        progress_callback=persist_selection_progress,
-    )
+    try:
+        selection = evaluate_causal_alpha_selection(
+            train_symbols=symbols,
+            samples=samples,
+            partitions=partitions,
+            candidates=candidate_values,
+            environment_factories=environment_factories,
+            episode_hours=resolved_episode_hours,
+            fit_cache=fit_cache,
+            progress_callback=persist_selection_progress,
+            initial_metrics=initial_selection_metrics,
+        )
+    except CausalAlphaSelectionRejected as rejection:
+        rejection_path = (
+            selection_path.parent / "causal-teacher-selection-rejected.json"
+        )
+        persist_causal_alpha_selection_rejection(rejection_path, rejection)
+        persist_selection_progress(
+            {
+                **latest_progress,
+                "phase": "causal_teacher_selection_rejected",
+                "selection_rejection_digest": rejection.digest,
+            }
+        )
+        raise
     atomic_write_bytes(
         selection_path,
         canonical_json_bytes(selection.to_payload()) + b"\n",
@@ -476,6 +646,9 @@ __all__ = [
     "evaluate_causal_alpha_teacher_holdouts",
     "fit_expanding_causal_alpha_models",
     "latest_complete_episode_split",
+    "load_causal_alpha_selection_checkpoint",
+    "persist_causal_alpha_selection_rejection",
     "rank_causal_alpha_candidates",
     "validate_universal_causal_alpha_partitions",
+    "write_causal_alpha_selection_checkpoint_metric",
 ]

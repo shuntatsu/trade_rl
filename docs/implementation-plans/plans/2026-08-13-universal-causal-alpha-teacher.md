@@ -21,7 +21,7 @@
 **RED tests**
 1. `ResidualTrainingConfig` accepts only the new explicit teacher token `causal_alpha_ridge` in addition to legacy diagnostic values; malformed values fail closed.
 2. Forward-label helper proves a decision at close `t` starts economic labeling at the first executable bar and resolves exact 24h/72h endpoints on regular cadence; an unavailable full horizon is rejected.
-3. Prefix scaler fits only rows whose label realization ends strictly before `knowledge_cutoff`; nonfinite or unavailable rows are excluded, constant columns scale to zero and are recorded.
+3. Prefix scaler fits only rows whose label realization ends strictly before `knowledge_cutoff`; nonfinite rows are excluded, while feature-level unavailable entries use fitted-mean/standardized-zero semantics and constant or unavailable columns are recorded.
 4. Pooled ridge over multiple symbol matrices is deterministic and byte-stable under canonical serialization; coefficient/config/data identity drift changes digest.
 
 **Implementation**

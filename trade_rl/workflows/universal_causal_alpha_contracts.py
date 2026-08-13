@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -277,17 +278,192 @@ class CausalAlphaExpandingFit:
             raise ValueError("causal alpha expanding fit digest mismatch")
         object.__setattr__(self, "digest", expected)
 
+    def to_payload(self) -> dict[str, object]:
+        def compact_model(model: CausalAlphaRidgeModel) -> dict[str, object]:
+            payload = dict(model.to_payload())
+            payload.pop("eligible_indices", None)
+            payload["artifact_digest"] = model.digest
+            return payload
+
+        return {
+            "artifact_digest": self.digest,
+            "knowledge_cutoff": self.knowledge_cutoff,
+            "max_label_end_24h": self.max_label_end_24h,
+            "max_label_end_72h": self.max_label_end_72h,
+            "model_24h": compact_model(self.model_24h),
+            "model_72h": compact_model(self.model_72h),
+            "sample_count_24h": self.sample_count_24h,
+            "sample_count_72h": self.sample_count_72h,
+            "sample_scope_digest": self.sample_scope_digest,
+            "schema_version": _CAUSAL_ALPHA_EXPANDING_FIT_SCHEMA,
+            "train_symbols": list(self.train_symbols),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaPredictionDiagnostics:
+    sample_count: int
+    pearson_correlation: float | None
+    directional_accuracy: float
+    prediction_mean: float
+    prediction_std: float
+    prediction_min: float
+    prediction_max: float
+    prediction_quantiles: tuple[float, float, float, float, float, float, float]
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.sample_count, bool)
+            or not isinstance(self.sample_count, int)
+            or self.sample_count <= 0
+        ):
+            raise ValueError(
+                "causal alpha prediction diagnostics need positive samples"
+            )
+        if self.pearson_correlation is not None and (
+            not math.isfinite(self.pearson_correlation)
+            or not -1.0 <= self.pearson_correlation <= 1.0
+        ):
+            raise ValueError("causal alpha prediction correlation is invalid")
+        if (
+            not math.isfinite(self.directional_accuracy)
+            or not 0.0 <= self.directional_accuracy <= 1.0
+        ):
+            raise ValueError("causal alpha directional accuracy is invalid")
+        scalars = (
+            self.prediction_mean,
+            self.prediction_std,
+            self.prediction_min,
+            self.prediction_max,
+            *self.prediction_quantiles,
+        )
+        if not all(math.isfinite(value) for value in scalars):
+            raise ValueError("causal alpha prediction distribution is non-finite")
+        if self.prediction_std < 0.0 or self.prediction_min > self.prediction_max:
+            raise ValueError("causal alpha prediction distribution is invalid")
+        if len(self.prediction_quantiles) != 7 or any(
+            left > right
+            for left, right in zip(
+                self.prediction_quantiles, self.prediction_quantiles[1:], strict=False
+            )
+        ):
+            raise ValueError("causal alpha prediction quantiles are invalid")
+        payload = self._payload_without_digest()
+        expected = content_digest(payload)
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha prediction diagnostics digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+    def _payload_without_digest(self) -> dict[str, object]:
+        quantiles = self.prediction_quantiles
+        return {
+            "directional_accuracy": self.directional_accuracy,
+            "pearson_correlation": self.pearson_correlation,
+            "prediction_max": self.prediction_max,
+            "prediction_mean": self.prediction_mean,
+            "prediction_min": self.prediction_min,
+            "prediction_quantiles": {
+                "p00": quantiles[0],
+                "p10": quantiles[1],
+                "p25": quantiles[2],
+                "p50": quantiles[3],
+                "p75": quantiles[4],
+                "p90": quantiles[5],
+                "p100": quantiles[6],
+            },
+            "prediction_std": self.prediction_std,
+            "sample_count": self.sample_count,
+            "schema_version": "causal_alpha_prediction_diagnostics_v1",
+        }
+
+    def to_payload(self) -> dict[str, object]:
+        return {**self._payload_without_digest(), "artifact_digest": self.digest}
+
 
 @dataclass(frozen=True, slots=True)
 class CausalAlphaEpisodeEvidence:
     episode_index: int
+    scope: str
     knowledge_cutoff: int
     initial_weight: float
     fit_digest: str
+    fit_sample_count_24h: int
+    fit_sample_count_72h: int
     max_label_end_24h: int
     max_label_end_72h: int
+    prediction_24h: CausalAlphaPredictionDiagnostics
+    prediction_72h: CausalAlphaPredictionDiagnostics
+    decision_count: int
+    actionable_decision_count: int
+    submitted_change_count: int
+    suppressed_change_count: int
+    sign_flip_count: int
     target_path_digest: str
     prediction_digest: str
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if self.scope not in {"selection", "holdout"}:
+            raise ValueError("causal alpha episode evidence scope is invalid")
+        for field in (
+            "fit_sample_count_24h",
+            "fit_sample_count_72h",
+            "decision_count",
+            "actionable_decision_count",
+            "submitted_change_count",
+            "suppressed_change_count",
+            "sign_flip_count",
+        ):
+            value = getattr(self, field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"causal alpha episode {field} is invalid")
+        if self.fit_sample_count_24h < 2 or self.fit_sample_count_72h < 2:
+            raise ValueError("causal alpha episode fit sample count is insufficient")
+        if (
+            self.decision_count <= 0
+            or not 0 < self.actionable_decision_count <= self.decision_count
+        ):
+            raise ValueError("causal alpha episode decision support is invalid")
+        if (
+            self.max_label_end_24h >= self.knowledge_cutoff
+            or self.max_label_end_72h >= self.knowledge_cutoff
+        ):
+            raise ValueError("causal alpha episode fit crossed knowledge cutoff")
+        for field in ("fit_digest", "target_path_digest", "prediction_digest"):
+            value = getattr(self, field)
+            if not isinstance(value, str) or len(value) != 64:
+                raise ValueError(f"causal alpha episode {field} is invalid")
+        expected = content_digest(self._payload_without_digest())
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha episode evidence digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+    def _payload_without_digest(self) -> dict[str, object]:
+        return {
+            "actionable_decision_count": self.actionable_decision_count,
+            "decision_count": self.decision_count,
+            "episode_index": self.episode_index,
+            "fit_digest": self.fit_digest,
+            "fit_sample_count_24h": self.fit_sample_count_24h,
+            "fit_sample_count_72h": self.fit_sample_count_72h,
+            "initial_weight": self.initial_weight,
+            "knowledge_cutoff": self.knowledge_cutoff,
+            "max_label_end_24h": self.max_label_end_24h,
+            "max_label_end_72h": self.max_label_end_72h,
+            "prediction_24h": self.prediction_24h.to_payload(),
+            "prediction_72h": self.prediction_72h.to_payload(),
+            "prediction_digest": self.prediction_digest,
+            "schema_version": "causal_alpha_episode_evidence_v2",
+            "scope": self.scope,
+            "sign_flip_count": self.sign_flip_count,
+            "submitted_change_count": self.submitted_change_count,
+            "suppressed_change_count": self.suppressed_change_count,
+            "target_path_digest": self.target_path_digest,
+        }
+
+    def to_payload(self) -> dict[str, object]:
+        return {**self._payload_without_digest(), "artifact_digest": self.digest}
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,28 +474,27 @@ class CausalAlphaBatchEvidence:
     sample_scope_digest: str
     ridge_config_digest: str
     controller_config_digest: str
+    fits: Mapping[str, CausalAlphaExpandingFit]
     episodes: tuple[CausalAlphaEpisodeEvidence, ...]
     digest: str = ""
 
     def __post_init__(self) -> None:
-        if not self.episodes:
+        episodes = tuple(self.episodes)
+        fits = dict(self.fits)
+        if not episodes:
             raise ValueError("causal alpha batch evidence must contain episodes")
+        referenced = {item.fit_digest for item in episodes}
+        if set(fits) != referenced or any(
+            digest != fit.digest for digest, fit in fits.items()
+        ):
+            raise ValueError(
+                "causal alpha batch fit evidence does not close over episodes"
+            )
         expected = content_digest(
             {
                 "controller_config_digest": self.controller_config_digest,
-                "episodes": tuple(
-                    {
-                        "episode_index": item.episode_index,
-                        "fit_digest": item.fit_digest,
-                        "initial_weight": item.initial_weight,
-                        "knowledge_cutoff": item.knowledge_cutoff,
-                        "max_label_end_24h": item.max_label_end_24h,
-                        "max_label_end_72h": item.max_label_end_72h,
-                        "prediction_digest": item.prediction_digest,
-                        "target_path_digest": item.target_path_digest,
-                    }
-                    for item in self.episodes
-                ),
+                "episode_evidence_digests": tuple(item.digest for item in episodes),
+                "fit_digests": tuple(sorted(fits)),
                 "partition_digest": self.partition_digest,
                 "ridge_config_digest": self.ridge_config_digest,
                 "sample_scope_digest": self.sample_scope_digest,
@@ -330,7 +505,25 @@ class CausalAlphaBatchEvidence:
         )
         if self.digest and self.digest != expected:
             raise ValueError("causal alpha batch evidence digest mismatch")
+        object.__setattr__(self, "episodes", episodes)
+        object.__setattr__(self, "fits", fits)
         object.__setattr__(self, "digest", expected)
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "artifact_digest": self.digest,
+            "controller_config_digest": self.controller_config_digest,
+            "episodes": [item.to_payload() for item in self.episodes],
+            "fits": {
+                digest: self.fits[digest].to_payload() for digest in sorted(self.fits)
+            },
+            "partition_digest": self.partition_digest,
+            "ridge_config_digest": self.ridge_config_digest,
+            "sample_scope_digest": self.sample_scope_digest,
+            "schema_version": _CAUSAL_ALPHA_BATCH_EVIDENCE_SCHEMA,
+            "symbol": self.symbol,
+            "train_symbols": list(self.train_symbols),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -611,6 +804,7 @@ class UniversalCausalAlphaTeacherPackage:
     teacher_admission: CausalAlphaTeacherAdmissionEvidence
     selected_candidate_digest: str
     teacher_config_digest: str
+    generator_code_digest: str
     episode_hours: float
     batch_evidence: Mapping[str, CausalAlphaBatchEvidence]
     digest: str = ""
@@ -646,6 +840,7 @@ class UniversalCausalAlphaTeacherPackage:
         for field, value in (
             ("selected_candidate_digest", self.selected_candidate_digest),
             ("teacher_config_digest", self.teacher_config_digest),
+            ("generator_code_digest", self.generator_code_digest),
         ):
             if not isinstance(value, str) or len(value) != 64:
                 raise ValueError(f"causal alpha package {field} is invalid")
@@ -674,6 +869,7 @@ class UniversalCausalAlphaTeacherPackage:
                     symbol: samples[symbol].digest for symbol in symbols
                 },
                 "episode_hours": self.episode_hours,
+                "generator_code_digest": self.generator_code_digest,
                 "schema_version": "universal_causal_alpha_teacher_package_v1",
                 "selected_candidate_digest": self.selected_candidate_digest,
                 "selection_digest": self.selection.digest,
@@ -691,6 +887,46 @@ class UniversalCausalAlphaTeacherPackage:
         object.__setattr__(self, "batch_evidence", batch_evidence)
         object.__setattr__(self, "digest", expected)
 
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "artifact_digest": self.digest,
+            "batch_evidence": {
+                symbol: self.batch_evidence[symbol].to_payload()
+                for symbol in self.train_symbols
+            },
+            "episode_hours": self.episode_hours,
+            "generator_code_digest": self.generator_code_digest,
+            "partitions": {
+                symbol: {
+                    "artifact_digest": self.partitions[symbol].digest,
+                    "holdout_episode_digest": self.partitions[
+                        symbol
+                    ].holdout_contract.digest,
+                    "selection_episode_digests": [
+                        contract.digest
+                        for contract in self.partitions[symbol].selection_contracts
+                    ],
+                }
+                for symbol in self.train_symbols
+            },
+            "samples": {
+                symbol: {
+                    "artifact_digest": self.samples[symbol].digest,
+                    "context_digest": self.samples[symbol].context_digest,
+                    "feature_schema_digest": self.samples[symbol].feature_schema_digest,
+                    "reference_equity": self.samples[symbol].reference_equity,
+                    "reference_equity_mode": self.samples[symbol].reference_equity_mode,
+                }
+                for symbol in self.train_symbols
+            },
+            "schema_version": "universal_causal_alpha_teacher_package_evidence_v1",
+            "selected_candidate_digest": self.selected_candidate_digest,
+            "selection": self.selection.to_payload(),
+            "teacher_admission": self.teacher_admission.to_payload(),
+            "teacher_config_digest": self.teacher_config_digest,
+            "train_symbols": list(self.train_symbols),
+        }
+
 
 __all__ = [
     "CausalAlphaBatchEvidence",
@@ -700,6 +936,7 @@ __all__ = [
     "CausalAlphaEpisodeEvidence",
     "CausalAlphaEpisodePartition",
     "CausalAlphaExpandingFit",
+    "CausalAlphaPredictionDiagnostics",
     "CausalAlphaSelectionEvidence",
     "CausalAlphaSymbolSamples",
     "UniversalCausalAlphaTeacherPackage",

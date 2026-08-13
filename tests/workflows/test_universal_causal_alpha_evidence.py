@@ -34,7 +34,9 @@ def _samples(symbol: str, offset: float) -> CausalAlphaSymbolSamples:
     )
 
 
-def test_prediction_diagnostics_persist_correlation_direction_and_distribution() -> None:
+def test_prediction_diagnostics_persist_correlation_direction_and_distribution() -> (
+    None
+):
     evidence = causal_alpha_prediction_diagnostics(
         np.asarray([-0.3, -0.1, 0.2, 0.5], dtype=np.float64),
         np.asarray([-0.2, 0.1, 0.4, 0.6], dtype=np.float64),

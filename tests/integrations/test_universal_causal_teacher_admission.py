@@ -128,6 +128,10 @@ def test_failed_stored_teacher_admission_stops_before_behavior_cloning(
             "selected_candidate_digest": content_digest("candidate"),
         },
         causal_teacher_admission_evidence=_failed_admission(symbols),
+        causal_teacher_package_evidence={
+            "schema_version": "universal_causal_alpha_teacher_package_evidence_v1",
+            "artifact_digest": content_digest("package-evidence"),
+        },
         causal_teacher_episode_hours=720.0,
     )
 
@@ -162,8 +166,10 @@ def test_failed_stored_teacher_admission_stops_before_behavior_cloning(
 
     selection_path = tmp_path / "causal-teacher-selection.json"
     admission_path = tmp_path / "causal-teacher-admission.json"
+    package_path = tmp_path / "causal-teacher-package.json"
     assert selection_path.is_file()
     assert admission_path.is_file()
+    assert package_path.is_file()
     selection = json.loads(selection_path.read_text(encoding="utf-8"))
     admission = json.loads(admission_path.read_text(encoding="utf-8"))
     assert selection["selected_candidate_digest"] == content_digest("candidate")

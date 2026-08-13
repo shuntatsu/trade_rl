@@ -33,6 +33,7 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaEpisodeEvidence,
     CausalAlphaEpisodePartition,
     CausalAlphaExpandingFit,
+    CausalAlphaPredictionDiagnostics,
     CausalAlphaSymbolSamples,
 )
 
@@ -516,6 +517,47 @@ def fit_expanding_causal_alpha_models(
     )
 
 
+def causal_alpha_prediction_diagnostics(
+    predictions: object, labels: object
+) -> CausalAlphaPredictionDiagnostics:
+    predicted = np.asarray(predictions, dtype=np.float64).reshape(-1)
+    realized = np.asarray(labels, dtype=np.float64).reshape(-1)
+    if predicted.shape != realized.shape or predicted.size == 0:
+        raise ValueError("causal alpha prediction diagnostics require aligned samples")
+    if not np.isfinite(predicted).all() or not np.isfinite(realized).all():
+        raise ValueError("causal alpha prediction diagnostics require finite samples")
+    predicted_std = float(predicted.std())
+    realized_std = float(realized.std())
+    correlation = (
+        None
+        if predicted.size < 2 or predicted_std <= 1e-12 or realized_std <= 1e-12
+        else float(np.corrcoef(predicted, realized)[0, 1])
+    )
+    directional = float(np.mean(np.sign(predicted) == np.sign(realized)))
+    quantile_values = np.quantile(
+        predicted, np.asarray((0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0))
+    )
+    quantiles = (
+        float(quantile_values[0]),
+        float(quantile_values[1]),
+        float(quantile_values[2]),
+        float(quantile_values[3]),
+        float(quantile_values[4]),
+        float(quantile_values[5]),
+        float(quantile_values[6]),
+    )
+    return CausalAlphaPredictionDiagnostics(
+        sample_count=int(predicted.size),
+        pearson_correlation=correlation,
+        directional_accuracy=directional,
+        prediction_mean=float(predicted.mean()),
+        prediction_std=predicted_std,
+        prediction_min=float(predicted.min()),
+        prediction_max=float(predicted.max()),
+        prediction_quantiles=quantiles,
+    )
+
+
 def build_causal_alpha_episode_batch(
     *,
     symbol: str,
@@ -536,6 +578,7 @@ def build_causal_alpha_episode_batch(
         raise ValueError("causal alpha partition dataset identity drifted")
     targets: list[np.ndarray] = []
     episode_evidence: list[CausalAlphaEpisodeEvidence] = []
+    fits: dict[str, CausalAlphaExpandingFit] = {}
     for contract in partition.contracts:
         fitted = fit_expanding_causal_alpha_models(
             train_symbols=symbols,
@@ -557,6 +600,14 @@ def build_causal_alpha_episode_batch(
             prediction_24h,
             prediction_72h,
             controller_config.horizon_mix,
+        )
+        positions = np.searchsorted(block.decision_indices, decisions)
+        diagnostic_positions = positions[actionable]
+        diagnostics_24h = causal_alpha_prediction_diagnostics(
+            prediction_24h[actionable], block.labels_24h[diagnostic_positions]
+        )
+        diagnostics_72h = causal_alpha_prediction_diagnostics(
+            prediction_72h[actionable], block.labels_72h[diagnostic_positions]
         )
         initial_weight = float(contract.initial_weights[0])
         target_path = causal_alpha_target_path(
@@ -584,14 +635,30 @@ def build_causal_alpha_episode_batch(
             ),
         )
         targets.append(target_matrix)
+        fits[fitted.digest] = fitted
         episode_evidence.append(
             CausalAlphaEpisodeEvidence(
                 episode_index=contract.episode_index,
+                scope=(
+                    "holdout"
+                    if contract.episode_index
+                    == partition.holdout_contract.episode_index
+                    else "selection"
+                ),
                 knowledge_cutoff=contract.start,
                 initial_weight=initial_weight,
                 fit_digest=fitted.digest,
+                fit_sample_count_24h=fitted.sample_count_24h,
+                fit_sample_count_72h=fitted.sample_count_72h,
                 max_label_end_24h=fitted.max_label_end_24h,
                 max_label_end_72h=fitted.max_label_end_72h,
+                prediction_24h=diagnostics_24h,
+                prediction_72h=diagnostics_72h,
+                decision_count=int(decisions.size),
+                actionable_decision_count=int(np.count_nonzero(actionable)),
+                submitted_change_count=target_path.submitted_change_count,
+                suppressed_change_count=target_path.suppressed_change_count,
+                sign_flip_count=target_path.sign_flip_count,
                 target_path_digest=target_path.digest,
                 prediction_digest=prediction_digest,
             )
@@ -603,6 +670,7 @@ def build_causal_alpha_episode_batch(
         sample_scope_digest=scope_digest,
         ridge_config_digest=ridge_config.digest,
         controller_config_digest=controller_config.digest,
+        fits=fits,
         episodes=tuple(episode_evidence),
     )
     resolved_teacher_config_digest = (
@@ -633,6 +701,7 @@ __all__ = [
     "build_causal_alpha_episode_batch",
     "build_causal_alpha_symbol_samples",
     "build_chronological_episode_partition",
+    "causal_alpha_prediction_diagnostics",
     "fit_expanding_causal_alpha_models",
     "latest_complete_episode_split",
     "validate_universal_causal_alpha_partitions",

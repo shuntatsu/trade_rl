@@ -110,6 +110,7 @@ def test_build_universal_pretraining_bundle_from_batches_closes_train_scope(
         episode_batches: dict[str, EpisodeOracleBatch] | None = None
         causal_teacher_selection_evidence: dict[str, object] | None = None
         causal_teacher_admission_evidence: dict[str, object] | None = None
+        causal_teacher_package_evidence: dict[str, object] | None = None
         causal_teacher_episode_hours: float | None = None
 
     sentinel = _BundleStub()

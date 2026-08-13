@@ -58,6 +58,7 @@ class UniversalPretrainingBundle:
     episode_batches: Mapping[str, EpisodeOracleBatch] = field(default_factory=dict)
     causal_teacher_selection_evidence: Mapping[str, object] | None = None
     causal_teacher_admission_evidence: Mapping[str, object] | None = None
+    causal_teacher_package_evidence: Mapping[str, object] | None = None
     causal_teacher_episode_hours: float | None = None
 
     def __post_init__(self) -> None:
@@ -114,11 +115,16 @@ class UniversalPretrainingBundle:
             raise ValueError("teacher artifact train symbol scope mismatch")
         selection_evidence = self.causal_teacher_selection_evidence
         admission_evidence = self.causal_teacher_admission_evidence
+        package_evidence = self.causal_teacher_package_evidence
         episode_hours = self.causal_teacher_episode_hours
         if selection_evidence is None:
-            if admission_evidence is not None or episode_hours is not None:
+            if (
+                admission_evidence is not None
+                or package_evidence is not None
+                or episode_hours is not None
+            ):
                 raise ValueError(
-                    "causal teacher admission/episode hours require selection evidence"
+                    "causal teacher package/admission/episode hours require selection evidence"
                 )
         else:
             selection_evidence = dict(selection_evidence)
@@ -130,9 +136,20 @@ class UniversalPretrainingBundle:
             artifact_digest = selection_evidence.get("artifact_digest")
             if not isinstance(artifact_digest, str) or len(artifact_digest) != 64:
                 raise ValueError("causal teacher selection evidence digest is invalid")
-            if admission_evidence is None:
-                raise ValueError("causal teacher admission evidence is unavailable")
+            if admission_evidence is None or package_evidence is None:
+                raise ValueError(
+                    "causal teacher package/admission evidence is unavailable"
+                )
             admission_evidence = dict(admission_evidence)
+            package_evidence = dict(package_evidence)
+            if (
+                package_evidence.get("schema_version")
+                != "universal_causal_alpha_teacher_package_evidence_v1"
+            ):
+                raise ValueError("causal teacher package evidence schema mismatch")
+            package_digest = package_evidence.get("artifact_digest")
+            if not isinstance(package_digest, str) or len(package_digest) != 64:
+                raise ValueError("causal teacher package evidence digest is invalid")
             if (
                 admission_evidence.get("schema_version")
                 != "causal_alpha_teacher_admission_v1"
@@ -166,6 +183,7 @@ class UniversalPretrainingBundle:
         object.__setattr__(
             self, "causal_teacher_admission_evidence", admission_evidence
         )
+        object.__setattr__(self, "causal_teacher_package_evidence", package_evidence)
         object.__setattr__(self, "causal_teacher_episode_hours", episode_hours)
         object.__setattr__(self, "critic_targets", targets)
 
@@ -430,9 +448,10 @@ def build_universal_pretraining_hook(
         if config.behavior_cloning_teacher == "causal_alpha_ridge":
             selection = bundle.causal_teacher_selection_evidence
             admission = bundle.causal_teacher_admission_evidence
-            if selection is None or admission is None:
+            package = bundle.causal_teacher_package_evidence
+            if selection is None or admission is None or package is None:
                 raise RuntimeError(
-                    "Universal causal teacher selection/admission evidence is unavailable"
+                    "Universal causal teacher package/selection/admission evidence is unavailable"
                 )
             atomic_write_bytes(
                 output_root / "causal-teacher-selection.json",
@@ -441,6 +460,10 @@ def build_universal_pretraining_hook(
             atomic_write_bytes(
                 output_root / "causal-teacher-admission.json",
                 canonical_json_bytes(admission) + b"\n",
+            )
+            atomic_write_bytes(
+                output_root / "causal-teacher-package.json",
+                canonical_json_bytes(package) + b"\n",
             )
             if admission.get("passed") is not True:
                 raise RuntimeError(

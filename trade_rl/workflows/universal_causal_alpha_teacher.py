@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 from functools import partial
+from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
 
+import trade_rl.learning.causal_alpha_teacher as _causal_learning_module
+import trade_rl.workflows.universal_causal_alpha_contracts as _causal_contracts_module
+import trade_rl.workflows.universal_causal_alpha_fitting as _causal_fitting_module
+import trade_rl.workflows.universal_causal_alpha_selection as _causal_selection_module
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaTeacherAdmissionEvidence,
@@ -25,6 +31,7 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaEpisodeEvidence,
     CausalAlphaEpisodePartition,
     CausalAlphaExpandingFit,
+    CausalAlphaPredictionDiagnostics,
     CausalAlphaSelectionEvidence,
     CausalAlphaSymbolSamples,
     UniversalCausalAlphaTeacherPackage,
@@ -116,6 +123,31 @@ def evaluate_causal_alpha_selection(
             symbol: partition_values[symbol].holdout_contract.digest
             for symbol in symbols
         },
+    )
+
+
+def causal_alpha_generator_code_digest() -> str:
+    """Bind teacher identity to the exact causal-generator source files."""
+
+    modules = (
+        _causal_learning_module,
+        _causal_contracts_module,
+        _causal_fitting_module,
+        _causal_selection_module,
+    )
+    files: dict[str, str] = {}
+    for module in modules:
+        raw_path = getattr(module, "__file__", None)
+        if not isinstance(raw_path, str):
+            raise RuntimeError("causal alpha generator source path is unavailable")
+        path = Path(raw_path)
+        files[module.__name__] = hashlib.sha256(path.read_bytes()).hexdigest()
+    files[__name__] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    return content_digest(
+        {
+            "files": files,
+            "schema_version": "universal_causal_alpha_generator_code_v1",
+        }
     )
 
 
@@ -279,9 +311,11 @@ def build_universal_causal_alpha_teacher_package(
     if len(selected_evidence) != 1:
         raise RuntimeError("causal alpha selected candidate cannot be resolved")
     selected = selected_evidence[0].candidate
+    generator_code_digest = causal_alpha_generator_code_digest()
     teacher_config_digest = content_digest(
         {
             "feature_schema_digest": feature_schema_digest,
+            "generator_code_digest": generator_code_digest,
             "schema_version": "universal_causal_alpha_teacher_config_v1",
             "selected_candidate_digest": selected.digest,
             "selection_digest": selection.digest,
@@ -316,6 +350,7 @@ def build_universal_causal_alpha_teacher_package(
         teacher_admission=teacher_admission,
         selected_candidate_digest=selected.digest,
         teacher_config_digest=teacher_config_digest,
+        generator_code_digest=generator_code_digest,
         episode_hours=resolved_episode_hours,
         batch_evidence=batch_evidence,
     )
@@ -329,6 +364,7 @@ __all__ = [
     "CausalAlphaEpisodeEvidence",
     "CausalAlphaEpisodePartition",
     "CausalAlphaExpandingFit",
+    "CausalAlphaPredictionDiagnostics",
     "CausalAlphaSelectionEvidence",
     "CausalAlphaSymbolSamples",
     "UniversalCausalAlphaTeacherPackage",
@@ -336,6 +372,7 @@ __all__ = [
     "build_causal_alpha_symbol_samples",
     "build_chronological_episode_partition",
     "build_universal_causal_alpha_teacher_package",
+    "causal_alpha_generator_code_digest",
     "default_causal_alpha_candidate_grid",
     "evaluate_causal_alpha_selection",
     "evaluate_causal_alpha_teacher_holdouts",

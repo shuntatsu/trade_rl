@@ -1,0 +1,72 @@
+name: Apply causal alpha availability temporary
+
+on:
+  push:
+    branches:
+      - feature/universal-causal-alpha-teacher
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feature/universal-causal-alpha-teacher
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Apply availability semantics
+        run: python tools/_temporary_apply_causal_availability.py
+      - name: Verify availability semantics
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          files=(
+            trade_rl/learning/causal_alpha_teacher.py
+            trade_rl/workflows/universal_causal_alpha_contracts.py
+            trade_rl/workflows/universal_causal_alpha_fitting.py
+            trade_rl/workflows/universal_causal_alpha_selection.py
+            tests/learning/test_causal_alpha_teacher_prediction_availability.py
+            tests/workflows/test_universal_causal_alpha_prediction_availability.py
+          )
+          uv run ruff check --fix --select I "${files[@]}"
+          uv run ruff format "${files[@]}"
+          uv run ruff check "${files[@]}"
+          uv run ruff format --check "${files[@]}"
+          uv run mypy \
+            trade_rl/learning/causal_alpha_teacher.py \
+            trade_rl/workflows/universal_causal_alpha_contracts.py \
+            trade_rl/workflows/universal_causal_alpha_fitting.py \
+            trade_rl/workflows/universal_causal_alpha_selection.py
+          uv run lint-imports
+          uv run pytest \
+            tests/learning/test_causal_alpha_teacher.py \
+            tests/learning/test_causal_alpha_teacher_prediction_availability.py \
+            tests/workflows/test_universal_causal_alpha_prediction_availability.py \
+            tests/workflows/test_universal_causal_alpha_fitting.py \
+            tests/workflows/test_universal_causal_alpha_selection.py \
+            tests/workflows/test_universal_causal_alpha_package.py \
+            tests/workflows/test_universal_causal_alpha_assembly.py \
+            -q
+      - name: Commit verified availability semantics and remove temporary assets
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -f \
+            tools/_temporary_apply_causal_availability.py \
+            .github/workflows/apply-causal-alpha-availability-temporary.yml \
+            .github/workflows/causal-alpha-availability-red-temporary.yml
+          git add \
+            trade_rl/learning/causal_alpha_teacher.py \
+            trade_rl/workflows/universal_causal_alpha_contracts.py \
+            trade_rl/workflows/universal_causal_alpha_fitting.py \
+            trade_rl/workflows/universal_causal_alpha_selection.py \
+            tests/learning/test_causal_alpha_teacher_prediction_availability.py \
+            tests/workflows/test_universal_causal_alpha_prediction_availability.py
+          git commit -m 'fix: handle causal teacher feature availability'
+          git push origin HEAD:feature/universal-causal-alpha-teacher

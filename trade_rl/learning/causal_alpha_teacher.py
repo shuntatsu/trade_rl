@@ -179,18 +179,37 @@ class CausalAlphaRidgeModel:
             raise ValueError("causal alpha ridge model digest mismatch")
         object.__setattr__(self, "digest", expected)
 
-    def transform(self, features: object) -> np.ndarray:
+    def transform(
+        self,
+        features: object,
+        *,
+        feature_available: object | None = None,
+    ) -> np.ndarray:
         values = np.asarray(features, dtype=np.float64)
         if values.ndim != 2 or values.shape[1] != len(self.feature_names):
             raise ValueError("prediction features do not match causal alpha schema")
         if not np.isfinite(values).all():
             raise ValueError("prediction features must be finite")
+        availability: np.ndarray | None = None
+        if feature_available is not None:
+            availability = np.asarray(feature_available, dtype=np.bool_)
+            if availability.shape != values.shape:
+                raise ValueError(
+                    "prediction feature availability must match prediction features"
+                )
         scaled = (values - self.location) / self.scale
         scaled[:, self.constant_mask] = 0.0
+        if availability is not None:
+            scaled = np.where(availability, scaled, 0.0)
         return scaled
 
-    def predict(self, features: object) -> np.ndarray:
-        scaled = self.transform(features)
+    def predict(
+        self,
+        features: object,
+        *,
+        feature_available: object | None = None,
+    ) -> np.ndarray:
+        scaled = self.transform(features, feature_available=feature_available)
         prediction = self.intercept + scaled @ self.coefficients
         if not np.isfinite(prediction).all():
             raise ValueError("causal alpha prediction became non-finite")
@@ -342,6 +361,7 @@ class CausalAlphaTargetPath:
     submitted_change_count: int
     suppressed_change_count: int
     sign_flip_count: int
+    actionable_mask: np.ndarray | None = None
     digest: str = ""
 
     def __post_init__(self) -> None:
@@ -351,6 +371,15 @@ class CausalAlphaTargetPath:
         if not np.isfinite(targets).all():
             raise ValueError("causal alpha targets must be finite")
         targets.setflags(write=False)
+        if self.actionable_mask is None:
+            actionable = np.ones(targets.shape, dtype=np.bool_)
+        else:
+            actionable = (
+                np.asarray(self.actionable_mask, dtype=np.bool_).reshape(-1).copy()
+            )
+            if actionable.shape != targets.shape:
+                raise ValueError("actionable_mask must align with causal alpha targets")
+        actionable.setflags(write=False)
         for field in (
             "submitted_change_count",
             "suppressed_change_count",
@@ -360,8 +389,10 @@ class CausalAlphaTargetPath:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{field} must be a non-negative integer")
         object.__setattr__(self, "targets", targets)
+        object.__setattr__(self, "actionable_mask", actionable)
         expected = content_digest(
             {
+                "actionable_mask": actionable.astype(bool).tolist(),
                 "initial_weight": float(self.initial_weight),
                 "targets": targets.tolist(),
                 "submitted_change_count": self.submitted_change_count,
@@ -397,18 +428,28 @@ def causal_alpha_target_path(
     *,
     config: CausalAlphaControllerConfig,
     initial_weight: float,
+    actionable_mask: object | None = None,
 ) -> CausalAlphaTargetPath:
     values = np.asarray(scores, dtype=np.float64).reshape(-1)
     if not np.isfinite(values).all():
         raise ValueError("causal alpha scores must be finite")
     if not math.isfinite(initial_weight):
         raise ValueError("initial_weight must be finite")
+    if actionable_mask is None:
+        actionable = np.ones(values.shape, dtype=np.bool_)
+    else:
+        actionable = np.asarray(actionable_mask, dtype=np.bool_).reshape(-1)
+        if actionable.shape != values.shape:
+            raise ValueError("actionable_mask must align with causal alpha scores")
     previous = float(initial_weight)
     targets = np.empty(values.size, dtype=np.float64)
     submitted = 0
     suppressed = 0
     sign_flips = 0
     for index, score in enumerate(values):
+        if not bool(actionable[index]):
+            targets[index] = previous
+            continue
         desired = _desired_target(float(score), previous, config)
         bounded = float(
             np.clip(
@@ -434,6 +475,7 @@ def causal_alpha_target_path(
         submitted_change_count=submitted,
         suppressed_change_count=suppressed,
         sign_flip_count=sign_flips,
+        actionable_mask=actionable,
     )
 
 

@@ -187,18 +187,45 @@ class CausalAlphaSymbolSamples:
         object.__setattr__(self, "label_end_indices_72h", ends_72h)
         object.__setattr__(self, "digest", expected)
 
-    def features_for_decisions(self, decision_indices: object) -> np.ndarray:
+    def prediction_inputs_for_decisions(
+        self, decision_indices: object
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         requested = np.asarray(decision_indices, dtype=np.int64).reshape(-1)
-        positions = np.searchsorted(self.decision_indices, requested)
-        if np.any(positions >= self.decision_indices.size) or not np.array_equal(
-            self.decision_indices[positions], requested
+        if (
+            requested.size == 0
+            or np.any(requested < 0)
+            or np.any(np.diff(requested) <= 0)
         ):
+            raise ValueError(
+                "causal alpha prediction decisions must be strictly increasing"
+            )
+        positions = np.searchsorted(self.decision_indices, requested)
+        present = positions < self.decision_indices.size
+        matched = np.zeros(requested.shape, dtype=np.bool_)
+        if np.any(present):
+            matched[present] = (
+                self.decision_indices[positions[present]] == requested[present]
+            )
+        width = len(self.feature_names)
+        features = np.zeros((requested.size, width), dtype=np.float64)
+        availability = np.zeros((requested.size, width), dtype=np.bool_)
+        if np.any(matched):
+            source = positions[matched]
+            features[matched] = self.features[source]
+            availability[matched] = self.feature_available[source]
+        return features, availability, matched
+
+    def features_for_decisions(self, decision_indices: object) -> np.ndarray:
+        features, availability, present = self.prediction_inputs_for_decisions(
+            decision_indices
+        )
+        if not np.all(present):
             raise ValueError(
                 "causal alpha prediction decisions are absent from samples"
             )
-        if not np.all(self.feature_available[positions]):
+        if not np.all(availability):
             raise ValueError("causal alpha prediction features are unavailable")
-        return np.asarray(self.features[positions], dtype=np.float64)
+        return features
 
 
 @dataclass(frozen=True, slots=True)

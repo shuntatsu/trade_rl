@@ -46,7 +46,9 @@ def _samples() -> CausalAlphaSymbolSamples:
     )
 
 
-def test_target_generation_zero_imputes_missing_features_and_holds_nontradable() -> None:
+def test_target_generation_zero_imputes_missing_features_and_holds_nontradable() -> (
+    None
+):
     samples = _samples()
     contract = OracleEpisodeContract(
         dataset_id=samples.dataset_id,

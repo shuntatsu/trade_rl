@@ -544,9 +544,15 @@ def build_causal_alpha_episode_batch(
             ridge_config=ridge_config,
         )
         decisions = np.arange(contract.start, contract.stop - 1, dtype=np.int64)
-        prediction_features = block.features_for_decisions(decisions)
-        prediction_24h = fitted.model_24h.predict(prediction_features)
-        prediction_72h = fitted.model_72h.predict(prediction_features)
+        prediction_features, prediction_available, actionable = (
+            block.prediction_inputs_for_decisions(decisions)
+        )
+        prediction_24h = fitted.model_24h.predict(
+            prediction_features, feature_available=prediction_available
+        )
+        prediction_72h = fitted.model_72h.predict(
+            prediction_features, feature_available=prediction_available
+        )
         scores = combine_causal_alpha_predictions(
             prediction_24h,
             prediction_72h,
@@ -557,6 +563,7 @@ def build_causal_alpha_episode_batch(
             scores,
             config=controller_config,
             initial_weight=initial_weight,
+            actionable_mask=actionable,
         )
         target_matrix = np.asarray(target_path.targets, dtype=np.float32).reshape(-1, 1)
         prediction_digest = content_and_arrays_digest(
@@ -570,6 +577,8 @@ def build_causal_alpha_episode_batch(
             (
                 ("prediction_24h", prediction_24h),
                 ("prediction_72h", prediction_72h),
+                ("prediction_feature_available", prediction_available),
+                ("actionable_mask", actionable),
                 ("scores", scores),
                 ("targets", target_matrix),
             ),

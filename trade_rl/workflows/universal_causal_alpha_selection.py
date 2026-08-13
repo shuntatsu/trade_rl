@@ -219,9 +219,15 @@ def _causal_alpha_target_for_contract(
     if contract.dataset_id != block.dataset_id:
         raise ValueError("causal alpha selection contract dataset identity drifted")
     decisions = np.arange(contract.start, contract.stop - 1, dtype=np.int64)
-    prediction_features = block.features_for_decisions(decisions)
-    prediction_24h = fitted.model_24h.predict(prediction_features)
-    prediction_72h = fitted.model_72h.predict(prediction_features)
+    prediction_features, prediction_available, actionable = (
+        block.prediction_inputs_for_decisions(decisions)
+    )
+    prediction_24h = fitted.model_24h.predict(
+        prediction_features, feature_available=prediction_available
+    )
+    prediction_72h = fitted.model_72h.predict(
+        prediction_features, feature_available=prediction_available
+    )
     scores = combine_causal_alpha_predictions(
         prediction_24h,
         prediction_72h,
@@ -231,6 +237,7 @@ def _causal_alpha_target_for_contract(
         scores,
         config=candidate.controller,
         initial_weight=float(contract.initial_weights[0]),
+        actionable_mask=actionable,
     )
     return np.asarray(target_path.targets, dtype=np.float32).reshape(-1, 1)
 

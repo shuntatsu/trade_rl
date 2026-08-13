@@ -32,9 +32,7 @@ def test_prediction_unavailable_features_use_fitted_mean_semantics() -> None:
     availability = np.asarray([[False, True]], dtype=np.bool_)
 
     actual = model.predict(raw, feature_available=availability)
-    expected = model.predict(
-        np.asarray([[model.location[0], 35.0]], dtype=np.float64)
-    )
+    expected = model.predict(np.asarray([[model.location[0], 35.0]], dtype=np.float64))
 
     assert actual.tolist() == pytest.approx(expected.tolist())
 

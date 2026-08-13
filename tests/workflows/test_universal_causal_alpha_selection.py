@@ -13,12 +13,19 @@ from trade_rl.learning.causal_alpha_diagnostics import (
 )
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
+    CausalAlphaCostAwareConfig,
     CausalAlphaHorizonMix,
     CausalAlphaRidgeConfig,
 )
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
+from trade_rl.risk.pretrade import PreTradeRiskConfig
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_selection import (
     CausalAlphaSelectionRejected,
+    CausalAlphaSelectionRejectedV2,
+    CausalAlphaSelectionThresholds,
+    default_cost_aware_causal_alpha_candidate_grid,
+    rank_cost_aware_causal_alpha_candidates,
 )
 from trade_rl.workflows.universal_causal_alpha_teacher import (
     CausalAlphaCandidateConfig,
@@ -28,6 +35,7 @@ from trade_rl.workflows.universal_causal_alpha_teacher import (
     CausalAlphaExpandingFitCache,
     CausalAlphaSymbolSamples,
     evaluate_causal_alpha_selection,
+    evaluate_cost_aware_causal_alpha_selection,
     load_causal_alpha_selection_checkpoint,
     load_causal_alpha_selection_checkpoint_v2,
     persist_causal_alpha_selection_rejection,
@@ -289,6 +297,161 @@ def test_v2_metric_digest_changes_with_signal_diagnostics() -> None:
     ).digest
 
 
+def test_cost_aware_candidate_grid_has_exact_one_factor_variants() -> None:
+    grid = default_cost_aware_causal_alpha_candidate_grid(
+        risk_config=PreTradeRiskConfig(max_abs_weight=1.0, no_trade_band=0.05)
+    )
+
+    assert tuple(item.name for item in grid) == (
+        "cost-aware-baseline",
+        "horizon-24h",
+        "horizon-72h",
+        "cost-multiplier-high",
+        "edge-margin-high",
+        "confirmation-one",
+        "confirmation-three",
+        "strong-reversal-low",
+        "scale-low",
+        "exposure-low",
+        "no-trade-high",
+        "delta-low",
+    )
+    assert all(isinstance(item.economic_controller, CausalAlphaCostAwareConfig) for item in grid)
+
+    def identity(candidate: CausalAlphaCandidateConfig) -> dict[str, object]:
+        economic = candidate.economic_controller
+        assert economic is not None
+        return {
+            "horizon_mix": candidate.controller.horizon_mix,
+            "score_scale": candidate.controller.score_scale,
+            "no_trade_band": candidate.controller.no_trade_band,
+            "max_target_delta": candidate.controller.max_target_delta,
+            "execution_cost_multiplier": economic.execution_cost_multiplier,
+            "edge_margin": economic.edge_margin,
+            "confirmation_count": economic.confirmation_count,
+            "strong_reversal_threshold": economic.strong_reversal_threshold,
+            "max_abs_target": economic.max_abs_target,
+        }
+
+    baseline = identity(grid[0])
+    assert baseline == {
+        "horizon_mix": CausalAlphaHorizonMix.EQUAL,
+        "score_scale": 25.0,
+        "no_trade_band": 0.05,
+        "max_target_delta": 0.125,
+        "execution_cost_multiplier": 1.5,
+        "edge_margin": 0.001,
+        "confirmation_count": 2,
+        "strong_reversal_threshold": 0.02,
+        "max_abs_target": 0.5,
+    }
+    for candidate in grid[1:]:
+        changed = {
+            key for key, value in identity(candidate).items() if value != baseline[key]
+        }
+        assert len(changed) == 1, (candidate.name, changed)
+
+
+def _cost_metric(
+    candidate: CausalAlphaCandidateConfig,
+    episode_index: int = 0,
+    *,
+    gross: float = 0.02,
+    net: float = 0.01,
+    turnover: float = 0.5,
+    trades: int = 2,
+    rejection_reason: str | None = None,
+    hard_risk: bool = False,
+) -> CausalAlphaCandidateEpisodeMetricsV2:
+    signal = evaluate_causal_alpha_signal_diagnostics(
+        np.asarray([-0.02, -0.01, 0.01, 0.02]),
+        np.asarray([-0.01, -0.02, 0.02, 0.01]),
+    )
+    return CausalAlphaCandidateEpisodeMetricsV2(
+        candidate_digest=candidate.digest,
+        symbol=f"S{episode_index}",
+        episode_index=episode_index,
+        gross_return=gross,
+        net_return=net,
+        turnover_per_day=turnover,
+        total_execution_cost=1.0,
+        trade_count=trades,
+        signal_24h=signal,
+        signal_72h=signal,
+        cost_suppressed_change_count=1,
+        submitted_change_count=2,
+        strong_reversal_count=0,
+        command_sign_flip_count=0,
+        execution_rejection_count=int(rejection_reason is not None),
+        execution_rejection_reason_counts=(
+            () if rejection_reason is None else ((rejection_reason, 1),)
+        ),
+        risk_projection_reason_counts=(),
+        hard_risk_violation=hard_risk,
+    )
+
+
+def test_cost_aware_ranking_rejects_each_economic_failure_reason() -> None:
+    grid = default_cost_aware_causal_alpha_candidate_grid(
+        risk_config=PreTradeRiskConfig(max_abs_weight=1.0, no_trade_band=0.05)
+    )[:7]
+    metrics = {
+        grid[0].digest: (_cost_metric(grid[0], hard_risk=True),),
+        grid[1].digest: (
+            _cost_metric(grid[1], rejection_reason="minimum_notional"),
+        ),
+        grid[2].digest: (_cost_metric(grid[2], trades=0),),
+        grid[3].digest: (_cost_metric(grid[3], net=-0.01),),
+        grid[4].digest: (
+            _cost_metric(grid[4], 0, net=-0.06),
+            _cost_metric(grid[4], 1, net=0.08),
+        ),
+        grid[5].digest: (_cost_metric(grid[5], turnover=1.01),),
+        grid[6].digest: (_cost_metric(grid[6], gross=-0.01),),
+    }
+
+    with pytest.raises(CausalAlphaSelectionRejectedV2) as caught:
+        rank_cost_aware_causal_alpha_candidates(
+            candidates=grid,
+            metrics=metrics,
+            thresholds=CausalAlphaSelectionThresholds(),
+        )
+
+    assert {
+        item.rejection_reasons[0] for item in caught.value.candidates
+    } == {
+        "hard_risk_violation",
+        "unexplained_execution_rejection",
+        "no_meaningful_trades",
+        "negative_mean_net_return",
+        "lower_tail_net_return_below_floor",
+        "turnover_per_day_above_maximum",
+        "majority_negative_gross_return",
+    }
+
+
+def test_cost_aware_ranking_prefers_lower_tail_then_mean_then_turnover() -> None:
+    grid = default_cost_aware_causal_alpha_candidate_grid(
+        risk_config=PreTradeRiskConfig(max_abs_weight=1.0, no_trade_band=0.05)
+    )[:2]
+    selected = rank_cost_aware_causal_alpha_candidates(
+        candidates=grid,
+        metrics={
+            grid[0].digest: (
+                _cost_metric(grid[0], 0, net=0.01, turnover=0.2),
+                _cost_metric(grid[0], 1, net=0.03, turnover=0.2),
+            ),
+            grid[1].digest: (
+                _cost_metric(grid[1], 0, net=0.01, turnover=0.5),
+                _cost_metric(grid[1], 1, net=0.05, turnover=0.5),
+            ),
+        },
+        thresholds=CausalAlphaSelectionThresholds(),
+    )
+
+    assert selected.selected_candidate_digest == grid[1].digest
+
+
 def _samples(symbol: str) -> CausalAlphaSymbolSamples:
     decisions = np.arange(2, 26, dtype=np.int64)
     features = np.column_stack(
@@ -454,3 +617,84 @@ def test_production_selection_replays_only_selection_contracts(monkeypatch) -> N
         "symbol": symbols[-1],
         "total_replays": 8,
     }
+
+
+def test_cost_aware_production_selection_persists_complete_v2_metric(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import trade_rl.workflows.universal_causal_alpha_teacher as module
+
+    symbol = "AAAUSDT"
+    samples = {symbol: _samples(symbol)}
+    partitions = {symbol: _partition(symbol)}
+    candidate = default_cost_aware_causal_alpha_candidate_grid(
+        risk_config=PreTradeRiskConfig(max_abs_weight=1.0, no_trade_band=0.05)
+    )[0]
+    signal = evaluate_causal_alpha_signal_diagnostics(
+        np.asarray([-0.02, -0.01, 0.01, 0.02]),
+        np.asarray([-0.01, -0.02, 0.02, 0.01]),
+    )
+    progress: list[dict[str, object]] = []
+
+    def targets(**kwargs):
+        contract = kwargs["contract"]
+        return SimpleNamespace(
+            actions=np.zeros((contract.stop - contract.start - 1, 1), dtype=np.float32),
+            signal_24h=signal,
+            signal_72h=signal,
+            target_path=SimpleNamespace(
+                cost_suppressed_change_count=4,
+                submitted_change_count=3,
+                strong_reversal_count=1,
+                sign_flip_count=1,
+            ),
+        )
+
+    monkeypatch.setattr(module, "_cost_aware_causal_alpha_target_for_contract", targets)
+    monkeypatch.setattr(
+        module,
+        "evaluate_episode_action_path_on_environment",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            performance=SimpleNamespace(
+                gross_return=0.02,
+                net_return=0.01,
+                turnover_total=0.5,
+                cost_total=1.0,
+                trade_count=2,
+            ),
+            collapse_evidence=SimpleNamespace(
+                execution_rejection_count=0,
+                execution_rejection_reason_counts=(),
+                risk_projection_reason_counts=(("no_trade_band", 2),),
+                hard_risk_violation=False,
+            ),
+        ),
+    )
+    environment = SimpleNamespace(
+        dataset=SimpleNamespace(),
+        decision_bars=1,
+        config=SimpleNamespace(
+            execution_cost=ExecutionCostConfig(), signal_delay_decisions=1
+        ),
+        close=lambda: None,
+    )
+
+    selection = evaluate_cost_aware_causal_alpha_selection(
+        train_symbols=(symbol,),
+        samples=samples,
+        partitions=partitions,
+        candidates=(candidate,),
+        environment_factories={symbol: lambda: environment},
+        episode_hours=720.0,
+        thresholds=CausalAlphaSelectionThresholds(),
+        progress_callback=lambda payload: progress.append(dict(payload)),
+    )
+
+    metrics = selection.candidates[0].episode_metrics
+    assert len(metrics) == 2
+    assert metrics[0].signal_24h.digest == signal.digest
+    assert metrics[0].cost_suppressed_change_count == 4
+    assert metrics[0].risk_projection_reason_counts == (("no_trade_band", 2),)
+    assert progress[-1]["episode_metric"]["schema_version"] == (
+        "causal_alpha_candidate_episode_metrics_v2"
+    )

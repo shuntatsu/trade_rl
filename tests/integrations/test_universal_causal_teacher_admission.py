@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.learning.causal_alpha_teacher import (
+    CausalAlphaTeacherHoldoutMetric,
+    evaluate_causal_alpha_teacher_admission,
+)
 from trade_rl.learning.episode_behavior_cloning import BehaviorCloningSplit
 from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
@@ -77,7 +80,26 @@ def _config() -> ResidualTrainingConfig:
     )
 
 
-def test_failed_teacher_holdout_stops_before_behavior_cloning(
+def _failed_admission(symbols: tuple[str, ...]) -> dict[str, object]:
+    evidence = evaluate_causal_alpha_teacher_admission(
+        tuple(
+            CausalAlphaTeacherHoldoutMetric(
+                symbol=symbol,
+                gross_return=-0.01,
+                net_return=-0.02,
+                turnover_per_day=2.0,
+                total_execution_cost=0.5,
+                trade_count=2,
+                maximum_drawdown=0.1,
+            )
+            for symbol in symbols
+        )
+    )
+    assert evidence.passed is False
+    return evidence.to_payload()
+
+
+def test_failed_stored_teacher_admission_stops_before_behavior_cloning(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -105,25 +127,18 @@ def test_failed_teacher_holdout_stops_before_behavior_cloning(
             "artifact_digest": content_digest("selection-evidence"),
             "selected_candidate_digest": content_digest("candidate"),
         },
+        causal_teacher_admission_evidence=_failed_admission(symbols),
         causal_teacher_episode_hours=720.0,
     )
-    calls: list[str] = []
 
-    def replay(_factory, contract, *, actions):
-        calls.append(f"holdout:{contract.dataset_id}")
-        assert actions.shape == (2, 1)
-        return SimpleNamespace(
-            performance=SimpleNamespace(
-                gross_return=-0.01,
-                net_return=-0.02,
-                turnover_total=2.0,
-                cost_total=0.5,
-                trade_count=2,
-                maximum_drawdown=-0.1,
-            )
-        )
-
-    monkeypatch.setattr(module, "evaluate_episode_action_path", replay)
+    monkeypatch.setattr(
+        module,
+        "evaluate_episode_action_path",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("stored teacher admission must not replay holdouts")
+        ),
+        raising=False,
+    )
     monkeypatch.setattr(
         module,
         "pretrain_universal_policy",
@@ -145,7 +160,6 @@ def test_failed_teacher_holdout_stops_before_behavior_cloning(
             output_root=tmp_path,
         )
 
-    assert len(calls) == 2
     selection_path = tmp_path / "causal-teacher-selection.json"
     admission_path = tmp_path / "causal-teacher-admission.json"
     assert selection_path.is_file()
@@ -163,6 +177,7 @@ def test_teacher_holdout_is_not_replayed_for_legacy_teacher(
 ) -> None:
     from trade_rl.integrations import universal_pretraining as module
 
+    del tmp_path
     combined = module.combine_symbol_teachers(
         {"AAAUSDT": (_dataset("A"), _split(), np.arange(6, dtype=np.float32))},
         train_symbols=("AAAUSDT",),

@@ -10,6 +10,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.identity import content_and_arrays_digest
+from trade_rl.learning.causal_alpha_diagnostics import CausalAlphaSignalDiagnostics
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
     CausalAlphaHorizonMix,
@@ -620,6 +621,110 @@ class CausalAlphaCandidateEpisodeMetrics:
 
 
 @dataclass(frozen=True, slots=True)
+class CausalAlphaCandidateEpisodeMetricsV2:
+    candidate_digest: str
+    symbol: str
+    episode_index: int
+    gross_return: float
+    net_return: float
+    turnover_per_day: float
+    total_execution_cost: float
+    trade_count: int
+    signal_24h: CausalAlphaSignalDiagnostics
+    signal_72h: CausalAlphaSignalDiagnostics
+    cost_suppressed_change_count: int
+    submitted_change_count: int
+    strong_reversal_count: int
+    command_sign_flip_count: int
+    execution_rejection_count: int
+    execution_rejection_reason_counts: tuple[tuple[str, int], ...]
+    risk_projection_reason_counts: tuple[tuple[str, int], ...]
+    hard_risk_violation: bool
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.candidate_digest, str) or len(self.candidate_digest) != 64:
+            raise ValueError("causal alpha v2 candidate digest is invalid")
+        if not self.symbol:
+            raise ValueError("causal alpha v2 metric symbol is empty")
+        if isinstance(self.episode_index, bool) or self.episode_index < 0:
+            raise ValueError("causal alpha v2 episode index is invalid")
+        for field in (
+            "gross_return",
+            "net_return",
+            "turnover_per_day",
+            "total_execution_cost",
+        ):
+            value = getattr(self, field)
+            if not math.isfinite(value):
+                raise ValueError(f"causal alpha v2 {field} must be finite")
+        if self.turnover_per_day < 0.0 or self.total_execution_cost < 0.0:
+            raise ValueError("causal alpha v2 turnover and cost must be non-negative")
+        for field in (
+            "trade_count",
+            "cost_suppressed_change_count",
+            "submitted_change_count",
+            "strong_reversal_count",
+            "command_sign_flip_count",
+            "execution_rejection_count",
+        ):
+            value = getattr(self, field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"causal alpha v2 {field} must be non-negative")
+        for field in (
+            "execution_rejection_reason_counts",
+            "risk_projection_reason_counts",
+        ):
+            normalized = tuple(sorted(tuple(item) for item in getattr(self, field)))
+            if len({reason for reason, _ in normalized}) != len(normalized) or any(
+                not isinstance(reason, str)
+                or not reason
+                or isinstance(count, bool)
+                or not isinstance(count, int)
+                or count <= 0
+                for reason, count in normalized
+            ):
+                raise ValueError(f"causal alpha v2 {field} is invalid")
+            object.__setattr__(self, field, normalized)
+        if sum(count for _, count in self.execution_rejection_reason_counts) != (
+            self.execution_rejection_count
+        ):
+            raise ValueError("causal alpha v2 execution rejection reasons do not reconcile")
+        if not isinstance(self.hard_risk_violation, bool):
+            raise TypeError("causal alpha v2 hard_risk_violation must be boolean")
+        expected = content_digest(self._payload_without_digest())
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha v2 candidate metric digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+    def _payload_without_digest(self) -> dict[str, object]:
+        return {
+            "candidate_digest": self.candidate_digest,
+            "command_sign_flip_count": self.command_sign_flip_count,
+            "cost_suppressed_change_count": self.cost_suppressed_change_count,
+            "episode_index": self.episode_index,
+            "execution_rejection_count": self.execution_rejection_count,
+            "execution_rejection_reason_counts": self.execution_rejection_reason_counts,
+            "gross_return": self.gross_return,
+            "hard_risk_violation": self.hard_risk_violation,
+            "net_return": self.net_return,
+            "risk_projection_reason_counts": self.risk_projection_reason_counts,
+            "schema_version": "causal_alpha_candidate_episode_metrics_v2",
+            "signal_24h": self.signal_24h.to_payload(),
+            "signal_72h": self.signal_72h.to_payload(),
+            "strong_reversal_count": self.strong_reversal_count,
+            "submitted_change_count": self.submitted_change_count,
+            "symbol": self.symbol,
+            "total_execution_cost": self.total_execution_cost,
+            "trade_count": self.trade_count,
+            "turnover_per_day": self.turnover_per_day,
+        }
+
+    def to_payload(self) -> dict[str, object]:
+        return {**self._payload_without_digest(), "artifact_digest": self.digest}
+
+
+@dataclass(frozen=True, slots=True)
 class CausalAlphaCandidateEvidence:
     candidate: CausalAlphaCandidateConfig
     episode_metrics: tuple[CausalAlphaCandidateEpisodeMetrics, ...]
@@ -932,6 +1037,7 @@ __all__ = [
     "CausalAlphaBatchEvidence",
     "CausalAlphaCandidateConfig",
     "CausalAlphaCandidateEpisodeMetrics",
+    "CausalAlphaCandidateEpisodeMetricsV2",
     "CausalAlphaCandidateEvidence",
     "CausalAlphaEpisodeEvidence",
     "CausalAlphaEpisodePartition",

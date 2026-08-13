@@ -19,6 +19,9 @@ import trade_rl.workflows.universal_causal_alpha_selection as _causal_selection_
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.learning.causal_alpha_diagnostics import (
+    causal_alpha_signal_diagnostics_from_payload,
+)
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaTeacherAdmissionEvidence,
     CausalAlphaTeacherHoldoutMetric,
@@ -35,6 +38,7 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaBatchEvidence,
     CausalAlphaCandidateConfig,
     CausalAlphaCandidateEpisodeMetrics,
+    CausalAlphaCandidateEpisodeMetricsV2,
     CausalAlphaCandidateEvidence,
     CausalAlphaEpisodeEvidence,
     CausalAlphaEpisodePartition,
@@ -144,6 +148,80 @@ def load_causal_alpha_selection_checkpoint(
             )
             if identity in identities:
                 raise ValueError("causal alpha selection checkpoint is duplicated")
+            identities.add(identity)
+            by_candidate.setdefault(metric.candidate_digest, []).append(metric)
+    return {digest: tuple(metrics) for digest, metrics in by_candidate.items()}
+
+
+def write_causal_alpha_selection_checkpoint_metric_v2(
+    path: Path,
+    metric: CausalAlphaCandidateEpisodeMetricsV2,
+    *,
+    grid_digest: str,
+) -> None:
+    if not isinstance(grid_digest, str) or len(grid_digest) != 64:
+        raise ValueError("causal alpha v2 grid digest is invalid")
+    payload = {
+        **metric.to_payload(),
+        "grid_digest": grid_digest,
+        "schema_version": "causal_alpha_selection_checkpoint_metric_v2",
+    }
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("ab") as checkpoint:
+        checkpoint.write(canonical_json_bytes(payload))
+        checkpoint.write(b"\n")
+        checkpoint.flush()
+        os.fsync(checkpoint.fileno())
+
+
+def load_causal_alpha_selection_checkpoint_v2(
+    path: Path,
+    *,
+    expected_grid_digest: str,
+) -> dict[str, tuple[CausalAlphaCandidateEpisodeMetricsV2, ...]]:
+    source = Path(path)
+    if not source.is_file():
+        return {}
+    by_candidate: dict[str, list[CausalAlphaCandidateEpisodeMetricsV2]] = {}
+    identities: set[tuple[str, str, int]] = set()
+    with source.open("r", encoding="utf-8") as checkpoint:
+        for line in checkpoint:
+            raw = json.loads(line)
+            if raw.get("schema_version") != "causal_alpha_selection_checkpoint_metric_v2":
+                raise ValueError("causal alpha v2 selection checkpoint schema mismatch")
+            if raw.get("grid_digest") != expected_grid_digest:
+                raise ValueError("causal alpha v2 selection checkpoint grid digest mismatch")
+            metric = CausalAlphaCandidateEpisodeMetricsV2(
+                candidate_digest=str(raw["candidate_digest"]),
+                symbol=str(raw["symbol"]),
+                episode_index=int(raw["episode_index"]),
+                gross_return=float(raw["gross_return"]),
+                net_return=float(raw["net_return"]),
+                turnover_per_day=float(raw["turnover_per_day"]),
+                total_execution_cost=float(raw["total_execution_cost"]),
+                trade_count=int(raw["trade_count"]),
+                signal_24h=causal_alpha_signal_diagnostics_from_payload(raw["signal_24h"]),
+                signal_72h=causal_alpha_signal_diagnostics_from_payload(raw["signal_72h"]),
+                cost_suppressed_change_count=int(raw["cost_suppressed_change_count"]),
+                submitted_change_count=int(raw["submitted_change_count"]),
+                strong_reversal_count=int(raw["strong_reversal_count"]),
+                command_sign_flip_count=int(raw["command_sign_flip_count"]),
+                execution_rejection_count=int(raw["execution_rejection_count"]),
+                execution_rejection_reason_counts=tuple(
+                    (str(reason), int(count))
+                    for reason, count in raw["execution_rejection_reason_counts"]
+                ),
+                risk_projection_reason_counts=tuple(
+                    (str(reason), int(count))
+                    for reason, count in raw["risk_projection_reason_counts"]
+                ),
+                hard_risk_violation=bool(raw["hard_risk_violation"]),
+                digest=str(raw["artifact_digest"]),
+            )
+            identity = (metric.candidate_digest, metric.symbol, metric.episode_index)
+            if identity in identities:
+                raise ValueError("causal alpha v2 selection checkpoint is duplicated")
             identities.add(identity)
             by_candidate.setdefault(metric.candidate_digest, []).append(metric)
     return {digest: tuple(metrics) for digest, metrics in by_candidate.items()}
@@ -628,6 +706,7 @@ __all__ = [
     "CausalAlphaBatchEvidence",
     "CausalAlphaCandidateConfig",
     "CausalAlphaCandidateEpisodeMetrics",
+    "CausalAlphaCandidateEpisodeMetricsV2",
     "CausalAlphaCandidateEvidence",
     "CausalAlphaEpisodeEvidence",
     "CausalAlphaEpisodePartition",
@@ -647,8 +726,10 @@ __all__ = [
     "fit_expanding_causal_alpha_models",
     "latest_complete_episode_split",
     "load_causal_alpha_selection_checkpoint",
+    "load_causal_alpha_selection_checkpoint_v2",
     "persist_causal_alpha_selection_rejection",
     "rank_causal_alpha_candidates",
     "validate_universal_causal_alpha_partitions",
     "write_causal_alpha_selection_checkpoint_metric",
+    "write_causal_alpha_selection_checkpoint_metric_v2",
 ]

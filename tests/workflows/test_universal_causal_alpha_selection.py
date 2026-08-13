@@ -8,6 +8,9 @@ import numpy as np
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.learning.causal_alpha_diagnostics import (
+    evaluate_causal_alpha_signal_diagnostics,
+)
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
     CausalAlphaHorizonMix,
@@ -20,14 +23,17 @@ from trade_rl.workflows.universal_causal_alpha_selection import (
 from trade_rl.workflows.universal_causal_alpha_teacher import (
     CausalAlphaCandidateConfig,
     CausalAlphaCandidateEpisodeMetrics,
+    CausalAlphaCandidateEpisodeMetricsV2,
     CausalAlphaEpisodePartition,
     CausalAlphaExpandingFitCache,
     CausalAlphaSymbolSamples,
     evaluate_causal_alpha_selection,
     load_causal_alpha_selection_checkpoint,
+    load_causal_alpha_selection_checkpoint_v2,
     persist_causal_alpha_selection_rejection,
     rank_causal_alpha_candidates,
     write_causal_alpha_selection_checkpoint_metric,
+    write_causal_alpha_selection_checkpoint_metric_v2,
 )
 
 
@@ -209,6 +215,78 @@ def test_selection_checkpoint_round_trips_episode_metrics(tmp_path: Path) -> Non
     restored = load_causal_alpha_selection_checkpoint(path)
 
     assert restored == {candidate.digest: (metric,)}
+
+
+def _metric_v2(*, realized_scale: float = 1.0) -> CausalAlphaCandidateEpisodeMetricsV2:
+    predicted = np.asarray([-0.02, -0.01, 0.01, 0.02])
+    signal = evaluate_causal_alpha_signal_diagnostics(
+        predicted, realized_scale * predicted
+    )
+    return CausalAlphaCandidateEpisodeMetricsV2(
+        candidate_digest=content_digest("candidate-v2"),
+        symbol="BTCUSDT",
+        episode_index=3,
+        gross_return=0.02,
+        net_return=0.01,
+        turnover_per_day=0.3,
+        total_execution_cost=4.0,
+        trade_count=2,
+        signal_24h=signal,
+        signal_72h=signal,
+        cost_suppressed_change_count=3,
+        submitted_change_count=2,
+        strong_reversal_count=1,
+        command_sign_flip_count=1,
+        execution_rejection_count=1,
+        execution_rejection_reason_counts=(("minimum_notional", 1),),
+        risk_projection_reason_counts=(("no_trade_band", 2),),
+        hard_risk_violation=False,
+    )
+
+
+def test_v2_checkpoint_round_trips_and_binds_grid_identity(tmp_path: Path) -> None:
+    metric = _metric_v2()
+    grid_digest = content_digest("corrected-grid")
+    path = tmp_path / "causal-teacher-selection-checkpoint-v2.jsonl"
+
+    write_causal_alpha_selection_checkpoint_metric_v2(
+        path, metric, grid_digest=grid_digest
+    )
+
+    assert load_causal_alpha_selection_checkpoint_v2(
+        path, expected_grid_digest=grid_digest
+    ) == {metric.candidate_digest: (metric,)}
+    with pytest.raises(ValueError, match="grid digest"):
+        load_causal_alpha_selection_checkpoint_v2(
+            path, expected_grid_digest=content_digest("different-grid")
+        )
+
+
+def test_v2_checkpoint_rejects_historical_v1_rows(tmp_path: Path) -> None:
+    candidate = _candidate("historical")
+    path = tmp_path / "causal-teacher-selection-checkpoint.jsonl"
+    write_causal_alpha_selection_checkpoint_metric(
+        path,
+        _metric(
+            candidate,
+            0,
+            gross=0.01,
+            net=0.0,
+            turnover=0.1,
+            cost=1.0,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="schema"):
+        load_causal_alpha_selection_checkpoint_v2(
+            path, expected_grid_digest=content_digest("corrected-grid")
+        )
+
+
+def test_v2_metric_digest_changes_with_signal_diagnostics() -> None:
+    assert _metric_v2(realized_scale=1.0).digest != _metric_v2(
+        realized_scale=-1.0
+    ).digest
 
 
 def _samples(symbol: str) -> CausalAlphaSymbolSamples:

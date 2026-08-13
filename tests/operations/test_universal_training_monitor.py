@@ -250,4 +250,8 @@ def test_monitor_summarizes_bounded_v2_teacher_checkpoint_window(
     assert candidate["execution_rejection_reason_counts"] == {
         "minimum_notional": candidate["record_count"]
     }
+    assert candidate["explained_execution_no_fill_count"] == 0
+    assert candidate["unexplained_execution_rejection_count"] == candidate[
+        "record_count"
+    ]
     assert candidate["signal_24h_pearson_mean"] == signal.pearson_correlation

@@ -503,3 +503,31 @@ metrics now include liquidity-deleveraging count and cap min/median/max, and the
 monitor aggregates these alongside gross/net return, turnover, execution cost,
 trades, signal quality, and risk projection reasons. The reward remains pure
 net log growth with no added cost, baseline, or drawdown penalty.
+
+The first immutable liquidity-aware generation,
+`causal-teacher-liquidity-r1`, used pushed commit `dca4d5ae`, source-tree digest
+`9c29087c244c1538e1df4bfeeebb40adda2b7c138c539c20930eeee70f819e7a`,
+lockfile digest `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`,
+runtime-manifest digest
+`6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`,
+and image `trade-rl-universal:dca4d5aed6c0-6726b3737df9`. Docker remained
+`OOMKilled=false`; observed RAM peaked near 5.5 GiB.
+
+The complete 16-episode APTUSDT baseline returned mean gross/net
+`-0.253% / -0.392%`, worst net `-4.725%`, turnover `0.071x/day`, total cost
+`2,417.37`, and 71 trades. Relative to the old cost-aware baseline, turnover and
+cost fell by about 98.5% and 98.4%, respectively. Thus the liquidity correction
+fixed the downstream churn mechanism but did not fix negative gross position
+selection. The 24h-only candidate initially improved, then reached worst net
+`-6.284%` by episode 10 and irreversibly breached the `-5%` floor.
+
+The run also exposed a gate-classification defect: expected
+`zero_quantity_after_rounding` no-fills were included in the threshold named
+`maximum_unexplained_execution_rejections`. r1 was stopped after preserving 27
+durable records under
+`artifacts/universal/diagnostics/causal-teacher-liquidity-r1-preclassification`;
+Docker exited 137 after the 30-second stop timeout with `OOMKilled=false`. The
+gate now keeps raw rejection counts/reasons but classifies only this maintained
+lot-size no-fill as explained. Identity, eligibility, execution-rule, leverage,
+and all other rejection reasons remain fail-closed. The monitor reports raw,
+explained, and unexplained counts separately.

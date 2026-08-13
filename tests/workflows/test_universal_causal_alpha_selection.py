@@ -458,6 +458,30 @@ def test_cost_aware_ranking_prefers_lower_tail_then_mean_then_turnover() -> None
     assert selected.selected_candidate_digest == grid[1].digest
 
 
+def test_cost_aware_ranking_treats_rounded_zero_as_explained_no_fill() -> None:
+    candidate = default_cost_aware_causal_alpha_candidate_grid(
+        risk_config=PreTradeRiskConfig(max_abs_weight=1.0, no_trade_band=0.05)
+    )[0]
+
+    selected = rank_cost_aware_causal_alpha_candidates(
+        candidates=(candidate,),
+        metrics={
+            candidate.digest: (
+                _cost_metric(
+                    candidate,
+                    rejection_reason="zero_quantity_after_rounding",
+                ),
+            )
+        },
+        thresholds=CausalAlphaSelectionThresholds(),
+    )
+
+    evidence = selected.candidates[0]
+    assert evidence.admissible is True
+    assert evidence.unexplained_execution_rejection_count == 0
+    assert evidence.episode_metrics[0].execution_rejection_count == 1
+
+
 def _samples(symbol: str) -> CausalAlphaSymbolSamples:
     decisions = np.arange(2, 26, dtype=np.int64)
     features = np.column_stack(

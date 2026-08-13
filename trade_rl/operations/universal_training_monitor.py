@@ -14,6 +14,9 @@ from typing import Any
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
+from trade_rl.workflows.universal_causal_alpha_selection import (
+    causal_alpha_unexplained_execution_rejection_count,
+)
 from trade_rl.workflows.universal_causal_alpha_teacher import (
     causal_alpha_candidate_metric_v2_from_payload,
 )
@@ -373,10 +376,19 @@ def _causal_teacher_checkpoint_summary(path: Path) -> dict[str, object]:
 
     summaries: dict[str, object] = {}
     for digest, aggregate in sorted(candidates.items()):
+        rejection_reason_counts = tuple(
+            sorted(aggregate.execution_rejection_reason_counts.items())
+        )
+        unexplained_rejections = causal_alpha_unexplained_execution_rejection_count(
+            rejection_reason_counts
+        )
         summaries[digest] = {
             "command_sign_flip_count": aggregate.command_sign_flip_count,
             "cost_suppressed_change_count": aggregate.cost_suppressed_change_count,
             "execution_rejection_count": aggregate.execution_rejection_count,
+            "explained_execution_no_fill_count": (
+                aggregate.execution_rejection_count - unexplained_rejections
+            ),
             "execution_rejection_reason_counts": dict(
                 sorted(aggregate.execution_rejection_reason_counts.items())
             ),
@@ -412,6 +424,7 @@ def _causal_teacher_checkpoint_summary(path: Path) -> dict[str, object]:
             "total_execution_cost": aggregate.total_execution_cost,
             "total_trade_count": aggregate.total_trade_count,
             "turnover_per_day_mean": statistics.fmean(aggregate.turnover_per_day),
+            "unexplained_execution_rejection_count": unexplained_rejections,
         }
     return {
         "candidates": summaries,

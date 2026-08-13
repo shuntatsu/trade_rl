@@ -46,6 +46,20 @@ from trade_rl.workflows.universal_causal_alpha_fitting import (
     fit_expanding_causal_alpha_models,
 )
 
+_EXPLAINED_EXECUTION_NO_FILL_REASONS = frozenset(
+    {"zero_quantity_after_rounding"}
+)
+
+
+def causal_alpha_unexplained_execution_rejection_count(
+    reason_counts: tuple[tuple[str, int], ...],
+) -> int:
+    return sum(
+        count
+        for reason, count in reason_counts
+        if reason not in _EXPLAINED_EXECUTION_NO_FILL_REASONS
+    )
+
 
 def _candidate_rejection_payload(
     evidence: CausalAlphaCandidateEvidence,
@@ -453,7 +467,12 @@ def _cost_aware_candidate_evidence(
     negative_gross = sum(item.gross_return < 0.0 for item in metrics)
     total_trades = sum(item.trade_count for item in metrics)
     hard_risk = any(item.hard_risk_violation for item in metrics)
-    rejection_count = sum(item.execution_rejection_count for item in metrics)
+    rejection_count = sum(
+        causal_alpha_unexplained_execution_rejection_count(
+            item.execution_rejection_reason_counts
+        )
+        for item in metrics
+    )
     mean_net = float(np.mean(net_returns, dtype=np.float64))
     lower_tail = float(np.min(net_returns))
     mean_turnover = float(
@@ -820,6 +839,7 @@ __all__ = [
     "CausalAlphaSelectionRejectedV2",
     "CausalAlphaSelectionThresholds",
     "causal_alpha_one_way_cost_rates",
+    "causal_alpha_unexplained_execution_rejection_count",
     "cost_aware_causal_alpha_grid_digest",
     "default_causal_alpha_candidate_grid",
     "default_cost_aware_causal_alpha_candidate_grid",

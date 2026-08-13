@@ -53,6 +53,20 @@ def test_prediction_diagnostics_persist_correlation_direction_and_distribution()
     assert len(payload["artifact_digest"]) == 64
 
 
+def test_prediction_diagnostics_use_only_fully_realized_labels() -> None:
+    evidence = causal_alpha_prediction_diagnostics(
+        np.asarray([-0.3, -0.1, 0.2, 0.5], dtype=np.float64),
+        np.asarray([-0.2, np.nan, 0.4, np.nan], dtype=np.float64),
+    )
+
+    assert evidence.sample_count == 2
+    assert evidence.pearson_correlation == pytest.approx(1.0)
+    assert evidence.directional_accuracy == pytest.approx(1.0)
+    payload = evidence.to_payload()
+    assert payload["prediction_quantiles"]["p00"] == pytest.approx(-0.3)
+    assert payload["prediction_quantiles"]["p100"] == pytest.approx(0.2)
+
+
 def test_constant_prediction_correlation_is_explicitly_unavailable() -> None:
     evidence = causal_alpha_prediction_diagnostics(
         np.ones(4, dtype=np.float64),

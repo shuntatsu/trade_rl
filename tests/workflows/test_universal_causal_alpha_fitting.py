@@ -7,10 +7,12 @@ import trade_rl.workflows.universal_causal_alpha_teacher as causal_alpha_module
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
+    CausalAlphaCostAwareConfig,
     CausalAlphaHorizonMix,
     CausalAlphaRidgeConfig,
 )
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_teacher import (
     CausalAlphaEpisodePartition,
     CausalAlphaSymbolSamples,
@@ -164,6 +166,55 @@ def test_episode_batch_fits_each_episode_at_its_own_cutoff_and_preserves_initial
     assert evidence.episodes[1].initial_weight == pytest.approx(0.25)
     assert batch.teacher_config_digest == evidence.digest
     assert fit_cache.fit_count == 2
+
+
+class _CostDataset:
+    n_bars = 32
+
+    def resolved_array(self, name: str) -> np.ndarray:
+        if name == "max_participation_rate":
+            return np.full((self.n_bars, 1), 0.25, dtype=np.float64)
+        return np.zeros((self.n_bars, 1), dtype=np.float64)
+
+
+def test_episode_batch_uses_selected_cost_aware_controller_for_teacher_targets() -> (
+    None
+):
+    symbol = "AAAUSDT"
+    samples = {symbol: _samples(symbol, 0.0)}
+    economic = CausalAlphaCostAwareConfig(
+        execution_cost_multiplier=1.5,
+        edge_margin=0.001,
+        confirmation_count=2,
+        strong_reversal_threshold=0.02,
+        max_abs_target=0.5,
+    )
+
+    batch, evidence = build_causal_alpha_episode_batch(
+        symbol=symbol,
+        train_symbols=(symbol,),
+        samples=samples,
+        partition=_partition(symbol),
+        ridge_config=CausalAlphaRidgeConfig(ridge_strength=0.1),
+        controller_config=CausalAlphaControllerConfig(
+            horizon_mix=CausalAlphaHorizonMix.EQUAL,
+            score_scale=25.0,
+            entry_threshold=0.001,
+            exit_threshold=0.0005,
+            no_trade_band=0.0,
+            max_target_delta=0.125,
+        ),
+        economic_controller_config=economic,
+        dataset=_CostDataset(),
+        execution_cost=ExecutionCostConfig(),
+        signal_delay_decisions=1,
+        decision_bars=1,
+    )
+
+    assert batch.episode_count == 2
+    assert evidence.economic_controller_config_digest == economic.digest
+    assert all(item.cost_aware_target_path_digest for item in evidence.episodes)
+    assert all(item.cost_suppressed_change_count is not None for item in evidence.episodes)
 
 
 def test_sample_identity_drift_changes_fit_digest() -> None:

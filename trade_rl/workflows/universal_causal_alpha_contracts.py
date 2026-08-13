@@ -10,8 +10,10 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.identity import content_and_arrays_digest
+from trade_rl.learning.causal_alpha_diagnostics import CausalAlphaSignalDiagnostics
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
+    CausalAlphaCostAwareConfig,
     CausalAlphaHorizonMix,
     CausalAlphaRidgeConfig,
     CausalAlphaRidgeModel,
@@ -401,6 +403,9 @@ class CausalAlphaEpisodeEvidence:
     sign_flip_count: int
     target_path_digest: str
     prediction_digest: str
+    cost_aware_target_path_digest: str | None = None
+    cost_suppressed_change_count: int | None = None
+    strong_reversal_count: int | None = None
     digest: str = ""
 
     def __post_init__(self) -> None:
@@ -434,13 +439,30 @@ class CausalAlphaEpisodeEvidence:
             value = getattr(self, field)
             if not isinstance(value, str) or len(value) != 64:
                 raise ValueError(f"causal alpha episode {field} is invalid")
+        cost_counts = (
+            self.cost_suppressed_change_count,
+            self.strong_reversal_count,
+        )
+        if self.cost_aware_target_path_digest is None:
+            if any(value is not None for value in cost_counts):
+                raise ValueError("causal alpha episode cost-aware evidence is incomplete")
+        elif (
+            len(self.cost_aware_target_path_digest) != 64
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                for value in cost_counts
+            )
+        ):
+            raise ValueError("causal alpha episode cost-aware evidence is invalid")
         expected = content_digest(self._payload_without_digest())
         if self.digest and self.digest != expected:
             raise ValueError("causal alpha episode evidence digest mismatch")
         object.__setattr__(self, "digest", expected)
 
     def _payload_without_digest(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "actionable_decision_count": self.actionable_decision_count,
             "decision_count": self.decision_count,
             "episode_index": self.episode_index,
@@ -454,13 +476,26 @@ class CausalAlphaEpisodeEvidence:
             "prediction_24h": self.prediction_24h.to_payload(),
             "prediction_72h": self.prediction_72h.to_payload(),
             "prediction_digest": self.prediction_digest,
-            "schema_version": "causal_alpha_episode_evidence_v2",
+            "schema_version": (
+                "causal_alpha_episode_evidence_v2"
+                if self.cost_aware_target_path_digest is None
+                else "causal_alpha_episode_evidence_v3"
+            ),
             "scope": self.scope,
             "sign_flip_count": self.sign_flip_count,
             "submitted_change_count": self.submitted_change_count,
             "suppressed_change_count": self.suppressed_change_count,
             "target_path_digest": self.target_path_digest,
         }
+        if self.cost_aware_target_path_digest is not None:
+            payload.update(
+                {
+                    "cost_aware_target_path_digest": self.cost_aware_target_path_digest,
+                    "cost_suppressed_change_count": self.cost_suppressed_change_count,
+                    "strong_reversal_count": self.strong_reversal_count,
+                }
+            )
+        return payload
 
     def to_payload(self) -> dict[str, object]:
         return {**self._payload_without_digest(), "artifact_digest": self.digest}
@@ -476,6 +511,7 @@ class CausalAlphaBatchEvidence:
     controller_config_digest: str
     fits: Mapping[str, CausalAlphaExpandingFit]
     episodes: tuple[CausalAlphaEpisodeEvidence, ...]
+    economic_controller_config_digest: str | None = None
     digest: str = ""
 
     def __post_init__(self) -> None:
@@ -490,19 +526,30 @@ class CausalAlphaBatchEvidence:
             raise ValueError(
                 "causal alpha batch fit evidence does not close over episodes"
             )
-        expected = content_digest(
-            {
+        if self.economic_controller_config_digest is not None and len(
+            self.economic_controller_config_digest
+        ) != 64:
+            raise ValueError("causal alpha economic controller digest is invalid")
+        identity: dict[str, object] = {
                 "controller_config_digest": self.controller_config_digest,
                 "episode_evidence_digests": tuple(item.digest for item in episodes),
                 "fit_digests": tuple(sorted(fits)),
                 "partition_digest": self.partition_digest,
                 "ridge_config_digest": self.ridge_config_digest,
                 "sample_scope_digest": self.sample_scope_digest,
-                "schema_version": _CAUSAL_ALPHA_BATCH_EVIDENCE_SCHEMA,
+                "schema_version": (
+                    _CAUSAL_ALPHA_BATCH_EVIDENCE_SCHEMA
+                    if self.economic_controller_config_digest is None
+                    else "universal_causal_alpha_batch_evidence_v2"
+                ),
                 "symbol": self.symbol,
                 "train_symbols": self.train_symbols,
             }
-        )
+        if self.economic_controller_config_digest is not None:
+            identity["economic_controller_config_digest"] = (
+                self.economic_controller_config_digest
+            )
+        expected = content_digest(identity)
         if self.digest and self.digest != expected:
             raise ValueError("causal alpha batch evidence digest mismatch")
         object.__setattr__(self, "episodes", episodes)
@@ -510,7 +557,7 @@ class CausalAlphaBatchEvidence:
         object.__setattr__(self, "digest", expected)
 
     def to_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "artifact_digest": self.digest,
             "controller_config_digest": self.controller_config_digest,
             "episodes": [item.to_payload() for item in self.episodes],
@@ -520,10 +567,19 @@ class CausalAlphaBatchEvidence:
             "partition_digest": self.partition_digest,
             "ridge_config_digest": self.ridge_config_digest,
             "sample_scope_digest": self.sample_scope_digest,
-            "schema_version": _CAUSAL_ALPHA_BATCH_EVIDENCE_SCHEMA,
+            "schema_version": (
+                _CAUSAL_ALPHA_BATCH_EVIDENCE_SCHEMA
+                if self.economic_controller_config_digest is None
+                else "universal_causal_alpha_batch_evidence_v2"
+            ),
             "symbol": self.symbol,
             "train_symbols": list(self.train_symbols),
         }
+        if self.economic_controller_config_digest is not None:
+            payload["economic_controller_config_digest"] = (
+                self.economic_controller_config_digest
+            )
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -533,6 +589,7 @@ class CausalAlphaCandidateConfig:
     name: str
     ridge: CausalAlphaRidgeConfig
     controller: CausalAlphaControllerConfig
+    economic_controller: CausalAlphaCostAwareConfig | None = None
     digest: str = ""
 
     def __post_init__(self) -> None:
@@ -542,14 +599,23 @@ class CausalAlphaCandidateConfig:
             raise TypeError("causal alpha candidate ridge config is invalid")
         if not isinstance(self.controller, CausalAlphaControllerConfig):
             raise TypeError("causal alpha candidate controller config is invalid")
-        expected = content_digest(
-            {
+        if self.economic_controller is not None and not isinstance(
+            self.economic_controller, CausalAlphaCostAwareConfig
+        ):
+            raise TypeError("causal alpha candidate economic controller is invalid")
+        identity: dict[str, object] = {
                 "controller_digest": self.controller.digest,
                 "name": self.name,
                 "ridge_digest": self.ridge.digest,
-                "schema_version": "causal_alpha_candidate_v1",
+                "schema_version": (
+                    "causal_alpha_candidate_v1"
+                    if self.economic_controller is None
+                    else "causal_alpha_candidate_v2"
+                ),
             }
-        )
+        if self.economic_controller is not None:
+            identity["economic_controller_digest"] = self.economic_controller.digest
+        expected = content_digest(identity)
         if self.digest and self.digest != expected:
             raise ValueError("causal alpha candidate digest mismatch")
         object.__setattr__(self, "digest", expected)
@@ -617,6 +683,128 @@ class CausalAlphaCandidateEpisodeMetrics:
         if self.digest and self.digest != expected:
             raise ValueError("causal alpha candidate episode metric digest mismatch")
         object.__setattr__(self, "digest", expected)
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaCandidateEpisodeMetricsV2:
+    candidate_digest: str
+    symbol: str
+    episode_index: int
+    gross_return: float
+    net_return: float
+    turnover_per_day: float
+    total_execution_cost: float
+    trade_count: int
+    signal_24h: CausalAlphaSignalDiagnostics
+    signal_72h: CausalAlphaSignalDiagnostics
+    cost_suppressed_change_count: int
+    submitted_change_count: int
+    strong_reversal_count: int
+    command_sign_flip_count: int
+    execution_rejection_count: int
+    execution_rejection_reason_counts: tuple[tuple[str, int], ...]
+    risk_projection_reason_counts: tuple[tuple[str, int], ...]
+    hard_risk_violation: bool
+    liquidity_deleveraging_count: int = 0
+    liquidity_weight_cap_min: float = 0.0
+    liquidity_weight_cap_median: float = 0.0
+    liquidity_weight_cap_max: float = 0.0
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.candidate_digest, str) or len(self.candidate_digest) != 64:
+            raise ValueError("causal alpha v2 candidate digest is invalid")
+        if not self.symbol:
+            raise ValueError("causal alpha v2 metric symbol is empty")
+        if isinstance(self.episode_index, bool) or self.episode_index < 0:
+            raise ValueError("causal alpha v2 episode index is invalid")
+        for field in (
+            "gross_return",
+            "net_return",
+            "turnover_per_day",
+            "total_execution_cost",
+        ):
+            value = getattr(self, field)
+            if not math.isfinite(value):
+                raise ValueError(f"causal alpha v2 {field} must be finite")
+        if self.turnover_per_day < 0.0 or self.total_execution_cost < 0.0:
+            raise ValueError("causal alpha v2 turnover and cost must be non-negative")
+        for field in (
+            "trade_count",
+            "cost_suppressed_change_count",
+            "submitted_change_count",
+            "strong_reversal_count",
+            "command_sign_flip_count",
+            "execution_rejection_count",
+            "liquidity_deleveraging_count",
+        ):
+            value = getattr(self, field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"causal alpha v2 {field} must be non-negative")
+        for field in (
+            "execution_rejection_reason_counts",
+            "risk_projection_reason_counts",
+        ):
+            normalized = tuple(sorted(tuple(item) for item in getattr(self, field)))
+            if len({reason for reason, _ in normalized}) != len(normalized) or any(
+                not isinstance(reason, str)
+                or not reason
+                or isinstance(count, bool)
+                or not isinstance(count, int)
+                or count <= 0
+                for reason, count in normalized
+            ):
+                raise ValueError(f"causal alpha v2 {field} is invalid")
+            object.__setattr__(self, field, normalized)
+        if sum(count for _, count in self.execution_rejection_reason_counts) != (
+            self.execution_rejection_count
+        ):
+            raise ValueError("causal alpha v2 execution rejection reasons do not reconcile")
+        if not isinstance(self.hard_risk_violation, bool):
+            raise TypeError("causal alpha v2 hard_risk_violation must be boolean")
+        liquidity_caps = (
+            self.liquidity_weight_cap_min,
+            self.liquidity_weight_cap_median,
+            self.liquidity_weight_cap_max,
+        )
+        if any(not math.isfinite(value) or value < 0.0 for value in liquidity_caps):
+            raise ValueError("causal alpha v2 liquidity weight caps are invalid")
+        if liquidity_caps != tuple(sorted(liquidity_caps)):
+            raise ValueError("causal alpha v2 liquidity weight caps are not ordered")
+        expected = content_digest(self._payload_without_digest())
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha v2 candidate metric digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+    def _payload_without_digest(self) -> dict[str, object]:
+        return {
+            "candidate_digest": self.candidate_digest,
+            "command_sign_flip_count": self.command_sign_flip_count,
+            "cost_suppressed_change_count": self.cost_suppressed_change_count,
+            "episode_index": self.episode_index,
+            "execution_rejection_count": self.execution_rejection_count,
+            "execution_rejection_reason_counts": self.execution_rejection_reason_counts,
+            "gross_return": self.gross_return,
+            "hard_risk_violation": self.hard_risk_violation,
+            "liquidity_deleveraging_count": self.liquidity_deleveraging_count,
+            "liquidity_weight_cap_max": self.liquidity_weight_cap_max,
+            "liquidity_weight_cap_median": self.liquidity_weight_cap_median,
+            "liquidity_weight_cap_min": self.liquidity_weight_cap_min,
+            "net_return": self.net_return,
+            "risk_projection_reason_counts": self.risk_projection_reason_counts,
+            "schema_version": "causal_alpha_candidate_episode_metrics_v2",
+            "signal_24h": self.signal_24h.to_payload(),
+            "signal_72h": self.signal_72h.to_payload(),
+            "strong_reversal_count": self.strong_reversal_count,
+            "submitted_change_count": self.submitted_change_count,
+            "symbol": self.symbol,
+            "total_execution_cost": self.total_execution_cost,
+            "trade_count": self.trade_count,
+            "turnover_per_day": self.turnover_per_day,
+        }
+
+    def to_payload(self) -> dict[str, object]:
+        return {**self._payload_without_digest(), "artifact_digest": self.digest}
 
 
 @dataclass(frozen=True, slots=True)
@@ -689,6 +877,164 @@ class CausalAlphaCandidateEvidence:
         object.__setattr__(self, "episode_metrics", metrics)
         object.__setattr__(self, "rejection_reasons", reasons)
         object.__setattr__(self, "digest", expected)
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaCandidateEvidenceV2:
+    candidate: CausalAlphaCandidateConfig
+    episode_metrics: tuple[CausalAlphaCandidateEpisodeMetricsV2, ...]
+    lower_tail_net_return: float
+    mean_net_return: float
+    turnover_per_day: float
+    total_execution_cost: float
+    negative_gross_episode_count: int
+    total_trade_count: int
+    unexplained_execution_rejection_count: int
+    hard_risk_violation: bool
+    admissible: bool
+    rejection_reasons: tuple[str, ...]
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        metrics = tuple(self.episode_metrics)
+        if not metrics or self.candidate.economic_controller is None:
+            raise ValueError("causal alpha v2 evidence requires cost-aware metrics")
+        if any(item.candidate_digest != self.candidate.digest for item in metrics):
+            raise ValueError("causal alpha v2 candidate metric identity drifted")
+        scopes = tuple((item.symbol, item.episode_index) for item in metrics)
+        if len(set(scopes)) != len(scopes):
+            raise ValueError("causal alpha v2 candidate metrics are duplicated")
+        for field in (
+            "lower_tail_net_return",
+            "mean_net_return",
+            "turnover_per_day",
+            "total_execution_cost",
+        ):
+            if not math.isfinite(getattr(self, field)):
+                raise ValueError(f"causal alpha v2 {field} is non-finite")
+        for field in (
+            "negative_gross_episode_count",
+            "total_trade_count",
+            "unexplained_execution_rejection_count",
+        ):
+            value = getattr(self, field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"causal alpha v2 {field} is invalid")
+        reasons = tuple(self.rejection_reasons)
+        if self.admissible == bool(reasons):
+            raise ValueError("causal alpha v2 admission reasons are inconsistent")
+        expected = content_digest(
+            {
+                "admissible": self.admissible,
+                "candidate_digest": self.candidate.digest,
+                "episode_metric_digests": tuple(item.digest for item in metrics),
+                "hard_risk_violation": self.hard_risk_violation,
+                "lower_tail_net_return": self.lower_tail_net_return,
+                "mean_net_return": self.mean_net_return,
+                "negative_gross_episode_count": self.negative_gross_episode_count,
+                "rejection_reasons": reasons,
+                "schema_version": "causal_alpha_candidate_evidence_v2",
+                "total_execution_cost": self.total_execution_cost,
+                "total_trade_count": self.total_trade_count,
+                "turnover_per_day": self.turnover_per_day,
+                "unexplained_execution_rejection_count": (
+                    self.unexplained_execution_rejection_count
+                ),
+            }
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha v2 candidate evidence digest mismatch")
+        object.__setattr__(self, "episode_metrics", metrics)
+        object.__setattr__(self, "rejection_reasons", reasons)
+        object.__setattr__(self, "digest", expected)
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaSelectionEvidenceV2:
+    candidates: tuple[CausalAlphaCandidateEvidenceV2, ...]
+    selected_candidate_digest: str
+    grid_digest: str
+    thresholds_digest: str
+    holdout_episode_digests: Mapping[str, str]
+    lower_tail_definition: str = "minimum_symbol_episode_net_return"
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        candidates = tuple(self.candidates)
+        selected = tuple(
+            item
+            for item in candidates
+            if item.candidate.digest == self.selected_candidate_digest
+        )
+        if not candidates or len(selected) != 1 or not selected[0].admissible:
+            raise ValueError("causal alpha v2 selected candidate is invalid")
+        for field in ("grid_digest", "thresholds_digest"):
+            if len(getattr(self, field)) != 64:
+                raise ValueError(f"causal alpha v2 {field} is invalid")
+        holdouts = dict(self.holdout_episode_digests)
+        if any(not symbol or len(value) != 64 for symbol, value in holdouts.items()):
+            raise ValueError("causal alpha v2 holdout identities are invalid")
+        expected = content_digest(
+            {
+                "candidate_evidence_digests": tuple(item.digest for item in candidates),
+                "grid_digest": self.grid_digest,
+                "holdout_episode_digests": holdouts,
+                "lower_tail_definition": self.lower_tail_definition,
+                "schema_version": "causal_alpha_selection_evidence_v2",
+                "selected_candidate_digest": self.selected_candidate_digest,
+                "thresholds_digest": self.thresholds_digest,
+            }
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("causal alpha v2 selection evidence digest mismatch")
+        object.__setattr__(self, "candidates", candidates)
+        object.__setattr__(self, "holdout_episode_digests", holdouts)
+        object.__setattr__(self, "digest", expected)
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "artifact_digest": self.digest,
+            "candidates": tuple(
+                {
+                    "admissible": item.admissible,
+                    "artifact_digest": item.digest,
+                    "candidate": {
+                        "controller_digest": item.candidate.controller.digest,
+                        "digest": item.candidate.digest,
+                        "economic_controller_digest": (
+                            item.candidate.economic_controller.digest
+                            if item.candidate.economic_controller is not None
+                            else None
+                        ),
+                        "name": item.candidate.name,
+                        "ridge_digest": item.candidate.ridge.digest,
+                    },
+                    "episode_metrics": tuple(
+                        metric.to_payload() for metric in item.episode_metrics
+                    ),
+                    "hard_risk_violation": item.hard_risk_violation,
+                    "lower_tail_net_return": item.lower_tail_net_return,
+                    "mean_net_return": item.mean_net_return,
+                    "negative_gross_episode_count": (
+                        item.negative_gross_episode_count
+                    ),
+                    "rejection_reasons": item.rejection_reasons,
+                    "total_execution_cost": item.total_execution_cost,
+                    "total_trade_count": item.total_trade_count,
+                    "turnover_per_day": item.turnover_per_day,
+                    "unexplained_execution_rejection_count": (
+                        item.unexplained_execution_rejection_count
+                    ),
+                }
+                for item in self.candidates
+            ),
+            "grid_digest": self.grid_digest,
+            "holdout_episode_digests": dict(self.holdout_episode_digests),
+            "lower_tail_definition": self.lower_tail_definition,
+            "schema_version": "causal_alpha_selection_evidence_v2",
+            "selected_candidate_digest": self.selected_candidate_digest,
+            "thresholds_digest": self.thresholds_digest,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -800,7 +1146,7 @@ class UniversalCausalAlphaTeacherPackage:
     batches: Mapping[str, EpisodeOracleBatch]
     partitions: Mapping[str, CausalAlphaEpisodePartition]
     samples: Mapping[str, CausalAlphaSymbolSamples]
-    selection: CausalAlphaSelectionEvidence
+    selection: CausalAlphaSelectionEvidence | CausalAlphaSelectionEvidenceV2
     teacher_admission: CausalAlphaTeacherAdmissionEvidence
     selected_candidate_digest: str
     teacher_config_digest: str
@@ -870,7 +1216,11 @@ class UniversalCausalAlphaTeacherPackage:
                 },
                 "episode_hours": self.episode_hours,
                 "generator_code_digest": self.generator_code_digest,
-                "schema_version": "universal_causal_alpha_teacher_package_v1",
+                "schema_version": (
+                    "universal_causal_alpha_teacher_package_v1"
+                    if isinstance(self.selection, CausalAlphaSelectionEvidence)
+                    else "universal_causal_alpha_teacher_package_v2"
+                ),
                 "selected_candidate_digest": self.selected_candidate_digest,
                 "selection_digest": self.selection.digest,
                 "teacher_admission_digest": self.teacher_admission.digest,
@@ -919,7 +1269,11 @@ class UniversalCausalAlphaTeacherPackage:
                 }
                 for symbol in self.train_symbols
             },
-            "schema_version": "universal_causal_alpha_teacher_package_evidence_v1",
+            "schema_version": (
+                "universal_causal_alpha_teacher_package_evidence_v1"
+                if isinstance(self.selection, CausalAlphaSelectionEvidence)
+                else "universal_causal_alpha_teacher_package_evidence_v2"
+            ),
             "selected_candidate_digest": self.selected_candidate_digest,
             "selection": self.selection.to_payload(),
             "teacher_admission": self.teacher_admission.to_payload(),
@@ -932,12 +1286,15 @@ __all__ = [
     "CausalAlphaBatchEvidence",
     "CausalAlphaCandidateConfig",
     "CausalAlphaCandidateEpisodeMetrics",
+    "CausalAlphaCandidateEpisodeMetricsV2",
     "CausalAlphaCandidateEvidence",
+    "CausalAlphaCandidateEvidenceV2",
     "CausalAlphaEpisodeEvidence",
     "CausalAlphaEpisodePartition",
     "CausalAlphaExpandingFit",
     "CausalAlphaPredictionDiagnostics",
     "CausalAlphaSelectionEvidence",
+    "CausalAlphaSelectionEvidenceV2",
     "CausalAlphaSymbolSamples",
     "UniversalCausalAlphaTeacherPackage",
 ]

@@ -1,21 +1,28 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
+import trade_rl.workflows.universal_causal_alpha_selection as selection_module
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
+    CausalAlphaCostAwareConfig,
     CausalAlphaHorizonMix,
     CausalAlphaRidgeConfig,
 )
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaCandidateConfig,
     CausalAlphaSymbolSamples,
 )
 from trade_rl.workflows.universal_causal_alpha_selection import (
     _causal_alpha_target_for_contract,
+    _cost_aware_causal_alpha_target_for_contract,
+    causal_alpha_one_way_cost_rates,
 )
 
 
@@ -84,3 +91,147 @@ def test_target_generation_zero_imputes_missing_features_and_holds_nontradable()
     # Decision sequence is 10, 11, 12, 13. Decision 12 is not actionable,
     # therefore its target must equal the previous decision's target.
     assert targets[2] == pytest.approx(targets[1])
+
+
+class _CostDataset:
+    n_bars = 32
+
+    def __init__(self) -> None:
+        rows = np.arange(self.n_bars, dtype=np.float64).reshape(-1, 1)
+        self._values = {
+            "fee_rate": rows * 0.0001,
+            "maker_fee_rate": rows * 0.0001 + 0.0002,
+            "taker_fee_rate": rows * 0.0001 + 0.001,
+            "spread_rate": rows * 0.0001 + 0.002,
+            "max_participation_rate": np.full_like(rows, 0.36),
+        }
+
+    def resolved_array(self, name: str) -> np.ndarray:
+        return self._values[name]
+
+    def market_notional(self, index: int) -> np.ndarray:
+        return np.asarray([1_000.0 + index], dtype=np.float64)
+
+
+def test_liquidity_cap_cache_reuses_contract_estimate() -> None:
+    cache = selection_module._CausalAlphaLiquidityCapCache()
+    contract = OracleEpisodeContract(
+        dataset_id=content_digest("cache-dataset"),
+        episode_index=0,
+        start=10,
+        stop=15,
+        initial_state_mode="cash",
+        initial_weights=np.asarray([0.0], dtype=np.float64),
+    )
+    economic = CausalAlphaCostAwareConfig(
+        execution_cost_multiplier=1.5,
+        edge_margin=0.001,
+        confirmation_count=2,
+        strong_reversal_threshold=0.02,
+        max_abs_target=0.5,
+        max_position_to_market_notional=0.02,
+        liquidity_lookback_decisions=2,
+    )
+    kwargs = {
+        "symbol": "AAAUSDT",
+        "dataset": _CostDataset(),
+        "contract": contract,
+        "decision_indices": np.arange(10, 14),
+        "reference_portfolio_value": 1_000.0,
+        "economic": economic,
+    }
+
+    first = cache.resolve(**kwargs)
+    second = cache.resolve(
+        **{**kwargs, "economic": replace(economic, execution_cost_multiplier=2.0)}
+    )
+
+    assert second is first
+    assert cache.calculation_count == 1
+    assert cache.hit_count == 1
+
+
+def test_one_way_cost_rate_uses_first_executable_row_after_signal_delay() -> None:
+    config = ExecutionCostConfig(
+        fee_rate=0.0005,
+        maker_fee_rate=0.0002,
+        taker_fee_rate=0.0004,
+        spread_rate=0.0002,
+        impact_rate=0.0001,
+        max_participation_rate=0.25,
+        order_type="market",
+    )
+
+    rates = causal_alpha_one_way_cost_rates(
+        _CostDataset(),
+        config,
+        decision_indices=np.asarray([10, 14]),
+        signal_delay_decisions=1,
+        decision_bars=4,
+    )
+
+    assert rates.tolist() == pytest.approx(
+        [
+            0.0005 + 0.0015 + 0.0004 + 0.0025 + 0.0002 + 0.0035 + 0.00005,
+            0.0005 + 0.0019 + 0.0004 + 0.0029 + 0.0002 + 0.0039 + 0.00005,
+        ]
+    )
+
+
+def test_cost_aware_contract_targets_bind_signal_diagnostics_and_cost_path() -> None:
+    samples = _samples()
+    contract = OracleEpisodeContract(
+        dataset_id=samples.dataset_id,
+        episode_index=0,
+        start=10,
+        stop=15,
+        initial_state_mode="cash",
+        initial_weights=np.asarray([0.0], dtype=np.float64),
+    )
+    candidate = CausalAlphaCandidateConfig(
+        name="cost-aware",
+        ridge=CausalAlphaRidgeConfig(ridge_strength=0.1),
+        controller=CausalAlphaControllerConfig(
+            horizon_mix=CausalAlphaHorizonMix.EQUAL,
+            score_scale=25.0,
+            entry_threshold=0.001,
+            exit_threshold=0.0005,
+            no_trade_band=0.0,
+            max_target_delta=0.125,
+        ),
+        economic_controller=CausalAlphaCostAwareConfig(
+            execution_cost_multiplier=1.5,
+            edge_margin=0.001,
+            confirmation_count=2,
+            strong_reversal_threshold=0.02,
+            max_abs_target=0.5,
+            max_position_to_market_notional=0.02,
+            liquidity_lookback_decisions=2,
+            liquidity_lower_quantile=0.10,
+            liquidity_safety_multiplier=0.80,
+        ),
+    )
+
+    result = _cost_aware_causal_alpha_target_for_contract(
+        symbol="AAAUSDT",
+        train_symbols=("AAAUSDT",),
+        samples={"AAAUSDT": samples},
+        contract=contract,
+        candidate=candidate,
+        dataset=_CostDataset(),
+        execution_cost=ExecutionCostConfig(),
+        signal_delay_decisions=1,
+        decision_bars=1,
+    )
+
+    assert result.actions.shape == (4, 1)
+    assert result.signal_24h.sample_count == 2
+    assert result.signal_72h.sample_count == 2
+    assert result.target_path.targets[2] == pytest.approx(result.target_path.targets[1])
+    assert result.target_path.liquidity_weight_caps.tolist() == pytest.approx(
+        [0.0161296, 0.0161456, 0.0161616, 0.0161776]
+    )
+    assert np.all(
+        np.abs(result.actions[:, 0]) <= result.target_path.liquidity_weight_caps
+    )
+    assert result.target_path.digest

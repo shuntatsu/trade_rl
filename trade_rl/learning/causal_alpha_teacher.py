@@ -14,6 +14,7 @@ from trade_rl.artifacts.hashing import content_digest
 CAUSAL_ALPHA_TEACHER_KIND: Final = "causal_alpha_ridge"
 CAUSAL_ALPHA_RIDGE_SCHEMA: Final = "causal_alpha_ridge_v1"
 CAUSAL_ALPHA_CONTROLLER_SCHEMA: Final = "causal_alpha_controller_v1"
+CAUSAL_ALPHA_COST_AWARE_SCHEMA: Final = "causal_alpha_cost_aware_v1"
 _EPSILON: Final = 1e-12
 
 
@@ -372,6 +373,75 @@ class CausalAlphaControllerConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class CausalAlphaCostAwareConfig:
+    execution_cost_multiplier: float
+    edge_margin: float
+    confirmation_count: int
+    strong_reversal_threshold: float
+    max_abs_target: float
+    max_position_to_market_notional: float | None = None
+    liquidity_lookback_decisions: int = 96
+    liquidity_lower_quantile: float = 0.10
+    liquidity_safety_multiplier: float = 0.80
+    schema_version: str = CAUSAL_ALPHA_COST_AWARE_SCHEMA
+
+    def __post_init__(self) -> None:
+        if (
+            not math.isfinite(self.execution_cost_multiplier)
+            or self.execution_cost_multiplier <= 0.0
+        ):
+            raise ValueError("execution_cost_multiplier must be finite and positive")
+        if not math.isfinite(self.edge_margin) or self.edge_margin < 0.0:
+            raise ValueError("edge_margin must be finite and non-negative")
+        if (
+            isinstance(self.confirmation_count, bool)
+            or not isinstance(self.confirmation_count, int)
+            or self.confirmation_count < 1
+        ):
+            raise ValueError("confirmation_count must be a positive integer")
+        if (
+            not math.isfinite(self.strong_reversal_threshold)
+            or self.strong_reversal_threshold <= 0.0
+        ):
+            raise ValueError("strong_reversal_threshold must be finite and positive")
+        if not math.isfinite(self.max_abs_target) or not (
+            0.0 < self.max_abs_target <= 1.0
+        ):
+            raise ValueError("max_abs_target must be finite and in (0, 1]")
+        max_market_notional = self.max_position_to_market_notional
+        if max_market_notional is not None and (
+            not math.isfinite(max_market_notional) or max_market_notional <= 0.0
+        ):
+            raise ValueError(
+                "max_position_to_market_notional must be finite and positive"
+            )
+        if (
+            isinstance(self.liquidity_lookback_decisions, bool)
+            or not isinstance(self.liquidity_lookback_decisions, int)
+            or self.liquidity_lookback_decisions <= 0
+        ):
+            raise ValueError("liquidity_lookback_decisions must be a positive integer")
+        if not math.isfinite(self.liquidity_lower_quantile) or not (
+            0.0 <= self.liquidity_lower_quantile <= 0.5
+        ):
+            raise ValueError(
+                "liquidity_lower_quantile must be finite and within [0, 0.5]"
+            )
+        if not math.isfinite(self.liquidity_safety_multiplier) or not (
+            0.0 < self.liquidity_safety_multiplier <= 1.0
+        ):
+            raise ValueError(
+                "liquidity_safety_multiplier must be finite and within (0, 1]"
+            )
+        if self.schema_version != CAUSAL_ALPHA_COST_AWARE_SCHEMA:
+            raise ValueError("unsupported causal alpha cost-aware schema")
+
+    @property
+    def digest(self) -> str:
+        return content_digest(self)
+
+
+@dataclass(frozen=True, slots=True)
 class CausalAlphaTargetPath:
     initial_weight: float
     targets: np.ndarray
@@ -420,6 +490,91 @@ class CausalAlphaTargetPath:
         )
         if self.digest and self.digest != expected:
             raise ValueError("causal alpha target path digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaCostAwareTargetPath:
+    initial_weight: float
+    targets: np.ndarray
+    proposed_turnover: np.ndarray
+    predicted_incremental_edge: np.ndarray
+    estimated_cost_hurdle: np.ndarray
+    edge_to_cost_ratio: np.ndarray
+    liquidity_weight_caps: np.ndarray
+    confirmation_state: np.ndarray
+    cost_suppressed_change_count: int
+    liquidity_deleveraging_count: int
+    submitted_change_count: int
+    strong_reversal_count: int
+    sign_flip_count: int
+    actionable_mask: np.ndarray
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.initial_weight):
+            raise ValueError("initial_weight must be finite")
+        arrays: dict[str, np.ndarray] = {}
+        for field in (
+            "targets",
+            "proposed_turnover",
+            "predicted_incremental_edge",
+            "estimated_cost_hurdle",
+            "edge_to_cost_ratio",
+            "liquidity_weight_caps",
+        ):
+            value = np.asarray(getattr(self, field), dtype=np.float64).reshape(-1).copy()
+            if not np.isfinite(value).all():
+                raise ValueError(f"{field} must be finite")
+            value.setflags(write=False)
+            arrays[field] = value
+        shape = arrays["targets"].shape
+        if any(value.shape != shape for value in arrays.values()):
+            raise ValueError("cost-aware target path arrays must align")
+        confirmation = (
+            np.asarray(self.confirmation_state, dtype=np.int64).reshape(-1).copy()
+        )
+        actionable = np.asarray(self.actionable_mask, dtype=np.bool_).reshape(-1).copy()
+        if confirmation.shape != shape or actionable.shape != shape:
+            raise ValueError("cost-aware state arrays must align with targets")
+        confirmation.setflags(write=False)
+        actionable.setflags(write=False)
+        for field in (
+            "cost_suppressed_change_count",
+            "liquidity_deleveraging_count",
+            "submitted_change_count",
+            "strong_reversal_count",
+            "sign_flip_count",
+        ):
+            value = getattr(self, field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{field} must be a non-negative integer")
+        for field, value in arrays.items():
+            object.__setattr__(self, field, value)
+        object.__setattr__(self, "confirmation_state", confirmation)
+        object.__setattr__(self, "actionable_mask", actionable)
+        payload = {
+            "actionable_mask": actionable.astype(bool).tolist(),
+            "confirmation_state": confirmation.tolist(),
+            "cost_suppressed_change_count": self.cost_suppressed_change_count,
+            "edge_to_cost_ratio": arrays["edge_to_cost_ratio"].tolist(),
+            "estimated_cost_hurdle": arrays["estimated_cost_hurdle"].tolist(),
+            "initial_weight": float(self.initial_weight),
+            "liquidity_deleveraging_count": self.liquidity_deleveraging_count,
+            "liquidity_weight_caps": arrays["liquidity_weight_caps"].tolist(),
+            "predicted_incremental_edge": arrays[
+                "predicted_incremental_edge"
+            ].tolist(),
+            "proposed_turnover": arrays["proposed_turnover"].tolist(),
+            "schema_version": CAUSAL_ALPHA_COST_AWARE_SCHEMA,
+            "sign_flip_count": self.sign_flip_count,
+            "strong_reversal_count": self.strong_reversal_count,
+            "submitted_change_count": self.submitted_change_count,
+            "targets": arrays["targets"].tolist(),
+        }
+        expected = content_digest(payload)
+        if self.digest and self.digest != expected:
+            raise ValueError("cost-aware target path digest mismatch")
         object.__setattr__(self, "digest", expected)
 
 
@@ -491,6 +646,186 @@ def causal_alpha_target_path(
         targets=targets,
         submitted_change_count=submitted,
         suppressed_change_count=suppressed,
+        sign_flip_count=sign_flips,
+        actionable_mask=actionable,
+    )
+
+
+def causal_alpha_cost_aware_target_path(
+    scores: object,
+    *,
+    one_way_cost_rates: object,
+    liquidity_weight_caps: object | None = None,
+    controller: CausalAlphaControllerConfig,
+    economic: CausalAlphaCostAwareConfig,
+    initial_weight: float,
+    actionable_mask: object | None = None,
+) -> CausalAlphaCostAwareTargetPath:
+    values = np.asarray(scores, dtype=np.float64).reshape(-1)
+    cost_rates = np.asarray(one_way_cost_rates, dtype=np.float64).reshape(-1)
+    if not np.isfinite(values).all():
+        raise ValueError("causal alpha scores must be finite")
+    if cost_rates.shape != values.shape or not np.isfinite(cost_rates).all():
+        raise ValueError("one_way_cost_rates must align with scores and be finite")
+    if np.any(cost_rates < 0.0):
+        raise ValueError("one_way_cost_rates must be non-negative")
+    if liquidity_weight_caps is None:
+        liquidity_caps = np.full(values.shape, economic.max_abs_target)
+    else:
+        liquidity_caps = np.asarray(
+            liquidity_weight_caps, dtype=np.float64
+        ).reshape(-1)
+        if liquidity_caps.shape != values.shape or not np.isfinite(
+            liquidity_caps
+        ).all():
+            raise ValueError(
+                "liquidity_weight_caps must align with scores and be finite"
+            )
+        if np.any(liquidity_caps < 0.0):
+            raise ValueError("liquidity_weight_caps must be non-negative")
+        liquidity_caps = np.minimum(liquidity_caps, economic.max_abs_target)
+        liquidity_caps = np.nextafter(
+            liquidity_caps.astype(np.float32), np.float32(0.0)
+        ).astype(np.float64)
+    if not math.isfinite(initial_weight):
+        raise ValueError("initial_weight must be finite")
+    if actionable_mask is None:
+        actionable = np.ones(values.shape, dtype=np.bool_)
+    else:
+        actionable = np.asarray(actionable_mask, dtype=np.bool_).reshape(-1)
+        if actionable.shape != values.shape:
+            raise ValueError("actionable_mask must align with causal alpha scores")
+
+    targets = np.empty(values.size, dtype=np.float64)
+    proposed_turnover = np.zeros(values.size, dtype=np.float64)
+    incremental_edge = np.zeros(values.size, dtype=np.float64)
+    cost_hurdle = np.zeros(values.size, dtype=np.float64)
+    edge_to_cost = np.zeros(values.size, dtype=np.float64)
+    confirmation_state = np.zeros(values.size, dtype=np.int64)
+    previous = float(initial_weight)
+    pending_direction = 0
+    pending_count = 0
+    cost_suppressed = 0
+    liquidity_deleveraging = 0
+    submitted = 0
+    strong_reversals = 0
+    sign_flips = 0
+
+    for index, score_value in enumerate(values):
+        effective_cap = float(liquidity_caps[index])
+        if abs(previous) > effective_cap:
+            target = float(
+                np.clip(
+                    previous,
+                    -effective_cap,
+                    effective_cap,
+                )
+            )
+            turnover = abs(target - previous)
+            proposed_turnover[index] = turnover
+            incremental_edge[index] = float(score_value) * (target - previous)
+            cost_hurdle[index] = turnover * (
+                float(cost_rates[index]) * economic.execution_cost_multiplier
+                + economic.edge_margin
+            )
+            edge_to_cost[index] = (
+                incremental_edge[index] / cost_hurdle[index]
+                if cost_hurdle[index] > _EPSILON
+                else 0.0
+            )
+            previous = target
+            targets[index] = previous
+            submitted += 1
+            if effective_cap < economic.max_abs_target:
+                liquidity_deleveraging += 1
+            pending_direction = 0
+            pending_count = 0
+            continue
+        if not bool(actionable[index]):
+            targets[index] = previous
+            confirmation_state[index] = pending_direction * pending_count
+            continue
+
+        score = float(score_value)
+        desired = float(
+            np.clip(
+                _desired_target(score, previous, controller),
+                -effective_cap,
+                effective_cap,
+            )
+        )
+        delta = desired - previous
+        turnover = abs(delta)
+        edge = score * delta
+        hurdle = turnover * (
+            float(cost_rates[index]) * economic.execution_cost_multiplier
+            + economic.edge_margin
+        )
+        proposed_turnover[index] = turnover
+        incremental_edge[index] = edge
+        cost_hurdle[index] = hurdle
+        edge_to_cost[index] = edge / hurdle if hurdle > _EPSILON else 0.0
+
+        if turnover <= _EPSILON:
+            pending_direction = 0
+            pending_count = 0
+            targets[index] = previous
+            continue
+        direction = 1 if delta > 0.0 else -1
+        if edge <= hurdle:
+            pending_direction = 0
+            pending_count = 0
+            cost_suppressed += 1
+            targets[index] = previous
+            continue
+        if direction == pending_direction:
+            pending_count += 1
+        else:
+            pending_direction = direction
+            pending_count = 1
+
+        is_reversal = previous * desired < 0.0
+        is_strong_reversal = (
+            is_reversal and abs(score) >= economic.strong_reversal_threshold
+        )
+        if is_strong_reversal:
+            pending_count = 1
+        confirmation_state[index] = pending_direction * pending_count
+        if not is_strong_reversal and pending_count < economic.confirmation_count:
+            targets[index] = previous
+            continue
+
+        bounded = float(
+            np.clip(
+                desired,
+                previous - controller.max_target_delta,
+                previous + controller.max_target_delta,
+            )
+        )
+        if abs(bounded - previous) <= controller.no_trade_band:
+            targets[index] = previous
+            continue
+        if is_strong_reversal:
+            strong_reversals += 1
+        if previous * bounded < 0.0:
+            sign_flips += 1
+        previous = bounded
+        targets[index] = previous
+        submitted += 1
+
+    return CausalAlphaCostAwareTargetPath(
+        initial_weight=float(initial_weight),
+        targets=targets,
+        proposed_turnover=proposed_turnover,
+        predicted_incremental_edge=incremental_edge,
+        estimated_cost_hurdle=cost_hurdle,
+        edge_to_cost_ratio=edge_to_cost,
+        liquidity_weight_caps=liquidity_caps,
+        confirmation_state=confirmation_state,
+        cost_suppressed_change_count=cost_suppressed,
+        liquidity_deleveraging_count=liquidity_deleveraging,
+        submitted_change_count=submitted,
+        strong_reversal_count=strong_reversals,
         sign_flip_count=sign_flips,
         actionable_mask=actionable,
     )
@@ -644,6 +979,8 @@ def evaluate_causal_alpha_teacher_admission(
 
 __all__ = [
     "CAUSAL_ALPHA_TEACHER_KIND",
+    "CausalAlphaCostAwareConfig",
+    "CausalAlphaCostAwareTargetPath",
     "CausalAlphaControllerConfig",
     "CausalAlphaHorizonMix",
     "CausalAlphaRidgeConfig",
@@ -652,6 +989,7 @@ __all__ = [
     "CausalAlphaTeacherAdmissionEvidence",
     "CausalAlphaTeacherHoldoutMetric",
     "ForwardLogReturnLabel",
+    "causal_alpha_cost_aware_target_path",
     "causal_alpha_target_path",
     "combine_causal_alpha_predictions",
     "fit_causal_alpha_ridge",

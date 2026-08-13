@@ -8,11 +8,14 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_teacher import (
+    CausalAlphaCostAwareConfig,
     CausalAlphaTeacherHoldoutMetric,
     evaluate_causal_alpha_teacher_admission,
 )
+from trade_rl.risk.portfolio import PortfolioRiskConfig
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_teacher import (
     UniversalCausalAlphaTeacherPackage,
     build_universal_causal_alpha_teacher_package,
@@ -60,6 +63,8 @@ def test_package_builds_one_shared_teacher_identity(
             self.config = SimpleNamespace(
                 initial_state_modes=("cash",),
                 episode_hours=720.0,
+                execution_cost=ExecutionCostConfig(),
+                signal_delay_decisions=1,
             )
             self.pre_trade_risk = SimpleNamespace(
                 config=PreTradeRiskConfig(
@@ -70,6 +75,9 @@ def test_package_builds_one_shared_teacher_identity(
                     exit_threshold=0.03,
                     no_trade_band=0.05,
                 )
+            )
+            self.portfolio_risk = SimpleNamespace(
+                config=PortfolioRiskConfig(max_position_to_market_notional=0.02)
             )
             opened.append(binding.concrete_symbol)
 
@@ -120,9 +128,17 @@ def test_package_builds_one_shared_teacher_identity(
         digest=_digest("candidate"),
         ridge=SimpleNamespace(digest=_digest("ridge")),
         controller=SimpleNamespace(digest=_digest("controller")),
+        economic_controller=CausalAlphaCostAwareConfig(
+            execution_cost_multiplier=1.5,
+            edge_margin=0.001,
+            confirmation_count=2,
+            strong_reversal_threshold=0.02,
+            max_abs_target=0.5,
+            max_position_to_market_notional=0.02,
+        ),
     )
     selection_payload = {
-        "schema_version": "causal_alpha_selection_evidence_v1",
+        "schema_version": "causal_alpha_selection_evidence_v2",
         "artifact_digest": _digest("selection"),
         "selected_candidate_digest": candidate.digest,
     }
@@ -141,14 +157,15 @@ def test_package_builds_one_shared_teacher_identity(
         "validate_universal_causal_alpha_partitions",
         lambda **kwargs: dict(kwargs["partitions"]),
     )
+    grid_calls: list[dict[str, object]] = []
     monkeypatch.setattr(
         module,
-        "default_causal_alpha_candidate_grid",
-        lambda _risk: (candidate,),
+        "default_cost_aware_causal_alpha_candidate_grid",
+        lambda **kwargs: grid_calls.append(dict(kwargs)) or (candidate,),
     )
     progress_payload = {
         "completed_replays": 1,
-        "phase": "causal_teacher_selection",
+        "phase": "causal_teacher_selection_v2",
         "total_replays": 1,
     }
 
@@ -156,7 +173,16 @@ def test_package_builds_one_shared_teacher_identity(
         kwargs["progress_callback"](progress_payload)
         return selection
 
-    monkeypatch.setattr(module, "evaluate_causal_alpha_selection", evaluate_selection)
+    monkeypatch.setattr(
+        module, "evaluate_cost_aware_causal_alpha_selection", evaluate_selection
+    )
+    monkeypatch.setattr(
+        module,
+        "evaluate_causal_alpha_selection",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("canonical package must not use v1 selection")
+        ),
+    )
     monkeypatch.setattr(
         module,
         "CausalAlphaExpandingFitCache",
@@ -169,6 +195,10 @@ def test_package_builds_one_shared_teacher_identity(
         shared_digest = kwargs["teacher_config_digest"]
         symbol = kwargs["symbol"]
         batch_calls.append((symbol, shared_digest))
+        assert kwargs["economic_controller_config"] is candidate.economic_controller
+        assert isinstance(kwargs["execution_cost"], ExecutionCostConfig)
+        assert kwargs["signal_delay_decisions"] == 1
+        assert kwargs["decision_bars"] == 1
         evidence_payload = {
             "artifact_digest": _digest(f"evidence:{symbol}"),
             "schema_version": "test_batch_evidence_v1",
@@ -230,6 +260,8 @@ def test_package_builds_one_shared_teacher_identity(
         episode_hours=720.0,
         selection_evidence_path=selection_path,
     )
+
+    assert grid_calls[0]["max_position_to_market_notional"] == 0.02
 
     assert isinstance(package, UniversalCausalAlphaTeacherPackage)
     assert opened == list(symbols)

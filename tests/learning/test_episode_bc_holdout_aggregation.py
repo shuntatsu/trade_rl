@@ -28,7 +28,9 @@ def _performance(net_return: float) -> PathPerformanceMetrics:
     )
 
 
-def _evidence() -> ActionPathCollapseEvidence:
+def _evidence(
+    *, rejection_reason: str | None = None, hard_risk_violation: bool = False
+) -> ActionPathCollapseEvidence:
     return ActionPathCollapseEvidence(
         decision_count=32,
         action_dimension_count=1,
@@ -37,15 +39,24 @@ def _evidence() -> ActionPathCollapseEvidence:
         proposal_distance_count=8,
         submitted_change_count=8,
         downstream_no_trade_suppression_count=4,
-        execution_rejection_count=0,
+        execution_rejection_count=int(rejection_reason is not None),
         executed_change_count=4,
         trade_count=2,
         constant_submitted_actions=False,
+        execution_rejection_reason_counts=(
+            () if rejection_reason is None else ((rejection_reason, 1),)
+        ),
+        risk_projection_reason_counts=(("no_trade_band", 1),),
+        hard_risk_violation=hard_risk_violation,
     )
 
 
 def _holdout(
-    episode_id: int, net_return: float
+    episode_id: int,
+    net_return: float,
+    *,
+    rejection_reason: str | None = None,
+    hard_risk_violation: bool = False,
 ) -> EpisodeBehaviorCloningHoldoutEvaluation:
     performance = _performance(net_return)
     record = EpisodeBehaviorCloningRecord(
@@ -55,7 +66,10 @@ def _holdout(
         initial_state_mode="cash",
         oracle_performance=_performance(0.10),
         causal_policy_performance=performance,
-        causal_policy_evidence=_evidence(),
+        causal_policy_evidence=_evidence(
+            rejection_reason=rejection_reason,
+            hard_risk_violation=hard_risk_violation,
+        ),
         action_agreement_rate=0.5,
         action_mae=0.2,
         action_rmse=0.3,
@@ -66,7 +80,10 @@ def _holdout(
     return EpisodeBehaviorCloningHoldoutEvaluation(
         records=(record,),
         causal_policy_performance=performance,
-        causal_policy_evidence=_evidence(),
+        causal_policy_evidence=_evidence(
+            rejection_reason=rejection_reason,
+            hard_risk_violation=hard_risk_violation,
+        ),
         action_agreement_rate=0.5,
         action_mae=0.2,
         action_rmse=0.3,
@@ -91,3 +108,24 @@ def test_aggregate_episode_holdouts_preserves_cross_symbol_support() -> None:
     assert aggregate.causal_policy_evidence.executed_change_count == 8
     assert aggregate.causal_policy_evidence.trade_count == 4
     assert aggregate.causal_net_return_lower_confidence_bound <= 0.01
+
+
+def test_aggregate_episode_holdouts_merges_reasons_and_hard_risk_state() -> None:
+    aggregate = aggregate_episode_behavior_cloning_holdouts(
+        (
+            _holdout(0, 0.01, rejection_reason="minimum_notional"),
+            _holdout(
+                1,
+                -0.02,
+                rejection_reason="minimum_notional",
+                hard_risk_violation=True,
+            ),
+        ),
+        seed_material="reason-aggregation",
+    )
+
+    evidence = aggregate.causal_policy_evidence
+    assert evidence.execution_rejection_count == 2
+    assert evidence.execution_rejection_reason_counts == (("minimum_notional", 2),)
+    assert evidence.risk_projection_reason_counts == (("no_trade_band", 2),)
+    assert evidence.hard_risk_violation is True

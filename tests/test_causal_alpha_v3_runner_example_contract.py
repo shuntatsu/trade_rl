@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trade_rl.workflows.universal_causal_alpha_v3_config import (
-    CausalAlphaV3ResearchConfig,
-)
+from trade_rl.workflows.universal_causal_alpha_v3_config import CausalAlphaV3ResearchConfig
 
 
 _ROOT = Path(__file__).resolve().parents[1]

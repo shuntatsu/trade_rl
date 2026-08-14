@@ -6,9 +6,14 @@ from tests.architecture.import_linter_config import (
 )
 
 
-def test_import_contract_declares_learning_and_release_layers() -> None:
+def test_required_import_contracts_are_declared() -> None:
     layers = configured_layers()
     assert "trade_rl.learning" in layers
     assert "trade_rl.release" in layers
-    assert import_linter_contract("release")["type"] == "forbidden"
-    assert import_linter_contract("learning-frameworks")["type"] == "forbidden"
+    for contract_id in (
+        "release",
+        "learning-frameworks",
+        "workflow-frameworks",
+        "training-core",
+    ):
+        assert import_linter_contract(contract_id)["type"] == "forbidden"

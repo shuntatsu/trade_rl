@@ -384,6 +384,7 @@ def causal_alpha_v3_target_path(
     uncertainties: object,
     one_way_cost_rates: object,
     liquidity_weight_caps: object,
+    actionable_mask: object | None = None,
     config: CausalAlphaV3TargetConfig,
     initial_weight: float,
 ) -> CausalAlphaV3TargetPath:
@@ -393,11 +394,17 @@ def causal_alpha_v3_target_path(
     uncertainty = np.asarray(uncertainties, dtype=np.float64).reshape(-1)
     costs = np.asarray(one_way_cost_rates, dtype=np.float64).reshape(-1)
     caps = np.asarray(liquidity_weight_caps, dtype=np.float64).reshape(-1)
+    actionable = (
+        np.ones(expected.shape, dtype=np.bool_)
+        if actionable_mask is None
+        else np.asarray(actionable_mask, dtype=np.bool_).reshape(-1)
+    )
     if (
         expected.size == 0
         or uncertainty.shape != expected.shape
         or costs.shape != expected.shape
         or caps.shape != expected.shape
+        or actionable.shape != expected.shape
         or not np.isfinite(expected).all()
         or not np.isfinite(uncertainty).all()
         or not np.isfinite(costs).all()
@@ -448,6 +455,10 @@ def causal_alpha_v3_target_path(
             )
             reason = "liquidity_deleverage"
             liquidity_deleveraging += 1
+        elif not bool(actionable[index]):
+            selected = previous
+            chosen = stay
+            reason = "unactionable_hold"
         else:
             strong_reversal = (
                 abs(previous) > _EPSILON

@@ -24,7 +24,7 @@ describe('App', () => {
     const user = userEvent.setup()
     render(<App initialOverview={initialOverview} />)
     await user.click(screen.getByRole('button', { name: /Data Lab/i }))
-    expect(screen.getByRole('heading', { name: 'Data Lab' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Data Lab' })).toBeInTheDocument()
     expect(new URL(window.location.href).searchParams.get('workspace')).toBe('data')
   })
 })

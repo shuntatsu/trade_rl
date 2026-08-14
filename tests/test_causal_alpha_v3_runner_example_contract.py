@@ -6,7 +6,6 @@ from trade_rl.workflows.universal_causal_alpha_v3_config import (
     CausalAlphaV3ResearchConfig,
 )
 
-
 _ROOT = Path(__file__).resolve().parents[1]
 _EXAMPLE = _ROOT / "examples" / "binance" / "universal-causal-alpha-v3-research.json"
 

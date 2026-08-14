@@ -13,6 +13,7 @@ from trade_rl.artifacts.run_manifest import (
 )
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
+from trade_rl.telemetry.training import TrainingTelemetryRecord
 
 
 def checkpoint_payload() -> dict[str, object]:
@@ -44,9 +45,7 @@ def checkpoint_payload() -> dict[str, object]:
     }
 
 
-def telemetry_record(sequence: int, *, seed: int = 7):
-    from trade_rl.telemetry.training import TrainingTelemetryRecord
-
+def telemetry_record(sequence: int, *, seed: int = 7) -> TrainingTelemetryRecord:
     return TrainingTelemetryRecord(
         sequence=sequence,
         recorded_at="2026-07-21T08:00:00+00:00",

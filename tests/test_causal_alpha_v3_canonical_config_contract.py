@@ -12,7 +12,9 @@ CONFIGS = (
 def test_v3_research_lane_does_not_change_canonical_u6_contracts() -> None:
     for name in CONFIGS:
         payload = json.loads(
-            (ROOT / "examples/binance-multitimeframe" / name).read_text(encoding="utf-8")
+            (ROOT / "examples/binance-multitimeframe" / name).read_text(
+                encoding="utf-8"
+            )
         )
 
         assert payload["action"]["mode"] == "target_weight"

@@ -192,7 +192,7 @@ Constraint diagnostics
 
 ## Rollout方針
 
-- 変更は新しいbranchとDraft PRで実施する。
-- PR #368のtraining telemetry修正とは分離する。
-- 既存実験は再解釈せず、新しいconfig digestで再学習する。
-- Exact-head CI、型検査、format、architecture、full pytestが揃うまでProductionは`NO-GO`のままとする。
+- RewardまたはEpisode境界の意味を変更する場合は、対応するConfig/Environment identityを更新し、既存実験を暗黙に再解釈しない。
+- 意味の異なる学習結果は新しいConfig digestで再学習し、旧Artifact・Checkpointを新契約へ自動移行しない。
+- Exact-head CI、型検査、format、architecture、full pytestが揃っても、それだけで収益性やProduction認可を意味しない。
+- 実証Evidenceと運用認可が揃うまでProduction statusは`NO-GO`を維持する。

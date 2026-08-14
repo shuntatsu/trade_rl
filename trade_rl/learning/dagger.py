@@ -57,6 +57,40 @@ def _observation_copy(value: object) -> np.ndarray | dict[str, np.ndarray]:
     return array
 
 
+def _normalize_rollout_observations(
+    observations: ObservationBatch, *, expected_count: int
+) -> ObservationBatch:
+    if isinstance(observations, Mapping):
+        if not observations:
+            raise ValueError("DAgger structured observation must not be empty")
+        normalized: dict[str, np.ndarray] = {}
+        for key in sorted(observations):
+            if not isinstance(key, str) or not key:
+                raise ValueError("DAgger observation keys must be non-empty strings")
+            array = np.asarray(observations[key]).copy(order="C")
+            if array.ndim < 2:
+                raise ValueError("DAgger structured observations must be sample-first")
+            if len(array) != expected_count:
+                raise ValueError("DAgger observation count does not match actions")
+            if (
+                not np.issubdtype(array.dtype, np.number)
+                or not np.isfinite(array).all()
+            ):
+                raise ValueError("DAgger observations must be finite numeric arrays")
+            array.setflags(write=False)
+            normalized[key] = array
+        return normalized
+    array = np.asarray(observations, dtype=np.float32).copy(order="C")
+    if array.ndim != 2:
+        raise ValueError("DAgger flat observations must be rank-two")
+    if len(array) != expected_count:
+        raise ValueError("DAgger observation count does not match actions")
+    if not np.isfinite(array).all():
+        raise ValueError("DAgger observations must be finite")
+    array.setflags(write=False)
+    return array
+
+
 def _stack_observations(
     values: list[np.ndarray | dict[str, np.ndarray]],
 ) -> ObservationBatch:
@@ -140,16 +174,13 @@ class DaggerEpisodeRollout:
             raise ValueError("DAgger rollout arrays are not finite and sample aligned")
         if np.any(np.diff(decisions) <= 0):
             raise ValueError("DAgger decision indices must be strictly increasing")
-        observation_count = (
-            len(next(iter(self.observations.values())))
-            if isinstance(self.observations, Mapping)
-            else len(np.asarray(self.observations))
+        observations = _normalize_rollout_observations(
+            self.observations, expected_count=len(teacher)
         )
-        if observation_count != len(teacher):
-            raise ValueError("DAgger observation count does not match actions")
         teacher.setflags(write=False)
         learner.setflags(write=False)
         decisions.setflags(write=False)
+        object.__setattr__(self, "observations", observations)
         object.__setattr__(self, "teacher_actions", teacher)
         object.__setattr__(self, "learner_actions", learner)
         object.__setattr__(self, "decision_indices", decisions)

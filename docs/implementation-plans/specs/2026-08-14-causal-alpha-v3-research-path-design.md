@@ -51,7 +51,7 @@ A new research module builds weights using label-interval uniqueness:
 - concurrency is calculated independently per symbol;
 - each label receives the average inverse concurrency over its information interval;
 - weights are normalized so every train symbol contributes equal total weight;
-- the final global weight vector has mean one, keeping numerical scale explicit.
+- each train symbol contributes equal total weight mass; absolute global scale is immaterial because the V3 weighted objective is normalized by total eligible weight.
 
 V3 ridge uses weighted feature statistics and solves the weighted mean squared-error objective plus ridge regularization. This prevents the regularization strength from implicitly scaling with raw sample count and reduces pseudo-replication caused by heavily overlapping 24h/72h labels.
 
@@ -69,11 +69,11 @@ This is a research heuristic, not a statistical confidence interval claim. Its e
 
 Add a discrete target optimizer rather than extending the existing threshold/tanh controller. For each decision it evaluates a predeclared target grid plus the current target, zero, and the current liquidity cap.
 
-For target `w` with previous target `w_prev`:
+For candidate target `w`, previous target `w_prev`, and incremental change `d = w - w_prev`:
 
-`objective = w * mu - z * abs(w) * sigma - abs(w - w_prev) * (cost_multiplier * one_way_cost + edge_margin)`
+`objective = d * mu - z * abs(d) * sigma - abs(d) * (cost_multiplier * one_way_cost + edge_margin)`
 
-The current target is always a candidate, so an explicit HOLD/flat decision requires no ad-hoc reward shaping. Target changes occur only at a configured alpha rebalance interval, except that a falling causal liquidity cap may force immediate deleveraging and a sufficiently strong sign reversal may be evaluated early. `max_target_delta` remains available as an independent action-smoothing bound.
+HOLD has `d = 0` and objective `0`, so already-paid execution cost is not charged again and an explicit HOLD decision requires no ad-hoc reward shaping. Target changes occur only at a configured alpha rebalance interval, except that a falling causal liquidity cap may force immediate deleveraging and a sufficiently strong sign reversal may be evaluated early. `max_target_delta` remains available as an independent action-smoothing bound.
 
 The compiler emits audit arrays for chosen objective, stay objective, expected return, uncertainty, liquidity cap, target, forced deleveraging and rebalance reason.
 

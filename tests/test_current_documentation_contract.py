@@ -143,7 +143,7 @@ def test_readme_uses_current_third_party_notice_path() -> None:
 
 
 def test_maintained_reference_docs_do_not_depend_on_transient_pr_numbers() -> None:
-    transient = re.compile(r"\bPR\s*#\d+")
+    transient = re.compile(r"PR\s*#\d+")
     offenders = [
         path.relative_to(ROOT).as_posix()
         for path in MAINTAINED_DOCUMENTS

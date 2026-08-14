@@ -79,7 +79,9 @@ class CausalAlphaV3SignalGate:
     bootstrap_block_size: int
 
     def __post_init__(self) -> None:
-        _non_negative_int(self.minimum_scope_count, field="minimum_scope_count", positive=True)
+        _non_negative_int(
+            self.minimum_scope_count, field="minimum_scope_count", positive=True
+        )
         coverage = _finite(self.minimum_scope_coverage, field="minimum_scope_coverage")
         if not 0.0 < coverage <= 1.0:
             raise ValueError("minimum_scope_coverage must be within (0, 1]")
@@ -89,7 +91,9 @@ class CausalAlphaV3SignalGate:
             "minimum_direction_accuracy_excess_lower_ci",
         ):
             _finite(getattr(self, field), field=field)
-        _non_negative_int(self.bootstrap_resamples, field="bootstrap_resamples", positive=True)
+        _non_negative_int(
+            self.bootstrap_resamples, field="bootstrap_resamples", positive=True
+        )
         _non_negative_int(self.bootstrap_seed, field="bootstrap_seed")
         _non_negative_int(
             self.bootstrap_block_size,
@@ -194,7 +198,9 @@ class CausalAlphaV3ResearchConfig:
             raise ValueError("unsupported causal alpha V3 research config schema")
         values = tuple(self.candidates)
         if not values or len(values) > _MAX_CANDIDATES:
-            raise ValueError("V3 research candidates must contain between 1 and 8 items")
+            raise ValueError(
+                "V3 research candidates must contain between 1 and 8 items"
+            )
         names = tuple(item.name for item in values)
         semantics = tuple(item.semantic_digest for item in values)
         if len(set(names)) != len(names):

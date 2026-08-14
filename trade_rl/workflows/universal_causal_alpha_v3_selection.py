@@ -27,7 +27,9 @@ class CausalAlphaV3SelectionRejected(RuntimeError):
         self.candidates = tuple(candidates)
         self.digest = content_digest(
             {
-                "candidate_evidence_digests": tuple(item.digest for item in self.candidates),
+                "candidate_evidence_digests": tuple(
+                    item.digest for item in self.candidates
+                ),
                 "schema_version": "causal_alpha_v3_selection_rejection_v1",
             }
         )
@@ -36,7 +38,9 @@ class CausalAlphaV3SelectionRejected(RuntimeError):
     def to_payload(self) -> dict[str, object]:
         return {
             "artifact_digest": self.digest,
-            "candidate_evidence_digests": tuple(item.digest for item in self.candidates),
+            "candidate_evidence_digests": tuple(
+                item.digest for item in self.candidates
+            ),
             "schema_version": "causal_alpha_v3_selection_rejection_v1",
         }
 
@@ -55,7 +59,9 @@ def _candidate_evidence(
     if not metrics:
         raise ValueError("V3 candidate has no selection metrics")
     if any(item.candidate_digest != candidate.digest for item in metrics):
-        raise ValueError("V3 candidate selection metrics drifted from candidate identity")
+        raise ValueError(
+            "V3 candidate selection metrics drifted from candidate identity"
+        )
     observed_scope = frozenset(_scope(item) for item in metrics)
     if len(observed_scope) != len(metrics):
         raise ValueError("V3 candidate selection metric scope is duplicated")
@@ -131,7 +137,8 @@ def rank_causal_alpha_v3_candidates(
     if set(metrics) != digests:
         raise ValueError("V3 selection metrics must cover the complete frozen grid")
     scope_sets = {
-        digest: frozenset(_scope(item) for item in metrics[digest]) for digest in digests
+        digest: frozenset(_scope(item) for item in metrics[digest])
+        for digest in digests
     }
     complete_scope = frozenset().union(*scope_sets.values())
     if not complete_scope:

@@ -51,7 +51,9 @@ class CausalAlphaV3RecordStore:
                 )
             return destination
         if destination.exists():
-            raise ValueError(f"V3 immutable artifact path is not a file: {relative_path}")
+            raise ValueError(
+                f"V3 immutable artifact path is not a file: {relative_path}"
+            )
         destination.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_bytes(destination, canonical_json_bytes(expected) + b"\n")
         return destination
@@ -66,7 +68,9 @@ class CausalAlphaV3RecordStore:
             / f"{metric.episode_index}.json"
         )
 
-    def _validate_replay_store_identity(self, metric: CausalAlphaV3ReplayMetric) -> None:
+    def _validate_replay_store_identity(
+        self, metric: CausalAlphaV3ReplayMetric
+    ) -> None:
         if metric.run_manifest_digest != self.run_manifest_digest:
             raise ValueError("V3 replay record run manifest identity mismatch")
         if self.freeze_digest is None:

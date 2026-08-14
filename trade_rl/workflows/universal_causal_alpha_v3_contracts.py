@@ -61,8 +61,14 @@ class CausalAlphaV3RunManifest:
 
     def __post_init__(self) -> None:
         symbols = tuple(self.train_symbols)
-        if not symbols or len(set(symbols)) != len(symbols) or any(not item for item in symbols):
-            raise ValueError("V3 run manifest train_symbols must be non-empty and unique")
+        if (
+            not symbols
+            or len(set(symbols)) != len(symbols)
+            or any(not item for item in symbols)
+        ):
+            raise ValueError(
+                "V3 run manifest train_symbols must be non-empty and unique"
+            )
         for field in (
             "config_digest",
             "catalog_digest",
@@ -75,7 +81,9 @@ class CausalAlphaV3RunManifest:
         ):
             require_sha256(getattr(self, field), field=f"V3 run manifest {field}")
         if not self.research_only or self.promotion_eligible:
-            raise ValueError("V3 run manifest must remain research-only and non-promotable")
+            raise ValueError(
+                "V3 run manifest must remain research-only and non-promotable"
+            )
         if self.schema_version != _RUN_MANIFEST_SCHEMA:
             raise ValueError("unsupported V3 run manifest schema")
         object.__setattr__(self, "train_symbols", symbols)
@@ -142,7 +150,9 @@ class CausalAlphaV3CandidateFreeze:
                 require_sha256(value, field="V3 freeze digest member")
         if len(set(self.candidate_digests)) != len(self.candidate_digests):
             raise ValueError("V3 freeze candidates are duplicated")
-        if len(set(self.candidate_semantic_digests)) != len(self.candidate_semantic_digests):
+        if len(set(self.candidate_semantic_digests)) != len(
+            self.candidate_semantic_digests
+        ):
             raise ValueError("V3 freeze candidate semantics are duplicated")
         if len(set(self.fit_config_digests)) != len(self.fit_config_digests):
             raise ValueError("V3 freeze fit configs are duplicated")
@@ -356,7 +366,9 @@ class CausalAlphaV3CandidateEvidence:
         if not isinstance(self.candidate, CausalAlphaV3Candidate):
             raise TypeError("V3 candidate evidence candidate is invalid")
         metrics = tuple(self.episode_metrics)
-        if not metrics or any(item.candidate_digest != self.candidate.digest for item in metrics):
+        if not metrics or any(
+            item.candidate_digest != self.candidate.digest for item in metrics
+        ):
             raise ValueError("V3 candidate evidence metrics do not match candidate")
         if len({item.identity for item in metrics}) != len(metrics):
             raise ValueError("V3 candidate evidence metrics are duplicated")
@@ -371,14 +383,18 @@ class CausalAlphaV3CandidateEvidence:
             _finite(getattr(self, field), field=f"V3 candidate evidence {field}")
         if not 0.0 <= self.positive_gross_episode_fraction <= 1.0:
             raise ValueError("V3 positive gross fraction must be within [0, 1]")
-        _non_negative_count(self.total_trade_count, field="V3 candidate total_trade_count")
+        _non_negative_count(
+            self.total_trade_count, field="V3 candidate total_trade_count"
+        )
         _non_negative_count(
             self.unexplained_execution_rejection_count,
             field="V3 candidate unexplained_execution_rejection_count",
         )
         reasons = tuple(self.rejection_reasons)
         if self.admissible == bool(reasons):
-            raise ValueError("V3 candidate admissibility and rejection reasons disagree")
+            raise ValueError(
+                "V3 candidate admissibility and rejection reasons disagree"
+            )
         object.__setattr__(self, "episode_metrics", metrics)
         object.__setattr__(self, "rejection_reasons", reasons)
         expected = content_digest(self.to_payload(include_digest=False))
@@ -390,7 +406,9 @@ class CausalAlphaV3CandidateEvidence:
         payload: dict[str, object] = {
             "admissible": self.admissible,
             "candidate_digest": self.candidate.digest,
-            "episode_metric_digests": tuple(item.digest for item in self.episode_metrics),
+            "episode_metric_digests": tuple(
+                item.digest for item in self.episode_metrics
+            ),
             "hard_risk_violation": self.hard_risk_violation,
             "lower_tail_net_return": self.lower_tail_net_return,
             "mean_gross_return": self.mean_gross_return,
@@ -423,7 +441,9 @@ class CausalAlphaV3SelectionEvidence:
         require_sha256(self.selected_candidate_digest, field="V3 selected candidate")
         require_sha256(self.freeze_digest, field="V3 selection freeze_digest")
         selected = tuple(
-            item for item in values if item.candidate.digest == self.selected_candidate_digest
+            item
+            for item in values
+            if item.candidate.digest == self.selected_candidate_digest
         )
         if len(selected) != 1 or not selected[0].admissible:
             raise ValueError("V3 selected candidate is not uniquely admissible")
@@ -437,7 +457,9 @@ class CausalAlphaV3SelectionEvidence:
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
-            "candidate_evidence_digests": tuple(item.digest for item in self.candidates),
+            "candidate_evidence_digests": tuple(
+                item.digest for item in self.candidates
+            ),
             "freeze_digest": self.freeze_digest,
             "promotion_eligible": self.promotion_eligible,
             "schema_version": _SELECTION_SCHEMA,
@@ -530,9 +552,15 @@ class UniversalCausalAlphaV3TeacherPackage:
     def __post_init__(self) -> None:
         symbols = tuple(self.train_symbols)
         batches = dict(self.batches)
-        if not symbols or len(set(symbols)) != len(symbols) or set(batches) != set(symbols):
+        if (
+            not symbols
+            or len(set(symbols)) != len(symbols)
+            or set(batches) != set(symbols)
+        ):
             raise ValueError("V3 teacher package batch scope must match train_symbols")
-        if any(not isinstance(batches[symbol], EpisodeOracleBatch) for symbol in symbols):
+        if any(
+            not isinstance(batches[symbol], EpisodeOracleBatch) for symbol in symbols
+        ):
             raise TypeError("V3 teacher package contains an invalid episode batch")
         for field in (
             "run_manifest_digest",
@@ -546,7 +574,9 @@ class UniversalCausalAlphaV3TeacherPackage:
         if not self.teacher_admission_passed:
             raise ValueError("V3 teacher package requires passed teacher admission")
         if not self.research_only or self.promotion_eligible:
-            raise ValueError("V3 teacher package must remain research-only and non-promotable")
+            raise ValueError(
+                "V3 teacher package must remain research-only and non-promotable"
+            )
         object.__setattr__(self, "train_symbols", symbols)
         object.__setattr__(self, "batches", batches)
         expected = content_digest(self.to_payload(include_digest=False))

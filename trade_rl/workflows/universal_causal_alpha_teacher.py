@@ -163,16 +163,28 @@ def load_causal_alpha_selection_checkpoint(
     return {digest: tuple(metrics) for digest, metrics in by_candidate.items()}
 
 
+def _resolved_generator_code_digest(value: str | None) -> str:
+    resolved = causal_alpha_generator_code_digest() if value is None else value
+    if not isinstance(resolved, str) or len(resolved) != 64:
+        raise ValueError("causal alpha v2 generator code digest is invalid")
+    return resolved
+
+
 def write_causal_alpha_selection_checkpoint_metric_v2(
     path: Path,
     metric: CausalAlphaCandidateEpisodeMetricsV2,
     *,
     grid_digest: str,
+    generator_code_digest: str | None = None,
 ) -> None:
     if not isinstance(grid_digest, str) or len(grid_digest) != 64:
         raise ValueError("causal alpha v2 grid digest is invalid")
+    resolved_generator_code_digest = _resolved_generator_code_digest(
+        generator_code_digest
+    )
     payload = {
         **metric.to_payload(),
+        "generator_code_digest": resolved_generator_code_digest,
         "grid_digest": grid_digest,
         "schema_version": "causal_alpha_selection_checkpoint_metric_v2",
     }
@@ -225,10 +237,14 @@ def load_causal_alpha_selection_checkpoint_v2(
     path: Path,
     *,
     expected_grid_digest: str,
+    expected_generator_code_digest: str | None = None,
 ) -> dict[str, tuple[CausalAlphaCandidateEpisodeMetricsV2, ...]]:
     source = Path(path)
     if not source.is_file():
         return {}
+    resolved_generator_code_digest = _resolved_generator_code_digest(
+        expected_generator_code_digest
+    )
     by_candidate: dict[str, list[CausalAlphaCandidateEpisodeMetricsV2]] = {}
     identities: set[tuple[str, str, int]] = set()
     with source.open("r", encoding="utf-8") as checkpoint:
@@ -242,6 +258,10 @@ def load_causal_alpha_selection_checkpoint_v2(
             if raw.get("grid_digest") != expected_grid_digest:
                 raise ValueError(
                     "causal alpha v2 selection checkpoint grid digest mismatch"
+                )
+            if raw.get("generator_code_digest") != resolved_generator_code_digest:
+                raise ValueError(
+                    "causal alpha v2 selection checkpoint generator code digest mismatch"
                 )
             metric = causal_alpha_candidate_metric_v2_from_payload(raw)
             identity = (metric.candidate_digest, metric.symbol, metric.episode_index)
@@ -814,6 +834,7 @@ def build_universal_causal_alpha_teacher_package(
         )
     thresholds = CausalAlphaSelectionThresholds()
     grid_digest = cost_aware_causal_alpha_grid_digest(candidate_values, thresholds)
+    generator_code_digest = causal_alpha_generator_code_digest()
     binding_by_symbol = {binding.concrete_symbol: binding for binding in binding_values}
     environment_factories = {
         symbol: partial(concrete_environment_factory, binding_by_symbol[symbol])
@@ -831,6 +852,7 @@ def build_universal_causal_alpha_teacher_package(
     initial_selection_metrics = load_causal_alpha_selection_checkpoint_v2(
         checkpoint_path,
         expected_grid_digest=grid_digest,
+        expected_generator_code_digest=generator_code_digest,
     )
     latest_progress: dict[str, object] = {}
 
@@ -842,6 +864,7 @@ def build_universal_causal_alpha_teacher_package(
                 checkpoint_path,
                 metric,
                 grid_digest=grid_digest,
+                generator_code_digest=generator_code_digest,
             )
         latest_progress.clear()
         latest_progress.update(payload)
@@ -891,7 +914,6 @@ def build_universal_causal_alpha_teacher_package(
     selected_economic = selected.economic_controller
     if selected_economic is None:
         raise RuntimeError("causal alpha selected economic controller is unavailable")
-    generator_code_digest = causal_alpha_generator_code_digest()
     teacher_config_digest = content_digest(
         {
             "feature_schema_digest": feature_schema_digest,

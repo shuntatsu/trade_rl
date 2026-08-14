@@ -55,7 +55,9 @@ class CausalAlphaV3RecordStore:
 
         relative = Path(relative_path)
         if relative.is_absolute() or ".." in relative.parts:
-            raise ValueError("V3 immutable artifact path must stay under the store root")
+            raise ValueError(
+                "V3 immutable artifact path must stay under the store root"
+            )
         encoded = canonical_json_bytes(dict(payload))
         normalized = json.loads(encoded)
         destination = self.root / relative
@@ -125,9 +127,15 @@ class CausalAlphaV3RecordStore:
         expected = dict(expected_contract_digests)
         for identity, contract_digest in expected.items():
             candidate_digest, symbol, episode_index = identity
-            require_sha256(candidate_digest, field="V3 expected replay candidate digest")
+            require_sha256(
+                candidate_digest, field="V3 expected replay candidate digest"
+            )
             _safe_segment(symbol, field="V3 expected replay symbol")
-            if isinstance(episode_index, bool) or not isinstance(episode_index, int) or episode_index < 0:
+            if (
+                isinstance(episode_index, bool)
+                or not isinstance(episode_index, int)
+                or episode_index < 0
+            ):
                 raise ValueError("V3 expected replay episode index is invalid")
             require_sha256(contract_digest, field="V3 expected replay contract digest")
         records_root = self.root / "selection" / "records"

@@ -32,6 +32,9 @@ jobs:
       - name: Install formatter
         run: uv sync --extra dev
 
+      - name: Apply orchestration fixture corrections
+        run: uv run python scripts/_v3_orchestration_fixture_patch.py
+
       - name: Format V3 sources
         run: >-
           uv run ruff format
@@ -41,7 +44,7 @@ jobs:
           tests/learning/test_causal_alpha_v3*.py
           tests/workflows/test_universal_causal_alpha_v3*.py
 
-      - name: Commit formatted V3 sources
+      - name: Commit V3 sources
         shell: bash
         run: |
           set -euo pipefail
@@ -56,5 +59,5 @@ jobs:
             scripts/analyze_causal_alpha_checkpoint.py \
             tests/learning/test_causal_alpha_v3*.py \
             tests/workflows/test_universal_causal_alpha_v3*.py
-          git commit -m "style: format causal alpha v3 sources [v3-format]"
+          git commit -m "test: bind v3 orchestration fixtures to exact scope [v3-format]"
           git push origin HEAD:codex/causal-alpha-v3-runner

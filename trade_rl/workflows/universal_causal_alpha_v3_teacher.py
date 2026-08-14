@@ -8,16 +8,27 @@ from typing import Any, Mapping
 import numpy as np
 
 from trade_rl.domain.common import require_sha256
-from trade_rl.learning.causal_alpha_diagnostics import evaluate_causal_alpha_signal_diagnostics
-from trade_rl.learning.causal_alpha_v3 import CausalAlphaV3TargetPath, causal_alpha_v3_target_path
-from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch, OracleEpisodeContract
+from trade_rl.learning.causal_alpha_diagnostics import (
+    evaluate_causal_alpha_signal_diagnostics,
+)
+from trade_rl.learning.causal_alpha_v3 import (
+    CausalAlphaV3TargetPath,
+    causal_alpha_v3_target_path,
+)
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeContract,
+)
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaSymbolSamples
 from trade_rl.workflows.universal_causal_alpha_costs import (
     causal_alpha_liquidity_weight_caps,
     causal_alpha_one_way_cost_rates,
 )
-from trade_rl.workflows.universal_causal_alpha_v3 import CausalAlphaV3Fit, fit_causal_alpha_v3
+from trade_rl.workflows.universal_causal_alpha_v3 import (
+    CausalAlphaV3Fit,
+    fit_causal_alpha_v3,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_config import CausalAlphaV3Candidate
 from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3SignalScopeMetric,
@@ -44,7 +55,9 @@ class CausalAlphaV3FitCache:
         self.fit_count = 0
         self.hit_count = 0
 
-    def resolve(self, *, knowledge_cutoff: int, candidate: CausalAlphaV3Candidate) -> CausalAlphaV3Fit:
+    def resolve(
+        self, *, knowledge_cutoff: int, candidate: CausalAlphaV3Candidate
+    ) -> CausalAlphaV3Fit:
         key = (candidate.fit.digest, knowledge_cutoff)
         cached = self._cache.get(key)
         if cached is not None:
@@ -71,7 +84,9 @@ class CausalAlphaV3ContractTargets:
     def __post_init__(self) -> None:
         actions = np.asarray(self.actions, dtype=np.float32).copy(order="C")
         if actions.ndim != 2 or actions.shape[1] != 1 or actions.shape[0] == 0:
-            raise ValueError("V3 contract actions must be a non-empty scalar action path")
+            raise ValueError(
+                "V3 contract actions must be a non-empty scalar action path"
+            )
         if not np.isfinite(actions).all():
             raise ValueError("V3 contract actions must be finite")
         require_sha256(self.fit_digest, field="V3 contract fit_digest")
@@ -93,7 +108,9 @@ def _prediction_scope(
     contract: OracleEpisodeContract,
     candidate: CausalAlphaV3Candidate,
     fit_cache: CausalAlphaV3FitCache | None,
-) -> tuple[CausalAlphaV3Fit, Any, CausalAlphaSymbolSamples, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[
+    CausalAlphaV3Fit, Any, CausalAlphaSymbolSamples, np.ndarray, np.ndarray, np.ndarray
+]:
     if symbol not in samples:
         raise ValueError("V3 prediction symbol is outside sample scope")
     block = samples[symbol]
@@ -123,7 +140,9 @@ def _labels_for_decisions(
     present = positions < block.decision_indices.size
     matched = np.zeros(decisions.shape, dtype=np.bool_)
     if np.any(present):
-        matched[present] = block.decision_indices[positions[present]] == decisions[present]
+        matched[present] = (
+            block.decision_indices[positions[present]] == decisions[present]
+        )
     labels_24h = np.full(decisions.shape, np.nan, dtype=np.float64)
     labels_72h = np.full(decisions.shape, np.nan, dtype=np.float64)
     ends_24h = np.full(decisions.shape, -1, dtype=np.int64)
@@ -179,9 +198,7 @@ def build_causal_alpha_v3_signal_scope_metric(
             "V3 signal scope has fewer than two non-overlapping realized labels"
         )
     prediction = forecast.expected_return_24h_equivalent[cohort_rows]
-    realized = 0.5 * (
-        labels_24h[cohort_rows] + labels_72h[cohort_rows] / 3.0
-    )
+    realized = 0.5 * (labels_24h[cohort_rows] + labels_72h[cohort_rows] / 3.0)
     diagnostics = evaluate_causal_alpha_signal_diagnostics(prediction, realized)
     if diagnostics.rank_correlation is None:
         raise CausalAlphaV3SignalScopeUnavailable(

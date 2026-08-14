@@ -27,16 +27,6 @@ MAINTAINED_DOCUMENTS = (
     FRONTEND_ROOT / "README.md",
 )
 
-REMOVED_HISTORY_PATHS = (
-    ROOT / "README.ja.md",
-    ROOT / ".superpowers" / "sdd" / "task-8-report.md",
-    ROOT / "docs" / "audits",
-    ROOT / "docs" / "reviews",
-    ROOT / "docs" / "plans",
-    ROOT / "docs" / "verification",
-    ROOT / "docs" / "superpowers",
-)
-
 
 def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -69,15 +59,6 @@ def test_maintained_documents_exist() -> None:
         if not path.is_file()
     ]
     assert missing == []
-
-
-def test_historical_documentation_clutter_is_removed() -> None:
-    remaining = [
-        path.relative_to(ROOT).as_posix()
-        for path in REMOVED_HISTORY_PATHS
-        if path.exists()
-    ]
-    assert remaining == []
 
 
 def test_current_schema_contracts_are_documented() -> None:

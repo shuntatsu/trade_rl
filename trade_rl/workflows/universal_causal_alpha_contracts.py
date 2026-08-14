@@ -445,15 +445,12 @@ class CausalAlphaEpisodeEvidence:
         )
         if self.cost_aware_target_path_digest is None:
             if any(value is not None for value in cost_counts):
-                raise ValueError("causal alpha episode cost-aware evidence is incomplete")
-        elif (
-            len(self.cost_aware_target_path_digest) != 64
-            or any(
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or value < 0
-                for value in cost_counts
-            )
+                raise ValueError(
+                    "causal alpha episode cost-aware evidence is incomplete"
+                )
+        elif len(self.cost_aware_target_path_digest) != 64 or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in cost_counts
         ):
             raise ValueError("causal alpha episode cost-aware evidence is invalid")
         expected = content_digest(self._payload_without_digest())
@@ -526,25 +523,26 @@ class CausalAlphaBatchEvidence:
             raise ValueError(
                 "causal alpha batch fit evidence does not close over episodes"
             )
-        if self.economic_controller_config_digest is not None and len(
-            self.economic_controller_config_digest
-        ) != 64:
+        if (
+            self.economic_controller_config_digest is not None
+            and len(self.economic_controller_config_digest) != 64
+        ):
             raise ValueError("causal alpha economic controller digest is invalid")
         identity: dict[str, object] = {
-                "controller_config_digest": self.controller_config_digest,
-                "episode_evidence_digests": tuple(item.digest for item in episodes),
-                "fit_digests": tuple(sorted(fits)),
-                "partition_digest": self.partition_digest,
-                "ridge_config_digest": self.ridge_config_digest,
-                "sample_scope_digest": self.sample_scope_digest,
-                "schema_version": (
-                    _CAUSAL_ALPHA_BATCH_EVIDENCE_SCHEMA
-                    if self.economic_controller_config_digest is None
-                    else "universal_causal_alpha_batch_evidence_v2"
-                ),
-                "symbol": self.symbol,
-                "train_symbols": self.train_symbols,
-            }
+            "controller_config_digest": self.controller_config_digest,
+            "episode_evidence_digests": tuple(item.digest for item in episodes),
+            "fit_digests": tuple(sorted(fits)),
+            "partition_digest": self.partition_digest,
+            "ridge_config_digest": self.ridge_config_digest,
+            "sample_scope_digest": self.sample_scope_digest,
+            "schema_version": (
+                _CAUSAL_ALPHA_BATCH_EVIDENCE_SCHEMA
+                if self.economic_controller_config_digest is None
+                else "universal_causal_alpha_batch_evidence_v2"
+            ),
+            "symbol": self.symbol,
+            "train_symbols": self.train_symbols,
+        }
         if self.economic_controller_config_digest is not None:
             identity["economic_controller_config_digest"] = (
                 self.economic_controller_config_digest
@@ -604,15 +602,15 @@ class CausalAlphaCandidateConfig:
         ):
             raise TypeError("causal alpha candidate economic controller is invalid")
         identity: dict[str, object] = {
-                "controller_digest": self.controller.digest,
-                "name": self.name,
-                "ridge_digest": self.ridge.digest,
-                "schema_version": (
-                    "causal_alpha_candidate_v1"
-                    if self.economic_controller is None
-                    else "causal_alpha_candidate_v2"
-                ),
-            }
+            "controller_digest": self.controller.digest,
+            "name": self.name,
+            "ridge_digest": self.ridge.digest,
+            "schema_version": (
+                "causal_alpha_candidate_v1"
+                if self.economic_controller is None
+                else "causal_alpha_candidate_v2"
+            ),
+        }
         if self.economic_controller is not None:
             identity["economic_controller_digest"] = self.economic_controller.digest
         expected = content_digest(identity)
@@ -712,7 +710,10 @@ class CausalAlphaCandidateEpisodeMetricsV2:
     digest: str = ""
 
     def __post_init__(self) -> None:
-        if not isinstance(self.candidate_digest, str) or len(self.candidate_digest) != 64:
+        if (
+            not isinstance(self.candidate_digest, str)
+            or len(self.candidate_digest) != 64
+        ):
             raise ValueError("causal alpha v2 candidate digest is invalid")
         if not self.symbol:
             raise ValueError("causal alpha v2 metric symbol is empty")
@@ -759,7 +760,9 @@ class CausalAlphaCandidateEpisodeMetricsV2:
         if sum(count for _, count in self.execution_rejection_reason_counts) != (
             self.execution_rejection_count
         ):
-            raise ValueError("causal alpha v2 execution rejection reasons do not reconcile")
+            raise ValueError(
+                "causal alpha v2 execution rejection reasons do not reconcile"
+            )
         if not isinstance(self.hard_risk_violation, bool):
             raise TypeError("causal alpha v2 hard_risk_violation must be boolean")
         liquidity_caps = (
@@ -1015,9 +1018,7 @@ class CausalAlphaSelectionEvidenceV2:
                     "hard_risk_violation": item.hard_risk_violation,
                     "lower_tail_net_return": item.lower_tail_net_return,
                     "mean_net_return": item.mean_net_return,
-                    "negative_gross_episode_count": (
-                        item.negative_gross_episode_count
-                    ),
+                    "negative_gross_episode_count": (item.negative_gross_episode_count),
                     "rejection_reasons": item.rejection_reasons,
                     "total_execution_cost": item.total_execution_cost,
                     "total_trade_count": item.total_trade_count,

@@ -58,9 +58,9 @@ def test_one_way_cost_rates_do_not_read_future_execution_rows() -> None:
         "decision_bars": 1,
     }
 
-    assert costs.causal_alpha_one_way_cost_rates(
-        baseline, **kwargs
-    ) == pytest.approx(costs.causal_alpha_one_way_cost_rates(changed_future, **kwargs))
+    assert costs.causal_alpha_one_way_cost_rates(baseline, **kwargs) == pytest.approx(
+        costs.causal_alpha_one_way_cost_rates(changed_future, **kwargs)
+    )
 
 
 def test_liquidity_weight_caps_use_only_prior_lower_tail_volume() -> None:

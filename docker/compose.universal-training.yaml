@@ -1,9 +1,11 @@
+name: trade_rl
+
 services:
   trainer:
     image: ${TRADE_RL_UNIVERSAL_IMAGE:?required}
     build:
-      context: .
-      dockerfile: Dockerfile.training
+      context: ..
+      dockerfile: docker/Dockerfile.training
       target: training-runtime
       args:
         TRADE_RL_GIT_COMMIT: ${TRADE_RL_GIT_COMMIT:?required}
@@ -52,7 +54,7 @@ services:
     volumes:
       - trade-rl-training-data:/workspace/var
       - type: bind
-        source: ${TRADE_RL_UNIVERSAL_ARTIFACT_ROOT:-./artifacts/universal}
+        source: ${TRADE_RL_UNIVERSAL_ARTIFACT_ROOT:-../artifacts/universal}
         target: /workspace/var/universal
         read_only: true
     restart: "no"

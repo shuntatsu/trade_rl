@@ -130,14 +130,14 @@ def _wait_or_none(process: ProcessHandle) -> int | None:
 
 def _terminate_posix_process_tree(process: ProcessHandle) -> int:
     try:
-        os.killpg(process.pid, signal.SIGTERM)
+        os.killpg(process.pid, signal.SIGTERM)  # type: ignore[attr-defined]
     except ProcessLookupError:
         process.terminate()
     exit_code = _wait_or_none(process)
     if exit_code is not None:
         return exit_code
     try:
-        os.killpg(process.pid, signal.SIGKILL)
+        os.killpg(process.pid, signal.SIGKILL)  # type: ignore[attr-defined]
     except ProcessLookupError:
         process.kill()
     return process.wait(timeout=_PROCESS_STOP_TIMEOUT_SECONDS)

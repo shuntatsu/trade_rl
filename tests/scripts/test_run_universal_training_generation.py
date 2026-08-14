@@ -32,7 +32,7 @@ def test_launcher_builds_clean_digest_bound_image_and_generation(
     result = module.launch_generation(
         project_root=tmp_path,
         generation="universal-u6-20260812T120000Z",
-        compose_file=tmp_path / "compose.universal-training.yaml",
+        compose_file=tmp_path / "docker/compose.universal-training.yaml",
         runtime_manifest=tmp_path / "artifacts/universal/runtime-manifest.json",
     )
 
@@ -53,6 +53,6 @@ def test_launcher_rejects_dirty_tree(
         module.launch_generation(
             project_root=tmp_path,
             generation="generation-a",
-            compose_file=tmp_path / "compose.universal-training.yaml",
+            compose_file=tmp_path / "docker/compose.universal-training.yaml",
             runtime_manifest=tmp_path / "runtime.json",
         )

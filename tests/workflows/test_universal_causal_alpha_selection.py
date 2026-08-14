@@ -292,9 +292,9 @@ def test_v2_checkpoint_rejects_historical_v1_rows(tmp_path: Path) -> None:
 
 
 def test_v2_metric_digest_changes_with_signal_diagnostics() -> None:
-    assert _metric_v2(realized_scale=1.0).digest != _metric_v2(
-        realized_scale=-1.0
-    ).digest
+    assert (
+        _metric_v2(realized_scale=1.0).digest != _metric_v2(realized_scale=-1.0).digest
+    )
 
 
 def test_cost_aware_candidate_grid_has_exact_one_factor_variants() -> None:
@@ -317,10 +317,14 @@ def test_cost_aware_candidate_grid_has_exact_one_factor_variants() -> None:
         "no-trade-high",
         "delta-low",
     )
-    assert all(isinstance(item.economic_controller, CausalAlphaCostAwareConfig) for item in grid)
+    assert all(
+        isinstance(item.economic_controller, CausalAlphaCostAwareConfig)
+        for item in grid
+    )
     assert all(
         item.economic_controller is not None
-        and item.economic_controller.max_position_to_market_notional == pytest.approx(0.03)
+        and item.economic_controller.max_position_to_market_notional
+        == pytest.approx(0.03)
         for item in grid
     )
 
@@ -403,9 +407,7 @@ def test_cost_aware_ranking_rejects_each_economic_failure_reason() -> None:
     )[:7]
     metrics = {
         grid[0].digest: (_cost_metric(grid[0], hard_risk=True),),
-        grid[1].digest: (
-            _cost_metric(grid[1], rejection_reason="minimum_notional"),
-        ),
+        grid[1].digest: (_cost_metric(grid[1], rejection_reason="minimum_notional"),),
         grid[2].digest: (_cost_metric(grid[2], trades=0),),
         grid[3].digest: (_cost_metric(grid[3], net=-0.01),),
         grid[4].digest: (
@@ -423,9 +425,7 @@ def test_cost_aware_ranking_rejects_each_economic_failure_reason() -> None:
             thresholds=CausalAlphaSelectionThresholds(),
         )
 
-    assert {
-        item.rejection_reasons[0] for item in caught.value.candidates
-    } == {
+    assert {item.rejection_reasons[0] for item in caught.value.candidates} == {
         "hard_risk_violation",
         "unexplained_execution_rejection",
         "no_meaningful_trades",
@@ -482,7 +482,9 @@ def test_cost_aware_ranking_treats_rounded_zero_as_explained_no_fill() -> None:
     assert evidence.episode_metrics[0].execution_rejection_count == 1
 
 
-def test_cost_aware_ranking_treats_below_minimum_notional_as_explained_no_fill() -> None:
+def test_cost_aware_ranking_treats_below_minimum_notional_as_explained_no_fill() -> (
+    None
+):
     candidate = default_cost_aware_causal_alpha_candidate_grid(
         risk_config=PreTradeRiskConfig(max_abs_weight=1.0, no_trade_band=0.05)
     )[0]

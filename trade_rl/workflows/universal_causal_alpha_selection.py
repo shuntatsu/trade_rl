@@ -271,9 +271,7 @@ class _CausalAlphaLiquidityCapCache:
             dataset,
             decision_indices=decision_indices,
             reference_portfolio_value=reference_portfolio_value,
-            max_position_to_market_notional=(
-                economic.max_position_to_market_notional
-            ),
+            max_position_to_market_notional=(economic.max_position_to_market_notional),
             lookback_decisions=economic.liquidity_lookback_decisions,
             lower_quantile=economic.liquidity_lower_quantile,
             safety_multiplier=economic.liquidity_safety_multiplier,
@@ -397,14 +395,14 @@ def default_cost_aware_causal_alpha_candidate_grid(
     if not isinstance(risk_config, PreTradeRiskConfig):
         raise TypeError("cost-aware causal alpha grid requires PreTradeRiskConfig")
     if risk_config.max_abs_weight < 0.5 or risk_config.max_gross < 0.5:
-        raise ValueError("cost-aware causal alpha baseline requires 0.5 exposure support")
+        raise ValueError(
+            "cost-aware causal alpha baseline requires 0.5 exposure support"
+        )
     if (
         not math.isfinite(max_position_to_market_notional)
         or max_position_to_market_notional <= 0.0
     ):
-        raise ValueError(
-            "max_position_to_market_notional must be finite and positive"
-        )
+        raise ValueError("max_position_to_market_notional must be finite and positive")
     controller_base: dict[str, object] = {
         "horizon_mix": CausalAlphaHorizonMix.EQUAL,
         "score_scale": 25.0,
@@ -741,7 +739,9 @@ def _cost_aware_causal_alpha_target_for_contract(
     block = samples[symbol]
     if contract.dataset_id != block.dataset_id:
         raise ValueError("cost-aware selection contract dataset identity drifted")
-    cache = _CausalAlphaPredictionCache() if prediction_cache is None else prediction_cache
+    cache = (
+        _CausalAlphaPredictionCache() if prediction_cache is None else prediction_cache
+    )
     prediction_24h, prediction_72h, actionable = cache.resolve(
         symbol=symbol,
         block=block,
@@ -754,7 +754,9 @@ def _cost_aware_causal_alpha_target_for_contract(
     present = positions < block.decision_indices.size
     matched = np.zeros(decisions.shape, dtype=np.bool_)
     if np.any(present):
-        matched[present] = block.decision_indices[positions[present]] == decisions[present]
+        matched[present] = (
+            block.decision_indices[positions[present]] == decisions[present]
+        )
     labels_24h = np.full(decisions.shape, np.nan, dtype=np.float64)
     labels_72h = np.full(decisions.shape, np.nan, dtype=np.float64)
     ends_24h = np.full(decisions.shape, -1, dtype=np.int64)
@@ -774,7 +776,9 @@ def _cost_aware_causal_alpha_target_for_contract(
         & (ends_72h < contract.stop)
     )
     if int(np.count_nonzero(diagnostic_mask)) < 2:
-        raise ValueError("cost-aware selection episode has insufficient realized labels")
+        raise ValueError(
+            "cost-aware selection episode has insufficient realized labels"
+        )
     signal_24h = evaluate_causal_alpha_signal_diagnostics(
         prediction_24h[diagnostic_mask], labels_24h[diagnostic_mask]
     )

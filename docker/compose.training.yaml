@@ -1,8 +1,10 @@
+name: trade_rl
+
 x-training-image: &training-image
   image: trade-rl-training:${TRADE_RL_GIT_COMMIT:-invalid}
   build:
-    context: .
-    dockerfile: Dockerfile.training
+    context: ..
+    dockerfile: docker/Dockerfile.training
     target: training-runtime
     args:
       TRADE_RL_GIT_COMMIT: ${TRADE_RL_GIT_COMMIT:-}
@@ -102,7 +104,7 @@ services:
       - trade-rl-market-archives:/workspace/market-data/binance-vision:ro
       - trade-rl-training-data:/workspace/var
       - type: bind
-        source: ${TRADE_RL_EVIDENCE_ROOT:-./var/evidence}
+        source: ${TRADE_RL_EVIDENCE_ROOT:-../var/evidence}
         target: /workspace/evidence
         read_only: true
 
@@ -110,8 +112,8 @@ services:
     <<: *training-image
     image: trade-rl-studio:${TRADE_RL_GIT_COMMIT:-invalid}
     build:
-      context: .
-      dockerfile: Dockerfile.training
+      context: ..
+      dockerfile: docker/Dockerfile.training
       target: studio-runtime
       args:
         TRADE_RL_GIT_COMMIT: ${TRADE_RL_GIT_COMMIT:-}

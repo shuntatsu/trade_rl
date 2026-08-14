@@ -11,7 +11,7 @@ def test_gpu_control_syncs_market_data_before_supervised_start() -> None:
     ).read_text(encoding="utf-8")
 
     sync = workflow.index(
-        "docker compose -f compose.training.yaml run --rm market-data-sync"
+        "docker compose -f docker/compose.training.yaml run --rm market-data-sync"
     )
     supervised = workflow.index("full_run_supervisor.py start")
 

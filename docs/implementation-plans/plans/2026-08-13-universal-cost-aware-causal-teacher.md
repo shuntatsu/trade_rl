@@ -518,7 +518,7 @@ Require a clean worktree and upstream equality before computing provenance.
 
 - [ ] **Step 4: Build and verify a provenance-bound training image**
 
-Compute exact Git commit, source-tree digest, `uv.lock` digest, and runtime-manifest digest. Build `Dockerfile.training` target `training-runtime` with all four labels, inspect them from the resulting image, and record the image ID. Do not reuse the dirty r3 image for corrected evidence.
+Compute exact Git commit, source-tree digest, `uv.lock` digest, and runtime-manifest digest. Build `docker/Dockerfile.training` target `training-runtime` with all four labels, inspect them from the resulting image, and record the image ID. Do not reuse the dirty r3 image for corrected evidence.
 
 - [ ] **Step 5: Preserve r3, then launch exactly one corrected teacher generation**
 

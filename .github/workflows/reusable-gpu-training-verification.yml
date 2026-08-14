@@ -123,7 +123,7 @@ jobs:
             --build-arg TRADE_RL_GIT_DIRTY=false \
             --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$TESTED_SOURCE_DIGEST" \
             --build-arg TRADE_RL_LOCKFILE_DIGEST="$TESTED_LOCK_DIGEST" \
-            --file Dockerfile.training \
+            --file docker/Dockerfile.training \
             --tag trade-rl-training:gpu-verification \
             . 2>&1 | tee "$WORK_ROOT/docker-build.log"
           docker image inspect trade-rl-training:gpu-verification \

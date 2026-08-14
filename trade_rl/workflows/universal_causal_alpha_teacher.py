@@ -213,13 +213,9 @@ def causal_alpha_candidate_metric_v2_from_payload(
             for reason, count in raw["risk_projection_reason_counts"]
         ),
         hard_risk_violation=bool(raw["hard_risk_violation"]),
-        liquidity_deleveraging_count=int(
-            raw.get("liquidity_deleveraging_count", 0)
-        ),
+        liquidity_deleveraging_count=int(raw.get("liquidity_deleveraging_count", 0)),
         liquidity_weight_cap_min=float(raw.get("liquidity_weight_cap_min", 0.0)),
-        liquidity_weight_cap_median=float(
-            raw.get("liquidity_weight_cap_median", 0.0)
-        ),
+        liquidity_weight_cap_median=float(raw.get("liquidity_weight_cap_median", 0.0)),
         liquidity_weight_cap_max=float(raw.get("liquidity_weight_cap_max", 0.0)),
         digest=str(raw["artifact_digest"]),
     )
@@ -238,10 +234,15 @@ def load_causal_alpha_selection_checkpoint_v2(
     with source.open("r", encoding="utf-8") as checkpoint:
         for line in checkpoint:
             raw = json.loads(line)
-            if raw.get("schema_version") != "causal_alpha_selection_checkpoint_metric_v2":
+            if (
+                raw.get("schema_version")
+                != "causal_alpha_selection_checkpoint_metric_v2"
+            ):
                 raise ValueError("causal alpha v2 selection checkpoint schema mismatch")
             if raw.get("grid_digest") != expected_grid_digest:
-                raise ValueError("causal alpha v2 selection checkpoint grid digest mismatch")
+                raise ValueError(
+                    "causal alpha v2 selection checkpoint grid digest mismatch"
+                )
             metric = causal_alpha_candidate_metric_v2_from_payload(raw)
             identity = (metric.candidate_digest, metric.symbol, metric.episode_index)
             if identity in identities:
@@ -426,9 +427,7 @@ def evaluate_cost_aware_causal_alpha_selection(
     thresholds: CausalAlphaSelectionThresholds,
     fit_cache: CausalAlphaExpandingFitCache | None = None,
     progress_callback: Callable[[Mapping[str, object]], None] | None = None,
-    initial_metrics: Mapping[
-        str, tuple[CausalAlphaCandidateEpisodeMetricsV2, ...]
-    ]
+    initial_metrics: Mapping[str, tuple[CausalAlphaCandidateEpisodeMetricsV2, ...]]
     | None = None,
 ) -> CausalAlphaSelectionEvidenceV2:
     symbols, _, _ = _validated_sample_scope(train_symbols, samples)
@@ -530,9 +529,7 @@ def evaluate_cost_aware_causal_alpha_selection(
                             targets.target_path.strong_reversal_count
                         ),
                         command_sign_flip_count=targets.target_path.sign_flip_count,
-                        execution_rejection_count=(
-                            collapse.execution_rejection_count
-                        ),
+                        execution_rejection_count=(collapse.execution_rejection_count),
                         execution_rejection_reason_counts=(
                             collapse.execution_rejection_reason_counts
                         ),
@@ -564,7 +561,9 @@ def evaluate_cost_aware_causal_alpha_selection(
                                 "episode_index": contract.episode_index,
                                 "episode_metric": metric.to_payload(),
                                 "fit_cache_entries": (
-                                    fit_cache.entry_count if fit_cache is not None else 0
+                                    fit_cache.entry_count
+                                    if fit_cache is not None
+                                    else 0
                                 ),
                                 "fit_cache_hits": (
                                     fit_cache.hit_count if fit_cache is not None else 0
@@ -746,7 +745,9 @@ def build_universal_causal_alpha_teacher_package(
                 )
             observed_episode_hours.append(float(environment_episode_hours))
             datasets[symbol] = environment.dataset
-            execution_costs[symbol] = getattr(environment.config, "execution_cost", None)
+            execution_costs[symbol] = getattr(
+                environment.config, "execution_cost", None
+            )
             signal_delay = getattr(environment.config, "signal_delay_decisions", None)
             decision_bars = getattr(environment, "decision_bars", None)
             if signal_delay not in {0, 1}:

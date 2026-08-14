@@ -426,16 +426,12 @@ def aggregate_episode_behavior_cloning_holdouts(
             value.constant_submitted_actions for value in evidence_values
         ),
         execution_rejection_reason_counts=_merge_reason_counts(
-            tuple(
-                value.execution_rejection_reason_counts for value in evidence_values
-            )
+            tuple(value.execution_rejection_reason_counts for value in evidence_values)
         ),
         risk_projection_reason_counts=_merge_reason_counts(
             tuple(value.risk_projection_reason_counts for value in evidence_values)
         ),
-        hard_risk_violation=any(
-            value.hard_risk_violation for value in evidence_values
-        ),
+        hard_risk_violation=any(value.hard_risk_violation for value in evidence_values),
     )
     causal_returns = np.asarray(
         [record.causal_policy_performance.net_return for record in records],

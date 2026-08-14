@@ -380,7 +380,7 @@ def run_benchmark(
         raise RuntimeError(
             "benchmark process-tree RSS measurement requires Linux /proc"
         )
-    runtime_version = importlib.metadata.version("nautilus_trader")
+    runtime_version = importlib.metadata.version("nautilus_trader")  # type: ignore[unreachable]
     if runtime_version != _RUNTIME_VERSION:
         raise RuntimeError(
             "benchmark requires pinned nautilus_trader==1.230.0; "
@@ -537,8 +537,8 @@ def _worker_training_measurement(
     if not math.isfinite(elapsed_seconds) or elapsed_seconds <= 0.0:
         raise RuntimeError("benchmark elapsed time must be finite and positive")
 
-    self_usage = resource.getrusage(resource.RUSAGE_SELF)
-    child_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    self_usage = resource.getrusage(resource.RUSAGE_SELF)  # type: ignore[attr-defined]
+    child_usage = resource.getrusage(resource.RUSAGE_CHILDREN)  # type: ignore[attr-defined]
     peak_self_rss_bytes = int(self_usage.ru_maxrss) * 1024
     peak_children_rss_bytes = int(child_usage.ru_maxrss) * 1024
     return {

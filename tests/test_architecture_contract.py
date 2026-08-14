@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import tomllib
 
+from tests.architecture.import_linter_config import (
+    configured_layers,
+    import_linter_contract,
+)
 from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
@@ -83,16 +87,9 @@ def test_quickstart_installs_training_dependencies_before_training() -> None:
 
 def test_architecture_doc_matches_enforced_layer_order() -> None:
     architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
-    import_linter = (ROOT / ".importlinter").read_text(encoding="utf-8")
-    layer_block = import_linter.split("layers =", maxsplit=1)[1].split(
-        "[importlinter:contract:domain]", maxsplit=1
-    )[0]
     enforced_layers = tuple(
-        line.strip().removeprefix("trade_rl.")
-        for line in layer_block.splitlines()
-        if line.strip().startswith("trade_rl.")
+        layer.removeprefix("trade_rl.") for layer in configured_layers()
     )
-
     marker = "Import Linterの強制順序は次のとおりです:"
     documented_section = architecture.split(marker, maxsplit=1)[1]
     documented_block = documented_section.split("```", maxsplit=2)[1]
@@ -101,29 +98,18 @@ def test_architecture_doc_matches_enforced_layer_order() -> None:
         for line in documented_block.splitlines()
         if line.strip() and line.strip() != "text"
     )
-
     assert enforced_layers
     assert documented_layers == enforced_layers
 
 
 def test_telemetry_has_an_enforced_low_level_dependency_boundary() -> None:
-    import_linter = (ROOT / ".importlinter").read_text(encoding="utf-8")
-    layer_block = import_linter.split("layers =", maxsplit=1)[1].split(
-        "[importlinter:contract:domain]", maxsplit=1
-    )[0]
-    layers = tuple(
-        line.strip()
-        for line in layer_block.splitlines()
-        if line.strip().startswith("trade_rl.")
-    )
-
+    layers = configured_layers()
     assert "trade_rl.telemetry" in layers
     assert layers.index("trade_rl.artifacts") < layers.index("trade_rl.telemetry")
     assert layers.index("trade_rl.telemetry") < layers.index("trade_rl.domain")
-    assert "[importlinter:contract:telemetry]" in import_linter
-    telemetry_contract = import_linter.split(
-        "[importlinter:contract:telemetry]", maxsplit=1
-    )[1]
+    forbidden_modules = {
+        str(value) for value in import_linter_contract("telemetry")["forbidden_modules"]
+    }
     for forbidden in (
         "numpy",
         "gymnasium",
@@ -134,7 +120,7 @@ def test_telemetry_has_an_enforced_low_level_dependency_boundary() -> None:
         "trade_rl.workflows",
         "trade_rl.integrations",
     ):
-        assert forbidden in telemetry_contract
+        assert forbidden in forbidden_modules
 
 
 def test_critical_modules_do_not_disable_index_typing_file_wide() -> None:

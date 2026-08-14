@@ -11,7 +11,7 @@ ROOT = REPOSITORY_ROOT
 def test_training_compose_requests_gpu_and_uses_named_runtime_plus_read_only_evidence() -> (
     None
 ):
-    compose = (ROOT / "compose.training.yaml").read_text(encoding="utf-8")
+    compose = (ROOT / "docker/compose.training.yaml").read_text(encoding="utf-8")
 
     assert "gpus: all" in compose
     assert "trade-rl-training-data:/workspace/var" in compose
@@ -22,8 +22,8 @@ def test_training_compose_requests_gpu_and_uses_named_runtime_plus_read_only_evi
 
 
 def test_training_container_uses_generation_scoped_supervised_entrypoint() -> None:
-    dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
-    compose = (ROOT / "compose.training.yaml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "docker/Dockerfile.training").read_text(encoding="utf-8")
+    compose = (ROOT / "docker/compose.training.yaml").read_text(encoding="utf-8")
 
     assert "FROM python:3.12-slim@sha256:" in dockerfile
     assert "USER trainer" in dockerfile
@@ -68,8 +68,8 @@ def test_training_runbook_uses_supervised_control_and_read_only_monitoring() -> 
 
 
 def test_training_image_requires_and_exports_packaged_git_provenance() -> None:
-    dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
-    compose = (ROOT / "compose.training.yaml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "docker/Dockerfile.training").read_text(encoding="utf-8")
+    compose = (ROOT / "docker/compose.training.yaml").read_text(encoding="utf-8")
 
     for name in (
         "TRADE_RL_GIT_COMMIT",
@@ -98,7 +98,7 @@ def test_training_compose_renders_without_host_provenance_or_generation() -> Non
         environment.pop(name, None)
 
     completed = subprocess.run(
-        ["docker", "compose", "-f", "compose.training.yaml", "config"],
+        ["docker", "compose", "-f", "docker/compose.training.yaml", "config"],
         cwd=ROOT,
         env=environment,
         check=False,
@@ -115,7 +115,7 @@ def test_training_compose_renders_without_host_provenance_or_generation() -> Non
 
 
 def test_training_dockerfile_isolates_fast_provenance_validation_stage() -> None:
-    dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "docker/Dockerfile.training").read_text(encoding="utf-8")
 
     provenance_stage = dockerfile.index("AS provenance-validation")
     runtime_stage = dockerfile.index("AS training-runtime")
@@ -129,7 +129,7 @@ def test_training_dockerfile_isolates_fast_provenance_validation_stage() -> None
 
 
 def test_training_dockerfile_keeps_heavy_dependencies_out_of_late_layers() -> None:
-    dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "docker/Dockerfile.training").read_text(encoding="utf-8")
     runtime = dockerfile.split(" AS training-runtime", 1)[1].split(
         "FROM training-runtime AS studio-runtime", 1
     )[0]
@@ -154,7 +154,7 @@ def test_training_dockerfile_keeps_heavy_dependencies_out_of_late_layers() -> No
 
 
 def test_training_image_build_checks_non_root_runtime_contract() -> None:
-    dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "docker/Dockerfile.training").read_text(encoding="utf-8")
     user = dockerfile.index("USER trainer")
     runtime_contract = dockerfile.index('test "$(id -u)" -ne 0', user)
 
@@ -173,7 +173,7 @@ def test_provenance_validation_target_fails_fast_without_valid_arguments() -> No
         "--target",
         "provenance-validation",
         "-f",
-        "Dockerfile.training",
+        "docker/Dockerfile.training",
     ]
     cases = (
         ([], False),
@@ -297,8 +297,8 @@ def test_architecture_docs_state_current_research_and_runtime_boundaries() -> No
 
 
 def test_training_docker_defaults_to_disclosed_frozen_metadata_mode() -> None:
-    dockerfile = (ROOT / "Dockerfile.training").read_text(encoding="utf-8")
-    compose = (ROOT / "compose.training.yaml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "docker/Dockerfile.training").read_text(encoding="utf-8")
+    compose = (ROOT / "docker/compose.training.yaml").read_text(encoding="utf-8")
 
     assert "TRADE_RL_METADATA_MODE=frozen_snapshot" in dockerfile
     assert (

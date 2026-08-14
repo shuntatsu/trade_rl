@@ -3,7 +3,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
+from tests.architecture.import_linter_config import import_linter_contract
+from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 
 APPROVED_INTEGRATION_MODULES = {
     "oracle_bellman_torch.py",
@@ -34,13 +35,12 @@ def test_learning_remains_torch_free() -> None:
     }
     assert torch_modules == set()
 
-    contract = (REPOSITORY_ROOT / ".importlinter").read_text(encoding="utf-8")
-    block = contract.split("[importlinter:contract:learning-frameworks]", maxsplit=1)[
-        1
-    ].split("[importlinter:", maxsplit=1)[0]
-    assert "ignore_imports" not in block
-    assert "oracle_bellman_torch" not in block
-    assert "oracle_transition_torch" not in block
+    contract = import_linter_contract("learning-frameworks")
+    forbidden = {str(value) for value in contract["forbidden_modules"]}
+    assert "torch" in forbidden
+    assert "ignore_imports" not in contract
+    assert all("oracle_bellman_torch" not in value for value in forbidden)
+    assert all("oracle_transition_torch" not in value for value in forbidden)
 
 
 def test_oracle_torch_backend_is_confined_to_integrations() -> None:

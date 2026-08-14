@@ -169,7 +169,7 @@ def _load_index(path: Path) -> _TelemetryIndex | None:
 def _sync_parent_directory(path: Path) -> None:
     if sys.platform == "win32":
         return
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)  # type: ignore[unreachable]
     try:
         descriptor = os.open(path, flags)
     except OSError:

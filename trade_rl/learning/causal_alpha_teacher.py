@@ -523,7 +523,9 @@ class CausalAlphaCostAwareTargetPath:
             "edge_to_cost_ratio",
             "liquidity_weight_caps",
         ):
-            value = np.asarray(getattr(self, field), dtype=np.float64).reshape(-1).copy()
+            value = (
+                np.asarray(getattr(self, field), dtype=np.float64).reshape(-1).copy()
+            )
             if not np.isfinite(value).all():
                 raise ValueError(f"{field} must be finite")
             value.setflags(write=False)
@@ -562,9 +564,7 @@ class CausalAlphaCostAwareTargetPath:
             "initial_weight": float(self.initial_weight),
             "liquidity_deleveraging_count": self.liquidity_deleveraging_count,
             "liquidity_weight_caps": arrays["liquidity_weight_caps"].tolist(),
-            "predicted_incremental_edge": arrays[
-                "predicted_incremental_edge"
-            ].tolist(),
+            "predicted_incremental_edge": arrays["predicted_incremental_edge"].tolist(),
             "proposed_turnover": arrays["proposed_turnover"].tolist(),
             "schema_version": CAUSAL_ALPHA_COST_AWARE_SCHEMA,
             "sign_flip_count": self.sign_flip_count,
@@ -672,12 +672,11 @@ def causal_alpha_cost_aware_target_path(
     if liquidity_weight_caps is None:
         liquidity_caps = np.full(values.shape, economic.max_abs_target)
     else:
-        liquidity_caps = np.asarray(
-            liquidity_weight_caps, dtype=np.float64
-        ).reshape(-1)
-        if liquidity_caps.shape != values.shape or not np.isfinite(
-            liquidity_caps
-        ).all():
+        liquidity_caps = np.asarray(liquidity_weight_caps, dtype=np.float64).reshape(-1)
+        if (
+            liquidity_caps.shape != values.shape
+            or not np.isfinite(liquidity_caps).all()
+        ):
             raise ValueError(
                 "liquidity_weight_caps must align with scores and be finite"
             )

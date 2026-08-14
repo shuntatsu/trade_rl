@@ -10,9 +10,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 
-CAUSAL_ALPHA_SIGNAL_DIAGNOSTICS_SCHEMA: Final = (
-    "causal_alpha_signal_diagnostics_v1"
-)
+CAUSAL_ALPHA_SIGNAL_DIAGNOSTICS_SCHEMA: Final = "causal_alpha_signal_diagnostics_v1"
 CAUSAL_ALPHA_SIGNAL_QUANTILES: Final = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 _BIN_QUANTILES: Final = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 _EPSILON: Final = 1e-15
@@ -114,10 +112,15 @@ class CausalAlphaSignalDiagnostics:
         )
         if not all(math.isfinite(value) for value in numeric):
             raise ValueError("signal diagnostics summaries must be finite")
-        if len(self.bins) != 5 or sum(item.count for item in self.bins) != self.sample_count:
+        if (
+            len(self.bins) != 5
+            or sum(item.count for item in self.bins) != self.sample_count
+        ):
             raise ValueError("signal diagnostic bins must cover every sample")
         correlations = (self.pearson_correlation, self.rank_correlation)
-        if any(value is not None and not math.isfinite(value) for value in correlations):
+        if any(
+            value is not None and not math.isfinite(value) for value in correlations
+        ):
             raise ValueError("signal correlations must be finite or null")
         if (None in correlations) != (self.undefined_correlation_reason is not None):
             raise ValueError("undefined signal correlations require an explicit reason")
@@ -183,7 +186,9 @@ def evaluate_causal_alpha_signal_diagnostics(
     prediction = np.asarray(predicted, dtype=np.float64).reshape(-1)
     outcome = np.asarray(realized, dtype=np.float64).reshape(-1)
     if prediction.shape != outcome.shape or prediction.size < 2:
-        raise ValueError("predicted and realized signals must align with at least two samples")
+        raise ValueError(
+            "predicted and realized signals must align with at least two samples"
+        )
     if not np.isfinite(prediction).all() or not np.isfinite(outcome).all():
         raise ValueError("predicted and realized signals must be finite")
 
@@ -245,7 +250,9 @@ def evaluate_causal_alpha_signal_diagnostics(
     )
     realized_quantiles = tuple(
         float(value)
-        for value in np.quantile(outcome, CAUSAL_ALPHA_SIGNAL_QUANTILES, method="linear")
+        for value in np.quantile(
+            outcome, CAUSAL_ALPHA_SIGNAL_QUANTILES, method="linear"
+        )
     )
     return CausalAlphaSignalDiagnostics(
         sample_count=int(prediction.size),

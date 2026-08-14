@@ -34,15 +34,15 @@ def test_package_metadata_uses_canonical_version_module() -> None:
 
 
 def test_uv_toolchain_has_one_required_version_source() -> None:
-    uv_config = _ROOT / "uv.toml"
-    assert uv_config.is_file()
-    payload = tomllib.loads(uv_config.read_text(encoding="utf-8"))
-    required = payload.get("required-version")
+    payload = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    required = payload["tool"]["uv"]["required-version"]
     assert required == "==0.10.0"
+    assert not (_ROOT / "uv.toml").exists()
 
-    dockerfile = (_ROOT / "Dockerfile.training").read_text(encoding="utf-8")
-    assert "COPY uv.toml /tmp/trade-rl-uv.toml" in dockerfile
-    assert 'tomllib.load(open("/tmp/trade-rl-uv.toml", "rb"))' in dockerfile
+    dockerfile = (_ROOT / "docker" / "Dockerfile.training").read_text(encoding="utf-8")
+    assert "COPY pyproject.toml /tmp/trade-rl-pyproject.toml" in dockerfile
+    assert '["tool"]["uv"]["required-version"]' in dockerfile
+    assert "uv.toml" not in dockerfile
     assert "pip install --no-cache-dir uv==0.10.0" not in dockerfile
 
 
@@ -65,13 +65,15 @@ def test_uv_toolchain_version_is_bound_to_source_identity(tmp_path: Path) -> Non
     package_root = root / "trade_rl"
     package_root.mkdir(parents=True)
     (root / "examples").mkdir()
-    (root / "pyproject.toml").write_text("[project]\nname='trade-rl'\n")
+    (root / "pyproject.toml").write_text(
+        "[project]\nname='trade-rl'\n\n[tool.uv]\nrequired-version='==0.10.0'\n"
+    )
     (root / "uv.lock").write_text("lock")
-    (root / "uv.toml").write_text('required-version = "==0.10.0"\n')
     (package_root / "module.py").write_text("module")
     (root / "examples" / "runner.py").write_text("runner")
     before = source_tree_digest(root)
 
-    (root / "uv.toml").write_text('required-version = "==0.10.1"\n')
-
+    (root / "pyproject.toml").write_text(
+        "[project]\nname='trade-rl'\n\n[tool.uv]\nrequired-version='==0.10.1'\n"
+    )
     assert source_tree_digest(root) != before

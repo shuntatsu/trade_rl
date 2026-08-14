@@ -71,6 +71,13 @@ jobs:
             frontend/qa-screenshots
           if-no-files-found: error
 
+      - name: Multiprocessing warning regressions
+        run: >-
+          uv run pytest -q
+          tests/workflows/test_market_walk_forward_normalizer_multiprocessing.py
+          tests/rl/test_lagrangian_probe.py::test_parallel_probe_does_not_fork_a_multithreaded_parent
+          tests/learning/test_episode_teacher_parallel_chunking.py::test_parallel_teacher_rollout_does_not_fork_a_multithreaded_parent
+
       - name: Workflow security
         run: uv run python .github/check_workflow_security.py .
 

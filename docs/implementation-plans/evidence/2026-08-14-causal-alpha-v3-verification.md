@@ -47,14 +47,17 @@ The focused workflow was then removed so it cannot remain as repository maintena
 
 The first normal exact-head CI attempt at `7c72752b605aa3367d47c40bd159874ae66559ef` exposed an architecture regression in both Linux and Windows compatibility jobs. The compatibility suite result was `1 failed, 1036 passed`; the only failure was `test_environment_constructor_delegates_reward_execution_resources`, because `ResidualMarketEnv.__init__` had grown to 157 lines while the maintained architecture contract limits it to 150.
 
-The architecture test was not weakened. Anchored alpha/action compatibility validation was extracted into `_validate_action_alpha_contract()`, leaving the constructor as orchestration while retaining the existing behavior test that rejects non-target-weight anchors. The normal exact-head CI must be rerun from a user-authored commit containing this decomposition before the software gate can be considered satisfied.
+The architecture test was not weakened. Anchored alpha/action compatibility validation was first extracted into `_validate_action_alpha_contract()`. On the next exact-head attempt at `6029e8773ae07b2ab1b13424128335b94dbe878c`, the same compatibility suite again had only that architecture failure (`1 failed, 1036 passed`), with the constructor reduced to 151 lines. This second failure proved that the first refactor was insufficient even though the behavior remained correct.
+
+The final correction replaces the two constructor statements `self.action_spec = ...` plus `_validate_action_alpha_contract()` with one validated assignment, `self.action_spec = self._validated_action_spec(...)`. `_validated_action_spec()` validates anchored target-residual compatibility against the target-weight alpha contract and returns the action spec. This preserves the behavior test, avoids weakening the architecture oracle, and reduces the constructor by the final required line to the maintained 150-line boundary.
 
 ## Exact-head gate
 
-Pending from the commit that records this evidence:
+The commit containing this evidence is the next exact-head candidate. It must satisfy, on the same SHA:
 
-- rerun the repository's normal exact-head CI, architecture/import checks, full pytest/coverage, Linux/Windows compatibility jobs, training-image build, PostgreSQL catalog, Nautilus capability, and other required checks;
-- review `main...HEAD` again and confirm no temporary workflows, debug code, generated junk, or secret material remain;
-- keep PR #402 Draft unless the same final HEAD satisfies the required software quality gate.
+- normal CI including Linux/Windows compatibility, architecture/import checks, full pytest/coverage, static analysis, format, Mypy, training-image build, and package/runtime identity checks;
+- PostgreSQL Catalog;
+- Nautilus Capability;
+- final `main...HEAD` review confirming no temporary workflows, debug code, generated junk, secret material, or canonical U6 config drift.
 
-Passing these software checks will establish only the implemented software contracts. It will not establish positive gross/net alpha, teacher admission, RL uplift, profitability, or Production GO.
+PR #402 remains Draft while these checks are running. Passing these software checks will establish only the implemented software contracts. It will not establish positive gross/net alpha, teacher admission, RL uplift, profitability, or Production GO.

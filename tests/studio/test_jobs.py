@@ -13,7 +13,6 @@ from .helpers import write_run
 from .support import FakeCatalog, FakeFactory, FakeProcess, request, settings
 
 
-
 def test_submit_training_persists_fixed_command_and_reconciles_success(
     tmp_path: Path,
 ) -> None:

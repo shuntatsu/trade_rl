@@ -32,16 +32,22 @@ jobs:
       - name: Install formatter
         run: uv sync --extra dev
 
+      - name: Apply maintained V3 documentation patch
+        run: uv run python scripts/_v3_docs_patch.py
+
       - name: Format V3 sources
         run: >-
           uv run ruff format
           trade_rl/learning/causal_alpha_v3.py
           trade_rl/workflows/universal_causal_alpha_v3*.py
           scripts/analyze_causal_alpha_checkpoint.py
+          scripts/run_universal_causal_alpha_v3_research.py
           tests/learning/test_causal_alpha_v3*.py
           tests/workflows/test_universal_causal_alpha_v3*.py
+          tests/scripts/test_run_universal_causal_alpha_v3_research.py
+          tests/test_causal_alpha_v3*.py
 
-      - name: Commit formatted V3 sources
+      - name: Commit V3 sources and docs
         shell: bash
         run: |
           set -euo pipefail
@@ -54,7 +60,12 @@ jobs:
             trade_rl/learning/causal_alpha_v3.py \
             trade_rl/workflows/universal_causal_alpha_v3*.py \
             scripts/analyze_causal_alpha_checkpoint.py \
+            scripts/run_universal_causal_alpha_v3_research.py \
             tests/learning/test_causal_alpha_v3*.py \
-            tests/workflows/test_universal_causal_alpha_v3*.py
-          git commit -m "style: format causal alpha v3 sources [v3-format]"
+            tests/workflows/test_universal_causal_alpha_v3*.py \
+            tests/scripts/test_run_universal_causal_alpha_v3_research.py \
+            tests/test_causal_alpha_v3*.py \
+            docs/UNIVERSAL_TRAINING.md \
+            docs/RESEARCH_STATUS.md
+          git commit -m "docs: close causal alpha v3 research runner contract [v3-format]"
           git push origin HEAD:codex/causal-alpha-v3-runner

@@ -6,7 +6,7 @@ on:
       - codex/causal-alpha-v3-runner
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: v3-format-${{ github.ref }}
@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -41,14 +41,20 @@ jobs:
           tests/learning/test_causal_alpha_v3*.py
           tests/workflows/test_universal_causal_alpha_v3*.py
 
-      - name: Upload formatted V3 sources
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: v3-formatted-sources
-          path: |
-            trade_rl/learning/causal_alpha_v3.py
-            trade_rl/workflows/universal_causal_alpha_v3*.py
-            scripts/analyze_causal_alpha_checkpoint.py
-            tests/learning/test_causal_alpha_v3*.py
+      - name: Commit formatted V3 sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/learning/causal_alpha_v3.py \
+            trade_rl/workflows/universal_causal_alpha_v3*.py \
+            scripts/analyze_causal_alpha_checkpoint.py \
+            tests/learning/test_causal_alpha_v3*.py \
             tests/workflows/test_universal_causal_alpha_v3*.py
-          if-no-files-found: error
+          git commit -m "style: format causal alpha v3 sources [v3-format]"
+          git push origin HEAD:codex/causal-alpha-v3-runner

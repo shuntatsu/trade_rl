@@ -17,6 +17,18 @@ from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
 ReplayIdentity = tuple[str, str, int]
 
 
+def _safe_segment(value: str, *, field: str) -> str:
+    if (
+        not value
+        or Path(value).name != value
+        or value in {".", ".."}
+        or "/" in value
+        or "\\" in value
+    ):
+        raise ValueError(f"{field} is not a safe artifact path segment")
+    return value
+
+
 class CausalAlphaV3RecordStore:
     """Persist immutable research records and reconstruct resume state from disk."""
 
@@ -41,11 +53,15 @@ class CausalAlphaV3RecordStore:
     ) -> Path:
         """Write once or verify an already-existing immutable JSON artifact."""
 
-        destination = self.root / Path(relative_path)
-        expected = dict(payload)
+        relative = Path(relative_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("V3 immutable artifact path must stay under the store root")
+        encoded = canonical_json_bytes(dict(payload))
+        normalized = json.loads(encoded)
+        destination = self.root / relative
         if destination.is_file():
             existing = json.loads(destination.read_text(encoding="utf-8"))
-            if existing != expected:
+            if existing != normalized:
                 raise ValueError(
                     f"V3 immutable artifact identity drifted at {relative_path}"
                 )
@@ -55,16 +71,17 @@ class CausalAlphaV3RecordStore:
                 f"V3 immutable artifact path is not a file: {relative_path}"
             )
         destination.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_bytes(destination, canonical_json_bytes(expected) + b"\n")
+        atomic_write_bytes(destination, encoded + b"\n")
         return destination
 
     def _replay_path(self, metric: CausalAlphaV3ReplayMetric) -> Path:
+        symbol = _safe_segment(metric.symbol, field="V3 replay symbol")
         return (
             self.root
             / "selection"
             / "records"
             / metric.candidate_digest
-            / metric.symbol
+            / symbol
             / f"{metric.episode_index}.json"
         )
 
@@ -77,6 +94,7 @@ class CausalAlphaV3RecordStore:
             raise ValueError("V3 replay record store requires a freeze identity")
         if metric.freeze_digest != self.freeze_digest:
             raise ValueError("V3 replay record freeze identity mismatch")
+        _safe_segment(metric.symbol, field="V3 replay symbol")
 
     def write_replay_metric(self, metric: CausalAlphaV3ReplayMetric) -> Path:
         if not isinstance(metric, CausalAlphaV3ReplayMetric):
@@ -105,7 +123,12 @@ class CausalAlphaV3RecordStore:
         expected_contract_digests: Mapping[ReplayIdentity, str],
     ) -> dict[ReplayIdentity, CausalAlphaV3ReplayMetric]:
         expected = dict(expected_contract_digests)
-        for contract_digest in expected.values():
+        for identity, contract_digest in expected.items():
+            candidate_digest, symbol, episode_index = identity
+            require_sha256(candidate_digest, field="V3 expected replay candidate digest")
+            _safe_segment(symbol, field="V3 expected replay symbol")
+            if isinstance(episode_index, bool) or not isinstance(episode_index, int) or episode_index < 0:
+                raise ValueError("V3 expected replay episode index is invalid")
             require_sha256(contract_digest, field="V3 expected replay contract digest")
         records_root = self.root / "selection" / "records"
         if not records_root.is_dir():
@@ -120,13 +143,16 @@ class CausalAlphaV3RecordStore:
                 raise ValueError("V3 replay record is outside the expected scope")
             if metric.contract_digest != expected[identity]:
                 raise ValueError("V3 replay record contract identity drifted")
+            if path != self._replay_path(metric):
+                raise ValueError("V3 replay record path identity drifted")
             if identity in result:
                 raise ValueError("V3 replay record scope is duplicated")
             result[identity] = metric
         return result
 
     def _admission_path(self, record: CausalAlphaV3AdmissionRecord) -> Path:
-        return self.root / "admission" / "records" / f"{record.symbol}.json"
+        symbol = _safe_segment(record.symbol, field="V3 admission symbol")
+        return self.root / "admission" / "records" / f"{symbol}.json"
 
     def write_admission_record(self, record: CausalAlphaV3AdmissionRecord) -> Path:
         if not isinstance(record, CausalAlphaV3AdmissionRecord):
@@ -138,7 +164,7 @@ class CausalAlphaV3RecordStore:
         destination = self._admission_path(record)
         if destination.is_file():
             existing = json.loads(destination.read_text(encoding="utf-8"))
-            if existing != record.to_payload():
+            if existing != json.loads(canonical_json_bytes(record.to_payload())):
                 raise ValueError("V3 admission record conflicts with completed symbol")
             return destination
         if destination.exists():
@@ -167,7 +193,8 @@ class CausalAlphaV3RecordStore:
         expected = dict(expected_contract_digests)
         if not expected or any(not symbol for symbol in expected):
             raise ValueError("V3 admission expected scope must be non-empty")
-        for digest in expected.values():
+        for symbol, digest in expected.items():
+            _safe_segment(symbol, field="V3 expected admission symbol")
             require_sha256(digest, field="V3 expected admission contract digest")
         records_root = self.root / "admission" / "records"
         if not records_root.is_dir():
@@ -188,7 +215,7 @@ class CausalAlphaV3RecordStore:
                 raise ValueError("V3 admission record is outside the expected scope")
             if record.contract_digest != expected[record.symbol]:
                 raise ValueError("V3 admission record contract identity drifted")
-            if path.name != f"{record.symbol}.json":
+            if path != self._admission_path(record):
                 raise ValueError("V3 admission record path identity drifted")
             if record.symbol in result:
                 raise ValueError("V3 admission record symbol is duplicated")

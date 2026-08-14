@@ -22,6 +22,7 @@ from trade_rl.rl.actions import (
     ActionValidationMode,
     AlphaContract,
     AlphaSignalKind,
+    AnchoredTargetResidualAction,
     BaselineResidualComposer,
     ResidualAction,
     ResidualActionV2,
@@ -928,7 +929,10 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self,
         value: np.ndarray,
     ) -> tuple[
-        ResidualAction | ResidualActionV2 | TargetWeightAction,
+        ResidualAction
+        | ResidualActionV2
+        | TargetWeightAction
+        | AnchoredTargetResidualAction,
         np.ndarray,
         int,
         float,

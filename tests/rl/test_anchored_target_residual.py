@@ -72,9 +72,7 @@ def test_zero_anchored_residual_reproduces_target_weight_alpha_anchor() -> None:
 
 
 def test_anchored_residual_adds_bounded_policy_delta_then_normalizes_gross() -> None:
-    action = _spec(residual_scale=0.2).parse(
-        np.asarray([1.0, -1.0], dtype=np.float64)
-    )
+    action = _spec(residual_scale=0.2).parse(np.asarray([1.0, -1.0], dtype=np.float64))
     anchor = np.asarray([0.45, -0.35], dtype=np.float64)
 
     composition = BaselineResidualComposer().compose(

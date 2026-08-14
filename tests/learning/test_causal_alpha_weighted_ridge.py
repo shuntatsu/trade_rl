@@ -65,12 +65,11 @@ def test_weighted_ridge_downweights_a_large_outlier() -> None:
         sample_weights=np.asarray([1.0, 1.0, 1.0, 0.001], dtype=np.float64),
     )
 
-    assert abs(weighted.coefficients[0] - 1.0) < abs(
-        unweighted.coefficients[0] - 1.0
+    assert abs(weighted.coefficients[0] - 1.0) < abs(unweighted.coefficients[0] - 1.0)
+    assert (
+        weighted.predict(np.asarray([[4.0]])).item()
+        < unweighted.predict(np.asarray([[4.0]])).item()
     )
-    assert weighted.predict(np.asarray([[4.0]])).item() < unweighted.predict(
-        np.asarray([[4.0]])
-    ).item()
 
 
 @pytest.mark.parametrize(

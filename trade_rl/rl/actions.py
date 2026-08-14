@@ -235,9 +235,13 @@ class ActionSpec:
             if not self.alpha_enabled:
                 raise ValueError("anchored target residual mode requires alpha_enabled")
             if self.risk_tilt_enabled:
-                raise ValueError("anchored target residual mode does not accept risk_tilt")
+                raise ValueError(
+                    "anchored target residual mode does not accept risk_tilt"
+                )
             if self.n_factors:
-                raise ValueError("anchored target residual mode does not accept n_factors")
+                raise ValueError(
+                    "anchored target residual mode does not accept n_factors"
+                )
             if self.target_weight_count <= 0:
                 raise ValueError(
                     "anchored target residual mode requires positive target_weight_count"
@@ -412,7 +416,12 @@ class ResidualActionV2:
 
 @dataclass(frozen=True, slots=True)
 class ResidualComposition:
-    action: ResidualAction | ResidualActionV2 | TargetWeightAction | AnchoredTargetResidualAction
+    action: (
+        ResidualAction
+        | ResidualActionV2
+        | TargetWeightAction
+        | AnchoredTargetResidualAction
+    )
     baseline: np.ndarray
     trend_component: np.ndarray
     alpha_component: np.ndarray
@@ -428,7 +437,10 @@ class BaselineResidualComposer:
 
     def compose(
         self,
-        action: ResidualAction | ResidualActionV2 | TargetWeightAction | AnchoredTargetResidualAction,
+        action: ResidualAction
+        | ResidualActionV2
+        | TargetWeightAction
+        | AnchoredTargetResidualAction,
         trends: TrendTargets,
         alpha: np.ndarray,
         *,

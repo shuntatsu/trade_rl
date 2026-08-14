@@ -135,7 +135,9 @@ class CausalAlphaResearchReport:
         if self.row_count <= 0:
             raise ValueError("causal alpha diagnostic report must contain rows")
         if not 0 < self.unique_prediction_episode_count <= self.row_count:
-            raise ValueError("causal alpha diagnostic unique prediction count is invalid")
+            raise ValueError(
+                "causal alpha diagnostic unique prediction count is invalid"
+            )
         if self.duplicate_signal_row_count != (
             self.row_count - self.unique_prediction_episode_count
         ):
@@ -226,7 +228,9 @@ def load_causal_alpha_diagnostic_checkpoint_v2(
                 )
             raw = json.loads(line)
             if not isinstance(raw, dict):
-                raise ValueError("causal alpha diagnostic checkpoint row is not a mapping")
+                raise ValueError(
+                    "causal alpha diagnostic checkpoint row is not a mapping"
+                )
             if raw.get("schema_version") != _CHECKPOINT_SCHEMA:
                 raise ValueError("causal alpha diagnostic checkpoint schema mismatch")
             row_grid = _require_digest(raw.get("grid_digest"), field="grid digest")
@@ -237,7 +241,9 @@ def load_causal_alpha_diagnostic_checkpoint_v2(
             if grid_digest is None:
                 grid_digest = row_grid
             elif row_grid != grid_digest:
-                raise ValueError("causal alpha diagnostic checkpoint grid identity drifted")
+                raise ValueError(
+                    "causal alpha diagnostic checkpoint grid identity drifted"
+                )
             if generator_digest is None:
                 generator_digest = row_generator
             elif row_generator != generator_digest:

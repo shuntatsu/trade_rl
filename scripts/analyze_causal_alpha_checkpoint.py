@@ -29,12 +29,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     snapshot = load_causal_alpha_diagnostic_checkpoint_v2(arguments.checkpoint)
     report = build_causal_alpha_research_report(snapshot)
-    payload = json.dumps(
-        report.to_payload(),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ) + "\n"
+    payload = (
+        json.dumps(
+            report.to_payload(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
     if arguments.output is None:
         print(payload, end="")
     else:

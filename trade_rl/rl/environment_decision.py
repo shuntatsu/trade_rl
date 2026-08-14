@@ -51,7 +51,12 @@ class EnvironmentDecisionRequest:
 
 @dataclass(frozen=True, slots=True)
 class EnvironmentDecisionPlan:
-    parsed_action: ResidualAction | ResidualActionV2 | TargetWeightAction | AnchoredTargetResidualAction
+    parsed_action: (
+        ResidualAction
+        | ResidualActionV2
+        | TargetWeightAction
+        | AnchoredTargetResidualAction
+    )
     maintained_action: np.ndarray
     saturated_count: int
     raw_max_abs: float
@@ -104,7 +109,10 @@ class EnvironmentDecisionPlanner:
         self,
         value: np.ndarray,
     ) -> tuple[
-        ResidualAction | ResidualActionV2 | TargetWeightAction | AnchoredTargetResidualAction,
+        ResidualAction
+        | ResidualActionV2
+        | TargetWeightAction
+        | AnchoredTargetResidualAction,
         np.ndarray,
         int,
         float,

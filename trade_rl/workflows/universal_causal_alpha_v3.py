@@ -33,7 +33,11 @@ def _validated_scope(
     samples: Mapping[str, CausalAlphaSymbolSamples],
 ) -> tuple[tuple[str, ...], tuple[CausalAlphaSymbolSamples, ...], str]:
     symbols = tuple(train_symbols)
-    if not symbols or len(set(symbols)) != len(symbols) or any(not item for item in symbols):
+    if (
+        not symbols
+        or len(set(symbols)) != len(symbols)
+        or any(not item for item in symbols)
+    ):
         raise ValueError("V3 train_symbols must be non-empty and unique")
     if set(samples) != set(symbols):
         raise ValueError("V3 samples must exactly match train_symbols")
@@ -83,7 +87,9 @@ def build_causal_alpha_v3_symbol_balanced_weights(
         )
         total = float(weights.sum(dtype=np.float64))
         if not math.isfinite(total) or total <= 0.0:
-            raise ValueError(f"V3 {horizon} weights contain no eligible row for {symbol}")
+            raise ValueError(
+                f"V3 {horizon} weights contain no eligible row for {symbol}"
+            )
         normalized = weights / total
         normalized.setflags(write=False)
         result[symbol] = normalized
@@ -94,7 +100,9 @@ def _pooled(
     blocks: tuple[CausalAlphaSymbolSamples, ...],
     field: str,
 ) -> np.ndarray:
-    return np.concatenate(tuple(np.asarray(getattr(block, field)) for block in blocks), axis=0)
+    return np.concatenate(
+        tuple(np.asarray(getattr(block, field)) for block in blocks), axis=0
+    )
 
 
 def _weight_digest(
@@ -134,9 +142,7 @@ def _weighted_residual_rmse(
     )
     residual = labels[indices] - prediction
     value = math.sqrt(
-        float(
-            np.sum(selected_weights * np.square(residual), dtype=np.float64) / total
-        )
+        float(np.sum(selected_weights * np.square(residual), dtype=np.float64) / total)
     )
     if not math.isfinite(value):
         raise ValueError("V3 residual RMSE is non-finite")
@@ -253,8 +259,12 @@ def fit_causal_alpha_v3(
     labels_72h = _pooled(blocks, "labels_72h").astype(np.float64, copy=False)
     ends_24h = _pooled(blocks, "label_end_indices_24h").astype(np.int64, copy=False)
     ends_72h = _pooled(blocks, "label_end_indices_72h").astype(np.int64, copy=False)
-    pooled_weights_24h = np.concatenate(tuple(weights_24h[symbol] for symbol in symbols))
-    pooled_weights_72h = np.concatenate(tuple(weights_72h[symbol] for symbol in symbols))
+    pooled_weights_24h = np.concatenate(
+        tuple(weights_24h[symbol] for symbol in symbols)
+    )
+    pooled_weights_72h = np.concatenate(
+        tuple(weights_72h[symbol] for symbol in symbols)
+    )
     ridge = CausalAlphaRidgeConfig(ridge_strength=config.ridge_strength)
     feature_names = blocks[0].feature_names
     model_24h = fit_causal_alpha_ridge(

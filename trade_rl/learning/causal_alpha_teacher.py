@@ -296,9 +296,7 @@ def fit_causal_alpha_ridge(
         x_available = available[eligible_indices]
         y = target[eligible_indices]
         available_count = x_available.sum(axis=0, dtype=np.int64)
-        available_sum = np.where(x_available, x, 0.0).sum(
-            axis=0, dtype=np.float64
-        )
+        available_sum = np.where(x_available, x, 0.0).sum(axis=0, dtype=np.float64)
         location = np.zeros(x.shape[1], dtype=np.float64)
         np.divide(
             available_sum,
@@ -320,16 +318,12 @@ def fit_causal_alpha_ridge(
         scale = np.where(constant_mask, 1.0, raw_scale)
         scaled = np.where(x_available, (x - location) / scale, 0.0)
         scaled[:, constant_mask] = 0.0
-        design = np.column_stack(
-            (np.ones(scaled.shape[0], dtype=np.float64), scaled)
-        )
+        design = np.column_stack((np.ones(scaled.shape[0], dtype=np.float64), scaled))
         gram = design.T @ design
         rhs = design.T @ y
     else:
         weights_all = (
-            np.ones(rows, dtype=np.float64)
-            if raw_weights is None
-            else raw_weights
+            np.ones(rows, dtype=np.float64) if raw_weights is None else raw_weights
         )
         eligible_mask &= weights_all > 0.0
         eligible_indices = np.flatnonzero(eligible_mask).astype(np.int64)
@@ -345,12 +339,12 @@ def fit_causal_alpha_ridge(
         weight_column = weights[:, None]
         positive_available = x_available & (weight_column > 0.0)
         available_count = positive_available.sum(axis=0, dtype=np.int64)
-        available_weight = np.where(
-            x_available, weight_column, 0.0
-        ).sum(axis=0, dtype=np.float64)
-        available_sum = np.where(
-            x_available, x * weight_column, 0.0
-        ).sum(axis=0, dtype=np.float64)
+        available_weight = np.where(x_available, weight_column, 0.0).sum(
+            axis=0, dtype=np.float64
+        )
+        available_sum = np.where(x_available, x * weight_column, 0.0).sum(
+            axis=0, dtype=np.float64
+        )
         location = np.zeros(x.shape[1], dtype=np.float64)
         np.divide(
             available_sum,
@@ -359,9 +353,9 @@ def fit_causal_alpha_ridge(
             where=available_weight > _EPSILON,
         )
         centered = np.where(x_available, x - location, 0.0)
-        squared_sum = (
-            np.square(centered) * weight_column
-        ).sum(axis=0, dtype=np.float64)
+        squared_sum = (np.square(centered) * weight_column).sum(
+            axis=0, dtype=np.float64
+        )
         variance = np.zeros(x.shape[1], dtype=np.float64)
         np.divide(
             squared_sum,
@@ -374,9 +368,7 @@ def fit_causal_alpha_ridge(
         scale = np.where(constant_mask, 1.0, raw_scale)
         scaled = np.where(x_available, (x - location) / scale, 0.0)
         scaled[:, constant_mask] = 0.0
-        design = np.column_stack(
-            (np.ones(scaled.shape[0], dtype=np.float64), scaled)
-        )
+        design = np.column_stack((np.ones(scaled.shape[0], dtype=np.float64), scaled))
         gram = design.T @ (design * weight_column)
         rhs = design.T @ (y * weights)
         if normalize_objective:

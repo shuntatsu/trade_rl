@@ -57,9 +57,7 @@ def causal_alpha_overlap_uniqueness_weights(
         raise ValueError("knowledge_cutoff must be an integer")
     starts = decisions + 1
     eligible = (
-        (label_ends >= starts)
-        & (label_ends >= 0)
-        & (label_ends < knowledge_cutoff)
+        (label_ends >= starts) & (label_ends >= 0) & (label_ends < knowledge_cutoff)
     )
     weights = np.zeros(decisions.shape, dtype=np.float64)
     if not np.any(eligible):
@@ -108,7 +106,9 @@ class CausalAlphaV3Forecast:
             "uncertainty_24h_equivalent",
             "signal_to_uncertainty",
         ):
-            value = np.asarray(getattr(self, field), dtype=np.float64).reshape(-1).copy()
+            value = (
+                np.asarray(getattr(self, field), dtype=np.float64).reshape(-1).copy()
+            )
             if value.size == 0 or not np.isfinite(value).all():
                 raise ValueError(f"V3 forecast {field} must be finite and non-empty")
             if shape is None:
@@ -175,9 +175,7 @@ def causal_alpha_v3_forecast(
 
     second_equivalent = second / 3.0
     expected = 0.5 * (first + second_equivalent)
-    residual_variance = 0.25 * (
-        residual_rmse_24h**2 + (residual_rmse_72h / 3.0) ** 2
-    )
+    residual_variance = 0.25 * (residual_rmse_24h**2 + (residual_rmse_72h / 3.0) ** 2)
     disagreement = 0.5 * np.abs(first - second_equivalent)
     uncertainty = np.sqrt(residual_variance + np.square(disagreement))
     ratio = np.divide(
@@ -214,7 +212,10 @@ class CausalAlphaV3TargetConfig:
         magnitudes = tuple(float(value) for value in self.target_magnitudes)
         if (
             not magnitudes
-            or any(not math.isfinite(value) or value < 0.0 or value > 1.0 for value in magnitudes)
+            or any(
+                not math.isfinite(value) or value < 0.0 or value > 1.0
+                for value in magnitudes
+            )
             or tuple(sorted(set(magnitudes))) != magnitudes
             or magnitudes[0] != 0.0
         ):
@@ -287,7 +288,9 @@ class CausalAlphaV3TargetPath:
             "chosen_objectives",
             "stay_objectives",
         ):
-            value = np.asarray(getattr(self, field), dtype=np.float64).reshape(-1).copy()
+            value = (
+                np.asarray(getattr(self, field), dtype=np.float64).reshape(-1).copy()
+            )
             if value.size == 0 or not np.isfinite(value).all():
                 raise ValueError(f"V3 target path {field} must be finite and non-empty")
             if shape is None:
@@ -402,7 +405,9 @@ def causal_alpha_v3_target_path(
     ):
         raise ValueError("V3 target compiler inputs must be finite and sample aligned")
     if np.any(uncertainty < 0.0) or np.any(costs < 0.0) or np.any(caps < 0.0):
-        raise ValueError("V3 uncertainty, cost and liquidity inputs must be non-negative")
+        raise ValueError(
+            "V3 uncertainty, cost and liquidity inputs must be non-negative"
+        )
     if not isinstance(config, CausalAlphaV3TargetConfig):
         raise TypeError("V3 target compiler requires CausalAlphaV3TargetConfig")
     if not math.isfinite(initial_weight):

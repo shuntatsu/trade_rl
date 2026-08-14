@@ -67,8 +67,9 @@ def test_v3_forecast_uncertainty_increases_when_horizons_disagree() -> None:
         residual_rmse_72h=0.03,
     )
 
-    assert disagreement.uncertainty_24h_equivalent[0] > (
-        agreement.uncertainty_24h_equivalent[0]
+    assert (
+        disagreement.uncertainty_24h_equivalent[0]
+        > (agreement.uncertainty_24h_equivalent[0])
     )
 
 
@@ -135,9 +136,7 @@ def test_target_compiler_blocks_non_emergency_changes_between_rebalances() -> No
     assert path.reasons[1:4] == ("cadence_hold", "cadence_hold", "cadence_hold")
 
 
-def test_target_compiler_deleverages_immediately_when_liquidity_cap_contracts() -> (
-    None
-):
+def test_target_compiler_deleverages_immediately_when_liquidity_cap_contracts() -> None:
     path = causal_alpha_v3_target_path(
         np.asarray([0.20, 0.20]),
         uncertainties=np.asarray([0.001, 0.001]),

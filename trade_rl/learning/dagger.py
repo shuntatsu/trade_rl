@@ -42,7 +42,10 @@ def _observation_copy(value: object) -> np.ndarray | dict[str, np.ndarray]:
             if not isinstance(key, str) or not key:
                 raise ValueError("DAgger observation keys must be non-empty strings")
             array = np.asarray(value[key]).copy(order="C")
-            if not np.issubdtype(array.dtype, np.number) or not np.isfinite(array).all():
+            if (
+                not np.issubdtype(array.dtype, np.number)
+                or not np.isfinite(array).all()
+            ):
                 raise ValueError("DAgger observations must be finite numeric arrays")
             result[key] = array
         if not result:
@@ -231,7 +234,9 @@ def collect_dagger_episode(
         if raw_teacher.size == 0 or not np.isfinite(raw_teacher).all():
             raise ValueError("DAgger teacher action must be finite and non-empty")
         if raw_learner.shape != raw_teacher.shape or not np.isfinite(raw_learner).all():
-            raise ValueError("DAgger learner action must match the finite teacher action")
+            raise ValueError(
+                "DAgger learner action must match the finite teacher action"
+            )
         teacher_actions.append(raw_teacher.copy())
         learner_actions.append(raw_learner.copy())
         decisions.append(current)

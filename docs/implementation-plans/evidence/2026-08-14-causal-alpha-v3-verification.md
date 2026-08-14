@@ -34,22 +34,27 @@ The same review corrected two documentation inconsistencies without changing beh
 
 ## Focused verification history
 
-A focused verification run after the behavior changes reached:
+After the DAgger fixes and anchored-action type-contract correction, focused run `31806707021` passed:
 
-- 120 focused tests passed;
-- Ruff passed;
-- Ruff format check passed;
-- Mypy found one stale return-type annotation in `ResidualMarketEnv._parse_action`, which still omitted `AnchoredTargetResidualAction` from its union.
+- 120 focused tests;
+- Ruff;
+- Ruff format check (`1195 files already formatted`);
+- Mypy (`Success: no issues found in 11 source files`).
 
-That Mypy finding was treated as a contract defect, not ignored. The environment import and return annotation were updated to include `AnchoredTargetResidualAction`.
+The focused workflow was then removed so it cannot remain as repository maintenance surface.
+
+## Exact-head architecture regression
+
+The first normal exact-head CI attempt at `7c72752b605aa3367d47c40bd159874ae66559ef` exposed an architecture regression in both Linux and Windows compatibility jobs. The compatibility suite result was `1 failed, 1036 passed`; the only failure was `test_environment_constructor_delegates_reward_execution_resources`, because `ResidualMarketEnv.__init__` had grown to 157 lines while the maintained architecture contract limits it to 150.
+
+The architecture test was not weakened. Anchored alpha/action compatibility validation was extracted into `_validate_action_alpha_contract()`, leaving the constructor as orchestration while retaining the existing behavior test that rejects non-target-weight anchors. The normal exact-head CI must be rerun from a user-authored commit containing this decomposition before the software gate can be considered satisfied.
 
 ## Exact-head gate
 
-Pending at the time this evidence file was committed:
+Pending from the commit that records this evidence:
 
-- rerun the focused V3 tests, Ruff, format, and Mypy including the type fix;
-- remove temporary focused verification workflow;
-- run the repository's normal exact-head CI, architecture/import checks, full pytest/coverage, compatibility jobs, training-image build, and other required checks;
-- review `main...HEAD` and confirm no temporary workflows, debug code, generated junk, or secret material remain.
+- rerun the repository's normal exact-head CI, architecture/import checks, full pytest/coverage, Linux/Windows compatibility jobs, training-image build, PostgreSQL catalog, Nautilus capability, and other required checks;
+- review `main...HEAD` again and confirm no temporary workflows, debug code, generated junk, or secret material remain;
+- keep PR #402 Draft unless the same final HEAD satisfies the required software quality gate.
 
 Passing these software checks will establish only the implemented software contracts. It will not establish positive gross/net alpha, teacher admission, RL uplift, profitability, or Production GO.

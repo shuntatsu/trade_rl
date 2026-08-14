@@ -8,6 +8,7 @@ from typing import Final, Mapping
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.learning.causal_alpha_teacher import CausalAlphaTeacherHoldoutMetric
 from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.workflows.universal_causal_alpha_v3_config import CausalAlphaV3Candidate
 
@@ -539,6 +540,35 @@ class CausalAlphaV3AdmissionRecord:
         if include_digest:
             payload["artifact_digest"] = self.digest
         return payload
+
+    @classmethod
+    def from_payload(cls, raw: Mapping[str, object]) -> CausalAlphaV3AdmissionRecord:
+        return cls(
+            run_manifest_digest=str(raw["run_manifest_digest"]),
+            freeze_digest=str(raw["freeze_digest"]),
+            selection_digest=str(raw["selection_digest"]),
+            selected_candidate_digest=str(raw["selected_candidate_digest"]),
+            symbol=str(raw["symbol"]),
+            contract_digest=str(raw["contract_digest"]),
+            gross_return=float(raw["gross_return"]),
+            net_return=float(raw["net_return"]),
+            turnover_per_day=float(raw["turnover_per_day"]),
+            total_execution_cost=float(raw["total_execution_cost"]),
+            trade_count=int(raw["trade_count"]),
+            maximum_drawdown=float(raw["maximum_drawdown"]),
+            digest=str(raw["artifact_digest"]),
+        )
+
+    def to_holdout_metric(self) -> CausalAlphaTeacherHoldoutMetric:
+        return CausalAlphaTeacherHoldoutMetric(
+            symbol=self.symbol,
+            gross_return=self.gross_return,
+            net_return=self.net_return,
+            turnover_per_day=self.turnover_per_day,
+            total_execution_cost=self.total_execution_cost,
+            trade_count=self.trade_count,
+            maximum_drawdown=self.maximum_drawdown,
+        )
 
 
 @dataclass(frozen=True, slots=True)

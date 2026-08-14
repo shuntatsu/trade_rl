@@ -47,11 +47,13 @@ def _wire(monkeypatch, *, outcome) -> None:
         "from_json",
         lambda path: run_config,
     )
-    monkeypatch.setattr(module, "UniversalRuntimeFactoryContext", lambda **kwargs: context)
+    monkeypatch.setattr(
+        module, "UniversalRuntimeFactoryContext", lambda **kwargs: context
+    )
     monkeypatch.setattr(
         module,
         "load_universal_runtime_factory",
-        lambda spec: (lambda **kwargs: runtime),
+        lambda spec: lambda **kwargs: runtime,
     )
     monkeypatch.setattr(
         module,
@@ -67,7 +69,9 @@ def _wire(monkeypatch, *, outcome) -> None:
     monkeypatch.setattr(module, "run_universal_causal_alpha_v3_research", run)
 
 
-def test_cli_success_reports_research_only_package(monkeypatch, tmp_path, capsys) -> None:
+def test_cli_success_reports_research_only_package(
+    monkeypatch, tmp_path, capsys
+) -> None:
     package = SimpleNamespace(
         digest="a" * 64,
         selected_candidate_digest="b" * 64,

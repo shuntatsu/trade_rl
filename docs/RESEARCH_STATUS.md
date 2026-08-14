@@ -70,6 +70,15 @@ Software contractは次を実装済みです。
 
 V3 fitにはteacher-admission holdoutを使用しません。Canonical U6は引き続き`causal_alpha_ridge` teacherと`target_weight` actionを使用し、rewardはpure net-log-growth、hard riskとexecution contractも不変です。V3のCI成功はeconomic admission、RL uplift、収益性、Production GOの証拠ではありません。
 
+
+### Executable V3 deterministic workflow
+
+V3はprimitive定義だけでなく、`run_universal_causal_alpha_v3_research.py`から実データworkflowを実行できます。Workflowは`signal gate -> candidate freeze -> resumable production replay -> economic selection -> teacher admission -> research-only teacher package`をartifact-boundに接続します。Signal/economic/holdout scopeはchronologicalに分離され、candidate freezeより前にholdoutを開きません。
+
+Resumeのsource of truthはprogress表示ではなくimmutable scope recordです。Run manifest、generator code、candidate freeze、episode contractのIdentityが一致するrecordだけを再利用し、corrupt/unknown recordはfail closedします。CLIではsignal rejectionを**exit code 2**、selection rejectionを**exit code 3**、admission rejectionを**exit code 4**として区別します。
+
+V3 teacher admissionがPASSした場合でも、それはRL upliftやProduction認可ではありません。次のlearner工程は`DAgger -> BC`および`anchored PPO`を含み、**only after teacher admission**で別のquality gateとして実行します。
+
 これらはsoftware contractです。Teacher holdoutの経済成績が実データで合格した、最終Policyがbaselineを上回った、unseen symbolへ一般化した、という意味ではありません。
 
 ## Software verification

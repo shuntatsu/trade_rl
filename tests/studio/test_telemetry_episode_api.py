@@ -4,8 +4,10 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from .helpers import telemetry_record as record
-from .helpers import telemetry_stream_path as stream_path
+from .helpers import (
+    telemetry_record as record,
+    telemetry_stream_path as stream_path,
+)
 from .support import request, studio_client as client
 
 

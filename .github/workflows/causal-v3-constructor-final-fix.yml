@@ -1,0 +1,45 @@
+name: Apply final environment constructor boundary fix
+
+on:
+  push:
+    branches:
+      - codex/causal-alpha-v3-research
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 1
+      - name: Collapse action-spec validation into one constructor line
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("trade_rl/rl/environment.py")
+          text = path.read_text(encoding="utf-8")
+          old_constructor = '''        self.action_spec = policy_schedule.action_spec\n        self._validate_action_alpha_contract()\n'''
+          new_constructor = '''        self.action_spec = self._validated_action_spec(policy_schedule.action_spec)\n'''
+          if text.count(old_constructor) != 1:
+              raise SystemExit("constructor action-spec validation marker mismatch")
+          text = text.replace(old_constructor, new_constructor)
+          old_helper = '''    def _validate_action_alpha_contract(self) -> None:\n        if (\n            self.action_spec.mode is ActionMode.ANCHORED_TARGET_RESIDUAL\n            and self.alpha_contract.kind is not AlphaSignalKind.TARGET_WEIGHT\n        ):\n            raise ValueError(\n                "anchored target residual mode requires target-weight alpha semantics"\n            )\n'''
+          new_helper = '''    def _validated_action_spec(self, action_spec: ActionSpec) -> ActionSpec:\n        if (\n            action_spec.mode is ActionMode.ANCHORED_TARGET_RESIDUAL\n            and self.alpha_contract.kind is not AlphaSignalKind.TARGET_WEIGHT\n        ):\n            raise ValueError(\n                "anchored target residual mode requires target-weight alpha semantics"\n            )\n        return action_spec\n'''
+          if text.count(old_helper) != 1:
+              raise SystemExit("action-alpha helper marker mismatch")
+          path.write_text(text.replace(old_helper, new_helper), encoding="utf-8")
+          Path(".github/workflows/causal-v3-constructor-final-fix.yml").unlink()
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: satisfy environment constructor boundary"
+          git push origin HEAD:codex/causal-alpha-v3-research

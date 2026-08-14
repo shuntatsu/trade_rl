@@ -1,0 +1,54 @@
+name: V3 Format Artifact
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v3-format-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Format V3 Sources
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install formatter
+        run: uv sync --extra dev
+
+      - name: Format V3 sources
+        run: >-
+          uv run ruff format
+          trade_rl/learning/causal_alpha_v3.py
+          trade_rl/workflows/universal_causal_alpha_v3*.py
+          scripts/analyze_causal_alpha_checkpoint.py
+          tests/learning/test_causal_alpha_v3*.py
+          tests/workflows/test_universal_causal_alpha_v3*.py
+
+      - name: Upload formatted V3 sources
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v3-formatted-sources
+          path: |
+            trade_rl/learning/causal_alpha_v3.py
+            trade_rl/workflows/universal_causal_alpha_v3*.py
+            scripts/analyze_causal_alpha_checkpoint.py
+            tests/learning/test_causal_alpha_v3*.py
+            tests/workflows/test_universal_causal_alpha_v3*.py
+          if-no-files-found: error

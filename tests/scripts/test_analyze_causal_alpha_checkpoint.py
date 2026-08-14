@@ -52,9 +52,7 @@ def _checkpoint(path: Path) -> None:
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
 
-def test_cli_emits_non_promotable_diagnostic_json(
-    tmp_path: Path, capsys
-) -> None:
+def test_cli_emits_non_promotable_diagnostic_json(tmp_path: Path, capsys) -> None:
     checkpoint = tmp_path / "checkpoint.jsonl"
     _checkpoint(checkpoint)
 

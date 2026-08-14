@@ -10,8 +10,13 @@ from trade_rl.learning.causal_alpha_v3 import (
     CausalAlphaV3FitConfig,
     CausalAlphaV3TargetConfig,
 )
-from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch, OracleEpisodeContract
-from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaEpisodePartition
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeContract,
+)
+from trade_rl.workflows.universal_causal_alpha_contracts import (
+    CausalAlphaEpisodePartition,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_config import (
     CausalAlphaV3Candidate,
     CausalAlphaV3NestedSelectionConfig,
@@ -213,7 +218,9 @@ def _batch() -> EpisodeOracleBatch:
     )
 
 
-def test_signal_rejection_stops_before_selection_and_holdout(monkeypatch, tmp_path) -> None:
+def test_signal_rejection_stops_before_selection_and_holdout(
+    monkeypatch, tmp_path
+) -> None:
     import trade_rl.workflows.universal_causal_alpha_v3_runner as module
 
     monkeypatch.setattr(
@@ -244,7 +251,9 @@ def test_signal_rejection_stops_before_selection_and_holdout(monkeypatch, tmp_pa
     assert not (tmp_path / "admission").exists()
 
 
-def test_admission_rejection_never_creates_teacher_package(monkeypatch, tmp_path) -> None:
+def test_admission_rejection_never_creates_teacher_package(
+    monkeypatch, tmp_path
+) -> None:
     import trade_rl.workflows.universal_causal_alpha_v3_runner as module
 
     monkeypatch.setattr(

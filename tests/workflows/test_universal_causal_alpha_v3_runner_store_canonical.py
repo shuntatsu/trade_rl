@@ -5,7 +5,9 @@ import json
 from trade_rl.workflows.universal_causal_alpha_v3_store import CausalAlphaV3RecordStore
 
 
-def test_exact_artifact_reuse_is_json_semantic_not_python_container_specific(tmp_path) -> None:
+def test_exact_artifact_reuse_is_json_semantic_not_python_container_specific(
+    tmp_path,
+) -> None:
     store = CausalAlphaV3RecordStore(
         tmp_path,
         run_manifest_digest="1" * 64,

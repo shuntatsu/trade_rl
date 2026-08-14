@@ -48,6 +48,9 @@ jobs:
             tests/workflows/test_universal_causal_alpha_v3_runner_engine.py \
             tests/workflows/test_universal_causal_alpha_v3_runner_orchestration.py \
             tests/scripts/test_run_universal_causal_alpha_v3_research.py \
+            tests/test_causal_alpha_v3_runner_example_contract.py \
+            tests/test_causal_alpha_v3_documentation_contract.py \
+            tests/test_causal_alpha_v3_canonical_config_contract.py \
             2>&1 | tee v3-focused-pytest.log
 
       - name: Upload V3 focused test diagnostics
@@ -63,15 +66,19 @@ jobs:
           uv run ruff check
           trade_rl/learning/causal_alpha_v3.py
           trade_rl/workflows/universal_causal_alpha_v3*.py
+          scripts/run_universal_causal_alpha_v3_research.py
           tests/learning/test_causal_alpha_v3*.py
           tests/workflows/test_universal_causal_alpha_v3*.py
           tests/scripts/test_run_universal_causal_alpha_v3_research.py
+          tests/test_causal_alpha_v3*.py
 
       - name: V3 format
         run: >-
           uv run ruff format --check
           trade_rl/learning/causal_alpha_v3.py
           trade_rl/workflows/universal_causal_alpha_v3*.py
+          scripts/run_universal_causal_alpha_v3_research.py
           tests/learning/test_causal_alpha_v3*.py
           tests/workflows/test_universal_causal_alpha_v3*.py
           tests/scripts/test_run_universal_causal_alpha_v3_research.py
+          tests/test_causal_alpha_v3*.py

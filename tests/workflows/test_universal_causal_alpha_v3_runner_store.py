@@ -54,7 +54,9 @@ def test_record_store_round_trips_only_expected_scopes(tmp_path) -> None:
     assert store.write_replay_metric(metric) == path
 
 
-def test_record_store_rejects_tampering_unknown_scope_and_identity_drift(tmp_path) -> None:
+def test_record_store_rejects_tampering_unknown_scope_and_identity_drift(
+    tmp_path,
+) -> None:
     metric = _metric()
     store = CausalAlphaV3RecordStore(
         tmp_path,

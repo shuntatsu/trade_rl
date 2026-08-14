@@ -18,6 +18,7 @@ class ActionMode(str, Enum):
 
     RESIDUAL = "residual"
     TARGET_WEIGHT = "target_weight"
+    ANCHORED_TARGET_RESIDUAL = "anchored_target_residual"
 
 
 class AlphaSignalKind(str, Enum):
@@ -163,6 +164,33 @@ class TargetWeightAction:
 
 
 @dataclass(frozen=True, slots=True)
+class AnchoredTargetResidualAction:
+    """Bounded policy delta around a target-weight alpha anchor."""
+
+    residuals: np.ndarray
+    saturated_count: int = 0
+    raw_max_abs: float = 0.0
+
+    def __post_init__(self) -> None:
+        residuals = np.asarray(self.residuals, dtype=np.float64).reshape(-1).copy()
+        if residuals.size == 0:
+            raise ValueError("anchored residuals must not be empty")
+        if not np.isfinite(residuals).all():
+            raise ValueError("anchored residuals must be finite")
+        if np.any(np.abs(residuals) > 1.0):
+            raise ValueError("anchored residuals must be within [-1, 1]")
+        if self.saturated_count < 0:
+            raise ValueError("saturated_count must be non-negative")
+        if not np.isfinite(self.raw_max_abs) or self.raw_max_abs < 0.0:
+            raise ValueError("raw_max_abs must be finite and non-negative")
+        residuals.setflags(write=False)
+        object.__setattr__(self, "residuals", residuals)
+
+    def as_array(self) -> np.ndarray:
+        return self.residuals.astype(np.float32, copy=True)
+
+
+@dataclass(frozen=True, slots=True)
 class ActionSpec:
     """Exact maintained action layout for one environment identity."""
 
@@ -203,6 +231,17 @@ class ActionSpec:
                 raise ValueError(
                     "target_weight mode requires positive target_weight_count"
                 )
+        elif action_mode is ActionMode.ANCHORED_TARGET_RESIDUAL:
+            if not self.alpha_enabled:
+                raise ValueError("anchored target residual mode requires alpha_enabled")
+            if self.risk_tilt_enabled:
+                raise ValueError("anchored target residual mode does not accept risk_tilt")
+            if self.n_factors:
+                raise ValueError("anchored target residual mode does not accept n_factors")
+            if self.target_weight_count <= 0:
+                raise ValueError(
+                    "anchored target residual mode requires positive target_weight_count"
+                )
         elif self.target_weight_count:
             raise ValueError("residual mode does not accept target_weight_count")
         if not np.isfinite(self.residual_scale) or not 0.0 < self.residual_scale <= 1.0:
@@ -221,6 +260,11 @@ class ActionSpec:
             return tuple(
                 f"target_weight:{index}" for index in range(self.target_weight_count)
             )
+        if self.mode is ActionMode.ANCHORED_TARGET_RESIDUAL:
+            return tuple(
+                f"anchored_residual:{index}"
+                for index in range(self.target_weight_count)
+            )
         names = ["fast_tilt", "slow_tilt"]
         if self.risk_tilt_enabled:
             names.append("risk_tilt")
@@ -230,10 +274,18 @@ class ActionSpec:
         return tuple(names)
 
     def names_for_symbols(self, symbols: tuple[str, ...]) -> tuple[str, ...]:
-        if self.mode is ActionMode.TARGET_WEIGHT:
+        if self.mode in {
+            ActionMode.TARGET_WEIGHT,
+            ActionMode.ANCHORED_TARGET_RESIDUAL,
+        }:
             if len(symbols) != self.target_weight_count:
                 raise ValueError("target weight count does not match dataset symbols")
-            return tuple(f"target_weight:{symbol}" for symbol in symbols)
+            prefix = (
+                "target_weight"
+                if self.mode is ActionMode.TARGET_WEIGHT
+                else "anchored_residual"
+            )
+            return tuple(f"{prefix}:{symbol}" for symbol in symbols)
         return self.names
 
     @property
@@ -245,7 +297,7 @@ class ActionSpec:
         value: np.ndarray,
         *,
         mode: ActionValidationMode | str | None = None,
-    ) -> ResidualActionV2 | TargetWeightAction:
+    ) -> ResidualActionV2 | TargetWeightAction | AnchoredTargetResidualAction:
         vector = np.asarray(value, dtype=np.float64).reshape(-1)
         if vector.shape != (self.size,):
             raise ValueError(
@@ -270,6 +322,12 @@ class ActionSpec:
         if self.mode is ActionMode.TARGET_WEIGHT:
             return TargetWeightAction(
                 weights=clipped,
+                saturated_count=int(np.count_nonzero(outside)),
+                raw_max_abs=float(np.max(np.abs(vector), initial=0.0)),
+            )
+        if self.mode is ActionMode.ANCHORED_TARGET_RESIDUAL:
+            return AnchoredTargetResidualAction(
+                residuals=clipped * self.residual_scale,
                 saturated_count=int(np.count_nonzero(outside)),
                 raw_max_abs=float(np.max(np.abs(vector), initial=0.0)),
             )
@@ -354,7 +412,7 @@ class ResidualActionV2:
 
 @dataclass(frozen=True, slots=True)
 class ResidualComposition:
-    action: ResidualAction | ResidualActionV2 | TargetWeightAction
+    action: ResidualAction | ResidualActionV2 | TargetWeightAction | AnchoredTargetResidualAction
     baseline: np.ndarray
     trend_component: np.ndarray
     alpha_component: np.ndarray
@@ -370,7 +428,7 @@ class BaselineResidualComposer:
 
     def compose(
         self,
-        action: ResidualAction | ResidualActionV2 | TargetWeightAction,
+        action: ResidualAction | ResidualActionV2 | TargetWeightAction | AnchoredTargetResidualAction,
         trends: TrendTargets,
         alpha: np.ndarray,
         *,
@@ -380,6 +438,14 @@ class BaselineResidualComposer:
     ) -> ResidualComposition:
         if isinstance(action, TargetWeightAction):
             return self._compose_target(action, trends, max_gross=max_gross)
+        if isinstance(action, AnchoredTargetResidualAction):
+            return self._compose_anchored(
+                action,
+                trends,
+                alpha,
+                alpha_enabled=alpha_enabled,
+                max_gross=max_gross,
+            )
         if isinstance(action, ResidualAction):
             return self._compose_legacy(
                 action,
@@ -394,6 +460,41 @@ class BaselineResidualComposer:
             alpha_enabled=alpha_enabled,
             factor_basis=factor_basis,
             max_gross=max_gross,
+        )
+
+    @staticmethod
+    def _compose_anchored(
+        action: AnchoredTargetResidualAction,
+        trends: TrendTargets,
+        alpha: np.ndarray,
+        *,
+        alpha_enabled: bool,
+        max_gross: float,
+    ) -> ResidualComposition:
+        if not alpha_enabled:
+            raise ValueError("anchored target residual requires enabled alpha anchor")
+        if not np.isfinite(max_gross) or not 0.0 < max_gross <= 10.0:
+            raise ValueError("max_gross must be within (0, 10]")
+        anchor = np.asarray(alpha, dtype=np.float64).reshape(-1)
+        if anchor.shape != trends.base.shape or action.residuals.shape != anchor.shape:
+            raise ValueError("anchored target dimensions must match trend targets")
+        if not np.isfinite(anchor).all():
+            raise ValueError("anchored target alpha must be finite")
+        anchor = _normalize_gross(anchor, maximum=max_gross)
+        raw = anchor + action.residuals
+        raw_gross = float(np.abs(raw).sum())
+        proposal = _normalize_gross(raw, maximum=max_gross)
+        zeros = np.zeros_like(anchor)
+        return ResidualComposition(
+            action=action,
+            baseline=anchor.copy(),
+            trend_component=zeros.copy(),
+            alpha_component=anchor.copy(),
+            factor_component=zeros.copy(),
+            residual_component=proposal - anchor,
+            proposal=proposal,
+            raw_gross=raw_gross,
+            target_gross=float(np.abs(proposal).sum()),
         )
 
     @staticmethod

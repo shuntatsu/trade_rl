@@ -39,6 +39,7 @@ class CanonicalActionSemantic(str, Enum):
 
     TARGET_WEIGHT_CASH = "target_weight_cash"
     RESIDUAL_BASELINE = "residual_baseline"
+    ANCHORED_ALPHA = "anchored_alpha"
 
 
 def _positive_integer(value: object, *, field_name: str) -> int:
@@ -200,11 +201,12 @@ def _resolve_canonical_action(
     if not np.issubdtype(action_space.dtype, np.floating):
         raise ValueError("canonical probe action space must use a floating dtype")
     action = np.zeros(shape, dtype=action_space.dtype)
-    semantic = (
-        CanonicalActionSemantic.TARGET_WEIGHT_CASH
-        if action_spec.mode is ActionMode.TARGET_WEIGHT
-        else CanonicalActionSemantic.RESIDUAL_BASELINE
-    )
+    if action_spec.mode is ActionMode.TARGET_WEIGHT:
+        semantic = CanonicalActionSemantic.TARGET_WEIGHT_CASH
+    elif action_spec.mode is ActionMode.ANCHORED_TARGET_RESIDUAL:
+        semantic = CanonicalActionSemantic.ANCHORED_ALPHA
+    else:
+        semantic = CanonicalActionSemantic.RESIDUAL_BASELINE
     return semantic, action
 
 

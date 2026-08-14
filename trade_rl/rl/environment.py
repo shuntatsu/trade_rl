@@ -177,13 +177,7 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self.config = policy_schedule.config
         self.emergency_risk_monitor = policy_schedule.emergency_risk_monitor
         self.action_spec = policy_schedule.action_spec
-        if (
-            self.action_spec.mode is ActionMode.ANCHORED_TARGET_RESIDUAL
-            and self.alpha_contract.kind is not AlphaSignalKind.TARGET_WEIGHT
-        ):
-            raise ValueError(
-                "anchored target residual mode requires target-weight alpha semantics"
-            )
+        self._validate_action_alpha_contract()
         self._action_names = policy_schedule.action_names
         self._nominal_episode_bars = policy_schedule.nominal_episode_bars
         self._nominal_decision_bars = policy_schedule.nominal_decision_bars
@@ -256,6 +250,15 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
             )
         )
         self._install_initial_state(initial_state)
+
+    def _validate_action_alpha_contract(self) -> None:
+        if (
+            self.action_spec.mode is ActionMode.ANCHORED_TARGET_RESIDUAL
+            and self.alpha_contract.kind is not AlphaSignalKind.TARGET_WEIGHT
+        ):
+            raise ValueError(
+                "anchored target residual mode requires target-weight alpha semantics"
+            )
 
     def _install_observation_transport(
         self,

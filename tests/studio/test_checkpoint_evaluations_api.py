@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from .helpers import checkpoint_payload
-from .support import request, studio_client as client
+from .support import studio_client as client, request
 
 
 def selection_path(tmp_path: Path, run_id: str) -> Path:

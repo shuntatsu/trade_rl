@@ -10,7 +10,7 @@ Repository revisions published before the LGPL transition were distributed under
 
 ## Dependencies and third-party material
 
-Dependencies keep their own upstream licenses. `THIRD_PARTY_NOTICES.md` records notable runtime dependencies and attribution/trademark notes that require explicit visibility. A dependency being LGPL-compatible does not make it part of Trade RL's copyright ownership.
+Dependencies keep their own upstream licenses. `LICENSES/THIRD_PARTY_NOTICES.md` records notable runtime dependencies and attribution/trademark notes that require explicit visibility. A dependency being LGPL-compatible does not make it part of Trade RL's copyright ownership.
 
 ## Source availability
 

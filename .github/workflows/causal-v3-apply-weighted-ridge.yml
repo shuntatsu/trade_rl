@@ -1,0 +1,220 @@
+name: Apply Causal V3 Weighted Ridge
+
+on:
+  push:
+    branches:
+      - codex/causal-alpha-v3-research
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: true
+      - name: Patch weighted ridge implementation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("trade_rl/learning/causal_alpha_teacher.py")
+          text = path.read_text(encoding="utf-8")
+          pattern = re.compile(
+              r"def fit_causal_alpha_ridge\(.*?\n\n(?=def combine_causal_alpha_predictions)",
+              re.DOTALL,
+          )
+          replacement = '''def fit_causal_alpha_ridge(
+              *,
+              features: object,
+              labels: object,
+              feature_available: object,
+              label_end_indices: object,
+              knowledge_cutoff: int,
+              feature_names: tuple[str, ...],
+              config: CausalAlphaRidgeConfig,
+              sample_weights: object | None = None,
+              normalize_objective: bool = False,
+          ) -> CausalAlphaRidgeModel:
+              """Fit scaler and ridge using only fully realized prefix labels.
+
+              ``sample_weights`` and ``normalize_objective`` are research-only
+              extensions. Omitting both preserves the maintained legacy numerical
+              path exactly. Weighted fits use feature-local weighted standardization
+              and may normalize the data-fit objective by total eligible weight so
+              the ridge strength is independent of duplicated row count.
+              """
+
+              values = np.asarray(features, dtype=np.float64)
+              target = np.asarray(labels, dtype=np.float64).reshape(-1)
+              available = np.asarray(feature_available, dtype=np.bool_)
+              label_end = np.asarray(label_end_indices, dtype=np.int64).reshape(-1)
+              if values.ndim != 2 or values.shape[1] != len(feature_names):
+                  raise ValueError("causal alpha training features have invalid shape")
+              rows = values.shape[0]
+              if target.shape != (rows,) or available.shape != values.shape:
+                  raise ValueError("causal alpha training arrays are not sample aligned")
+              if label_end.shape != (rows,):
+                  raise ValueError("causal alpha label-end indices are not sample aligned")
+              if isinstance(knowledge_cutoff, bool) or not isinstance(knowledge_cutoff, int):
+                  raise ValueError("knowledge_cutoff must be an integer")
+              if not isinstance(normalize_objective, bool):
+                  raise TypeError("normalize_objective must be a boolean")
+
+              raw_weights: np.ndarray | None = None
+              if sample_weights is not None:
+                  raw_weights = np.asarray(sample_weights, dtype=np.float64).reshape(-1)
+                  if (
+                      raw_weights.shape != (rows,)
+                      or not np.isfinite(raw_weights).all()
+                      or np.any(raw_weights < 0.0)
+                      or not np.any(raw_weights > 0.0)
+                  ):
+                      raise ValueError(
+                          "sample_weights must be finite, non-negative, sample aligned, "
+                          "and contain positive weight"
+                      )
+
+              finite_rows = np.isfinite(values).all(axis=1) & np.isfinite(target)
+              eligible_mask = finite_rows & (label_end >= 0) & (label_end < knowledge_cutoff)
+
+              # Preserve the maintained legacy numerical path bit-for-bit when the
+              # research extensions are not requested.
+              if raw_weights is None and not normalize_objective:
+                  eligible_indices = np.flatnonzero(eligible_mask).astype(np.int64)
+                  if eligible_indices.size < 2:
+                      raise ValueError("causal alpha prefix contains insufficient fitted samples")
+                  x = values[eligible_indices]
+                  x_available = available[eligible_indices]
+                  y = target[eligible_indices]
+                  available_count = x_available.sum(axis=0, dtype=np.int64)
+                  available_sum = np.where(x_available, x, 0.0).sum(
+                      axis=0, dtype=np.float64
+                  )
+                  location = np.zeros(x.shape[1], dtype=np.float64)
+                  np.divide(
+                      available_sum,
+                      available_count,
+                      out=location,
+                      where=available_count > 0,
+                  )
+                  centered = np.where(x_available, x - location, 0.0)
+                  squared_sum = np.square(centered).sum(axis=0, dtype=np.float64)
+                  variance = np.zeros(x.shape[1], dtype=np.float64)
+                  np.divide(
+                      squared_sum,
+                      available_count,
+                      out=variance,
+                      where=available_count > 0,
+                  )
+                  raw_scale = np.sqrt(variance)
+                  constant_mask = (available_count < 2) | (raw_scale <= _EPSILON)
+                  scale = np.where(constant_mask, 1.0, raw_scale)
+                  scaled = np.where(x_available, (x - location) / scale, 0.0)
+                  scaled[:, constant_mask] = 0.0
+                  design = np.column_stack(
+                      (np.ones(scaled.shape[0], dtype=np.float64), scaled)
+                  )
+                  gram = design.T @ design
+                  rhs = design.T @ y
+              else:
+                  weights_all = (
+                      np.ones(rows, dtype=np.float64)
+                      if raw_weights is None
+                      else raw_weights
+                  )
+                  eligible_mask &= weights_all > 0.0
+                  eligible_indices = np.flatnonzero(eligible_mask).astype(np.int64)
+                  if eligible_indices.size < 2:
+                      raise ValueError("causal alpha prefix contains insufficient fitted samples")
+                  x = values[eligible_indices]
+                  x_available = available[eligible_indices]
+                  y = target[eligible_indices]
+                  weights = weights_all[eligible_indices]
+                  weight_sum = float(weights.sum(dtype=np.float64))
+                  if not np.isfinite(weight_sum) or weight_sum <= _EPSILON:
+                      raise ValueError("sample_weights have no positive eligible weight")
+                  weight_column = weights[:, None]
+                  positive_available = x_available & (weight_column > 0.0)
+                  available_count = positive_available.sum(axis=0, dtype=np.int64)
+                  available_weight = np.where(
+                      x_available, weight_column, 0.0
+                  ).sum(axis=0, dtype=np.float64)
+                  available_sum = np.where(
+                      x_available, x * weight_column, 0.0
+                  ).sum(axis=0, dtype=np.float64)
+                  location = np.zeros(x.shape[1], dtype=np.float64)
+                  np.divide(
+                      available_sum,
+                      available_weight,
+                      out=location,
+                      where=available_weight > _EPSILON,
+                  )
+                  centered = np.where(x_available, x - location, 0.0)
+                  squared_sum = (
+                      np.square(centered) * weight_column
+                  ).sum(axis=0, dtype=np.float64)
+                  variance = np.zeros(x.shape[1], dtype=np.float64)
+                  np.divide(
+                      squared_sum,
+                      available_weight,
+                      out=variance,
+                      where=available_weight > _EPSILON,
+                  )
+                  raw_scale = np.sqrt(variance)
+                  constant_mask = (available_count < 2) | (raw_scale <= _EPSILON)
+                  scale = np.where(constant_mask, 1.0, raw_scale)
+                  scaled = np.where(x_available, (x - location) / scale, 0.0)
+                  scaled[:, constant_mask] = 0.0
+                  design = np.column_stack(
+                      (np.ones(scaled.shape[0], dtype=np.float64), scaled)
+                  )
+                  gram = design.T @ (design * weight_column)
+                  rhs = design.T @ (y * weights)
+                  if normalize_objective:
+                      gram = gram / weight_sum
+                      rhs = rhs / weight_sum
+
+              penalty = np.eye(design.shape[1], dtype=np.float64) * config.ridge_strength
+              penalty[0, 0] = 0.0
+              try:
+                  solution = np.linalg.solve(gram + penalty, rhs)
+              except np.linalg.LinAlgError as error:
+                  raise ValueError("causal alpha ridge solve failed") from error
+              if not np.isfinite(solution).all():
+                  raise ValueError("causal alpha ridge coefficients are non-finite")
+              return CausalAlphaRidgeModel(
+                  feature_names=tuple(feature_names),
+                  location=location,
+                  scale=scale,
+                  constant_mask=constant_mask,
+                  coefficients=solution[1:],
+                  intercept=float(solution[0]),
+                  sample_count=int(eligible_indices.size),
+                  knowledge_cutoff=knowledge_cutoff,
+                  eligible_indices=eligible_indices,
+                  config=config,
+              )
+
+
+          '''
+          updated, count = pattern.subn(replacement, text)
+          if count != 1:
+              raise SystemExit(f"expected one ridge function, replaced {count}")
+          path.write_text(updated, encoding="utf-8")
+          PY
+      - name: Commit generated source change
+        shell: bash
+        run: |
+          rm .github/workflows/causal-v3-apply-weighted-ridge.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/learning/causal_alpha_teacher.py .github/workflows/causal-v3-apply-weighted-ridge.yml
+          git diff --cached --check
+          git commit -m "feat: add overlap-ready weighted causal ridge"
+          git push origin HEAD:codex/causal-alpha-v3-research

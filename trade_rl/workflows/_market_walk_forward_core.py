@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import json
 import math
-import multiprocessing
 import os
 import shutil
 import tempfile
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -84,6 +82,11 @@ from trade_rl.workflows.market_walk_forward_config import (
 from trade_rl.workflows.market_walk_forward_config import (
     NamedCandidateRun as NamedCandidateRun,
 )
+from trade_rl.workflows.normalizer_collection import (
+    NormalizerWorkerSpec,
+    collect_normalizer_matrix as _collect_normalizer_matrix,
+    normalizer_environment,
+)
 from trade_rl.workflows.training_run import (
     TrainingRunConfig,
     require_mark_to_market_training_environment,
@@ -95,108 +98,10 @@ from trade_rl.workflows.walk_forward import (
 from trade_rl.workflows.walk_forward_evaluation import (
     RangeEvaluation,
     bind_signal_providers_to_view,
-    build_market_environment,
     evaluate_range_evidence,
     minimum_environment_start,
     resolve_signal_digest,
 )
-
-_NORMALIZER_ENVIRONMENT_FACTORY: Any | None = None
-
-
-def _collect_normalizer_chunk(bounds: tuple[int, int, int]) -> np.ndarray:
-    """Collect one cash/zero-action interval in an isolated environment."""
-
-    start, stop, action_size = bounds
-    factory = _NORMALIZER_ENVIRONMENT_FACTORY
-    if factory is None:
-        raise RuntimeError("normalizer worker environment factory is unavailable")
-    environment = factory()
-    observations: list[np.ndarray] = []
-    try:
-        observation, _ = environment.reset(
-            seed=0,
-            options={
-                "episode_bars": stop - start,
-                "initial_state_mode": "cash",
-                "start_idx": start,
-            },
-        )
-        terminated = False
-        truncated = False
-        while not terminated and not truncated:
-            observations.append(
-                np.asarray(observation, dtype=np.float32).copy(order="C")
-            )
-            observation, _, terminated, truncated, _ = environment.step(
-                np.zeros(action_size, dtype=np.float32)
-            )
-    finally:
-        environment.close()
-    if len(observations) != stop - start:
-        raise RuntimeError("normalizer worker observation count mismatch")
-    return np.stack(observations, axis=0)
-
-
-def _normalizer_worker_count(episode_bars: int) -> int:
-    raw = os.environ.get("TRADE_RL_PREPROCESS_WORKERS", "8").strip()
-    try:
-        configured = int(raw)
-    except ValueError as exc:
-        raise ValueError("TRADE_RL_PREPROCESS_WORKERS must be an integer") from exc
-    if configured <= 0:
-        raise ValueError("TRADE_RL_PREPROCESS_WORKERS must be positive")
-    return min(configured, episode_bars)
-
-
-def _normalizer_partitions(
-    start: int,
-    stop: int,
-    worker_count: int,
-    action_size: int,
-) -> tuple[tuple[int, int, int], ...]:
-    boundaries = np.linspace(start, stop, worker_count + 1, dtype=np.int64)
-    return tuple(
-        (int(left), int(right), action_size)
-        for left, right in zip(boundaries[:-1], boundaries[1:], strict=True)
-        if right > left
-    )
-
-
-def _collect_normalizer_matrix(
-    environment_factory: Any,
-    *,
-    start: int,
-    episode_bars: int,
-    action_size: int,
-    finite_horizon: bool,
-) -> np.ndarray:
-    global _NORMALIZER_ENVIRONMENT_FACTORY
-
-    worker_count = _normalizer_worker_count(episode_bars)
-    parallel = (
-        worker_count > 1
-        and "fork" in multiprocessing.get_all_start_methods()
-        and not finite_horizon
-    )
-    _NORMALIZER_ENVIRONMENT_FACTORY = environment_factory
-    try:
-        if not parallel:
-            return _collect_normalizer_chunk((start, start + episode_bars, action_size))
-        partitions = _normalizer_partitions(
-            start,
-            start + episode_bars,
-            worker_count,
-            action_size,
-        )
-        with ProcessPoolExecutor(
-            max_workers=len(partitions),
-            mp_context=multiprocessing.get_context("fork"),
-        ) as executor:
-            chunks = tuple(executor.map(_collect_normalizer_chunk, partitions))
-        return np.concatenate(chunks, axis=0)
-    finally:
-        _NORMALIZER_ENVIRONMENT_FACTORY = None
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -389,23 +294,18 @@ def _fit_normalizer(
         if run.environment.structured_sequence_observation
         else run
     )
+    worker_spec = NormalizerWorkerSpec(
+        dataset=training_dataset,
+        run=normalizer_run,
+        episode_bars=episode_bars,
+        alpha_provider=alpha_provider,
+        factor_provider=factor_provider,
+    )
 
-    def environment_factory() -> Any:
-        return build_market_environment(
-            training_dataset,
-            normalizer_run,
-            normalizer=None,
-            sequence_normalizer=None,
-            episode_bars=episode_bars,
-            liquidate_on_end=False,
-            alpha_provider=alpha_provider,
-            factor_provider=factor_provider,
-        )
-
-    env = environment_factory()
+    env = normalizer_environment(worker_spec)
     try:
         matrix = _collect_normalizer_matrix(
-            environment_factory,
+            worker_spec,
             start=start,
             episode_bars=episode_bars,
             action_size=run.action.size,

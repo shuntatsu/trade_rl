@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import json
-import multiprocessing as mp
 import shutil
 import tempfile
 import zipfile
@@ -52,9 +51,6 @@ _COMPACT_KEYS = (
 )
 
 _MAX_EPISODES_PER_TEACHER_TASK: Final = 8
-_FORK_EPISODE_BATCH: EpisodeOracleBatch | None = None
-_FORK_EPISODE_ENVIRONMENT_FACTORY: Any | None = None
-_FORK_EPISODE_TEACHER_DIGEST: str | None = None
 
 
 def _readonly_int_vector(value: object, *, field: str, count: int) -> np.ndarray:
@@ -722,23 +718,6 @@ def _episode_item_chunks(
     return tuple(chunks)
 
 
-def _collect_forked_episode_chunk(
-    items: tuple[tuple[OracleEpisodeContract, np.ndarray], ...],
-) -> tuple[tuple[EpisodeSupervisedPolicyDataset, int], ...]:
-    if (
-        _FORK_EPISODE_ENVIRONMENT_FACTORY is None
-        or _FORK_EPISODE_BATCH is None
-        or _FORK_EPISODE_TEACHER_DIGEST is None
-    ):
-        raise RuntimeError("forked episode teacher worker is not initialized")
-    return _collect_isolated_episode_chunk(
-        _FORK_EPISODE_ENVIRONMENT_FACTORY,
-        _FORK_EPISODE_BATCH,
-        _FORK_EPISODE_TEACHER_DIGEST,
-        items,
-    )
-
-
 def collect_episode_teacher_rollout_parallel(
     environment_factory: Any,
     batch: EpisodeOracleBatch,
@@ -829,31 +808,7 @@ def collect_episode_teacher_rollout_parallel(
         pending_worker_count = 0
         pending_chunks = ()
 
-    if pending_chunks and "fork" in mp.get_all_start_methods():
-        global _FORK_EPISODE_BATCH
-        global _FORK_EPISODE_ENVIRONMENT_FACTORY
-        global _FORK_EPISODE_TEACHER_DIGEST
-        _FORK_EPISODE_BATCH = batch
-        _FORK_EPISODE_ENVIRONMENT_FACTORY = environment_factory
-        _FORK_EPISODE_TEACHER_DIGEST = teacher_config_digest
-        try:
-            context = mp.get_context("fork")
-            with context.Pool(
-                processes=pending_worker_count,
-                maxtasksperchild=1,
-            ) as pool:
-                for values in pool.imap(
-                    _collect_forked_episode_chunk,
-                    pending_chunks,
-                    chunksize=1,
-                ):
-                    for value in values:
-                        persist(value)
-        finally:
-            _FORK_EPISODE_BATCH = None
-            _FORK_EPISODE_ENVIRONMENT_FACTORY = None
-            _FORK_EPISODE_TEACHER_DIGEST = None
-    elif pending_chunks:
+    if pending_chunks:
 
         def collect_chunk(
             items: tuple[tuple[OracleEpisodeContract, np.ndarray], ...],

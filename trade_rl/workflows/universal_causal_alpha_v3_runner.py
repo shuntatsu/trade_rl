@@ -30,7 +30,9 @@ from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
 from trade_rl.workflows.universal_causal_alpha_v3_selection import (
     rank_causal_alpha_v3_candidates,
 )
-from trade_rl.workflows.universal_causal_alpha_v3_signal import CausalAlphaV3NestedPartition
+from trade_rl.workflows.universal_causal_alpha_v3_signal import (
+    CausalAlphaV3NestedPartition,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_store import CausalAlphaV3RecordStore
 from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
     CausalAlphaV3FitCache,
@@ -93,7 +95,10 @@ def evaluate_causal_alpha_v3_selection(
         raise ValueError("V3 selection episode_hours must be positive")
     if not candidate_values:
         raise ValueError("V3 selection requires frozen candidates")
-    if store.run_manifest_digest != run_manifest_digest or store.freeze_digest != freeze_digest:
+    if (
+        store.run_manifest_digest != run_manifest_digest
+        or store.freeze_digest != freeze_digest
+    ):
         raise ValueError("V3 selection store identity does not match run/freeze")
 
     expected = _expected_selection_contracts(
@@ -110,7 +115,10 @@ def evaluate_causal_alpha_v3_selection(
     rejected = {
         candidate.digest
         for candidate in candidate_values
-        if any(item.irrecoverably_rejected(thresholds) for item in records[candidate.digest])
+        if any(
+            item.irrecoverably_rejected(thresholds)
+            for item in records[candidate.digest]
+        )
     }
     fit_cache = CausalAlphaV3FitCache(train_symbols=symbols, samples=samples)
     episode_days = float(episode_hours) / 24.0
@@ -171,7 +179,9 @@ def evaluate_causal_alpha_v3_selection(
                     turnover_per_day=float(performance.turnover_total) / episode_days,
                     total_execution_cost=float(performance.cost_total),
                     trade_count=int(performance.trade_count),
-                    submitted_change_count=int(targets.target_path.submitted_change_count),
+                    submitted_change_count=int(
+                        targets.target_path.submitted_change_count
+                    ),
                     sign_flip_count=int(targets.target_path.sign_flip_count),
                     liquidity_deleveraging_count=int(
                         targets.target_path.liquidity_deleveraging_count
@@ -248,11 +258,12 @@ def evaluate_causal_alpha_v3_admission(
         raise ValueError("V3 admission episode_hours must be positive")
     if selection.freeze_digest != freeze_digest:
         raise ValueError("V3 admission selection/freeze identity drifted")
-    if store.run_manifest_digest != run_manifest_digest or store.freeze_digest != freeze_digest:
+    if (
+        store.run_manifest_digest != run_manifest_digest
+        or store.freeze_digest != freeze_digest
+    ):
         raise ValueError("V3 admission store identity does not match run/freeze")
-    expected = {
-        symbol: batches[symbol].contracts[-1].digest for symbol in symbols
-    }
+    expected = {symbol: batches[symbol].contracts[-1].digest for symbol in symbols}
     records = store.load_admission_records(
         expected_contract_digests=expected,
         selection_digest=selection.digest,

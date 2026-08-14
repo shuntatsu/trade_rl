@@ -94,7 +94,7 @@ Resume時は現在のcandidate gridから`grid_digest`を、現在のgenerator�
 
 ### Research-only Causal Alpha V3 lane
 
-`Causal Alpha V3`は、r3で観測したprediction-to-target境界とlearner-state distribution shiftを検証するための**research-only**経路です。Canonical U6を置き換えず、既存の`behavior_cloning_teacher: \"causal_alpha_ridge\"`、`action.mode=target_weight`、teacher admission、risk、execution、reward契約を変更しません。
+`Causal Alpha V3`は、r3で観測したprediction-to-target境界とlearner-state distribution shiftを検証するための**research-only**経路です。Canonical U6を置き換えず、既存の`behavior_cloning_teacher: "causal_alpha_ridge"`、`action.mode=target_weight`、teacher admission、risk、execution、reward契約を変更しません。
 
 Historical v2 selection checkpointはread-only診断だけに使用します。診断出力は常に`promotion_eligible=false`で、旧`generator_code_digest`を保持したままpaired scope比較と重複prediction evidenceのde-duplicationを行います。この出力をselection resume、candidate promotion、teacher admissionの代替Evidenceとして使用してはいけません。
 

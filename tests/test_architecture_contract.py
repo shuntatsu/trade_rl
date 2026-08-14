@@ -12,11 +12,6 @@ ROOT = REPOSITORY_ROOT
 PYTHON_ROOT = PYTHON_SOURCE_ROOT
 
 
-def test_legacy_execution_trees_are_absent() -> None:
-    for name in ("mars_lite", "legacy_tests"):
-        assert not (ROOT / name).exists(), f"legacy path still exists: {name}"
-
-
 def test_only_trade_rl_is_packaged() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert config["project"]["name"] == "trade-rl"

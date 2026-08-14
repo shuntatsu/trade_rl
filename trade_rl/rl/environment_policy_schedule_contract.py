@@ -66,7 +66,8 @@ class EnvironmentPolicyScheduleContractBuilder:
         if action_spec.n_factors != self.factor_count:
             raise ValueError("action_spec factor count does not match environment")
         if (
-            action_spec.mode is ActionMode.TARGET_WEIGHT
+            action_spec.mode
+            in {ActionMode.TARGET_WEIGHT, ActionMode.ANCHORED_TARGET_RESIDUAL}
             and action_spec.target_weight_count != self.dataset.n_symbols
         ):
             raise ValueError("target weight count does not match dataset symbols")

@@ -10,6 +10,7 @@ import numpy as np
 from trade_rl.rl.actions import (
     ActionMode,
     ActionSpec,
+    AnchoredTargetResidualAction,
     BaselineResidualComposer,
     ResidualAction,
     ResidualActionV2,
@@ -50,7 +51,12 @@ class EnvironmentDecisionRequest:
 
 @dataclass(frozen=True, slots=True)
 class EnvironmentDecisionPlan:
-    parsed_action: ResidualAction | ResidualActionV2 | TargetWeightAction
+    parsed_action: (
+        ResidualAction
+        | ResidualActionV2
+        | TargetWeightAction
+        | AnchoredTargetResidualAction
+    )
     maintained_action: np.ndarray
     saturated_count: int
     raw_max_abs: float
@@ -103,7 +109,10 @@ class EnvironmentDecisionPlanner:
         self,
         value: np.ndarray,
     ) -> tuple[
-        ResidualAction | ResidualActionV2 | TargetWeightAction,
+        ResidualAction
+        | ResidualActionV2
+        | TargetWeightAction
+        | AnchoredTargetResidualAction,
         np.ndarray,
         int,
         float,
@@ -131,7 +140,7 @@ class EnvironmentDecisionPlanner:
                 float(np.max(np.abs(vector), initial=0.0)),
             )
         parsed = self.action_spec.parse(value)
-        if isinstance(parsed, TargetWeightAction):
+        if isinstance(parsed, (TargetWeightAction, AnchoredTargetResidualAction)):
             maintained = parsed.as_array()
         else:
             maintained = parsed.as_array(
@@ -174,8 +183,13 @@ class EnvironmentDecisionPlanner:
         submitted_hybrid = (
             np.asarray(composition.proposal, dtype=np.float64).reshape(-1).copy()
         )
+        shadow_baseline = (
+            composition.baseline
+            if self.action_spec.mode is ActionMode.ANCHORED_TARGET_RESIDUAL
+            else request.trends.base
+        )
         submitted_shadow = (
-            np.asarray(request.trends.base, dtype=np.float64).reshape(-1).copy()
+            np.asarray(shadow_baseline, dtype=np.float64).reshape(-1).copy()
         )
         execution_delay_warmup = False
         next_pending_hybrid: np.ndarray | None = None

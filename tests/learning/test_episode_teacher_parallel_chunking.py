@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import multiprocessing
 import threading
+import warnings
 
 import numpy as np
+import pytest
 
-from trade_rl.learning import episode_teacher_artifact
 from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
     OracleEpisodeContract,
@@ -89,16 +91,10 @@ def _episode_batch(episode_count: int = 8) -> EpisodeOracleBatch:
 
 
 def _collect_threaded_teacher_batch(
-    monkeypatch: object,
     *,
     episode_count: int,
     max_workers: int,
 ) -> tuple[EpisodeSupervisedPolicyDataset, int, int]:
-    monkeypatch.setattr(  # type: ignore[attr-defined]
-        episode_teacher_artifact.mp,
-        "get_all_start_methods",
-        lambda: ["spawn"],
-    )
     factory_calls = [0]
     close_calls = [0]
     lock = threading.Lock()
@@ -118,11 +114,8 @@ def _collect_threaded_teacher_batch(
     return dataset, factory_calls[0], close_calls[0]
 
 
-def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
-    monkeypatch: object,
-) -> None:
+def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk() -> None:
     dataset, factory_calls, close_calls = _collect_threaded_teacher_batch(
-        monkeypatch,
         episode_count=8,
         max_workers=2,
     )
@@ -148,11 +141,10 @@ def test_parallel_teacher_rollout_reuses_one_environment_per_episode_chunk(
     )
 
 
-def test_parallel_teacher_rollout_uses_every_worker_when_episodes_are_available(
-    monkeypatch: object,
-) -> None:
+def test_parallel_teacher_rollout_uses_every_worker_when_episodes_are_available() -> (
+    None
+):
     dataset, factory_calls, close_calls = _collect_threaded_teacher_batch(
-        monkeypatch,
         episode_count=17,
         max_workers=16,
     )
@@ -163,3 +155,49 @@ def test_parallel_teacher_rollout_uses_every_worker_when_episodes_are_available(
         dataset.episode_ids,
         np.repeat(np.arange(17, dtype=np.int64), 2),
     )
+
+
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="the Python 3.12 fork deprecation is POSIX-specific",
+)
+def test_parallel_teacher_rollout_does_not_fork_a_multithreaded_parent() -> None:
+    factory_calls = [0]
+    close_calls = [0]
+    lock = threading.Lock()
+    batch = _episode_batch(episode_count=2)
+    started = threading.Event()
+    stop = threading.Event()
+
+    def environment_factory() -> _FakeTeacherEnvironment:
+        with lock:
+            factory_calls[0] += 1
+        return _FakeTeacherEnvironment(close_calls, lock)
+
+    def keep_thread_alive() -> None:
+        started.set()
+        stop.wait()
+
+    thread = threading.Thread(target=keep_thread_alive, daemon=True)
+    thread.start()
+    assert started.wait(timeout=5.0)
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            dataset = collect_episode_teacher_rollout_parallel(
+                environment_factory,
+                batch,
+                teacher_config_digest=batch.teacher_config_digest,
+                max_workers=2,
+            )
+    finally:
+        stop.set()
+        thread.join(timeout=5.0)
+
+    assert dataset.episode_count == 2
+    assert [
+        warning
+        for warning in caught
+        if issubclass(warning.category, DeprecationWarning)
+        and "fork" in str(warning.message).lower()
+    ] == []

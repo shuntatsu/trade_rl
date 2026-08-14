@@ -7,12 +7,19 @@ import math
 import re
 import statistics
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+
+from trade_rl.workflows.universal_causal_alpha_selection import (
+    causal_alpha_unexplained_execution_rejection_count,
+)
+from trade_rl.workflows.universal_causal_alpha_teacher import (
+    causal_alpha_candidate_metric_v2_from_payload,
+)
 
 REWARD_TAGS = (
     "trade_rl/reward_mean",
@@ -67,6 +74,31 @@ TELEMETRY_LOWER_IS_BETTER = {
     "command_target_sign_flip_count",
 }
 MAX_TELEMETRY_TREND_POINTS = 4_096
+MAX_CAUSAL_TEACHER_CHECKPOINT_BYTES = 8 * 1024 * 1024
+
+
+@dataclass(slots=True)
+class _TeacherCandidateAggregate:
+    command_sign_flip_count: int = 0
+    cost_suppressed_change_count: int = 0
+    execution_rejection_count: int = 0
+    execution_rejection_reason_counts: Counter[str] = field(default_factory=Counter)
+    gross_returns: list[float] = field(default_factory=list)
+    hard_risk_violation: bool = False
+    liquidity_deleveraging_count: int = 0
+    liquidity_weight_cap_max: list[float] = field(default_factory=list)
+    liquidity_weight_cap_median: list[float] = field(default_factory=list)
+    liquidity_weight_cap_min: list[float] = field(default_factory=list)
+    net_returns: list[float] = field(default_factory=list)
+    risk_projection_reason_counts: Counter[str] = field(default_factory=Counter)
+    signal_24h_direction_accuracy: list[float] = field(default_factory=list)
+    signal_24h_pearson: list[float] = field(default_factory=list)
+    signal_24h_rank: list[float] = field(default_factory=list)
+    strong_reversal_count: int = 0
+    submitted_change_count: int = 0
+    total_execution_cost: float = 0.0
+    total_trade_count: int = 0
+    turnover_per_day: list[float] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +142,7 @@ class UniversalTrainingSnapshot:
     status: str
     members: tuple[UniversalTrainingMemberSnapshot, ...]
     teacher_progress: dict[str, object] | None
+    teacher_checkpoint_summary: dict[str, object] | None
     findings: tuple[str, ...]
 
     def to_json_dict(self) -> dict[str, object]:
@@ -286,6 +319,123 @@ def _member_snapshot(member: Path, *, now: datetime) -> UniversalTrainingMemberS
     )
 
 
+def _causal_teacher_checkpoint_summary(path: Path) -> dict[str, object]:
+    size = path.stat().st_size
+    start = max(0, size - MAX_CAUSAL_TEACHER_CHECKPOINT_BYTES)
+    with path.open("rb") as checkpoint:
+        checkpoint.seek(start)
+        if start > 0:
+            checkpoint.readline()
+        data = checkpoint.read(MAX_CAUSAL_TEACHER_CHECKPOINT_BYTES)
+    rows = tuple(line for line in data.splitlines() if line.strip())
+    candidates: dict[str, _TeacherCandidateAggregate] = {}
+    grid_digest: str | None = None
+    for line in rows:
+        raw = json.loads(line)
+        if raw.get("schema_version") != "causal_alpha_selection_checkpoint_metric_v2":
+            raise ValueError("causal teacher checkpoint schema mismatch")
+        row_grid = raw.get("grid_digest")
+        if not isinstance(row_grid, str) or len(row_grid) != 64:
+            raise ValueError("causal teacher checkpoint grid digest is invalid")
+        if grid_digest is None:
+            grid_digest = row_grid
+        elif grid_digest != row_grid:
+            raise ValueError("causal teacher checkpoint grid digest drifted")
+        metric = causal_alpha_candidate_metric_v2_from_payload(raw)
+        aggregate = candidates.setdefault(
+            metric.candidate_digest, _TeacherCandidateAggregate()
+        )
+        aggregate.gross_returns.append(metric.gross_return)
+        aggregate.net_returns.append(metric.net_return)
+        aggregate.turnover_per_day.append(metric.turnover_per_day)
+        aggregate.signal_24h_direction_accuracy.append(
+            metric.signal_24h.direction_accuracy
+        )
+        if metric.signal_24h.pearson_correlation is not None:
+            aggregate.signal_24h_pearson.append(metric.signal_24h.pearson_correlation)
+        if metric.signal_24h.rank_correlation is not None:
+            aggregate.signal_24h_rank.append(metric.signal_24h.rank_correlation)
+        aggregate.command_sign_flip_count += metric.command_sign_flip_count
+        aggregate.cost_suppressed_change_count += metric.cost_suppressed_change_count
+        aggregate.liquidity_deleveraging_count += metric.liquidity_deleveraging_count
+        aggregate.liquidity_weight_cap_min.append(metric.liquidity_weight_cap_min)
+        aggregate.liquidity_weight_cap_median.append(metric.liquidity_weight_cap_median)
+        aggregate.liquidity_weight_cap_max.append(metric.liquidity_weight_cap_max)
+        aggregate.execution_rejection_count += metric.execution_rejection_count
+        aggregate.strong_reversal_count += metric.strong_reversal_count
+        aggregate.submitted_change_count += metric.submitted_change_count
+        aggregate.total_execution_cost += metric.total_execution_cost
+        aggregate.total_trade_count += metric.trade_count
+        aggregate.hard_risk_violation |= metric.hard_risk_violation
+        aggregate.execution_rejection_reason_counts.update(
+            dict(metric.execution_rejection_reason_counts)
+        )
+        aggregate.risk_projection_reason_counts.update(
+            dict(metric.risk_projection_reason_counts)
+        )
+
+    summaries: dict[str, object] = {}
+    for digest, aggregate in sorted(candidates.items()):
+        rejection_reason_counts = tuple(
+            sorted(aggregate.execution_rejection_reason_counts.items())
+        )
+        unexplained_rejections = causal_alpha_unexplained_execution_rejection_count(
+            rejection_reason_counts
+        )
+        summaries[digest] = {
+            "command_sign_flip_count": aggregate.command_sign_flip_count,
+            "cost_suppressed_change_count": aggregate.cost_suppressed_change_count,
+            "execution_rejection_count": aggregate.execution_rejection_count,
+            "explained_execution_no_fill_count": (
+                aggregate.execution_rejection_count - unexplained_rejections
+            ),
+            "execution_rejection_reason_counts": dict(
+                sorted(aggregate.execution_rejection_reason_counts.items())
+            ),
+            "gross_return_mean": statistics.fmean(aggregate.gross_returns),
+            "hard_risk_violation": aggregate.hard_risk_violation,
+            "liquidity_deleveraging_count": aggregate.liquidity_deleveraging_count,
+            "liquidity_weight_cap_max": max(aggregate.liquidity_weight_cap_max),
+            "liquidity_weight_cap_median_mean": statistics.fmean(
+                aggregate.liquidity_weight_cap_median
+            ),
+            "liquidity_weight_cap_min": min(aggregate.liquidity_weight_cap_min),
+            "net_return_lower_tail": min(aggregate.net_returns),
+            "net_return_mean": statistics.fmean(aggregate.net_returns),
+            "record_count": len(aggregate.net_returns),
+            "risk_projection_reason_counts": dict(
+                sorted(aggregate.risk_projection_reason_counts.items())
+            ),
+            "signal_24h_direction_accuracy_mean": statistics.fmean(
+                aggregate.signal_24h_direction_accuracy
+            ),
+            "signal_24h_pearson_mean": (
+                None
+                if not aggregate.signal_24h_pearson
+                else statistics.fmean(aggregate.signal_24h_pearson)
+            ),
+            "signal_24h_rank_mean": (
+                None
+                if not aggregate.signal_24h_rank
+                else statistics.fmean(aggregate.signal_24h_rank)
+            ),
+            "strong_reversal_count": aggregate.strong_reversal_count,
+            "submitted_change_count": aggregate.submitted_change_count,
+            "total_execution_cost": aggregate.total_execution_cost,
+            "total_trade_count": aggregate.total_trade_count,
+            "turnover_per_day_mean": statistics.fmean(aggregate.turnover_per_day),
+            "unexplained_execution_rejection_count": unexplained_rejections,
+        }
+    return {
+        "candidates": summaries,
+        "grid_digest": grid_digest,
+        "record_count": len(rows),
+        "schema_version": "causal_teacher_checkpoint_summary_v1",
+        "window_bytes": len(data),
+        "window_start_offset": start,
+    }
+
+
 def inspect_universal_training_generation(
     root: str | Path,
     *,
@@ -319,6 +469,7 @@ def inspect_universal_training_generation(
                 f"container exited with code {container_state.get('ExitCode')}"
             )
     teacher_progress: dict[str, object] | None = None
+    teacher_checkpoint_summary: dict[str, object] | None = None
     teacher_progress_path = (
         generation / "_shared-causal-teacher" / "causal-teacher-progress.json"
     )
@@ -332,6 +483,18 @@ def inspect_universal_training_generation(
             teacher_progress = raw_teacher_progress
         except (OSError, TypeError, json.JSONDecodeError) as error:
             findings.append(f"invalid causal teacher progress: {error}")
+    teacher_checkpoint_path = (
+        generation
+        / "_shared-causal-teacher"
+        / "causal-teacher-selection-checkpoint-v2.jsonl"
+    )
+    if teacher_checkpoint_path.is_file():
+        try:
+            teacher_checkpoint_summary = _causal_teacher_checkpoint_summary(
+                teacher_checkpoint_path
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            findings.append(f"invalid causal teacher checkpoint: {error}")
     members: list[UniversalTrainingMemberSnapshot] = []
     for heartbeat in sorted(generation.glob("*/seed-*/training-heartbeat.json")):
         try:
@@ -355,6 +518,7 @@ def inspect_universal_training_generation(
         status=status,
         members=tuple(members),
         teacher_progress=teacher_progress,
+        teacher_checkpoint_summary=teacher_checkpoint_summary,
         findings=tuple(findings),
     )
 

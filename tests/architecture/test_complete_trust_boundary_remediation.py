@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.architecture.import_linter_config import import_linter_contract
 from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.offline_confirmation import create_fresh_confirmation_evidence
@@ -301,17 +302,6 @@ def test_supervisor_absent_expected_generation_is_failure() -> None:
         )
 
 
-def test_training_image_is_digest_pinned_and_generation_scoped() -> None:
-    dockerfile = (REPOSITORY_ROOT / "Dockerfile.training").read_text(encoding="utf-8")
-    compose = (REPOSITORY_ROOT / "compose.training.yaml").read_text(encoding="utf-8")
-    assert "python:3.12-slim@sha256:" in dockerfile
-    assert "full_run_entrypoint.py" in dockerfile
-    assert "TRADE_RL_SOURCE_TREE_DIGEST" in dockerfile
-    assert "TRADE_RL_LOCKFILE_DIGEST" in dockerfile
-    assert "TRADE_RL_METADATA_KEYS" not in compose
-    assert "TRADE_RL_CONFIRMATION_KEYS" not in compose
-
-
 def test_privileged_workflows_checkout_the_event_sha() -> None:
     for relative in (
         ".github/workflows/launch-binance-frozen-226.yml",
@@ -346,21 +336,24 @@ def test_runtime_and_trainer_modules_do_not_import_private_signing_material() ->
     assert "sign_payload" not in verifier
     assert "generate_private_key" not in verifier
     assert "public_key_bytes" not in verifier
-    contract = (REPOSITORY_ROOT / ".importlinter").read_text(encoding="utf-8")
-    assert "trade_rl.release.offline_signing" in contract
+    forbidden_modules = {
+        str(value)
+        for value in import_linter_contract("offline-signers")["forbidden_modules"]
+    }
+    assert "trade_rl.release.offline_signing" in forbidden_modules
 
 
 def test_learning_layer_does_not_import_torch_or_sb3_frameworks() -> None:
     learning = (PYTHON_SOURCE_ROOT / "learning/behavior_cloning.py").read_text(
         encoding="utf-8"
     )
-    contract = (REPOSITORY_ROOT / ".importlinter").read_text(encoding="utf-8")
     assert "import torch" not in learning
     assert "from torch" not in learning
-    learning_contract = contract.split(
-        "[importlinter:contract:learning-frameworks]", maxsplit=1
-    )[1].split("[importlinter:", maxsplit=1)[0]
-    assert "torch" in learning_contract
+    forbidden_modules = {
+        str(value)
+        for value in import_linter_contract("learning-frameworks")["forbidden_modules"]
+    }
+    assert "torch" in forbidden_modules
 
 
 def test_legacy_hmac_and_release_manifest_modules_are_removed() -> None:

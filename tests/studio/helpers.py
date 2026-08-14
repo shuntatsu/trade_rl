@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,6 +13,87 @@ from trade_rl.artifacts.run_manifest import (
 )
 from trade_rl.data import write_market_dataset_files
 from trade_rl.data.market import MarketDataset
+from trade_rl.telemetry.training import TrainingTelemetryRecord
+
+
+def checkpoint_payload() -> dict[str, object]:
+    return {
+        "schema_version": "checkpoint_selection_v2_seed_aware",
+        "checkpoint_range": [100, 120],
+        "candidates": [
+            {
+                "evaluation_digest": "a" * 64,
+                "policy_digest": "b" * 64,
+                "score": math.log1p(0.05),
+                "seed": 3,
+            },
+            {
+                "evaluation_digest": "c" * 64,
+                "policy_digest": "d" * 64,
+                "score": math.log1p(0.02),
+                "seed": 11,
+            },
+        ],
+        "seed_finalists": [
+            {
+                "checkpoint_evaluation_digest": "a" * 64,
+                "checkpoint_score": math.log1p(0.05),
+                "policy_digest": "b" * 64,
+                "seed": 3,
+            }
+        ],
+    }
+
+
+def telemetry_record(sequence: int, *, seed: int = 7) -> TrainingTelemetryRecord:
+    return TrainingTelemetryRecord(
+        sequence=sequence,
+        recorded_at="2026-07-21T08:00:00+00:00",
+        global_step=sequence * 32,
+        environment_step=sequence,
+        seed=seed,
+        environment_id=0,
+        event_type="rollout",
+        market_index=100 + sequence,
+        market_time="2026-07-21T08:00:00.000000000",
+        symbol="BTCUSDT",
+        open=67_500.0,
+        high=67_900.0,
+        low=67_400.0,
+        close=67_842.3,
+        action=(0.4,),
+        executed_target=(0.4,),
+        weights_before=(0.2,),
+        weights_after=(0.4,),
+        portfolio_value=101_342.85,
+        baseline_portfolio_value=100_400.0,
+        reward=0.214,
+        drawdown=0.0086,
+        interval_cost=4.25,
+        interval_return=0.0012,
+        risk_reasons=(),
+        emergency_deleverage=False,
+        terminated=False,
+        truncated=False,
+    )
+
+
+def telemetry_stream_path(
+    tmp_path: Path,
+    run_id: str,
+    seed: int,
+    *,
+    namespace: str = ".staging",
+) -> Path:
+    return (
+        tmp_path
+        / "research"
+        / namespace
+        / run_id
+        / f"seed-{seed}"
+        / "telemetry"
+        / "training-telemetry.jsonl"
+    )
 
 
 def write_dataset(root: Path, *, symbol: str = "BTCUSDT") -> MarketDataset:

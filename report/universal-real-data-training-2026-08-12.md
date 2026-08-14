@@ -374,3 +374,198 @@ Current decision:
 - Canonical 3 algorithms x 3 seeds x 524,288 timesteps: NO-GO.
 
 Three teacher/head paths have now failed for distinct reasons: direct Oracle BC averaged a multimodal target into a constant short action; hierarchical Oracle BC remained vulnerable to autonomous state-distribution shift; causal trend BC reproduced its teacher but the teacher had negative held-out gross alpha and excessive turnover. This is now a teacher-architecture problem, not a reward-shaping or optimizer-tuning problem. The next candidate must be a genuinely causal, train-only-fitted policy with explicit turnover-aware target construction and untouched validation/test promotion, not another hand-tuned transform of the failed trend holdout.
+
+## Checkpoint update: pooled causal-alpha teacher selection (2026-08-13)
+
+The next teacher route is a pooled, expanding-window causal ridge model. It predicts 24h and 72h forward returns from the existing point-in-time Universal features, then applies a bounded controller grid. The 24h and 72h values are prediction horizons, not minimum holding periods. The reward remains pure net log growth; execution costs are still represented exactly once through net equity.
+
+### Branch and commits
+
+- Branch: `codex/universal-real-data-training`.
+- `56acc0e4` (`perf: unblock causal teacher training`): enabled `causal_alpha_ridge` in the SB3 integration, cached expanding fits and predictions, reused selection environments, added progress/telemetry fields, bounded monitor reads, and recorded submitted-command delta/sign-flip metrics.
+- `bae7b020` (`fix: persist causal teacher rejection evidence`): made all-candidate rejection preserve complete evidence, added an fsync-backed per-replay checkpoint, enabled restart from completed replay identities, and persisted intermediate gross/net return, turnover, cost, trades, and risk flags.
+- Both commits were pushed to `origin/codex/universal-real-data-training` before this checkpoint.
+
+### r2 complete selection and fail-closed result
+
+Container `trade-rl-causal-teacher-smoke-r2` completed all `1,728 / 1,728` production replays across 12 candidates, 9 train symbols, and 16 earlier complete episodes per symbol. The fit/prediction cache reduced the computation to 32 unique pooled fits and 288 unique predictions, with 1,696 fit-cache hits and 1,440 prediction-cache hits. Runtime was approximately 6h04m; Docker reported `OOMKilled=false`.
+
+The run then failed closed with `RuntimeError: no admissible causal alpha candidate`. No teacher admission, BC, critic warm-start, or PPO update ran. Because the pre-r2 implementation wrote selection evidence only after a winner existed, the exact candidate rejection table was lost. Commit `bae7b020` corrects that durability defect without relaxing the gate or changing reward.
+
+### r3 OOM and evidence-backed resume
+
+Container `trade-rl-causal-teacher-smoke-r3` uses immutable image `trade-rl:causal-main-smoke-r3` with:
+
+- image ID: `sha256:f5504be21c9be8af050a856b83147888ea03836f80d54510516faed3f0cc60a9`;
+- source revision: `56acc0e474497009fc1d2df2b24c78f0eac35f81`;
+- source-tree digest: `387ef7cd8d9cdd8b0d20c5d011042fa8572843028b0dc72ab958e2b7ec6c972b`;
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`;
+- runtime-manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
+
+The first r3 attempt was globally OOM-killed during its first pooled fit at 13:25:40Z. The Linux OOM record identified the training Python process at approximately 4.28 GiB anonymous RSS. Docker had 7.63 GiB total, while an unrelated CVAT stack consumed roughly another 2.5 GiB. No replay had completed, so no checkpoint row yet existed. After the user stopped CVAT, Docker available memory recovered to approximately 6.8 GiB plus 1.9 GiB free swap. The exact same r3 container was restarted at 13:30:09Z; no duplicate run or container was created.
+
+At this report checkpoint, r3 is running with `OOMKilled=false`, approximately 2.63 GiB RAM, and `26 / 1,728` replay metrics durably recorded. It is processing APTUSDT and has entered the second candidate. The aggregate early evidence is:
+
+| Scope | Replays | Mean gross | Mean net | Lower-tail net | Turnover/day | Execution cost | Trades | Risk violations |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Candidate 1 | 16 | -0.883% | -11.267% | -19.092% | 5.148x | 165,471.4 | 452 | 16/16 |
+| Candidate 2 (partial) | 10 | -2.287% | -14.636% | -19.308% | 6.239x | 123,387.8 | 248 | 10/10 |
+| Aggregate | 26 | -1.423% | -12.563% | -19.164% | 5.568x | 288,859.2 | 700 | 26/26 |
+
+This sample covers only one train symbol and is not a final selection result. It is nevertheless already unfavorable: every observed episode is negative after costs and has a risk violation. The workflow will continue fail-closed. Only a selected teacher that subsequently passes admission may advance to the real-data CUDA random -> BC -> critic -> RL smoke. PPO reward trajectories do not exist yet for this generation because the teacher gate has not been reached.
+
+## Checkpoint update: cost-aware causal-alpha v2 (2026-08-13)
+
+The historical r3 run confirmed that the v1 controller was not merely paying too much execution cost. At `264 / 1,728` durable replay records, spanning APTUSDT and the beginning of ARBUSDT, its aggregate mean gross return was `-0.707%`, mean net return was `-10.950%`, worst net return was `-19.672%`, and mean turnover was `5.039x/day`. It accumulated `2,695,876.95` of execution cost and `7,481` trades; all `264 / 264` records carried a risk violation. Thus position selection was already negative before costs, while churn amplified the loss. This evidence does not justify changing the scalar reward.
+
+The approved A correction was implemented without adding a minimum holding period and without changing pure net-log-growth reward:
+
+- `51abf8c6` adds the cost-aware causal target controller;
+- `29c5c5fb` classifies execution rejections and risk projections instead of treating every projection as unexplained teacher failure;
+- `2435cbd9` adds prediction-versus-realized-return signal diagnostics;
+- `4e01d4bc` completes the v2 candidate grid, exact execution timing/cost inputs, fail-closed economic selection, resumable v2 checkpoints, cost-aware teacher-batch propagation, and bounded live checkpoint aggregation.
+
+The v2 selection gate rejects hard-risk or unexplained-rejection evidence, zero-trade candidates, negative mean net return, net lower-tail below `-5%`, mean turnover above `1.0x/day`, and candidates with a majority of negative-gross episodes. Admissible candidates rank by lower-tail net return, mean net return, lower turnover, then lower execution cost. Signal Pearson/rank correlation and directional accuracy are diagnostic fields rather than reward terms.
+
+Verification at commit `4e01d4bc`:
+
+- targeted causal teacher, selection, fitting, BC integration, learning evaluation, and monitor suite: `82 passed`;
+- monitor-only suite: `6 passed`;
+- Ruff: pass for all changed source and tests;
+- mypy: pass for all six changed source modules;
+- `git diff --check`: pass.
+
+Immutable corrected image `trade-rl:causal-cost-aware-v2-r1` was built from the clean pushed commit:
+
+- image ID: `sha256:a25c89d3df2c02f91b4ee09e09c6a7cbde8b951e8128db8fbbacd2fad42aa748`;
+- source revision: `4e01d4bca5e69ae8fb323a26f6da92fc5fd0cd31`;
+- source-tree digest: `d93357ed9553017c8a245e8b4e0a90ad8c4b444ceb6de8615d9d4e33bb6e8646`;
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`;
+- runtime-manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
+
+The corrected v2 generation has intentionally not been started concurrently with r3. At the latest check r3 was `OOMKilled=false`, used approximately `2.88 GiB / 7.63 GiB`, and saturated one CPU. Launching a second pooled-fit process would reintroduce the same global-memory pressure that killed the first r3 attempt. The next safe transition is one v2 container with a distinct generation/checkpoint after r3 releases resources; it must not reuse the v1 checkpoint. CUDA random -> BC -> critic -> RL remains conditional on v2 teacher selection and admission.
+
+### Safe r3 termination and v2 launch
+
+The r3 checkpoint later reached 271 durable records. Code inspection confirmed that v1 rejects a candidate if any episode has `risk_violation=true`; checkpoint inspection confirmed all 12 candidate digests had already accumulated between 16 and 32 such violations. The final no-admissible-candidate result was therefore irreversible regardless of the remaining replays. Continuing r3 could not change the gate outcome and would only delay the corrected route.
+
+The terminal r3 progress and checkpoint were copied to `artifacts/universal/diagnostics/causal-teacher-r3-terminal` before the container was stopped. Docker reported `OOMKilled=false`; the process did not exit within the 30-second stop grace period and was terminated with exit code 137. The named container and its complete shared-volume evidence remain available and restartable.
+
+One corrected generation, `trade-rl-causal-teacher-smoke-v2-r1`, was launched at `2026-08-13T14:37:33Z` from image `trade-rl:causal-cost-aware-v2-r1`. It writes to the distinct generation root `causal-teacher-main-20260813-v2-r1` and the distinct v2 checkpoint `causal-teacher-selection-checkpoint-v2.jsonl`; no v1 checkpoint is reused. Initial Docker inspection showed `state=running`, `OOMKilled=false`, and approximately `1.36 GiB / 7.63 GiB` memory while the first pooled fit was in progress. No second selection container is running.
+
+### v2 initial-state boundary fix and r2 restart
+
+The first v2 generation wrote three complete APTUSDT records and then exited 1, `OOMKilled=false`, before episode 3. The failure was `ValueError: initial_weight must be finite and within max_abs_target`. Runtime probing reproduced the boundary: baseline reset weight was `0.799449` for episode 3 while the candidate's `max_abs_target` was `0.5`. The latter constrains submitted target exposure, not the immutable real portfolio state at reset, so rejecting the episode was a controller-boundary defect.
+
+Commit `3e9e1268` preserves the real initial weight in evidence and forces the first target to deleverage to the configured cap, including the transition in proposed turnover and estimated cost. The fix does not bypass execution accounting, change reward, add a holding lock, or discard baseline reset coverage. A regression test observed the pre-fix exception before implementation. Post-fix verification passed 18 controller tests, 22 directly related workflow tests, the full 83-test causal/BC/monitor surface, Ruff, mypy, and `git diff --check`. The commit and the earlier launch report were pushed to `origin/codex/universal-real-data-training`.
+
+The failed r1 progress, v2 checkpoint, and container log were preserved under `artifacts/universal/diagnostics/causal-teacher-v2-r1-failure`. Its three metrics are not resumed because doing so would mix target-controller behavior across source revisions. Image `trade-rl:causal-cost-aware-v2-r2` was built from clean commit `3e9e1268` with:
+
+- image ID: `sha256:c95e4f3f6e83275b0bbb0d2bcdc9b544a25cfaece3df100ae60de5444111ddb9`;
+- source-tree digest: `0edfe838ddf23994107a6ea185e81829157f223c65e569b496ccaacba69324c8`;
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`;
+- runtime-manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
+
+Exactly one corrected container, `trade-rl-causal-teacher-smoke-v2-r2`, now runs against the distinct root `causal-teacher-main-20260813-v2-r2`. Docker launch inspection reported `state=running` and `OOMKilled=false`. CUDA stage evaluation remains fail-closed behind complete v2 selection and teacher admission.
+
+The r2 runtime crossed the previously failing baseline-reset episode 3 and wrote four durable v2 records, proving the initial-state correction against the real environment rather than only unit fixtures. Docker remained `OOMKilled=false`. The first candidate's four-episode APTUSDT aggregate was mean gross `+1.781%`, mean net `-9.896%`, worst net `-15.229%`, mean turnover `5.627x/day`, execution cost `45,591.87`, and 58 trades, with zero hard-risk failures. Mean 24h/72h Pearson correlations were `0.054 / 0.052`. Although `2,075` proposed command changes were cost-suppressed and only `432` were submitted, the environment reported thousands of `portfolio:liquidity_cap` projections. This points to executable-target projection and repeated rebalancing as the dominant remaining churn path; candidate-level exposure and scale variants must be compared before changing the controller again.
+
+The first cost-aware baseline candidate subsequently completed all 16 APTUSDT selection episodes. Its mean gross/net returns were `+0.339% / -9.465%`, worst net was `-17.304%`, mean turnover was `4.782x/day`, total cost was `155,886.75`, and it executed 268 trades. It had no hard-risk violation but accumulated 38,332 liquidity-cap projections. The second, 24h-only candidate was also negative-net in its first episodes and initially increased turnover.
+
+Read-only root-cause tracing found that the portfolio risk model applies `max_position_to_market_notional=0.02` to the current 15-minute quote-notional volume before execution. Across the 16 APTUSDT selection episodes, the corresponding cap weight, using the configured initial capital, had 1%/10%/25%/50% quantiles of approximately `0.019 / 0.041 / 0.067 / 0.119`; it was below `0.25` for `79.47%` of bars and below `0.10` for `42.31%`. Therefore both the baseline `0.5` exposure cap and the one-factor `0.25` variant are frequently projected downstream. Because the controller's cost hurdle and no-trade band run before this time-varying projection, the risk layer can create executable-target changes that the controller never prices. This is a confirmed architectural mismatch, but no further target change is applied until the lower-exposure/scale candidates provide direct comparative evidence. Reward remains pure net log growth.
+
+The next three complete APTUSDT comparisons did not remove the mismatch. The 24h-only candidate produced mean gross/net `+0.471% / -8.764%`, worst net `-17.572%`, turnover `4.487x/day`, and cost `146,546.86`. The 72h-only candidate produced `+0.516% / -9.445%`, worst net `-18.138%`, turnover `4.834x/day`, and cost `157,962.57`. Raising the execution-cost multiplier from `1.5` to `2.0` produced `+0.255% / -9.471%`, worst net `-17.529%`, turnover `4.734x/day`, and cost `154,447.53`. The higher hurdle suppressed 20,512 controller proposals and submitted only 1,803 changes, yet still accumulated 38,273 liquidity-cap projections. This direct one-factor test shows that increasing the controller-local cost penalty does not price or suppress downstream executable-cap changes.
+
+### v2-r2 irreversible rejection on the first symbol
+
+All 12 candidates completed all 16 APTUSDT selection episodes. None produced a positive-net episode. The best mean-net candidate was the low-exposure variant (`max_abs_target=0.25`): mean gross/net `+0.371% / -6.370%`, worst net `-12.905%`, turnover `3.230x/day`, total cost `107,407.74`, and 32,975 liquidity-cap projections. This was a material improvement over the approximately `-9.5%` mean net and `4.7-4.8x/day` turnover of most variants, but it still failed every economic promotion level that matters. The low-scale variant reduced turnover to `4.229x/day` and cost to `137,744.45`, but gross became negative (`-0.455%`) and net remained `-9.074%`. Wider no-trade and smaller max-delta variants also remained near `-9.3%` net.
+
+At 193 durable records (192 complete APTUSDT records plus the first ARBUSDT record), code and evidence were checked together. The v2 selection lower tail is the minimum net return over every symbol episode, and the configured floor is `-5%`. Every candidate had already recorded an APTUSDT minimum between `-12.905%` and `-18.138%`. Additional symbols cannot increase a minimum, so all 12 candidates were irreversibly rejected before the remaining 1,535 replays. The run was stopped to avoid spending compute on an unchangeable gate outcome. Progress and checkpoint evidence were copied to `artifacts/universal/diagnostics/causal-teacher-v2-r2-terminal`; Docker reported `OOMKilled=false` and exit 137 after the process exceeded the 30-second graceful-stop window.
+
+The result is a teacher-controller FAIL, not an RL reward result. Teacher admission, BC, critic warm-start, PPO, Lagrangian, and discounted PPO did not run. The scalar reward remains pure net log growth. The next correction must preserve the hard `max_position_to_market_notional=0.02` rule while exposing a causal executable liquidity cap to target construction, so downstream risk projection cannot silently introduce unpriced target changes.
+
+### Approved liquidity-aware correction
+
+Option 1 was approved after the v2-r2 stop. The hard
+`max_position_to_market_notional=0.02` contract remains unchanged. Target
+construction now uses only the preceding 96 decisions of quote-notional volume,
+takes the 10th percentile, applies an 80% safety multiplier, and converts that
+notional capacity to a weight using the artifact-bound reference equity. This
+cap is applied before the controller's turnover, edge, cost-hurdle,
+confirmation, max-delta, and no-trade decisions. A falling cap is handled as an
+explicit teacher deleveraging rather than an implicit downstream risk
+projection. Float32 action rounding is constrained inward by one ULP.
+
+The cap parameters are bound into every candidate digest and checked against
+the environment's hard portfolio-risk ratio before selection. Repeated
+controller candidates reuse a per-contract cap cache. Durable v2 checkpoint
+metrics now include liquidity-deleveraging count and cap min/median/max, and the
+monitor aggregates these alongside gross/net return, turnover, execution cost,
+trades, signal quality, and risk projection reasons. The reward remains pure
+net log growth with no added cost, baseline, or drawdown penalty.
+
+The first immutable liquidity-aware generation,
+`causal-teacher-liquidity-r1`, used pushed commit `dca4d5ae`, source-tree digest
+`9c29087c244c1538e1df4bfeeebb40adda2b7c138c539c20930eeee70f819e7a`,
+lockfile digest `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`,
+runtime-manifest digest
+`6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`,
+and image `trade-rl-universal:dca4d5aed6c0-6726b3737df9`. Docker remained
+`OOMKilled=false`; observed RAM peaked near 5.5 GiB.
+
+The complete 16-episode APTUSDT baseline returned mean gross/net
+`-0.253% / -0.392%`, worst net `-4.725%`, turnover `0.071x/day`, total cost
+`2,417.37`, and 71 trades. Relative to the old cost-aware baseline, turnover and
+cost fell by about 98.5% and 98.4%, respectively. Thus the liquidity correction
+fixed the downstream churn mechanism but did not fix negative gross position
+selection. The 24h-only candidate initially improved, then reached worst net
+`-6.284%` by episode 10 and irreversibly breached the `-5%` floor.
+
+The run also exposed a gate-classification defect: expected
+`zero_quantity_after_rounding` no-fills were included in the threshold named
+`maximum_unexplained_execution_rejections`. r1 was stopped after preserving 27
+durable records under
+`artifacts/universal/diagnostics/causal-teacher-liquidity-r1-preclassification`;
+Docker exited 137 after the 30-second stop timeout with `OOMKilled=false`. The
+gate now keeps raw rejection counts/reasons but classifies only this maintained
+lot-size no-fill as explained. Identity, eligibility, execution-rule, leverage,
+and all other rejection reasons remain fail-closed. The monitor reports raw,
+explained, and unexplained counts separately.
+
+### Liquidity-aware r2 APT checkpoint and minimum-notional classification
+
+The second immutable generation, `causal-teacher-liquidity-r2`, used image
+`trade-rl-universal:2f0fd9c66023-6726b3737df9`, commit
+`2f0fd9c6602371c17400c90b87892f65d08ee6f3`, source-tree digest
+`d1335d813b6c5e88cdd84a5027c4d3c3df7a1bc8c8806a7e2f690291fc096195`,
+and the unchanged runtime-manifest digest
+`6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
+Docker remained `OOMKilled=false`, saturated one CPU, and stabilized near
+2.9 GiB RAM.
+
+All 12 candidates completed the 16 APTUSDT selection episodes. The best APT
+candidate was `no-trade-high`: mean gross/net `-0.012% / -0.111%`, worst net
+`-1.605%`, turnover `0.048x/day`, cost `1,634.15`, and 44 trades. The baseline
+was mean gross/net `-0.253% / -0.392%`, worst net `-4.725%`, turnover
+`0.071x/day`, cost `2,417.37`, and 71 trades. Every candidate remained
+negative-gross on this symbol, but the liquidity-aware route retained the
+approximately 98.5% churn/cost reduction from r1.
+
+Each candidate also recorded between one and nine
+`below_minimum_notional` outcomes. Code and existing Oracle regression evidence
+identify this exact reason as a deterministic executable no-op, like
+`zero_quantity_after_rounding`, rather than an identity, eligibility, rule, or
+leverage failure. The gate had therefore contradicted the maintained execution
+semantics by counting it as unexplained. r2 was stopped after preserving 193
+records (the complete 192-record APT comparison plus one next-symbol record) at
+`artifacts/universal/diagnostics/causal-teacher-liquidity-r2-apt-terminal`.
+Docker exceeded the 30-second graceful-stop window and exited 137 with
+`OOMKilled=false`.
+
+The correction preserves every raw rejection count and reason but treats only
+`zero_quantity_after_rounding` and `below_minimum_notional` as explained
+no-fills. All other reasons remain fail closed, the maximum unexplained count
+remains zero, the hard liquidity rule remains `0.02`, and the reward remains
+pure net log growth. A new provenance-bound image/generation is required before
+resuming selection; teacher admission and CUDA stage evaluation remain blocked
+until selection actually passes.

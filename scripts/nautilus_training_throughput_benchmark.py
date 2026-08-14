@@ -366,6 +366,13 @@ def _run_worker_subprocess(
     )
 
 
+def _require_process_tree_rss_support() -> None:
+    if not sys.platform.startswith("linux") or not Path("/proc").is_dir():
+        raise RuntimeError(
+            "benchmark process-tree RSS measurement requires Linux /proc"
+        )
+
+
 def run_benchmark(
     *,
     timesteps: int | Sequence[int],
@@ -376,10 +383,7 @@ def run_benchmark(
         dataset_artifact,
         workloads=workloads,
     )
-    if not sys.platform.startswith("linux") or not Path("/proc").is_dir():
-        raise RuntimeError(
-            "benchmark process-tree RSS measurement requires Linux /proc"
-        )
+    _require_process_tree_rss_support()
     runtime_version = importlib.metadata.version("nautilus_trader")
     if runtime_version != _RUNTIME_VERSION:
         raise RuntimeError(

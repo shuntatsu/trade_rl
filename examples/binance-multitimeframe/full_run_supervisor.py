@@ -606,7 +606,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-runtime-hours", type=float, default=72.0)
     parser.add_argument("--metadata-mode", default="frozen_snapshot")
     parser.add_argument(
-        "--compose-file", type=Path, default=Path("compose.training.yaml")
+        "--compose-file", type=Path, default=Path("docker/compose.training.yaml")
     )
     parser.add_argument("--evidence-path", type=Path)
     parser.add_argument("--remove", action="store_true")

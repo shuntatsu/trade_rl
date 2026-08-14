@@ -24,7 +24,7 @@ def test_docs_match_maintained_schemas_and_boundaries() -> None:
     assert "constraint cost" in architecture.lower()
     assert "runner classification" in architecture.lower()
     assert "offline_signing" in architecture
-    assert "PR #193" in architecture
+    assert "7種類のconstraint cost" in architecture
     assert "binance_vision_raw_cache_v1" in binance
 
 

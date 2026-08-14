@@ -3,8 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .test_api import client
-from .test_jobs import request
+from .support import client, request
 
 
 def test_behavior_cloning_progress_exposes_latest_epoch(tmp_path: Path) -> None:

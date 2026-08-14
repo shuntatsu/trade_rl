@@ -14,7 +14,7 @@ from trade_rl.studio.contracts import JobSummary
 from trade_rl.studio.errors import ArtifactInvalid
 from trade_rl.studio.training_metrics import StudioTrainingMetricsReader
 
-from .test_catalog import settings
+from .support import settings
 
 
 def _job(run_id: str) -> JobSummary:

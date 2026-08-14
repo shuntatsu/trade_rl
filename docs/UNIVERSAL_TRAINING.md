@@ -1,6 +1,6 @@
 # Universal Training
 
-この文書は、現在の`main`で維持しているUniversal U3-U6学習経路の正本です。Universalは複数のtrain symbolから1つのPolicyを学習しますが、各episodeは1つのconcrete instrumentだけを取引し、Policy-facing symbol/actionは`INSTRUMENT`へ固定します。複数銘柄を同時配分するmulti-asset portfolio policyではありません。
+この文書は、維持対象コードベースのUniversal U3-U6学習経路の正本です。Universalは複数のtrain symbolから1つのPolicyを学習しますが、各episodeは1つのconcrete instrumentだけを取引し、Policy-facing symbol/actionは`INSTRUMENT`へ固定します。複数銘柄を同時配分するmulti-asset portfolio policyではありません。
 
 > **研究状態**
 >
@@ -75,6 +75,22 @@ Candidate gridはearlier selection episodeだけをproduction execution replay�
 同じsample scope、knowledge cutoff、ridge configで必要になるpooled fitは`CausalAlphaExpandingFitCache`で共有します。Predictionもcandidate間で再利用可能なcacheを使います。これにより、同一ridge fitをsymbol/candidateごとに繰り返す経路を避けます。
 
 Selection progressはreplay count、fit count/cache hit、prediction count/cache hitを含むprogress artifactへ逐次保存します。
+
+### Selection checkpointのresume identity
+
+Candidate replayは途中再開できますが、永続化済みMetricを現在のgenerator実装へ無条件に流用しません。v2 checkpoint row schemaは`causal_alpha_selection_checkpoint_metric_v2`で、少なくとも次の2つのIdentityを束縛します。
+
+```text
+grid_digest
+  = candidate grid / candidate identityのDigest
+
+generator_code_digest
+  = causal-alpha selection metric generator実装のCode identity
+```
+
+Resume時は現在のcandidate gridから`grid_digest`を、現在のgenerator実装から`generator_code_digest`を再計算し、保存済みrowと一致することを確認してからreplay Metricを受理します。どちらかが一致しなければ**Fail closed**し、保存済みMetricを再利用しません。
+
+この境界により、candidate gridが同じでもselection replayを生成する実装が変わった場合、旧checkpointを新しいgeneratorの結果として扱うことを禁止します。Checkpoint identityは計算再利用のためのCache keyではなく、再開してよいEvidence closureの一部です。
 
 ## 6. Teacher admissionとfail-closed順序
 

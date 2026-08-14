@@ -2,113 +2,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 import trade_rl.studio.jobs as studio_jobs
-from trade_rl.studio.contracts import ConfigSummary, DatasetSummary, TrainingJobRequest
-from trade_rl.studio.errors import IdentityConflict, JobOwnershipLost, ResourceNotFound
+from trade_rl.studio.errors import IdentityConflict, JobOwnershipLost
 from trade_rl.studio.jobs import JobSupervisor
-from trade_rl.studio.resource_ids import resource_id
 
 from .helpers import write_run
-from .test_catalog import settings
-
-
-class FakeProcess:
-    def __init__(self, pid: int = 4242) -> None:
-        self.pid = pid
-        self.exit_code: int | None = None
-        self.terminated = False
-
-    def poll(self) -> int | None:
-        return self.exit_code
-
-    def terminate(self) -> None:
-        self.terminated = True
-        self.exit_code = -15
-
-    def kill(self) -> None:
-        self.exit_code = -9
-
-    def wait(self, timeout: float | None = None) -> int:
-        del timeout
-        return 0 if self.exit_code is None else self.exit_code
-
-
-class FakeFactory:
-    def __init__(self, *, pid: int = 4242) -> None:
-        self.process = FakeProcess(pid)
-        self.commands: list[tuple[str, ...]] = []
-        self.logs: list[Path] = []
-        self.cwds: list[Path] = []
-
-    def __call__(
-        self, command: tuple[str, ...], *, cwd: Path, log_path: Path
-    ) -> FakeProcess:
-        self.commands.append(command)
-        self.logs.append(log_path)
-        self.cwds.append(cwd)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.write_text("started\n", encoding="utf-8")
-        return self.process
-
-
-class FakeCatalog:
-    def __init__(self, root: Path) -> None:
-        config_path = root / "configs" / "training.json"
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text("{}", encoding="utf-8")
-        dataset_path = root / "datasets" / "btc"
-        dataset_path.mkdir(parents=True, exist_ok=True)
-        self.config = SimpleNamespace(
-            path=config_path,
-            summary=ConfigSummary(
-                id=resource_id("config", "configs/training.json", "c" * 64),
-                config_digest="c" * 64,
-                name="training",
-                relative_path="configs/training.json",
-                algorithm="ppo",
-                status="VALID",
-            ),
-        )
-        self.dataset = SimpleNamespace(
-            path=dataset_path,
-            summary=DatasetSummary(
-                id=resource_id("dataset", "datasets/btc", "d" * 64),
-                dataset_id="d" * 64,
-                name="btc",
-                relative_path="datasets/btc",
-                market="continuous",
-                symbols=("BTCUSDT",),
-                timeframes=("1h",),
-                range="2026-01-01 — 2026-01-02",
-                status="VALID",
-                feature_count=1,
-                bar_count=12,
-                symbol_count=1,
-                updated="2026-01-01T00:00:00+00:00",
-            ),
-        )
-
-    def resolve_config(self, value: str):
-        if value != self.config.summary.id:
-            raise ResourceNotFound(value)
-        return self.config
-
-    def resolve_dataset(self, value: str):
-        if value != self.dataset.summary.id:
-            raise ResourceNotFound(value)
-        return self.dataset
-
-
-def request(catalog: FakeCatalog, *, run_id: str = "run-001") -> TrainingJobRequest:
-    return TrainingJobRequest(
-        config_resource_id=catalog.config.summary.id,
-        dataset_resource_id=catalog.dataset.summary.id,
-        run_id=run_id,
-    )
+from .support import FakeCatalog, FakeFactory, FakeProcess, request, settings
 
 
 def test_submit_training_persists_fixed_command_and_reconciles_success(

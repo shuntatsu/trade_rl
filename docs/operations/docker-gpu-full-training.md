@@ -21,8 +21,8 @@ docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 ## Local execution
 
 ```bash
-docker compose -f compose.training.yaml build trainer
-docker compose -f compose.training.yaml run --rm trainer
+docker compose -f docker/compose.training.yaml build trainer
+docker compose -f docker/compose.training.yaml run --rm trainer
 ```
 
 Containerは次をFail closedで確認します。

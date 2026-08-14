@@ -20,7 +20,7 @@ def _load_module():
 
 def test_launcher_runs_sync_before_trainer() -> None:
     module = _load_module()
-    commands = module.build_commands(Path("compose.training.yaml"))
+    commands = module.build_commands(Path("docker/compose.training.yaml"))
 
     assert commands[0][-1] == "market-data-sync"
     assert commands[1][-1] == "trainer"
@@ -36,7 +36,7 @@ def test_launcher_stops_when_sync_fails() -> None:
         return 9
 
     result = module.run_training(
-        compose_file=Path("compose.training.yaml"),
+        compose_file=Path("docker/compose.training.yaml"),
         runner=runner,
     )
 

@@ -128,4 +128,4 @@ The repository still intentionally excludes local runtime data and generated art
 
 ## Upstream relationship
 
-NautilusTrader is an external project developed by Nautech Systems. Trade RL is independent and is not affiliated with, endorsed by, sponsored by, or an official work of Nautech Systems. See `THIRD_PARTY_NOTICES.md` and `docs/LICENSING.md`.
+NautilusTrader is an external project developed by Nautech Systems. Trade RL is independent and is not affiliated with, endorsed by, sponsored by, or an official work of Nautech Systems. See `LICENSES/THIRD_PARTY_NOTICES.md` and `docs/LICENSING.md`.

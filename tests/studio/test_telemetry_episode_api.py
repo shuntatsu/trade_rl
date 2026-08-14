@@ -4,9 +4,8 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from .test_api import client
-from .test_jobs import request
-from .test_telemetry_api import record, stream_path
+from .helpers import telemetry_record, telemetry_stream_path
+from .support import client, request
 
 
 def test_telemetry_api_exposes_explicit_and_legacy_episode_identity(
@@ -17,11 +16,11 @@ def test_telemetry_api_exposes_explicit_and_legacy_episode_identity(
         "/api/studio/jobs/training",
         json=request(catalog, run_id="live-episode-api").model_dump(by_alias=True),
     ).json()
-    stream = stream_path(tmp_path, "live-episode-api", 7)
+    stream = telemetry_stream_path(tmp_path, "live-episode-api", 7)
     stream.parent.mkdir(parents=True, exist_ok=True)
 
-    explicit = replace(record(1), episode_id=5).to_json_dict()
-    legacy = record(2).to_json_dict()
+    explicit = replace(telemetry_record(1), episode_id=5).to_json_dict()
+    legacy = telemetry_record(2).to_json_dict()
     legacy.pop("episode_id")
     stream.write_text(
         "\n".join(

@@ -3,34 +3,38 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.architecture.import_linter_config import (
+    configured_layers as import_linter_layers,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_SOURCE_ROOT = ROOT / "trade_rl"
 FRONTEND_ROOT = ROOT / "frontend"
+
+CURRENT_OPERATION_RUNBOOKS = (
+    ROOT / "docs" / "operations" / "causal-scenario-c3-execution.md",
+    ROOT / "docs" / "operations" / "docker-gpu-full-training.md",
+)
 
 MAINTAINED_DOCUMENTS = (
     ROOT / "README.md",
     ROOT / "START.md",
     ROOT / "docs" / "README.md",
     ROOT / "docs" / "SINGLE_SYMBOL.md",
+    ROOT / "docs" / "UNIVERSAL_TRAINING.md",
     ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "docs" / "CONFIGURATION.md",
     ROOT / "docs" / "RESEARCH_STATUS.md",
+    ROOT / "docs" / "REWARD_OBJECTIVE.md",
+    ROOT / "docs" / "EXECUTION_ROBUSTNESS.md",
     ROOT / "docs" / "MULTITIMEFRAME_RESEARCH.md",
     ROOT / "docs" / "BINANCE.md",
-    ROOT / "docs" / "operations" / "docker-gpu-full-training.md",
-    ROOT / "docs" / "operations" / "causal-scenario-c3-execution.md",
+    ROOT / "docs" / "NAUTILUS_MIGRATION.md",
+    ROOT / "docs" / "LICENSING.md",
+    ROOT / "docs" / "LICENSING_PROVENANCE.md",
+    *CURRENT_OPERATION_RUNBOOKS,
     ROOT / "docs" / "performance" / "4070ti-super-full-training.md",
     FRONTEND_ROOT / "README.md",
-)
-
-REMOVED_HISTORY_PATHS = (
-    ROOT / "README.ja.md",
-    ROOT / ".superpowers" / "sdd" / "task-8-report.md",
-    ROOT / "docs" / "audits",
-    ROOT / "docs" / "reviews",
-    ROOT / "docs" / "plans",
-    ROOT / "docs" / "verification",
-    ROOT / "docs" / "superpowers",
 )
 
 
@@ -45,14 +49,7 @@ def _constant(path: Path, name: str) -> str:
 
 
 def _configured_layers() -> tuple[str, ...]:
-    text = _text(ROOT / ".importlinter")
-    pattern = (
-        r"\[importlinter:contract:layers\].*?^layers\s*=\s*\n"
-        r"(?P<body>(?:    trade_rl\.[^\n]+\n)+)"
-    )
-    match = re.search(pattern, text, flags=re.MULTILINE | re.DOTALL)
-    assert match is not None
-    return tuple(line.strip() for line in match.group("body").splitlines())
+    return import_linter_layers()
 
 
 def _all_markdown() -> tuple[Path, ...]:
@@ -74,13 +71,9 @@ def test_maintained_documents_exist() -> None:
     assert missing == []
 
 
-def test_historical_documentation_clutter_is_removed() -> None:
-    remaining = [
-        path.relative_to(ROOT).as_posix()
-        for path in REMOVED_HISTORY_PATHS
-        if path.exists()
-    ]
-    assert remaining == []
+def test_operations_directory_contains_only_current_runbooks() -> None:
+    actual = tuple(sorted((ROOT / "docs" / "operations").glob("*.md"), key=str))
+    assert actual == tuple(sorted(CURRENT_OPERATION_RUNBOOKS, key=str))
 
 
 def test_current_schema_contracts_are_documented() -> None:
@@ -90,12 +83,10 @@ def test_current_schema_contracts_are_documented() -> None:
     bundle_schema = _constant(
         PYTHON_SOURCE_ROOT / "serving" / "bundle.py", "SERVING_BUNDLE_SCHEMA"
     )
-    readme = _text(ROOT / "README.md")
     architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
     configuration = _text(ROOT / "docs" / "CONFIGURATION.md")
     single_symbol = _text(ROOT / "docs" / "SINGLE_SYMBOL.md")
     for value in (observation_schema, bundle_schema):
-        assert value in readme
         assert value in architecture
     for value in (
         "training_run_config_v4",
@@ -118,6 +109,58 @@ def test_current_schema_contracts_are_documented() -> None:
     assert "one run" in single_symbol.lower()
     assert "target_weight:BTCUSDT" in single_symbol
     assert "NO-GO" in single_symbol
+
+
+def test_readme_does_not_duplicate_reference_internals() -> None:
+    readme = _text(ROOT / "README.md")
+    for reference_only_term in (
+        "Gated Cross-Timeframe Attention",
+        "CanonicalStructuredPolicyLoader",
+        "sb3_policy_identity_v4",
+        "structured_policy_export_v2",
+    ):
+        assert reference_only_term not in readme
+
+
+def test_current_documentation_targets_exist() -> None:
+    required = (
+        ROOT / "docker" / "Dockerfile.training",
+        ROOT / "docker" / "compose.training.yaml",
+        ROOT / "docker" / "compose.universal-training.yaml",
+        ROOT / "LICENSE",
+        ROOT / "LICENSES" / "THIRD_PARTY_NOTICES.md",
+    )
+    missing = [
+        path.relative_to(ROOT).as_posix() for path in required if not path.is_file()
+    ]
+    assert missing == []
+
+
+def test_readme_uses_current_third_party_notice_path() -> None:
+    readme = _text(ROOT / "README.md")
+    assert "LICENSES/THIRD_PARTY_NOTICES.md" in readme
+    assert "`THIRD_PARTY_NOTICES.md`" not in readme
+
+
+def test_maintained_reference_docs_do_not_depend_on_transient_pr_numbers() -> None:
+    transient = re.compile(r"PR\s*#\d+")
+    offenders = [
+        path.relative_to(ROOT).as_posix()
+        for path in MAINTAINED_DOCUMENTS
+        if transient.search(_text(path))
+    ]
+    assert offenders == []
+
+
+def test_universal_training_documents_checkpoint_generator_identity() -> None:
+    universal = _text(ROOT / "docs" / "UNIVERSAL_TRAINING.md")
+    for phrase in (
+        "generator_code_digest",
+        "grid_digest",
+        "causal_alpha_selection_checkpoint_metric_v2",
+        "Fail closed",
+    ):
+        assert phrase.lower() in universal.lower()
 
 
 def test_operator_runbooks_use_current_training_schema() -> None:

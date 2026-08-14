@@ -1,18 +1,18 @@
 # Trade RL
 
-Trade RLは、暗号資産を中心とした**単一InstrumentごとのTarget exposure**を、**因果性・再現性・現実的な約定・証拠保存**を重視して検証する研究用の強化学習基盤です。
+Trade RLは、暗号資産を中心とした**単一InstrumentごとのTarget exposure**を、因果性・再現性・現実的な約定・証拠保存を重視して検証する研究用の強化学習基盤です。
 
 > **現在の判定**
 >
 > - 研究用の学習・評価・可視化: 利用可能
 > - 外部署名付きのRead-only Paper Serving: 条件付きで利用可能
-> - 取引所への注文送信: 未実装
+> - Direct exchange routing / 取引所への注文送信: **未実装**
 > - Production status: **NO-GO**
-> - 収益性の主張: なし
+> - Profitability claim / 収益性の主張: **なし**
 
-CI、GPU実行、Paper Servingが成功しても、利益、実資金投入、実取引所と同等の約定、運用認可は保証されません。
+CI、GPU実行、Paper Servingの成功は、利益、実資金投入、実取引所と同等の約定、Production認可を保証しません。実装済み、CI検証済み、実証評価済み、収益性、運用認可は別の状態として扱います。
 
-## Maintained single-symbol contract
+## Maintained contract
 
 ```text
 one maintained run
@@ -21,24 +21,11 @@ one maintained run
   = one checkpoint and evidence chain
 ```
 
-初期Maintained presetはBinance USDS-M perpetualの`BTCUSDT`です。Action shapeは`(1,)`、Action nameは`target_weight:BTCUSDT`、範囲は`[-1.0, 1.0]`です。複数銘柄へ分散するときは、銘柄ごとに独立Runと資金Budgetを作り、外部Capital allocatorで配分します。同一PolicyでBTC・ETH・BNBを同時配分しません。
+維持対象の学習設定Schemaは`training_run_config_v4`、Rewardは**Reward schema v4**です。Fieldと意味の正本は[CONFIGURATION.md](docs/CONFIGURATION.md)と[REWARD_OBJECTIVE.md](docs/REWARD_OBJECTIVE.md)に置き、READMEには詳細を複製しません。
 
-詳細は[Maintained single-symbol workflow](docs/SINGLE_SYMBOL.md)を参照してください。旧Multi-asset Artifactは書き換えずRead-onlyで保持します。
+初期Maintained presetはBinance USDS-M perpetualの`BTCUSDT`です。複数銘柄へ資金を配分するときは、銘柄ごとに独立RunとBudgetを作り、Repository外のCapital allocatorで配分します。Maintained single-symbol contractの詳細は[SINGLE_SYMBOL.md](docs/SINGLE_SYMBOL.md)を参照してください。
 
-Universal U3-U6は別の**研究用共有Policy学習経路**です。複数のtrain symbolから同じPolicyを学習しますが、各episodeと推論対象は常に1つのconcrete instrumentであり、複数銘柄を同時にportfolio配分するPolicyではありません。現行契約は[Universal Training](docs/UNIVERSAL_TRAINING.md)を参照してください。
-
-### Repository map
-
-```text
-frontend/        React/Vite研究UI
-trade_rl/        Python本体。import名は trade_rl.*
-scripts/         CI・検証・運用補助スクリプト
-tests/           契約・単体・統合・E2Eテスト
-docs/            Architecture・運用・研究ドキュメント
-examples/        Quickstartと再現可能な実行例
-```
-
-`frontend/`とPython側のStudio APIは別責務です。不要な`apps/`や`scripts/ci/`のような単一用途の中間階層は置きません。Pythonの内部構造も責務単位で段階的に整理しますが、Artifactや金融計算の意味を暗黙には変更しません。
+Universal U3-U6は別の**研究用共有Policy学習経路**です。複数のtrain symbolから1つのPolicyを学習しますが、各episodeと推論対象は常に1つのconcrete instrumentです。BTC・ETH・BNBなどを同時にportfolio配分するPolicyではありません。現行契約は[UNIVERSAL_TRAINING.md](docs/UNIVERSAL_TRAINING.md)を参照してください。
 
 ## 最短で試す
 
@@ -58,74 +45,39 @@ uv run trade-rl train run \
   --run-id quickstart-001
 ```
 
-このQuickstartはPipeline確認用です。デモデータと短時間学習を、収益性評価やモデル選択には使用できません。詳しい手順は[START.md](START.md)を参照してください。
+このQuickstartはPipeline確認用です。デモデータと短時間学習を、収益性評価やモデル選択には使用できません。環境構築、入力Artifact、Troubleshootingを含む手順は[START.md](START.md)を参照してください。
 
-## 何ができるか
+## できること
 
-- 因果的な市場データとMulti-Timeframe特徴量artifactの構築
-- PPO、CostCriticPPO、LagrangianPPO、SAC、TD3、TQCによる学習
-- Oracle／Trend診断teacherに加え、train-only `causal_alpha_ridge` teacherを使うUniversal Behavior Cloning・critic warm start・PPO-family研究経路
+- 因果的な市場データとMulti-Timeframe特徴量Artifactの構築
+- PPO、CostCriticPPO、LagrangianPPO、SAC、TD3、TQCによる研究学習
+- train-only `causal_alpha_ridge` teacherを使うUniversal Behavior Cloning、critic warm start、PPO-family研究
 - Nested walk-forward、Seed分布、Checkpoint選択、Sealed outer test
-- Market・Limit・Stop-market注文を扱う状態付きOHLCV約定シミュレーション
-- Trade RL Studioでの学習中探索・TensorBoard診断のRead-only表示
-- 不変Artifact、外部Attestation、Fail-closed Serving
-- 任意のPostgreSQL metadata catalog
+- Market、Limit、Stop-marketを扱う状態付きOHLCV約定シミュレーション
+- Trade RL StudioとTensorBoardによるRead-only研究診断
+- 不変Artifact、外部Attestation、Fail-closed Paper Serving
+- 任意のPostgreSQL **metadata catalog**
 
-直接取引所へ注文する機能、認証済みAccount接続、Production secret管理は含みません。
+数値データの正本は**filesystem artifact**です。PostgreSQLはArtifact metadata、location、dependency、lifecycleなどを管理する任意Catalogであり、ModelやDatasetの数値BLOBを計算上の正本にはしません。
 
-## 全体像
+## Research flow
 
 ```text
 市場データ
-  -> 因果特徴量・Availability・Staleness
-  -> 不変Dataset artifact
-  -> Exploratory / Selected-final training
-  -> Checkpoint選択・Walk-forward・Execution sensitivity
-  -> Sealed評価・Fresh confirmation・Paper reconciliation
-  -> Release attestation
+  -> 因果特徴量とDataset identity
+  -> 学習 / Checkpoint validation
+  -> Configuration selection
+  -> Sealed evaluation
+  -> Execution sensitivity / Paper reconciliation
+  -> Release evidence
   -> Read-only Paper Serving
 ```
 
-Flat observationの正本は`baseline_residual_observation_v5`、Serving bundleの正本は`serving_bundle_v6`です。市場Dataset、学習Run、Checkpoint、評価Evidence、Serving bundleは、内容Digestと宣言済みFile closureで結合されます。途中失敗したRunは隔離され、正常な`latest.json`を上書きしません。
+行`t`の判断には行`t`のBar closeまでに利用可能な情報だけを使い、注文処理は最短でも`t + 1`のOpen以降です。Normalizer、Teacher、Checkpoint、Evaluation、Servingの詳細な因果・Identity契約は[ARCHITECTURE.md](docs/ARCHITECTURE.md)、[CONFIGURATION.md](docs/CONFIGURATION.md)、[UNIVERSAL_TRAINING.md](docs/UNIVERSAL_TRAINING.md)が正本です。
 
-## Observation encoder
+約定EngineはLatency、Partial fill、Time in Force、Cancel/Replace、Gap、Funding、Borrow、Margin、Liquidationを扱いますが、OHLCVからQueue position、Hidden liquidity、Auction、L2 depthを復元することはできません。制約と限界は[EXECUTION_ROBUSTNESS.md](docs/EXECUTION_ROBUSTNESS.md)を参照してください。
 
-`training_run_config_v4`では、`observation_encoder`を1つだけ選びます。
-
-| 値 | 用途 |
-|---|---|
-| `flat_mlp` | 単純なFlat observation |
-| `asset_set` | Generic／Legacyの銘柄別tokenを使う非系列Encoder |
-| `hierarchical_sequence_v2` | 15m・1h・4h・1dの因果系列Encoder |
-
-Maintained `hierarchical_sequence_v2`の経路は次のとおりです。
-
-```text
-時間足別Causal TCN
-  -> Context + 15m + 1h + 4h + 1d
-  -> Gated Cross-Timeframe Attention
-  -> BTCUSDT token
-  -> Single-symbol Cross-Asset bypass
-  -> Actor / Critic
-```
-
-旧3-symbol Checkpointを読むLegacy経路では、従来のGated Cross-Asset Attentionを保持します。Maintained 1-symbol経路ではCross-Asset Transformer ModuleとそのParameterを生成しません。`single_symbol_bypass_v1`をArchitecture identityへ含め、非適用のAsset-Attention設定はDigestへ含めず、旧1-symbol／3-symbol Identityとの暗黙互換を禁止します。
-
-時間足AttentionのHead数、Layer数、FFN倍率、Gate biasをConfigへ固定します。実際に組み立てられた構造、Instrument順、Action順からArchitecture digestを生成し、BC、PPO、CostCriticPPO、LagrangianPPO、Checkpoint、構造化Export、Servingで一致を要求します。
-
-詳細は[設定リファレンス](docs/CONFIGURATION.md)と[アーキテクチャ](docs/ARCHITECTURE.md)を参照してください。
-
-## 因果性と約定
-
-行`t`の判断には、行`t`のBar closeまでに利用可能な情報だけを使います。注文処理は最短でも`t + 1`のOpen以降です。
-
-Dataset identityには価格と特徴量だけでなく、Availability、Staleness、Fee、Spread、Impact、Participation、Tick/Lot、Minimum notional、Funding、Borrow、Mark/Index price、Corporate action、上場・廃止期間などを含めます。
-
-状態付き約定Engineは、Latency、Partial fill、Time in Force、Cancel/Replace、Gap、Funding、Borrow、Margin、Liquidationを扱います。ただしOHLCVからQueue position、Hidden liquidity、Auction、L2 depthを復元することはできません。
-
-維持対象Rewardは**Reward schema v4**です。絶対対数資産成長を主目的にし、Baseline-relative growthは補助的な非劣後判定として扱います。
-
-## 学習診断とStudio
+## Studioと診断
 
 ```bash
 uv sync --extra studio --extra train-sb3
@@ -136,46 +88,42 @@ npm ci --prefix frontend
 npm run dev --prefix frontend
 ```
 
-Live Trainingは`not exchange activity`、`not model-selection evidence`、`not sealed evaluation`、`not profitability evidence`です。LONG／SHORT／CLOSE表示はTarget exposureの変化であり、取引所注文ではありません。
+Live Trainingは`not exchange activity`、`not model-selection evidence`、`not sealed evaluation`、`not profitability evidence`です。LONG／SHORT／CLOSE表示はTarget exposureの変化であり、取引所注文ではありません。UIの責務は[frontend/README.md](frontend/README.md)を参照してください。
 
-TensorBoard診断では、損失やKLに加えて、時間足Attention比率、Attention entropy、Gate飽和、欠損率、系列BlockのGradient normを確認できます。Maintained one-symbolではAsset-Attention指標を非適用の`0.0`として記録します。診断値は選択Evidenceとして使用しません。
+## Repository map
 
-詳細は[Frontend README](frontend/README.md)を参照してください。
+```text
+trade_rl/        Python本体
+frontend/        React/Vite研究UI
+scripts/         CI・検証・運用補助スクリプト
+tests/           契約・単体・統合・E2Eテスト
+docs/            現行Reference、Runbook、研究状態、履歴資料
+examples/        Quickstartと再現可能な実行例
+docker/          Training imageとCompose定義
+LICENSES/        Third-party notice等のライセンス資料
+```
 
-## ServingとExport
-
-Flat policyのExportと、構造化系列PolicyのExportは別契約です。`hierarchical_sequence_v2`は`structured_policy_export_v2`を使い、Canonical input順、Shape、Dtype、Parity corpus、Policy identity、Architecture digestをManifestへ固定します。
-
-Serving bundleの正本は`serving_bundle_v6`です。Bundleは「Baselineか学習済みPolicyか」を表す`policy_mode`と、「ResidualかTarget-weightか」を表す`action_mode`を別々に固定します。構造化Loaderは、Bundle、Export manifest、Model digest、Observation schema、完全なPolicy identity、Architecture digest、Action sizeが一致しない場合、Policy実行前にFail closedします。
+文書の正本と履歴資料の区別は[ドキュメント一覧](docs/README.md)に集約しています。
 
 ## 主要ドキュメント
 
 - [ドキュメント一覧](docs/README.md)
+- [最初の学習](START.md)
 - [Maintained single-symbol workflow](docs/SINGLE_SYMBOL.md)
 - [Universal U3-U6 training](docs/UNIVERSAL_TRAINING.md)
-- [最初の学習](START.md)
 - [アーキテクチャ](docs/ARCHITECTURE.md)
 - [設定リファレンス](docs/CONFIGURATION.md)
 - [研究状態とProduction gate](docs/RESEARCH_STATUS.md)
+- [Reward objective](docs/REWARD_OBJECTIVE.md)
+- [Execution robustness](docs/EXECUTION_ROBUSTNESS.md)
 - [Binance Public Data](docs/BINANCE.md)
 - [Docker GPU運用](docs/operations/docker-gpu-full-training.md)
-- [Trade RL Frontend](frontend/README.md)
 - [Licensing](docs/LICENSING.md)
 - [Licensing provenance](docs/LICENSING_PROVENANCE.md)
 
 ## 品質確認
 
-```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy trade_rl
-uv run lint-imports
-uv run pytest --cov=trade_rl --cov-branch
-npm test --prefix frontend -- --run
-npm run typecheck --prefix frontend
-npm run build --prefix frontend
-npm run check:layout --prefix frontend
-```
+Repositoryの標準品質ゲートには、Pythonのlint/format/type/import境界、全pytestとcoverage、Frontend test/typecheck/build、Windows/Linux compatibility、Training image、Nautilus capability、PostgreSQL integrationを含みます。正確なCI構成はRepositoryのworkflowを正本とし、古い実行結果を現在HEADの成功として扱いません。
 
 ## 非対応範囲
 
@@ -187,16 +135,10 @@ npm run check:layout --prefix frontend
 - Venue kill switchとOperational alerting
 - 複数Run間のCapital allocator
 
-これらの実装と実証Evidenceが揃うまで、Production statusは**NO-GO**です。
+これらの実装と実証Evidence、運用認可が揃うまでProduction statusは**NO-GO**です。
 
-## 維持対象の契約バージョン
+## License
 
-維持対象の学習設定は`training_run_config_v4`、構造化Policy exportは`structured_policy_export_v2`、Serving bundleは`serving_bundle_v6`です。Quickstartを含む維持対象設定は、Executionの全Fieldと`require_full_reward_preroll: true`を明示し、dataclass既定値の変更で学習意味が静かに変わることを防ぎます。
-
-データの因果性はFeature契約だけでなく、Raw Barのavailability、MarketDatasetのeconomic arrays、SequenceObservationのstalenessまで多層で検証します。constraint costは報酬と分離されていますが、hard safetyとLagrangian soft budgetは同義ではありません。
-
-### License
-
-Maintained Trade RL source at and after the license transition is distributed under `LGPL-3.0-or-later`. Historical revisions already distributed under MIT keep their historical MIT grant. See [docs/LICENSING.md](docs/LICENSING.md), [docs/LICENSING_PROVENANCE.md](docs/LICENSING_PROVENANCE.md), `LICENSE`, `LICENSES/`, and `THIRD_PARTY_NOTICES.md` for the exact boundary and third-party notices.
+Maintained Trade RL source at and after the license transition is distributed under `LGPL-3.0-or-later`. Historical revisions already distributed under MIT keep their historical MIT grant. Exact boundaries and notices are documented in [docs/LICENSING.md](docs/LICENSING.md), [docs/LICENSING_PROVENANCE.md](docs/LICENSING_PROVENANCE.md), `LICENSE`, `LICENSES/`, and `LICENSES/THIRD_PARTY_NOTICES.md`.
 
 NautilusTrader is an external upstream dependency developed by Nautech Systems. Trade RL is an independent project and is not affiliated with, endorsed by, sponsored by, or an official work of Nautech Systems.

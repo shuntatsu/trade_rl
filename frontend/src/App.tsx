@@ -1,20 +1,36 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 
 import { AppShell } from './components/AppShell'
 import type { WorkspaceId } from './components/Sidebar'
 import type { StudioOverviewResult } from './data/types'
-import type { DashboardFreshness } from './pages/DashboardPage'
-import { ComparePage } from './pages/ComparePage'
-import { DashboardPage } from './pages/DashboardPage'
-import { DataLabPage } from './pages/DataLabPage'
-import { EvidencePage } from './pages/EvidencePage'
-import { ExperimentsPage } from './pages/ExperimentsPage'
-import { LiveTrainingPage } from './pages/LiveTrainingPage'
-import { RunCenterPage } from './pages/RunCenterPage'
-import { ServingPage } from './pages/ServingPage'
-import { WorkspacePage } from './pages/WorkspacePage'
+import { DashboardPage, type DashboardFreshness } from './pages/DashboardPage'
 import { pushWorkspace, readWorkspace } from './state/urlState'
 import { useStudioOverviewPolling } from './state/useStudioOverviewPolling'
+
+const ComparePage = lazy(async () => ({
+  default: (await import('./pages/ComparePage')).ComparePage,
+}))
+const DataLabPage = lazy(async () => ({
+  default: (await import('./pages/DataLabPage')).DataLabPage,
+}))
+const EvidencePage = lazy(async () => ({
+  default: (await import('./pages/EvidencePage')).EvidencePage,
+}))
+const ExperimentsPage = lazy(async () => ({
+  default: (await import('./pages/ExperimentsPage')).ExperimentsPage,
+}))
+const LiveTrainingPage = lazy(async () => ({
+  default: (await import('./pages/LiveTrainingPage')).LiveTrainingPage,
+}))
+const RunCenterPage = lazy(async () => ({
+  default: (await import('./pages/RunCenterPage')).RunCenterPage,
+}))
+const ServingPage = lazy(async () => ({
+  default: (await import('./pages/ServingPage')).ServingPage,
+}))
+const WorkspacePage = lazy(async () => ({
+  default: (await import('./pages/WorkspacePage')).WorkspacePage,
+}))
 
 interface AppProps {
   initialOverview: StudioOverviewResult
@@ -61,15 +77,17 @@ export function App({ initialOverview }: AppProps) {
       gpuName={overview.system.gpuName}
       pythonVersion={overview.system.pythonVersion}
     >
-      {active === 'dashboard' ? <DashboardPage overview={overview} freshness={dashboardFreshness(source)} sourceError={error} onNavigate={drillThrough} /> : null}
-      {active === 'data' ? <DataLabPage /> : null}
-      {active === 'experiments' ? <ExperimentsPage /> : null}
-      {active === 'runs' ? <RunCenterPage /> : null}
-      {active === 'live' ? <LiveTrainingPage /> : null}
-      {active === 'compare' ? <ComparePage /> : null}
-      {active === 'evidence' ? <EvidencePage /> : null}
-      {active === 'serving' ? <ServingPage /> : null}
-      {active === 'settings' ? <WorkspacePage {...workspaceMeta[active]} /> : null}
+      <Suspense fallback={<div role="status">ワークスペースを読み込んでいます…</div>}>
+        {active === 'dashboard' ? <DashboardPage overview={overview} freshness={dashboardFreshness(source)} sourceError={error} onNavigate={drillThrough} /> : null}
+        {active === 'data' ? <DataLabPage /> : null}
+        {active === 'experiments' ? <ExperimentsPage /> : null}
+        {active === 'runs' ? <RunCenterPage /> : null}
+        {active === 'live' ? <LiveTrainingPage /> : null}
+        {active === 'compare' ? <ComparePage /> : null}
+        {active === 'evidence' ? <EvidencePage /> : null}
+        {active === 'serving' ? <ServingPage /> : null}
+        {active === 'settings' ? <WorkspacePage {...workspaceMeta[active]} /> : null}
+      </Suspense>
     </AppShell>
   )
 }

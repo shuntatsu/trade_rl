@@ -168,4 +168,7 @@ def test_sb3_helper_modules_never_depend_on_training_coordinator() -> None:
 
 
 def test_sb3_training_coordinator_stays_below_sixty_kibibytes() -> None:
-    assert TRAINING_PATH.stat().st_size < 61_440
+    normalized_utf8_size = len(
+        TRAINING_PATH.read_text(encoding="utf-8").encode("utf-8")
+    )
+    assert normalized_utf8_size < 61_440

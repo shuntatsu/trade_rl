@@ -31,10 +31,11 @@ class _Dataset:
 class _Environment:
     dataset = _Dataset()
 
-    def __init__(self) -> None:
+    def __init__(self, *, omit_rejected_event: bool = False) -> None:
         self.current_index = 0
         self._offset = 0
         self._weights = np.zeros(2, dtype=np.float32)
+        self._omit_rejected_event = omit_rejected_event
 
     def _observation(self) -> dict[str, np.ndarray]:
         return {
@@ -62,9 +63,19 @@ class _Environment:
             requested_turnover=requested,
             filled_turnover=filled,
             rejected_count=rejected,
+            order_events=(
+                ()
+                if rejected == 0 or self._omit_rejected_event
+                else (
+                    SimpleNamespace(event_type="rejected", reason="minimum_notional"),
+                )
+            ),
         )
         info = {
             "hybrid_execution": execution,
+            "hybrid_risk": SimpleNamespace(
+                reasons=("no_trade_band",) if self._offset == 0 else ()
+            ),
             "hybrid_liquidation": None,
             "interval_gross_return": 0.0,
             "interval_net_return": 0.0,
@@ -99,9 +110,25 @@ def test_action_path_reports_where_submitted_changes_disappear(
     assert evidence.submitted_change_count == 3
     assert evidence.downstream_no_trade_suppression_count == 1
     assert evidence.execution_rejection_count == 1
+    assert evidence.execution_rejection_reason_counts == (("minimum_notional", 1),)
+    assert evidence.risk_projection_reason_counts == (("no_trade_band", 1),)
+    assert evidence.hard_risk_violation is False
     assert evidence.executed_change_count == 2
     assert evidence.constant_submitted_actions is False
     assert evidence.inactive_mask_rate == 0.5
+
+
+def test_action_path_rejects_unreconciled_execution_rejection_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(rollout_evaluation, "ClosedTradeTracker", _Trades)
+
+    with pytest.raises(ValueError, match="rejected_count"):
+        rollout_evaluation.evaluate_action_path(
+            _Environment(omit_rejected_event=True),
+            evaluation_range=(0, 4),
+            actions=np.zeros((3, 2), dtype=np.float32),
+        )
 
 
 def test_action_path_can_request_stochastic_model_actions(

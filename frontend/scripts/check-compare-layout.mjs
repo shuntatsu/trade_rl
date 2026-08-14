@@ -1,25 +1,13 @@
 import { chromium } from '@playwright/test'
 import { statSync } from 'node:fs'
-import { mkdir, readFile, readdir } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-const studioRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
-const assetsDir = path.join(studioRoot, 'dist', 'assets')
-const assets = await readdir(assetsDir)
-const cssFile = assets.find((name) => name.endsWith('.css'))
-const jsFile = assets.find((name) => name.endsWith('.js'))
-if (!cssFile || !jsFile) {
-  throw new Error('Build assets are missing; run npm run build first')
-}
+import { startQaDistServer } from './qa-dist-server.mjs'
 
-const [css, rawJs] = await Promise.all([
-  readFile(path.join(assetsDir, cssFile), 'utf8'),
-  readFile(path.join(assetsDir, jsFile), 'utf8'),
-])
-const js = rawJs.replaceAll('</script>', '<\\/script>')
-const html = `<!doctype html><html lang="ja"><head><base href="http://127.0.0.1:4173/"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script type="module">${js}</script></body></html>`
+const studioRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
 const outputDir = process.env.STUDIO_QA_OUTPUT_DIR
   ? path.resolve(studioRoot, '..', process.env.STUDIO_QA_OUTPUT_DIR)
   : '/mnt/data'
@@ -206,6 +194,7 @@ if (!executablePath) {
   throw new Error(`Chromium executable was not found. Checked: ${browserCandidates.join(', ')}`)
 }
 
+const distServer = await startQaDistServer(studioRoot)
 const browser = await chromium.launch({
   headless: true,
   executablePath,
@@ -233,7 +222,7 @@ try {
       })
     })
 
-    await page.setContent(html, { waitUntil: 'networkidle' })
+    await page.goto(`${distServer.origin}/?workspace=dashboard`, { waitUntil: 'networkidle' })
     await page.getByRole('button', { name: '比較' }).click()
     await page.getByRole('heading', { name: '比較' }).waitFor()
     const surface = page.getByRole('application', { name: 'Run comparison chart' })
@@ -315,4 +304,5 @@ try {
   }
 } finally {
   await browser.close()
+  await distServer.close()
 }

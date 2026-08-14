@@ -10,24 +10,9 @@ import pytest
 
 from trade_rl.studio.catalog import StudioCatalog
 from trade_rl.studio.dataset_catalog import _display_identity
-from trade_rl.studio.settings import StudioSettings
 
 from .helpers import write_dataset, write_run
-
-
-def settings(
-    tmp_path: Path,
-    *,
-    dataset_roots: tuple[Path, ...] | None = None,
-    run_roots: tuple[Path, ...] | None = None,
-) -> StudioSettings:
-    return StudioSettings(
-        project_root=tmp_path,
-        dataset_roots=dataset_roots or (tmp_path / "datasets",),
-        run_roots=run_roots or (tmp_path / "research",),
-        config_roots=(tmp_path / "configs",),
-        job_root=tmp_path / "jobs",
-    )
+from .support import settings
 
 
 def write_config(root: Path, name: str = "training.json") -> Path:

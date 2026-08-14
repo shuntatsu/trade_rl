@@ -124,6 +124,9 @@ class ActionPathCollapseEvidence:
     executed_change_count: int
     trade_count: int
     constant_submitted_actions: bool
+    execution_rejection_reason_counts: tuple[tuple[str, int], ...] = ()
+    risk_projection_reason_counts: tuple[tuple[str, int], ...] = ()
+    hard_risk_violation: bool = False
 
     def __post_init__(self) -> None:
         if self.decision_count <= 0 or self.action_dimension_count <= 0:
@@ -158,6 +161,33 @@ class ActionPathCollapseEvidence:
                 raise ValueError(f"{name} exceeds decision count")
         if not isinstance(self.constant_submitted_actions, bool):
             raise ValueError("constant_submitted_actions must be a boolean")
+        for field in (
+            "execution_rejection_reason_counts",
+            "risk_projection_reason_counts",
+        ):
+            raw = tuple(getattr(self, field))
+            normalized: list[tuple[str, int]] = []
+            seen: set[str] = set()
+            for item in raw:
+                if not isinstance(item, tuple) or len(item) != 2:
+                    raise ValueError(f"{field} entries must be reason/count pairs")
+                reason, count = item
+                if not isinstance(reason, str) or not reason.strip() or reason in seen:
+                    raise ValueError(f"{field} reasons must be non-empty and unique")
+                if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+                    raise ValueError(f"{field} counts must be positive integers")
+                seen.add(reason)
+                normalized.append((reason, count))
+            object.__setattr__(self, field, tuple(sorted(normalized)))
+        if (
+            sum(count for _, count in self.execution_rejection_reason_counts)
+            != self.execution_rejection_count
+        ):
+            raise ValueError(
+                "execution_rejection_reason_counts must match execution_rejection_count"
+            )
+        if not isinstance(self.hard_risk_violation, bool):
+            raise ValueError("hard_risk_violation must be a boolean")
 
     @property
     def proposal_distance_rate(self) -> float:

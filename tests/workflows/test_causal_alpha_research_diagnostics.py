@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -91,13 +92,7 @@ def test_diagnostic_checkpoint_accepts_historical_generator_and_deduplicates_sig
         gross=-0.02,
         net=-0.03,
     )
-    shared_b = CausalAlphaCandidateEpisodeMetricsV2(
-        **{
-            **shared_a.__dict__,
-            "candidate_digest": _CANDIDATE_B,
-            "digest": "",
-        }
-    )
+    shared_b = replace(shared_a, candidate_digest=_CANDIDATE_B, digest="")
     unique = _metric(
         _CANDIDATE_A,
         symbol="BNBUSDT",

@@ -92,6 +92,28 @@ Resume時は現在のcandidate gridから`grid_digest`を、現在のgenerator�
 
 この境界により、candidate gridが同じでもselection replayを生成する実装が変わった場合、旧checkpointを新しいgeneratorの結果として扱うことを禁止します。Checkpoint identityは計算再利用のためのCache keyではなく、再開してよいEvidence closureの一部です。
 
+### Research-only Causal Alpha V3 lane
+
+`Causal Alpha V3`は、r3で観測したprediction-to-target境界とlearner-state distribution shiftを検証するための**research-only**経路です。Canonical U6を置き換えず、既存の`behavior_cloning_teacher: \"causal_alpha_ridge\"`、`action.mode=target_weight`、teacher admission、risk、execution、reward契約を変更しません。
+
+Historical v2 selection checkpointはread-only診断だけに使用します。診断出力は常に`promotion_eligible=false`で、旧`generator_code_digest`を保持したままpaired scope比較と重複prediction evidenceのde-duplicationを行います。この出力をselection resume、candidate promotion、teacher admissionの代替Evidenceとして使用してはいけません。
+
+V3 predictorはknowledge cutoffより前に完全実現したtrain/selection labelだけを使い、次をresearch evidenceへ束縛します。
+
+- label intervalの**overlap** concurrencyから求めるuniqueness weight
+- symbolごとのeligible weight massを揃えるsymbol-balanced pooling
+- weighted/objective-normalized ridge
+- 72h predictionを24h-equivalentへ正規化したmulti-horizon forecast
+- 24h/72h disagreementとfit residual scaleから得る**uncertainty**
+
+**teacher-admission holdout**、Validation/Test symbol、sealed evaluationをV3 fit、weight、model selection、threshold調整へ戻しません。V3を将来canonical候補として凍結する場合も、未開封のteacher admissionを別途通過させる必要があります。
+
+V3 target compilerは絶対positionではなく`delta_weight`のconservative incremental edgeを評価し、HOLDをobjective `0`のfirst-class actionとして扱います。新規turnoverにだけexecution costとedge marginを課し、既存positionのsunk costを再課金しません。通常のalpha rebalance cadence外ではHOLDし、strong reversalまたはliquidity cap contraction時だけ早期変更を許可します。**Reward unchanged**: scalar rewardは既存の**pure net-log-growth**のままで、V3 cost/uncertaintyをreward shapingとして二重計上しません。
+
+`anchored_target_residual`はopt-inのresearch action modeです。Target-weight alphaをteacher anchorとして、Policyは小さなbounded residualだけを出力します。Zero residualはrisk projection前のteacher anchorを厳密に再現し、既存`residual`/`target_weight`の意味を変更しません。Canonical U6 configはこのmodeを選択しません。
+
+**DAgger**はlearner actionでsimulatorを進め、learnerが実際に訪れた同じstateをcausal teacherで再ラベルします。Dataset、Environment、ActionSpec、Teacher identityがずれたrolloutはmerge時にfail closedします。DAgger datasetはBCのstate-distribution診断・改善用であり、**does not bypass teacher admission**です。
+
 ## 6. Teacher admissionとfail-closed順序
 
 選択後の順序は固定です。

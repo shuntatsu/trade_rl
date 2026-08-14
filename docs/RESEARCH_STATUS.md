@@ -7,6 +7,8 @@ RepositoryIntegrity: VERIFIED_BY_MAIN_CI
 ResearchWorkflows: AVAILABLE
 UniversalCausalAlphaTeacherSoftware: IMPLEMENTED_AND_CI_VERIFIED
 UniversalCausalAlphaTeacherEmpiricalAdmission: NOT_COMPLETED
+CausalAlphaV3ResearchSoftware: IMPLEMENTED_RESEARCH_ONLY
+CausalAlphaV3PromotionEligibility: NO
 UniversalFullResearchEmpiricalEvaluation: NOT_COMPLETED
 StageAZeroShotSoftware: IMPLEMENTED_AND_CI_VERIFIED
 StageAEmpiricalEvaluation: NOT_COMPLETED
@@ -61,6 +63,12 @@ Software contractは次を実装済みです。
 - teacher build progressと経済telemetryのread-only monitoring
 
 詳細な現行契約は[UNIVERSAL_TRAINING.md](UNIVERSAL_TRAINING.md)を参照してください。
+
+### Causal Alpha V3 research lane
+
+`Causal Alpha V3`は**research-only**です。Historical checkpoint診断は`promotion_eligible=false`で、overlap-aware/symbol-balanced predictor、uncertainty-aware incremental target compiler、`anchored_target_residual`、learner-state **DAgger**を含みます。これらのsoftware primitiveはprediction/target/BC/RLの失敗原因を分離するためのもので、canonical teacher admissionやsealed evaluationを迂回しません。
+
+V3 fitにはteacher-admission holdoutを使用しません。Canonical U6は引き続き`causal_alpha_ridge` teacherと`target_weight` actionを使用し、rewardはpure net-log-growth、hard riskとexecution contractも不変です。V3のCI成功はeconomic admission、RL uplift、収益性、Production GOの証拠ではありません。
 
 これらはsoftware contractです。Teacher holdoutの経済成績が実データで合格した、最終Policyがbaselineを上回った、unseen symbolへ一般化した、という意味ではありません。
 

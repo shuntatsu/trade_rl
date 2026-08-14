@@ -1,6 +1,6 @@
 """Learner-state dataset aggregation for behavior cloning.
 
-This module is intentionally framework independent.  The learner drives the
+This module is intentionally framework independent. The learner drives the
 simulator, while the teacher labels exactly the states visited by that learner.
 """
 
@@ -8,14 +8,22 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 
-from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.identity import content_and_arrays_digest
 from trade_rl.learning.episode_teacher_artifact import EpisodeSupervisedPolicyDataset
 from trade_rl.learning.teacher_artifact import ObservationBatch
+
+
+class DaggerTeacher(Protocol):
+    """Immutable causal teacher used to relabel learner-visited states."""
+
+    @property
+    def teacher_config_digest(self) -> str: ...
+
+    def action_for(self, environment: Any, observation: object) -> np.ndarray: ...
 
 
 def _identity(environment: Any, name: str) -> str:
@@ -57,18 +65,25 @@ def _stack_observations(
         if any(not isinstance(item, dict) or tuple(item) != keys for item in values):
             raise ValueError("DAgger structured observation schema drifted")
         return {
-            key: np.stack([np.asarray(item[key]) for item in values], axis=0)
+            key: np.stack(
+                [np.asarray(item[key]) for item in values if isinstance(item, dict)],
+                axis=0,
+            )
             for key in keys
-            for item in [first]
         }
     if any(isinstance(item, dict) for item in values):
         raise ValueError("DAgger observation transport changed within rollout")
     return np.stack([np.asarray(item) for item in values], axis=0)
 
 
-def _observation_arrays(observations: ObservationBatch) -> tuple[tuple[str, np.ndarray], ...]:
+def _observation_arrays(
+    observations: ObservationBatch,
+) -> tuple[tuple[str, np.ndarray], ...]:
     if isinstance(observations, Mapping):
-        return tuple((f"observation:{key}", np.asarray(observations[key])) for key in sorted(observations))
+        return tuple(
+            (f"observation:{key}", np.asarray(observations[key]))
+            for key in sorted(observations)
+        )
     return (("observation", np.asarray(observations)),)
 
 
@@ -161,7 +176,7 @@ class DaggerEpisodeRollout:
 def collect_dagger_episode(
     environment: Any,
     learner: Any,
-    teacher: Any,
+    teacher: DaggerTeacher,
     *,
     start: int,
     stop: int,
@@ -208,7 +223,9 @@ def collect_dagger_episode(
         if current != start + offset:
             raise ValueError("DAgger environment advanced outside the requested range")
         observations.append(_observation_copy(observation))
-        raw_teacher = np.asarray(label(environment, observation), dtype=np.float32).reshape(-1)
+        raw_teacher = np.asarray(
+            label(environment, observation), dtype=np.float32
+        ).reshape(-1)
         raw_learner, _ = predict(observation, deterministic=True)
         raw_learner = np.asarray(raw_learner, dtype=np.float32).reshape(-1)
         if raw_teacher.size == 0 or not np.isfinite(raw_teacher).all():
@@ -237,10 +254,15 @@ def collect_dagger_episode(
     )
 
 
-def _concat_observations(base: ObservationBatch, additions: tuple[ObservationBatch, ...]) -> ObservationBatch:
+def _concat_observations(
+    base: ObservationBatch, additions: tuple[ObservationBatch, ...]
+) -> ObservationBatch:
     if isinstance(base, Mapping):
         keys = tuple(sorted(base))
-        if any(not isinstance(item, Mapping) or tuple(sorted(item)) != keys for item in additions):
+        if any(
+            not isinstance(item, Mapping) or tuple(sorted(item)) != keys
+            for item in additions
+        ):
             raise ValueError("DAgger observation schema drifted while merging")
         return {
             key: np.concatenate(
@@ -251,7 +273,9 @@ def _concat_observations(base: ObservationBatch, additions: tuple[ObservationBat
         }
     if any(isinstance(item, Mapping) for item in additions):
         raise ValueError("DAgger observation transport drifted while merging")
-    return np.concatenate((np.asarray(base), *(np.asarray(item) for item in additions)), axis=0)
+    return np.concatenate(
+        (np.asarray(base), *(np.asarray(item) for item in additions)), axis=0
+    )
 
 
 def merge_dagger_rollouts(
@@ -306,15 +330,16 @@ def merge_dagger_rollouts(
             axis=0,
         ),
         episode_ids=np.concatenate((base.episode_ids, *appended_episode_ids), axis=0),
-        # Existing oracle provenance does not cover learner-state rows.  Mixed
-        # DAgger datasets therefore deliberately drop solver provenance rather
-        # than falsely extending it to newly aggregated samples.
+        # Existing oracle provenance does not cover learner-state rows. Mixed
+        # DAgger datasets deliberately drop solver provenance rather than
+        # falsely extending it to newly aggregated samples.
         solver_provenance=None,
     )
 
 
 __all__ = [
     "DaggerEpisodeRollout",
+    "DaggerTeacher",
     "collect_dagger_episode",
     "merge_dagger_rollouts",
 ]

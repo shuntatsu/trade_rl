@@ -157,7 +157,7 @@ class CausalAlphaV3SignalScopeMetric:
     fit_digest: str
     forecast_digest: str
     sample_count: int
-    rank_correlation: float | None
+    rank_correlation: float
     direction_accuracy: float
     top_bottom_realized_spread: float
     cohort_indices: tuple[int, ...]
@@ -185,7 +185,7 @@ class CausalAlphaV3SignalScopeMetric:
             or self.sample_count < 2
         ):
             raise ValueError("V3 signal scope requires at least two samples")
-        if self.rank_correlation is None or not math.isfinite(self.rank_correlation):
+        if not math.isfinite(self.rank_correlation):
             raise ValueError("V3 signal rank correlation must be finite")
         if not -1.0 <= self.rank_correlation <= 1.0:
             raise ValueError("V3 signal rank correlation must be within [-1, 1]")
@@ -380,7 +380,7 @@ def evaluate_causal_alpha_v3_signal_gate(
         raise TypeError("V3 signal gate config is invalid")
 
     coverage = len(values) / float(expected_scope_count)
-    rank = _bootstrap(tuple(float(item.rank_correlation) for item in values), gate)
+    rank = _bootstrap(tuple(item.rank_correlation for item in values), gate)
     spread = _bootstrap(tuple(item.top_bottom_realized_spread for item in values), gate)
     direction = _bootstrap(
         tuple(item.direction_accuracy - 0.5 for item in values), gate

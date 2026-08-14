@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Final, Mapping
+from typing import Any, Final, Mapping
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
@@ -316,7 +316,7 @@ class CausalAlphaV3ReplayMetric:
         return payload
 
     @classmethod
-    def from_payload(cls, raw: Mapping[str, object]) -> CausalAlphaV3ReplayMetric:
+    def from_payload(cls, raw: Mapping[str, Any]) -> CausalAlphaV3ReplayMetric:
         return cls(
             run_manifest_digest=str(raw["run_manifest_digest"]),
             freeze_digest=str(raw["freeze_digest"]),
@@ -337,15 +337,15 @@ class CausalAlphaV3ReplayMetric:
             liquidity_deleveraging_count=int(raw["liquidity_deleveraging_count"]),
             execution_rejection_reason_counts=tuple(
                 (str(reason), int(count))
-                for reason, count in raw["execution_rejection_reason_counts"]  # type: ignore[union-attr]
+                for reason, count in raw["execution_rejection_reason_counts"]
             ),
             risk_projection_reason_counts=tuple(
                 (str(reason), int(count))
-                for reason, count in raw["risk_projection_reason_counts"]  # type: ignore[union-attr]
+                for reason, count in raw["risk_projection_reason_counts"]
             ),
             target_reason_counts=tuple(
                 (str(reason), int(count))
-                for reason, count in raw["target_reason_counts"]  # type: ignore[union-attr]
+                for reason, count in raw["target_reason_counts"]
             ),
             hard_risk_violation=bool(raw["hard_risk_violation"]),
             schema_version=str(raw["schema_version"]),
@@ -542,7 +542,7 @@ class CausalAlphaV3AdmissionRecord:
         return payload
 
     @classmethod
-    def from_payload(cls, raw: Mapping[str, object]) -> CausalAlphaV3AdmissionRecord:
+    def from_payload(cls, raw: Mapping[str, Any]) -> CausalAlphaV3AdmissionRecord:
         return cls(
             run_manifest_digest=str(raw["run_manifest_digest"]),
             freeze_digest=str(raw["freeze_digest"]),

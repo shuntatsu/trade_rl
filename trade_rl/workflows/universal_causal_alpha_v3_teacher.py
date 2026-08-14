@@ -92,6 +92,8 @@ class CausalAlphaV3ContractTargets:
         require_sha256(self.fit_digest, field="V3 contract fit_digest")
         require_sha256(self.forecast_digest, field="V3 contract forecast_digest")
         target_digest = getattr(self.target_path, "digest", None)
+        if not isinstance(target_digest, str):
+            raise ValueError("V3 contract target_path digest is unavailable")
         require_sha256(target_digest, field="V3 contract target_path digest")
         reasons = tuple(getattr(self.target_path, "reasons", ()))
         if len(reasons) != actions.shape[0] or any(not reason for reason in reasons):

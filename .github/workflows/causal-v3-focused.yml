@@ -1,0 +1,67 @@
+name: Causal Alpha V3 Focused
+
+on:
+  push:
+    branches:
+      - codex/causal-alpha-v3-research
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Focused tests
+        run: >-
+          uv run pytest -q
+          tests/workflows/test_causal_alpha_research_diagnostics.py
+          tests/scripts/test_analyze_causal_alpha_checkpoint.py
+          tests/learning/test_causal_alpha_weighted_ridge.py
+          tests/learning/test_causal_alpha_v3.py
+          tests/workflows/test_universal_causal_alpha_v3.py
+          tests/learning/test_causal_alpha_teacher.py
+          tests/workflows/test_universal_causal_alpha_fitting.py
+          tests/rl/test_anchored_target_residual.py
+          tests/rl/test_anchored_target_residual_decision.py
+          tests/rl/test_anchored_target_residual_environment.py
+          tests/rl/test_target_weight_action.py
+          tests/rl/test_environment_decision_service.py
+          tests/learning/test_dagger.py
+          tests/learning/test_teacher_artifact.py
+          tests/learning/test_episode_teacher_integration.py
+      - name: Ruff
+        run: >-
+          uv run ruff check
+          trade_rl/learning/causal_alpha_teacher.py
+          trade_rl/learning/causal_alpha_v3.py
+          trade_rl/learning/dagger.py
+          trade_rl/workflows/causal_alpha_research_diagnostics.py
+          trade_rl/workflows/universal_causal_alpha_v3.py
+          trade_rl/rl/actions.py
+          trade_rl/rl/environment.py
+          trade_rl/rl/environment_decision.py
+          trade_rl/rl/environment_policy_schedule_contract.py
+          trade_rl/rl/lagrangian_probe.py
+          scripts/analyze_causal_alpha_checkpoint.py
+          tests/learning/test_causal_alpha_weighted_ridge.py
+          tests/learning/test_causal_alpha_v3.py
+          tests/learning/test_dagger.py
+          tests/rl/test_anchored_target_residual.py
+          tests/rl/test_anchored_target_residual_decision.py
+          tests/rl/test_anchored_target_residual_environment.py
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Mypy
+        run: uv run mypy trade_rl/learning/causal_alpha_teacher.py trade_rl/learning/causal_alpha_v3.py trade_rl/learning/dagger.py trade_rl/workflows/causal_alpha_research_diagnostics.py trade_rl/workflows/universal_causal_alpha_v3.py trade_rl/rl/actions.py trade_rl/rl/environment.py trade_rl/rl/environment_decision.py trade_rl/rl/environment_policy_schedule_contract.py trade_rl/rl/lagrangian_probe.py scripts/analyze_causal_alpha_checkpoint.py

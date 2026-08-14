@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
-import multiprocessing as mp
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -32,11 +32,6 @@ class _ProbeEpisodeResult:
     numerators: Mapping[str, float]
     denominators: Mapping[str, int]
     censored_episode_count: int
-
-
-_FORK_ENVIRONMENT_FACTORY: Callable[[], Any] | None = None
-_FORK_SCHEMA: LagrangianSchema | None = None
-_FORK_MAXIMUM_STEPS = 0
 
 
 class CanonicalActionSemantic(str, Enum):
@@ -356,17 +351,6 @@ def _run_probe_episode(
     )
 
 
-def _run_forked_probe_episode(episode_index: int) -> _ProbeEpisodeResult:
-    if _FORK_ENVIRONMENT_FACTORY is None or _FORK_SCHEMA is None:
-        raise RuntimeError("forked canonical probe worker is not initialized")
-    return _run_probe_episode(
-        _FORK_ENVIRONMENT_FACTORY,
-        _FORK_SCHEMA,
-        episode_index=episode_index,
-        maximum_steps=_FORK_MAXIMUM_STEPS,
-    )
-
-
 def _probe_episode_results(
     environment_factory: Callable[[], Any],
     schema: LagrangianSchema,
@@ -377,7 +361,7 @@ def _probe_episode_results(
 ) -> tuple[_ProbeEpisodeResult, ...]:
     episode_indices = tuple(range(episode_count))
     worker_count = min(max_workers, episode_count)
-    if worker_count == 1 or "fork" not in mp.get_all_start_methods():
+    if worker_count == 1:
         return tuple(
             _run_probe_episode(
                 environment_factory,
@@ -388,24 +372,21 @@ def _probe_episode_results(
             for episode_index in episode_indices
         )
 
-    global _FORK_ENVIRONMENT_FACTORY, _FORK_MAXIMUM_STEPS, _FORK_SCHEMA
-    _FORK_ENVIRONMENT_FACTORY = environment_factory
-    _FORK_SCHEMA = schema
-    _FORK_MAXIMUM_STEPS = maximum_steps
-    try:
-        context = mp.get_context("fork")
-        # Parallel full-market probes use one task per child so inherited
-        # Python/NumPy allocator and COW state is returned to the OS after each
-        # episode. A single worker stays in-process to preserve deterministic
-        # environment lifecycle and instrumentation semantics.
-        with context.Pool(processes=worker_count, maxtasksperchild=1) as pool:
-            # map preserves episode/seed order, keeping floating-point aggregation
-            # and the evidence digest identical to the serial implementation.
-            return tuple(pool.map(_run_forked_probe_episode, episode_indices))
-    finally:
-        _FORK_ENVIRONMENT_FACTORY = None
-        _FORK_SCHEMA = None
-        _FORK_MAXIMUM_STEPS = 0
+    def run_episode(episode_index: int) -> _ProbeEpisodeResult:
+        return _run_probe_episode(
+            environment_factory,
+            schema,
+            episode_index=episode_index,
+            maximum_steps=maximum_steps,
+        )
+
+    with ThreadPoolExecutor(
+        max_workers=worker_count,
+        thread_name_prefix="lagrangian-probe",
+    ) as executor:
+        # executor.map preserves episode/seed order, keeping floating-point
+        # aggregation and the evidence digest identical to the serial path.
+        return tuple(executor.map(run_episode, episode_indices))
 
 
 def run_canonical_action_feasibility_probe(

@@ -131,7 +131,7 @@ def launch_generation(
         "--target",
         "training-runtime",
         "-f",
-        "Dockerfile.training",
+        "docker/Dockerfile.training",
         "-t",
         image,
     ]
@@ -196,7 +196,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--generation", required=True)
     parser.add_argument(
-        "--compose-file", type=Path, default=Path("compose.universal-training.yaml")
+        "--compose-file",
+        type=Path,
+        default=Path("docker/compose.universal-training.yaml"),
     )
     parser.add_argument("--runtime-manifest", required=True, type=Path)
     parser.add_argument("--project-root", type=Path, default=Path.cwd())

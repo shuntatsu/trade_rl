@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -350,7 +351,23 @@ def _aggregate_collapse_evidence(
         constant_submitted_actions=all(
             item.constant_submitted_actions for item in evidence
         ),
+        execution_rejection_reason_counts=_merge_reason_counts(
+            tuple(item.execution_rejection_reason_counts for item in evidence)
+        ),
+        risk_projection_reason_counts=_merge_reason_counts(
+            tuple(item.risk_projection_reason_counts for item in evidence)
+        ),
+        hard_risk_violation=any(item.hard_risk_violation for item in evidence),
     )
+
+
+def _merge_reason_counts(
+    values: tuple[tuple[tuple[str, int], ...], ...],
+) -> tuple[tuple[str, int], ...]:
+    merged: Counter[str] = Counter()
+    for reason_counts in values:
+        merged.update(dict(reason_counts))
+    return tuple(sorted(merged.items()))
 
 
 def aggregate_episode_behavior_cloning_holdouts(
@@ -408,6 +425,13 @@ def aggregate_episode_behavior_cloning_holdouts(
         constant_submitted_actions=all(
             value.constant_submitted_actions for value in evidence_values
         ),
+        execution_rejection_reason_counts=_merge_reason_counts(
+            tuple(value.execution_rejection_reason_counts for value in evidence_values)
+        ),
+        risk_projection_reason_counts=_merge_reason_counts(
+            tuple(value.risk_projection_reason_counts for value in evidence_values)
+        ),
+        hard_risk_violation=any(value.hard_risk_violation for value in evidence_values),
     )
     causal_returns = np.asarray(
         [record.causal_policy_performance.net_return for record in records],

@@ -1,40 +1,12 @@
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 
-from .test_api import client
-from .test_jobs import request
+import pytest
 
-
-def checkpoint_payload() -> dict[str, object]:
-    return {
-        "schema_version": "checkpoint_selection_v2_seed_aware",
-        "checkpoint_range": [100, 120],
-        "candidates": [
-            {
-                "evaluation_digest": "a" * 64,
-                "policy_digest": "b" * 64,
-                "score": math.log1p(0.05),
-                "seed": 3,
-            },
-            {
-                "evaluation_digest": "c" * 64,
-                "policy_digest": "d" * 64,
-                "score": math.log1p(0.02),
-                "seed": 11,
-            },
-        ],
-        "seed_finalists": [
-            {
-                "checkpoint_evaluation_digest": "a" * 64,
-                "checkpoint_score": math.log1p(0.05),
-                "policy_digest": "b" * 64,
-                "seed": 3,
-            }
-        ],
-    }
+from .helpers import checkpoint_payload
+from .support import client, request
 
 
 def selection_path(tmp_path: Path, run_id: str) -> Path:
@@ -71,7 +43,7 @@ def test_checkpoint_evaluations_are_identity_checked_and_seed_aware(
     assert [item["seed"] for item in payload["items"]] == [3, 11]
     assert payload["items"][0]["finalist"] is True
     assert payload["items"][1]["finalist"] is False
-    assert payload["items"][0]["totalReturn"] == 0.05
+    assert payload["items"][0]["totalReturn"] == pytest.approx(0.05)
     assert payload["items"][0]["checkpointRange"] == [100, 120]
     assert payload["items"][0]["source"].endswith("checkpoint-selection.json")
 

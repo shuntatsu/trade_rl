@@ -6,7 +6,7 @@ import pytest
 
 from trade_rl.studio.training_metrics import StudioTrainingMetricsReader
 
-from .test_catalog import settings
+from .support import settings
 
 
 @pytest.mark.parametrize("value", (0, -1, True, 1.5))

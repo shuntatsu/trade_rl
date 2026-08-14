@@ -69,6 +69,9 @@ include = ["trade_rl*"]
 [tool.setuptools.package-data]
 "trade_rl.catalog.sql" = ["*.sql"]
 
+[tool.uv]
+required-version = "==0.10.0"
+
 [tool.ruff]
 line-length = 88
 target-version = "py312"
@@ -198,4 +201,242 @@ paths = [
     "trade_rl/simulation/stateful_bar_lifecycle.py",
     "trade_rl/simulation/stateful_order_transitions.py",
     "trade_rl/simulation/stateful_symbol_fills.py",
+]
+
+[tool.importlinter]
+root_package = "trade_rl"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+id = "layers"
+name = "Trade RL responsibility layers"
+type = "layers"
+layers = [
+    "trade_rl.cli",
+    "trade_rl.operations",
+    "trade_rl.studio",
+    "trade_rl.workflows",
+    "trade_rl.integrations",
+    "trade_rl.serving",
+    "trade_rl.learning",
+    "trade_rl.rl",
+    "trade_rl.risk",
+    "trade_rl.simulation",
+    "trade_rl.strategies",
+    "trade_rl.data",
+    "trade_rl.catalog",
+    "trade_rl.evaluation",
+    "trade_rl.release",
+    "trade_rl.artifacts",
+    "trade_rl.telemetry",
+    "trade_rl.domain",
+]
+
+[[tool.importlinter.contracts]]
+id = "domain"
+name = "Domain remains standard-library only"
+type = "forbidden"
+source_modules = [
+    "trade_rl.domain",
+]
+forbidden_modules = [
+    "numpy",
+    "gymnasium",
+    "stable_baselines3",
+    "torch",
+    "trade_rl.telemetry",
+    "trade_rl.artifacts",
+    "trade_rl.release",
+    "trade_rl.evaluation",
+    "trade_rl.data",
+    "trade_rl.strategies",
+    "trade_rl.simulation",
+    "trade_rl.risk",
+    "trade_rl.rl",
+    "trade_rl.learning",
+    "trade_rl.serving",
+    "trade_rl.integrations",
+    "trade_rl.workflows",
+    "trade_rl.studio",
+    "trade_rl.operations",
+    "trade_rl.cli",
+]
+
+[[tool.importlinter.contracts]]
+id = "telemetry"
+name = "Telemetry remains diagnostic and standard-library only"
+type = "forbidden"
+source_modules = [
+    "trade_rl.telemetry",
+]
+forbidden_modules = [
+    "numpy",
+    "gymnasium",
+    "stable_baselines3",
+    "sb3_contrib",
+    "torch",
+    "psycopg",
+    "trade_rl.artifacts",
+    "trade_rl.release",
+    "trade_rl.evaluation",
+    "trade_rl.catalog",
+    "trade_rl.data",
+    "trade_rl.strategies",
+    "trade_rl.simulation",
+    "trade_rl.risk",
+    "trade_rl.rl",
+    "trade_rl.learning",
+    "trade_rl.serving",
+    "trade_rl.integrations",
+    "trade_rl.workflows",
+    "trade_rl.studio",
+    "trade_rl.operations",
+    "trade_rl.cli",
+]
+
+[[tool.importlinter.contracts]]
+id = "serving"
+name = "Serving cannot import training or workflows"
+type = "forbidden"
+source_modules = [
+    "trade_rl.serving",
+]
+forbidden_modules = [
+    "trade_rl.rl.training",
+    "trade_rl.workflows",
+    "trade_rl.integrations",
+    "stable_baselines3",
+]
+
+[[tool.importlinter.contracts]]
+id = "studio-workflows"
+name = "Studio cannot import workflow implementations"
+type = "forbidden"
+source_modules = [
+    "trade_rl.studio",
+]
+forbidden_modules = [
+    "trade_rl.workflows",
+]
+
+[[tool.importlinter.contracts]]
+id = "serving-export-implementation"
+name = "Serving cannot import the RL structured export implementation"
+type = "forbidden"
+source_modules = [
+    "trade_rl.serving",
+]
+forbidden_modules = [
+    "trade_rl.rl.structured_export",
+]
+
+[[tool.importlinter.contracts]]
+id = "release"
+name = "Release remains verification-only and below serving"
+type = "forbidden"
+source_modules = [
+    "trade_rl.release",
+]
+forbidden_modules = [
+    "trade_rl.evaluation",
+    "trade_rl.data",
+    "trade_rl.strategies",
+    "trade_rl.simulation",
+    "trade_rl.risk",
+    "trade_rl.rl",
+    "trade_rl.learning",
+    "trade_rl.serving",
+    "trade_rl.integrations",
+    "trade_rl.workflows",
+    "trade_rl.studio",
+    "trade_rl.operations",
+    "trade_rl.cli",
+    "stable_baselines3",
+    "sb3_contrib",
+    "torch",
+]
+
+[[tool.importlinter.contracts]]
+id = "learning-frameworks"
+name = "Learning contracts cannot depend on SB3 frameworks"
+type = "forbidden"
+source_modules = [
+    "trade_rl.learning",
+]
+forbidden_modules = [
+    "stable_baselines3",
+    "sb3_contrib",
+    "torch",
+]
+
+[[tool.importlinter.contracts]]
+id = "workflow-frameworks"
+name = "Workflows cannot directly import model frameworks"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "trade_rl.workflows",
+]
+forbidden_modules = [
+    "stable_baselines3",
+    "sb3_contrib",
+    "torch",
+]
+
+[[tool.importlinter.contracts]]
+id = "training-core"
+name = "Training core remains framework independent"
+type = "forbidden"
+source_modules = [
+    "trade_rl.rl.training",
+]
+forbidden_modules = [
+    "gymnasium",
+    "stable_baselines3",
+    "sb3_contrib",
+    "torch",
+]
+
+[[tool.importlinter.contracts]]
+id = "offline-signers"
+name = "Runtime and training paths cannot import offline signers"
+type = "forbidden"
+source_modules = [
+    "trade_rl.serving",
+    "trade_rl.integrations",
+    "trade_rl.studio",
+    "trade_rl.operations",
+    "trade_rl.rl",
+    "trade_rl.workflows.training_run",
+    "trade_rl.workflows.market_walk_forward",
+]
+forbidden_modules = [
+    "trade_rl.release.offline_signing",
+    "trade_rl.release.offline_keys",
+    "trade_rl.release.offline_approval",
+    "trade_rl.evaluation.offline_confirmation",
+    "trade_rl.workflows.offline_selection_approval",
+]
+
+[[tool.importlinter.contracts]]
+id = "catalog-contracts"
+name = "Catalog contracts remain framework and adapter independent"
+type = "forbidden"
+source_modules = [
+    "trade_rl.catalog.contracts",
+]
+forbidden_modules = [
+    "numpy",
+    "gymnasium",
+    "stable_baselines3",
+    "sb3_contrib",
+    "torch",
+    "psycopg",
+    "trade_rl.data",
+    "trade_rl.rl",
+    "trade_rl.learning",
+    "trade_rl.integrations",
+    "trade_rl.workflows",
+    "trade_rl.operations",
+    "trade_rl.cli",
 ]

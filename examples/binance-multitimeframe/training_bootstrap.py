@@ -63,7 +63,7 @@ def run_bootstrap(
         raise FileNotFoundError(
             f"{error}. Run `python examples/binance-multitimeframe/"
             "run_docker_training.py` or "
-            "`docker compose -f compose.training.yaml run --rm market-data-sync` "
+            "`docker compose -f docker/compose.training.yaml run --rm market-data-sync` "
             "before starting trainer."
         ) from error
 

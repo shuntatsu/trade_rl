@@ -28,11 +28,7 @@ def test_package_metadata_uses_same_spdx_license() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     project = pyproject["project"]
     assert project["license"] == SPDX_ID
-    assert set(project["license-files"]) >= {
-        "LICENSE",
-        "LICENSES/*",
-        "THIRD_PARTY_NOTICES.md",
-    }
+    assert set(project["license-files"]) == {"LICENSE", "LICENSES/*"}
 
     package_json = json.loads(
         (ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
@@ -43,7 +39,7 @@ def test_package_metadata_uses_same_spdx_license() -> None:
 def test_license_transition_has_provenance_and_notice_documents() -> None:
     licensing = (ROOT / "docs" / "LICENSING.md").read_text(encoding="utf-8")
     provenance = (ROOT / "docs" / "LICENSING_PROVENANCE.md").read_text(encoding="utf-8")
-    notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    notices = (ROOT / "LICENSES" / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
 
     assert SPDX_ID in licensing
     assert "MIT" in licensing

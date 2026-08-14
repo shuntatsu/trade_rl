@@ -44,7 +44,7 @@ def test_start_refuses_an_existing_supervised_container() -> None:
             container_name="trade-rl-full-generation-1",
             git_commit="a" * 40,
             metadata_mode="frozen_snapshot",
-            compose_file=Path("compose.training.yaml"),
+            compose_file=Path("docker/compose.training.yaml"),
             runner=runner,
         )
 
@@ -88,7 +88,7 @@ def test_start_labels_and_reports_the_detached_container() -> None:
         container_name="trade-rl-full-generation-1",
         git_commit="a" * 40,
         metadata_mode="frozen_snapshot",
-        compose_file=Path("compose.training.yaml"),
+        compose_file=Path("docker/compose.training.yaml"),
         runner=runner,
     )
 

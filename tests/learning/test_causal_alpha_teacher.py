@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 import numpy as np
 import pytest
@@ -8,8 +8,10 @@ import pytest
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
+    CausalAlphaCostAwareConfig,
     CausalAlphaHorizonMix,
     CausalAlphaRidgeConfig,
+    causal_alpha_cost_aware_target_path,
     causal_alpha_target_path,
     combine_causal_alpha_predictions,
     fit_causal_alpha_ridge,
@@ -209,3 +211,191 @@ def test_controller_config_rejects_invalid_hysteresis() -> None:
             no_trade_band=0.0,
             max_target_delta=1.0,
         )
+
+
+def test_cost_aware_config_has_stable_digest() -> None:
+    config = CausalAlphaCostAwareConfig(
+        execution_cost_multiplier=1.5,
+        edge_margin=0.001,
+        confirmation_count=2,
+        strong_reversal_threshold=0.02,
+        max_abs_target=0.5,
+    )
+
+    assert config.digest == CausalAlphaCostAwareConfig(**asdict(config)).digest
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("execution_cost_multiplier", 0.0),
+        ("edge_margin", -0.001),
+        ("confirmation_count", 0),
+        ("strong_reversal_threshold", 0.0),
+        ("max_abs_target", 0.0),
+        ("max_abs_target", 1.1),
+        ("max_position_to_market_notional", 0.0),
+        ("liquidity_lookback_decisions", 0),
+        ("liquidity_lower_quantile", 0.6),
+        ("liquidity_safety_multiplier", 1.1),
+    ),
+)
+def test_cost_aware_config_rejects_invalid_economic_limits(
+    field: str, value: float | int
+) -> None:
+    kwargs: dict[str, float | int] = {
+        "execution_cost_multiplier": 1.5,
+        "edge_margin": 0.001,
+        "confirmation_count": 2,
+        "strong_reversal_threshold": 0.02,
+        "max_abs_target": 0.5,
+        "max_position_to_market_notional": 0.02,
+        "liquidity_lookback_decisions": 96,
+        "liquidity_lower_quantile": 0.10,
+        "liquidity_safety_multiplier": 0.80,
+    }
+    kwargs[field] = value
+
+    with pytest.raises(ValueError, match=field):
+        CausalAlphaCostAwareConfig(**kwargs)  # type: ignore[arg-type]
+
+
+def test_cost_aware_path_confirms_entries_and_allows_immediate_strong_reversal() -> (
+    None
+):
+    controller = CausalAlphaControllerConfig(
+        horizon_mix=CausalAlphaHorizonMix.EQUAL,
+        score_scale=25.0,
+        entry_threshold=0.001,
+        exit_threshold=0.0005,
+        no_trade_band=0.0,
+        max_target_delta=1.0,
+    )
+    economic = CausalAlphaCostAwareConfig(
+        execution_cost_multiplier=1.5,
+        edge_margin=0.001,
+        confirmation_count=2,
+        strong_reversal_threshold=0.02,
+        max_abs_target=0.5,
+    )
+
+    path = causal_alpha_cost_aware_target_path(
+        np.asarray([0.003, 0.003, -0.004, -0.03]),
+        one_way_cost_rates=np.full(4, 0.0009),
+        controller=controller,
+        economic=economic,
+        initial_weight=0.0,
+    )
+
+    assert path.targets[0] == pytest.approx(0.0)
+    assert path.targets[1] > 0.0
+    assert path.targets[2] == pytest.approx(path.targets[1])
+    assert path.targets[3] < path.targets[2]
+    assert path.confirmation_state.tolist() == [1, 2, -1, -1]
+    assert path.strong_reversal_count == 1
+    assert path.sign_flip_count == 1
+
+
+def test_cost_aware_path_suppresses_marginal_edge_and_preserves_inactive_state() -> (
+    None
+):
+    controller = CausalAlphaControllerConfig(
+        horizon_mix=CausalAlphaHorizonMix.H24,
+        score_scale=25.0,
+        entry_threshold=0.0001,
+        exit_threshold=0.00005,
+        no_trade_band=0.0,
+        max_target_delta=1.0,
+    )
+    economic = CausalAlphaCostAwareConfig(
+        execution_cost_multiplier=1.5,
+        edge_margin=0.001,
+        confirmation_count=1,
+        strong_reversal_threshold=0.02,
+        max_abs_target=0.05,
+    )
+
+    path = causal_alpha_cost_aware_target_path(
+        np.asarray([0.002, 0.01, -0.03]),
+        one_way_cost_rates=np.full(3, 0.0009),
+        controller=controller,
+        economic=economic,
+        initial_weight=0.0,
+        actionable_mask=np.asarray([True, True, False]),
+    )
+
+    assert path.targets.tolist() == pytest.approx([0.0, 0.05, 0.05])
+    assert path.predicted_incremental_edge[0] <= path.estimated_cost_hurdle[0]
+    assert path.predicted_incremental_edge[1] > path.estimated_cost_hurdle[1]
+    assert path.proposed_turnover.tolist() == pytest.approx(
+        [0.04995837495787998, 0.05, 0.0]
+    )
+    assert path.cost_suppressed_change_count == 1
+    assert path.submitted_change_count == 1
+    assert np.max(np.abs(path.targets)) <= economic.max_abs_target
+    assert not path.targets.flags.writeable
+    assert not path.actionable_mask.flags.writeable
+
+
+def test_cost_aware_path_deleverages_initial_state_above_target_cap() -> None:
+    controller = CausalAlphaControllerConfig(
+        horizon_mix=CausalAlphaHorizonMix.H24,
+        score_scale=25.0,
+        entry_threshold=0.001,
+        exit_threshold=0.0005,
+        no_trade_band=0.05,
+        max_target_delta=0.125,
+    )
+    economic = CausalAlphaCostAwareConfig(
+        execution_cost_multiplier=1.5,
+        edge_margin=0.001,
+        confirmation_count=2,
+        strong_reversal_threshold=0.02,
+        max_abs_target=0.5,
+    )
+
+    path = causal_alpha_cost_aware_target_path(
+        np.asarray([0.0, 0.0]),
+        one_way_cost_rates=np.full(2, 0.001),
+        controller=controller,
+        economic=economic,
+        initial_weight=0.8,
+        actionable_mask=np.asarray([False, True]),
+    )
+
+    assert path.initial_weight == pytest.approx(0.8)
+    assert path.targets.tolist() == pytest.approx([0.5, 0.5])
+    assert path.proposed_turnover[0] == pytest.approx(0.3)
+    assert path.estimated_cost_hurdle[0] == pytest.approx(0.00075)
+    assert path.submitted_change_count == 1
+
+
+def test_cost_aware_path_prices_targets_against_causal_liquidity_caps() -> None:
+    controller = CausalAlphaControllerConfig(
+        horizon_mix=CausalAlphaHorizonMix.H24,
+        score_scale=25.0,
+        entry_threshold=0.001,
+        exit_threshold=0.0005,
+        no_trade_band=0.0,
+        max_target_delta=1.0,
+    )
+    economic = CausalAlphaCostAwareConfig(
+        execution_cost_multiplier=1.5,
+        edge_margin=0.0,
+        confirmation_count=1,
+        strong_reversal_threshold=0.02,
+        max_abs_target=0.5,
+    )
+
+    path = causal_alpha_cost_aware_target_path(
+        np.asarray([0.02, 0.02, 0.02]),
+        one_way_cost_rates=np.zeros(3),
+        liquidity_weight_caps=np.asarray([0.10, 0.05, 0.08]),
+        controller=controller,
+        economic=economic,
+        initial_weight=0.0,
+    )
+
+    assert path.targets.tolist() == pytest.approx([0.10, 0.05, 0.08])
+    assert np.all(np.abs(path.targets) <= path.liquidity_weight_caps)
+    assert path.liquidity_deleveraging_count == 1

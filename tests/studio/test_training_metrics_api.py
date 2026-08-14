@@ -4,8 +4,7 @@ from pathlib import Path
 
 from torch.utils.tensorboard import SummaryWriter
 
-from .test_api import client
-from .test_jobs import request
+from .support import client, request
 
 
 def test_training_metrics_endpoints_return_status_and_allowlisted_scalars(

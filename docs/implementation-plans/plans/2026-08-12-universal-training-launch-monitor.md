@@ -323,9 +323,9 @@ git commit -m "feat: monitor universal reward trends"
 ### Task 3: Immutable Docker Generation Launcher
 
 **Files:**
-- Create: `compose.universal-training.yaml`
+- Create: `docker/compose.universal-training.yaml`
 - Create: `scripts/run_universal_training_generation.py`
-- Modify: `Dockerfile.training:43-58`
+- Modify: `docker/Dockerfile.training:43-58`
 - Test: `tests/scripts/test_run_universal_training_generation.py`
 - Modify: `tests/examples/test_docker_training_assets.py`
 - Modify: `tests/test_training_compose_contract.py`
@@ -429,7 +429,7 @@ run directory and writes `launch-manifest.json` before training.
 uv run pytest tests/scripts/test_run_universal_training_generation.py tests/examples/test_docker_training_assets.py tests/test_training_compose_contract.py -q
 uv run ruff check scripts/run_universal_training_generation.py tests/scripts/test_run_universal_training_generation.py
 uv run mypy scripts/run_universal_training_generation.py
-docker compose -f compose.universal-training.yaml config --quiet
+docker compose -f docker/compose.universal-training.yaml config --quiet
 docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu22.04 nvidia-smi
 ```
 
@@ -438,7 +438,7 @@ Expected: tests/static/config checks pass and the CUDA container lists the GPU.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add compose.universal-training.yaml scripts/run_universal_training_generation.py Dockerfile.training tests/scripts/test_run_universal_training_generation.py tests/examples/test_docker_training_assets.py tests/test_training_compose_contract.py
+git add docker/compose.universal-training.yaml scripts/run_universal_training_generation.py docker/Dockerfile.training tests/scripts/test_run_universal_training_generation.py tests/examples/test_docker_training_assets.py tests/test_training_compose_contract.py
 git commit -m "feat: launch immutable universal training generations"
 ```
 
@@ -487,7 +487,7 @@ and no OOM/NaN/Inf. Smoke artifacts are explicitly excluded from completion.
 
 ```powershell
 $generation = "universal-u6-full-$(Get-Date -AsUTC -Format 'yyyyMMddTHHmmssZ')"
-uv run python scripts/run_universal_training_generation.py --generation $generation --compose-file compose.universal-training.yaml --runtime-manifest artifacts/universal/runtime-manifest.json
+uv run python scripts/run_universal_training_generation.py --generation $generation --compose-file docker/compose.universal-training.yaml --runtime-manifest artifacts/universal/runtime-manifest.json
 ```
 
 Expected: prints a unique running container, immutable image identity, generation

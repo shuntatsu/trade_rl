@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from pathlib import Path
+from tests.architecture.import_linter_config import (
+    configured_layers,
+    import_linter_contract,
+)
 
-ROOT = Path(__file__).resolve().parents[2]
 
-
-def test_import_contract_declares_learning_and_release_layers() -> None:
-    content = (ROOT / ".importlinter").read_text(encoding="utf-8")
-
-    assert "    trade_rl.learning\n" in content
-    assert "    trade_rl.release\n" in content
-    assert "[importlinter:contract:release]" in content
-    assert "[importlinter:contract:learning-frameworks]" in content
+def test_required_import_contracts_are_declared() -> None:
+    layers = configured_layers()
+    assert "trade_rl.learning" in layers
+    assert "trade_rl.release" in layers
+    for contract_id in (
+        "release",
+        "learning-frameworks",
+        "workflow-frameworks",
+        "training-core",
+    ):
+        assert import_linter_contract(contract_id)["type"] == "forbidden"

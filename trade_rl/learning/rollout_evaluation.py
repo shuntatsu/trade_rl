@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -148,6 +149,8 @@ def evaluate_action_path(
     submitted_change_count = 0
     downstream_no_trade_suppression_count = 0
     execution_rejection_count = 0
+    execution_rejection_reasons: Counter[str] = Counter()
+    risk_projection_reasons: Counter[str] = Counter()
     executed_change_count = 0
     previous_submitted: np.ndarray | None = None
     action_dimension_count: int | None = None
@@ -222,6 +225,25 @@ def evaluate_action_path(
         ):
             raise ValueError("hybrid execution rejected_count is invalid")
         execution_rejection_count += rejected_count
+        rejected_events = 0
+        for event in tuple(getattr(execution, "order_events", ())):
+            if getattr(event, "event_type", None) != "rejected":
+                continue
+            reason = getattr(event, "reason", None)
+            if not isinstance(reason, str) or not reason.strip():
+                raise ValueError("rejected order event is missing a reason")
+            execution_rejection_reasons[reason] += 1
+            rejected_events += 1
+        if rejected_events != rejected_count:
+            raise ValueError(
+                "hybrid execution rejected_count does not match rejected order events"
+            )
+        risk = info.get("hybrid_risk")
+        if risk is not None:
+            for reason in tuple(getattr(risk, "reasons", ())):
+                if not isinstance(reason, str) or not reason.strip():
+                    raise ValueError("hybrid risk projection reason is invalid")
+                risk_projection_reasons[reason] += 1
         if submitted_change and float(requested_turnover) <= action_change_tolerance:
             downstream_no_trade_suppression_count += 1
         filled_turnover = getattr(execution, "filled_turnover", None)
@@ -263,6 +285,11 @@ def evaluate_action_path(
         executed_change_count=executed_change_count,
         trade_count=performance.trade_count,
         constant_submitted_actions=submitted_change_count == 0,
+        execution_rejection_reason_counts=tuple(
+            sorted(execution_rejection_reasons.items())
+        ),
+        risk_projection_reason_counts=tuple(sorted(risk_projection_reasons.items())),
+        hard_risk_violation=False,
     )
     return ActionPathEvaluation(
         actions=np.stack(evaluated_actions, axis=0),

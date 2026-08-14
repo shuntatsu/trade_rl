@@ -15,7 +15,9 @@ from trade_rl.data.universal_features import (
 )
 from trade_rl.learning.causal_alpha_teacher import (
     CausalAlphaControllerConfig,
+    CausalAlphaCostAwareConfig,
     CausalAlphaRidgeConfig,
+    causal_alpha_cost_aware_target_path,
     causal_alpha_target_path,
     combine_causal_alpha_predictions,
     fit_causal_alpha_ridge,
@@ -28,6 +30,7 @@ from trade_rl.learning.episode_oracle_teacher import (
     OracleEpisodeContract,
 )
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaBatchEvidence,
     CausalAlphaEpisodeEvidence,
@@ -35,6 +38,10 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaExpandingFit,
     CausalAlphaPredictionDiagnostics,
     CausalAlphaSymbolSamples,
+)
+from trade_rl.workflows.universal_causal_alpha_costs import (
+    causal_alpha_liquidity_weight_caps,
+    causal_alpha_one_way_cost_rates,
 )
 
 
@@ -648,6 +655,11 @@ def build_causal_alpha_episode_batch(
     controller_config: CausalAlphaControllerConfig,
     teacher_config_digest: str | None = None,
     fit_cache: CausalAlphaExpandingFitCache | None = None,
+    economic_controller_config: CausalAlphaCostAwareConfig | None = None,
+    dataset: Any | None = None,
+    execution_cost: ExecutionCostConfig | None = None,
+    signal_delay_decisions: int | None = None,
+    decision_bars: int | None = None,
 ) -> tuple[EpisodeOracleBatch, CausalAlphaBatchEvidence]:
     """Fit at each episode start and generate one causal target path per contract."""
 
@@ -657,6 +669,19 @@ def build_causal_alpha_episode_batch(
     block = samples[symbol]
     if any(contract.dataset_id != block.dataset_id for contract in partition.contracts):
         raise ValueError("causal alpha partition dataset identity drifted")
+    cost_inputs = (dataset, execution_cost, signal_delay_decisions, decision_bars)
+    if economic_controller_config is None:
+        if any(value is not None for value in cost_inputs):
+            raise ValueError("causal alpha cost-aware batch inputs are incomplete")
+    elif (
+        dataset is None
+        or not isinstance(execution_cost, ExecutionCostConfig)
+        or isinstance(signal_delay_decisions, bool)
+        or not isinstance(signal_delay_decisions, int)
+        or isinstance(decision_bars, bool)
+        or not isinstance(decision_bars, int)
+    ):
+        raise ValueError("causal alpha cost-aware batch inputs are incomplete")
     targets: list[np.ndarray] = []
     episode_evidence: list[CausalAlphaEpisodeEvidence] = []
     fits: dict[str, CausalAlphaExpandingFit] = {}
@@ -698,19 +723,87 @@ def build_causal_alpha_episode_batch(
             prediction_72h[actionable], block.labels_72h[diagnostic_positions]
         )
         initial_weight = float(contract.initial_weights[0])
-        target_path = causal_alpha_target_path(
-            scores,
-            config=controller_config,
-            initial_weight=initial_weight,
-            actionable_mask=actionable,
-        )
-        target_matrix = np.asarray(target_path.targets, dtype=np.float32).reshape(-1, 1)
+        if economic_controller_config is None:
+            legacy_path = causal_alpha_target_path(
+                scores,
+                config=controller_config,
+                initial_weight=initial_weight,
+                actionable_mask=actionable,
+            )
+            cost_rates: np.ndarray | None = None
+            cost_aware_digest: str | None = None
+            cost_suppressed_count: int | None = None
+            strong_reversal_count: int | None = None
+            submitted_change_count = legacy_path.submitted_change_count
+            suppressed_change_count = legacy_path.suppressed_change_count
+            sign_flip_count = legacy_path.sign_flip_count
+            target_values = legacy_path.targets
+            target_path_digest = legacy_path.digest
+        else:
+            assert execution_cost is not None
+            assert signal_delay_decisions is not None
+            assert decision_bars is not None
+            cost_rates = causal_alpha_one_way_cost_rates(
+                dataset,
+                execution_cost,
+                decision_indices=decisions,
+                signal_delay_decisions=signal_delay_decisions,
+                decision_bars=decision_bars,
+            )
+            liquidity_caps = (
+                None
+                if economic_controller_config.max_position_to_market_notional is None
+                else causal_alpha_liquidity_weight_caps(
+                    dataset,
+                    decision_indices=decisions,
+                    reference_portfolio_value=block.reference_equity,
+                    max_position_to_market_notional=(
+                        economic_controller_config.max_position_to_market_notional
+                    ),
+                    lookback_decisions=(
+                        economic_controller_config.liquidity_lookback_decisions
+                    ),
+                    lower_quantile=(
+                        economic_controller_config.liquidity_lower_quantile
+                    ),
+                    safety_multiplier=(
+                        economic_controller_config.liquidity_safety_multiplier
+                    ),
+                )
+            )
+            economic_path = causal_alpha_cost_aware_target_path(
+                scores,
+                one_way_cost_rates=cost_rates,
+                liquidity_weight_caps=liquidity_caps,
+                controller=controller_config,
+                economic=economic_controller_config,
+                initial_weight=initial_weight,
+                actionable_mask=actionable,
+            )
+            cost_aware_digest = economic_path.digest
+            cost_suppressed_count = economic_path.cost_suppressed_change_count
+            strong_reversal_count = economic_path.strong_reversal_count
+            submitted_change_count = economic_path.submitted_change_count
+            suppressed_change_count = economic_path.cost_suppressed_change_count
+            sign_flip_count = economic_path.sign_flip_count
+            target_values = economic_path.targets
+            target_path_digest = economic_path.digest
+        target_matrix = np.asarray(target_values, dtype=np.float32).reshape(-1, 1)
         prediction_digest = content_and_arrays_digest(
             {
                 "episode_index": contract.episode_index,
                 "fit_digest": fitted.digest,
                 "knowledge_cutoff": contract.start,
-                "schema_version": "causal_alpha_episode_predictions_v1",
+                "economic_controller_digest": (
+                    None
+                    if economic_controller_config is None
+                    else economic_controller_config.digest
+                ),
+                "schema_version": (
+                    "causal_alpha_episode_predictions_v1"
+                    if economic_controller_config is None
+                    else "causal_alpha_episode_predictions_v2"
+                ),
                 "symbol": symbol,
             },
             (
@@ -719,6 +812,7 @@ def build_causal_alpha_episode_batch(
                 ("prediction_feature_available", prediction_available),
                 ("actionable_mask", actionable),
                 ("scores", scores),
+                *(() if cost_rates is None else (("one_way_cost_rates", cost_rates),)),
                 ("targets", target_matrix),
             ),
         )
@@ -744,11 +838,14 @@ def build_causal_alpha_episode_batch(
                 prediction_72h=diagnostics_72h,
                 decision_count=int(decisions.size),
                 actionable_decision_count=int(np.count_nonzero(actionable)),
-                submitted_change_count=target_path.submitted_change_count,
-                suppressed_change_count=target_path.suppressed_change_count,
-                sign_flip_count=target_path.sign_flip_count,
-                target_path_digest=target_path.digest,
+                submitted_change_count=submitted_change_count,
+                suppressed_change_count=suppressed_change_count,
+                sign_flip_count=sign_flip_count,
+                target_path_digest=target_path_digest,
                 prediction_digest=prediction_digest,
+                cost_aware_target_path_digest=cost_aware_digest,
+                cost_suppressed_change_count=cost_suppressed_count,
+                strong_reversal_count=strong_reversal_count,
             )
         )
     evidence = CausalAlphaBatchEvidence(
@@ -760,6 +857,11 @@ def build_causal_alpha_episode_batch(
         controller_config_digest=controller_config.digest,
         fits=fits,
         episodes=tuple(episode_evidence),
+        economic_controller_config_digest=(
+            None
+            if economic_controller_config is None
+            else economic_controller_config.digest
+        ),
     )
     resolved_teacher_config_digest = (
         evidence.digest if teacher_config_digest is None else teacher_config_digest

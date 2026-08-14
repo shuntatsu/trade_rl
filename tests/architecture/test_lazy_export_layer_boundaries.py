@@ -1,24 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import trade_rl.integrations as integrations
 import trade_rl.rl as rl
-
-ROOT = Path(__file__).resolve().parents[2]
+from tests.architecture.import_linter_config import configured_layers
 
 
 def _layer_indices() -> dict[str, int]:
-    import_linter = (ROOT / ".importlinter").read_text(encoding="utf-8")
-    layer_block = import_linter.split("layers =", maxsplit=1)[1].split(
-        "[importlinter:contract:domain]", maxsplit=1
-    )[0]
-    layers = tuple(
-        line.strip()
-        for line in layer_block.splitlines()
-        if line.strip().startswith("trade_rl.")
-    )
-    return {name: index for index, name in enumerate(layers)}
+    return {name: index for index, name in enumerate(configured_layers())}
 
 
 def _owning_layer(module_name: str, indices: dict[str, int]) -> str:

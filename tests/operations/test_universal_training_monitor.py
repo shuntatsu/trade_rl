@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
+from trade_rl.artifacts.hashing import content_digest
+from trade_rl.learning.causal_alpha_diagnostics import (
+    evaluate_causal_alpha_signal_diagnostics,
+)
 from trade_rl.operations.universal_training_monitor import (
     inspect_universal_training_generation,
+)
+from trade_rl.workflows.universal_causal_alpha_contracts import (
+    CausalAlphaCandidateEpisodeMetricsV2,
+)
+from trade_rl.workflows.universal_causal_alpha_teacher import (
+    write_causal_alpha_selection_checkpoint_metric_v2,
 )
 
 NOW = datetime(2026, 8, 12, 12, 1, tzinfo=UTC)
@@ -170,3 +182,76 @@ def test_monitor_reports_teacher_progress_before_member_heartbeat(
     assert snapshot.status == "incomplete"
     assert snapshot.teacher_progress == progress
     assert snapshot.findings == ("causal teacher selection in progress 17/100",)
+
+
+def test_monitor_summarizes_bounded_v2_teacher_checkpoint_window(
+    monkeypatch, tmp_path: Path
+) -> None:
+    import trade_rl.operations.universal_training_monitor as module
+
+    monkeypatch.setattr(
+        module, "MAX_CAUSAL_TEACHER_CHECKPOINT_BYTES", 12_000, raising=False
+    )
+    teacher_root = tmp_path / "_shared-causal-teacher"
+    teacher_root.mkdir()
+    (teacher_root / "causal-teacher-progress.json").write_text(
+        json.dumps(
+            {
+                "completed_replays": 4,
+                "phase": "causal_teacher_selection_v2",
+                "total_replays": 100,
+            }
+        ),
+        encoding="utf-8",
+    )
+    signal = evaluate_causal_alpha_signal_diagnostics(
+        np.asarray([-0.02, -0.01, 0.01, 0.02]),
+        np.asarray([-0.01, -0.02, 0.02, 0.01]),
+    )
+    metric = CausalAlphaCandidateEpisodeMetricsV2(
+        candidate_digest=content_digest("candidate"),
+        symbol="BTCUSDT",
+        episode_index=0,
+        gross_return=0.02,
+        net_return=0.01,
+        turnover_per_day=0.3,
+        total_execution_cost=4.0,
+        trade_count=2,
+        signal_24h=signal,
+        signal_72h=signal,
+        cost_suppressed_change_count=3,
+        submitted_change_count=2,
+        strong_reversal_count=1,
+        command_sign_flip_count=1,
+        execution_rejection_count=1,
+        execution_rejection_reason_counts=(("minimum_notional", 1),),
+        risk_projection_reason_counts=(("no_trade_band", 2),),
+        hard_risk_violation=False,
+    )
+    checkpoint = teacher_root / "causal-teacher-selection-checkpoint-v2.jsonl"
+    grid_digest = content_digest("grid")
+    for episode_index in range(4):
+        write_causal_alpha_selection_checkpoint_metric_v2(
+            checkpoint,
+            replace(metric, episode_index=episode_index, digest=""),
+            grid_digest=grid_digest,
+        )
+
+    snapshot = inspect_universal_training_generation(tmp_path, now=NOW)
+
+    summary = snapshot.teacher_checkpoint_summary
+    assert summary is not None
+    assert summary["window_bytes"] <= 12_000
+    candidate = summary["candidates"][metric.candidate_digest]
+    assert candidate["record_count"] >= 1
+    assert candidate["net_return_mean"] == 0.01
+    assert candidate["turnover_per_day_mean"] == 0.3
+    assert candidate["cost_suppressed_change_count"] >= 3
+    assert candidate["execution_rejection_reason_counts"] == {
+        "minimum_notional": candidate["record_count"]
+    }
+    assert candidate["explained_execution_no_fill_count"] == 0
+    assert (
+        candidate["unexplained_execution_rejection_count"] == candidate["record_count"]
+    )
+    assert candidate["signal_24h_pearson_mean"] == signal.pearson_correlation

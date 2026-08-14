@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.architecture.import_linter_config import (
+    configured_layers as import_linter_layers,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_SOURCE_ROOT = ROOT / "trade_rl"
 FRONTEND_ROOT = ROOT / "frontend"
@@ -45,14 +49,7 @@ def _constant(path: Path, name: str) -> str:
 
 
 def _configured_layers() -> tuple[str, ...]:
-    text = _text(ROOT / ".importlinter")
-    pattern = (
-        r"\[importlinter:contract:layers\].*?^layers\s*=\s*\n"
-        r"(?P<body>(?:    trade_rl\.[^\n]+\n)+)"
-    )
-    match = re.search(pattern, text, flags=re.MULTILINE | re.DOTALL)
-    assert match is not None
-    return tuple(line.strip() for line in match.group("body").splitlines())
+    return import_linter_layers()
 
 
 def _all_markdown() -> tuple[Path, ...]:

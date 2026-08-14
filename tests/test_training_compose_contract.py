@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def test_training_compose_separates_market_data_ownership() -> None:
-    compose = (Path(__file__).resolve().parents[1] / "compose.training.yaml").read_text(
-        encoding="utf-8"
-    )
+    compose = (ROOT / "docker" / "compose.training.yaml").read_text(encoding="utf-8")
 
     assert "market-data-sync:" in compose
     assert "trade-rl-market-archives:/workspace/market-data/binance-vision" in compose
@@ -42,9 +42,9 @@ def test_training_compose_separates_market_data_ownership() -> None:
 
 
 def test_universal_training_compose_is_gpu_manifest_and_external_db_bound() -> None:
-    compose = (
-        Path(__file__).resolve().parents[1] / "compose.universal-training.yaml"
-    ).read_text(encoding="utf-8")
+    compose = (ROOT / "docker" / "compose.universal-training.yaml").read_text(
+        encoding="utf-8"
+    )
     assert "gpus: all" in compose
     assert "external: true" in compose
     assert "name: trade_rl_default" in compose

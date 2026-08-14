@@ -151,7 +151,7 @@ jobs:
           expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
           module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
           cli="$(uv run trade-rl --version)"
-          uv_version="$(python -c 'import tomllib; print(tomllib.load(open("uv.toml", "rb"))["required-version"].removeprefix("=="))')"
+          uv_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["uv"]["required-version"].removeprefix("=="))')"
           test "$module" = "$expected"
           test "$cli" = "trade-rl $expected"
           test "$(uv --version)" = "uv $uv_version"
@@ -210,7 +210,7 @@ jobs:
             --build-arg TRADE_RL_GIT_DIRTY=false \
             --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$source_digest" \
             --build-arg TRADE_RL_LOCKFILE_DIGEST="$lock_digest" \
-            --file Dockerfile.training \
+            --file docker/Dockerfile.training \
             --tag trade-rl-training:ci \
             .
 

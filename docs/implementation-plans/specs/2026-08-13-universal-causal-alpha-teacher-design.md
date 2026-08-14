@@ -251,3 +251,190 @@ Execution validation proceeds in this order:
 - Treating a profitable teacher or completed training run as sealed research
   success.
 - Weakening economic, risk, reproducibility, or artifact-identity gates.
+
+## Approved Liquidity-Aware Correction After v2-r2
+
+The v2-r2 APTUSDT evidence showed that every predeclared candidate breached the
+`-5%` lower-tail net floor. The best low-exposure candidate still returned
+`-6.370%` mean net with `3.230x/day` turnover, while the maintained portfolio
+risk layer repeatedly projected targets through the hard
+`max_position_to_market_notional=0.02` cap. The scalar reward remains pure net
+log growth; this correction addresses the target/risk boundary instead.
+
+The causal controller now estimates an executable weight cap from the strictly
+prior 96 decisions (24 hours at the canonical 15-minute cadence), using the 10th
+percentile of quote-notional liquidity, an 80% safety multiplier, the unchanged
+hard 2% market-notional ratio, and the artifact-bound reference equity. It never
+uses the decision bar or any future volume. The desired target is clipped to
+this cap before turnover, incremental-edge, execution-cost hurdle, confirmation,
+maximum-delta, and no-trade decisions. If a falling cap leaves the previous
+target outside the executable range, the teacher emits the required
+deleveraging directly rather than allowing downstream risk projection to create
+an unpriced action.
+
+The liquidity contract is part of the economic-controller digest and must match
+the canonical environment's hard portfolio-risk ratio before selection begins.
+Float32 actions use a zero-directed one-ULP safety bound so serialization cannot
+round a boundary target above the cap. Selection caches the cap per
+symbol/episode/liquidity identity across controller-only candidates and records
+cache counts, liquidity-deleveraging count, and per-episode cap min/median/max in
+the durable checkpoint and monitor summary.
+
+## Approved Corrective Design After r3 Diagnostics
+
+The first production selection results showed that the baseline and stronger-ridge
+candidates were economically indistinguishable on the first complete APTUSDT
+selection block. Both had negative mean gross return, roughly `5.2x` turnover per
+day, double-digit negative mean net return, and at least one execution rejection
+in every episode. Increasing ridge strength alone therefore did not address the
+observed failure. The approved correction is to preserve the pooled ridge model
+while separating signal quality, controller churn, execution admission, and hard
+risk evidence before selecting the next teacher.
+
+The running r3 grid remains a diagnostic experiment and is not retuned from its
+partial results. Its checkpoint is allowed to finish so the original predeclared
+one-factor grid remains auditable. New controller candidates receive new config
+digests and a new generation; they never reuse r3 metrics under a changed
+identity.
+
+### Signal-quality evidence
+
+Every completed selection replay must persist diagnostics for both 24h and 72h
+predictions before controller conversion:
+
+- prediction mean, standard deviation, minimum, maximum, and fixed quantiles;
+- realized forward-return mean and the same fixed quantiles;
+- Pearson correlation and rank correlation when mathematically defined;
+- sign accuracy, positive/flat/negative prediction rates, and realized direction
+  rates; and
+- fixed prediction-score bins with count, mean prediction, mean realized return,
+  and direction accuracy.
+
+The diagnostics use only completed earlier selection episodes. They may be used
+to reject or rank controller configurations but never inspect the latest causal
+holdout, validation symbols, or test symbols. Undefined correlations are stored
+explicitly with a reason rather than coerced to a favorable value.
+
+### Execution and risk evidence semantics
+
+`StatefulExecutionResult.rejected_count` is an operational order-admission
+metric, not proof that the portfolio hard-risk invariant was violated. Evidence
+must therefore keep these concepts separate:
+
+- execution rejection count and rate;
+- rejection reason counts from terminal order events, including inactive,
+  untradable, side disallowed, borrow unavailable, minimum-notional, lot/tick,
+  capacity, and any other maintained admission reason;
+- pre-trade projection reason counts, including entry/exit/reversal hysteresis,
+  no-trade suppression, exposure projection, turnover projection, and emergency
+  controls; and
+- hard-risk invariant failure, which remains fail closed and cannot be converted
+  into an ordinary metric.
+
+Candidate evidence must no longer label any nonzero execution rejection as a
+generic `risk_violation`. The selection gate remains strict: any configured
+nonzero rejection allowance must be explicitly declared and artifact-bound; the
+initial corrected configuration keeps zero tolerated unexplained rejections.
+Expected operational no-fills are reported separately and cannot silently turn
+into accepted fills. The maintained explained set is limited to
+`zero_quantity_after_rounding` and `below_minimum_notional`; both are
+deterministic executable no-ops in the simulator. Raw counts and reason
+identities remain in evidence. Every identity, eligibility, side, borrow,
+execution-rule, or leverage rejection remains unexplained and fail closed.
+
+### Cost-aware stateful controller
+
+The corrected controller retains immediate causal decisions and does not add a
+minimum holding period. It adds an economic admission step before submitting a
+new target:
+
+1. Resolve the desired bounded target from the combined predicted forward
+   return exactly as before.
+2. Compute proposed target turnover as `abs(desired_target - current_target)`.
+3. Estimate the known one-way execution cost rate from the immutable fee,
+   spread, impact, and instrument execution configuration available before the
+   decision. Compute the hurdle as `abs(delta) * (cost_rate * multiplier +
+   edge_margin)`. Dynamic impact inputs use only current decision-time state.
+4. Compute incremental gross edge as `score * delta`, where `delta` is
+   `desired_target - current_target`. Submit only when this value is positive
+   and exceeds the execution hurdle.
+5. Require a predeclared number of consecutive qualifying same-direction scores
+   for ordinary entries and reversals. A separately declared strong-signal
+   threshold may permit an immediate next-decision reversal. This is evidence
+   confirmation, not a clock-based holding lock.
+6. Apply the existing no-trade band and maximum target delta, then pass the
+   result through the normal production pre-trade and execution path.
+
+The target-path artifact adds proposed turnover, estimated hurdle, predicted
+incremental edge, edge-to-cost ratio, consecutive confirmation state,
+cost-suppressed change count, ordinary submitted changes, immediate strong
+reversals, and command sign flips. All values are causal and deterministic.
+
+### Corrected candidate family and selection gates
+
+The corrected grid remains small and predeclared. Its baseline is equal-horizon
+mix, execution-cost multiplier `1.5`, edge margin `0.001`, ordinary confirmation
+count `2`, strong-reversal score threshold `0.02`, score scale `25`, exposure cap
+`0.5`, no-trade band `0.05`, and maximum target delta `0.125`. Eleven
+one-factor variants change exactly one baseline value:
+
+- horizon mix to 24h only or 72h only;
+- execution-cost multiplier to `2.0`;
+- edge margin to `0.002`;
+- ordinary confirmation count to `1` or `3`;
+- strong-reversal score threshold to `0.01`;
+- score scale to `12.5`;
+- exposure cap to `0.25`;
+- no-trade band to `0.10`; or
+- maximum target delta to `0.0625`.
+
+This produces 12 candidates including the baseline. The grid and all threshold
+values are serialized into the selection artifact. Any later grid change is a
+new hypothesis and requires a new generation/config digest.
+
+Ridge strength is not expanded further unless completed r3 signal diagnostics
+show a material prediction-quality difference. Static threshold-only expansion
+is rejected because it can manufacture an inactive cash policy without repairing
+gross alpha. A nonlinear estimator is deferred until the persisted score
+diagnostics show that the linear predictor, rather than target conversion, is the
+limiting component.
+
+Selection remains lexicographic among admissible candidates, but admissibility
+is strengthened before untouched holdout evaluation:
+
+- no hard-risk invariant failure;
+- no unexplained execution rejection; the initial allowance is exactly zero;
+- meaningful but non-pathological trade activity;
+- non-negative mean net return across selection symbol-episodes;
+- minimum symbol-episode net return no worse than `-0.05`, matching the existing
+  BC causal net-return floor rather than introducing a weaker research floor;
+- mean turnover per day no greater than `1.0x`, matching the maintained research
+  gate maximum; and
+- no majority-negative gross result.
+
+The cash policy cannot win merely through zero turnover: it remains inadmissible
+under the meaningful-trades rule. The selected candidate must still pass the
+existing untouched nine-symbol teacher admission and the existing BC economic
+gate. No threshold is relaxed to rescue a candidate.
+
+### Durability, migration, and tests
+
+The per-replay fsync checkpoint is extended rather than replaced. New schemas
+include score diagnostics, target-path diagnostics, rejection reasons, and the
+economic-hurdle configuration. Loading an older checkpoint under the new grid
+fails closed on schema/config digest mismatch; r3 remains readable as historical
+evidence but is not resumed as a corrected-generation result.
+
+Test-first coverage must prove:
+
+- cost hurdle suppresses a marginal change but admits a stronger causal edge;
+- reversal confirmation has no hidden minimum holding duration;
+- immediate strong reversal works on the next decision;
+- all cost inputs are decision-time configuration values and reward is unchanged;
+- score bins and correlations exclude holdout/validation/test rows;
+- execution rejection reasons and hard-risk failures cannot be conflated;
+- cash/no-trade collapse remains inadmissible;
+- mean/lower-tail net and turnover guards fail closed;
+- checkpoint resume rejects schema or controller identity drift; and
+- the production replay, untouched teacher admission, BC gate, and zero-PPO-on-
+  failure contracts remain intact.

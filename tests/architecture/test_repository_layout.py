@@ -15,6 +15,7 @@ def test_repository_uses_flat_responsibility_roots() -> None:
         ROOT / "tests",
         ROOT / "docs",
         ROOT / "examples",
+        ROOT / "docker",
     )
     forbidden = (
         ROOT / "src",
@@ -33,7 +34,7 @@ def test_active_repository_contracts_do_not_reference_src_package() -> None:
     forbidden = "src" + "/trade_rl"
     targets = [
         ROOT / "pyproject.toml",
-        ROOT / "Dockerfile.training",
+        ROOT / "docker" / "docker/Dockerfile.training",
         ROOT / "README.md",
         ROOT / "START.md",
     ]

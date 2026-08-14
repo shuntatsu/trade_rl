@@ -21,6 +21,8 @@ one maintained run
   = one checkpoint and evidence chain
 ```
 
+維持対象の学習設定Schemaは`training_run_config_v4`、Rewardは**Reward schema v4**です。Fieldと意味の正本は[CONFIGURATION.md](docs/CONFIGURATION.md)と[REWARD_OBJECTIVE.md](docs/REWARD_OBJECTIVE.md)に置き、READMEには詳細を複製しません。
+
 初期Maintained presetはBinance USDS-M perpetualの`BTCUSDT`です。複数銘柄へ資金を配分するときは、銘柄ごとに独立RunとBudgetを作り、Repository外のCapital allocatorで配分します。Maintained single-symbol contractの詳細は[SINGLE_SYMBOL.md](docs/SINGLE_SYMBOL.md)を参照してください。
 
 Universal U3-U6は別の**研究用共有Policy学習経路**です。複数のtrain symbolから1つのPolicyを学習しますが、各episodeと推論対象は常に1つのconcrete instrumentです。BTC・ETH・BNBなどを同時にportfolio配分するPolicyではありません。現行契約は[UNIVERSAL_TRAINING.md](docs/UNIVERSAL_TRAINING.md)を参照してください。

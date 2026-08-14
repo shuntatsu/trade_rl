@@ -11,6 +11,7 @@ from tests.support.training_config import complete_execution_config
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.walk_forward.folds import IndexRange
 from trade_rl.workflows import _market_walk_forward_core as core
+from trade_rl.workflows import normalizer_collection
 from trade_rl.workflows.training_run import TrainingRunConfig
 
 
@@ -113,28 +114,24 @@ def test_normalizer_parallel_start_method_prefers_forkserver(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        core.multiprocessing,
+        normalizer_collection.multiprocessing,
         "get_all_start_methods",
         lambda: ["fork", "spawn", "forkserver"],
     )
 
-    resolver = getattr(core, "_normalizer_start_method", lambda: "fork")
-
-    assert resolver() == "forkserver"
+    assert normalizer_collection._normalizer_start_method() == "forkserver"
 
 
 def test_normalizer_parallel_start_method_falls_back_to_spawn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        core.multiprocessing,
+        normalizer_collection.multiprocessing,
         "get_all_start_methods",
         lambda: ["fork", "spawn"],
     )
 
-    resolver = getattr(core, "_normalizer_start_method", lambda: "fork")
-
-    assert resolver() == "spawn"
+    assert normalizer_collection._normalizer_start_method() == "spawn"
 
 
 @pytest.mark.skipif(

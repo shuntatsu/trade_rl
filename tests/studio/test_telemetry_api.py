@@ -11,7 +11,7 @@ from .helpers import (
     telemetry_record as record,
     telemetry_stream_path as stream_path,
 )
-from .support import studio_client as client, request
+from .support import client, request
 
 
 def test_telemetry_status_and_cursor_page_are_scoped_to_known_job(

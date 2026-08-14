@@ -4,8 +4,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from .support import studio_client as client
-from .support import request
+from .support import request, studio_client as client
 from .test_telemetry_api import record, stream_path
 
 

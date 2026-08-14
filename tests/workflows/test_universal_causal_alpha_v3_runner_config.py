@@ -6,7 +6,9 @@ import numpy as np
 import pytest
 
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
-from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaEpisodePartition
+from trade_rl.workflows.universal_causal_alpha_contracts import (
+    CausalAlphaEpisodePartition,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_config import (
     CausalAlphaV3ResearchConfig,
 )
@@ -125,7 +127,9 @@ def test_nested_partition_keeps_signal_selection_and_holdout_disjoint() -> None:
     assert tuple(item.episode_index for item in nested.signal_contracts) == (0, 1)
     assert tuple(item.episode_index for item in nested.economic_contracts) == (2,)
     assert nested.holdout_contract.episode_index == 3
-    assert set(nested.signal_contract_digests).isdisjoint(nested.economic_contract_digests)
+    assert set(nested.signal_contract_digests).isdisjoint(
+        nested.economic_contract_digests
+    )
     assert nested.holdout_contract.digest not in set(nested.signal_contract_digests)
     assert nested.holdout_contract.digest not in set(nested.economic_contract_digests)
 

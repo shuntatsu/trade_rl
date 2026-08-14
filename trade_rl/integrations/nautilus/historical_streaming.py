@@ -8,7 +8,7 @@ import multiprocessing
 import os
 from dataclasses import asdict, dataclass
 from decimal import Decimal
-from multiprocessing.connection import Connection, PipeConnection
+from multiprocessing.connection import Connection
 from typing import Any
 
 from trade_rl.integrations.nautilus.event_projection import (
@@ -463,18 +463,13 @@ def _streaming_worker_main(connection: Connection) -> None:
         connection.close()
 
 
-def _send_message(
-    connection: PipeConnection[Any, Any] | Connection[Any, Any],
-    payload: dict[str, Any],
-) -> None:
+def _send_message(connection: Connection, payload: dict[str, Any]) -> None:
     connection.send_bytes(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     )
 
 
-def _receive_message(
-    connection: PipeConnection[Any, Any] | Connection[Any, Any],
-) -> dict[str, Any]:
+def _receive_message(connection: Connection) -> dict[str, Any]:
     payload = json.loads(connection.recv_bytes().decode("utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError("streaming Nautilus message must be an object")

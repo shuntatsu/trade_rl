@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import multiprocessing
+import threading
+import warnings
 from collections.abc import Callable
 
 import gymnasium as gym
@@ -253,6 +256,48 @@ def test_parallel_probe_preserves_serial_evidence_digest() -> None:
     )
 
     assert parallel.digest == serial.digest
+
+
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="the Python 3.12 fork deprecation is POSIX-specific",
+)
+def test_parallel_probe_does_not_fork_a_multithreaded_parent() -> None:
+    started = threading.Event()
+    stop = threading.Event()
+
+    def keep_thread_alive() -> None:
+        started.set()
+        stop.wait()
+
+    thread = threading.Thread(target=keep_thread_alive, daemon=True)
+    thread.start()
+    assert started.wait(timeout=5.0)
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            run_canonical_action_feasibility_probe(
+                environment_factory=_factory(
+                    mode=ActionMode.TARGET_WEIGHT,
+                    recorded_actions=[],
+                    close_calls=[],
+                    cost_value=0.25,
+                ),
+                schema=_schema(),
+                episode_count=2,
+                max_steps_per_episode=4,
+                max_workers=2,
+            )
+    finally:
+        stop.set()
+        thread.join(timeout=5.0)
+
+    assert [
+        warning
+        for warning in caught
+        if issubclass(warning.category, DeprecationWarning)
+        and "fork" in str(warning.message).lower()
+    ] == []
 
 
 def test_probe_fails_closed_on_missing_constraint_costs_and_closes_environment() -> (

@@ -10,7 +10,10 @@ from trade_rl.learning.causal_alpha_v3 import (
     CausalAlphaV3FitConfig,
     CausalAlphaV3TargetConfig,
 )
-from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch, OracleEpisodeContract
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeContract,
+)
 from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaSymbolSamples
 from trade_rl.workflows.universal_causal_alpha_v3_config import (
     CausalAlphaV3Candidate,
@@ -21,9 +24,13 @@ from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
     CausalAlphaV3CandidateEvidence,
     CausalAlphaV3SelectionEvidence,
 )
-from trade_rl.workflows.universal_causal_alpha_v3_signal import CausalAlphaV3NestedPartition
+from trade_rl.workflows.universal_causal_alpha_v3_signal import (
+    CausalAlphaV3NestedPartition,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_store import CausalAlphaV3RecordStore
-from trade_rl.workflows.universal_causal_alpha_v3_teacher import CausalAlphaV3ContractTargets
+from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
+    CausalAlphaV3ContractTargets,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_runner import (
     evaluate_causal_alpha_v3_admission,
     evaluate_causal_alpha_v3_selection,
@@ -99,7 +106,9 @@ def _selection_gate() -> CausalAlphaV3SelectionGate:
     )
 
 
-def test_selection_resumes_completed_scope_and_closes_environment(monkeypatch, tmp_path) -> None:
+def test_selection_resumes_completed_scope_and_closes_environment(
+    monkeypatch, tmp_path
+) -> None:
     import trade_rl.workflows.universal_causal_alpha_v3_runner as module
 
     symbol = "BTCUSDT"
@@ -204,8 +213,12 @@ def _batch(symbol: str) -> EpisodeOracleBatch:
     )
 
 
-def _selection(candidate: CausalAlphaV3Candidate, freeze_digest: str) -> CausalAlphaV3SelectionEvidence:
-    from trade_rl.workflows.universal_causal_alpha_v3_contracts import CausalAlphaV3ReplayMetric
+def _selection(
+    candidate: CausalAlphaV3Candidate, freeze_digest: str
+) -> CausalAlphaV3SelectionEvidence:
+    from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
+        CausalAlphaV3ReplayMetric,
+    )
 
     metric = CausalAlphaV3ReplayMetric(
         run_manifest_digest="1" * 64,
@@ -252,7 +265,9 @@ def _selection(candidate: CausalAlphaV3Candidate, freeze_digest: str) -> CausalA
     )
 
 
-def test_admission_reuses_persisted_symbol_record_exactly_once(monkeypatch, tmp_path) -> None:
+def test_admission_reuses_persisted_symbol_record_exactly_once(
+    monkeypatch, tmp_path
+) -> None:
     import trade_rl.workflows.universal_causal_alpha_v3_runner as module
 
     symbols = ("AAAUSDT", "BBBUSDT")
@@ -286,7 +301,9 @@ def test_admission_reuses_persisted_symbol_record_exactly_once(monkeypatch, tmp_
     evaluated: list[str] = []
 
     def evaluate(factory, contract, *, actions):
-        symbol = next(symbol for symbol in symbols if batches[symbol].contracts[-1] == contract)
+        symbol = next(
+            symbol for symbol in symbols if batches[symbol].contracts[-1] == contract
+        )
         evaluated.append(symbol)
         return SimpleNamespace(
             performance=SimpleNamespace(

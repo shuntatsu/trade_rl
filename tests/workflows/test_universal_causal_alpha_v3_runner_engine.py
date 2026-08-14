@@ -14,6 +14,7 @@ from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
     OracleEpisodeContract,
 )
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaSymbolSamples
 from trade_rl.workflows.universal_causal_alpha_v3_config import (
     CausalAlphaV3Candidate,
@@ -24,16 +25,16 @@ from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
     CausalAlphaV3CandidateEvidence,
     CausalAlphaV3SelectionEvidence,
 )
+from trade_rl.workflows.universal_causal_alpha_v3_runner import (
+    evaluate_causal_alpha_v3_admission,
+    evaluate_causal_alpha_v3_selection,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3NestedPartition,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_store import CausalAlphaV3RecordStore
 from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
     CausalAlphaV3ContractTargets,
-)
-from trade_rl.workflows.universal_causal_alpha_v3_runner import (
-    evaluate_causal_alpha_v3_admission,
-    evaluate_causal_alpha_v3_selection,
 )
 
 
@@ -162,7 +163,16 @@ def test_selection_resumes_completed_scope_and_closes_environment(
 
     def factory():
         opened.append(symbol)
-        return SimpleNamespace(symbol=symbol, close=lambda: closed.append(symbol))
+        return SimpleNamespace(
+            symbol=symbol,
+            dataset=SimpleNamespace(),
+            decision_bars=1,
+            config=SimpleNamespace(
+                execution_cost=ExecutionCostConfig(),
+                signal_delay_decisions=1,
+            ),
+            close=lambda: closed.append(symbol),
+        )
 
     first = evaluate_causal_alpha_v3_selection(
         train_symbols=(symbol,),

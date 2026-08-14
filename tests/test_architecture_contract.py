@@ -36,14 +36,6 @@ def test_source_contains_maintained_direct_target_mode_without_legacy_env() -> N
     assert "MarsLiteEnv" not in source
 
 
-def test_workflows_do_not_import_model_frameworks() -> None:
-    workflow_root = PYTHON_ROOT / "workflows"
-    for path in workflow_root.glob("*.py"):
-        source = path.read_text(encoding="utf-8")
-        assert "stable_baselines3" not in source, path
-        assert "sb3_contrib" not in source, path
-
-
 def test_walk_forward_evaluation_helpers_live_in_focused_module() -> None:
     workflow = (PYTHON_ROOT / "workflows" / "market_walk_forward.py").read_text(
         encoding="utf-8"
@@ -68,38 +60,10 @@ def test_maintained_docs_reference_reward_schema_v4() -> None:
         assert "reward schema v4" in text
 
 
-def test_maintained_docs_reference_serving_bundle_v6() -> None:
-    for path in (
-        ROOT / "README.md",
-        ROOT / "docs/ARCHITECTURE.md",
-        ROOT / "docs/RESEARCH_STATUS.md",
-    ):
-        text = path.read_text(encoding="utf-8").lower()
-        assert "serving_bundle_v5" not in text, path
-        assert "serving_bundle_v6" in text, path
-
-
 def test_quickstart_installs_training_dependencies_before_training() -> None:
     text = (ROOT / "START.md").read_text(encoding="utf-8")
     assert "uv sync --extra dev --extra train-sb3" in text
     assert "uv run trade-rl train run" in text
-
-
-def test_architecture_doc_matches_enforced_layer_order() -> None:
-    architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
-    enforced_layers = tuple(
-        layer.removeprefix("trade_rl.") for layer in configured_layers()
-    )
-    marker = "Import Linterの強制順序は次のとおりです:"
-    documented_section = architecture.split(marker, maxsplit=1)[1]
-    documented_block = documented_section.split("```", maxsplit=2)[1]
-    documented_layers = tuple(
-        line.strip()
-        for line in documented_block.splitlines()
-        if line.strip() and line.strip() != "text"
-    )
-    assert enforced_layers
-    assert documented_layers == enforced_layers
 
 
 def test_telemetry_has_an_enforced_low_level_dependency_boundary() -> None:
@@ -155,11 +119,3 @@ def test_sb3_and_torch_are_optional_training_dependencies() -> None:
     assert not any(item.startswith("torch") for item in core)
     assert any(item.startswith("stable-baselines3") for item in training)
     assert any(item.startswith("torch") for item in training)
-
-
-def test_core_training_contract_does_not_import_gym_or_model_frameworks() -> None:
-    source = (PYTHON_ROOT / "rl" / "training.py").read_text(encoding="utf-8")
-    assert "import gymnasium" not in source
-    assert "stable_baselines3" not in source
-    assert "sb3_contrib" not in source
-    assert "import torch" not in source

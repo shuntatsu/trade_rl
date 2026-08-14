@@ -84,8 +84,10 @@ from trade_rl.workflows.market_walk_forward_config import (
 )
 from trade_rl.workflows.normalizer_collection import (
     NormalizerWorkerSpec,
-    collect_normalizer_matrix as _collect_normalizer_matrix,
     normalizer_environment,
+)
+from trade_rl.workflows.normalizer_collection import (
+    collect_normalizer_matrix as _collect_normalizer_matrix,
 )
 from trade_rl.workflows.training_run import (
     TrainingRunConfig,

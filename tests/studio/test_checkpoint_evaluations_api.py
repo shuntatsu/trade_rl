@@ -4,6 +4,8 @@ import json
 import math
 from pathlib import Path
 
+import pytest
+
 from .test_api import client
 from .test_jobs import request
 
@@ -71,7 +73,7 @@ def test_checkpoint_evaluations_are_identity_checked_and_seed_aware(
     assert [item["seed"] for item in payload["items"]] == [3, 11]
     assert payload["items"][0]["finalist"] is True
     assert payload["items"][1]["finalist"] is False
-    assert payload["items"][0]["totalReturn"] == 0.05
+    assert payload["items"][0]["totalReturn"] == pytest.approx(0.05)
     assert payload["items"][0]["checkpointRange"] == [100, 120]
     assert payload["items"][0]["source"].endswith("checkpoint-selection.json")
 

@@ -10,6 +10,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest",
     "typecheck": "tsc -b --pretty false",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
     "check:layout": "node scripts/check-no-page-scroll.mjs && node scripts/check-live-training-layout.mjs && node scripts/check-compare-layout.mjs"
   },
   "dependencies": {

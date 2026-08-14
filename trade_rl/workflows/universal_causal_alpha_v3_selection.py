@@ -6,6 +6,9 @@ from statistics import fmean
 from typing import Mapping
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.workflows.universal_causal_alpha_selection import (
+    causal_alpha_unexplained_execution_rejection_count,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_config import (
     CausalAlphaV3Candidate,
     CausalAlphaV3SelectionGate,
@@ -14,9 +17,6 @@ from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
     CausalAlphaV3CandidateEvidence,
     CausalAlphaV3ReplayMetric,
     CausalAlphaV3SelectionEvidence,
-)
-from trade_rl.workflows.universal_causal_alpha_selection import (
-    causal_alpha_unexplained_execution_rejection_count,
 )
 
 

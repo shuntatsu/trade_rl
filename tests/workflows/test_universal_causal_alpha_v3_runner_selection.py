@@ -109,10 +109,10 @@ def test_selection_ranks_admissible_candidates_by_tail_then_net() -> None:
 def test_selection_rejects_irrecoverable_tail_and_hard_risk() -> None:
     candidate = _candidate("bad", 1.0)
     bad_tail = _metric(candidate, 0, gross=0.02, net=-0.06)
+    hard_risk_base = _metric(candidate, 1, gross=0.02, net=0.01)
     hard_risk = CausalAlphaV3ReplayMetric(
         **{
-            **bad_tail.to_payload(include_digest=False),
-            "net_return": 0.01,
+            **hard_risk_base.to_payload(include_digest=False),
             "hard_risk_violation": True,
         }
     )

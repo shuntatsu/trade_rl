@@ -1,15 +1,15 @@
 name: V3 Format Artifact
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - codex/causal-alpha-v3-runner
 
 permissions:
   contents: read
 
 concurrency:
-  group: v3-format-${{ github.event.pull_request.number }}
+  group: v3-format-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up uv

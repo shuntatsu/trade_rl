@@ -267,7 +267,14 @@ class CausalAlphaV3ReplayMetric:
 
     @property
     def unexplained_execution_rejection_count(self) -> int:
-        return sum(count for _, count in self.execution_rejection_reason_counts)
+        explained = frozenset(
+            {"below_minimum_notional", "zero_quantity_after_rounding"}
+        )
+        return sum(
+            count
+            for reason, count in self.execution_rejection_reason_counts
+            if reason not in explained
+        )
 
     def irrecoverably_rejected(self, thresholds: object) -> bool:
         return bool(

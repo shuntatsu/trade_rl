@@ -43,10 +43,7 @@ class CausalAlphaV3NestedPartition:
             raise TypeError("V3 nested partition contracts are invalid")
         if len({item.digest for item in values}) != len(values):
             raise ValueError("V3 nested partition contract scopes overlap")
-        if any(
-            left.stop > right.start
-            for left, right in zip(values, values[1:], strict=True)
-        ):
+        if any(left.stop > right.start for left, right in zip(values, values[1:])):
             raise ValueError("V3 nested partition contracts are not chronological")
         if len({item.dataset_id for item in values}) != 1:
             raise ValueError("V3 nested partition dataset identity drifted")

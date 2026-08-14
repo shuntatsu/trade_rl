@@ -32,17 +32,28 @@ jobs:
         run: uv sync --extra dev --extra train-sb3
 
       - name: V3 focused tests
-        run: >-
-          uv run pytest -q
-          tests/learning/test_causal_alpha_v3.py
-          tests/learning/test_causal_alpha_v3_actionable_mask.py
-          tests/workflows/test_universal_causal_alpha_v3.py
-          tests/workflows/test_universal_causal_alpha_v3_runner_config.py
-          tests/workflows/test_universal_causal_alpha_v3_runner_signal.py
-          tests/workflows/test_universal_causal_alpha_v3_runner_store.py
-          tests/workflows/test_universal_causal_alpha_v3_runner_selection.py
-          tests/workflows/test_universal_causal_alpha_v3_runner_failure_semantics.py
-          tests/workflows/test_universal_causal_alpha_v3_runner_engine.py
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/learning/test_causal_alpha_v3.py \
+            tests/learning/test_causal_alpha_v3_actionable_mask.py \
+            tests/workflows/test_universal_causal_alpha_v3.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_config.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_signal.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_store.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_selection.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_failure_semantics.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_engine.py \
+            2>&1 | tee v3-focused-pytest.log
+
+      - name: Upload V3 focused test diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v3-focused-pytest
+          path: v3-focused-pytest.log
+          if-no-files-found: error
 
       - name: V3 lint
         run: >-

@@ -1,41 +1,12 @@
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 
 import pytest
 
+from .helpers import checkpoint_payload
 from .support import request, studio_client as client
-
-
-def checkpoint_payload() -> dict[str, object]:
-    return {
-        "schema_version": "checkpoint_selection_v2_seed_aware",
-        "checkpoint_range": [100, 120],
-        "candidates": [
-            {
-                "evaluation_digest": "a" * 64,
-                "policy_digest": "b" * 64,
-                "score": math.log1p(0.05),
-                "seed": 3,
-            },
-            {
-                "evaluation_digest": "c" * 64,
-                "policy_digest": "d" * 64,
-                "score": math.log1p(0.02),
-                "seed": 11,
-            },
-        ],
-        "seed_finalists": [
-            {
-                "checkpoint_evaluation_digest": "a" * 64,
-                "checkpoint_score": math.log1p(0.05),
-                "policy_digest": "b" * 64,
-                "seed": 3,
-            }
-        ],
-    }
 
 
 def selection_path(tmp_path: Path, run_id: str) -> Path:

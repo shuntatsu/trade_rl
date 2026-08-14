@@ -7,8 +7,8 @@ from uuid import UUID
 
 from trade_rl.telemetry.training import TrainingTelemetryRecord, TrainingTelemetryWriter
 
-from .test_api import client
-from .test_jobs import request
+from .support import studio_client as client
+from .support import request
 
 
 def record(sequence: int, *, seed: int = 7) -> TrainingTelemetryRecord:

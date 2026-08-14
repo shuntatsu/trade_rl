@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from .test_api import client
-from .test_jobs import request
+from .support import studio_client as client
+from .support import request
 
 
 def checkpoint_payload() -> dict[str, object]:

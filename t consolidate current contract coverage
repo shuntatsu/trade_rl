@@ -1,0 +1,23 @@
+ scripts/nautilus_training_throughput_benchmark.py  |  18 [32m++[m[31m--[m
+ .../test_complete_trust_boundary_remediation.py    |  15 [31m---[m
+ tests/studio/test_api.py                           |  34 [32m+[m[31m------[m
+ tests/studio/test_behavior_cloning_progress_api.py |   4 [32m+[m[31m-[m
+ tests/studio/test_catalog.py                       |  17 [32m+[m[31m---[m
+ tests/studio/test_checkpoint_evaluation_folds.py   |   4 [32m+[m[31m-[m
+ tests/studio/test_checkpoint_evaluations_api.py    |   4 [32m+[m[31m-[m
+ tests/studio/test_jobs.py                          | 103 [32m+[m[31m--------------------[m
+ tests/studio/test_telemetry_api.py                 |   4 [32m+[m[31m-[m
+ tests/studio/test_telemetry_episode_api.py         |   4 [32m+[m[31m-[m
+ tests/studio/test_training_metrics.py              |   2 [32m+[m[31m-[m
+ tests/studio/test_training_metrics_api.py          |   4 [32m+[m[31m-[m
+ tests/studio/test_training_metrics_cache_config.py |   2 [32m+[m[31m-[m
+ tests/studio/test_training_metrics_incremental.py  |   2 [32m+[m[31m-[m
+ tests/test_license_contract.py                     |   8 [32m+[m[31m-[m
+ .../test_nautilus_training_throughput_benchmark.py |  10 [32m++[m
+ ...iversal_causal_alpha_prediction_availability.py |  28 [32m++++[m[31m--[m
+ trade_rl/studio/jobs.py                            |   4 [32m+[m[31m-[m
+ trade_rl/studio/system_probe.py                    |   2 [32m+[m[31m-[m
+ trade_rl/telemetry/_indexed_storage.py             |   2 [32m+[m
+ .../workflows/symbol_triplet_stage_orchestrator.py |   4 [32m+[m[31m-[m
+ trade_rl/workflows/symbol_triplet_stage_state.py   |   4 [32m+[m[31m-[m
+ 22 files changed, 71 insertions(+), 208 deletions(-)

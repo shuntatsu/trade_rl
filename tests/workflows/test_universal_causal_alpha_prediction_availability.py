@@ -151,7 +151,7 @@ def test_liquidity_cap_cache_reuses_contract_estimate() -> None:
     assert cache.hit_count == 1
 
 
-def test_one_way_cost_rate_uses_first_executable_row_after_signal_delay() -> None:
+def test_one_way_cost_rate_is_causal_and_ignores_future_execution_rows() -> None:
     config = ExecutionCostConfig(
         fee_rate=0.0005,
         maker_fee_rate=0.0002,
@@ -161,21 +161,31 @@ def test_one_way_cost_rate_uses_first_executable_row_after_signal_delay() -> Non
         max_participation_rate=0.25,
         order_type="market",
     )
+    decisions = np.asarray([10, 14])
+    dataset = _CostDataset()
 
-    rates = causal_alpha_one_way_cost_rates(
-        _CostDataset(),
+    baseline = causal_alpha_one_way_cost_rates(
+        dataset,
         config,
-        decision_indices=np.asarray([10, 14]),
+        decision_indices=decisions,
         signal_delay_decisions=1,
         decision_bars=4,
     )
 
-    assert rates.tolist() == pytest.approx(
-        [
-            0.0005 + 0.0015 + 0.0004 + 0.0025 + 0.0002 + 0.0035 + 0.00005,
-            0.0005 + 0.0019 + 0.0004 + 0.0029 + 0.0002 + 0.0039 + 0.00005,
-        ]
+    execution_rows = decisions + 1 + 4
+    for name in ("fee_rate", "maker_fee_rate", "taker_fee_rate", "spread_rate"):
+        dataset._values[name][execution_rows, 0] = 9.0
+    dataset._values["max_participation_rate"][execution_rows, 0] = 0.99
+    mutated = causal_alpha_one_way_cost_rates(
+        dataset,
+        config,
+        decision_indices=decisions,
+        signal_delay_decisions=1,
+        decision_bars=4,
     )
+
+    assert baseline.tolist() == pytest.approx([0.00715, 0.00835])
+    assert mutated.tolist() == pytest.approx(baseline.tolist())
 
 
 def test_cost_aware_contract_targets_bind_signal_diagnostics_and_cost_path() -> None:

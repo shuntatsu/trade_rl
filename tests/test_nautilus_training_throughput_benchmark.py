@@ -208,6 +208,15 @@ def test_worker_dataset_loader_revalidates_persisted_artifact(tmp_path: Path) ->
     assert dataset.identity_verified is True
 
 
+def test_process_tree_rss_support_rejects_non_linux(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(benchmark.sys, "platform", "win32")
+
+    with pytest.raises(RuntimeError, match="requires Linux /proc"):
+        benchmark._require_process_tree_rss_support()
+
+
 def test_run_benchmark_binds_persisted_source_to_workers_and_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -228,6 +237,7 @@ def test_run_benchmark_binds_persisted_source_to_workers_and_evidence(
 
     monkeypatch.setattr(benchmark.importlib.metadata, "version", lambda _: "1.230.0")
     monkeypatch.setattr(benchmark, "_run_worker_subprocess", fake_worker)
+    monkeypatch.setattr(benchmark, "_require_process_tree_rss_support", lambda: None)
 
     evidence = benchmark.run_benchmark(timesteps=(8,), dataset_artifact=root)
 

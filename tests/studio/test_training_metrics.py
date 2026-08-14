@@ -9,7 +9,7 @@ from trade_rl.studio.contracts import JobSummary
 from trade_rl.studio.errors import ArtifactInvalid, InvalidStudioRequest
 from trade_rl.studio.training_metrics import StudioTrainingMetricsReader
 
-from .test_catalog import settings
+from .support import settings
 
 
 def _job(tmp_path: Path, *, run_id: str = "run-metrics") -> JobSummary:

@@ -528,6 +528,8 @@ class _IndexedTrainingTelemetryWriter:
                 ) != (int(path_stat.st_dev), int(path_stat.st_ino)):
                     raise RuntimeError("telemetry stream identity changed")
                 if path_stat.st_size != self._expected_size:
+                    # Another writer may have appended while this instance was
+                    # idle. Reconcile only when the stream size actually moved.
                     index = _refresh_index_unlocked(self.path).index
                     if index is None or path_stat.st_size != index.indexed_size:
                         raise RuntimeError(

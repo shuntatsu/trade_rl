@@ -2,42 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from trade_rl.studio.api import create_app
-from trade_rl.studio.catalog import StudioCatalog
-from trade_rl.studio.jobs import JobSupervisor
-
-from .helpers import write_dataset, write_run
-from .test_catalog import settings
-from .test_jobs import FakeCatalog, FakeFactory, request
+from .support import request, studio_client as client
 
 
-def client(
-    tmp_path: Path,
-) -> tuple[TestClient, FakeFactory, FakeCatalog, StudioCatalog]:
-    write_dataset(tmp_path / "datasets" / "btc")
-    write_run(tmp_path / "research")
-    real_catalog = StudioCatalog(settings(tmp_path))
-    job_catalog = FakeCatalog(tmp_path)
-    factory = FakeFactory()
-    supervisor = JobSupervisor(
-        settings(tmp_path),
-        catalog=job_catalog,
-        process_factory=factory,
-    )
-    return (
-        TestClient(
-            create_app(
-                settings(tmp_path),
-                catalog=real_catalog,
-                supervisor=supervisor,
-            )
-        ),
-        factory,
-        job_catalog,
-        real_catalog,
-    )
+
 
 
 def test_read_endpoints_return_collision_free_validated_resources_and_no_go(

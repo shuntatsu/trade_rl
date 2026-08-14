@@ -74,7 +74,7 @@ def _cpu_metric() -> SystemMetric:
             label="CPU", value=windows_value, detail=f"{count} logical cores"
         )
     try:
-        load = os.getloadavg()[0]  # type: ignore[attr-defined]
+        load = os.getloadavg()[0]
         value = min(max(load / count * 100.0, 0.0), 100.0)
         detail = f"load {load:.2f} / {count} cores"
     except (AttributeError, OSError):

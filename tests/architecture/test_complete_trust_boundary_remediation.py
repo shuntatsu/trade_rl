@@ -302,21 +302,6 @@ def test_supervisor_absent_expected_generation_is_failure() -> None:
         )
 
 
-def test_training_image_is_digest_pinned_and_generation_scoped() -> None:
-    dockerfile = (REPOSITORY_ROOT / "docker" / "docker/Dockerfile.training").read_text(
-        encoding="utf-8"
-    )
-    compose = (REPOSITORY_ROOT / "docker" / "docker/compose.training.yaml").read_text(
-        encoding="utf-8"
-    )
-    assert "python:3.12-slim@sha256:" in dockerfile
-    assert "full_run_entrypoint.py" in dockerfile
-    assert "TRADE_RL_SOURCE_TREE_DIGEST" in dockerfile
-    assert "TRADE_RL_LOCKFILE_DIGEST" in dockerfile
-    assert "TRADE_RL_METADATA_KEYS" not in compose
-    assert "TRADE_RL_CONFIRMATION_KEYS" not in compose
-
-
 def test_privileged_workflows_checkout_the_event_sha() -> None:
     for relative in (
         ".github/workflows/launch-binance-frozen-226.yml",

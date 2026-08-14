@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .test_api import client
+from .support import studio_client as client
 from .test_checkpoint_evaluations_api import checkpoint_payload
-from .test_jobs import request
+from .support import request
 
 
 def path(tmp_path: Path, run_id: str, fold: str) -> Path:

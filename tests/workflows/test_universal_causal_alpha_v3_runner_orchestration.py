@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -14,6 +15,7 @@ from trade_rl.learning.episode_oracle_teacher import (
     EpisodeOracleBatch,
     OracleEpisodeContract,
 )
+from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaEpisodePartition,
 )
@@ -113,7 +115,7 @@ def _prepared() -> CausalAlphaV3PreparedResearchData:
         environment_factories={"BTCUSDT": lambda: None},
         episode_hours=24.0,
         datasets={"BTCUSDT": SimpleNamespace()},
-        execution_costs={"BTCUSDT": SimpleNamespace()},
+        execution_costs={"BTCUSDT": ExecutionCostConfig()},
         signal_delays={"BTCUSDT": 1},
         decision_bars={"BTCUSDT": 1},
         max_position_to_market_notional=0.02,
@@ -157,6 +159,18 @@ def _signal_evidence(*, passed: bool) -> CausalAlphaV3SignalGateEvidence:
         gate_digest=_config().signal_gate.digest,
         passed=passed,
         rejection_reasons=() if passed else ("rank_ic_lower_ci",),
+    )
+
+
+def _scope_metric(*, passed: bool, **kwargs) -> CausalAlphaV3SignalScopeMetric:
+    base = _signal_evidence(passed=passed).metrics[0]
+    contract = kwargs["contract"]
+    return replace(
+        base,
+        symbol=kwargs["symbol"],
+        episode_index=contract.episode_index,
+        contract_digest=contract.digest,
+        digest="",
     )
 
 
@@ -226,7 +240,7 @@ def test_signal_rejection_stops_before_selection_and_holdout(
     monkeypatch.setattr(
         module,
         "build_causal_alpha_v3_signal_scope_metric",
-        lambda **kwargs: _signal_evidence(passed=False).metrics[0],
+        lambda **kwargs: _scope_metric(passed=False, **kwargs),
     )
     monkeypatch.setattr(
         module,
@@ -259,7 +273,7 @@ def test_admission_rejection_never_creates_teacher_package(
     monkeypatch.setattr(
         module,
         "build_causal_alpha_v3_signal_scope_metric",
-        lambda **kwargs: _signal_evidence(passed=True).metrics[0],
+        lambda **kwargs: _scope_metric(passed=True, **kwargs),
     )
     monkeypatch.setattr(
         module,

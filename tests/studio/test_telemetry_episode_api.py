@@ -8,7 +8,7 @@ from .helpers import (
     telemetry_record as record,
     telemetry_stream_path as stream_path,
 )
-from .support import studio_client as client, request
+from .support import client, request
 
 
 def test_telemetry_api_exposes_explicit_and_legacy_episode_identity(

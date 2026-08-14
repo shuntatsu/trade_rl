@@ -53,6 +53,7 @@ jobs:
             npm test --prefix frontend -- --run
             npm run typecheck --prefix frontend
             npm run build --prefix frontend
+            npm run check:bundle --prefix frontend
           } 2>&1 | tee studio-frontend.log
 
       - name: Verify Studio fixed viewport layout

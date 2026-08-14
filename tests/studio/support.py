@@ -126,7 +126,7 @@ def request(catalog: FakeCatalog, *, run_id: str = "run-001") -> TrainingJobRequ
     )
 
 
-def studio_client(
+def client(
     tmp_path: Path,
 ) -> tuple[TestClient, FakeFactory, FakeCatalog, StudioCatalog]:
     write_dataset(tmp_path / "datasets" / "btc")

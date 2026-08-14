@@ -10,7 +10,9 @@ from trade_rl.workflows.universal_causal_alpha_v3_config import (
     CausalAlphaV3Candidate,
     CausalAlphaV3SelectionGate,
 )
-from trade_rl.workflows.universal_causal_alpha_v3_contracts import CausalAlphaV3ReplayMetric
+from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
+    CausalAlphaV3ReplayMetric,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_selection import (
     CausalAlphaV3SelectionRejected,
     rank_causal_alpha_v3_candidates,
@@ -33,7 +35,14 @@ def _candidate(name: str, uncertainty: float) -> CausalAlphaV3Candidate:
     )
 
 
-def _metric(candidate: CausalAlphaV3Candidate, episode: int, *, gross: float, net: float, turnover: float = 0.2) -> CausalAlphaV3ReplayMetric:
+def _metric(
+    candidate: CausalAlphaV3Candidate,
+    episode: int,
+    *,
+    gross: float,
+    net: float,
+    turnover: float = 0.2,
+) -> CausalAlphaV3ReplayMetric:
     token = f"{episode + 1:x}"
     return CausalAlphaV3ReplayMetric(
         run_manifest_digest="1" * 64,

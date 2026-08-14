@@ -68,7 +68,9 @@ def _normalizer_start_method() -> str:
     raise RuntimeError("normalizer parallel collection requires forkserver or spawn")
 
 
-def _normalizer_environment(spec: NormalizerWorkerSpec):
+def normalizer_environment(spec: NormalizerWorkerSpec):
+    """Build one unnormalized cash-start environment from serializable inputs."""
+
     return build_market_environment(
         spec.dataset,
         spec.run,
@@ -86,7 +88,7 @@ def _collect_normalizer_chunk_from_spec(
     bounds: tuple[int, int, int],
 ) -> np.ndarray:
     start, stop, action_size = bounds
-    environment = _normalizer_environment(spec)
+    environment = normalizer_environment(spec)
     observations: list[np.ndarray] = []
     try:
         observation, _ = environment.reset(

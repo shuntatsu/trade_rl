@@ -66,16 +66,17 @@ def _metric(
 
 def _write_checkpoint(
     path: Path,
-    rows: list[tuple[CausalAlphaCandidateEpisodeMetricsV2, str, str]],
+    rows: list[tuple[CausalAlphaCandidateEpisodeMetricsV2, str, str | None]],
 ) -> None:
     payloads: list[str] = []
     for metric, grid_digest, generator_digest in rows:
-        payload = {
+        payload: dict[str, object] = {
             **metric.to_payload(),
-            "generator_code_digest": generator_digest,
             "grid_digest": grid_digest,
             "schema_version": "causal_alpha_selection_checkpoint_metric_v2",
         }
+        if generator_digest is not None:
+            payload["generator_code_digest"] = generator_digest
         payloads.append(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     path.write_text("\n".join(payloads) + "\n", encoding="utf-8")
 
@@ -122,6 +123,66 @@ def test_diagnostic_checkpoint_accepts_historical_generator_and_deduplicates_sig
         _CANDIDATE_A,
         _CANDIDATE_B,
     }
+
+
+def test_diagnostic_checkpoint_accepts_uniform_legacy_missing_generator_identity(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "checkpoint.jsonl"
+    first = _metric(
+        _CANDIDATE_A,
+        symbol="BTCUSDT",
+        episode=0,
+        gross=-0.02,
+        net=-0.03,
+    )
+    second = _metric(
+        _CANDIDATE_B,
+        symbol="BTCUSDT",
+        episode=0,
+        gross=-0.01,
+        net=-0.02,
+    )
+    _write_checkpoint(path, [(first, _GRID, None), (second, _GRID, None)])
+
+    snapshot = module.load_causal_alpha_diagnostic_checkpoint_v2(path)
+    report = module.build_causal_alpha_research_report(snapshot)
+    payload = report.to_payload()
+
+    assert snapshot.generator_code_digest is None
+    assert snapshot.generator_identity_status == "unavailable_legacy"
+    assert report.generator_code_digest is None
+    assert report.generator_identity_status == "unavailable_legacy"
+    assert payload["generator_code_digest"] is None
+    assert payload["generator_identity_status"] == "unavailable_legacy"
+    assert payload["promotion_eligible"] is False
+
+
+def test_diagnostic_checkpoint_rejects_mixed_generator_identity_availability(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "checkpoint.jsonl"
+    first = _metric(
+        _CANDIDATE_A,
+        symbol="BTCUSDT",
+        episode=0,
+        gross=0.0,
+        net=0.0,
+    )
+    second = _metric(
+        _CANDIDATE_B,
+        symbol="BTCUSDT",
+        episode=0,
+        gross=0.0,
+        net=0.0,
+    )
+    _write_checkpoint(
+        path,
+        [(first, _GRID, None), (second, _GRID, _GENERATOR)],
+    )
+
+    with pytest.raises(ValueError, match="generator identity availability"):
+        module.load_causal_alpha_diagnostic_checkpoint_v2(path)
 
 
 def test_diagnostic_checkpoint_rejects_mixed_generator_identity(tmp_path: Path) -> None:

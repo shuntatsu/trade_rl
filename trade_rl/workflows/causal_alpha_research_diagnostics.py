@@ -2,8 +2,9 @@
 
 This module deliberately does not participate in resume or promotion.  It can
 inspect an older v2 checkpoint whose generator identity differs from the
-currently imported implementation, while still requiring every row inside the
-historical checkpoint to agree on one immutable grid/generator identity.
+currently imported implementation, including legacy checkpoints created before
+that identity was recorded.  Every row must agree on both grid identity and
+generator-identity availability.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ from trade_rl.workflows.universal_causal_alpha_teacher import (
 _CHECKPOINT_SCHEMA = "causal_alpha_selection_checkpoint_metric_v2"
 _REPORT_SCHEMA = "causal_alpha_research_diagnostic_report_v1"
 _SNAPSHOT_SCHEMA = "causal_alpha_diagnostic_checkpoint_v2"
+_GENERATOR_IDENTITY_PRESENT = "present"
+_GENERATOR_IDENTITY_UNAVAILABLE_LEGACY = "unavailable_legacy"
 
 
 def _require_digest(value: object, *, field: str) -> str:
@@ -39,15 +42,19 @@ class CausalAlphaDiagnosticCheckpointV2:
     """One internally consistent historical v2 checkpoint snapshot."""
 
     grid_digest: str
-    generator_code_digest: str
+    generator_code_digest: str | None
     metrics: tuple[CausalAlphaCandidateEpisodeMetricsV2, ...]
     digest: str = ""
 
     def __post_init__(self) -> None:
         grid = _require_digest(self.grid_digest, field="grid digest")
-        generator = _require_digest(
-            self.generator_code_digest,
-            field="generator code digest",
+        generator = (
+            None
+            if self.generator_code_digest is None
+            else _require_digest(
+                self.generator_code_digest,
+                field="generator code digest",
+            )
         )
         metrics = tuple(self.metrics)
         if not metrics:
@@ -60,6 +67,7 @@ class CausalAlphaDiagnosticCheckpointV2:
         expected = content_digest(
             {
                 "generator_code_digest": generator,
+                "generator_identity_status": self.generator_identity_status,
                 "grid_digest": grid,
                 "metric_digests": tuple(item.digest for item in metrics),
                 "schema_version": _SNAPSHOT_SCHEMA,
@@ -75,6 +83,12 @@ class CausalAlphaDiagnosticCheckpointV2:
     @property
     def row_count(self) -> int:
         return len(self.metrics)
+
+    @property
+    def generator_identity_status(self) -> str:
+        if self.generator_code_digest is None:
+            return _GENERATOR_IDENTITY_UNAVAILABLE_LEGACY
+        return _GENERATOR_IDENTITY_PRESENT
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +135,7 @@ class CausalAlphaDiagnosticCandidateSummary:
 class CausalAlphaResearchReport:
     checkpoint_digest: str
     grid_digest: str
-    generator_code_digest: str
+    generator_code_digest: str | None
     row_count: int
     unique_prediction_episode_count: int
     duplicate_signal_row_count: int
@@ -130,8 +144,13 @@ class CausalAlphaResearchReport:
     digest: str = ""
 
     def __post_init__(self) -> None:
-        for field in ("checkpoint_digest", "grid_digest", "generator_code_digest"):
+        for field in ("checkpoint_digest", "grid_digest"):
             _require_digest(getattr(self, field), field=field.replace("_", " "))
+        if self.generator_code_digest is not None:
+            _require_digest(
+                self.generator_code_digest,
+                field="generator code digest",
+            )
         if self.row_count <= 0:
             raise ValueError("causal alpha diagnostic report must contain rows")
         if not 0 < self.unique_prediction_episode_count <= self.row_count:
@@ -160,6 +179,7 @@ class CausalAlphaResearchReport:
             "checkpoint_digest": self.checkpoint_digest,
             "duplicate_signal_row_count": self.duplicate_signal_row_count,
             "generator_code_digest": self.generator_code_digest,
+            "generator_identity_status": self.generator_identity_status,
             "grid_digest": self.grid_digest,
             "promotion_eligible": self.promotion_eligible,
             "row_count": self.row_count,
@@ -169,6 +189,12 @@ class CausalAlphaResearchReport:
         if include_digest:
             payload["artifact_digest"] = self.digest
         return payload
+
+    @property
+    def generator_identity_status(self) -> str:
+        if self.generator_code_digest is None:
+            return _GENERATOR_IDENTITY_UNAVAILABLE_LEGACY
+        return _GENERATOR_IDENTITY_PRESENT
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +246,7 @@ def load_causal_alpha_diagnostic_checkpoint_v2(
     identities: set[tuple[str, str, int]] = set()
     grid_digest: str | None = None
     generator_digest: str | None = None
+    generator_identity_available: bool | None = None
     with source.open("r", encoding="utf-8") as checkpoint:
         for line_number, line in enumerate(checkpoint, start=1):
             if not line.strip():
@@ -234,9 +261,21 @@ def load_causal_alpha_diagnostic_checkpoint_v2(
             if raw.get("schema_version") != _CHECKPOINT_SCHEMA:
                 raise ValueError("causal alpha diagnostic checkpoint schema mismatch")
             row_grid = _require_digest(raw.get("grid_digest"), field="grid digest")
-            row_generator = _require_digest(
-                raw.get("generator_code_digest"),
-                field="generator code digest",
+            row_generator_available = "generator_code_digest" in raw
+            if generator_identity_available is None:
+                generator_identity_available = row_generator_available
+            elif row_generator_available != generator_identity_available:
+                raise ValueError(
+                    "causal alpha diagnostic checkpoint generator identity "
+                    "availability drifted"
+                )
+            row_generator = (
+                _require_digest(
+                    raw["generator_code_digest"],
+                    field="generator code digest",
+                )
+                if row_generator_available
+                else None
             )
             if grid_digest is None:
                 grid_digest = row_grid
@@ -244,9 +283,9 @@ def load_causal_alpha_diagnostic_checkpoint_v2(
                 raise ValueError(
                     "causal alpha diagnostic checkpoint grid identity drifted"
                 )
-            if generator_digest is None:
+            if generator_digest is None and row_generator is not None:
                 generator_digest = row_generator
-            elif row_generator != generator_digest:
+            elif row_generator is not None and row_generator != generator_digest:
                 raise ValueError(
                     "causal alpha diagnostic checkpoint generator identity drifted"
                 )
@@ -256,7 +295,12 @@ def load_causal_alpha_diagnostic_checkpoint_v2(
                 raise ValueError("causal alpha diagnostic checkpoint is duplicated")
             identities.add(identity)
             metrics.append(metric)
-    if not metrics or grid_digest is None or generator_digest is None:
+    if (
+        not metrics
+        or grid_digest is None
+        or generator_identity_available is None
+        or (generator_identity_available and generator_digest is None)
+    ):
         raise ValueError("causal alpha diagnostic checkpoint is empty")
     return CausalAlphaDiagnosticCheckpointV2(
         grid_digest=grid_digest,

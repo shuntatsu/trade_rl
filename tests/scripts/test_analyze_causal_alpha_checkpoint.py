@@ -14,7 +14,7 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
 )
 
 
-def _checkpoint(path: Path) -> None:
+def _checkpoint(path: Path, *, include_generator: bool = True) -> None:
     signal = evaluate_causal_alpha_signal_diagnostics(
         np.asarray((-0.02, -0.01, 0.01, 0.02), dtype=np.float64),
         np.asarray((-0.01, -0.02, 0.01, 0.03), dtype=np.float64),
@@ -43,12 +43,13 @@ def _checkpoint(path: Path) -> None:
         liquidity_weight_cap_median=0.2,
         liquidity_weight_cap_max=0.3,
     )
-    payload = {
+    payload: dict[str, object] = {
         **metric.to_payload(),
-        "generator_code_digest": "1" * 64,
         "grid_digest": "2" * 64,
         "schema_version": "causal_alpha_selection_checkpoint_metric_v2",
     }
+    if include_generator:
+        payload["generator_code_digest"] = "1" * 64
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
 
@@ -64,3 +65,19 @@ def test_cli_emits_non_promotable_diagnostic_json(tmp_path: Path, capsys) -> Non
     assert payload["row_count"] == 1
     assert payload["unique_prediction_episode_count"] == 1
     assert payload["generator_code_digest"] == "1" * 64
+
+
+def test_cli_marks_legacy_missing_generator_identity_as_unavailable(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    checkpoint = tmp_path / "checkpoint.jsonl"
+    _checkpoint(checkpoint, include_generator=False)
+
+    exit_code = module.main([str(checkpoint)])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["generator_code_digest"] is None
+    assert payload["generator_identity_status"] == "unavailable_legacy"
+    assert payload["promotion_eligible"] is False

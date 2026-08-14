@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -87,3 +88,19 @@ def test_record_store_rejects_tampering_unknown_scope_and_identity_drift(
         other.load_replay_metrics(
             expected_contract_digests={metric.identity: metric.contract_digest}
         )
+
+
+def test_record_store_rejects_path_traversal_in_artifacts_and_symbols(tmp_path) -> None:
+    metric = _metric()
+    store = CausalAlphaV3RecordStore(
+        tmp_path,
+        run_manifest_digest=metric.run_manifest_digest,
+        freeze_digest=metric.freeze_digest,
+    )
+
+    with pytest.raises(ValueError, match="under the store root"):
+        store.write_exact_artifact("../escape.json", {"schema_version": "test_v1"})
+
+    unsafe = replace(metric, symbol="../escape", digest="")
+    with pytest.raises(ValueError, match="safe artifact path segment"):
+        store.write_replay_metric(unsafe)

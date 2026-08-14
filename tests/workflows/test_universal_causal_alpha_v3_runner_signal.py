@@ -11,7 +11,9 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal import (
 )
 
 
-def _metric(*, rank: float, spread: float, direction: float, episode: int) -> CausalAlphaV3SignalScopeMetric:
+def _metric(
+    *, rank: float, spread: float, direction: float, episode: int
+) -> CausalAlphaV3SignalScopeMetric:
     return CausalAlphaV3SignalScopeMetric(
         fit_config_digest="1" * 64,
         symbol="BTCUSDT",

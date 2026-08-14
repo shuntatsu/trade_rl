@@ -85,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run ruff check . 2>&1 | tee ruff.log
+          uv run ruff check --diff . 2>&1 | tee ruff.log
 
       - name: Format
         shell: bash

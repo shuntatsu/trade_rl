@@ -169,7 +169,7 @@ def _load_index(path: Path) -> _TelemetryIndex | None:
 def _sync_parent_directory(path: Path) -> None:
     if sys.platform == "win32":
         return
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)  # type: ignore[unreachable]
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
     try:
         descriptor = os.open(path, flags)
     except OSError:
@@ -528,8 +528,6 @@ class _IndexedTrainingTelemetryWriter:
                 ) != (int(path_stat.st_dev), int(path_stat.st_ino)):
                     raise RuntimeError("telemetry stream identity changed")
                 if path_stat.st_size != self._expected_size:
-                    # Another writer may have appended while this instance was
-                    # idle. Reconcile only when the stream size actually moved.
                     index = _refresh_index_unlocked(self.path).index
                     if index is None or path_stat.st_size != index.indexed_size:
                         raise RuntimeError(

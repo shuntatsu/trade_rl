@@ -18,6 +18,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
       - name: Add exact return annotation
         shell: bash
         run: |
@@ -27,8 +32,6 @@ jobs:
 
           path = Path("trade_rl/workflows/normalizer_collection.py")
           text = path.read_text(encoding="utf-8")
-          old_import = "from trade_rl.integrations.signal_artifacts import (\n"
-          new_import = "from trade_rl.integrations.signal_artifacts import (\n"
           anchor = ")\nfrom trade_rl.workflows.training_run import TrainingRunConfig\n"
           replacement = ")\nfrom trade_rl.rl.environment import ResidualMarketEnv\nfrom trade_rl.workflows.training_run import TrainingRunConfig\n"
           old_sig = "def normalizer_environment(spec: NormalizerWorkerSpec):\n"
@@ -48,8 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install uv >/dev/null
-          uv sync --extra dev --extra train-sb3 >/dev/null
+          uv sync --extra dev --extra export --extra train-sb3 --extra studio >/dev/null
           uv run mypy trade_rl/workflows/normalizer_collection.py
 
       - name: Commit exact repair

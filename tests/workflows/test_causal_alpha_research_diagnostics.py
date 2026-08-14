@@ -15,7 +15,6 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaCandidateEpisodeMetricsV2,
 )
 
-
 _GRID = "2" * 64
 _GENERATOR = "1" * 64
 _CANDIDATE_A = "a" * 64

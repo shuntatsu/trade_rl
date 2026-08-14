@@ -241,8 +241,17 @@ def fit_causal_alpha_ridge(
     knowledge_cutoff: int,
     feature_names: tuple[str, ...],
     config: CausalAlphaRidgeConfig,
+    sample_weights: object | None = None,
+    normalize_objective: bool = False,
 ) -> CausalAlphaRidgeModel:
-    """Fit scaler and ridge using only fully realized prefix labels."""
+    """Fit scaler and ridge using only fully realized prefix labels.
+
+    ``sample_weights`` and ``normalize_objective`` are research-only
+    extensions. Omitting both preserves the maintained legacy numerical
+    path exactly. Weighted fits use feature-local weighted standardization
+    and may normalize the data-fit objective by total eligible weight so
+    the ridge strength is independent of duplicated row count.
+    """
 
     values = np.asarray(features, dtype=np.float64)
     target = np.asarray(labels, dtype=np.float64).reshape(-1)
@@ -257,46 +266,125 @@ def fit_causal_alpha_ridge(
         raise ValueError("causal alpha label-end indices are not sample aligned")
     if isinstance(knowledge_cutoff, bool) or not isinstance(knowledge_cutoff, int):
         raise ValueError("knowledge_cutoff must be an integer")
+    if not isinstance(normalize_objective, bool):
+        raise TypeError("normalize_objective must be a boolean")
+
+    raw_weights: np.ndarray | None = None
+    if sample_weights is not None:
+        raw_weights = np.asarray(sample_weights, dtype=np.float64).reshape(-1)
+        if (
+            raw_weights.shape != (rows,)
+            or not np.isfinite(raw_weights).all()
+            or np.any(raw_weights < 0.0)
+            or not np.any(raw_weights > 0.0)
+        ):
+            raise ValueError(
+                "sample_weights must be finite, non-negative, sample aligned, "
+                "and contain positive weight"
+            )
+
     finite_rows = np.isfinite(values).all(axis=1) & np.isfinite(target)
     eligible_mask = finite_rows & (label_end >= 0) & (label_end < knowledge_cutoff)
-    eligible_indices = np.flatnonzero(eligible_mask).astype(np.int64)
-    if eligible_indices.size < 2:
-        raise ValueError("causal alpha prefix contains insufficient fitted samples")
-    x = values[eligible_indices]
-    x_available = available[eligible_indices]
-    y = target[eligible_indices]
 
-    # Mirror the Universal observation contract: unavailable feature values are
-    # represented by standardized zero rather than discarding the entire row.
-    # Statistics are feature-local and use only values known to be available.
-    available_count = x_available.sum(axis=0, dtype=np.int64)
-    available_sum = np.where(x_available, x, 0.0).sum(axis=0, dtype=np.float64)
-    location = np.zeros(x.shape[1], dtype=np.float64)
-    np.divide(
-        available_sum,
-        available_count,
-        out=location,
-        where=available_count > 0,
-    )
-    centered = np.where(x_available, x - location, 0.0)
-    squared_sum = np.square(centered).sum(axis=0, dtype=np.float64)
-    variance = np.zeros(x.shape[1], dtype=np.float64)
-    np.divide(
-        squared_sum,
-        available_count,
-        out=variance,
-        where=available_count > 0,
-    )
-    raw_scale = np.sqrt(variance)
-    constant_mask = (available_count < 2) | (raw_scale <= _EPSILON)
-    scale = np.where(constant_mask, 1.0, raw_scale)
-    scaled = np.where(x_available, (x - location) / scale, 0.0)
-    scaled[:, constant_mask] = 0.0
-    design = np.column_stack((np.ones(scaled.shape[0], dtype=np.float64), scaled))
-    gram = design.T @ design
+    # Preserve the maintained legacy numerical path bit-for-bit when the
+    # research extensions are not requested.
+    if raw_weights is None and not normalize_objective:
+        eligible_indices = np.flatnonzero(eligible_mask).astype(np.int64)
+        if eligible_indices.size < 2:
+            raise ValueError("causal alpha prefix contains insufficient fitted samples")
+        x = values[eligible_indices]
+        x_available = available[eligible_indices]
+        y = target[eligible_indices]
+        available_count = x_available.sum(axis=0, dtype=np.int64)
+        available_sum = np.where(x_available, x, 0.0).sum(
+            axis=0, dtype=np.float64
+        )
+        location = np.zeros(x.shape[1], dtype=np.float64)
+        np.divide(
+            available_sum,
+            available_count,
+            out=location,
+            where=available_count > 0,
+        )
+        centered = np.where(x_available, x - location, 0.0)
+        squared_sum = np.square(centered).sum(axis=0, dtype=np.float64)
+        variance = np.zeros(x.shape[1], dtype=np.float64)
+        np.divide(
+            squared_sum,
+            available_count,
+            out=variance,
+            where=available_count > 0,
+        )
+        raw_scale = np.sqrt(variance)
+        constant_mask = (available_count < 2) | (raw_scale <= _EPSILON)
+        scale = np.where(constant_mask, 1.0, raw_scale)
+        scaled = np.where(x_available, (x - location) / scale, 0.0)
+        scaled[:, constant_mask] = 0.0
+        design = np.column_stack(
+            (np.ones(scaled.shape[0], dtype=np.float64), scaled)
+        )
+        gram = design.T @ design
+        rhs = design.T @ y
+    else:
+        weights_all = (
+            np.ones(rows, dtype=np.float64)
+            if raw_weights is None
+            else raw_weights
+        )
+        eligible_mask &= weights_all > 0.0
+        eligible_indices = np.flatnonzero(eligible_mask).astype(np.int64)
+        if eligible_indices.size < 2:
+            raise ValueError("causal alpha prefix contains insufficient fitted samples")
+        x = values[eligible_indices]
+        x_available = available[eligible_indices]
+        y = target[eligible_indices]
+        weights = weights_all[eligible_indices]
+        weight_sum = float(weights.sum(dtype=np.float64))
+        if not np.isfinite(weight_sum) or weight_sum <= _EPSILON:
+            raise ValueError("sample_weights have no positive eligible weight")
+        weight_column = weights[:, None]
+        positive_available = x_available & (weight_column > 0.0)
+        available_count = positive_available.sum(axis=0, dtype=np.int64)
+        available_weight = np.where(
+            x_available, weight_column, 0.0
+        ).sum(axis=0, dtype=np.float64)
+        available_sum = np.where(
+            x_available, x * weight_column, 0.0
+        ).sum(axis=0, dtype=np.float64)
+        location = np.zeros(x.shape[1], dtype=np.float64)
+        np.divide(
+            available_sum,
+            available_weight,
+            out=location,
+            where=available_weight > _EPSILON,
+        )
+        centered = np.where(x_available, x - location, 0.0)
+        squared_sum = (
+            np.square(centered) * weight_column
+        ).sum(axis=0, dtype=np.float64)
+        variance = np.zeros(x.shape[1], dtype=np.float64)
+        np.divide(
+            squared_sum,
+            available_weight,
+            out=variance,
+            where=available_weight > _EPSILON,
+        )
+        raw_scale = np.sqrt(variance)
+        constant_mask = (available_count < 2) | (raw_scale <= _EPSILON)
+        scale = np.where(constant_mask, 1.0, raw_scale)
+        scaled = np.where(x_available, (x - location) / scale, 0.0)
+        scaled[:, constant_mask] = 0.0
+        design = np.column_stack(
+            (np.ones(scaled.shape[0], dtype=np.float64), scaled)
+        )
+        gram = design.T @ (design * weight_column)
+        rhs = design.T @ (y * weights)
+        if normalize_objective:
+            gram = gram / weight_sum
+            rhs = rhs / weight_sum
+
     penalty = np.eye(design.shape[1], dtype=np.float64) * config.ridge_strength
     penalty[0, 0] = 0.0
-    rhs = design.T @ y
     try:
         solution = np.linalg.solve(gram + penalty, rhs)
     except np.linalg.LinAlgError as error:

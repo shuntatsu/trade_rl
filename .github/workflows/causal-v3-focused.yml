@@ -41,6 +41,7 @@ jobs:
           tests/learning/test_dagger.py
           tests/learning/test_teacher_artifact.py
           tests/learning/test_episode_teacher_integration.py
+          tests/test_causal_alpha_v3_documentation_contract.py
       - name: Ruff
         run: >-
           uv run ruff check
@@ -61,6 +62,7 @@ jobs:
           tests/rl/test_anchored_target_residual.py
           tests/rl/test_anchored_target_residual_decision.py
           tests/rl/test_anchored_target_residual_environment.py
+          tests/test_causal_alpha_v3_documentation_contract.py
       - name: Format
         run: uv run ruff format --check .
       - name: Mypy

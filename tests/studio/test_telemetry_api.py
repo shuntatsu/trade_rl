@@ -7,10 +7,7 @@ from uuid import UUID
 
 from trade_rl.telemetry.training import TrainingTelemetryWriter
 
-from .helpers import (
-    telemetry_record as record,
-    telemetry_stream_path as stream_path,
-)
+from .helpers import telemetry_record, telemetry_stream_path
 from .support import client, request
 
 
@@ -22,10 +19,10 @@ def test_telemetry_status_and_cursor_page_are_scoped_to_known_job(
         "/api/studio/jobs/training",
         json=request(catalog, run_id="live-001").model_dump(by_alias=True),
     ).json()
-    stream = stream_path(tmp_path, "live-001", 7)
+    stream = telemetry_stream_path(tmp_path, "live-001", 7)
     with TrainingTelemetryWriter(stream, flush_every=1) as writer:
-        writer.append(record(1))
-        writer.append(record(2))
+        writer.append(telemetry_record(1))
+        writer.append(telemetry_record(2))
 
     status = api.get(f"/api/studio/jobs/{created['id']}/telemetry/status")
     page = api.get(
@@ -64,10 +61,10 @@ def test_telemetry_can_select_independent_seed_streams(tmp_path: Path) -> None:
     ).json()
     for seed, count in ((3, 2), (11, 3)):
         with TrainingTelemetryWriter(
-            stream_path(tmp_path, "live-multi", seed), flush_every=1
+            telemetry_stream_path(tmp_path, "live-multi", seed), flush_every=1
         ) as writer:
             for sequence in range(1, count + 1):
-                writer.append(record(sequence, seed=seed))
+                writer.append(telemetry_record(sequence, seed=seed))
 
     default_status = api.get(
         f"/api/studio/jobs/{created['id']}/telemetry/status"
@@ -119,10 +116,10 @@ def test_telemetry_rejects_multiple_streams_for_one_seed(tmp_path: Path) -> None
     ).json()
     for namespace in (".staging", "runs"):
         with TrainingTelemetryWriter(
-            stream_path(tmp_path, "live-duplicate", 7, namespace=namespace),
+            telemetry_stream_path(tmp_path, "live-duplicate", 7, namespace=namespace),
             flush_every=1,
         ) as writer:
-            writer.append(record(1))
+            writer.append(telemetry_record(1))
 
     response = api.get(f"/api/studio/jobs/{created['id']}/telemetry/status")
 
@@ -138,17 +135,17 @@ def test_old_stream_generation_requests_reset_without_returning_records(
         "/api/studio/jobs/training",
         json=request(catalog, run_id="live-reset").model_dump(by_alias=True),
     ).json()
-    stream = stream_path(tmp_path, "live-reset", 7)
+    stream = telemetry_stream_path(tmp_path, "live-reset", 7)
     with TrainingTelemetryWriter(stream, flush_every=1) as writer:
-        writer.append(record(1))
-        writer.append(record(2))
+        writer.append(telemetry_record(1))
+        writer.append(telemetry_record(2))
     old_generation = api.get(
         f"/api/studio/jobs/{created['id']}/telemetry/status"
     ).json()["streamGeneration"]
 
     replacement = tmp_path / "replacement.jsonl"
     replacement.write_text(
-        json.dumps(record(1).to_json_dict(), sort_keys=True) + "\n",
+        json.dumps(telemetry_record(1).to_json_dict(), sort_keys=True) + "\n",
         encoding="utf-8",
     )
     os.replace(replacement, stream)

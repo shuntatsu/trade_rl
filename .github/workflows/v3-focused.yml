@@ -62,15 +62,26 @@ jobs:
           if-no-files-found: error
 
       - name: V3 lint
-        run: >-
-          uv run ruff check
-          trade_rl/learning/causal_alpha_v3.py
-          trade_rl/workflows/universal_causal_alpha_v3*.py
-          scripts/run_universal_causal_alpha_v3_research.py
-          tests/learning/test_causal_alpha_v3*.py
-          tests/workflows/test_universal_causal_alpha_v3*.py
-          tests/scripts/test_run_universal_causal_alpha_v3_research.py
-          tests/test_causal_alpha_v3*.py
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run ruff check \
+            trade_rl/learning/causal_alpha_v3.py \
+            trade_rl/workflows/universal_causal_alpha_v3*.py \
+            scripts/run_universal_causal_alpha_v3_research.py \
+            tests/learning/test_causal_alpha_v3*.py \
+            tests/workflows/test_universal_causal_alpha_v3*.py \
+            tests/scripts/test_run_universal_causal_alpha_v3_research.py \
+            tests/test_causal_alpha_v3*.py \
+            2>&1 | tee v3-focused-lint.log
+
+      - name: Upload V3 lint diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v3-focused-lint
+          path: v3-focused-lint.log
+          if-no-files-found: error
 
       - name: V3 format
         run: >-

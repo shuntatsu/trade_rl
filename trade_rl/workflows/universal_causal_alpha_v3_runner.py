@@ -101,7 +101,11 @@ class CausalAlphaV3PreparedResearchData:
 
     def __post_init__(self) -> None:
         symbols = tuple(self.train_symbols)
-        if not symbols or len(set(symbols)) != len(symbols) or any(not item for item in symbols):
+        if (
+            not symbols
+            or len(set(symbols)) != len(symbols)
+            or any(not item for item in symbols)
+        ):
             raise ValueError("V3 prepared train_symbols must be non-empty and unique")
         mappings = {
             "partitions": dict(self.partitions),
@@ -120,11 +124,17 @@ class CausalAlphaV3PreparedResearchData:
                 raise TypeError("V3 prepared partition type is invalid")
             sample_dataset_id = getattr(mappings["samples"][symbol], "dataset_id", None)
             if sample_dataset_id != partition.holdout_contract.dataset_id:
-                raise ValueError("V3 prepared sample/partition dataset identity drifted")
+                raise ValueError(
+                    "V3 prepared sample/partition dataset identity drifted"
+                )
             if not callable(mappings["environment_factories"][symbol]):
                 raise TypeError("V3 prepared environment factory must be callable")
             delay = mappings["signal_delays"][symbol]
-            if isinstance(delay, bool) or not isinstance(delay, int) or delay not in {0, 1}:
+            if (
+                isinstance(delay, bool)
+                or not isinstance(delay, int)
+                or delay not in {0, 1}
+            ):
                 raise ValueError("V3 prepared signal delay must be 0 or 1")
             bars = mappings["decision_bars"][symbol]
             if isinstance(bars, bool) or not isinstance(bars, int) or bars <= 0:
@@ -175,9 +185,13 @@ class CausalAlphaV3SignalRejected(RuntimeError):
 class CausalAlphaV3AdmissionRejected(RuntimeError):
     """Terminal research outcome when the selected teacher fails untouched holdouts."""
 
-    def __init__(self, *, admission_digest: str, selected_candidate_digest: str) -> None:
+    def __init__(
+        self, *, admission_digest: str, selected_candidate_digest: str
+    ) -> None:
         require_sha256(admission_digest, field="V3 rejected admission digest")
-        require_sha256(selected_candidate_digest, field="V3 rejected selected candidate")
+        require_sha256(
+            selected_candidate_digest, field="V3 rejected selected candidate"
+        )
         self.admission_digest = admission_digest
         self.selected_candidate_digest = selected_candidate_digest
         self.digest = content_digest(
@@ -345,13 +359,19 @@ def prepare_causal_alpha_v3_research_data(
                 feature_schema_digest=runtime.feature_schema_digest,
             )
             if partition.holdout_contract.dataset_id != sample.dataset_id:
-                raise ValueError("V3 prepared partition/sample dataset identity drifted")
+                raise ValueError(
+                    "V3 prepared partition/sample dataset identity drifted"
+                )
             config = getattr(environment, "config", None)
             execution = getattr(config, "execution_cost", None)
             if not isinstance(execution, ExecutionCostConfig):
                 raise TypeError("V3 execution cost config is unavailable")
             delay = getattr(config, "signal_delay_decisions", None)
-            if isinstance(delay, bool) or not isinstance(delay, int) or delay not in {0, 1}:
+            if (
+                isinstance(delay, bool)
+                or not isinstance(delay, int)
+                or delay not in {0, 1}
+            ):
                 raise ValueError("V3 signal delay is unavailable")
             bars = getattr(environment, "decision_bars", None)
             if isinstance(bars, bool) or not isinstance(bars, int) or bars <= 0:
@@ -719,7 +739,9 @@ def run_universal_causal_alpha_v3_research(
         run_manifest_digest=manifest.digest,
     )
     base_store.write_exact_artifact("run-manifest.json", manifest.to_payload())
-    base_store.write_exact_artifact("authored-config.json", _authored_config_payload(config))
+    base_store.write_exact_artifact(
+        "authored-config.json", _authored_config_payload(config)
+    )
 
     representatives: dict[str, CausalAlphaV3Candidate] = {}
     for candidate in config.candidates:
@@ -789,7 +811,9 @@ def run_universal_causal_alpha_v3_research(
         raise rejection
 
     frozen_candidates = tuple(
-        candidate for candidate in config.candidates if candidate.fit.digest in passed_signal
+        candidate
+        for candidate in config.candidates
+        if candidate.fit.digest in passed_signal
     )
     frozen_fit_digests = tuple(
         dict.fromkeys(candidate.fit.digest for candidate in frozen_candidates)
@@ -826,9 +850,7 @@ def run_universal_causal_alpha_v3_research(
             run_manifest_digest=manifest.digest,
             freeze_digest=freeze.digest,
             store=store,
-            max_position_to_market_notional=(
-                prepared.max_position_to_market_notional
-            ),
+            max_position_to_market_notional=(prepared.max_position_to_market_notional),
         )
     except CausalAlphaV3SelectionRejected as rejection:
         store.write_exact_artifact("selection/rejection.json", rejection.to_payload())
@@ -874,9 +896,7 @@ def run_universal_causal_alpha_v3_research(
             execution_cost=execution,
             signal_delay_decisions=prepared.signal_delays[symbol],
             decision_bars=prepared.decision_bars[symbol],
-            max_position_to_market_notional=(
-                prepared.max_position_to_market_notional
-            ),
+            max_position_to_market_notional=(prepared.max_position_to_market_notional),
             teacher_config_digest=teacher_config_digest,
             sampling_config_digest=sampling_config_digest,
             fit_cache=fit_cache,

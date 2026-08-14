@@ -1,0 +1,47 @@
+name: Causal V3 TDD Red
+
+on:
+  push:
+    branches:
+      - codex/causal-alpha-v3-research
+
+permissions:
+  contents: read
+
+jobs:
+  expected-red:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Verify independent expected failures
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/learning/test_causal_alpha_weighted_ridge.py
+          weighted=$?
+          uv run pytest -q tests/learning/test_causal_alpha_v3.py
+          v3=$?
+          uv run pytest -q tests/workflows/test_universal_causal_alpha_v3.py
+          workflow_v3=$?
+          uv run pytest -q tests/rl/test_anchored_target_residual.py
+          anchored=$?
+          uv run pytest -q tests/learning/test_dagger.py
+          dagger=$?
+          set -e
+          echo "weighted=$weighted v3=$v3 workflow_v3=$workflow_v3 anchored=$anchored dagger=$dagger"
+          test "$weighted" -ne 0
+          test "$v3" -ne 0
+          test "$workflow_v3" -ne 0
+          test "$anchored" -ne 0
+          test "$dagger" -ne 0
+          echo "All planned feature tests are RED before implementation."

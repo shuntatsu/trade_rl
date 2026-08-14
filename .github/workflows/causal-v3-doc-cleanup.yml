@@ -1,0 +1,45 @@
+name: Apply causal V3 documentation cleanup
+
+on:
+  push:
+    branches:
+      - codex/causal-alpha-v3-research
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 1
+      - name: Clean documentation quoting
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("docs/UNIVERSAL_TRAINING.md")
+          text = path.read_text(encoding="utf-8")
+          escaped = 'behavior_cloning_teacher: \\\"causal_alpha_ridge\\\"'
+          if escaped not in text:
+              raise SystemExit("escaped causal alpha teacher quote marker missing")
+          path.write_text(
+              text.replace(
+                  escaped,
+                  'behavior_cloning_teacher: "causal_alpha_ridge"',
+              ),
+              encoding="utf-8",
+          )
+          Path(".github/workflows/causal-v3-doc-cleanup.yml").unlink()
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: clean causal alpha v3 teacher quoting"
+          git push origin HEAD:codex/causal-alpha-v3-research

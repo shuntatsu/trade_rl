@@ -14,6 +14,7 @@ from trade_rl.integrations.signal_artifacts import (
     LoadedAlphaArtifact,
     LoadedFactorArtifact,
 )
+from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.workflows.training_run import TrainingRunConfig
 from trade_rl.workflows.walk_forward_evaluation import build_market_environment
 
@@ -68,7 +69,7 @@ def _normalizer_start_method() -> str:
     raise RuntimeError("normalizer parallel collection requires forkserver or spawn")
 
 
-def normalizer_environment(spec: NormalizerWorkerSpec):
+def normalizer_environment(spec: NormalizerWorkerSpec) -> ResidualMarketEnv:
     """Build one unnormalized cash-start environment from serializable inputs."""
 
     return build_market_environment(

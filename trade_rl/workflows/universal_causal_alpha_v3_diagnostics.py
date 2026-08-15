@@ -42,9 +42,9 @@ def _finite(value: float, *, field: str) -> None:
         raise ValueError(f"{field} must be finite")
 
 
-def _reason_counts(value: object, *, field: str) -> tuple[tuple[str, int], ...]:
+def _reason_counts(value: Any, *, field: str) -> tuple[tuple[str, int], ...]:
     try:
-        resolved = tuple((str(reason), int(count)) for reason, count in value)  # type: ignore[misc]
+        resolved = tuple((str(reason), int(count)) for reason, count in value)
     except (TypeError, ValueError) as error:
         raise ValueError(f"{field} must contain reason/count pairs") from error
     if (

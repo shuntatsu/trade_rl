@@ -2,7 +2,7 @@
 
 ## Objective
 
-Close the architectural ambiguity between raw `(symbol, episode)` signal records and statistically independent chronological episode evidence. A V3 signal artifact must state its independence unit, aggregation mode, raw coverage, independent episode count, chronology identity, and runtime provenance explicitly enough that a fresh process can audit how the gate was computed.
+Close the architectural ambiguity between raw `(symbol, episode)` signal records and statistically independent chronological episode evidence. A V3 signal artifact must state its independence unit, aggregation mode, raw coverage, independent episode count, chronology identity, fit identity, and runtime provenance explicitly enough that a fresh process can audit how the gate was computed.
 
 ## Non-goals
 
@@ -13,7 +13,7 @@ Close the architectural ambiguity between raw `(symbol, episode)` signal records
 
 ## Root cause
 
-The architecture-hardening change correctly moved signal uncertainty from symbol-major raw records to chronological episode clusters, but the authored config and evidence schema retained the generic `scope` terminology. The current clustered evaluator therefore interprets `minimum_scope_count` as an independent episode count while `expected_scope_count` and `scope_coverage` remain raw record quantities. The legacy flat evaluator can also produce the same evidence schema with different statistical semantics.
+The architecture-hardening change correctly moved signal uncertainty from symbol-major raw records to chronological episode clusters, but the authored config and evidence schema retained the generic `scope` terminology. The clustered evaluator therefore interpreted `minimum_scope_count` as an independent episode count while `expected_scope_count` and `scope_coverage` remained raw record quantities. The legacy flat evaluator could also produce the same evidence schema with different statistical semantics.
 
 This unit ambiguity caused the maintained `signal_contract_count=8` and `minimum_scope_count=24` configuration to become structurally impossible after clustering.
 
@@ -48,16 +48,17 @@ The leaf-level run binding is required because persisted signal leaves become re
 
 The independent cluster key is `(contract_start, contract_stop)`, not `episode_index` alone. `episode_index` remains part of the record identity and path for deterministic per-symbol storage, but it is no longer the statistical independence key.
 
-Runtime preparation must establish a shared chronology before any pooled fit or signal evaluation:
+Runtime preparation must establish one pooled-label chronology before any pooled fit or signal evaluation:
 
 1. all train-symbol datasets have identical timestamp arrays;
-2. all train-symbol chronological partitions have identical `(start, stop)` episode schedules;
+2. all train-symbol chronological partitions have identical `(episode_index, start, stop)` schedules;
 3. all train symbols use the same decision cadence;
-4. all train symbols resolve the same episode horizon.
+4. all train symbols use the same `signal_delay_decisions`, so the execution timing underlying the pooled labels is identical;
+5. all train symbols resolve the same episode horizon.
 
-Any mismatch fails before fitting. This closes the hidden assumption required by integer knowledge cutoffs and cross-symbol episode aggregation.
+Any mismatch fails before fitting. This closes the hidden assumptions required by integer knowledge cutoffs, pooled labels, and cross-symbol episode aggregation.
 
-The shared timestamp array is bound by `shared_clock_digest` in the V3 execution identity.
+The shared timestamp array, schedule, decision cadence, and signal delay are bound by `shared_clock_digest`. The shared-clock digest payload is versioned separately so adding signal-delay timing does not silently reinterpret the prior digest semantics.
 
 ## Signal evidence V2
 
@@ -65,6 +66,7 @@ Bump aggregate signal evidence to `causal_alpha_v3_signal_gate_evidence_v2`.
 
 The evidence explicitly persists:
 
+- `run_manifest_digest`
 - `raw_scope_count`
 - `expected_raw_scope_count`
 - `raw_scope_coverage`
@@ -76,6 +78,8 @@ The evidence explicitly persists:
 - top/bottom realized spread bootstrap evidence
 - direction-accuracy-excess bootstrap evidence
 - gate digest, pass state, rejection reasons, and metric digests
+
+One aggregate evidence object represents exactly one immutable run and one fit configuration. Metrics from different run manifests or `fit_config_digest` values are rejected. Within one chronological cluster, all symbol records must also share the same fitted-model `fit_digest`; otherwise the cluster is not a coherent cross-symbol observation and is rejected instead of averaged.
 
 The clustered evaluator accepts both expected counts explicitly. Rejection reasons use explicit names:
 
@@ -110,16 +114,16 @@ Bump `CausalAlphaV3ExecutionIdentity` to schema `causal_alpha_v3_execution_ident
 - `dependency_lock_digest`, computed from the source-checkout `pyproject.toml` and `uv.lock` file digests;
 - `python_runtime_digest`, computed from the Python implementation and exact major/minor/micro version.
 
-A change to source, dependency lock, Python runtime, chronology, execution/risk settings, or existing runtime identity must change the execution identity and therefore prevent reuse of an old output root.
+A change to source, dependency lock, Python runtime, chronology, signal-delay timing, execution/risk settings, or existing runtime identity must change the execution identity and therefore prevent reuse of an old output root.
 
-The container image identifier remains launcher-level provenance because the process cannot reliably infer its immutable image ID from inside every supported runtime. The artifact graph still binds code, lockfile, Python runtime, and market chronology directly.
+The container image identifier remains launcher-level provenance because the process cannot reliably infer its immutable image ID from inside every supported runtime. The artifact graph still binds code, lockfile, Python runtime, market chronology, and pooled label timing directly.
 
 ## Responsibility boundaries
 
 - `universal_causal_alpha_v3_config.py`: authored V2 config and cross-field validation only.
 - `universal_causal_alpha_v3_signal.py`: partition/leaf/evidence data contracts and non-overlap cohort construction; no current flat aggregate evaluator.
-- `universal_causal_alpha_v3_signal_v2.py`: chronological cluster aggregation, strict signal-leaf loader, and V2 gate evaluation.
-- `universal_causal_alpha_v3_runtime.py`: runtime preparation, shared chronology validation, source/lock/Python provenance.
+- `universal_causal_alpha_v3_signal_v2.py`: chronological cluster aggregation, strict signal-leaf loader, fit-consistency validation, and V2 gate evaluation.
+- `universal_causal_alpha_v3_runtime.py`: runtime preparation, shared chronology/label-timing validation, source/lock/Python provenance.
 - `universal_causal_alpha_v3_identity.py`: execution/run identity contracts.
 - `universal_causal_alpha_v3_pipeline.py`: stage sequencing and signal-leaf resume orchestration.
 - `universal_causal_alpha_v3_artifact_store.py`: persistence and strict run-bound leaf loading; no statistical policy.
@@ -129,6 +133,9 @@ The container image identifier remains launcher-level provenance because the pro
 - Same-episode symbol duplication never increases independent evidence.
 - Raw coverage still measures the complete expected `(fit, symbol, signal episode)` record graph.
 - A signal leaf cannot be reused under a different run manifest.
+- One aggregate Signal Evidence object cannot mix fit configurations.
+- One chronological cluster cannot average records produced by different fitted-model identities.
+- Pooled symbols cannot mix decision cadence or signal-delay timing.
 - With aligned inputs and the same set of raw metrics, clustered rank/spread/direction bootstrap numeric results remain unchanged from the existing clustered evaluator.
 - Signal failure still prevents candidate freeze, economic replay, admission, and teacher package generation.
 - Candidate/model/controller outputs remain unchanged.
@@ -140,22 +147,25 @@ The container image identifier remains launcher-level provenance because the pro
 1. **Ambiguous config semantics:** V1 authored config is rejected; V2 names encode the unit.
 2. **Impossible gate:** `minimum_independent_episode_count > signal_contract_count` fails config construction.
 3. **Cross-symbol clock drift:** differing timestamp arrays fail runtime preparation.
-4. **Cross-symbol episode drift:** differing episode `(start, stop)` schedules fail runtime preparation.
-5. **Wrong cluster key:** two records with equal local `episode_index` but different intervals create separate clusters and cannot masquerade as one chronological episode.
-6. **Symbol duplication:** adding another symbol record to the same interval does not increment independent episode count.
-7. **Incomplete raw evidence:** missing expected symbol/episode leaves reduce raw coverage and fail a 1.0 raw-coverage gate.
-8. **Partial signal crash:** valid leaves survive and are reused; only missing leaves are recomputed.
-9. **Corrupt/stale signal leaf:** strict loader fails rather than recomputing over or ignoring it.
-10. **Cross-run leaf copy:** a signal leaf whose `run_manifest_digest` differs from the active run is rejected before reuse.
-11. **Dependency drift:** changed lock digest changes execution identity and prevents output-root reuse.
-12. **Python runtime drift:** changed Python runtime digest changes execution identity.
-13. **Legacy evaluator leakage:** current runner/pipeline cannot call a flat raw-record bootstrap to produce V2 evidence.
+4. **Cross-symbol episode drift:** differing episode `(episode_index, start, stop)` schedules fail runtime preparation.
+5. **Cross-symbol decision-cadence drift:** different `decision_bars` fails runtime preparation.
+6. **Cross-symbol label-timing drift:** different `signal_delay_decisions` fails before pooled fitting.
+7. **Wrong cluster key:** two records with equal local `episode_index` but different intervals create separate clusters and cannot masquerade as one chronological episode.
+8. **Symbol duplication:** adding another symbol record to the same interval does not increment independent episode count.
+9. **Incomplete raw evidence:** missing expected symbol/episode leaves reduce raw coverage and fail a 1.0 raw-coverage gate.
+10. **Partial signal crash:** valid leaves survive and are reused; only missing leaves are recomputed.
+11. **Corrupt/stale signal leaf:** strict loader fails rather than recomputing over or ignoring it.
+12. **Cross-run leaf copy:** a signal leaf whose `run_manifest_digest` differs from the active run is rejected before reuse.
+13. **Mixed fit configuration:** an aggregate evidence input containing multiple `fit_config_digest` values is rejected before bootstrap.
+14. **Cluster fit drift:** records in one chronological interval with different `fit_digest` values are rejected instead of averaged.
+15. **Dependency/Python runtime drift:** changed dependency-lock or Python-runtime digest changes execution identity and prevents output-root reuse.
+16. **Legacy evaluator leakage:** current runner/pipeline cannot call a flat raw-record bootstrap to produce V2 evidence.
 
 ## Required test layers
 
-- Unit: config validation, metric/evidence schema validation, cluster identity, provenance digests.
-- Contract/regression: symbol duplication, different interval with same episode index, strict run-bound leaf round-trip, legacy schema rejection.
-- Integration: pipeline signal resume with persisted and missing leaves; corrupt/cross-run leaf rejection; runtime chronology mismatch.
+- Unit: config validation, metric/evidence schema validation, cluster identity, fit identity, provenance digests.
+- Contract/regression: symbol duplication, different interval with same episode index, shared signal-delay timing, strict run-bound leaf round-trip, legacy schema rejection.
+- Integration: pipeline signal resume with persisted and missing leaves; corrupt/cross-run leaf rejection; runtime chronology/timing mismatch.
 - Architecture: runner uses only clustered V2 evaluator; signal statistics remain out of persistence layer; no model/economic/reward/risk changes.
 - Static: Ruff, format, Mypy, import-linter, dead-code gate.
 - Compatibility: Ubuntu and Windows existing suites.
@@ -164,4 +174,4 @@ The container image identifier remains launcher-level provenance because the pro
 
 ## Quality gate
 
-Do not mark the PR ready unless all acceptance criteria and invariants are covered by observable tests, RED was observed for each new behavioral contract before production changes, targeted and full tests pass, static/architecture/compatibility/build checks pass on the exact final HEAD, final diff contains no unrelated learner/economic/reward/risk changes, and a falsification review finds no remaining unit ambiguity or resume bypass.
+Do not mark the PR ready unless all acceptance criteria and invariants are covered by observable tests, RED was observed for each new behavioral contract before production changes, targeted and full tests pass, static/architecture/compatibility/build checks pass on the exact final HEAD, final diff contains no unrelated learner/economic/reward/risk changes, and a falsification review finds no remaining unit ambiguity, provenance gap, fit-mixing bypass, or resume bypass.

@@ -268,6 +268,12 @@ class CausalAlphaV3ReplayDiagnostics:
             values["promotion_eligible"], bool
         ):
             raise ValueError("V3 replay diagnostics research flags must be boolean")
+        artifact_digest = values["artifact_digest"]
+        if not isinstance(artifact_digest, str):
+            raise ValueError("V3 replay diagnostics artifact digest must be a string")
+        require_sha256(
+            artifact_digest, field="V3 replay diagnostics artifact digest"
+        )
         return cls(
             run_manifest_digest=str(values["run_manifest_digest"]),
             freeze_digest=str(values["freeze_digest"]),
@@ -303,7 +309,7 @@ class CausalAlphaV3ReplayDiagnostics:
             research_only=values["research_only"],
             promotion_eligible=values["promotion_eligible"],
             schema_version=str(values["schema_version"]),
-            digest=str(values["artifact_digest"]),
+            digest=artifact_digest,
         )
 
 

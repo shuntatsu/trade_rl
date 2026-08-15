@@ -123,6 +123,9 @@ def _execution_identity(*, source: str = "6") -> CausalAlphaV3ExecutionIdentity:
         training_contract_digest=_sha("7"),
         instrument_context_schema_digest=_sha("8"),
         source_tree_digest=_sha(source),
+        shared_clock_digest=_sha("a"),
+        dependency_lock_digest=_sha("b"),
+        python_runtime_digest=_sha("c"),
         symbol_runtime_digests=(("BTCUSDT", _sha("9")),),
     )
 

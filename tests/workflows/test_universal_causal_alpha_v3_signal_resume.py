@@ -151,9 +151,7 @@ def _prepared(*, signal_contract_count: int) -> CausalAlphaV3PreparedResearchDat
         train_symbols=("BTCUSDT",),
         partitions={"BTCUSDT": partition},
         samples={"BTCUSDT": _samples()},
-        environment_factories={
-            "BTCUSDT": lambda: SimpleNamespace(close=lambda: None)
-        },
+        environment_factories={"BTCUSDT": lambda: SimpleNamespace(close=lambda: None)},
         episode_hours=24.0,
         execution_costs={"BTCUSDT": ExecutionCostConfig()},
         signal_delays={"BTCUSDT": 1},
@@ -244,7 +242,9 @@ def test_signal_leaf_is_reused_without_rebuilding_same_scope(tmp_path) -> None:
     )
 
 
-def test_signal_resume_rebuilds_only_missing_leaf_after_partial_crash(tmp_path) -> None:
+def test_signal_resume_rebuilds_only_missing_leaf_after_partial_crash(
+    tmp_path,
+) -> None:
     first_calls: list[int] = []
 
     def crash_after_first(**kwargs) -> CausalAlphaV3SignalScopeMetric:

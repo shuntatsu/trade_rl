@@ -99,16 +99,16 @@ jobs:
             done < vulture.log
             exit "$vulture_status"
           fi
-          if rg -n 'CausalAlphaV3AdmissionEvidenceV2' trade_rl tests; then exit 1; fi
-          if rg -n '\bCausalAlphaV3AdmissionRecord\b' trade_rl tests; then exit 1; fi
-          if rg -n '\bCausalAlphaV3RunManifest\b' trade_rl tests; then exit 1; fi
-          if rg -n '\bUniversalCausalAlphaV3TeacherPackage\b' trade_rl tests; then exit 1; fi
-          if rg -n 'write_admission_record\(' trade_rl tests; then exit 1; fi
-          if rg -n 'load_admission_records\(' trade_rl tests; then exit 1; fi
-          rg -n 'evaluate_causal_alpha_teacher_admission' \
+          if git grep -n 'CausalAlphaV3AdmissionEvidenceV2' -- trade_rl tests; then exit 1; fi
+          if git grep -n -w 'CausalAlphaV3AdmissionRecord' -- trade_rl tests; then exit 1; fi
+          if git grep -n -w 'CausalAlphaV3RunManifest' -- trade_rl tests; then exit 1; fi
+          if git grep -n -w 'UniversalCausalAlphaV3TeacherPackage' -- trade_rl tests; then exit 1; fi
+          if git grep -n -E 'write_admission_record\(' -- trade_rl tests; then exit 1; fi
+          if git grep -n -E 'load_admission_records\(' -- trade_rl tests; then exit 1; fi
+          git grep -n 'evaluate_causal_alpha_teacher_admission' -- \
             trade_rl/learning/causal_alpha_teacher.py \
             trade_rl/workflows/universal_causal_alpha_v3_admission.py
-          rg -n 'causal_alpha_teacher_admission_v2' \
+          git grep -n 'causal_alpha_teacher_admission_v2' -- \
             trade_rl/learning/causal_alpha_teacher.py \
             trade_rl/integrations/universal_pretraining.py
       - name: Commit verified implementation and remove temporary assets

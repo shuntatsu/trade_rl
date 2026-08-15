@@ -1,12 +1,12 @@
 {
-  "schema_version": "universal_causal_alpha_v3_research_config_v1",
+  "schema_version": "universal_causal_alpha_v3_research_config_v2",
   "nested_selection": {
     "signal_contract_count": 8,
     "minimum_economic_contract_count": 4
   },
   "signal_gate": {
-    "minimum_scope_count": 8,
-    "minimum_scope_coverage": 1.0,
+    "minimum_independent_episode_count": 8,
+    "minimum_raw_scope_coverage": 1.0,
     "minimum_rank_ic_lower_ci": 0.0,
     "minimum_top_bottom_spread_lower_ci": 0.0,
     "minimum_direction_accuracy_excess_lower_ci": 0.0,

@@ -50,7 +50,9 @@ def _batch() -> EpisodeOracleBatch:
     )
 
 
-def _signal_metric(*, symbol: str, episode_index: int = 0) -> CausalAlphaV3SignalScopeMetric:
+def _signal_metric(
+    *, symbol: str, episode_index: int = 0
+) -> CausalAlphaV3SignalScopeMetric:
     return CausalAlphaV3SignalScopeMetric(
         fit_config_digest=_sha("f"),
         symbol=symbol,
@@ -98,7 +100,9 @@ def test_signal_scope_metric_has_strict_round_trip_loader() -> None:
         loader(tampered)
 
 
-def test_signal_gate_bootstraps_chronological_episode_clusters_not_symbol_duplicates() -> None:
+def test_signal_gate_bootstraps_chronological_episode_clusters_not_symbol_duplicates() -> (
+    None
+):
     metrics = tuple(
         _signal_metric(symbol=symbol)
         for symbol in ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT")
@@ -133,7 +137,9 @@ def test_admission_record_rejects_tampered_schema() -> None:
         CausalAlphaV3AdmissionRecord.from_payload(raw)
 
 
-def test_v3_admission_gate_rejects_net_negative_hard_risk_and_unexplained_rejections() -> None:
+def test_v3_admission_gate_rejects_net_negative_hard_risk_and_unexplained_rejections() -> (
+    None
+):
     contracts = importlib.import_module(
         "trade_rl.workflows.universal_causal_alpha_v3_contracts"
     )
@@ -231,7 +237,9 @@ def test_replay_requires_contract_initial_state_to_match_environment() -> None:
     replay = importlib.import_module(
         "trade_rl.workflows.universal_causal_alpha_v3_replay"
     )
-    assert_initial_state = getattr(replay, "assert_causal_alpha_v3_contract_initial_state")
+    assert_initial_state = getattr(
+        replay, "assert_causal_alpha_v3_contract_initial_state"
+    )
     contract = _contract()
 
     class FakeEnvironment:

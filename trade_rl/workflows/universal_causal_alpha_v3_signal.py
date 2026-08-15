@@ -326,6 +326,15 @@ class CausalAlphaV3SignalGateEvidence:
         require_sha256(self.run_manifest_digest, field="V3 signal run_manifest_digest")
         if {item.run_manifest_digest for item in values} != {self.run_manifest_digest}:
             raise ValueError("V3 signal evidence run manifest identity drifted")
+        if len({item.fit_config_digest for item in values}) != 1:
+            raise ValueError("V3 signal evidence fit config identity drifted")
+        cluster_fit_digests: dict[tuple[int, int], set[str]] = {}
+        for item in values:
+            cluster_fit_digests.setdefault(item.cluster_identity, set()).add(
+                item.fit_digest
+            )
+        if any(len(digests) != 1 for digests in cluster_fit_digests.values()):
+            raise ValueError("V3 signal evidence cluster fit digest drifted")
         if (
             isinstance(self.raw_scope_count, bool)
             or not isinstance(self.raw_scope_count, int)

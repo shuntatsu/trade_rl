@@ -82,6 +82,10 @@ def test_v3_ranking_uses_lower_tail_then_mean_net() -> None:
     )
 
     assert selected.selected_candidate_digest == second.digest
+    assert (
+        selected.to_payload()["candidates"][1]["episode_metrics"][0]["net_return"]
+        == 0.02
+    )
     assert selected.grid_digest == causal_alpha_v3_grid_digest(
         (first, second), thresholds
     )

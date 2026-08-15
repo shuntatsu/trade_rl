@@ -49,6 +49,27 @@ class CausalAlphaV3CandidateConfig:
             raise ValueError("V3 candidate config digest mismatch")
         object.__setattr__(self, "digest", expected)
 
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "artifact_digest": self.digest,
+            "fit": {
+                "artifact_digest": self.fit.digest,
+                "ridge_strength": self.fit.ridge_strength,
+            },
+            "name": self.name,
+            "schema_version": "causal_alpha_v3_candidate_config_v1",
+            "target": {
+                "alpha_rebalance_decisions": self.target.alpha_rebalance_decisions,
+                "artifact_digest": self.target.digest,
+                "edge_margin": self.target.edge_margin,
+                "execution_cost_multiplier": self.target.execution_cost_multiplier,
+                "max_target_delta": self.target.max_target_delta,
+                "strong_reversal_threshold": self.target.strong_reversal_threshold,
+                "target_magnitudes": self.target.target_magnitudes,
+                "uncertainty_multiplier": self.target.uncertainty_multiplier,
+            },
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class CausalAlphaV3EpisodeMetric:
@@ -182,7 +203,11 @@ class CausalAlphaV3CandidateEvidence:
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload = {
             "admissible": self.admissible,
+            "candidate": self.candidate.to_payload(),
             "candidate_digest": self.candidate.digest,
+            "episode_metrics": tuple(
+                item.to_payload() for item in self.episode_metrics
+            ),
             "episode_metric_digests": tuple(
                 item.digest for item in self.episode_metrics
             ),
@@ -249,6 +274,7 @@ class CausalAlphaV3SelectionEvidence:
             "candidate_evidence_digests": tuple(
                 item.digest for item in self.candidates
             ),
+            "candidates": tuple(item.to_payload() for item in self.candidates),
             "generator_code_digest": self.generator_code_digest,
             "grid_digest": self.grid_digest,
             "holdout_episode_digests": dict(self.holdout_episode_digests),

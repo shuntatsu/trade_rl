@@ -166,6 +166,7 @@ class CausalAlphaV3SelectionRejected(RuntimeError):
             "candidate_evidence_digests": tuple(
                 item.digest for item in self.candidates
             ),
+            "candidates": tuple(item.to_payload() for item in self.candidates),
             "generator_code_digest": self.generator_code_digest,
             "grid_digest": self.grid_digest,
             "promotion_eligible": False,
@@ -252,7 +253,9 @@ def write_causal_alpha_v3_selection_checkpoint_metric(
         os.fsync(checkpoint.fileno())
 
 
-def _metric_from_payload(raw: Mapping[str, Any]) -> CausalAlphaV3EpisodeMetric:
+def causal_alpha_v3_metric_from_payload(
+    raw: Mapping[str, Any],
+) -> CausalAlphaV3EpisodeMetric:
     return CausalAlphaV3EpisodeMetric(
         candidate_digest=str(raw["candidate_digest"]),
         symbol=str(raw["symbol"]),
@@ -299,7 +302,7 @@ def load_causal_alpha_v3_selection_checkpoint(
                     raise ValueError(
                         f"V3 selection checkpoint {field.replace('_', ' ')} mismatch"
                     )
-            metric = _metric_from_payload(raw)
+            metric = causal_alpha_v3_metric_from_payload(raw)
             identity = (metric.candidate_digest, metric.symbol, metric.episode_index)
             if identity in identities:
                 raise ValueError("V3 selection checkpoint is duplicated")
@@ -465,6 +468,7 @@ def evaluate_causal_alpha_v3_selection(
 __all__ = [
     "CausalAlphaV3SelectionRejected",
     "causal_alpha_v3_grid_digest",
+    "causal_alpha_v3_metric_from_payload",
     "default_causal_alpha_v3_candidate_grid",
     "evaluate_causal_alpha_v3_selection",
     "load_causal_alpha_v3_selection_checkpoint",

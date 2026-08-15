@@ -140,7 +140,10 @@ def evaluate_causal_alpha_v3_signal_gate_clustered(
     spread = _bootstrap(spread_values, gate)
     direction = _bootstrap(direction_values, gate)
     reasons: list[str] = []
-    if len(rank_values) < gate.minimum_scope_count:
+    # Count/coverage refer to persisted (symbol, episode) scopes. Only the
+    # uncertainty estimates are clustered to avoid treating correlated symbols
+    # from the same chronological episode as independent bootstrap observations.
+    if len(values) < gate.minimum_scope_count:
         reasons.append("scope_count")
     if coverage < gate.minimum_scope_coverage:
         reasons.append("scope_coverage")

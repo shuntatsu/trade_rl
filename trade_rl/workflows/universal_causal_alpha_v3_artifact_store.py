@@ -152,7 +152,7 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
             evidence.to_payload(),
         )
 
-    def _admission_path(self, record: CausalAlphaV3AdmissionRecordV2) -> Path:
+    def _admission_v2_path(self, record: CausalAlphaV3AdmissionRecordV2) -> Path:
         symbol = _safe_segment(record.symbol, field="V3 admission symbol")
         return self.root / "admission" / "records" / f"{symbol}.json"
 
@@ -162,7 +162,7 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
         if self.freeze_digest is None or record.freeze_digest != self.freeze_digest:
             raise ValueError("V3 admission record freeze identity mismatch")
         return self.write_exact_artifact(
-            self._admission_path(record).relative_to(self.root), record.to_payload()
+            self._admission_v2_path(record).relative_to(self.root), record.to_payload()
         )
 
     def load_admission_records_v2(
@@ -195,7 +195,7 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
                 raise ValueError("V3 admission record is outside expected scope")
             if record.contract_digest != expected[record.symbol]:
                 raise ValueError("V3 admission record contract identity drifted")
-            if path != self._admission_path(record):
+            if path != self._admission_v2_path(record):
                 raise ValueError("V3 admission record path identity drifted")
             if record.symbol in result:
                 raise ValueError("V3 admission record symbol is duplicated")

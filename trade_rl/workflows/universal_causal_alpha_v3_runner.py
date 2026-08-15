@@ -13,7 +13,9 @@ from trade_rl.learning.episode_oracle_bc import (
 from trade_rl.workflows.universal_causal_alpha_v3_admission import (
     CausalAlphaV3AdmissionEvidenceV2,
 )
-from trade_rl.workflows.universal_causal_alpha_v3_config import CausalAlphaV3ResearchConfig
+from trade_rl.workflows.universal_causal_alpha_v3_config import (
+    CausalAlphaV3ResearchConfig,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_pipeline import (
     CausalAlphaV3AdmissionRejected,
     CausalAlphaV3SignalRejected,
@@ -21,6 +23,8 @@ from trade_rl.workflows.universal_causal_alpha_v3_pipeline import (
 )
 from trade_rl.workflows.universal_causal_alpha_v3_replay import (
     evaluate_causal_alpha_v3_admission as _evaluate_admission,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_replay import (
     evaluate_causal_alpha_v3_selection as _evaluate_selection,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_runtime import (

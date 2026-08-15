@@ -287,9 +287,7 @@ def evaluate_causal_alpha_v3_admission(
         or store.freeze_digest != freeze_digest
     ):
         raise ValueError("V3 admission store identity does not match run/freeze")
-    expected = {
-        symbol: batches[symbol].contracts[-1].digest for symbol in symbols
-    }
+    expected = {symbol: batches[symbol].contracts[-1].digest for symbol in symbols}
     records = store.load_admission_records_v2(
         expected_contract_digests=expected,
         selection_digest=selection.digest,

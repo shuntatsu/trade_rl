@@ -139,24 +139,22 @@ def test_target_diagnostics_fail_closed_on_shape_or_nonfinite_inputs() -> None:
         )
 
 
-def test_diagnostics_store_round_trips_and_missing_leaves_are_optional(tmp_path: Path) -> (
-    None
-):
+def test_diagnostics_store_round_trips_and_missing_leaves_are_optional(
+    tmp_path: Path,
+) -> None:
     diagnostics = _diagnostics()
     store = _store(tmp_path)
 
-    assert store.load_replay_diagnostics(
-        expected_replay_metric_digests={diagnostics.identity: _REPLAY}
-    ) == {}
+    assert (
+        store.load_replay_diagnostics(
+            expected_replay_metric_digests={diagnostics.identity: _REPLAY}
+        )
+        == {}
+    )
 
     path = store.write_replay_diagnostics(diagnostics)
     assert path == (
-        tmp_path
-        / "selection"
-        / "diagnostics"
-        / _CANDIDATE
-        / "BTCUSDT"
-        / "3.json"
+        tmp_path / "selection" / "diagnostics" / _CANDIDATE / "BTCUSDT" / "3.json"
     )
     assert store.load_replay_diagnostics(
         expected_replay_metric_digests={diagnostics.identity: _REPLAY}

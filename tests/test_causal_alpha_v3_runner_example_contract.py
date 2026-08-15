@@ -18,6 +18,11 @@ def test_v3_research_example_is_bounded_strict_and_non_duplicate() -> None:
     assert len({candidate.semantic_digest for candidate in config.candidates}) == 6
     assert config.nested_selection.signal_contract_count == 8
     assert config.nested_selection.minimum_economic_contract_count == 4
+    assert config.signal_gate.minimum_scope_count == 8
+    assert (
+        config.signal_gate.minimum_scope_count
+        == config.nested_selection.signal_contract_count
+    )
     assert config.signal_gate.minimum_scope_coverage == 1.0
     assert config.selection_gate.minimum_symbol_episode_net_return == -0.05
     assert config.selection_gate.maximum_unexplained_execution_rejections == 0

@@ -416,13 +416,15 @@ def build_causal_alpha_v3_selection_progress(
 
     candidate_values = tuple(candidates)
     symbols = tuple(train_symbols)
-    if (
-        not candidate_values
-        or len({candidate.digest for candidate in candidate_values})
-        != len(candidate_values)
-    ):
+    if not candidate_values or len(
+        {candidate.digest for candidate in candidate_values}
+    ) != len(candidate_values):
         raise ValueError("V3 progress candidates must be non-empty and unique")
-    if not symbols or len(set(symbols)) != len(symbols) or any(not item for item in symbols):
+    if (
+        not symbols
+        or len(set(symbols)) != len(symbols)
+        or any(not item for item in symbols)
+    ):
         raise ValueError("V3 progress train_symbols must be non-empty and unique")
     _non_negative_int(expected_replay_count, field="V3 progress expected_replay_count")
     _non_negative_int(fit_count, field="V3 progress fit_count")
@@ -483,7 +485,9 @@ def build_causal_alpha_v3_selection_progress(
             "mean_gross_return": _mean_or_none(
                 tuple(metric.gross_return for metric in values)
             ),
-            "mean_net_return": _mean_or_none(tuple(metric.net_return for metric in values)),
+            "mean_net_return": _mean_or_none(
+                tuple(metric.net_return for metric in values)
+            ),
             "mean_turnover_per_day": _mean_or_none(
                 tuple(metric.turnover_per_day for metric in values)
             ),

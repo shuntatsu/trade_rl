@@ -151,9 +151,7 @@ def test_selection_resumes_completed_scope_and_closes_environment(
     def targets(**kwargs):
         contract = kwargs["contract"]
         return CausalAlphaV3ContractTargets(
-            actions=np.zeros(
-                (contract.stop - contract.start - 1, 1), dtype=np.float32
-            ),
+            actions=np.zeros((contract.stop - contract.start - 1, 1), dtype=np.float32),
             fit_digest="3" * 64,
             forecast_digest="4" * 64,
             target_path=SimpleNamespace(
@@ -170,9 +168,7 @@ def test_selection_resumes_completed_scope_and_closes_environment(
         return _evaluation()
 
     monkeypatch.setattr(module, "build_causal_alpha_v3_contract_targets", targets)
-    monkeypatch.setattr(
-        module, "evaluate_episode_action_path_on_environment", evaluate
-    )
+    monkeypatch.setattr(module, "evaluate_episode_action_path_on_environment", evaluate)
 
     def factory():
         opened.append(symbol)
@@ -180,9 +176,7 @@ def test_selection_resumes_completed_scope_and_closes_environment(
             symbol=symbol,
             dataset=SimpleNamespace(n_symbols=1),
             decision_bars=1,
-            initial_weights_for_reset=lambda mode, start: np.zeros(
-                1, dtype=np.float64
-            ),
+            initial_weights_for_reset=lambda mode, start: np.zeros(1, dtype=np.float64),
             config=SimpleNamespace(
                 execution_cost=ExecutionCostConfig(),
                 signal_delay_decisions=1,
@@ -235,11 +229,7 @@ def _batch(symbol: str) -> EpisodeOracleBatch:
         teacher_config_digest="a" * 64,
         sampling_config_digest="b" * 64,
         contracts=(contract,),
-        targets=(
-            np.zeros(
-                (contract.stop - contract.start - 1, 1), dtype=np.float32
-            ),
-        ),
+        targets=(np.zeros((contract.stop - contract.start - 1, 1), dtype=np.float32),),
     )
 
 
@@ -342,9 +332,7 @@ def test_admission_reuses_persisted_symbol_record_exactly_once(
     def factory() -> SimpleNamespace:
         return SimpleNamespace(
             dataset=SimpleNamespace(n_symbols=1),
-            initial_weights_for_reset=lambda mode, start: np.zeros(
-                1, dtype=np.float64
-            ),
+            initial_weights_for_reset=lambda mode, start: np.zeros(1, dtype=np.float64),
             close=lambda: None,
         )
 

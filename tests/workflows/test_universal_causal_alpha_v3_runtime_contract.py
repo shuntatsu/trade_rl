@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import trade_rl.workflows.universal_causal_alpha_v3_runtime as runtime_module
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
 from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaEpisodePartition,
@@ -12,7 +13,6 @@ from trade_rl.workflows.universal_causal_alpha_contracts import (
 from trade_rl.workflows.universal_causal_alpha_v3_identity import (
     CausalAlphaV3ExecutionIdentity,
 )
-import trade_rl.workflows.universal_causal_alpha_v3_runtime as runtime_module
 
 
 def _sha(token: str) -> str:

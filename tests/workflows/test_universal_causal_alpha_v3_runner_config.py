@@ -106,6 +106,19 @@ def test_research_config_is_strict_and_semantically_unique() -> None:
         CausalAlphaV3ResearchConfig.from_mapping(duplicate)
 
 
+def test_research_config_rejects_unreachable_independent_scope_requirement() -> None:
+    impossible = copy.deepcopy(_config_payload())
+    signal_gate = impossible["signal_gate"]
+    assert isinstance(signal_gate, dict)
+    signal_gate["minimum_scope_count"] = 3
+
+    with pytest.raises(
+        ValueError,
+        match="minimum_scope_count.*signal_contract_count",
+    ):
+        CausalAlphaV3ResearchConfig.from_mapping(impossible)
+
+
 def test_nested_partition_keeps_signal_selection_and_holdout_disjoint() -> None:
     dataset_id = "1" * 64
     contracts = tuple(_contract(dataset_id, index, index * 20) for index in range(4))

@@ -1,5 +1,7 @@
 # Causal Alpha V3 Signal Scope Contract Fix Implementation Plan
 
+> **Superseded:** This minimal V1-scope plan is retained only as historical TDD context. It was superseded by `2026-08-16-causal-alpha-v3-signal-contract-v2.md` and must not be used as the current implementation contract. In particular, active V2 code uses `minimum_independent_episode_count` and `minimum_raw_scope_coverage`; the ambiguous `minimum_scope_count` / `minimum_scope_coverage` names below describe the pre-V2 state only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:test-driven-development for behavioral changes and superpowers:verification-before-completion before completion claims.
 
 **Goal:** Make the maintained V3 authored configuration structurally compatible with the chronological independent-scope Signal Gate without weakening signal-quality statistics or treating correlated symbol copies as independent evidence.

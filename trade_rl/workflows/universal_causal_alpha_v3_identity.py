@@ -8,7 +8,7 @@ from typing import Any, Final, Mapping
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
 
-_EXECUTION_SCHEMA: Final = "causal_alpha_v3_execution_identity_v1"
+_EXECUTION_SCHEMA: Final = "causal_alpha_v3_execution_identity_v2"
 _RUN_SCHEMA: Final = "causal_alpha_v3_run_manifest_v2"
 
 
@@ -39,6 +39,9 @@ class CausalAlphaV3ExecutionIdentity:
     training_contract_digest: str
     instrument_context_schema_digest: str
     source_tree_digest: str
+    shared_clock_digest: str
+    dependency_lock_digest: str
+    python_runtime_digest: str
     symbol_runtime_digests: tuple[tuple[str, str], ...]
     schema_version: str = _EXECUTION_SCHEMA
     digest: str = ""
@@ -55,6 +58,9 @@ class CausalAlphaV3ExecutionIdentity:
             "training_contract_digest",
             "instrument_context_schema_digest",
             "source_tree_digest",
+            "shared_clock_digest",
+            "dependency_lock_digest",
+            "python_runtime_digest",
         ):
             require_sha256(getattr(self, name), field=f"V3 execution {name}")
         runtime = tuple(
@@ -75,8 +81,11 @@ class CausalAlphaV3ExecutionIdentity:
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
+            "dependency_lock_digest": self.dependency_lock_digest,
             "instrument_context_schema_digest": self.instrument_context_schema_digest,
+            "python_runtime_digest": self.python_runtime_digest,
             "schema_version": self.schema_version,
+            "shared_clock_digest": self.shared_clock_digest,
             "source_tree_digest": self.source_tree_digest,
             "symbol_runtime_digests": self.symbol_runtime_digests,
             "train_symbols": self.train_symbols,
@@ -91,8 +100,11 @@ class CausalAlphaV3ExecutionIdentity:
         fields = frozenset(
             {
                 "artifact_digest",
+                "dependency_lock_digest",
                 "instrument_context_schema_digest",
+                "python_runtime_digest",
                 "schema_version",
+                "shared_clock_digest",
                 "source_tree_digest",
                 "symbol_runtime_digests",
                 "train_symbols",
@@ -112,6 +124,9 @@ class CausalAlphaV3ExecutionIdentity:
                 values["instrument_context_schema_digest"]
             ),
             source_tree_digest=str(values["source_tree_digest"]),
+            shared_clock_digest=str(values["shared_clock_digest"]),
+            dependency_lock_digest=str(values["dependency_lock_digest"]),
+            python_runtime_digest=str(values["python_runtime_digest"]),
             symbol_runtime_digests=tuple(
                 (str(symbol), str(digest))
                 for symbol, digest in values["symbol_runtime_digests"]

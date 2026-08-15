@@ -270,10 +270,10 @@ def test_lock_release_rejects_ownership_tampering(tmp_path: Path) -> None:
         lock.path.unlink(missing_ok=True)
 
 
-def test_v3_admission_allows_explained_rejections_but_rejects_majority_negative() -> None:
-    explained = _admission_record(
-        execution_rejections=(("below_minimum_notional", 2),)
-    )
+def test_v3_admission_allows_explained_rejections_but_rejects_majority_negative() -> (
+    None
+):
+    explained = _admission_record(execution_rejections=(("below_minimum_notional", 2),))
     evidence = evaluate_causal_alpha_v3_admission_gate((explained,))
     assert evidence.passed is True
     assert evidence.unexplained_execution_rejection_count == 0

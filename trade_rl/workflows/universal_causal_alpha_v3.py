@@ -18,11 +18,17 @@ from trade_rl.learning.causal_alpha_teacher import (
 from trade_rl.learning.causal_alpha_v3 import (
     CausalAlphaV3FitConfig,
     CausalAlphaV3Forecast,
+    CausalAlphaV3TargetPath,
     causal_alpha_overlap_uniqueness_weights,
     causal_alpha_v3_forecast,
+    causal_alpha_v3_target_path,
 )
+from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
 from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaSymbolSamples,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
+    CausalAlphaV3CandidateConfig,
 )
 
 _V3_FIT_EVIDENCE_SCHEMA = "universal_causal_alpha_v3_fit_v1"
@@ -325,8 +331,188 @@ def fit_causal_alpha_v3(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class CausalAlphaV3ContractTargets:
+    symbol: str
+    episode_index: int
+    contract_digest: str
+    candidate_digest: str
+    knowledge_cutoff: int
+    fit_digest: str
+    forecast_digest: str
+    target_path: CausalAlphaV3TargetPath
+    targets: np.ndarray
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.symbol or self.episode_index < 0:
+            raise ValueError("V3 target contract scope is invalid")
+        for field in (
+            "contract_digest",
+            "candidate_digest",
+            "fit_digest",
+            "forecast_digest",
+        ):
+            value = getattr(self, field)
+            if not isinstance(value, str) or len(value) != 64:
+                raise ValueError(f"V3 target {field} is invalid")
+        values = np.asarray(self.targets, dtype=np.float32).copy(order="C")
+        if values.ndim != 2 or values.shape[1] != 1 or not np.isfinite(values).all():
+            raise ValueError("V3 targets must be a finite single-symbol matrix")
+        values.setflags(write=False)
+        expected = content_and_arrays_digest(
+            {
+                "candidate_digest": self.candidate_digest,
+                "contract_digest": self.contract_digest,
+                "episode_index": self.episode_index,
+                "fit_digest": self.fit_digest,
+                "forecast_digest": self.forecast_digest,
+                "knowledge_cutoff": self.knowledge_cutoff,
+                "schema_version": "universal_causal_alpha_v3_contract_targets_v1",
+                "symbol": self.symbol,
+                "target_path_digest": self.target_path.digest,
+            },
+            (("targets", values),),
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("V3 contract targets digest mismatch")
+        object.__setattr__(self, "targets", values)
+        object.__setattr__(self, "digest", expected)
+
+
+class CausalAlphaV3FitCache:
+    """Share expanding fits and forecasts across controller candidates."""
+
+    def __init__(
+        self,
+        *,
+        train_symbols: tuple[str, ...],
+        samples: Mapping[str, CausalAlphaSymbolSamples],
+    ) -> None:
+        symbols, _, scope_digest = _validated_scope(train_symbols, samples)
+        self._symbols = symbols
+        self._samples = dict(samples)
+        self._scope_digest = scope_digest
+        self._fits: dict[tuple[int, str], CausalAlphaV3Fit] = {}
+        self._predictions: dict[
+            tuple[str, str, str], tuple[CausalAlphaV3Forecast, np.ndarray]
+        ] = {}
+        self.fit_count = 0
+        self.fit_hit_count = 0
+        self.prediction_count = 0
+        self.prediction_hit_count = 0
+
+    @property
+    def sample_scope_digest(self) -> str:
+        return self._scope_digest
+
+    @property
+    def train_symbols(self) -> tuple[str, ...]:
+        return self._symbols
+
+    def resolve(
+        self,
+        *,
+        knowledge_cutoff: int,
+        config: CausalAlphaV3FitConfig,
+    ) -> CausalAlphaV3Fit:
+        key = (knowledge_cutoff, config.digest)
+        cached = self._fits.get(key)
+        if cached is not None:
+            self.fit_hit_count += 1
+            return cached
+        fitted = fit_causal_alpha_v3(
+            train_symbols=self._symbols,
+            samples=self._samples,
+            knowledge_cutoff=knowledge_cutoff,
+            config=config,
+        )
+        self._fits[key] = fitted
+        self.fit_count += 1
+        return fitted
+
+    def forecast_contract(
+        self,
+        *,
+        symbol: str,
+        contract: OracleEpisodeContract,
+        config: CausalAlphaV3FitConfig,
+    ) -> tuple[CausalAlphaV3Fit, CausalAlphaV3Forecast, np.ndarray]:
+        if symbol not in self._samples:
+            raise ValueError("V3 forecast symbol is outside the fit scope")
+        fitted = self.resolve(knowledge_cutoff=contract.start, config=config)
+        key = (fitted.digest, symbol, contract.digest)
+        cached = self._predictions.get(key)
+        if cached is not None:
+            self.prediction_hit_count += 1
+            return fitted, cached[0], cached[1]
+        decisions = np.arange(contract.start, contract.stop - 1, dtype=np.int64)
+        features, available, actionable = self._samples[
+            symbol
+        ].prediction_inputs_for_decisions(decisions)
+        forecast = fitted.predict(features, feature_available=available)
+        action_mask = np.asarray(actionable, dtype=np.bool_).copy()
+        action_mask.setflags(write=False)
+        self._predictions[key] = (forecast, action_mask)
+        self.prediction_count += 1
+        return fitted, forecast, action_mask
+
+
+def build_causal_alpha_v3_contract_targets(
+    *,
+    symbol: str,
+    samples: Mapping[str, CausalAlphaSymbolSamples],
+    contract: OracleEpisodeContract,
+    candidate: CausalAlphaV3CandidateConfig,
+    fit_cache: CausalAlphaV3FitCache,
+    one_way_cost_rates: object,
+    liquidity_weight_caps: object,
+) -> CausalAlphaV3ContractTargets:
+    """Compile one cutoff-safe V3 teacher target path for a production contract."""
+
+    if symbol not in samples or samples[symbol].dataset_id != contract.dataset_id:
+        raise ValueError("V3 target contract dataset identity drifted")
+    if (
+        fit_cache.sample_scope_digest
+        != _validated_scope(fit_cache.train_symbols, samples)[2]
+    ):
+        raise ValueError("V3 target sample scope drifted")
+    fitted, forecast, actionable = fit_cache.forecast_contract(
+        symbol=symbol,
+        contract=contract,
+        config=candidate.fit,
+    )
+    expected = forecast.expected_return_24h_equivalent.copy()
+    uncertainty = forecast.uncertainty_24h_equivalent.copy()
+    expected[~actionable] = 0.0
+    uncertainty[~actionable] = np.maximum(uncertainty[~actionable], 1.0)
+    target_path = causal_alpha_v3_target_path(
+        expected,
+        uncertainties=uncertainty,
+        one_way_cost_rates=one_way_cost_rates,
+        liquidity_weight_caps=liquidity_weight_caps,
+        config=candidate.target,
+        initial_weight=float(contract.initial_weights[0]),
+    )
+    targets = np.asarray(target_path.targets, dtype=np.float32).reshape(-1, 1)
+    return CausalAlphaV3ContractTargets(
+        symbol=symbol,
+        episode_index=contract.episode_index,
+        contract_digest=contract.digest,
+        candidate_digest=candidate.digest,
+        knowledge_cutoff=contract.start,
+        fit_digest=fitted.digest,
+        forecast_digest=forecast.digest,
+        target_path=target_path,
+        targets=targets,
+    )
+
+
 __all__ = [
+    "CausalAlphaV3ContractTargets",
+    "CausalAlphaV3FitCache",
     "CausalAlphaV3Fit",
     "build_causal_alpha_v3_symbol_balanced_weights",
+    "build_causal_alpha_v3_contract_targets",
     "fit_causal_alpha_v3",
 ]

@@ -69,10 +69,13 @@ def _training_batch() -> EpisodeOracleBatch:
 def _signal_metric(
     *, symbol: str, episode_index: int = 0
 ) -> CausalAlphaV3SignalScopeMetric:
+    contract = _contract(episode_index=episode_index)
     return CausalAlphaV3SignalScopeMetric(
         fit_config_digest=_sha("f"),
         symbol=symbol,
         episode_index=episode_index,
+        contract_start=contract.start,
+        contract_stop=contract.stop,
         contract_digest=_sha("c"),
         fit_digest=_sha("a"),
         forecast_digest=_sha("b"),
@@ -158,8 +161,8 @@ def test_signal_gate_bootstraps_chronological_episode_clusters_not_symbol_duplic
         for symbol in ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT")
     )
     gate = CausalAlphaV3SignalGate(
-        minimum_scope_count=2,
-        minimum_scope_coverage=1.0,
+        minimum_independent_episode_count=2,
+        minimum_raw_scope_coverage=1.0,
         minimum_rank_ic_lower_ci=0.1,
         minimum_top_bottom_spread_lower_ci=0.1,
         minimum_direction_accuracy_excess_lower_ci=0.1,
@@ -168,10 +171,15 @@ def test_signal_gate_bootstraps_chronological_episode_clusters_not_symbol_duplic
         bootstrap_block_size=1,
     )
     evidence = evaluate_causal_alpha_v3_signal_gate_clustered(
-        metrics, expected_scope_count=len(metrics), gate=gate
+        metrics,
+        expected_raw_scope_count=len(metrics),
+        expected_independent_episode_count=1,
+        gate=gate,
     )
     assert evidence.passed is False
-    assert "scope_count" in evidence.rejection_reasons
+    assert evidence.raw_scope_count == 4
+    assert evidence.independent_episode_count == 1
+    assert "independent_episode_count" in evidence.rejection_reasons
 
 
 def test_admission_record_rejects_tampered_schema() -> None:

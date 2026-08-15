@@ -569,3 +569,95 @@ remains zero, the hard liquidity rule remains `0.02`, and the reward remains
 pure net log growth. A new provenance-bound image/generation is required before
 resuming selection; teacher admission and CUDA stage evaluation remain blocked
 until selection actually passes.
+
+## Terminal report: liquidity-aware r3 stopped (2026-08-14)
+
+Generation `causal-teacher-liquidity-r3` resumed the 193 numerically compatible
+r2 replay records after the minimum-notional classification correction and
+continued to 971 / 1,728 selection replays. The immutable launch provenance was:
+
+- commit: `a1bd273a8b1c466d4da655566c8c806c48fa8068`;
+- image: `trade-rl-universal:a1bd273a8b1c-6726b3737df9`;
+- source-tree digest: `be30e62618ade5bcfc36ee063f39ed4f23f8b675988168af8d6db489406075df`;
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`;
+- runtime-manifest digest:
+  `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`.
+
+### Stop state and durability
+
+The run was stopped because every candidate had irreversibly breached the
+configured minimum symbol-episode net-return floor of `-5%`. Before stopping,
+progress, the complete v2 checkpoint, Docker state, and Docker resource usage
+were copied to
+`artifacts/universal/diagnostics/causal-teacher-liquidity-r3-terminal`.
+Docker was healthy immediately before the stop: `OOMKilled=false`, one CPU was
+saturated, and memory was `3.262 GiB / 7.629 GiB`. The process exceeded the
+30-second graceful-stop window and therefore exited 137; Docker still reported
+`OOMKilled=false`. No duplicate selection container was started.
+
+### Aggregate economic result
+
+Across the 971 persisted symbol-episode replays, mean gross return was
+`-0.548%`, mean net return was `-1.103%`, and worst net return was `-15.007%`.
+Mean turnover was `0.266x/day`; total execution cost was `538,977.05` over
+9,580 trades. Only 288 / 971 replays had positive net return. There were zero
+hard-risk violations. The liquidity-aware construction therefore repaired the
+previous extreme churn, but it did not produce positive gross alpha.
+
+| Candidate | Replays | Mean gross | Mean net | Worst net | Turnover/day | Cost | Trades |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | 91 | -0.497% | -1.167% | -15.007% | 0.322x | 61,208 | 1,063 |
+| horizon-24h | 80 | -0.519% | -1.178% | -11.411% | 0.314x | 52,634 | 1,068 |
+| horizon-72h | 80 | -0.689% | -1.339% | -14.698% | 0.311x | 51,895 | 882 |
+| cost-high | 80 | -0.548% | -1.109% | -14.855% | 0.269x | 44,931 | 772 |
+| edge-high | 80 | -0.521% | -1.072% | -14.982% | 0.264x | 44,093 | 745 |
+| confirm-one | 80 | -0.651% | -1.278% | -14.531% | 0.302x | 50,252 | 870 |
+| confirm-three | 80 | -0.484% | -1.027% | -14.760% | 0.260x | 43,421 | 707 |
+| reversal-low | 80 | -0.579% | -1.147% | -14.855% | 0.272x | 45,503 | 789 |
+| scale-low | 80 | -0.628% | -1.026% | -13.112% | 0.191x | 31,951 | 578 |
+| exposure-low | 80 | -0.485% | -0.869% | -8.675% | 0.183x | 30,956 | 820 |
+| no-trade-high | 80 | -0.470% | -0.959% | -14.901% | 0.235x | 39,051 | 627 |
+| delta-low | 80 | -0.512% | -1.052% | -14.937% | 0.259x | 43,082 | 659 |
+
+The exposure-low candidate had the best mean net and lower tail, but its
+`-8.675%` minimum still irreversibly failed the `-5%` floor. Additional replay
+records can only preserve or decrease a running minimum, so completing the
+remaining 757 replays could not yield an admissible candidate.
+
+### Symbol and regime diagnosis
+
+| Symbol | Replays | Mean gross | Mean net | Worst net | Turnover/day | Cost |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| APTUSDT | 192 | -0.267% | -0.402% | -6.284% | 0.069x | 28,049 |
+| ARBUSDT | 192 | -0.153% | -0.368% | -7.216% | 0.105x | 42,917 |
+| BCHUSDT | 192 | -0.441% | -0.763% | -5.930% | 0.156x | 63,912 |
+| BNBUSDT | 192 | +0.390% | -0.808% | -14.982% | 0.555x | 224,405 |
+| BTCUSDT | 192 | -2.297% | -3.149% | -11.588% | 0.420x | 163,887 |
+| LINKUSDT (partial) | 11 | -0.065% | -1.482% | -15.007% | 0.689x | 15,806 |
+
+BTCUSDT is the clearest position-selection failure because gross return is
+already `-2.297%`. BNBUSDT has slightly positive gross selection but loses it
+to much higher turnover and execution cost. The cross-symbol episode view also
+shows gross failures in episodes 0, 1, 5, 11, 12, and 15; episodes 11 and 12
+had mean net returns of approximately `-3.88%` and `-4.11%`, respectively.
+This is regime-sensitive alpha failure plus residual execution amplification,
+not a scalar-reward defect.
+
+### Gate and learning-stage decision
+
+- runtime/data integrity: PASS;
+- OOM/NaN/hard-risk integrity: PASS;
+- turnover correction: PASS relative to the pre-liquidity controller;
+- teacher gross alpha: FAIL;
+- teacher economic selection: FAIL and irreversible;
+- teacher admission: not run;
+- random / BC / critic / PPO / Lagrangian / discounted PPO: not run;
+- full U6 training: NO-GO.
+
+There is no PPO reward-function trajectory for r3 because the workflow never
+passed teacher selection. The scalar reward was not changed and remains pure
+net log growth. The next correction should diagnose BTCUSDT and episodes
+0/1/5/11/12/15 at the prediction-to-target boundary, comparing 24h/72h
+correlation, direction accuracy, confidence, submitted targets, and realized
+gross return. Any regime filter or model change must be fitted only on earlier
+selection data and must not use the teacher-admission holdout.

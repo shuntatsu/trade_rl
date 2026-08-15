@@ -40,7 +40,10 @@ def _execution_identity() -> CausalAlphaV3ExecutionIdentity:
         training_contract_digest=_sha("1"),
         instrument_context_schema_digest=_sha("2"),
         source_tree_digest=_sha("3"),
-        symbol_runtime_digests=(("BTCUSDT", _sha("4")),),
+        shared_clock_digest=_sha("4"),
+        dependency_lock_digest=_sha("5"),
+        python_runtime_digest=_sha("6"),
+        symbol_runtime_digests=(("BTCUSDT", _sha("7")),),
     )
 
 
@@ -151,9 +154,12 @@ def test_execution_identity_rejects_scope_order_and_digest_tampering() -> None:
             training_contract_digest=_sha("1"),
             instrument_context_schema_digest=_sha("2"),
             source_tree_digest=_sha("3"),
+            shared_clock_digest=_sha("4"),
+            dependency_lock_digest=_sha("5"),
+            python_runtime_digest=_sha("6"),
             symbol_runtime_digests=(
-                ("ETHUSDT", _sha("4")),
-                ("BTCUSDT", _sha("5")),
+                ("ETHUSDT", _sha("7")),
+                ("BTCUSDT", _sha("8")),
             ),
         )
 
@@ -164,6 +170,9 @@ def test_execution_identity_rejects_scope_order_and_digest_tampering() -> None:
             training_contract_digest=identity.training_contract_digest,
             instrument_context_schema_digest=identity.instrument_context_schema_digest,
             source_tree_digest=identity.source_tree_digest,
+            shared_clock_digest=identity.shared_clock_digest,
+            dependency_lock_digest=identity.dependency_lock_digest,
+            python_runtime_digest=identity.python_runtime_digest,
             symbol_runtime_digests=identity.symbol_runtime_digests,
             digest=_sha("0"),
         )

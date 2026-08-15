@@ -31,6 +31,7 @@ jobs:
           uv run pytest -q \
             tests/learning/test_causal_alpha_teacher_admission.py \
             tests/integrations/test_universal_causal_teacher_admission_reuse.py \
+            tests/workflows/test_universal_causal_alpha_v3_common_admission.py \
             > causal-teacher-admission-red.log 2>&1
           status=$?
           set -e
@@ -42,3 +43,6 @@ jobs:
           grep -q "test_teacher_admission_accepts_exact_symbol_net_floor" causal-teacher-admission-red.log
           grep -q "test_teacher_admission_evidence_uses_hardened_schema" causal-teacher-admission-red.log
           grep -q "test_pretraining_bundle_rejects_legacy_teacher_admission_schema" causal-teacher-admission-red.log
+          grep -q "test_v3_admission_inherits_common_zero_trade_rejection" causal-teacher-admission-red.log
+          grep -q "test_v3_admission_inherits_common_symbol_net_floor" causal-teacher-admission-red.log
+          grep -q "test_v3_admission_evidence_uses_hardened_schema" causal-teacher-admission-red.log

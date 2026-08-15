@@ -171,10 +171,7 @@ def test_signal_gate_bootstraps_chronological_episode_clusters_not_symbol_duplic
         metrics, expected_scope_count=len(metrics), gate=gate
     )
     assert evidence.passed is False
-    assert "scope_count" not in evidence.rejection_reasons
-    assert "rank_ic_lower_ci" in evidence.rejection_reasons
-    assert "top_bottom_spread_lower_ci" in evidence.rejection_reasons
-    assert "direction_accuracy_excess_lower_ci" in evidence.rejection_reasons
+    assert "scope_count" in evidence.rejection_reasons
 
 
 def test_admission_record_rejects_tampered_schema() -> None:

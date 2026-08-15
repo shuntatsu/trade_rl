@@ -177,9 +177,12 @@ def _prepared() -> CausalAlphaV3PreparedResearchData:
     )
 
 
-def _signal_evidence(*, passed: bool) -> CausalAlphaV3SignalGateEvidence:
+def _signal_evidence(
+    *, passed: bool, run_manifest_digest: str
+) -> CausalAlphaV3SignalGateEvidence:
     candidate = _candidate()
     metric = CausalAlphaV3SignalScopeMetric(
+        run_manifest_digest=run_manifest_digest,
         fit_config_digest=candidate.fit.digest,
         symbol="BTCUSDT",
         episode_index=0,
@@ -203,6 +206,7 @@ def _signal_evidence(*, passed: bool) -> CausalAlphaV3SignalGateEvidence:
     )
     return CausalAlphaV3SignalGateEvidence(
         metrics=(metric,),
+        run_manifest_digest=run_manifest_digest,
         raw_scope_count=1,
         expected_raw_scope_count=1,
         raw_scope_coverage=1.0,
@@ -218,7 +222,9 @@ def _signal_evidence(*, passed: bool) -> CausalAlphaV3SignalGateEvidence:
 
 
 def _scope_metric(*, passed: bool, **kwargs) -> CausalAlphaV3SignalScopeMetric:
-    base = _signal_evidence(passed=passed).metrics[0]
+    base = _signal_evidence(
+        passed=passed, run_manifest_digest=kwargs["run_manifest_digest"]
+    ).metrics[0]
     contract = kwargs["contract"]
     return replace(
         base,
@@ -302,7 +308,9 @@ def test_signal_rejection_stops_before_selection_and_holdout(
     monkeypatch.setattr(
         module,
         "evaluate_causal_alpha_v3_signal_gate",
-        lambda *args, **kwargs: _signal_evidence(passed=False),
+        lambda metrics, **kwargs: _signal_evidence(
+            passed=False, run_manifest_digest=metrics[0].run_manifest_digest
+        ),
     )
     monkeypatch.setattr(
         module,
@@ -331,7 +339,9 @@ def test_admission_rejection_never_creates_teacher_package(
     monkeypatch.setattr(
         module,
         "evaluate_causal_alpha_v3_signal_gate",
-        lambda *args, **kwargs: _signal_evidence(passed=True),
+        lambda metrics, **kwargs: _signal_evidence(
+            passed=True, run_manifest_digest=metrics[0].run_manifest_digest
+        ),
     )
     monkeypatch.setattr(
         module,

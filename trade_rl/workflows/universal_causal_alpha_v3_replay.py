@@ -35,6 +35,11 @@ from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
     CausalAlphaV3ReplayMetric,
     CausalAlphaV3SelectionEvidence,
 )
+from trade_rl.workflows.universal_causal_alpha_v3_diagnostics import (
+    CausalAlphaV3ReplayDiagnostics,
+    build_causal_alpha_v3_selection_progress,
+    summarize_causal_alpha_v3_targets,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_selection import (
     rank_causal_alpha_v3_candidates,
 )
@@ -78,6 +83,51 @@ def _expected_selection_contracts(
                     raise ValueError("V3 expected selection scope is duplicated")
                 expected[identity] = contract.digest
     return expected
+
+
+def _summarize_optional_replay_diagnostics(
+    *,
+    run_manifest_digest: str,
+    freeze_digest: str,
+    candidate: CausalAlphaV3Candidate,
+    symbol: str,
+    contract: OracleEpisodeContract,
+    metric: CausalAlphaV3ReplayMetric,
+    targets: CausalAlphaV3ContractTargets,
+) -> CausalAlphaV3ReplayDiagnostics | None:
+    """Build diagnostics only when the target adapter exposes descriptive arrays."""
+
+    target_path = targets.target_path
+    required = (
+        "targets",
+        "expected_returns",
+        "uncertainties",
+        "liquidity_weight_caps",
+        "chosen_objectives",
+        "stay_objectives",
+        "reasons",
+    )
+    if any(not hasattr(target_path, field) for field in required):
+        return None
+    return summarize_causal_alpha_v3_targets(
+        run_manifest_digest=run_manifest_digest,
+        freeze_digest=freeze_digest,
+        candidate_digest=candidate.digest,
+        symbol=symbol,
+        episode_index=contract.episode_index,
+        contract_digest=contract.digest,
+        replay_metric_digest=metric.digest,
+        fit_digest=targets.fit_digest,
+        forecast_digest=targets.forecast_digest,
+        target_path_digest=target_path.digest,
+        targets=target_path.targets,
+        expected_returns=target_path.expected_returns,
+        uncertainties=target_path.uncertainties,
+        liquidity_weight_caps=target_path.liquidity_weight_caps,
+        chosen_objectives=target_path.chosen_objectives,
+        stay_objectives=target_path.stay_objectives,
+        reasons=tuple(target_path.reasons),
+    )
 
 
 def evaluate_causal_alpha_v3_selection(
@@ -124,6 +174,13 @@ def evaluate_causal_alpha_v3_selection(
         candidates=candidate_values,
     )
     completed = store.load_replay_metrics(expected_contract_digests=expected)
+    diagnostics: dict[tuple[str, str, int], CausalAlphaV3ReplayDiagnostics] = (
+        store.load_replay_diagnostics(
+            expected_replay_metric_digests={
+                identity: metric.digest for identity, metric in completed.items()
+            }
+        )
+    )
     records: dict[str, list[CausalAlphaV3ReplayMetric]] = {
         candidate.digest: [] for candidate in candidate_values
     }
@@ -139,6 +196,22 @@ def evaluate_causal_alpha_v3_selection(
     }
     fit_cache = CausalAlphaV3FitCache(train_symbols=symbols, samples=samples)
     episode_days = float(episode_hours) / 24.0
+
+    def write_progress() -> None:
+        store.write_selection_progress(
+            build_causal_alpha_v3_selection_progress(
+                candidates=candidate_values,
+                train_symbols=symbols,
+                expected_replay_count=len(expected),
+                replay_metrics=completed,
+                diagnostics_identities=frozenset(diagnostics),
+                thresholds=thresholds,
+                fit_count=fit_cache.fit_count,
+                fit_cache_hits=fit_cache.hit_count,
+            )
+        )
+
+    write_progress()
 
     for symbol in symbols:
         missing = tuple(
@@ -237,6 +310,19 @@ def evaluate_causal_alpha_v3_selection(
                 store.write_replay_metric(metric)
                 completed[identity] = metric
                 records[candidate.digest].append(metric)
+                replay_diagnostics = _summarize_optional_replay_diagnostics(
+                    run_manifest_digest=run_manifest_digest,
+                    freeze_digest=freeze_digest,
+                    candidate=candidate,
+                    symbol=symbol,
+                    contract=contract,
+                    metric=metric,
+                    targets=targets,
+                )
+                if replay_diagnostics is not None:
+                    store.write_replay_diagnostics(replay_diagnostics)
+                    diagnostics[identity] = replay_diagnostics
+                write_progress()
                 if metric.irrecoverably_rejected(thresholds):
                     rejected.add(candidate.digest)
         finally:

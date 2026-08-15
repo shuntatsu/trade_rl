@@ -9,11 +9,16 @@ from pathlib import Path
 from typing import Mapping
 
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
+from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.domain.common import require_sha256
 from trade_rl.workflows.universal_causal_alpha_v3_admission import (
     CausalAlphaV3AdmissionRecordV2,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
     CausalAlphaV3CandidateEvidence,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_diagnostics import (
+    CausalAlphaV3ReplayDiagnostics,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3SignalScopeMetric,
@@ -30,6 +35,7 @@ from trade_rl.workflows.universal_causal_alpha_v3_teacher_artifacts import (
 )
 
 SignalIdentity = tuple[str, str, int]
+ReplayDiagnosticsIdentity = tuple[str, str, int]
 
 
 def _safe_segment(value: str, *, field: str) -> str:
@@ -152,6 +158,103 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
             evidence.to_payload(),
         )
 
+    def _replay_diagnostics_path(
+        self, diagnostics: CausalAlphaV3ReplayDiagnostics
+    ) -> Path:
+        candidate = _safe_segment(
+            diagnostics.candidate_digest, field="V3 diagnostics candidate"
+        )
+        symbol = _safe_segment(diagnostics.symbol, field="V3 diagnostics symbol")
+        return (
+            self.root
+            / "selection"
+            / "diagnostics"
+            / candidate
+            / symbol
+            / f"{diagnostics.episode_index}.json"
+        )
+
+    def _validate_replay_diagnostics_identity(
+        self, diagnostics: CausalAlphaV3ReplayDiagnostics
+    ) -> None:
+        if diagnostics.run_manifest_digest != self.run_manifest_digest:
+            raise ValueError("V3 diagnostics run manifest identity mismatch")
+        if (
+            self.freeze_digest is None
+            or diagnostics.freeze_digest != self.freeze_digest
+        ):
+            raise ValueError("V3 diagnostics freeze identity mismatch")
+        _safe_segment(diagnostics.symbol, field="V3 diagnostics symbol")
+
+    def write_replay_diagnostics(
+        self, diagnostics: CausalAlphaV3ReplayDiagnostics
+    ) -> Path:
+        if not isinstance(diagnostics, CausalAlphaV3ReplayDiagnostics):
+            raise TypeError("V3 diagnostics store requires replay diagnostics")
+        self._validate_replay_diagnostics_identity(diagnostics)
+        return self.write_exact_artifact(
+            self._replay_diagnostics_path(diagnostics).relative_to(self.root),
+            diagnostics.to_payload(),
+        )
+
+    def load_replay_diagnostics(
+        self,
+        *,
+        expected_replay_metric_digests: Mapping[ReplayDiagnosticsIdentity, str],
+    ) -> dict[ReplayDiagnosticsIdentity, CausalAlphaV3ReplayDiagnostics]:
+        expected = dict(expected_replay_metric_digests)
+        for identity, replay_metric_digest in expected.items():
+            candidate_digest, symbol, episode_index = identity
+            require_sha256(
+                candidate_digest, field="V3 expected diagnostics candidate digest"
+            )
+            _safe_segment(symbol, field="V3 expected diagnostics symbol")
+            if (
+                isinstance(episode_index, bool)
+                or not isinstance(episode_index, int)
+                or episode_index < 0
+            ):
+                raise ValueError("V3 expected diagnostics episode index is invalid")
+            require_sha256(
+                replay_metric_digest, field="V3 expected replay metric digest"
+            )
+        records_root = self.root / "selection" / "diagnostics"
+        if not records_root.is_dir():
+            return {}
+        result: dict[ReplayDiagnosticsIdentity, CausalAlphaV3ReplayDiagnostics] = {}
+        for path in sorted(records_root.rglob("*.json")):
+            diagnostics = CausalAlphaV3ReplayDiagnostics.from_payload(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+            self._validate_replay_diagnostics_identity(diagnostics)
+            identity = diagnostics.identity
+            if identity not in expected:
+                raise ValueError("V3 diagnostics record is outside the expected scope")
+            if diagnostics.replay_metric_digest != expected[identity]:
+                raise ValueError("V3 diagnostics replay metric identity drifted")
+            if path != self._replay_diagnostics_path(diagnostics):
+                raise ValueError("V3 diagnostics path identity drifted")
+            if identity in result:
+                raise ValueError("V3 diagnostics scope is duplicated")
+            result[identity] = diagnostics
+        return result
+
+    def write_selection_progress(self, payload: Mapping[str, object]) -> Path:
+        """Atomically replace derived selection monitoring state."""
+
+        values = dict(payload)
+        if values.get("schema_version") != "causal_alpha_v3_selection_progress_v1":
+            raise ValueError("V3 selection progress schema is unsupported")
+        if (
+            values.get("research_only") is not True
+            or values.get("promotion_eligible") is not False
+        ):
+            raise ValueError("V3 selection progress must remain research-only")
+        return atomic_write_bytes(
+            self.root / "selection" / "progress.json",
+            canonical_json_bytes(values) + b"\n",
+        )
+
     def _admission_v2_path(self, record: CausalAlphaV3AdmissionRecordV2) -> Path:
         symbol = _safe_segment(record.symbol, field="V3 admission symbol")
         return self.root / "admission" / "records" / f"{symbol}.json"
@@ -256,4 +359,9 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
         return UniversalCausalAlphaV3TeacherPackageV2.from_payload(raw, batches=batches)
 
 
-__all__ = ["CausalAlphaV3ArtifactStore", "CausalAlphaV3RunLock", "SignalIdentity"]
+__all__ = [
+    "CausalAlphaV3ArtifactStore",
+    "CausalAlphaV3RunLock",
+    "ReplayDiagnosticsIdentity",
+    "SignalIdentity",
+]

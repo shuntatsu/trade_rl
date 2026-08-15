@@ -66,3 +66,24 @@ def test_v3_runner_docs_close_the_deterministic_research_workflow() -> None:
         "only after teacher admission",
     ):
         assert phrase in combined
+
+
+def test_v3_docs_distinguish_authoritative_records_from_diagnostics_and_legacy_jsonl() -> (
+    None
+):
+    universal = _text("docs/UNIVERSAL_TRAINING.md").lower()
+    research = _text("docs/RESEARCH_STATUS.md").lower()
+    combined = f"{universal}\n{research}"
+
+    for phrase in (
+        "selection/records/",
+        "selection/diagnostics/",
+        "selection/progress.json",
+        "legacy jsonl",
+        "diagnostic-only",
+        "gross-negative",
+        "net-negative",
+        "asymmetric threshold",
+        "rolling-window",
+    ):
+        assert phrase in combined

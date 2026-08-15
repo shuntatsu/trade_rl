@@ -16,12 +16,17 @@ from trade_rl.learning.episode_oracle_teacher import (
 )
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaSymbolSamples
+from trade_rl.workflows.universal_causal_alpha_v3_admission import (
+    CausalAlphaV3AdmissionRecordV2,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_artifact_store import (
+    CausalAlphaV3ArtifactStore,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_config import (
     CausalAlphaV3Candidate,
     CausalAlphaV3SelectionGate,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
-    CausalAlphaV3AdmissionRecord,
     CausalAlphaV3CandidateEvidence,
     CausalAlphaV3SelectionEvidence,
 )
@@ -32,7 +37,6 @@ from trade_rl.workflows.universal_causal_alpha_v3_runner import (
 from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3NestedPartition,
 )
-from trade_rl.workflows.universal_causal_alpha_v3_store import CausalAlphaV3RecordStore
 from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
     CausalAlphaV3ContractTargets,
 )
@@ -107,6 +111,24 @@ def _selection_gate() -> CausalAlphaV3SelectionGate:
     )
 
 
+def _evaluation(*, gross: float = 0.02, net: float = 0.01) -> SimpleNamespace:
+    return SimpleNamespace(
+        performance=SimpleNamespace(
+            gross_return=gross,
+            net_return=net,
+            turnover_total=0.2,
+            cost_total=1.0,
+            trade_count=2,
+            maximum_drawdown=0.02,
+        ),
+        collapse_evidence=SimpleNamespace(
+            execution_rejection_reason_counts=(),
+            risk_projection_reason_counts=(),
+            hard_risk_violation=False,
+        ),
+    )
+
+
 def test_selection_resumes_completed_scope_and_closes_environment(
     monkeypatch, tmp_path
 ) -> None:
@@ -117,7 +139,7 @@ def test_selection_resumes_completed_scope_and_closes_environment(
     nested = _nested(symbol)
     run_digest = "1" * 64
     freeze_digest = "2" * 64
-    store = CausalAlphaV3RecordStore(
+    store = CausalAlphaV3ArtifactStore(
         tmp_path,
         run_manifest_digest=run_digest,
         freeze_digest=freeze_digest,
@@ -129,7 +151,9 @@ def test_selection_resumes_completed_scope_and_closes_environment(
     def targets(**kwargs):
         contract = kwargs["contract"]
         return CausalAlphaV3ContractTargets(
-            actions=np.zeros((contract.stop - contract.start - 1, 1), dtype=np.float32),
+            actions=np.zeros(
+                (contract.stop - contract.start - 1, 1), dtype=np.float32
+            ),
             fit_digest="3" * 64,
             forecast_digest="4" * 64,
             target_path=SimpleNamespace(
@@ -143,30 +167,22 @@ def test_selection_resumes_completed_scope_and_closes_environment(
 
     def evaluate(environment, contract, *, actions):
         evaluated.append(contract.episode_index)
-        return SimpleNamespace(
-            performance=SimpleNamespace(
-                gross_return=0.02,
-                net_return=0.01,
-                turnover_total=0.2,
-                cost_total=1.0,
-                trade_count=2,
-            ),
-            collapse_evidence=SimpleNamespace(
-                execution_rejection_reason_counts=(),
-                risk_projection_reason_counts=(),
-                hard_risk_violation=False,
-            ),
-        )
+        return _evaluation()
 
     monkeypatch.setattr(module, "build_causal_alpha_v3_contract_targets", targets)
-    monkeypatch.setattr(module, "evaluate_episode_action_path_on_environment", evaluate)
+    monkeypatch.setattr(
+        module, "evaluate_episode_action_path_on_environment", evaluate
+    )
 
     def factory():
         opened.append(symbol)
         return SimpleNamespace(
             symbol=symbol,
-            dataset=SimpleNamespace(),
+            dataset=SimpleNamespace(n_symbols=1),
             decision_bars=1,
+            initial_weights_for_reset=lambda mode, start: np.zeros(
+                1, dtype=np.float64
+            ),
             config=SimpleNamespace(
                 execution_cost=ExecutionCostConfig(),
                 signal_delay_decisions=1,
@@ -219,7 +235,11 @@ def _batch(symbol: str) -> EpisodeOracleBatch:
         teacher_config_digest="a" * 64,
         sampling_config_digest="b" * 64,
         contracts=(contract,),
-        targets=(np.zeros((contract.stop - contract.start - 1, 1), dtype=np.float32),),
+        targets=(
+            np.zeros(
+                (contract.stop - contract.start - 1, 1), dtype=np.float32
+            ),
+        ),
     )
 
 
@@ -286,14 +306,14 @@ def test_admission_reuses_persisted_symbol_record_exactly_once(
     freeze_digest = "2" * 64
     selection = _selection(candidate, freeze_digest)
     batches = {symbol: _batch(symbol) for symbol in symbols}
-    store = CausalAlphaV3RecordStore(
+    store = CausalAlphaV3ArtifactStore(
         tmp_path,
         run_manifest_digest=run_digest,
         freeze_digest=freeze_digest,
     )
     first_contract = batches[symbols[0]].contracts[-1]
-    store.write_admission_record(
-        CausalAlphaV3AdmissionRecord(
+    store.write_admission_record_v2(
+        CausalAlphaV3AdmissionRecordV2(
             run_manifest_digest=run_digest,
             freeze_digest=freeze_digest,
             selection_digest=selection.digest,
@@ -315,33 +335,33 @@ def test_admission_reuses_persisted_symbol_record_exactly_once(
             symbol for symbol in symbols if batches[symbol].contracts[-1] == contract
         )
         evaluated.append(symbol)
-        return SimpleNamespace(
-            performance=SimpleNamespace(
-                gross_return=0.02,
-                net_return=0.01,
-                turnover_total=0.2,
-                cost_total=1.0,
-                trade_count=2,
-                maximum_drawdown=0.02,
-            )
-        )
+        return _evaluation()
 
     monkeypatch.setattr(module, "evaluate_episode_action_path", evaluate)
+
+    def factory() -> SimpleNamespace:
+        return SimpleNamespace(
+            dataset=SimpleNamespace(n_symbols=1),
+            initial_weights_for_reset=lambda mode, start: np.zeros(
+                1, dtype=np.float64
+            ),
+            close=lambda: None,
+        )
+
     evidence = evaluate_causal_alpha_v3_admission(
         train_symbols=symbols,
         batches=batches,
-        environment_factories={symbol: (lambda: None) for symbol in symbols},
+        environment_factories={symbol: factory for symbol in symbols},
         episode_hours=24.0,
         run_manifest_digest=run_digest,
         freeze_digest=freeze_digest,
         selection=selection,
         store=store,
     )
-
     assert evidence.passed is True
     assert evaluated == [symbols[1]]
     assert tuple(metric.symbol for metric in evidence.metrics) == symbols
-    loaded = store.load_admission_records(
+    loaded = store.load_admission_records_v2(
         expected_contract_digests={
             symbol: batches[symbol].contracts[-1].digest for symbol in symbols
         },
@@ -352,7 +372,7 @@ def test_admission_reuses_persisted_symbol_record_exactly_once(
 
 
 def test_admission_record_maps_back_to_maintained_holdout_metric() -> None:
-    record = CausalAlphaV3AdmissionRecord(
+    record = CausalAlphaV3AdmissionRecordV2(
         run_manifest_digest="1" * 64,
         freeze_digest="2" * 64,
         selection_digest="3" * 64,
@@ -366,7 +386,6 @@ def test_admission_record_maps_back_to_maintained_holdout_metric() -> None:
         trade_count=1,
         maximum_drawdown=0.01,
     )
-
     maintained = record.to_holdout_metric()
     assert isinstance(maintained, CausalAlphaTeacherHoldoutMetric)
     assert maintained.symbol == record.symbol

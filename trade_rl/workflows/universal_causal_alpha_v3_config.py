@@ -16,7 +16,7 @@ from trade_rl.learning.causal_alpha_v3 import (
 )
 
 CAUSAL_ALPHA_V3_RESEARCH_CONFIG_SCHEMA: Final = (
-    "universal_causal_alpha_v3_research_config_v1"
+    "universal_causal_alpha_v3_research_config_v2"
 )
 _MAX_CANDIDATES: Final = 8
 
@@ -69,8 +69,8 @@ class CausalAlphaV3NestedSelectionConfig:
 
 @dataclass(frozen=True, slots=True)
 class CausalAlphaV3SignalGate:
-    minimum_scope_count: int
-    minimum_scope_coverage: float
+    minimum_independent_episode_count: int
+    minimum_raw_scope_coverage: float
     minimum_rank_ic_lower_ci: float
     minimum_top_bottom_spread_lower_ci: float
     minimum_direction_accuracy_excess_lower_ci: float
@@ -80,11 +80,16 @@ class CausalAlphaV3SignalGate:
 
     def __post_init__(self) -> None:
         _non_negative_int(
-            self.minimum_scope_count, field="minimum_scope_count", positive=True
+            self.minimum_independent_episode_count,
+            field="minimum_independent_episode_count",
+            positive=True,
         )
-        coverage = _finite(self.minimum_scope_coverage, field="minimum_scope_coverage")
+        coverage = _finite(
+            self.minimum_raw_scope_coverage,
+            field="minimum_raw_scope_coverage",
+        )
         if not 0.0 < coverage <= 1.0:
-            raise ValueError("minimum_scope_coverage must be within (0, 1]")
+            raise ValueError("minimum_raw_scope_coverage must be within (0, 1]")
         for field in (
             "minimum_rank_ic_lower_ci",
             "minimum_top_bottom_spread_lower_ci",
@@ -197,11 +202,11 @@ class CausalAlphaV3ResearchConfig:
         if self.schema_version != CAUSAL_ALPHA_V3_RESEARCH_CONFIG_SCHEMA:
             raise ValueError("unsupported causal alpha V3 research config schema")
         if (
-            self.signal_gate.minimum_scope_count
+            self.signal_gate.minimum_independent_episode_count
             > self.nested_selection.signal_contract_count
         ):
             raise ValueError(
-                "signal_gate.minimum_scope_count cannot exceed "
+                "signal_gate.minimum_independent_episode_count cannot exceed "
                 "nested_selection.signal_contract_count"
             )
         values = tuple(self.candidates)
@@ -231,6 +236,9 @@ class CausalAlphaV3ResearchConfig:
             optional=set(),
             field="causal alpha V3 research config",
         )
+        schema_version = str(payload["schema_version"])
+        if schema_version != CAUSAL_ALPHA_V3_RESEARCH_CONFIG_SCHEMA:
+            raise ValueError("unsupported causal alpha V3 research config schema")
         nested_raw = require_exact_fields(
             _mapping(payload["nested_selection"], field="nested_selection"),
             required={"signal_contract_count", "minimum_economic_contract_count"},
@@ -240,8 +248,8 @@ class CausalAlphaV3ResearchConfig:
         signal_raw = require_exact_fields(
             _mapping(payload["signal_gate"], field="signal_gate"),
             required={
-                "minimum_scope_count",
-                "minimum_scope_coverage",
+                "minimum_independent_episode_count",
+                "minimum_raw_scope_coverage",
                 "minimum_rank_ic_lower_ci",
                 "minimum_top_bottom_spread_lower_ci",
                 "minimum_direction_accuracy_excess_lower_ci",
@@ -352,14 +360,14 @@ class CausalAlphaV3ResearchConfig:
                 ),
             ),
             signal_gate=CausalAlphaV3SignalGate(
-                minimum_scope_count=_non_negative_int(
-                    signal_raw["minimum_scope_count"],
-                    field="signal_gate.minimum_scope_count",
+                minimum_independent_episode_count=_non_negative_int(
+                    signal_raw["minimum_independent_episode_count"],
+                    field="signal_gate.minimum_independent_episode_count",
                     positive=True,
                 ),
-                minimum_scope_coverage=_finite(
-                    signal_raw["minimum_scope_coverage"],
-                    field="signal_gate.minimum_scope_coverage",
+                minimum_raw_scope_coverage=_finite(
+                    signal_raw["minimum_raw_scope_coverage"],
+                    field="signal_gate.minimum_raw_scope_coverage",
                 ),
                 minimum_rank_ic_lower_ci=_finite(
                     signal_raw["minimum_rank_ic_lower_ci"],
@@ -415,7 +423,7 @@ class CausalAlphaV3ResearchConfig:
                 ),
             ),
             candidates=tuple(candidates),
-            schema_version=str(payload["schema_version"]),
+            schema_version=schema_version,
         )
 
     @classmethod

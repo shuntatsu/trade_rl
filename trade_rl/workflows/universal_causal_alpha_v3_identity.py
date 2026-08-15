@@ -58,8 +58,7 @@ class CausalAlphaV3ExecutionIdentity:
         ):
             require_sha256(getattr(self, name), field=f"V3 execution {name}")
         runtime = tuple(
-            (str(symbol), str(digest))
-            for symbol, digest in self.symbol_runtime_digests
+            (str(symbol), str(digest)) for symbol, digest in self.symbol_runtime_digests
         )
         if tuple(symbol for symbol, _ in runtime) != symbols:
             raise ValueError("V3 execution runtime scope/order drifted")
@@ -225,7 +224,10 @@ class CausalAlphaV3RunManifestV2:
             schema=_RUN_SCHEMA,
             label="V3 run manifest",
         )
-        if values["research_only"] is not True or values["promotion_eligible"] is not False:
+        if (
+            values["research_only"] is not True
+            or values["promotion_eligible"] is not False
+        ):
             raise ValueError("V3 run manifest safety flags are invalid")
         return cls(
             train_symbols=tuple(str(item) for item in values["train_symbols"]),

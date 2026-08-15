@@ -153,6 +153,9 @@ def _prepared() -> CausalAlphaV3PreparedResearchData:
         training_contract_digest="6" * 64,
         instrument_context_schema_digest="7" * 64,
         source_tree_digest="8" * 64,
+        shared_clock_digest="a" * 64,
+        dependency_lock_digest="b" * 64,
+        python_runtime_digest="c" * 64,
         symbol_runtime_digests=(("BTCUSDT", "9" * 64),),
     )
     return CausalAlphaV3PreparedResearchData(

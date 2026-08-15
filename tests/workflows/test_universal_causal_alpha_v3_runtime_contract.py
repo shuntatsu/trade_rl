@@ -54,6 +54,10 @@ def _validate_shared_chronology(**kwargs: object) -> str:
     return validate(**kwargs)
 
 
+def _signal_delays(symbols: tuple[str, ...]) -> dict[str, int]:
+    return {symbol: 1 for symbol in symbols}
+
+
 def test_shared_chronology_binds_one_identical_train_clock_and_schedule() -> None:
     symbols = ("BTCUSDT", "ETHUSDT")
     digest = _validate_shared_chronology(
@@ -64,6 +68,7 @@ def test_shared_chronology_binds_one_identical_train_clock_and_schedule() -> Non
             "ETHUSDT": _partition(_sha("b")),
         },
         decision_bars={symbol: 1 for symbol in symbols},
+        signal_delays=_signal_delays(symbols),
     )
 
     assert len(digest) == 64
@@ -83,6 +88,7 @@ def test_shared_chronology_rejects_cross_symbol_clock_drift() -> None:
                 "ETHUSDT": _partition(_sha("b")),
             },
             decision_bars={symbol: 1 for symbol in symbols},
+            signal_delays=_signal_delays(symbols),
         )
 
 
@@ -97,6 +103,7 @@ def test_shared_chronology_rejects_cross_symbol_episode_schedule_drift() -> None
                 "ETHUSDT": _partition(_sha("b"), start_offset=1),
             },
             decision_bars={symbol: 1 for symbol in symbols},
+            signal_delays=_signal_delays(symbols),
         )
 
 
@@ -111,6 +118,7 @@ def test_shared_chronology_rejects_cross_symbol_decision_cadence_drift() -> None
                 "ETHUSDT": _partition(_sha("b")),
             },
             decision_bars={"BTCUSDT": 1, "ETHUSDT": 2},
+            signal_delays=_signal_delays(symbols),
         )
 
 

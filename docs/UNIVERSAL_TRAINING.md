@@ -161,6 +161,8 @@ Teacher holdoutはshared package生成時に各symbol 1回だけ評価します�
 
 Teacher admissionが失敗した場合はBCを開始せず、critic warm startやPPO updateへ進みません。既存のBC reconstruction/economic gateも緩めません。
 
+Teacher admissionはBC後のbootstrap gateを複製する統計検定ではなく、未開封holdoutに対する軽量なpre-BC safety gateです。維持対象の共通判定は、aggregate gross returnとafter-cost aggregate net returnが非負、gross-negative symbolが過半数でない、worst-symbol net returnが`-0.05`以上、かつholdout全体のtrade countが正であることを要求します。V3はこの共通経済gateを再利用し、その上にhard-risk violationとunexplained execution rejectionのreject条件だけを追加します。
+
 ## 7. U5/U6で共有するteacher identity
 
 U5 architecture ablationでは、同一のcausal teacher packageを一度だけ構築し、全architecture candidateへ渡します。U6では同一packageをPPO、Lagrangian PPO、Discounted Lagrangian PPOへ共有します。

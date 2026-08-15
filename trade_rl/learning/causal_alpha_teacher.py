@@ -973,32 +973,82 @@ class CausalAlphaTeacherHoldoutMetric:
         }
 
 
+_CAUSAL_ALPHA_TEACHER_MINIMUM_SYMBOL_NET_RETURN = -0.05
+
+
+def _causal_alpha_teacher_admission_summary(
+    metrics: tuple[CausalAlphaTeacherHoldoutMetric, ...],
+) -> tuple[float, float, int, float, int, tuple[str, ...]]:
+    values = tuple(metrics)
+    if not values or len({item.symbol for item in values}) != len(values):
+        raise ValueError("causal alpha teacher holdout symbols must be unique")
+    aggregate_gross = float(sum(item.gross_return for item in values))
+    aggregate_net = float(sum(item.net_return for item in values))
+    negative_count = sum(item.gross_return < 0.0 for item in values)
+    worst_symbol_net = float(min(item.net_return for item in values))
+    total_trades = sum(item.trade_count for item in values)
+    reasons: list[str] = []
+    if aggregate_gross < 0.0:
+        reasons.append("negative_aggregate_gross_return")
+    if aggregate_net < 0.0:
+        reasons.append("negative_aggregate_net_return")
+    if negative_count > len(values) // 2:
+        reasons.append("majority_negative_gross_holdouts")
+    if worst_symbol_net < _CAUSAL_ALPHA_TEACHER_MINIMUM_SYMBOL_NET_RETURN:
+        reasons.append("symbol_net_return_below_floor")
+    if total_trades == 0:
+        reasons.append("no_meaningful_trades")
+    return (
+        aggregate_gross,
+        aggregate_net,
+        negative_count,
+        worst_symbol_net,
+        total_trades,
+        tuple(reasons),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class CausalAlphaTeacherAdmissionEvidence:
     metrics: tuple[CausalAlphaTeacherHoldoutMetric, ...]
     aggregate_gross_return: float
     aggregate_net_return: float
     negative_gross_symbol_count: int
+    worst_symbol_net_return: float
+    total_trade_count: int
     passed: bool
     rejection_reasons: tuple[str, ...]
     digest: str = ""
 
     def __post_init__(self) -> None:
         metrics = tuple(self.metrics)
-        if not metrics or len({item.symbol for item in metrics}) != len(metrics):
-            raise ValueError("causal alpha teacher holdout symbols must be unique")
-        if not math.isfinite(self.aggregate_gross_return) or not math.isfinite(
-            self.aggregate_net_return
-        ):
-            raise ValueError("causal alpha teacher aggregate returns must be finite")
+        (
+            expected_gross,
+            expected_net,
+            expected_negative_count,
+            expected_worst_net,
+            expected_total_trades,
+            expected_reasons,
+        ) = _causal_alpha_teacher_admission_summary(metrics)
+        if not isinstance(self.passed, bool):
+            raise ValueError("causal alpha teacher admission passed must be boolean")
         if (
             isinstance(self.negative_gross_symbol_count, bool)
             or not isinstance(self.negative_gross_symbol_count, int)
-            or not 0 <= self.negative_gross_symbol_count <= len(metrics)
+            or isinstance(self.total_trade_count, bool)
+            or not isinstance(self.total_trade_count, int)
         ):
-            raise ValueError("causal alpha teacher negative holdout count is invalid")
+            raise ValueError("causal alpha teacher admission counts are invalid")
+        if (
+            self.aggregate_gross_return != expected_gross
+            or self.aggregate_net_return != expected_net
+            or self.negative_gross_symbol_count != expected_negative_count
+            or self.worst_symbol_net_return != expected_worst_net
+            or self.total_trade_count != expected_total_trades
+        ):
+            raise ValueError("causal alpha teacher admission summary is inconsistent")
         reasons = tuple(self.rejection_reasons)
-        if self.passed == bool(reasons):
+        if reasons != expected_reasons or self.passed != (not expected_reasons):
             raise ValueError("causal alpha teacher admission reasons are inconsistent")
         expected = content_digest(
             {
@@ -1008,7 +1058,9 @@ class CausalAlphaTeacherAdmissionEvidence:
                 "negative_gross_symbol_count": self.negative_gross_symbol_count,
                 "passed": self.passed,
                 "rejection_reasons": reasons,
-                "schema_version": "causal_alpha_teacher_admission_v1",
+                "schema_version": "causal_alpha_teacher_admission_v2",
+                "total_trade_count": self.total_trade_count,
+                "worst_symbol_net_return": self.worst_symbol_net_return,
             }
         )
         if self.digest and self.digest != expected:
@@ -1026,33 +1078,35 @@ class CausalAlphaTeacherAdmissionEvidence:
             "negative_gross_symbol_count": self.negative_gross_symbol_count,
             "passed": self.passed,
             "rejection_reasons": list(self.rejection_reasons),
-            "schema_version": "causal_alpha_teacher_admission_v1",
+            "schema_version": "causal_alpha_teacher_admission_v2",
+            "total_trade_count": self.total_trade_count,
+            "worst_symbol_net_return": self.worst_symbol_net_return,
         }
 
 
 def evaluate_causal_alpha_teacher_admission(
     metrics: tuple[CausalAlphaTeacherHoldoutMetric, ...],
 ) -> CausalAlphaTeacherAdmissionEvidence:
-    """Apply the maintained pre-BC teacher economics gate to untouched holdouts."""
+    """Apply the lightweight maintained pre-BC gate to untouched teacher holdouts."""
 
     values = tuple(metrics)
-    if not values or len({item.symbol for item in values}) != len(values):
-        raise ValueError("causal alpha teacher holdout symbols must be unique")
-    aggregate_gross = float(sum(item.gross_return for item in values))
-    aggregate_net = float(sum(item.net_return for item in values))
-    negative_count = sum(item.gross_return < 0.0 for item in values)
-    reasons: list[str] = []
-    if aggregate_gross < 0.0:
-        reasons.append("negative_aggregate_gross_return")
-    if negative_count > len(values) // 2:
-        reasons.append("majority_negative_gross_holdouts")
+    (
+        aggregate_gross,
+        aggregate_net,
+        negative_count,
+        worst_symbol_net,
+        total_trades,
+        reasons,
+    ) = _causal_alpha_teacher_admission_summary(values)
     return CausalAlphaTeacherAdmissionEvidence(
         metrics=values,
         aggregate_gross_return=aggregate_gross,
         aggregate_net_return=aggregate_net,
         negative_gross_symbol_count=negative_count,
+        worst_symbol_net_return=worst_symbol_net,
+        total_trade_count=total_trades,
         passed=not reasons,
-        rejection_reasons=tuple(reasons),
+        rejection_reasons=reasons,
     )
 
 

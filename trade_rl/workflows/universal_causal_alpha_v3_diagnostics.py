@@ -271,9 +271,7 @@ class CausalAlphaV3ReplayDiagnostics:
         artifact_digest = values["artifact_digest"]
         if not isinstance(artifact_digest, str):
             raise ValueError("V3 replay diagnostics artifact digest must be a string")
-        require_sha256(
-            artifact_digest, field="V3 replay diagnostics artifact digest"
-        )
+        require_sha256(artifact_digest, field="V3 replay diagnostics artifact digest")
         return cls(
             run_manifest_digest=str(values["run_manifest_digest"]),
             freeze_digest=str(values["freeze_digest"]),

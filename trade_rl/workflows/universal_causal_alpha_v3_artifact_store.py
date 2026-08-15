@@ -178,7 +178,10 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
     ) -> None:
         if diagnostics.run_manifest_digest != self.run_manifest_digest:
             raise ValueError("V3 diagnostics run manifest identity mismatch")
-        if self.freeze_digest is None or diagnostics.freeze_digest != self.freeze_digest:
+        if (
+            self.freeze_digest is None
+            or diagnostics.freeze_digest != self.freeze_digest
+        ):
             raise ValueError("V3 diagnostics freeze identity mismatch")
         _safe_segment(diagnostics.symbol, field="V3 diagnostics symbol")
 

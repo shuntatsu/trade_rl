@@ -4,24 +4,23 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from statistics import fmean
 from typing import Final, Mapping
 
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
-from trade_rl.evaluation.bootstrap import moving_block_mean_test
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
 from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaEpisodePartition,
 )
-from trade_rl.workflows.universal_causal_alpha_v3_config import CausalAlphaV3SignalGate
 
 _NESTED_PARTITION_SCHEMA: Final = "causal_alpha_v3_nested_partition_v1"
-_SIGNAL_SCOPE_SCHEMA: Final = "causal_alpha_v3_signal_scope_v1"
-_SIGNAL_GATE_SCHEMA: Final = "causal_alpha_v3_signal_gate_evidence_v1"
+_SIGNAL_SCOPE_SCHEMA: Final = "causal_alpha_v3_signal_scope_v2"
+_SIGNAL_GATE_SCHEMA: Final = "causal_alpha_v3_signal_gate_evidence_v2"
 _BOOTSTRAP_SCHEMA: Final = "causal_alpha_v3_bootstrap_evidence_v1"
+_SIGNAL_INDEPENDENCE_UNIT: Final = "chronological_episode"
+_SIGNAL_AGGREGATION_MODE: Final = "cross_symbol_episode_mean"
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +152,8 @@ class CausalAlphaV3SignalScopeMetric:
     fit_config_digest: str
     symbol: str
     episode_index: int
+    contract_start: int
+    contract_stop: int
     contract_digest: str
     fit_digest: str
     forecast_digest: str
@@ -179,6 +180,15 @@ class CausalAlphaV3SignalScopeMetric:
             or self.episode_index < 0
         ):
             raise ValueError("V3 signal episode_index must be non-negative")
+        if (
+            isinstance(self.contract_start, bool)
+            or not isinstance(self.contract_start, int)
+            or isinstance(self.contract_stop, bool)
+            or not isinstance(self.contract_stop, int)
+            or self.contract_start < 0
+            or self.contract_stop <= self.contract_start
+        ):
+            raise ValueError("V3 signal contract interval is invalid")
         if (
             isinstance(self.sample_count, bool)
             or not isinstance(self.sample_count, int)
@@ -216,10 +226,16 @@ class CausalAlphaV3SignalScopeMetric:
     def identity(self) -> tuple[str, str, int]:
         return (self.fit_config_digest, self.symbol, self.episode_index)
 
+    @property
+    def cluster_identity(self) -> tuple[int, int]:
+        return (self.contract_start, self.contract_stop)
+
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
             "cohort_indices": self.cohort_indices,
             "contract_digest": self.contract_digest,
+            "contract_start": self.contract_start,
+            "contract_stop": self.contract_stop,
             "direction_accuracy": self.direction_accuracy,
             "episode_index": self.episode_index,
             "fit_config_digest": self.fit_config_digest,
@@ -283,14 +299,19 @@ class CausalAlphaV3BootstrapEvidence:
 @dataclass(frozen=True, slots=True)
 class CausalAlphaV3SignalGateEvidence:
     metrics: tuple[CausalAlphaV3SignalScopeMetric, ...]
-    expected_scope_count: int
-    scope_coverage: float
+    raw_scope_count: int
+    expected_raw_scope_count: int
+    raw_scope_coverage: float
+    independent_episode_count: int
+    expected_independent_episode_count: int
     rank_ic: CausalAlphaV3BootstrapEvidence
     top_bottom_spread: CausalAlphaV3BootstrapEvidence
     direction_accuracy_excess: CausalAlphaV3BootstrapEvidence
     gate_digest: str
     passed: bool
     rejection_reasons: tuple[str, ...]
+    independence_unit: str = _SIGNAL_INDEPENDENCE_UNIT
+    aggregation_mode: str = _SIGNAL_AGGREGATION_MODE
     promotion_eligible: bool = False
     digest: str = ""
 
@@ -298,13 +319,48 @@ class CausalAlphaV3SignalGateEvidence:
         values = tuple(self.metrics)
         if not values or len({item.identity for item in values}) != len(values):
             raise ValueError("V3 signal evidence requires unique scope metrics")
-        if self.expected_scope_count <= 0 or len(values) > self.expected_scope_count:
-            raise ValueError("V3 signal expected scope count is invalid")
         if (
-            not math.isfinite(self.scope_coverage)
-            or not 0.0 < self.scope_coverage <= 1.0
+            isinstance(self.raw_scope_count, bool)
+            or not isinstance(self.raw_scope_count, int)
+            or self.raw_scope_count != len(values)
+            or self.raw_scope_count <= 0
         ):
-            raise ValueError("V3 signal scope coverage is invalid")
+            raise ValueError("V3 signal raw scope count is invalid")
+        if (
+            isinstance(self.expected_raw_scope_count, bool)
+            or not isinstance(self.expected_raw_scope_count, int)
+            or self.expected_raw_scope_count < self.raw_scope_count
+        ):
+            raise ValueError("V3 signal expected raw scope count is invalid")
+        expected_coverage = self.raw_scope_count / float(self.expected_raw_scope_count)
+        if (
+            not math.isfinite(self.raw_scope_coverage)
+            or not 0.0 < self.raw_scope_coverage <= 1.0
+            or abs(self.raw_scope_coverage - expected_coverage) > 1e-12
+        ):
+            raise ValueError("V3 signal raw scope coverage is invalid")
+        observed_clusters = len({item.cluster_identity for item in values})
+        if (
+            isinstance(self.independent_episode_count, bool)
+            or not isinstance(self.independent_episode_count, int)
+            or self.independent_episode_count != observed_clusters
+            or self.independent_episode_count <= 0
+        ):
+            raise ValueError("V3 signal independent episode count is invalid")
+        if (
+            isinstance(self.expected_independent_episode_count, bool)
+            or not isinstance(self.expected_independent_episode_count, int)
+            or self.expected_independent_episode_count < self.independent_episode_count
+            or self.expected_independent_episode_count > self.expected_raw_scope_count
+        ):
+            raise ValueError("V3 signal expected independent episode count is invalid")
+        if self.independence_unit != _SIGNAL_INDEPENDENCE_UNIT:
+            raise ValueError("V3 signal independence unit is invalid")
+        if self.aggregation_mode != _SIGNAL_AGGREGATION_MODE:
+            raise ValueError("V3 signal aggregation mode is invalid")
+        for field in ("rank_ic", "top_bottom_spread", "direction_accuracy_excess"):
+            if not isinstance(getattr(self, field), CausalAlphaV3BootstrapEvidence):
+                raise TypeError(f"V3 signal {field} evidence is invalid")
         require_sha256(self.gate_digest, field="V3 signal gate_digest")
         if self.promotion_eligible:
             raise ValueError("V3 signal gate evidence cannot be promotion eligible")
@@ -320,16 +376,21 @@ class CausalAlphaV3SignalGateEvidence:
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
+            "aggregation_mode": self.aggregation_mode,
             "direction_accuracy_excess": self.direction_accuracy_excess.to_payload(),
-            "expected_scope_count": self.expected_scope_count,
+            "expected_independent_episode_count": self.expected_independent_episode_count,
+            "expected_raw_scope_count": self.expected_raw_scope_count,
             "gate_digest": self.gate_digest,
+            "independence_unit": self.independence_unit,
+            "independent_episode_count": self.independent_episode_count,
             "metric_digests": tuple(item.digest for item in self.metrics),
             "passed": self.passed,
             "promotion_eligible": self.promotion_eligible,
             "rank_ic": self.rank_ic.to_payload(),
+            "raw_scope_count": self.raw_scope_count,
+            "raw_scope_coverage": self.raw_scope_coverage,
             "rejection_reasons": self.rejection_reasons,
             "schema_version": _SIGNAL_GATE_SCHEMA,
-            "scope_coverage": self.scope_coverage,
             "top_bottom_spread": self.top_bottom_spread.to_payload(),
         }
         if include_digest:
@@ -337,91 +398,11 @@ class CausalAlphaV3SignalGateEvidence:
         return payload
 
 
-def _bootstrap(
-    values: tuple[float, ...], gate: CausalAlphaV3SignalGate
-) -> CausalAlphaV3BootstrapEvidence:
-    result = moving_block_mean_test(
-        values,
-        n_bootstrap=gate.bootstrap_resamples,
-        seed=gate.bootstrap_seed,
-        block_size=gate.bootstrap_block_size,
-    )
-    return CausalAlphaV3BootstrapEvidence(
-        mean=float(fmean(values)),
-        p_value=result.p_value,
-        lower_ci=result.lower_ci,
-        upper_ci=result.upper_ci,
-        block_size=result.block_size,
-    )
-
-
-def _required_rank_correlation(metric: CausalAlphaV3SignalScopeMetric) -> float:
-    value = metric.rank_correlation
-    if value is None:
-        raise ValueError("V3 signal rank correlation is unavailable")
-    return value
-
-
-def evaluate_causal_alpha_v3_signal_gate(
-    metrics: tuple[CausalAlphaV3SignalScopeMetric, ...],
-    *,
-    expected_scope_count: int,
-    gate: CausalAlphaV3SignalGate,
-) -> CausalAlphaV3SignalGateEvidence:
-    values = tuple(metrics)
-    if not values or any(
-        not isinstance(item, CausalAlphaV3SignalScopeMetric) for item in values
-    ):
-        raise ValueError("V3 signal gate requires scope metrics")
-    if len({item.identity for item in values}) != len(values):
-        raise ValueError("V3 signal gate scope metrics are duplicated")
-    if (
-        isinstance(expected_scope_count, bool)
-        or not isinstance(expected_scope_count, int)
-        or expected_scope_count <= 0
-    ):
-        raise ValueError("expected_scope_count must be positive")
-    if len(values) > expected_scope_count:
-        raise ValueError("V3 signal gate has more scopes than expected")
-    if not isinstance(gate, CausalAlphaV3SignalGate):
-        raise TypeError("V3 signal gate config is invalid")
-
-    coverage = len(values) / float(expected_scope_count)
-    rank = _bootstrap(tuple(_required_rank_correlation(item) for item in values), gate)
-    spread = _bootstrap(tuple(item.top_bottom_realized_spread for item in values), gate)
-    direction = _bootstrap(
-        tuple(item.direction_accuracy - 0.5 for item in values), gate
-    )
-    reasons: list[str] = []
-    if len(values) < gate.minimum_scope_count:
-        reasons.append("scope_count")
-    if coverage < gate.minimum_scope_coverage:
-        reasons.append("scope_coverage")
-    if rank.lower_ci < gate.minimum_rank_ic_lower_ci:
-        reasons.append("rank_ic_lower_ci")
-    if spread.lower_ci < gate.minimum_top_bottom_spread_lower_ci:
-        reasons.append("top_bottom_spread_lower_ci")
-    if direction.lower_ci < gate.minimum_direction_accuracy_excess_lower_ci:
-        reasons.append("direction_accuracy_excess_lower_ci")
-    return CausalAlphaV3SignalGateEvidence(
-        metrics=values,
-        expected_scope_count=expected_scope_count,
-        scope_coverage=coverage,
-        rank_ic=rank,
-        top_bottom_spread=spread,
-        direction_accuracy_excess=direction,
-        gate_digest=gate.digest,
-        passed=not reasons,
-        rejection_reasons=tuple(reasons),
-    )
-
-
 __all__ = [
     "CausalAlphaV3BootstrapEvidence",
     "CausalAlphaV3NestedPartition",
     "CausalAlphaV3SignalGateEvidence",
     "CausalAlphaV3SignalScopeMetric",
-    "evaluate_causal_alpha_v3_signal_gate",
     "non_overlapping_causal_alpha_v3_rows",
     "split_causal_alpha_v3_partitions",
 ]

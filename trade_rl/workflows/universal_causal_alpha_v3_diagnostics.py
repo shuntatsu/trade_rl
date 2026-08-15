@@ -6,15 +6,25 @@ import math
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
+from statistics import fmean
 from typing import Any, Final
 
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.workflows.universal_causal_alpha_v3_config import (
+    CausalAlphaV3Candidate,
+    CausalAlphaV3SelectionGate,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
+    CausalAlphaV3ReplayMetric,
+)
 
 _DIAGNOSTICS_SCHEMA: Final = "causal_alpha_v3_replay_diagnostics_v1"
+_PROGRESS_SCHEMA: Final = "causal_alpha_v3_selection_progress_v1"
 _EPSILON: Final = 1e-12
+ReplayIdentity = tuple[str, str, int]
 
 
 def _strict_payload(
@@ -169,7 +179,7 @@ class CausalAlphaV3ReplayDiagnostics:
         object.__setattr__(self, "digest", expected)
 
     @property
-    def identity(self) -> tuple[str, str, int]:
+    def identity(self) -> ReplayIdentity:
         return (self.candidate_digest, self.symbol, self.episode_index)
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
@@ -387,7 +397,122 @@ def summarize_causal_alpha_v3_targets(
     )
 
 
+def _mean_or_none(values: tuple[float, ...]) -> float | None:
+    return None if not values else float(fmean(values))
+
+
+def build_causal_alpha_v3_selection_progress(
+    *,
+    candidates: tuple[CausalAlphaV3Candidate, ...],
+    train_symbols: tuple[str, ...],
+    expected_replay_count: int,
+    replay_metrics: Mapping[ReplayIdentity, CausalAlphaV3ReplayMetric],
+    diagnostics_identities: frozenset[ReplayIdentity],
+    thresholds: CausalAlphaV3SelectionGate,
+    fit_count: int,
+    fit_cache_hits: int,
+) -> dict[str, object]:
+    """Build deterministic monitoring state from authoritative replay records."""
+
+    candidate_values = tuple(candidates)
+    symbols = tuple(train_symbols)
+    if (
+        not candidate_values
+        or len({candidate.digest for candidate in candidate_values})
+        != len(candidate_values)
+    ):
+        raise ValueError("V3 progress candidates must be non-empty and unique")
+    if not symbols or len(set(symbols)) != len(symbols) or any(not item for item in symbols):
+        raise ValueError("V3 progress train_symbols must be non-empty and unique")
+    _non_negative_int(expected_replay_count, field="V3 progress expected_replay_count")
+    _non_negative_int(fit_count, field="V3 progress fit_count")
+    _non_negative_int(fit_cache_hits, field="V3 progress fit_cache_hits")
+
+    metrics = dict(replay_metrics)
+    if len(metrics) > expected_replay_count:
+        raise ValueError("V3 progress completed replay count exceeds expected scope")
+    candidate_digests = {candidate.digest for candidate in candidate_values}
+    symbol_set = set(symbols)
+    for identity, metric in metrics.items():
+        if identity != metric.identity:
+            raise ValueError("V3 progress replay metric identity drifted")
+        if metric.candidate_digest not in candidate_digests:
+            raise ValueError("V3 progress replay candidate is outside frozen scope")
+        if metric.symbol not in symbol_set:
+            raise ValueError("V3 progress replay symbol is outside train scope")
+    diagnostic_scope = frozenset(diagnostics_identities)
+    if not diagnostic_scope.issubset(metrics):
+        raise ValueError("V3 progress diagnostics are outside completed replay scope")
+
+    candidate_rows: list[dict[str, object]] = []
+    for candidate in candidate_values:
+        values = tuple(
+            metric
+            for metric in metrics.values()
+            if metric.candidate_digest == candidate.digest
+        )
+        candidate_rows.append(
+            {
+                "candidate_digest": candidate.digest,
+                "completed_scope_count": len(values),
+                "irrecoverably_rejected": any(
+                    metric.irrecoverably_rejected(thresholds) for metric in values
+                ),
+                "mean_gross_return": _mean_or_none(
+                    tuple(metric.gross_return for metric in values)
+                ),
+                "mean_net_return": _mean_or_none(
+                    tuple(metric.net_return for metric in values)
+                ),
+                "mean_turnover_per_day": _mean_or_none(
+                    tuple(metric.turnover_per_day for metric in values)
+                ),
+                "name": candidate.name,
+                "total_trade_count": sum(metric.trade_count for metric in values),
+                "worst_net_return": (
+                    None if not values else min(metric.net_return for metric in values)
+                ),
+            }
+        )
+
+    symbol_rows: dict[str, dict[str, object]] = {}
+    for symbol in symbols:
+        values = tuple(metric for metric in metrics.values() if metric.symbol == symbol)
+        symbol_rows[symbol] = {
+            "completed_scope_count": len(values),
+            "mean_gross_return": _mean_or_none(
+                tuple(metric.gross_return for metric in values)
+            ),
+            "mean_net_return": _mean_or_none(tuple(metric.net_return for metric in values)),
+            "mean_turnover_per_day": _mean_or_none(
+                tuple(metric.turnover_per_day for metric in values)
+            ),
+            "total_trade_count": sum(metric.trade_count for metric in values),
+        }
+
+    completed_count = len(metrics)
+    return {
+        "candidates": candidate_rows,
+        "completed_replay_count": completed_count,
+        "completion_fraction": (
+            0.0
+            if expected_replay_count == 0
+            else float(completed_count) / float(expected_replay_count)
+        ),
+        "diagnostics_completed_count": len(diagnostic_scope),
+        "expected_replay_count": expected_replay_count,
+        "fit_cache_hits": fit_cache_hits,
+        "fit_count": fit_count,
+        "promotion_eligible": False,
+        "research_only": True,
+        "schema_version": _PROGRESS_SCHEMA,
+        "symbols": symbol_rows,
+    }
+
+
 __all__ = [
     "CausalAlphaV3ReplayDiagnostics",
+    "ReplayIdentity",
+    "build_causal_alpha_v3_selection_progress",
     "summarize_causal_alpha_v3_targets",
 ]

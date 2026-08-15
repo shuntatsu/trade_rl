@@ -374,11 +374,11 @@ def run_universal_causal_alpha_v3_research_pipeline(
                 passed_signal[fit_digest] = evidence
 
         if not passed_signal:
-            rejection = CausalAlphaV3SignalRejected(tuple(fit_results))
+            signal_rejection = CausalAlphaV3SignalRejected(tuple(fit_results))
             base_store.write_exact_artifact(
-                "signal/rejection.json", rejection.to_payload()
+                "signal/rejection.json", signal_rejection.to_payload()
             )
-            raise rejection
+            raise signal_rejection
 
         frozen_candidates = tuple(
             candidate
@@ -426,11 +426,11 @@ def run_universal_causal_alpha_v3_research_pipeline(
                     prepared.max_position_to_market_notional
                 ),
             )
-        except CausalAlphaV3SelectionRejected as rejection:
-            for candidate_evidence in rejection.candidates:
+        except CausalAlphaV3SelectionRejected as selection_rejection:
+            for candidate_evidence in selection_rejection.candidates:
                 store.write_candidate_evidence(candidate_evidence)
             store.write_exact_artifact(
-                "selection/rejection.json", rejection.to_payload()
+                "selection/rejection.json", selection_rejection.to_payload()
             )
             raise
         for candidate_evidence in selection.candidates:
@@ -474,14 +474,14 @@ def run_universal_causal_alpha_v3_research_pipeline(
         )
         store.write_exact_artifact("admission/evidence.json", admission.to_payload())
         if not admission.passed:
-            rejection = CausalAlphaV3AdmissionRejected(
+            admission_rejection = CausalAlphaV3AdmissionRejected(
                 admission_digest=admission.digest,
                 selected_candidate_digest=selected.digest,
             )
             store.write_exact_artifact(
-                "admission/rejection.json", rejection.to_payload()
+                "admission/rejection.json", admission_rejection.to_payload()
             )
-            raise rejection
+            raise admission_rejection
 
         training_batches = {
             symbol: _training_batch_without_holdout(full_batches[symbol])

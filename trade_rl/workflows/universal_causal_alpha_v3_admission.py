@@ -290,9 +290,7 @@ def evaluate_causal_alpha_v3_admission_gate(
     aggregate_net = float(sum(item.net_return for item in values))
     negative_count = sum(item.gross_return < 0.0 for item in values)
     hard_risk_count = sum(item.hard_risk_violation for item in values)
-    unexplained = sum(
-        item.unexplained_execution_rejection_count for item in values
-    )
+    unexplained = sum(item.unexplained_execution_rejection_count for item in values)
     reasons: list[str] = []
     if aggregate_gross < 0.0:
         reasons.append("negative_aggregate_gross_return")

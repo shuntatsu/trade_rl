@@ -31,16 +31,10 @@ def _metric(*, symbol: str, episode_index: int) -> CausalAlphaV3SignalScopeMetri
     )
 
 
-def test_clustered_signal_gate_counts_raw_scopes_but_bootstraps_episodes() -> None:
-    symbols = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT")
-    metrics = tuple(
-        _metric(symbol=symbol, episode_index=episode_index)
-        for episode_index in range(2)
-        for symbol in symbols
-    )
-    gate = CausalAlphaV3SignalGate(
-        minimum_scope_count=4,
-        minimum_scope_coverage=1.0,
+def _gate(*, minimum_scope_count: int, minimum_scope_coverage: float) -> CausalAlphaV3SignalGate:
+    return CausalAlphaV3SignalGate(
+        minimum_scope_count=minimum_scope_count,
+        minimum_scope_coverage=minimum_scope_coverage,
         minimum_rank_ic_lower_ci=0.1,
         minimum_top_bottom_spread_lower_ci=0.1,
         minimum_direction_accuracy_excess_lower_ci=0.1,
@@ -49,10 +43,19 @@ def test_clustered_signal_gate_counts_raw_scopes_but_bootstraps_episodes() -> No
         bootstrap_block_size=1,
     )
 
+
+def test_clustered_signal_gate_counts_raw_scopes_but_bootstraps_episodes() -> None:
+    symbols = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT")
+    metrics = tuple(
+        _metric(symbol=symbol, episode_index=episode_index)
+        for episode_index in range(2)
+        for symbol in symbols
+    )
+
     evidence = evaluate_causal_alpha_v3_signal_gate_clustered(
         metrics,
         expected_scope_count=len(metrics),
-        gate=gate,
+        gate=_gate(minimum_scope_count=4, minimum_scope_coverage=1.0),
     )
 
     assert evidence.passed is True
@@ -61,3 +64,20 @@ def test_clustered_signal_gate_counts_raw_scopes_but_bootstraps_episodes() -> No
     assert evidence.top_bottom_spread.mean == 0.2
     assert evidence.direction_accuracy_excess.mean == 0.2
     assert "scope_count" not in evidence.rejection_reasons
+
+
+def test_clustered_signal_gate_still_rejects_too_few_raw_scopes() -> None:
+    metrics = tuple(
+        _metric(symbol="BTCUSDT", episode_index=episode_index)
+        for episode_index in range(2)
+    )
+
+    evidence = evaluate_causal_alpha_v3_signal_gate_clustered(
+        metrics,
+        expected_scope_count=4,
+        gate=_gate(minimum_scope_count=3, minimum_scope_coverage=0.5),
+    )
+
+    assert evidence.passed is False
+    assert evidence.scope_coverage == 0.5
+    assert evidence.rejection_reasons == ("scope_count",)

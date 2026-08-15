@@ -28,6 +28,7 @@ def _metric(
     start = episode * 100 if contract_start is None else contract_start
     stop = start + 97 if contract_stop is None else contract_stop
     kwargs: dict[str, Any] = {
+        "run_manifest_digest": "9" * 64,
         "fit_config_digest": "1" * 64,
         "symbol": symbol,
         "episode_index": episode,
@@ -83,6 +84,7 @@ def test_signal_gate_v2_exposes_raw_and_independent_episode_units() -> None:
     )
 
     assert evidence.passed is True
+    assert evidence.run_manifest_digest == "9" * 64
     assert evidence.raw_scope_count == 3
     assert evidence.expected_raw_scope_count == 3
     assert evidence.raw_scope_coverage == pytest.approx(1.0)
@@ -182,6 +184,7 @@ def test_signal_scope_metric_requires_valid_contract_interval() -> None:
 
 def test_signal_scope_metric_rejects_undefined_rank_ic() -> None:
     kwargs: dict[str, Any] = {
+        "run_manifest_digest": "9" * 64,
         "fit_config_digest": "1" * 64,
         "symbol": "BTCUSDT",
         "episode_index": 0,

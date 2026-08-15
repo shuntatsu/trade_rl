@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
+
 import numpy as np
 import pytest
 
+from trade_rl.workflows.universal_causal_alpha_v3_artifact_store import (
+    CausalAlphaV3ArtifactStore,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_diagnostics import (
     CausalAlphaV3ReplayDiagnostics,
     summarize_causal_alpha_v3_targets,
@@ -37,6 +43,14 @@ def _diagnostics() -> CausalAlphaV3ReplayDiagnostics:
         chosen_objectives=np.asarray((0.01, 0.0, 0.005, 0.0), dtype=np.float64),
         stay_objectives=np.asarray((0.0, 0.0, 0.001, 0.0), dtype=np.float64),
         reasons=("rebalance", "hold", "rebalance", "hold"),
+    )
+
+
+def _store(root: Path) -> CausalAlphaV3ArtifactStore:
+    return CausalAlphaV3ArtifactStore(
+        root,
+        run_manifest_digest=_RUN,
+        freeze_digest=_FREEZE,
     )
 
 
@@ -122,4 +136,75 @@ def test_target_diagnostics_fail_closed_on_shape_or_nonfinite_inputs() -> None:
             chosen_objectives=np.asarray((0.0, 0.0)),
             stay_objectives=np.asarray((0.0, 0.0)),
             reasons=("hold", "rebalance"),
+        )
+
+
+def test_diagnostics_store_round_trips_and_missing_leaves_are_optional(tmp_path: Path) -> (
+    None
+):
+    diagnostics = _diagnostics()
+    store = _store(tmp_path)
+
+    assert store.load_replay_diagnostics(
+        expected_replay_metric_digests={diagnostics.identity: _REPLAY}
+    ) == {}
+
+    path = store.write_replay_diagnostics(diagnostics)
+    assert path == (
+        tmp_path
+        / "selection"
+        / "diagnostics"
+        / _CANDIDATE
+        / "BTCUSDT"
+        / "3.json"
+    )
+    assert store.load_replay_diagnostics(
+        expected_replay_metric_digests={diagnostics.identity: _REPLAY}
+    ) == {diagnostics.identity: diagnostics}
+
+
+def test_diagnostics_store_rejects_conflicts_and_replay_digest_drift(
+    tmp_path: Path,
+) -> None:
+    diagnostics = _diagnostics()
+    store = _store(tmp_path)
+    store.write_replay_diagnostics(diagnostics)
+
+    conflicting = replace(diagnostics, mean_target=0.0, digest="")
+    with pytest.raises(ValueError, match="identity drifted"):
+        store.write_replay_diagnostics(conflicting)
+
+    with pytest.raises(ValueError, match="replay metric identity drifted"):
+        store.load_replay_diagnostics(
+            expected_replay_metric_digests={diagnostics.identity: "9" * 64}
+        )
+
+
+def test_diagnostics_store_rejects_run_freeze_and_path_identity_drift(
+    tmp_path: Path,
+) -> None:
+    diagnostics = _diagnostics()
+    wrong_run = CausalAlphaV3ArtifactStore(
+        tmp_path / "wrong-run",
+        run_manifest_digest="9" * 64,
+        freeze_digest=_FREEZE,
+    )
+    with pytest.raises(ValueError, match="run manifest identity mismatch"):
+        wrong_run.write_replay_diagnostics(diagnostics)
+
+    wrong_freeze = CausalAlphaV3ArtifactStore(
+        tmp_path / "wrong-freeze",
+        run_manifest_digest=_RUN,
+        freeze_digest="9" * 64,
+    )
+    with pytest.raises(ValueError, match="freeze identity mismatch"):
+        wrong_freeze.write_replay_diagnostics(diagnostics)
+
+    store = _store(tmp_path / "path")
+    correct = store.write_replay_diagnostics(diagnostics)
+    wrong = correct.with_name("4.json")
+    correct.replace(wrong)
+    with pytest.raises(ValueError, match="path identity drifted"):
+        store.load_replay_diagnostics(
+            expected_replay_metric_digests={diagnostics.identity: _REPLAY}
         )

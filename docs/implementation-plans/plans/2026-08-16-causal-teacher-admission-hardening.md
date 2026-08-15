@@ -127,3 +127,15 @@ The post-implementation review was rebuilt from the acceptance criteria rather t
 - the hardening diff does not change signal/selection/reward/risk/execution/BC/PPO numerical logic.
 
 No additional implementation defect was found in this independent review. The remaining quality gate is fresh full exact-head CI and PostgreSQL Catalog verification after this documentation checkpoint commit.
+
+
+## Full CI signal-identity follow-up
+
+Exact-head verification of `c2d5882c77e6d4e80ce1d786a0f6d64857e20976` surfaced two PR-local Signal Gate contract regressions that were outside the teacher-admission implementation but prevented the PR quality gate from closing:
+
+- `test_signal_gate_rejects_mixed_fit_config_evidence` did not raise;
+- `test_signal_gate_rejects_cluster_fit_digest_drift` did not raise.
+
+The failure oracle was taken from the uploaded exact-head `pytest-diagnostics` artifact. The root cause was missing identity closure in the clustered evaluator: aggregate metrics could mix multiple fit configurations, and metrics inside one chronological episode cluster could carry different pooled-fit digests before being averaged. The repair adds fail-closed validation for one common `fit_config_digest` across the aggregate and one common `fit_digest` inside each `(contract_start, contract_stop)` cluster. It does not change fitted-model formulas, cluster aggregation numerics for valid evidence, bootstrap thresholds, selection, admission, reward, risk, execution, BC, or PPO.
+
+The two existing failing tests provide RED evidence before this production fix. Targeted Signal Gate and teacher-admission verification is required before committing the repair, followed by fresh full exact-head CI.

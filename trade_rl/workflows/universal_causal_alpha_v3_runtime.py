@@ -11,7 +11,6 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping, TypeVar
 
 import trade_rl
-
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
 from trade_rl.risk.portfolio import PortfolioRiskConfig

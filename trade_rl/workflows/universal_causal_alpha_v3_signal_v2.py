@@ -109,6 +109,8 @@ def _episode_clusters(
         symbols = tuple(item.symbol for item in cluster)
         if len(set(symbols)) != len(symbols):
             raise ValueError("V3 signal episode cluster contains duplicate symbols")
+        if len({item.fit_digest for item in cluster}) != 1:
+            raise ValueError("V3 signal episode cluster fit digest drifted")
         ranks.append(float(fmean(_required_rank(item) for item in cluster)))
         spreads.append(
             float(fmean(item.top_bottom_realized_spread for item in cluster))
@@ -144,6 +146,9 @@ def evaluate_causal_alpha_v3_signal_gate_clustered(
     run_digests = {item.run_manifest_digest for item in values}
     if len(run_digests) != 1:
         raise ValueError("V3 signal gate run manifest identity drifted")
+    fit_config_digests = {item.fit_config_digest for item in values}
+    if len(fit_config_digests) != 1:
+        raise ValueError("V3 signal gate fit config identity drifted")
     run_manifest_digest = next(iter(run_digests))
     raw_expected = _positive_count(
         expected_raw_scope_count, field="expected_raw_scope_count"

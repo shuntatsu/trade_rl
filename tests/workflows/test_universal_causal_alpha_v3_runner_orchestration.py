@@ -71,8 +71,8 @@ def _config() -> CausalAlphaV3ResearchConfig:
             minimum_economic_contract_count=1,
         ),
         signal_gate=CausalAlphaV3SignalGate(
-            minimum_scope_count=1,
-            minimum_scope_coverage=1.0,
+            minimum_independent_episode_count=1,
+            minimum_raw_scope_coverage=1.0,
             minimum_rank_ic_lower_ci=0.0,
             minimum_top_bottom_spread_lower_ci=0.0,
             minimum_direction_accuracy_excess_lower_ci=0.0,
@@ -180,6 +180,8 @@ def _signal_evidence(*, passed: bool) -> CausalAlphaV3SignalGateEvidence:
         fit_config_digest=candidate.fit.digest,
         symbol="BTCUSDT",
         episode_index=0,
+        contract_start=5,
+        contract_stop=11,
         contract_digest="6" * 64,
         fit_digest="7" * 64,
         forecast_digest="8" * 64,
@@ -198,8 +200,11 @@ def _signal_evidence(*, passed: bool) -> CausalAlphaV3SignalGateEvidence:
     )
     return CausalAlphaV3SignalGateEvidence(
         metrics=(metric,),
-        expected_scope_count=1,
-        scope_coverage=1.0,
+        raw_scope_count=1,
+        expected_raw_scope_count=1,
+        raw_scope_coverage=1.0,
+        independent_episode_count=1,
+        expected_independent_episode_count=1,
         rank_ic=boot,
         top_bottom_spread=boot,
         direction_accuracy_excess=boot,
@@ -216,6 +221,8 @@ def _scope_metric(*, passed: bool, **kwargs) -> CausalAlphaV3SignalScopeMetric:
         base,
         symbol=kwargs["symbol"],
         episode_index=contract.episode_index,
+        contract_start=contract.start,
+        contract_stop=contract.stop,
         contract_digest=contract.digest,
         digest="",
     )

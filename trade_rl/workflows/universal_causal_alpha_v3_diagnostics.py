@@ -42,9 +42,7 @@ def _finite(value: float, *, field: str) -> None:
         raise ValueError(f"{field} must be finite")
 
 
-def _reason_counts(
-    value: object, *, field: str
-) -> tuple[tuple[str, int], ...]:
+def _reason_counts(value: object, *, field: str) -> tuple[tuple[str, int], ...]:
     try:
         resolved = tuple((str(reason), int(count)) for reason, count in value)  # type: ignore[misc]
     except (TypeError, ValueError) as error:
@@ -336,11 +334,17 @@ def summarize_causal_alpha_v3_targets(
         raise ValueError("V3 diagnostics target arrays must be non-empty and align")
     if any(not np.isfinite(value).all() for value in arrays):
         raise ValueError("V3 diagnostics target arrays must be finite")
-    target_values, forecast_values, uncertainty_values, cap_values, chosen, stay = arrays
+    target_values, forecast_values, uncertainty_values, cap_values, chosen, stay = (
+        arrays
+    )
     if np.any(uncertainty_values < 0.0) or np.any(cap_values < 0.0):
-        raise ValueError("V3 diagnostics uncertainty/liquidity values must be non-negative")
+        raise ValueError(
+            "V3 diagnostics uncertainty/liquidity values must be non-negative"
+        )
     reason_values = tuple(reasons)
-    if len(reason_values) != target_values.size or any(not item for item in reason_values):
+    if len(reason_values) != target_values.size or any(
+        not item for item in reason_values
+    ):
         raise ValueError("V3 diagnostics reasons must align with target arrays")
 
     ratio = np.divide(

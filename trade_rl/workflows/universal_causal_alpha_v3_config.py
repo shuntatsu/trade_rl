@@ -196,6 +196,14 @@ class CausalAlphaV3ResearchConfig:
     def __post_init__(self) -> None:
         if self.schema_version != CAUSAL_ALPHA_V3_RESEARCH_CONFIG_SCHEMA:
             raise ValueError("unsupported causal alpha V3 research config schema")
+        if (
+            self.signal_gate.minimum_scope_count
+            > self.nested_selection.signal_contract_count
+        ):
+            raise ValueError(
+                "signal_gate.minimum_scope_count cannot exceed "
+                "nested_selection.signal_contract_count"
+            )
         values = tuple(self.candidates)
         if not values or len(values) > _MAX_CANDIDATES:
             raise ValueError(

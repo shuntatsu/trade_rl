@@ -105,13 +105,19 @@ class CausalAlphaV3PreparedResearchData:
             if not isinstance(sample, CausalAlphaSymbolSamples):
                 raise TypeError("V3 prepared sample type is invalid")
             if sample.dataset_id != partition.holdout_contract.dataset_id:
-                raise ValueError("V3 prepared sample/partition dataset identity drifted")
+                raise ValueError(
+                    "V3 prepared sample/partition dataset identity drifted"
+                )
             if not callable(factories[symbol]):
                 raise TypeError("V3 prepared environment factory must be callable")
             if not isinstance(execution_costs[symbol], ExecutionCostConfig):
                 raise TypeError("V3 prepared execution cost config is invalid")
             delay = signal_delays[symbol]
-            if isinstance(delay, bool) or not isinstance(delay, int) or delay not in {0, 1}:
+            if (
+                isinstance(delay, bool)
+                or not isinstance(delay, int)
+                or delay not in {0, 1}
+            ):
                 raise ValueError("V3 prepared signal delay must be 0 or 1")
             bars = decision_bars[symbol]
             if isinstance(bars, bool) or not isinstance(bars, int) or bars <= 0:
@@ -212,7 +218,11 @@ def prepare_causal_alpha_v3_research_data(
             if not isinstance(execution, ExecutionCostConfig):
                 raise TypeError("V3 execution cost config is unavailable")
             delay = getattr(config, "signal_delay_decisions", None)
-            if isinstance(delay, bool) or not isinstance(delay, int) or delay not in {0, 1}:
+            if (
+                isinstance(delay, bool)
+                or not isinstance(delay, int)
+                or delay not in {0, 1}
+            ):
                 raise ValueError("V3 signal delay is unavailable")
             decision_bars = getattr(environment, "decision_bars", None)
             if (

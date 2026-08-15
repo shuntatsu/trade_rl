@@ -117,9 +117,16 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
             / f"{metric.episode_index}.json"
         )
 
+    def _validate_signal_run_identity(
+        self, metric: CausalAlphaV3SignalScopeMetric
+    ) -> None:
+        if metric.run_manifest_digest != self.run_manifest_digest:
+            raise ValueError("V3 signal record run manifest identity mismatch")
+
     def write_signal_scope_metric(self, metric: CausalAlphaV3SignalScopeMetric) -> Path:
         if not isinstance(metric, CausalAlphaV3SignalScopeMetric):
             raise TypeError("V3 signal store requires a scope metric")
+        self._validate_signal_run_identity(metric)
         return self.write_exact_artifact(
             self._signal_path(metric).relative_to(self.root), metric.to_payload()
         )
@@ -136,6 +143,7 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
             metric = signal_scope_metric_from_payload(
                 json.loads(path.read_text(encoding="utf-8"))
             )
+            self._validate_signal_run_identity(metric)
             identity = metric.identity
             if identity not in scopes:
                 raise ValueError("V3 signal record is outside the expected scope")

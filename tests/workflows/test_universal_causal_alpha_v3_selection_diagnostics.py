@@ -40,7 +40,9 @@ def _diagnostics() -> CausalAlphaV3ReplayDiagnostics:
     )
 
 
-def test_target_diagnostics_summarize_direction_uncertainty_and_objective_margin() -> None:
+def test_target_diagnostics_summarize_direction_uncertainty_and_objective_margin() -> (
+    None
+):
     diagnostics = _diagnostics()
 
     assert diagnostics.decision_count == 4

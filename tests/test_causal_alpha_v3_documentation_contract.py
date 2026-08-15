@@ -40,3 +40,29 @@ def test_v3_docs_preserve_reward_and_holdout_invariants() -> None:
         "does not bypass teacher admission",
     ):
         assert phrase in universal
+
+
+def test_v3_runner_docs_close_the_deterministic_research_workflow() -> None:
+    universal = _text("docs/UNIVERSAL_TRAINING.md").lower()
+    research = _text("docs/RESEARCH_STATUS.md").lower()
+    combined = f"{universal}\n{research}"
+
+    for phrase in (
+        "run_universal_causal_alpha_v3_research.py",
+        "signal gate",
+        "candidate freeze",
+        "resumable",
+        "production replay",
+        "research-only teacher package",
+        "exit code 2",
+        "exit code 3",
+        "exit code 4",
+    ):
+        assert phrase in combined
+
+    for phrase in (
+        "dagger -> bc",
+        "anchored ppo",
+        "only after teacher admission",
+    ):
+        assert phrase in combined

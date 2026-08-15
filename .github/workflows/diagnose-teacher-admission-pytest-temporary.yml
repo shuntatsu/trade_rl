@@ -17,29 +17,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh run download 31901840075 --repo shuntatsu/trade_rl --name pytest-diagnostics --dir diagnostics
-      - name: Surface failure details
+      - name: Surface concise failure details
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
           import re
+
           log = Path("diagnostics/pytest.log").read_text(encoding="utf-8", errors="replace")
-          failure = re.search(r"={3,} FAILURES ={3,}.*?(?=={3,} short test summary info ={3,}|\Z)", log, re.S | re.I)
-          summary = re.search(r"={3,} short test summary info ={3,}.*\Z", log, re.S | re.I)
-          text = ""
-          if failure:
-              text += failure.group(0)
-          if summary:
-              text += "\n" + summary.group(0)
-          if not text:
-              text = log[-20000:]
-          text = text[-30000:]
-          print(text)
-          for raw in text.splitlines():
-              line = raw.strip()
-              if not line:
-                  continue
-              safe = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print(f"::error title=Prior full pytest failure::{safe}")
+          print(log[-40000:])
+
+          def emit(title: str, message: str) -> None:
+              compact = " | ".join(part.strip() for part in message.splitlines() if part.strip())
+              safe = compact[:12000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f"::error title={title}::{safe}")
+
+          summaries = re.findall(r"^(?:FAILED|ERROR)\s+.+$", log, flags=re.MULTILINE)
+          if summaries:
+              for line in summaries:
+                  emit("Failed pytest node", line)
+          else:
+              emit("No pytest node summary found", log[-8000:])
+
+          sections = re.split(r"(?m)^_{3,}\s+(.+?)\s+_{3,}\s*$", log)
+          for index in range(1, len(sections), 2):
+              name = sections[index]
+              body = sections[index + 1]
+              if "FAILED" in body or re.search(r"(?m)^E\s+", body):
+                  error_lines = [
+                      line for line in body.splitlines()
+                      if line.startswith("E ") or line.startswith("E       ")
+                  ]
+                  context = "\n".join(error_lines[-20:]) if error_lines else body[-5000:]
+                  emit(f"Failure detail: {name}", context)
           PY

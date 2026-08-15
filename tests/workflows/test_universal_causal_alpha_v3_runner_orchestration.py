@@ -275,9 +275,7 @@ def _batch() -> EpisodeOracleBatch:
         teacher_config_digest="f" * 64,
         sampling_config_digest="0" * 64,
         contracts=(contract,),
-        targets=(
-            np.zeros((contract.stop - contract.start - 1, 1), dtype=np.float32),
-        ),
+        targets=(np.zeros((contract.stop - contract.start - 1, 1), dtype=np.float32),),
     )
 
 

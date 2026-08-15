@@ -150,9 +150,11 @@ def authored_config_payload(config: CausalAlphaV3ResearchConfig) -> dict[str, ob
             "minimum_direction_accuracy_excess_lower_ci": (
                 config.signal_gate.minimum_direction_accuracy_excess_lower_ci
             ),
+            "minimum_independent_episode_count": (
+                config.signal_gate.minimum_independent_episode_count
+            ),
             "minimum_rank_ic_lower_ci": config.signal_gate.minimum_rank_ic_lower_ci,
-            "minimum_scope_count": config.signal_gate.minimum_scope_count,
-            "minimum_scope_coverage": config.signal_gate.minimum_scope_coverage,
+            "minimum_raw_scope_coverage": config.signal_gate.minimum_raw_scope_coverage,
             "minimum_top_bottom_spread_lower_ci": (
                 config.signal_gate.minimum_top_bottom_spread_lower_ci
             ),
@@ -318,9 +320,10 @@ def run_universal_causal_alpha_v3_research_pipeline(
         fit_cache = CausalAlphaV3FitCache(
             train_symbols=symbols, samples=prepared.samples
         )
-        expected_signal_scopes = sum(
+        expected_raw_signal_scopes = sum(
             len(nested[symbol].signal_contracts) for symbol in symbols
         )
+        expected_independent_episodes = config.nested_selection.signal_contract_count
         passed_signal: dict[str, CausalAlphaV3SignalGateEvidence] = {}
         fit_results: list[dict[str, object]] = []
         for fit_digest, candidate in representatives.items():
@@ -344,6 +347,8 @@ def run_universal_causal_alpha_v3_research_pipeline(
                         metric.fit_config_digest != fit_digest
                         or metric.symbol != symbol
                         or metric.episode_index != contract.episode_index
+                        or metric.contract_start != contract.start
+                        or metric.contract_stop != contract.stop
                         or metric.contract_digest != contract.digest
                     ):
                         raise ValueError("V3 signal scope evidence identity drifted")
@@ -354,7 +359,8 @@ def run_universal_causal_alpha_v3_research_pipeline(
                 if not metrics
                 else signal_gate_evaluator(
                     tuple(metrics),
-                    expected_scope_count=expected_signal_scopes,
+                    expected_raw_scope_count=expected_raw_signal_scopes,
+                    expected_independent_episode_count=expected_independent_episodes,
                     gate=config.signal_gate,
                 )
             )

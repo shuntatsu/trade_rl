@@ -95,6 +95,14 @@ def test_replay_diagnostics_payload_is_strict_and_digest_bound() -> None:
         CausalAlphaV3ReplayDiagnostics.from_payload(tampered)
 
 
+def test_replay_diagnostics_loader_rejects_empty_artifact_digest() -> None:
+    payload = _diagnostics().to_payload()
+    payload["artifact_digest"] = ""
+
+    with pytest.raises(ValueError, match="digest"):
+        CausalAlphaV3ReplayDiagnostics.from_payload(payload)
+
+
 def test_target_diagnostics_fail_closed_on_shape_or_nonfinite_inputs() -> None:
     with pytest.raises(ValueError, match="align"):
         summarize_causal_alpha_v3_targets(

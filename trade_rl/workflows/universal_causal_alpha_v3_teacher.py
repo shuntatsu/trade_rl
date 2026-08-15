@@ -218,6 +218,8 @@ def build_causal_alpha_v3_signal_scope_metric(
         fit_config_digest=candidate.fit.digest,
         symbol=symbol,
         episode_index=contract.episode_index,
+        contract_start=contract.start,
+        contract_stop=contract.stop,
         contract_digest=contract.digest,
         fit_digest=fitted.digest,
         forecast_digest=forecast.digest,

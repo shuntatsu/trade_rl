@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Mapping
 
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
+from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.domain.common import require_sha256
 from trade_rl.workflows.universal_causal_alpha_v3_admission import (
     CausalAlphaV3AdmissionRecordV2,
@@ -237,6 +238,21 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
                 raise ValueError("V3 diagnostics scope is duplicated")
             result[identity] = diagnostics
         return result
+
+    def write_selection_progress(self, payload: Mapping[str, object]) -> Path:
+        """Atomically replace derived selection monitoring state."""
+
+        values = dict(payload)
+        if values.get("schema_version") != "causal_alpha_v3_selection_progress_v1":
+            raise ValueError("V3 selection progress schema is unsupported")
+        if values.get("research_only") is not True or values.get(
+            "promotion_eligible"
+        ) is not False:
+            raise ValueError("V3 selection progress must remain research-only")
+        return atomic_write_bytes(
+            self.root / "selection" / "progress.json",
+            canonical_json_bytes(values) + b"\n",
+        )
 
     def _admission_v2_path(self, record: CausalAlphaV3AdmissionRecordV2) -> Path:
         symbol = _safe_segment(record.symbol, field="V3 admission symbol")

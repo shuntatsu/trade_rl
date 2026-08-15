@@ -67,11 +67,12 @@ class CausalAlphaV3RunLock:
             raise RuntimeError(
                 "V3 output root already has an active or unrecovered writer lock"
             ) from error
+        os.close(descriptor)
         try:
-            os.write(descriptor, token.encode("utf-8"))
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+            atomic_write_bytes(self.path, token.encode("utf-8"))
+        except Exception:
+            self.path.unlink(missing_ok=True)
+            raise
         self._token = token
         return self
 

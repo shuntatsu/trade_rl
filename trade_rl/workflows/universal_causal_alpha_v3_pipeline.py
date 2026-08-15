@@ -240,7 +240,9 @@ def _build_teacher_batches(
 
 def _training_batch_without_holdout(batch: EpisodeOracleBatch) -> EpisodeOracleBatch:
     if len(batch.contracts) < 2 or len(batch.targets) != len(batch.contracts):
-        raise ValueError("V3 admitted teacher requires training episodes before holdout")
+        raise ValueError(
+            "V3 admitted teacher requires training episodes before holdout"
+        )
     return EpisodeOracleBatch(
         dataset_id=batch.dataset_id,
         teacher_config_digest=batch.teacher_config_digest,
@@ -256,7 +258,9 @@ def run_universal_causal_alpha_v3_research_pipeline(
     config: CausalAlphaV3ResearchConfig,
     prepared: CausalAlphaV3PreparedResearchData,
     output_root: Path,
-    signal_scope_builder: Callable[..., Any] = build_causal_alpha_v3_signal_scope_metric,
+    signal_scope_builder: Callable[
+        ..., Any
+    ] = build_causal_alpha_v3_signal_scope_metric,
     signal_gate_evaluator: Callable[..., CausalAlphaV3SignalGateEvidence],
     selection_evaluator: Callable[..., CausalAlphaV3SelectionEvidence],
     episode_batch_builder: Callable[..., Any] = build_causal_alpha_v3_episode_batch,
@@ -397,8 +401,7 @@ def run_universal_causal_alpha_v3_research_pipeline(
             ),
             fit_config_digests=frozen_fit_digests,
             signal_evidence_digests=tuple(
-                passed_signal[fit_digest].digest
-                for fit_digest in frozen_fit_digests
+                passed_signal[fit_digest].digest for fit_digest in frozen_fit_digests
             ),
         )
         base_store.write_exact_artifact("freeze/candidates.json", freeze.to_payload())

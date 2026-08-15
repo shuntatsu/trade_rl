@@ -15,7 +15,7 @@ from trade_rl.learning.episode_oracle_teacher import (
 )
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_v3_admission import (
-    CausalAlphaV3AdmissionEvidenceV2,
+    CausalAlphaV3AdmissionEvidenceV3,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_artifact_store import (
     CausalAlphaV3ArtifactStore,
@@ -291,7 +291,7 @@ def run_universal_causal_alpha_v3_research_pipeline(
     signal_gate_evaluator: Callable[..., CausalAlphaV3SignalGateEvidence],
     selection_evaluator: Callable[..., CausalAlphaV3SelectionEvidence],
     episode_batch_builder: Callable[..., Any] = build_causal_alpha_v3_episode_batch,
-    admission_evaluator: Callable[..., CausalAlphaV3AdmissionEvidenceV2],
+    admission_evaluator: Callable[..., CausalAlphaV3AdmissionEvidenceV3],
 ) -> UniversalCausalAlphaV3TeacherPackageV2:
     if not isinstance(config, CausalAlphaV3ResearchConfig):
         raise TypeError("V3 research runner requires CausalAlphaV3ResearchConfig")

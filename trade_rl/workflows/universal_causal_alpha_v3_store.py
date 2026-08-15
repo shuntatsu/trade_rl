@@ -10,7 +10,6 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.domain.common import require_sha256
 from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
-    CausalAlphaV3AdmissionRecord,
     CausalAlphaV3ReplayMetric,
 )
 
@@ -156,78 +155,6 @@ class CausalAlphaV3RecordStore:
             if identity in result:
                 raise ValueError("V3 replay record scope is duplicated")
             result[identity] = metric
-        return result
-
-    def _admission_path(self, record: CausalAlphaV3AdmissionRecord) -> Path:
-        symbol = _safe_segment(record.symbol, field="V3 admission symbol")
-        return self.root / "admission" / "records" / f"{symbol}.json"
-
-    def write_admission_record(self, record: CausalAlphaV3AdmissionRecord) -> Path:
-        if not isinstance(record, CausalAlphaV3AdmissionRecord):
-            raise TypeError("V3 admission store requires CausalAlphaV3AdmissionRecord")
-        if record.run_manifest_digest != self.run_manifest_digest:
-            raise ValueError("V3 admission record run manifest identity mismatch")
-        if self.freeze_digest is None or record.freeze_digest != self.freeze_digest:
-            raise ValueError("V3 admission record freeze identity mismatch")
-        destination = self._admission_path(record)
-        if destination.is_file():
-            existing = json.loads(destination.read_text(encoding="utf-8"))
-            if existing != json.loads(canonical_json_bytes(record.to_payload())):
-                raise ValueError("V3 admission record conflicts with completed symbol")
-            return destination
-        if destination.exists():
-            raise ValueError("V3 admission record path is not a file")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_bytes(
-            destination,
-            canonical_json_bytes(record.to_payload()) + b"\n",
-        )
-        return destination
-
-    def load_admission_records(
-        self,
-        *,
-        expected_contract_digests: Mapping[str, str],
-        selection_digest: str,
-        selected_candidate_digest: str,
-    ) -> dict[str, CausalAlphaV3AdmissionRecord]:
-        if self.freeze_digest is None:
-            raise ValueError("V3 admission record store requires a freeze identity")
-        require_sha256(selection_digest, field="V3 admission selection digest")
-        require_sha256(
-            selected_candidate_digest,
-            field="V3 admission selected candidate digest",
-        )
-        expected = dict(expected_contract_digests)
-        if not expected or any(not symbol for symbol in expected):
-            raise ValueError("V3 admission expected scope must be non-empty")
-        for symbol, digest in expected.items():
-            _safe_segment(symbol, field="V3 expected admission symbol")
-            require_sha256(digest, field="V3 expected admission contract digest")
-        records_root = self.root / "admission" / "records"
-        if not records_root.is_dir():
-            return {}
-        result: dict[str, CausalAlphaV3AdmissionRecord] = {}
-        for path in sorted(records_root.glob("*.json")):
-            raw = json.loads(path.read_text(encoding="utf-8"))
-            record = CausalAlphaV3AdmissionRecord.from_payload(raw)
-            if record.run_manifest_digest != self.run_manifest_digest:
-                raise ValueError("V3 admission record run manifest identity mismatch")
-            if record.freeze_digest != self.freeze_digest:
-                raise ValueError("V3 admission record freeze identity mismatch")
-            if record.selection_digest != selection_digest:
-                raise ValueError("V3 admission record selection identity mismatch")
-            if record.selected_candidate_digest != selected_candidate_digest:
-                raise ValueError("V3 admission selected candidate identity mismatch")
-            if record.symbol not in expected:
-                raise ValueError("V3 admission record is outside the expected scope")
-            if record.contract_digest != expected[record.symbol]:
-                raise ValueError("V3 admission record contract identity drifted")
-            if path != self._admission_path(record):
-                raise ValueError("V3 admission record path identity drifted")
-            if record.symbol in result:
-                raise ValueError("V3 admission record symbol is duplicated")
-            result[record.symbol] = record
         return result
 
 

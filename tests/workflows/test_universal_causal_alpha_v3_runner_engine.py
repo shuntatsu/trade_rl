@@ -348,7 +348,7 @@ def test_admission_reuses_persisted_symbol_record_exactly_once(
     )
     assert evidence.passed is True
     assert evaluated == [symbols[1]]
-    assert tuple(metric.symbol for metric in evidence.metrics) == symbols
+    assert tuple(metric.symbol for metric in evidence.records) == symbols
     loaded = store.load_admission_records_v2(
         expected_contract_digests={
             symbol: batches[symbol].contracts[-1].digest for symbol in symbols

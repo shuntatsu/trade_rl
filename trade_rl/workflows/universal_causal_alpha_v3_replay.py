@@ -85,6 +85,51 @@ def _expected_selection_contracts(
     return expected
 
 
+def _summarize_optional_replay_diagnostics(
+    *,
+    run_manifest_digest: str,
+    freeze_digest: str,
+    candidate: CausalAlphaV3Candidate,
+    symbol: str,
+    contract: OracleEpisodeContract,
+    metric: CausalAlphaV3ReplayMetric,
+    targets: CausalAlphaV3ContractTargets,
+) -> CausalAlphaV3ReplayDiagnostics | None:
+    """Build diagnostics only when the target adapter exposes descriptive arrays."""
+
+    target_path = targets.target_path
+    required = (
+        "targets",
+        "expected_returns",
+        "uncertainties",
+        "liquidity_weight_caps",
+        "chosen_objectives",
+        "stay_objectives",
+        "reasons",
+    )
+    if any(not hasattr(target_path, field) for field in required):
+        return None
+    return summarize_causal_alpha_v3_targets(
+        run_manifest_digest=run_manifest_digest,
+        freeze_digest=freeze_digest,
+        candidate_digest=candidate.digest,
+        symbol=symbol,
+        episode_index=contract.episode_index,
+        contract_digest=contract.digest,
+        replay_metric_digest=metric.digest,
+        fit_digest=targets.fit_digest,
+        forecast_digest=targets.forecast_digest,
+        target_path_digest=target_path.digest,
+        targets=target_path.targets,
+        expected_returns=target_path.expected_returns,
+        uncertainties=target_path.uncertainties,
+        liquidity_weight_caps=target_path.liquidity_weight_caps,
+        chosen_objectives=target_path.chosen_objectives,
+        stay_objectives=target_path.stay_objectives,
+        reasons=tuple(target_path.reasons),
+    )
+
+
 def evaluate_causal_alpha_v3_selection(
     *,
     train_symbols: tuple[str, ...],
@@ -265,27 +310,18 @@ def evaluate_causal_alpha_v3_selection(
                 store.write_replay_metric(metric)
                 completed[identity] = metric
                 records[candidate.digest].append(metric)
-                replay_diagnostics = summarize_causal_alpha_v3_targets(
+                replay_diagnostics = _summarize_optional_replay_diagnostics(
                     run_manifest_digest=run_manifest_digest,
                     freeze_digest=freeze_digest,
-                    candidate_digest=candidate.digest,
+                    candidate=candidate,
                     symbol=symbol,
-                    episode_index=contract.episode_index,
-                    contract_digest=contract.digest,
-                    replay_metric_digest=metric.digest,
-                    fit_digest=targets.fit_digest,
-                    forecast_digest=targets.forecast_digest,
-                    target_path_digest=targets.target_path.digest,
-                    targets=targets.target_path.targets,
-                    expected_returns=targets.target_path.expected_returns,
-                    uncertainties=targets.target_path.uncertainties,
-                    liquidity_weight_caps=targets.target_path.liquidity_weight_caps,
-                    chosen_objectives=targets.target_path.chosen_objectives,
-                    stay_objectives=targets.target_path.stay_objectives,
-                    reasons=tuple(targets.target_path.reasons),
+                    contract=contract,
+                    metric=metric,
+                    targets=targets,
                 )
-                store.write_replay_diagnostics(replay_diagnostics)
-                diagnostics[identity] = replay_diagnostics
+                if replay_diagnostics is not None:
+                    store.write_replay_diagnostics(replay_diagnostics)
+                    diagnostics[identity] = replay_diagnostics
                 write_progress()
                 if metric.irrecoverably_rejected(thresholds):
                     rejected.add(candidate.digest)

@@ -2,47 +2,60 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:test-driven-development for behavioral changes and superpowers:verification-before-completion before completion claims.
 
-**Goal:** Restore the intended `minimum_scope_count` contract after chronological episode clustering so the maintained V3 example is structurally passable without weakening signal-quality thresholds.
+**Goal:** Make the maintained V3 authored configuration structurally compatible with the chronological independent-scope Signal Gate without weakening signal-quality statistics or treating correlated symbol copies as independent evidence.
 
-**Architecture:** Keep raw `(fit, symbol, episode)` scope records as the population used for scope-count and coverage gates. Keep chronological episode clusters as the only inputs to moving-block bootstrap statistics, so correlated same-episode symbol copies do not inflate confidence. Preserve the existing config schema and authored threshold values.
+**Architecture:** Preserve chronological episode clustering in `evaluate_causal_alpha_v3_signal_gate_clustered`: same-episode symbol metrics contribute one independent scope to the count and one cluster value to each bootstrap statistic. Fix the authored example threshold to the available number of signal episodes and fail fast when any research config requires more independent scopes than `signal_contract_count` can provide.
 
-**Tech Stack:** Python 3.12, pytest, NumPy, existing V3 signal-gate contracts and GitHub Actions.
+**Tech Stack:** Python 3.12, pytest, existing strict V3 config contracts and GitHub Actions.
 
 ## Global Constraints
 
+- Do not change clustered Signal Gate numerical semantics.
 - Do not relax rank-IC, top/bottom-spread, direction-accuracy, or coverage thresholds.
 - Do not change V3 candidate/model/controller behavior.
 - Do not change holdout, economic selection, admission, reward, risk, or execution contracts.
-- Preserve `minimum_scope_count` as the count of persisted raw signal scopes, consistent with `expected_scope_count` and `scope_coverage`.
-- Bootstrap uncertainty only over chronological episode clusters.
-- Add a regression test that fails on the current clustered implementation and passes only when raw-scope counting is restored.
+- Preserve the architecture-hardening invariant that same-episode symbol duplication does not increase the independent scope count.
+- Reject structurally impossible authored configs before any signal computation is started.
 
 ---
 
-### Task 1: Reproduce the scope-count regression
+### Task 1: Reproduce the invalid authored-config contract
 
 **Files:**
-- Modify: `tests/workflows/test_universal_causal_alpha_v3_architecture_hardening.py`
+- Modify: `tests/workflows/test_universal_causal_alpha_v3_runner_config.py`
 
-**Test Oracle:** Two chronological episodes with four symbol scopes each provide eight raw scopes but only two independent episode clusters. With `minimum_scope_count=4` and uniformly strong positive cluster statistics, the gate must pass: raw scope count satisfies the count gate while bootstrap remains clustered.
+**Test Oracle:** A config with `signal_contract_count=2` and `minimum_scope_count=3` is impossible because the clustered gate can produce at most two independent chronological episode scopes. Config construction must fail before the runner starts.
 
-- [ ] Replace the existing single-episode clustering test with a two-episode/four-symbol regression fixture.
-- [ ] Run exact-head CI and confirm the test fails with `scope_count` on the current implementation.
+- [ ] Add the failing strict-config regression test.
+- [ ] Run exact-head CI and confirm RED because the current config accepts the impossible combination.
 
-### Task 2: Restore raw-scope count semantics
+### Task 2: Fail fast on impossible independent-scope requirements
 
 **Files:**
-- Modify: `trade_rl/workflows/universal_causal_alpha_v3_signal_v2.py`
+- Modify: `trade_rl/workflows/universal_causal_alpha_v3_config.py`
+- Modify: `tests/workflows/test_universal_causal_alpha_v3_runner_config.py`
 
-**Implementation:** Keep `_episode_clusters(...)` and all bootstrap inputs unchanged. Change only the count gate from `len(rank_values)` to `len(values)` and add a concise comment documenting that count/coverage operate on raw scopes while CI operates on independent chronological clusters.
+**Implementation:** In `CausalAlphaV3ResearchConfig.__post_init__`, require `signal_gate.minimum_scope_count <= nested_selection.signal_contract_count` with an explicit error identifying both fields.
 
-- [ ] Apply the minimal implementation.
-- [ ] Run targeted/full CI and confirm the regression test passes with no new failures.
+- [ ] Add the cross-field validation.
+- [ ] Re-run targeted/full CI and confirm the regression test passes.
 
-### Task 3: Falsification and completion review
+### Task 3: Repair the maintained example
 
-- [ ] Verify same-episode symbol copies still do not enter bootstrap as independent observations.
-- [ ] Verify missing raw scopes still fail `minimum_scope_coverage`.
-- [ ] Verify the maintained example `minimum_scope_count=24` is reachable with 9 symbols × 8 signal episodes (=72 raw scopes per fit).
+**Files:**
+- Modify: `examples/binance/universal-causal-alpha-v3-research.json`
+- Modify: `tests/test_causal_alpha_v3_runner_example_contract.py`
+
+**Implementation:** Change `minimum_scope_count` from 24 to 8, matching the eight predeclared signal contracts. This changes only the impossible independent-scope threshold; coverage remains 1.0 and all lower-CI thresholds remain 0.0.
+
+- [ ] Assert the maintained example requires all eight independent signal episodes.
+- [ ] Verify the example loads under the new fail-fast contract.
+
+### Task 4: Falsification and completion review
+
+- [ ] Verify same-episode symbol copies still do not increase `minimum_scope_count` evidence.
+- [ ] Verify the original clustered evaluator source is unchanged.
+- [ ] Verify `minimum_scope_count=9` with eight signal contracts fails config loading.
+- [ ] Verify no economic-selection, holdout, reward, risk, execution, model, or controller files changed.
 - [ ] Review final diff for unrelated changes.
-- [ ] Confirm exact-HEAD required checks before marking the PR ready.
+- [ ] Confirm exact-final-HEAD tests, static checks, compatibility, training image, coverage, and required CI checks before marking the PR ready.

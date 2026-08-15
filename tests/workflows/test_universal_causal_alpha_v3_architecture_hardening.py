@@ -71,6 +71,7 @@ def _signal_metric(
 ) -> CausalAlphaV3SignalScopeMetric:
     contract = _contract(episode_index=episode_index)
     return CausalAlphaV3SignalScopeMetric(
+        run_manifest_digest=_sha("1"),
         fit_config_digest=_sha("f"),
         symbol=symbol,
         episode_index=episode_index,

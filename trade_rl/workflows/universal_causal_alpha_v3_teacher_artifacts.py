@@ -129,12 +129,8 @@ def episode_batch_from_payload(raw: Mapping[str, Any]) -> EpisodeOracleBatch:
     )
     if values["solver_provenance"] is not None:
         raise ValueError("V3 teacher batch solver provenance must remain null")
-    contracts = tuple(
-        _contract_from_payload(item) for item in values["contracts"]
-    )
-    targets = tuple(
-        np.asarray(item, dtype=np.float32) for item in values["targets"]
-    )
+    contracts = tuple(_contract_from_payload(item) for item in values["contracts"])
+    targets = tuple(np.asarray(item, dtype=np.float32) for item in values["targets"])
     return EpisodeOracleBatch(
         dataset_id=str(values["dataset_id"]),
         teacher_config_digest=str(values["teacher_config_digest"]),
@@ -280,7 +276,9 @@ class UniversalCausalAlphaV3TeacherPackageV2:
             or set(batches) != set(symbols)
         ):
             raise ValueError("V3 teacher package batch scope must match train_symbols")
-        if any(not isinstance(batches[symbol], EpisodeOracleBatch) for symbol in symbols):
+        if any(
+            not isinstance(batches[symbol], EpisodeOracleBatch) for symbol in symbols
+        ):
             raise TypeError("V3 teacher package contains an invalid episode batch")
         if any(batches[symbol].solver_provenance is not None for symbol in symbols):
             raise ValueError("V3 teacher package cannot claim Oracle provenance")
@@ -345,7 +343,10 @@ class UniversalCausalAlphaV3TeacherPackageV2:
     @property
     def batch_artifact_digests(self) -> Mapping[str, str]:
         return MappingProxyType(
-            {symbol: self.batch_artifact(symbol).digest for symbol in self.train_symbols}
+            {
+                symbol: self.batch_artifact(symbol).digest
+                for symbol in self.train_symbols
+            }
         )
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:

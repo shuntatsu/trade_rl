@@ -18,6 +18,7 @@ from trade_rl.learning.episode_oracle_teacher import (
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_contracts import (
     CausalAlphaEpisodePartition,
+    CausalAlphaSymbolSamples,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_config import (
     CausalAlphaV3Candidate,
@@ -30,6 +31,9 @@ from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
     CausalAlphaV3CandidateEvidence,
     CausalAlphaV3ReplayMetric,
     CausalAlphaV3SelectionEvidence,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_identity import (
+    CausalAlphaV3ExecutionIdentity,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_runner import (
     CausalAlphaV3AdmissionRejected,
@@ -99,6 +103,42 @@ def _contract(episode: int, start: int) -> OracleEpisodeContract:
     )
 
 
+def _samples() -> CausalAlphaSymbolSamples:
+    decisions = np.arange(2, 30, dtype=np.int64)
+    features = np.column_stack(
+        (decisions.astype(np.float64), np.ones(decisions.size, dtype=np.float64))
+    )
+    return CausalAlphaSymbolSamples(
+        symbol="BTCUSDT",
+        dataset_id="d" * 64,
+        feature_names=("signal", "descriptor"),
+        feature_schema_digest="4" * 64,
+        context_digest="c" * 64,
+        reference_equity_mode="initial_capital",
+        reference_equity=1_000.0,
+        decision_indices=decisions,
+        features=features,
+        feature_available=np.ones_like(features, dtype=np.bool_),
+        labels_24h=0.001 * decisions,
+        label_end_indices_24h=decisions + 1,
+        labels_72h=0.002 * decisions,
+        label_end_indices_72h=decisions + 2,
+    )
+
+
+def _environment() -> SimpleNamespace:
+    return SimpleNamespace(
+        dataset=SimpleNamespace(dataset_id="d" * 64, n_symbols=1),
+        decision_bars=1,
+        config=SimpleNamespace(
+            execution_cost=ExecutionCostConfig(),
+            signal_delay_decisions=1,
+        ),
+        initial_weights_for_reset=lambda mode, start: np.zeros(1, dtype=np.float64),
+        close=lambda: None,
+    )
+
+
 def _prepared() -> CausalAlphaV3PreparedResearchData:
     contracts = (_contract(0, 5), _contract(1, 12), _contract(2, 19))
     partition = CausalAlphaEpisodePartition(
@@ -108,13 +148,19 @@ def _prepared() -> CausalAlphaV3PreparedResearchData:
         train_start=0,
         train_stop=contracts[-1].stop,
     )
+    identity = CausalAlphaV3ExecutionIdentity(
+        train_symbols=("BTCUSDT",),
+        training_contract_digest="6" * 64,
+        instrument_context_schema_digest="7" * 64,
+        source_tree_digest="8" * 64,
+        symbol_runtime_digests=(("BTCUSDT", "9" * 64),),
+    )
     return CausalAlphaV3PreparedResearchData(
         train_symbols=("BTCUSDT",),
         partitions={"BTCUSDT": partition},
-        samples={"BTCUSDT": SimpleNamespace(dataset_id="d" * 64)},
-        environment_factories={"BTCUSDT": lambda: None},
+        samples={"BTCUSDT": _samples()},
+        environment_factories={"BTCUSDT": _environment},
         episode_hours=24.0,
-        datasets={"BTCUSDT": SimpleNamespace()},
         execution_costs={"BTCUSDT": ExecutionCostConfig()},
         signal_delays={"BTCUSDT": 1},
         decision_bars={"BTCUSDT": 1},
@@ -124,6 +170,7 @@ def _prepared() -> CausalAlphaV3PreparedResearchData:
         split_manifest_digest="3" * 64,
         feature_schema_digest="4" * 64,
         statistics_digest="5" * 64,
+        execution_identity=identity,
     )
 
 
@@ -228,7 +275,9 @@ def _batch() -> EpisodeOracleBatch:
         teacher_config_digest="f" * 64,
         sampling_config_digest="0" * 64,
         contracts=(contract,),
-        targets=(np.zeros((contract.stop - contract.start - 1, 1), dtype=np.float32),),
+        targets=(
+            np.zeros((contract.stop - contract.start - 1, 1), dtype=np.float32),
+        ),
     )
 
 
@@ -252,14 +301,10 @@ def test_signal_rejection_stops_before_selection_and_holdout(
         "evaluate_causal_alpha_v3_selection",
         lambda **kwargs: pytest.fail("selection must not run after signal rejection"),
     )
-
     with pytest.raises(CausalAlphaV3SignalRejected):
         run_universal_causal_alpha_v3_research(
-            config=_config(),
-            prepared=_prepared(),
-            output_root=tmp_path,
+            config=_config(), prepared=_prepared(), output_root=tmp_path
         )
-
     assert (tmp_path / "signal" / "rejection.json").is_file()
     assert not (tmp_path / "selection").exists()
     assert not (tmp_path / "admission").exists()
@@ -280,11 +325,11 @@ def test_admission_rejection_never_creates_teacher_package(
         "evaluate_causal_alpha_v3_signal_gate",
         lambda *args, **kwargs: _signal_evidence(passed=True),
     )
-
-    def selection(**kwargs):
-        return _selection(kwargs["freeze_digest"])
-
-    monkeypatch.setattr(module, "evaluate_causal_alpha_v3_selection", selection)
+    monkeypatch.setattr(
+        module,
+        "evaluate_causal_alpha_v3_selection",
+        lambda **kwargs: _selection(kwargs["freeze_digest"]),
+    )
     monkeypatch.setattr(
         module,
         "build_causal_alpha_v3_episode_batch",
@@ -299,14 +344,10 @@ def test_admission_rejection_never_creates_teacher_package(
             to_payload=lambda: {"passed": False},
         ),
     )
-
     with pytest.raises(CausalAlphaV3AdmissionRejected):
         run_universal_causal_alpha_v3_research(
-            config=_config(),
-            prepared=_prepared(),
-            output_root=tmp_path,
+            config=_config(), prepared=_prepared(), output_root=tmp_path
         )
-
     assert (tmp_path / "freeze" / "candidates.json").is_file()
     assert (tmp_path / "selection" / "evidence.json").is_file()
     assert (tmp_path / "admission" / "evidence.json").is_file()

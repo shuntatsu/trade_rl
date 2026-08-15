@@ -26,7 +26,9 @@ def _clock(*, offset_minutes: int = 0) -> np.ndarray:
     return origin + np.arange(64) * np.timedelta64(15, "m")
 
 
-def _partition(dataset_id: str, *, start_offset: int = 0) -> CausalAlphaEpisodePartition:
+def _partition(
+    dataset_id: str, *, start_offset: int = 0
+) -> CausalAlphaEpisodePartition:
     contracts = tuple(
         OracleEpisodeContract(
             dataset_id=dataset_id,
@@ -143,7 +145,9 @@ def test_python_runtime_digest_is_bound_to_execution_identity() -> None:
     assert identity.shared_clock_digest == _sha("4")
     assert identity.dependency_lock_digest == _sha("5")
     assert identity.python_runtime_digest == runtime_digest
-    assert CausalAlphaV3ExecutionIdentity.from_payload(identity.to_payload()) == identity
+    assert (
+        CausalAlphaV3ExecutionIdentity.from_payload(identity.to_payload()) == identity
+    )
 
 
 def test_execution_identity_v2_rejects_legacy_v1_payload() -> None:

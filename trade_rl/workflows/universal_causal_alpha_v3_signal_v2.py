@@ -32,6 +32,7 @@ def signal_scope_metric_from_payload(
         "fit_digest",
         "forecast_digest",
         "rank_correlation",
+        "run_manifest_digest",
         "sample_count",
         "schema_version",
         "symbol",
@@ -49,6 +50,7 @@ def signal_scope_metric_from_payload(
     rank_raw = values["rank_correlation"]
     rank = None if rank_raw is None else float(rank_raw)
     return CausalAlphaV3SignalScopeMetric(
+        run_manifest_digest=str(values["run_manifest_digest"]),
         fit_config_digest=str(values["fit_config_digest"]),
         symbol=str(values["symbol"]),
         episode_index=int(values["episode_index"]),
@@ -139,6 +141,10 @@ def evaluate_causal_alpha_v3_signal_gate_clustered(
         raise ValueError("V3 signal gate requires scope metrics")
     if len({item.identity for item in values}) != len(values):
         raise ValueError("V3 signal gate scope metrics are duplicated")
+    run_digests = {item.run_manifest_digest for item in values}
+    if len(run_digests) != 1:
+        raise ValueError("V3 signal gate run manifest identity drifted")
+    run_manifest_digest = next(iter(run_digests))
     raw_expected = _positive_count(
         expected_raw_scope_count, field="expected_raw_scope_count"
     )
@@ -176,6 +182,7 @@ def evaluate_causal_alpha_v3_signal_gate_clustered(
         reasons.append("direction_accuracy_excess_lower_ci")
     return CausalAlphaV3SignalGateEvidence(
         metrics=values,
+        run_manifest_digest=run_manifest_digest,
         raw_scope_count=len(values),
         expected_raw_scope_count=raw_expected,
         raw_scope_coverage=coverage,

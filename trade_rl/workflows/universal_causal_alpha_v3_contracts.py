@@ -359,6 +359,18 @@ class UniversalCausalAlphaV3TeacherPackage:
         object.__setattr__(self, "target_digests", MappingProxyType(digests))
         object.__setattr__(self, "digest", expected)
 
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "artifact_digest": self.digest,
+            "promotion_eligible": self.promotion_eligible,
+            "schema_version": "universal_causal_alpha_v3_teacher_package_v1",
+            "selection_digest": self.selection.digest,
+            "selected_candidate_digest": self.selection.selected_candidate_digest,
+            "target_digests": dict(self.target_digests),
+            "teacher_admission_digest": self.teacher_admission.digest,
+            "teacher_config_digest": self.teacher_config_digest,
+        }
+
 
 __all__ = [
     "CausalAlphaV3CandidateConfig",

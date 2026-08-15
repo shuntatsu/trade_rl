@@ -80,6 +80,13 @@ def _bootstrap(
     )
 
 
+def _required_rank(metric: CausalAlphaV3SignalScopeMetric) -> float:
+    value = metric.rank_correlation
+    if value is None:
+        raise ValueError("V3 signal rank correlation is unavailable")
+    return value
+
+
 def _episode_clusters(
     metrics: tuple[CausalAlphaV3SignalScopeMetric, ...],
 ) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
@@ -91,10 +98,7 @@ def _episode_clusters(
     directions: list[float] = []
     for episode_index in sorted(grouped):
         cluster = grouped[episode_index]
-        rank_values = tuple(item.rank_correlation for item in cluster)
-        if any(item is None for item in rank_values):
-            raise ValueError("V3 signal rank correlation is unavailable")
-        ranks.append(float(fmean(float(item) for item in rank_values)))
+        ranks.append(float(fmean(_required_rank(item) for item in cluster)))
         spreads.append(
             float(fmean(item.top_bottom_realized_spread for item in cluster))
         )

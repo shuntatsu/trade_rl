@@ -118,8 +118,9 @@ def validate_causal_alpha_v3_shared_chronology(
     timestamps_by_symbol: Mapping[str, object],
     partitions: Mapping[str, CausalAlphaEpisodePartition],
     decision_bars: Mapping[str, int],
+    signal_delays: Mapping[str, int],
 ) -> str:
-    """Require one wall-clock and episode schedule across pooled V3 train symbols."""
+    """Require one wall-clock, episode schedule, and label timing across pooled symbols."""
 
     symbols = tuple(train_symbols)
     if (
@@ -131,10 +132,12 @@ def validate_causal_alpha_v3_shared_chronology(
     clocks = dict(timestamps_by_symbol)
     partition_map = dict(partitions)
     bars_by_symbol = dict(decision_bars)
+    delays_by_symbol = dict(signal_delays)
     for name, values in (
         ("clocks", clocks),
         ("partitions", partition_map),
         ("decision cadence", bars_by_symbol),
+        ("signal delay", delays_by_symbol),
     ):
         if set(values) != set(symbols):
             raise ValueError(f"V3 shared chronology {name} must match train_symbols")
@@ -142,6 +145,7 @@ def validate_causal_alpha_v3_shared_chronology(
     reference_clock: np.ndarray | None = None
     reference_schedule: tuple[tuple[int, int, int], ...] | None = None
     common_decision_bars: int | None = None
+    common_signal_delay: int | None = None
     for symbol in symbols:
         clock = _validated_clock(clocks[symbol], symbol=symbol)
         if reference_clock is None:
@@ -171,14 +175,24 @@ def validate_causal_alpha_v3_shared_chronology(
         elif common_decision_bars != bars:
             raise ValueError("V3 decision cadence differs across train symbols")
 
+        delay = delays_by_symbol[symbol]
+        if isinstance(delay, bool) or not isinstance(delay, int) or delay not in {0, 1}:
+            raise ValueError("V3 shared signal delay must be 0 or 1")
+        if common_signal_delay is None:
+            common_signal_delay = delay
+        elif common_signal_delay != delay:
+            raise ValueError("V3 signal delay differs across train symbols")
+
     assert reference_clock is not None
     assert reference_schedule is not None
     assert common_decision_bars is not None
+    assert common_signal_delay is not None
     return content_and_arrays_digest(
         {
             "decision_bars": common_decision_bars,
             "episode_schedule": reference_schedule,
-            "schema_version": "causal_alpha_v3_shared_clock_v1",
+            "schema_version": "causal_alpha_v3_shared_clock_v2",
+            "signal_delay_decisions": common_signal_delay,
         },
         (("timestamps", reference_clock),),
     )
@@ -415,6 +429,7 @@ def prepare_causal_alpha_v3_research_data(
         timestamps_by_symbol=clocks_by_symbol,
         partitions=partitions,
         decision_bars=bars_by_symbol,
+        signal_delays=delays,
     )
     execution_identity = CausalAlphaV3ExecutionIdentity(
         train_symbols=symbols,

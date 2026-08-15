@@ -245,9 +245,10 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
         values = dict(payload)
         if values.get("schema_version") != "causal_alpha_v3_selection_progress_v1":
             raise ValueError("V3 selection progress schema is unsupported")
-        if values.get("research_only") is not True or values.get(
-            "promotion_eligible"
-        ) is not False:
+        if (
+            values.get("research_only") is not True
+            or values.get("promotion_eligible") is not False
+        ):
             raise ValueError("V3 selection progress must remain research-only")
         return atomic_write_bytes(
             self.root / "selection" / "progress.json",

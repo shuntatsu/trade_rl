@@ -4,7 +4,9 @@ import numpy as np
 import pytest
 
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
-from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaEpisodePartition
+from trade_rl.workflows.universal_causal_alpha_contracts import (
+    CausalAlphaEpisodePartition,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_runtime import (
     validate_causal_alpha_v3_shared_chronology,
 )

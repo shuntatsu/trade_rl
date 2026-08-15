@@ -88,7 +88,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          uv run vulture trade_rl tests --min-confidence 100
+          set +e
+          uv run vulture trade_rl tests --min-confidence 100 > vulture.log 2>&1
+          vulture_status=$?
+          set -e
+          if [ "$vulture_status" -ne 0 ]; then
+            cat vulture.log
+            while IFS= read -r line; do
+              printf '::error title=Vulture dead-code finding::%s\n' "$line"
+            done < vulture.log
+            exit "$vulture_status"
+          fi
           if rg -n 'CausalAlphaV3AdmissionEvidenceV2' trade_rl tests; then exit 1; fi
           if rg -n '\bCausalAlphaV3AdmissionRecord\b' trade_rl tests; then exit 1; fi
           if rg -n '\bCausalAlphaV3RunManifest\b' trade_rl tests; then exit 1; fi

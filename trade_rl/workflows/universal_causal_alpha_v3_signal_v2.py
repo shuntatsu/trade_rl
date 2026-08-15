@@ -39,10 +39,7 @@ def signal_scope_metric_from_payload(
     if set(values) != fields:
         missing = sorted(fields - set(values))
         unknown = sorted(set(values) - fields)
-        raise ValueError(
-            "V3 signal scope fields mismatch; "
-            f"missing={missing}, unknown={unknown}"
-        )
+        raise ValueError(f"V3 signal scope fields mismatch; missing={missing}, unknown={unknown}")
     if values["schema_version"] != _SIGNAL_SCOPE_SCHEMA:
         raise ValueError("V3 signal scope schema is unsupported")
     rank_raw = values["rank_correlation"]

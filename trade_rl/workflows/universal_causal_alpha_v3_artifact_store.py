@@ -92,7 +92,7 @@ class CausalAlphaV3RunLock:
     def __enter__(self) -> CausalAlphaV3RunLock:
         return self.acquire()
 
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         self.release()
 
 

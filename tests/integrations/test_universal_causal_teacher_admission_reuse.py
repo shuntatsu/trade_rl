@@ -78,18 +78,18 @@ def _config() -> ResidualTrainingConfig:
     )
 
 
-def test_pretraining_hook_reuses_stored_teacher_admission_without_replay(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def _combined_bundle():
     from trade_rl.integrations import universal_pretraining as module
 
-    combined = module.combine_symbol_teachers(
+    return module.combine_symbol_teachers(
         {"AAAUSDT": (_dataset(), _split(), np.arange(6, dtype=np.float32))},
         train_symbols=("AAAUSDT",),
         normalizer_digest=content_digest("normalizer"),
         feature_schema_digest=content_digest("features"),
     )
+
+
+def _admission_payload() -> dict[str, object]:
     admission = evaluate_causal_alpha_teacher_admission(
         (
             CausalAlphaTeacherHoldoutMetric(
@@ -103,21 +103,42 @@ def test_pretraining_hook_reuses_stored_teacher_admission_without_replay(
             ),
         )
     )
-    bundle = replace(
-        combined,
+    return admission.to_payload()
+
+
+def _bundle_with_admission(admission_evidence: dict[str, object]):
+    return replace(
+        _combined_bundle(),
         episode_batches={"AAAUSDT": _batch()},
         causal_teacher_selection_evidence={
             "schema_version": "causal_alpha_selection_evidence_v1",
             "artifact_digest": content_digest("selection"),
             "selected_candidate_digest": content_digest("candidate"),
         },
-        causal_teacher_admission_evidence=admission.to_payload(),
+        causal_teacher_admission_evidence=admission_evidence,
         causal_teacher_package_evidence={
             "schema_version": "universal_causal_alpha_teacher_package_evidence_v1",
             "artifact_digest": content_digest("package"),
         },
         causal_teacher_episode_hours=720.0,
     )
+
+
+def test_pretraining_bundle_rejects_legacy_teacher_admission_schema() -> None:
+    stale = _admission_payload()
+    stale["schema_version"] = "causal_alpha_teacher_admission_v1"
+
+    with pytest.raises(ValueError, match="admission evidence schema mismatch"):
+        _bundle_with_admission(stale)
+
+
+def test_pretraining_hook_reuses_stored_teacher_admission_without_replay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from trade_rl.integrations import universal_pretraining as module
+
+    bundle = _bundle_with_admission(_admission_payload())
 
     monkeypatch.setattr(
         module,

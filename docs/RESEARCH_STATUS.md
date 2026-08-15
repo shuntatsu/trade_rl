@@ -77,6 +77,24 @@ V3はprimitive定義だけでなく、`run_universal_causal_alpha_v3_research.py
 
 Resumeのsource of truthはprogress表示ではなくimmutable scope recordです。Run manifest、generator code、candidate freeze、episode contractのIdentityが一致するrecordだけを再利用し、corrupt/unknown recordはfail closedします。CLIではsignal rejectionを**exit code 2**、selection rejectionを**exit code 3**、admission rejectionを**exit code 4**として区別します。
 
+#### V3 selection diagnostics and artifact authority
+
+維持対象runnerでは`selection/records/`配下のatomic replay recordだけがresumeとeconomic selectionのauthoritative evidenceです。`selection/diagnostics/`は各replay metric digestへ束縛された**diagnostic-only** leafで、target方向、forecast方向、uncertainty、liquidity cap、objective improvementなどを原因分析用に保存します。Diagnosticsは常にresearch-onlyかつpromotion-ineligibleであり、欠損してもpersist済みのeconomic replayを再実行しません。明示的に読み込んだdiagnosticsがcorrupt、scope外、またはreplay metric digest不一致ならfail closedします。
+
+`selection/progress.json`は`selection/records/`と利用可能な`selection/diagnostics/`から再構築できるmonitoring stateです。Process crashでstaleまたは未更新になっても、次回起動時にauthoritative replay recordから再生成します。このprogressをcandidate ranking、teacher admission、holdout開封条件へ入力してはいけません。
+
+旧branchや過去runの**legacy JSONL** checkpoint/resultはhistorical diagnosisのためだけに保持し、維持対象atomic runnerへresumeまたはpromotionしません。Legacy JSONLの結果は**diagnostic-only**であり、現行run/execution/code identityを束縛したpromotable evidenceが必要なら維持対象runnerで再実行します。
+
+次のmodel/controller変更は、未開封holdoutではなくearlier selection diagnosticsから原因を特定した後に別実験として行います。判定規則は次のとおりです。
+
+- **gross-negative**かつlow-turnoverなら、まずpredictor / regime fitを疑う。
+- gross-positiveだが**net-negative**なら、execution cost / controller turnoverを疑う。
+- lower-tail failureがhigh uncertaintyへ集中するなら、uncertainty calibrationを検証する。
+- long/shortのdirectional imbalanceが系統的なら、**asymmetric threshold** experimentを別契約で行う。
+- horizon disagreementが失敗scopeへ集中するなら、horizon構成または**rolling-window** experimentを別契約で行う。
+
+これらは診断から次仮説を選ぶためのルールであり、現時点でrolling-window、regime adapter、asymmetric thresholdをcanonical V3へ導入したことを意味しません。探索自由度を増やす前に、各変更をearlier selection dataだけで事前定義し、teacher-admission holdoutは引き続きmodel selectionへ使用しません。
+
 V3 teacher admissionがPASSした場合でも、それはRL upliftやProduction認可ではありません。次のlearner工程は`DAgger -> BC`および`anchored PPO`を含み、**only after teacher admission**で別のquality gateとして実行します。
 
 これらはsoftware contractです。Teacher holdoutの経済成績が実データで合格した、最終Policyがbaselineを上回った、unseen symbolへ一般化した、という意味ではありません。

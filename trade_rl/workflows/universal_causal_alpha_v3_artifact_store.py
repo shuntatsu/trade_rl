@@ -111,9 +111,7 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
             / f"{metric.episode_index}.json"
         )
 
-    def write_signal_scope_metric(
-        self, metric: CausalAlphaV3SignalScopeMetric
-    ) -> Path:
+    def write_signal_scope_metric(self, metric: CausalAlphaV3SignalScopeMetric) -> Path:
         if not isinstance(metric, CausalAlphaV3SignalScopeMetric):
             raise TypeError("V3 signal store requires a scope metric")
         return self.write_exact_artifact(
@@ -150,9 +148,7 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
         if not isinstance(evidence, CausalAlphaV3CandidateEvidence):
             raise TypeError("V3 candidate store requires candidate evidence")
         return self.write_exact_artifact(
-            Path("selection")
-            / "candidates"
-            / f"{evidence.candidate.digest}.json",
+            Path("selection") / "candidates" / f"{evidence.candidate.digest}.json",
             evidence.to_payload(),
         )
 
@@ -160,9 +156,7 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
         symbol = _safe_segment(record.symbol, field="V3 admission symbol")
         return self.root / "admission" / "records" / f"{symbol}.json"
 
-    def write_admission_record_v2(
-        self, record: CausalAlphaV3AdmissionRecordV2
-    ) -> Path:
+    def write_admission_record_v2(self, record: CausalAlphaV3AdmissionRecordV2) -> Path:
         if record.run_manifest_digest != self.run_manifest_digest:
             raise ValueError("V3 admission record run manifest identity mismatch")
         if self.freeze_digest is None or record.freeze_digest != self.freeze_digest:
@@ -251,14 +245,15 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
                 raise ValueError("V3 teacher batch symbol identity drifted")
             if artifact.run_manifest_digest != self.run_manifest_digest:
                 raise ValueError("V3 teacher batch run identity drifted")
-            if self.freeze_digest is None or artifact.freeze_digest != self.freeze_digest:
+            if (
+                self.freeze_digest is None
+                or artifact.freeze_digest != self.freeze_digest
+            ):
                 raise ValueError("V3 teacher batch freeze identity drifted")
             if artifact_digests.get(symbol) != artifact.digest:
                 raise ValueError("V3 teacher batch artifact digest drifted")
             batches[symbol] = artifact.batch
-        return UniversalCausalAlphaV3TeacherPackageV2.from_payload(
-            raw, batches=batches
-        )
+        return UniversalCausalAlphaV3TeacherPackageV2.from_payload(raw, batches=batches)
 
 
 __all__ = ["CausalAlphaV3ArtifactStore", "CausalAlphaV3RunLock", "SignalIdentity"]

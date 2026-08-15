@@ -1,0 +1,119 @@
+name: Apply causal teacher admission hardening temporary
+
+on:
+  push:
+    branches:
+      - codex/fix-causal-alpha-v3-signal-scope-contract
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Require unchanged branch head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin codex/fix-causal-alpha-v3-signal-scope-contract
+          test "$(git rev-parse origin/codex/fix-causal-alpha-v3-signal-scope-contract)" = "$GITHUB_SHA"
+      - name: Apply hardening patch
+        run: python tools/_temporary_apply_teacher_admission_hardening.py
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Format and static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            trade_rl/learning/causal_alpha_teacher.py
+            trade_rl/integrations/universal_pretraining.py
+            trade_rl/workflows/universal_causal_alpha_v3_admission.py
+            trade_rl/workflows/universal_causal_alpha_v3_artifacts.py
+            trade_rl/workflows/universal_causal_alpha_v3_pipeline.py
+            trade_rl/workflows/universal_causal_alpha_v3_replay.py
+            trade_rl/workflows/universal_causal_alpha_v3_runner.py
+            trade_rl/workflows/universal_causal_alpha_v3_contracts.py
+            trade_rl/workflows/universal_causal_alpha_v3_store.py
+            tests/learning/test_causal_alpha_teacher_admission.py
+            tests/integrations/test_universal_causal_teacher_admission_reuse.py
+            tests/workflows/test_universal_causal_alpha_v3_common_admission.py
+            tests/architecture/test_causal_alpha_v3_dead_contract_cleanup.py
+            tests/workflows/test_universal_causal_alpha_v3_runner_engine.py
+          )
+          uv run ruff check --fix --select I "${files[@]}"
+          uv run ruff format "${files[@]}"
+          uv run ruff check "${files[@]}"
+          uv run ruff format --check "${files[@]}"
+          uv run mypy \
+            trade_rl/learning/causal_alpha_teacher.py \
+            trade_rl/integrations/universal_pretraining.py \
+            trade_rl/workflows/universal_causal_alpha_v3_admission.py \
+            trade_rl/workflows/universal_causal_alpha_v3_artifacts.py \
+            trade_rl/workflows/universal_causal_alpha_v3_pipeline.py \
+            trade_rl/workflows/universal_causal_alpha_v3_replay.py \
+            trade_rl/workflows/universal_causal_alpha_v3_runner.py \
+            trade_rl/workflows/universal_causal_alpha_v3_contracts.py \
+            trade_rl/workflows/universal_causal_alpha_v3_store.py
+          uv run lint-imports --config pyproject.toml
+      - name: Targeted regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/learning/test_causal_alpha_teacher_admission.py \
+            tests/integrations/test_universal_causal_teacher_admission_reuse.py \
+            tests/integrations/test_universal_causal_teacher_admission.py \
+            tests/integrations/test_universal_pretraining_bundle.py \
+            tests/architecture/test_causal_alpha_v3_dead_contract_cleanup.py \
+            tests/workflows/test_universal_causal_alpha_v3_common_admission.py \
+            tests/workflows/test_universal_causal_alpha_v3_architecture_hardening.py \
+            tests/workflows/test_universal_causal_alpha_v3_falsification.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_engine.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_store.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_orchestration.py \
+            tests/workflows/test_universal_causal_alpha_package.py \
+            tests/workflows/test_universal_causal_alpha_shared_training.py
+      - name: Dead-code and bypass audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run vulture trade_rl tests --min-confidence 100
+          if rg -n 'CausalAlphaV3AdmissionEvidenceV2' trade_rl tests; then exit 1; fi
+          if rg -n '\bCausalAlphaV3AdmissionRecord\b' trade_rl tests; then exit 1; fi
+          if rg -n '\bCausalAlphaV3RunManifest\b' trade_rl tests; then exit 1; fi
+          if rg -n '\bUniversalCausalAlphaV3TeacherPackage\b' trade_rl tests; then exit 1; fi
+          if rg -n 'write_admission_record\(' trade_rl tests; then exit 1; fi
+          if rg -n 'load_admission_records\(' trade_rl tests; then exit 1; fi
+          rg -n 'evaluate_causal_alpha_teacher_admission' \
+            trade_rl/learning/causal_alpha_teacher.py \
+            trade_rl/workflows/universal_causal_alpha_v3_admission.py
+          rg -n 'causal_alpha_teacher_admission_v2' \
+            trade_rl/learning/causal_alpha_teacher.py \
+            trade_rl/integrations/universal_pretraining.py
+      - name: Commit verified implementation and remove temporary assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin codex/fix-causal-alpha-v3-signal-scope-contract
+          test "$(git rev-parse origin/codex/fix-causal-alpha-v3-signal-scope-contract)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -f \
+            tools/_temporary_apply_teacher_admission_hardening.py \
+            .github/workflows/apply-causal-teacher-admission-hardening-temporary.yml \
+            .github/workflows/verify-causal-teacher-admission-red-temporary.yml
+          git add -A
+          git status --short
+          git commit -m 'fix: harden causal teacher admission and remove dead V3 paths'
+          git push origin HEAD:codex/fix-causal-alpha-v3-signal-scope-contract

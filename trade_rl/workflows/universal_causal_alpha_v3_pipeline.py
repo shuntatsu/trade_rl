@@ -333,6 +333,7 @@ def run_universal_causal_alpha_v3_research_pipeline(
                 for contract in nested[symbol].signal_contracts:
                     try:
                         metric = signal_scope_builder(
+                            run_manifest_digest=manifest.digest,
                             symbol=symbol,
                             train_symbols=symbols,
                             samples=prepared.samples,
@@ -344,7 +345,8 @@ def run_universal_causal_alpha_v3_research_pipeline(
                         unavailable.append(contract.digest)
                         continue
                     if (
-                        metric.fit_config_digest != fit_digest
+                        metric.run_manifest_digest != manifest.digest
+                        or metric.fit_config_digest != fit_digest
                         or metric.symbol != symbol
                         or metric.episode_index != contract.episode_index
                         or metric.contract_start != contract.start

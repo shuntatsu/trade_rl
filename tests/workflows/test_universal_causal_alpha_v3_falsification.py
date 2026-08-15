@@ -102,10 +102,13 @@ def _package() -> UniversalCausalAlphaV3TeacherPackageV2:
 
 
 def _signal_metric() -> CausalAlphaV3SignalScopeMetric:
+    contract = _contract(0)
     return CausalAlphaV3SignalScopeMetric(
         fit_config_digest=_sha("f"),
         symbol="BTCUSDT",
-        episode_index=0,
+        episode_index=contract.episode_index,
+        contract_start=contract.start,
+        contract_stop=contract.stop,
         contract_digest=_sha("c"),
         fit_digest=_sha("a"),
         forecast_digest=_sha("b"),

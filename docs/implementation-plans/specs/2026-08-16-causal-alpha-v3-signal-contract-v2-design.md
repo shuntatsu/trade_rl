@@ -38,10 +38,13 @@ The V1 authored config is not silently reinterpreted. A V1 file must fail with a
 
 ## Chronology and cluster identity
 
-`CausalAlphaV3SignalScopeMetric` becomes schema `causal_alpha_v3_signal_scope_v2` and persists the contract interval used for clustering:
+`CausalAlphaV3SignalScopeMetric` becomes schema `causal_alpha_v3_signal_scope_v2` and persists the run and contract interval used for clustering:
 
+- `run_manifest_digest`
 - `contract_start`
 - `contract_stop`
+
+The leaf-level run binding is required because persisted signal leaves become resume source-of-truth artifacts. A leaf copied from another output root must not be reusable merely because its fit config, symbol, episode index, and contract digest happen to match. The artifact store validates every signal leaf's `run_manifest_digest` against the immutable run manifest before accepting it.
 
 The independent cluster key is `(contract_start, contract_stop)`, not `episode_index` alone. `episode_index` remains part of the record identity and path for deterministic per-symbol storage, but it is no longer the statistical independence key.
 
@@ -86,17 +89,17 @@ The legacy flat evaluator must not be a current V3 execution path and must not p
 
 ## Signal resume contract
 
-Signal leaf records are already strict, digest-validated artifacts, but the pipeline currently recomputes them. V2 makes those leaves the resume source of truth.
+Signal leaf records are strict, digest-validated, run-bound artifacts. V2 makes those leaves the resume source of truth.
 
 After the run manifest is closed, the pipeline constructs the complete expected signal-record identity map for all representative fit configs, train symbols, and signal contracts, then loads valid existing leaves once.
 
 For each expected scope:
 
-- a valid persisted leaf is reused without rebuilding the fit/forecast metric;
+- a valid persisted leaf with the exact current `run_manifest_digest` is reused without rebuilding the fit/forecast metric;
 - a missing leaf is recomputed and atomically written;
-- an unknown leaf, wrong contract digest, wrong path, duplicate identity, invalid schema, or digest mismatch fails closed.
+- an unknown leaf, wrong run manifest, wrong contract digest, wrong path, duplicate identity, invalid schema, or digest mismatch fails closed.
 
-Aggregate gate evidence is always recomputed from the validated leaf set. Derived aggregate evidence is not the resume source of truth.
+Aggregate gate evidence is always recomputed from the validated leaf set. Derived aggregate evidence is not the resume source of truth. A process crash after one leaf is persisted but before aggregate signal evidence is written therefore resumes from the durable leaf set and computes only missing leaves.
 
 ## Runtime provenance
 
@@ -119,12 +122,13 @@ The container image identifier remains launcher-level provenance because the pro
 - `universal_causal_alpha_v3_runtime.py`: runtime preparation, shared chronology validation, source/lock/Python provenance.
 - `universal_causal_alpha_v3_identity.py`: execution/run identity contracts.
 - `universal_causal_alpha_v3_pipeline.py`: stage sequencing and signal-leaf resume orchestration.
-- `universal_causal_alpha_v3_artifact_store.py`: persistence and strict leaf loading; no statistical policy.
+- `universal_causal_alpha_v3_artifact_store.py`: persistence and strict run-bound leaf loading; no statistical policy.
 
 ## Invariants
 
 - Same-episode symbol duplication never increases independent evidence.
 - Raw coverage still measures the complete expected `(fit, symbol, signal episode)` record graph.
+- A signal leaf cannot be reused under a different run manifest.
 - With aligned inputs and the same set of raw metrics, clustered rank/spread/direction bootstrap numeric results remain unchanged from the existing clustered evaluator.
 - Signal failure still prevents candidate freeze, economic replay, admission, and teacher package generation.
 - Candidate/model/controller outputs remain unchanged.
@@ -142,15 +146,16 @@ The container image identifier remains launcher-level provenance because the pro
 7. **Incomplete raw evidence:** missing expected symbol/episode leaves reduce raw coverage and fail a 1.0 raw-coverage gate.
 8. **Partial signal crash:** valid leaves survive and are reused; only missing leaves are recomputed.
 9. **Corrupt/stale signal leaf:** strict loader fails rather than recomputing over or ignoring it.
-10. **Dependency drift:** changed lock digest changes execution identity and prevents output-root reuse.
-11. **Python runtime drift:** changed Python runtime digest changes execution identity.
-12. **Legacy evaluator leakage:** current runner/pipeline cannot call a flat raw-record bootstrap to produce V2 evidence.
+10. **Cross-run leaf copy:** a signal leaf whose `run_manifest_digest` differs from the active run is rejected before reuse.
+11. **Dependency drift:** changed lock digest changes execution identity and prevents output-root reuse.
+12. **Python runtime drift:** changed Python runtime digest changes execution identity.
+13. **Legacy evaluator leakage:** current runner/pipeline cannot call a flat raw-record bootstrap to produce V2 evidence.
 
 ## Required test layers
 
 - Unit: config validation, metric/evidence schema validation, cluster identity, provenance digests.
-- Contract/regression: symbol duplication, different interval with same episode index, strict leaf round-trip, legacy schema rejection.
-- Integration: pipeline signal resume with persisted and missing leaves; runtime chronology mismatch.
+- Contract/regression: symbol duplication, different interval with same episode index, strict run-bound leaf round-trip, legacy schema rejection.
+- Integration: pipeline signal resume with persisted and missing leaves; corrupt/cross-run leaf rejection; runtime chronology mismatch.
 - Architecture: runner uses only clustered V2 evaluator; signal statistics remain out of persistence layer; no model/economic/reward/risk changes.
 - Static: Ruff, format, Mypy, import-linter, dead-code gate.
 - Compatibility: Ubuntu and Windows existing suites.

@@ -68,7 +68,9 @@ def test_v3_runner_docs_close_the_deterministic_research_workflow() -> None:
         assert phrase in combined
 
 
-def test_v3_docs_distinguish_authoritative_records_from_diagnostics_and_legacy_jsonl() -> None:
+def test_v3_docs_distinguish_authoritative_records_from_diagnostics_and_legacy_jsonl() -> (
+    None
+):
     universal = _text("docs/UNIVERSAL_TRAINING.md").lower()
     research = _text("docs/RESEARCH_STATUS.md").lower()
     combined = f"{universal}\n{research}"

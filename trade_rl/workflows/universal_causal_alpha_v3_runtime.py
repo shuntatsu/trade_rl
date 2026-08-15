@@ -96,7 +96,11 @@ def causal_alpha_v3_python_runtime_digest() -> str:
 
 def _validated_clock(value: object, *, symbol: str) -> np.ndarray:
     clock = np.asarray(value)
-    if clock.ndim != 1 or clock.size == 0 or not np.issubdtype(clock.dtype, np.datetime64):
+    if (
+        clock.ndim != 1
+        or clock.size == 0
+        or not np.issubdtype(clock.dtype, np.datetime64)
+    ):
         raise ValueError(f"V3 shared clock is invalid for {symbol}")
     canonical = np.asarray(clock, dtype="datetime64[ns]").copy(order="C")
     if np.any(np.isnat(canonical)):
@@ -373,7 +377,9 @@ def prepare_causal_alpha_v3_research_data(
             if not isinstance(dataset_id, str):
                 raise ValueError(f"V3 dataset identity is unavailable for {symbol}")
             require_sha256(dataset_id, field=f"V3 dataset identity {symbol}")
-            clock = _validated_clock(getattr(dataset, "timestamps", None), symbol=symbol)
+            clock = _validated_clock(
+                getattr(dataset, "timestamps", None), symbol=symbol
+            )
             runtime_digest = content_digest(
                 {
                     "dataset_id": dataset_id,

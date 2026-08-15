@@ -9,7 +9,10 @@ from typing import Any
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
-from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch, OracleEpisodeContract
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeContract,
+)
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_v3_admission import (
     CausalAlphaV3AdmissionEvidenceV2,

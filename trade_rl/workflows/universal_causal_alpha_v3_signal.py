@@ -149,6 +149,7 @@ def non_overlapping_causal_alpha_v3_rows(
 
 @dataclass(frozen=True, slots=True)
 class CausalAlphaV3SignalScopeMetric:
+    run_manifest_digest: str
     fit_config_digest: str
     symbol: str
     episode_index: int
@@ -166,6 +167,7 @@ class CausalAlphaV3SignalScopeMetric:
 
     def __post_init__(self) -> None:
         for field in (
+            "run_manifest_digest",
             "fit_config_digest",
             "contract_digest",
             "fit_digest",
@@ -242,6 +244,7 @@ class CausalAlphaV3SignalScopeMetric:
             "fit_digest": self.fit_digest,
             "forecast_digest": self.forecast_digest,
             "rank_correlation": self.rank_correlation,
+            "run_manifest_digest": self.run_manifest_digest,
             "sample_count": self.sample_count,
             "schema_version": _SIGNAL_SCOPE_SCHEMA,
             "symbol": self.symbol,
@@ -299,6 +302,7 @@ class CausalAlphaV3BootstrapEvidence:
 @dataclass(frozen=True, slots=True)
 class CausalAlphaV3SignalGateEvidence:
     metrics: tuple[CausalAlphaV3SignalScopeMetric, ...]
+    run_manifest_digest: str
     raw_scope_count: int
     expected_raw_scope_count: int
     raw_scope_coverage: float
@@ -319,6 +323,9 @@ class CausalAlphaV3SignalGateEvidence:
         values = tuple(self.metrics)
         if not values or len({item.identity for item in values}) != len(values):
             raise ValueError("V3 signal evidence requires unique scope metrics")
+        require_sha256(self.run_manifest_digest, field="V3 signal run_manifest_digest")
+        if {item.run_manifest_digest for item in values} != {self.run_manifest_digest}:
+            raise ValueError("V3 signal evidence run manifest identity drifted")
         if (
             isinstance(self.raw_scope_count, bool)
             or not isinstance(self.raw_scope_count, int)
@@ -390,6 +397,7 @@ class CausalAlphaV3SignalGateEvidence:
             "raw_scope_count": self.raw_scope_count,
             "raw_scope_coverage": self.raw_scope_coverage,
             "rejection_reasons": self.rejection_reasons,
+            "run_manifest_digest": self.run_manifest_digest,
             "schema_version": _SIGNAL_GATE_SCHEMA,
             "top_bottom_spread": self.top_bottom_spread.to_payload(),
         }

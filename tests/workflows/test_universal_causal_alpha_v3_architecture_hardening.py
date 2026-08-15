@@ -109,9 +109,7 @@ def _admission_record(**overrides: object) -> CausalAlphaV3AdmissionRecordV2:
         execution_rejection_reason_counts=tuple(
             defaults["execution_rejection_reason_counts"]
         ),
-        risk_projection_reason_counts=tuple(
-            defaults["risk_projection_reason_counts"]
-        ),
+        risk_projection_reason_counts=tuple(defaults["risk_projection_reason_counts"]),
         hard_risk_violation=bool(defaults["hard_risk_violation"]),
     )
 
@@ -152,7 +150,9 @@ def test_signal_scope_metric_has_strict_round_trip_loader() -> None:
         signal_scope_metric_from_payload(tampered)
 
 
-def test_signal_gate_bootstraps_chronological_episode_clusters_not_symbol_duplicates() -> None:
+def test_signal_gate_bootstraps_chronological_episode_clusters_not_symbol_duplicates() -> (
+    None
+):
     metrics = tuple(
         _signal_metric(symbol=symbol)
         for symbol in ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT")
@@ -182,7 +182,9 @@ def test_admission_record_rejects_tampered_schema() -> None:
         CausalAlphaV3AdmissionRecordV2.from_payload(raw)
 
 
-def test_v3_admission_gate_rejects_net_negative_hard_risk_and_unexplained_rejections() -> None:
+def test_v3_admission_gate_rejects_net_negative_hard_risk_and_unexplained_rejections() -> (
+    None
+):
     evidence = evaluate_causal_alpha_v3_admission_gate(
         (
             _admission_record(
@@ -224,7 +226,9 @@ def test_runtime_drift_cannot_reuse_same_output_root(tmp_path) -> None:
         ).write_exact_artifact("run-manifest.json", second.to_payload())
 
 
-def test_teacher_package_is_durable_reloadable_immutable_and_training_only(tmp_path) -> None:
+def test_teacher_package_is_durable_reloadable_immutable_and_training_only(
+    tmp_path,
+) -> None:
     package = UniversalCausalAlphaV3TeacherPackageV2(
         train_symbols=("BTCUSDT",),
         batches={"BTCUSDT": _training_batch()},
@@ -251,9 +255,9 @@ def test_teacher_package_is_durable_reloadable_immutable_and_training_only(tmp_p
         package.batches["BTCUSDT"].targets[0],
     )
     with pytest.raises(TypeError):
-        cast(MutableMapping[str, EpisodeOracleBatch], package.batches)[
-            "ETHUSDT"
-        ] = _training_batch()
+        cast(MutableMapping[str, EpisodeOracleBatch], package.batches)["ETHUSDT"] = (
+            _training_batch()
+        )
     with pytest.raises(ValueError, match="admission holdout"):
         UniversalCausalAlphaV3TeacherPackageV2(
             train_symbols=("BTCUSDT",),

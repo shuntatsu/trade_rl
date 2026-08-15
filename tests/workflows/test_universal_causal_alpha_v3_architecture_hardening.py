@@ -7,7 +7,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch, OracleEpisodeContract
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeContract,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_config import CausalAlphaV3SignalGate
 from trade_rl.workflows.universal_causal_alpha_v3_contracts import (
     CausalAlphaV3AdmissionRecord,

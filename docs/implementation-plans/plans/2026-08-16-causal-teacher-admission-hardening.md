@@ -126,8 +126,7 @@ The post-implementation review was rebuilt from the acceptance criteria rather t
 - the V3 run identity binds the full installed `trade_rl` Python source tree, so changed admission code changes V3 source/run identity rather than silently treating old aggregate evidence as current evidence;
 - the hardening diff does not change signal/selection/reward/risk/execution/BC/PPO numerical logic.
 
-No additional implementation defect was found in this independent review. The remaining quality gate is fresh full exact-head CI and PostgreSQL Catalog verification after this documentation checkpoint commit.
-
+No additional implementation defect was found in this independent review before the full-suite check. The remaining quality gate was fresh full exact-head CI and PostgreSQL Catalog verification.
 
 ## Full CI signal-identity follow-up
 
@@ -138,4 +137,4 @@ Exact-head verification of `c2d5882c77e6d4e80ce1d786a0f6d64857e20976` surfaced t
 
 The failure oracle was taken from the uploaded exact-head `pytest-diagnostics` artifact. The root cause was missing identity closure in the clustered evaluator: aggregate metrics could mix multiple fit configurations, and metrics inside one chronological episode cluster could carry different pooled-fit digests before being averaged. The repair adds fail-closed validation for one common `fit_config_digest` across the aggregate and one common `fit_digest` inside each `(contract_start, contract_stop)` cluster. It does not change fitted-model formulas, cluster aggregation numerics for valid evidence, bootstrap thresholds, selection, admission, reward, risk, execution, BC, or PPO.
 
-The two existing failing tests provide RED evidence before this production fix. Targeted Signal Gate and teacher-admission verification is required before committing the repair, followed by fresh full exact-head CI.
+The two existing failing tests provide RED evidence before this production fix. Temporary apply run `31902600112`, job `95055527585`, then succeeded with the identity repair applied: static checks, targeted Signal Gate regressions, the related architecture/falsification suites, teacher-admission regressions, and `vulture trade_rl tests --min-confidence 100` all passed before commit. The verified repair was committed as `726b2df89aa7b7739b7b8a0043c4790545890963`, with all temporary diagnostic/apply workflows removed. Fresh full exact-head CI is required after this documentation checkpoint before the PR can satisfy the final quality gate.

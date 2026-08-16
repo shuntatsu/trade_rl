@@ -47,7 +47,9 @@ def _require_external_output(run_root: Path, output: Path) -> None:
     source = run_root.resolve()
     destination = output.resolve()
     if destination == source or source in destination.parents:
-        raise ValueError("V3 signal forensics output must remain outside source run root")
+        raise ValueError(
+            "V3 signal forensics output must remain outside source run root"
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

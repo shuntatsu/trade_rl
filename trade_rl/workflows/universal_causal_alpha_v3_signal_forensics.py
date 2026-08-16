@@ -709,6 +709,9 @@ def _validate_signal_rejection(
             raise ValueError("V3 signal rejection fit result schema is unsupported")
         if result["promotion_eligible"] is not False:
             raise ValueError("V3 signal fit result cannot be promotion eligible")
+        result_passed = result["passed"]
+        if not isinstance(result_passed, bool):
+            raise ValueError("V3 signal rejection fit pass state is invalid")
         unavailable = result["unavailable_scope_contract_digests"]
         if not isinstance(unavailable, list | tuple):
             raise ValueError("V3 signal unavailable scope evidence is invalid")
@@ -744,6 +747,9 @@ def _validate_signal_rejection(
             required=required_evidence_fields,
             field="V3 signal rejection evidence",
         )
+        evidence_passed = evidence["passed"]
+        if not isinstance(evidence_passed, bool):
+            raise ValueError("V3 signal rejection evidence pass state is invalid")
         if evidence["schema_version"] != _SIGNAL_GATE_SCHEMA:
             raise ValueError("V3 signal rejection gate evidence schema is unsupported")
         if evidence["run_manifest_digest"] != manifest.digest:
@@ -786,7 +792,7 @@ def _validate_signal_rejection(
             abs_tol=1e-12,
         ):
             raise ValueError("V3 signal rejection raw scope coverage drifted")
-        if bool(evidence["passed"]) != bool(result["passed"]):
+        if evidence_passed != result_passed:
             raise ValueError("V3 signal rejection pass state drifted")
         if evidence["promotion_eligible"] is not False:
             raise ValueError("V3 signal gate evidence cannot be promotion eligible")

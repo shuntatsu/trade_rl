@@ -152,7 +152,7 @@ class UniversalPretrainingBundle:
                 raise ValueError("causal teacher package evidence digest is invalid")
             if (
                 admission_evidence.get("schema_version")
-                != "causal_alpha_teacher_admission_v1"
+                != "causal_alpha_teacher_admission_v2"
             ):
                 raise ValueError("causal teacher admission evidence schema mismatch")
             admission_digest = admission_evidence.get("artifact_digest")

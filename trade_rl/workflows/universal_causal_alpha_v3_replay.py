@@ -20,7 +20,7 @@ from trade_rl.learning.episode_oracle_teacher import (
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaSymbolSamples
 from trade_rl.workflows.universal_causal_alpha_v3_admission import (
-    CausalAlphaV3AdmissionEvidenceV2,
+    CausalAlphaV3AdmissionEvidenceV3,
     CausalAlphaV3AdmissionRecordV2,
     evaluate_causal_alpha_v3_admission_gate,
 )
@@ -356,7 +356,7 @@ def evaluate_causal_alpha_v3_admission(
     selection: CausalAlphaV3SelectionEvidence,
     store: CausalAlphaV3ArtifactStore,
     evaluate_path: Callable[..., Any] = evaluate_episode_action_path,
-) -> CausalAlphaV3AdmissionEvidenceV2:
+) -> CausalAlphaV3AdmissionEvidenceV3:
     """Replay untouched holdouts and retain hard-risk/rejection evidence."""
 
     symbols = tuple(train_symbols)

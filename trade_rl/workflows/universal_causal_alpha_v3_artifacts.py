@@ -1,7 +1,7 @@
 """Public hardened artifact contracts for the research-only causal alpha V3 lane."""
 
 from trade_rl.workflows.universal_causal_alpha_v3_admission import (
-    CausalAlphaV3AdmissionEvidenceV2,
+    CausalAlphaV3AdmissionEvidenceV3,
     CausalAlphaV3AdmissionRecordV2,
     evaluate_causal_alpha_v3_admission_gate,
 )
@@ -15,7 +15,7 @@ from trade_rl.workflows.universal_causal_alpha_v3_teacher_artifacts import (
 )
 
 __all__ = [
-    "CausalAlphaV3AdmissionEvidenceV2",
+    "CausalAlphaV3AdmissionEvidenceV3",
     "CausalAlphaV3AdmissionRecordV2",
     "CausalAlphaV3ExecutionIdentity",
     "CausalAlphaV3RunManifestV2",

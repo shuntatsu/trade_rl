@@ -8,17 +8,12 @@ from typing import Any, Final, Mapping
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
-from trade_rl.learning.causal_alpha_teacher import CausalAlphaTeacherHoldoutMetric
-from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
 from trade_rl.workflows.universal_causal_alpha_v3_config import CausalAlphaV3Candidate
 
 _REPLAY_SCHEMA: Final = "causal_alpha_v3_replay_metric_v1"
-_RUN_MANIFEST_SCHEMA: Final = "causal_alpha_v3_run_manifest_v1"
 _FREEZE_SCHEMA: Final = "causal_alpha_v3_candidate_freeze_v1"
 _CANDIDATE_EVIDENCE_SCHEMA: Final = "causal_alpha_v3_candidate_evidence_v1"
 _SELECTION_SCHEMA: Final = "causal_alpha_v3_selection_evidence_v1"
-_ADMISSION_RECORD_SCHEMA: Final = "causal_alpha_v3_admission_record_v1"
-_PACKAGE_SCHEMA: Final = "universal_causal_alpha_v3_teacher_package_v1"
 
 
 def _finite(value: float, *, field: str) -> None:
@@ -42,75 +37,6 @@ def _reason_counts(
     if tuple(sorted(resolved)) != resolved:
         raise ValueError(f"{field} must be sorted by reason")
     return resolved
-
-
-@dataclass(frozen=True, slots=True)
-class CausalAlphaV3RunManifest:
-    train_symbols: tuple[str, ...]
-    config_digest: str
-    catalog_digest: str
-    partition_digest: str
-    split_manifest_digest: str
-    feature_schema_digest: str
-    statistics_digest: str
-    generator_code_digest: str
-    nested_partition_digest: str
-    research_only: bool = True
-    promotion_eligible: bool = False
-    schema_version: str = _RUN_MANIFEST_SCHEMA
-    digest: str = ""
-
-    def __post_init__(self) -> None:
-        symbols = tuple(self.train_symbols)
-        if (
-            not symbols
-            or len(set(symbols)) != len(symbols)
-            or any(not item for item in symbols)
-        ):
-            raise ValueError(
-                "V3 run manifest train_symbols must be non-empty and unique"
-            )
-        for field in (
-            "config_digest",
-            "catalog_digest",
-            "partition_digest",
-            "split_manifest_digest",
-            "feature_schema_digest",
-            "statistics_digest",
-            "generator_code_digest",
-            "nested_partition_digest",
-        ):
-            require_sha256(getattr(self, field), field=f"V3 run manifest {field}")
-        if not self.research_only or self.promotion_eligible:
-            raise ValueError(
-                "V3 run manifest must remain research-only and non-promotable"
-            )
-        if self.schema_version != _RUN_MANIFEST_SCHEMA:
-            raise ValueError("unsupported V3 run manifest schema")
-        object.__setattr__(self, "train_symbols", symbols)
-        expected = content_digest(self.to_payload(include_digest=False))
-        if self.digest and self.digest != expected:
-            raise ValueError("V3 run manifest digest mismatch")
-        object.__setattr__(self, "digest", expected)
-
-    def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "catalog_digest": self.catalog_digest,
-            "config_digest": self.config_digest,
-            "feature_schema_digest": self.feature_schema_digest,
-            "generator_code_digest": self.generator_code_digest,
-            "nested_partition_digest": self.nested_partition_digest,
-            "partition_digest": self.partition_digest,
-            "promotion_eligible": self.promotion_eligible,
-            "research_only": self.research_only,
-            "schema_version": self.schema_version,
-            "split_manifest_digest": self.split_manifest_digest,
-            "statistics_digest": self.statistics_digest,
-            "train_symbols": self.train_symbols,
-        }
-        if include_digest:
-            payload["artifact_digest"] = self.digest
-        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -478,177 +404,9 @@ class CausalAlphaV3SelectionEvidence:
         return payload
 
 
-@dataclass(frozen=True, slots=True)
-class CausalAlphaV3AdmissionRecord:
-    run_manifest_digest: str
-    freeze_digest: str
-    selection_digest: str
-    selected_candidate_digest: str
-    symbol: str
-    contract_digest: str
-    gross_return: float
-    net_return: float
-    turnover_per_day: float
-    total_execution_cost: float
-    trade_count: int
-    maximum_drawdown: float
-    digest: str = ""
-
-    def __post_init__(self) -> None:
-        for field in (
-            "run_manifest_digest",
-            "freeze_digest",
-            "selection_digest",
-            "selected_candidate_digest",
-            "contract_digest",
-        ):
-            require_sha256(getattr(self, field), field=f"V3 admission {field}")
-        if not isinstance(self.symbol, str) or not self.symbol:
-            raise ValueError("V3 admission symbol must be non-empty")
-        for field in (
-            "gross_return",
-            "net_return",
-            "turnover_per_day",
-            "total_execution_cost",
-            "maximum_drawdown",
-        ):
-            _finite(getattr(self, field), field=f"V3 admission {field}")
-        if self.turnover_per_day < 0.0 or self.total_execution_cost < 0.0:
-            raise ValueError("V3 admission turnover/cost must be non-negative")
-        _non_negative_count(self.trade_count, field="V3 admission trade_count")
-        expected = content_digest(self.to_payload(include_digest=False))
-        if self.digest and self.digest != expected:
-            raise ValueError("V3 admission record digest mismatch")
-        object.__setattr__(self, "digest", expected)
-
-    def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "contract_digest": self.contract_digest,
-            "freeze_digest": self.freeze_digest,
-            "gross_return": self.gross_return,
-            "maximum_drawdown": self.maximum_drawdown,
-            "net_return": self.net_return,
-            "run_manifest_digest": self.run_manifest_digest,
-            "schema_version": _ADMISSION_RECORD_SCHEMA,
-            "selected_candidate_digest": self.selected_candidate_digest,
-            "selection_digest": self.selection_digest,
-            "symbol": self.symbol,
-            "total_execution_cost": self.total_execution_cost,
-            "trade_count": self.trade_count,
-            "turnover_per_day": self.turnover_per_day,
-        }
-        if include_digest:
-            payload["artifact_digest"] = self.digest
-        return payload
-
-    @classmethod
-    def from_payload(cls, raw: Mapping[str, Any]) -> CausalAlphaV3AdmissionRecord:
-        return cls(
-            run_manifest_digest=str(raw["run_manifest_digest"]),
-            freeze_digest=str(raw["freeze_digest"]),
-            selection_digest=str(raw["selection_digest"]),
-            selected_candidate_digest=str(raw["selected_candidate_digest"]),
-            symbol=str(raw["symbol"]),
-            contract_digest=str(raw["contract_digest"]),
-            gross_return=float(raw["gross_return"]),
-            net_return=float(raw["net_return"]),
-            turnover_per_day=float(raw["turnover_per_day"]),
-            total_execution_cost=float(raw["total_execution_cost"]),
-            trade_count=int(raw["trade_count"]),
-            maximum_drawdown=float(raw["maximum_drawdown"]),
-            digest=str(raw["artifact_digest"]),
-        )
-
-    def to_holdout_metric(self) -> CausalAlphaTeacherHoldoutMetric:
-        return CausalAlphaTeacherHoldoutMetric(
-            symbol=self.symbol,
-            gross_return=self.gross_return,
-            net_return=self.net_return,
-            turnover_per_day=self.turnover_per_day,
-            total_execution_cost=self.total_execution_cost,
-            trade_count=self.trade_count,
-            maximum_drawdown=self.maximum_drawdown,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class UniversalCausalAlphaV3TeacherPackage:
-    train_symbols: tuple[str, ...]
-    batches: Mapping[str, EpisodeOracleBatch]
-    run_manifest_digest: str
-    freeze_digest: str
-    selection_digest: str
-    teacher_admission_digest: str
-    selected_candidate_digest: str
-    generator_code_digest: str
-    teacher_admission_passed: bool = True
-    research_only: bool = True
-    promotion_eligible: bool = False
-    digest: str = ""
-
-    def __post_init__(self) -> None:
-        symbols = tuple(self.train_symbols)
-        batches = dict(self.batches)
-        if (
-            not symbols
-            or len(set(symbols)) != len(symbols)
-            or set(batches) != set(symbols)
-        ):
-            raise ValueError("V3 teacher package batch scope must match train_symbols")
-        if any(
-            not isinstance(batches[symbol], EpisodeOracleBatch) for symbol in symbols
-        ):
-            raise TypeError("V3 teacher package contains an invalid episode batch")
-        for field in (
-            "run_manifest_digest",
-            "freeze_digest",
-            "selection_digest",
-            "teacher_admission_digest",
-            "selected_candidate_digest",
-            "generator_code_digest",
-        ):
-            require_sha256(getattr(self, field), field=f"V3 teacher package {field}")
-        if not self.teacher_admission_passed:
-            raise ValueError("V3 teacher package requires passed teacher admission")
-        if not self.research_only or self.promotion_eligible:
-            raise ValueError(
-                "V3 teacher package must remain research-only and non-promotable"
-            )
-        object.__setattr__(self, "train_symbols", symbols)
-        object.__setattr__(self, "batches", batches)
-        expected = content_digest(self.to_payload(include_digest=False))
-        if self.digest and self.digest != expected:
-            raise ValueError("V3 teacher package digest mismatch")
-        object.__setattr__(self, "digest", expected)
-
-    def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "batch_digests": tuple(
-                (symbol, self.batches[symbol].digest) for symbol in self.train_symbols
-            ),
-            "freeze_digest": self.freeze_digest,
-            "generator_code_digest": self.generator_code_digest,
-            "promotion_eligible": self.promotion_eligible,
-            "research_only": self.research_only,
-            "run_manifest_digest": self.run_manifest_digest,
-            "schema_version": _PACKAGE_SCHEMA,
-            "selected_candidate_digest": self.selected_candidate_digest,
-            "selection_digest": self.selection_digest,
-            "teacher_admission_digest": self.teacher_admission_digest,
-            "teacher_admission_passed": self.teacher_admission_passed,
-            "train_symbols": self.train_symbols,
-        }
-        if include_digest:
-            payload["artifact_digest"] = self.digest
-        return payload
-
-
 __all__ = [
-    "CausalAlphaV3AdmissionRecord",
     "CausalAlphaV3CandidateEvidence",
     "CausalAlphaV3CandidateFreeze",
     "CausalAlphaV3ReplayMetric",
-    "CausalAlphaV3RunManifest",
     "CausalAlphaV3SelectionEvidence",
-    "UniversalCausalAlphaV3TeacherPackage",
 ]

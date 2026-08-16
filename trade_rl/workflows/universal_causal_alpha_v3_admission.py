@@ -8,10 +8,13 @@ from typing import Any, Final, Mapping
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
-from trade_rl.learning.causal_alpha_teacher import CausalAlphaTeacherHoldoutMetric
+from trade_rl.learning.causal_alpha_teacher import (
+    CausalAlphaTeacherHoldoutMetric,
+    evaluate_causal_alpha_teacher_admission,
+)
 
 _RECORD_SCHEMA: Final = "causal_alpha_v3_admission_record_v2"
-_EVIDENCE_SCHEMA: Final = "causal_alpha_v3_admission_evidence_v2"
+_EVIDENCE_SCHEMA: Final = "causal_alpha_v3_admission_evidence_v3"
 _EXPLAINED_REJECTIONS: Final = frozenset(
     {"below_minimum_notional", "zero_quantity_after_rounding"}
 )
@@ -211,11 +214,14 @@ class CausalAlphaV3AdmissionRecordV2:
 
 
 @dataclass(frozen=True, slots=True)
-class CausalAlphaV3AdmissionEvidenceV2:
+class CausalAlphaV3AdmissionEvidenceV3:
     records: tuple[CausalAlphaV3AdmissionRecordV2, ...]
+    base_admission_digest: str
     aggregate_gross_return: float
     aggregate_net_return: float
     negative_gross_symbol_count: int
+    worst_symbol_net_return: float
+    total_trade_count: int
     hard_risk_violation_count: int
     unexplained_execution_rejection_count: int
     passed: bool
@@ -228,20 +234,53 @@ class CausalAlphaV3AdmissionEvidenceV2:
         records = tuple(self.records)
         if not records or len({item.symbol for item in records}) != len(records):
             raise ValueError("V3 admission evidence requires unique symbol records")
-        if not math.isfinite(self.aggregate_gross_return) or not math.isfinite(
-            self.aggregate_net_return
+        base = evaluate_causal_alpha_teacher_admission(
+            tuple(record.to_holdout_metric() for record in records)
+        )
+        require_sha256(
+            self.base_admission_digest,
+            field="V3 admission base_admission_digest",
+        )
+        if self.base_admission_digest != base.digest:
+            raise ValueError("V3 admission base evidence identity mismatch")
+        if (
+            not math.isfinite(self.aggregate_gross_return)
+            or not math.isfinite(self.aggregate_net_return)
+            or not math.isfinite(self.worst_symbol_net_return)
         ):
             raise ValueError("V3 admission aggregate returns must be finite")
         for name in (
             "negative_gross_symbol_count",
+            "total_trade_count",
             "hard_risk_violation_count",
             "unexplained_execution_rejection_count",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"V3 admission evidence {name} is invalid")
+        hard_risk_count = sum(item.hard_risk_violation for item in records)
+        unexplained = sum(
+            item.unexplained_execution_rejection_count for item in records
+        )
+        if (
+            self.aggregate_gross_return != base.aggregate_gross_return
+            or self.aggregate_net_return != base.aggregate_net_return
+            or self.negative_gross_symbol_count != base.negative_gross_symbol_count
+            or self.worst_symbol_net_return != base.worst_symbol_net_return
+            or self.total_trade_count != base.total_trade_count
+            or self.hard_risk_violation_count != hard_risk_count
+            or self.unexplained_execution_rejection_count != unexplained
+        ):
+            raise ValueError("V3 admission evidence summary is inconsistent")
+        expected_reasons = list(base.rejection_reasons)
+        if hard_risk_count:
+            expected_reasons.append("hard_risk_violation")
+        if unexplained:
+            expected_reasons.append("unexplained_execution_rejection")
         reasons = tuple(self.rejection_reasons)
-        if self.passed == bool(reasons):
+        if not isinstance(self.passed, bool):
+            raise ValueError("V3 admission passed must be boolean")
+        if reasons != tuple(expected_reasons) or self.passed != (not expected_reasons):
             raise ValueError("V3 admission pass state and rejection reasons disagree")
         if self.promotion_eligible:
             raise ValueError("V3 admission evidence cannot be promotion eligible")
@@ -254,14 +293,11 @@ class CausalAlphaV3AdmissionEvidenceV2:
             raise ValueError("V3 admission evidence digest mismatch")
         object.__setattr__(self, "digest", expected)
 
-    @property
-    def metrics(self) -> tuple[CausalAlphaTeacherHoldoutMetric, ...]:
-        return tuple(record.to_holdout_metric() for record in self.records)
-
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
             "aggregate_gross_return": self.aggregate_gross_return,
             "aggregate_net_return": self.aggregate_net_return,
+            "base_admission_digest": self.base_admission_digest,
             "hard_risk_violation_count": self.hard_risk_violation_count,
             "negative_gross_symbol_count": self.negative_gross_symbol_count,
             "passed": self.passed,
@@ -269,9 +305,11 @@ class CausalAlphaV3AdmissionEvidenceV2:
             "record_digests": tuple(record.digest for record in self.records),
             "rejection_reasons": self.rejection_reasons,
             "schema_version": self.schema_version,
+            "total_trade_count": self.total_trade_count,
             "unexplained_execution_rejection_count": (
                 self.unexplained_execution_rejection_count
             ),
+            "worst_symbol_net_return": self.worst_symbol_net_return,
         }
         if include_digest:
             payload["artifact_digest"] = self.digest
@@ -280,33 +318,30 @@ class CausalAlphaV3AdmissionEvidenceV2:
 
 def evaluate_causal_alpha_v3_admission_gate(
     records: tuple[CausalAlphaV3AdmissionRecordV2, ...],
-) -> CausalAlphaV3AdmissionEvidenceV2:
-    """Apply V3-specific net-economic and hard-risk holdout admission."""
+) -> CausalAlphaV3AdmissionEvidenceV3:
+    """Reuse the maintained economics gate and add V3 execution/risk checks."""
 
     values = tuple(records)
     if not values or len({item.symbol for item in values}) != len(values):
         raise ValueError("V3 admission requires unique symbol records")
-    aggregate_gross = float(sum(item.gross_return for item in values))
-    aggregate_net = float(sum(item.net_return for item in values))
-    negative_count = sum(item.gross_return < 0.0 for item in values)
+    base = evaluate_causal_alpha_teacher_admission(
+        tuple(item.to_holdout_metric() for item in values)
+    )
     hard_risk_count = sum(item.hard_risk_violation for item in values)
     unexplained = sum(item.unexplained_execution_rejection_count for item in values)
-    reasons: list[str] = []
-    if aggregate_gross < 0.0:
-        reasons.append("negative_aggregate_gross_return")
-    if aggregate_net < 0.0:
-        reasons.append("negative_aggregate_net_return")
-    if negative_count > len(values) // 2:
-        reasons.append("majority_negative_gross_holdouts")
+    reasons = list(base.rejection_reasons)
     if hard_risk_count:
         reasons.append("hard_risk_violation")
     if unexplained:
         reasons.append("unexplained_execution_rejection")
-    return CausalAlphaV3AdmissionEvidenceV2(
+    return CausalAlphaV3AdmissionEvidenceV3(
         records=values,
-        aggregate_gross_return=aggregate_gross,
-        aggregate_net_return=aggregate_net,
-        negative_gross_symbol_count=negative_count,
+        base_admission_digest=base.digest,
+        aggregate_gross_return=base.aggregate_gross_return,
+        aggregate_net_return=base.aggregate_net_return,
+        negative_gross_symbol_count=base.negative_gross_symbol_count,
+        worst_symbol_net_return=base.worst_symbol_net_return,
+        total_trade_count=base.total_trade_count,
         hard_risk_violation_count=hard_risk_count,
         unexplained_execution_rejection_count=unexplained,
         passed=not reasons,
@@ -315,7 +350,7 @@ def evaluate_causal_alpha_v3_admission_gate(
 
 
 __all__ = [
-    "CausalAlphaV3AdmissionEvidenceV2",
+    "CausalAlphaV3AdmissionEvidenceV3",
     "CausalAlphaV3AdmissionRecordV2",
     "evaluate_causal_alpha_v3_admission_gate",
 ]

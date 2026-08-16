@@ -11,7 +11,7 @@ from trade_rl.learning.episode_oracle_bc import (
     evaluate_episode_action_path_on_environment,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_admission import (
-    CausalAlphaV3AdmissionEvidenceV2,
+    CausalAlphaV3AdmissionEvidenceV3,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_config import (
     CausalAlphaV3ResearchConfig,
@@ -66,7 +66,7 @@ def evaluate_causal_alpha_v3_selection(**kwargs: Any) -> Any:
 
 def evaluate_causal_alpha_v3_admission(
     **kwargs: Any,
-) -> CausalAlphaV3AdmissionEvidenceV2:
+) -> CausalAlphaV3AdmissionEvidenceV3:
     return _evaluate_admission(
         **kwargs,
         evaluate_path=evaluate_episode_action_path,

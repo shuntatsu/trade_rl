@@ -87,3 +87,20 @@ def test_v3_docs_distinguish_authoritative_records_from_diagnostics_and_legacy_j
         "rolling-window",
     ):
         assert phrase in combined
+
+
+def test_v3_docs_define_deterministic_machine_run_report_contract() -> None:
+    universal = _text("docs/UNIVERSAL_TRAINING.md").lower()
+
+    for phrase in (
+        "build_run_report.py",
+        "machine run report",
+        "--profile chat",
+        "--profile json",
+        "reporting/stages/",
+        "read-only",
+        "llm",
+        "pass / reject / in_progress / not_run / missing / invalid",
+        "output must stay outside",
+    ):
+        assert phrase in universal

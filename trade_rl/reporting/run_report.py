@@ -34,6 +34,140 @@ _RUN_REPORT_SCHEMA = "run_report_v1"
 _GENERIC_STAGE_SCHEMA = "run_report_stage_evidence_v1"
 _GENERIC_STAGES = frozenset(RUN_REPORT_STAGE_ORDER[4:])
 
+_SIGNAL_RESULT_FIELDS = frozenset(
+    {
+        "evidence",
+        "fit_config_digest",
+        "passed",
+        "promotion_eligible",
+        "schema_version",
+        "unavailable_scope_contract_digests",
+    }
+)
+_SIGNAL_EVIDENCE_FIELDS = frozenset(
+    {
+        "aggregation_mode",
+        "artifact_digest",
+        "direction_accuracy_excess",
+        "expected_independent_episode_count",
+        "expected_raw_scope_count",
+        "gate_digest",
+        "independence_unit",
+        "independent_episode_count",
+        "metric_digests",
+        "passed",
+        "promotion_eligible",
+        "rank_ic",
+        "raw_scope_count",
+        "raw_scope_coverage",
+        "rejection_reasons",
+        "run_manifest_digest",
+        "schema_version",
+        "top_bottom_spread",
+    }
+)
+_BOOTSTRAP_FIELDS = frozenset(
+    {
+        "artifact_digest",
+        "block_size",
+        "lower_ci",
+        "mean",
+        "p_value",
+        "schema_version",
+        "upper_ci",
+    }
+)
+_SIGNAL_REJECTION_FIELDS = frozenset(
+    {"artifact_digest", "fit_results", "promotion_eligible", "schema_version"}
+)
+_SELECTION_EVIDENCE_FIELDS = frozenset(
+    {
+        "artifact_digest",
+        "candidate_evidence_digests",
+        "freeze_digest",
+        "promotion_eligible",
+        "schema_version",
+        "selected_candidate_digest",
+    }
+)
+_SELECTION_REJECTION_FIELDS = frozenset(
+    {"artifact_digest", "candidate_evidence_digests", "schema_version"}
+)
+_SELECTION_PROGRESS_FIELDS = frozenset(
+    {
+        "candidates",
+        "completed_replay_count",
+        "completion_fraction",
+        "diagnostics_completed_count",
+        "expected_replay_count",
+        "fit_cache_hits",
+        "fit_count",
+        "promotion_eligible",
+        "research_only",
+        "schema_version",
+        "symbols",
+    }
+)
+_ADMISSION_EVIDENCE_FIELDS = frozenset(
+    {
+        "aggregate_gross_return",
+        "aggregate_net_return",
+        "artifact_digest",
+        "base_admission_digest",
+        "hard_risk_violation_count",
+        "negative_gross_symbol_count",
+        "passed",
+        "promotion_eligible",
+        "record_digests",
+        "rejection_reasons",
+        "schema_version",
+        "total_trade_count",
+        "unexplained_execution_rejection_count",
+        "worst_symbol_net_return",
+    }
+)
+_ADMISSION_REJECTION_FIELDS = frozenset(
+    {
+        "admission_digest",
+        "artifact_digest",
+        "promotion_eligible",
+        "schema_version",
+        "selected_candidate_digest",
+    }
+)
+_TEACHER_PACKAGE_FIELDS = frozenset(
+    {
+        "admission_contract_digests",
+        "artifact_digest",
+        "batch_artifact_digests",
+        "batch_digests",
+        "freeze_digest",
+        "generator_code_digest",
+        "partition_digests",
+        "promotion_eligible",
+        "research_only",
+        "run_manifest_digest",
+        "sample_digests",
+        "schema_version",
+        "selected_candidate_digest",
+        "selection_digest",
+        "teacher_admission_digest",
+        "teacher_admission_passed",
+        "train_symbols",
+    }
+)
+_GENERIC_STAGE_FIELDS = frozenset(
+    {
+        "artifact_digest",
+        "artifact_digests",
+        "metrics",
+        "reasons",
+        "schema_version",
+        "stage",
+        "status",
+    }
+)
+
 
 class RunStageStatus(StrEnum):
     PASS = "PASS"
@@ -243,7 +377,7 @@ def _collect_identities(root: Path) -> tuple[dict[str, object], str | None]:
             raise ValueError("V3 manifest train symbol scope mismatch")
         if manifest.config_digest != config.digest:
             raise ValueError("V3 manifest authored config mismatch")
-    except (TypeError, ValueError, KeyError) as error:
+    except (KeyError, TypeError, ValueError) as error:
         return {}, f"identity_validation_failed:{type(error).__name__}"
     return {
         "catalog_digest": manifest.catalog_digest,
@@ -283,28 +417,7 @@ def _signal_evidence_row(
 ) -> dict[str, object]:
     values = _strict_payload(
         evidence,
-        fields=frozenset(
-            {
-                "aggregation_mode",
-                "artifact_digest",
-                "direction_accuracy_excess",
-                "expected_independent_episode_count",
-                "expected_raw_scope_count",
-                "gate_digest",
-                "independence_unit",
-                "independent_episode_count",
-                "metric_digests",
-                "passed",
-                "promotion_eligible",
-                "rank_ic",
-                "raw_scope_count",
-                "raw_scope_coverage",
-                "rejection_reasons",
-                "run_manifest_digest",
-                "schema_version",
-                "top_bottom_spread",
-            }
-        ),
+        fields=_SIGNAL_EVIDENCE_FIELDS,
         schema="causal_alpha_v3_signal_gate_evidence_v2",
         label="V3 signal evidence",
     )
@@ -323,32 +436,22 @@ def _signal_evidence_row(
     resolved_reasons = tuple(str(item) for item in reasons)
     if passed == bool(resolved_reasons):
         raise ValueError("V3 signal pass state and rejection reasons disagree")
-    bootstrap_rows: dict[str, object] = {}
+
+    bootstrap_metrics: dict[str, object] = {}
     for name in ("rank_ic", "top_bottom_spread", "direction_accuracy_excess"):
         raw = values[name]
         if not isinstance(raw, Mapping):
             raise ValueError(f"V3 signal {name} evidence is invalid")
         bootstrap = _strict_payload(
             raw,
-            fields=frozenset(
-                {
-                    "artifact_digest",
-                    "block_size",
-                    "lower_ci",
-                    "mean",
-                    "p_value",
-                    "schema_version",
-                    "upper_ci",
-                }
-            ),
+            fields=_BOOTSTRAP_FIELDS,
             schema="causal_alpha_v3_bootstrap_evidence_v1",
             label=f"V3 signal {name} bootstrap",
         )
         _validate_content_digest(bootstrap, label=f"V3 signal {name} bootstrap")
-        bootstrap_rows[f"{name}_mean"] = bootstrap["mean"]
-        bootstrap_rows[f"{name}_lower_ci"] = bootstrap["lower_ci"]
-        bootstrap_rows[f"{name}_upper_ci"] = bootstrap["upper_ci"]
-        bootstrap_rows[f"{name}_p_value"] = bootstrap["p_value"]
+        for field_name in ("mean", "lower_ci", "upper_ci", "p_value"):
+            bootstrap_metrics[f"{name}_{field_name}"] = bootstrap[field_name]
+
     return {
         "artifact_digest": digest,
         "expected_independent_episode_count": values[
@@ -361,7 +464,7 @@ def _signal_evidence_row(
         "raw_scope_count": values["raw_scope_count"],
         "raw_scope_coverage": values["raw_scope_coverage"],
         "rejection_reasons": resolved_reasons,
-        **bootstrap_rows,
+        **bootstrap_metrics,
     }
 
 
@@ -382,6 +485,8 @@ def _collect_signal(
     )
     if not rejection_path.is_file() and not fit_paths:
         return _missing("signal")
+
+    source_paths: list[str] = []
     try:
         config = _known_config(root)
         valid_fit_digests = (
@@ -390,20 +495,10 @@ def _collect_signal(
             else {candidate.fit.digest for candidate in config.candidates}
         )
         rows: list[dict[str, object]] = []
-        paths: list[str] = []
         for path in fit_paths:
             raw = _strict_payload(
                 _read_mapping(path, label="V3 signal fit result"),
-                fields=frozenset(
-                    {
-                        "evidence",
-                        "fit_config_digest",
-                        "passed",
-                        "promotion_eligible",
-                        "schema_version",
-                        "unavailable_scope_contract_digests",
-                    }
-                ),
+                fields=_SIGNAL_RESULT_FIELDS,
                 schema="causal_alpha_v3_fit_signal_result_v2",
                 label="V3 signal fit result",
             )
@@ -420,15 +515,10 @@ def _collect_signal(
             if evidence is None:
                 if raw["passed"] is not False:
                     raise ValueError("V3 signal fit passed without evidence")
-                rows.append(
-                    {
-                        "fit_config_digest": fit_digest,
-                        "passed": False,
-                        "unavailable_scope_count": len(
-                            tuple(raw["unavailable_scope_contract_digests"])
-                        ),
-                    }
-                )
+                row: dict[str, object] = {
+                    "fit_config_digest": fit_digest,
+                    "passed": False,
+                }
             elif isinstance(evidence, Mapping):
                 row = _signal_evidence_row(
                     evidence,
@@ -437,26 +527,19 @@ def _collect_signal(
                 )
                 if row["passed"] != raw["passed"]:
                     raise ValueError("V3 signal fit/evidence pass state mismatch")
-                row["unavailable_scope_count"] = len(
-                    tuple(raw["unavailable_scope_contract_digests"])
-                )
-                rows.append(row)
             else:
                 raise ValueError("V3 signal fit evidence is invalid")
-            paths.append(_relative(root, path))
+            row["unavailable_scope_count"] = len(
+                tuple(raw["unavailable_scope_contract_digests"])
+            )
+            rows.append(row)
+            source_paths.append(_relative(root, path))
 
         passed_rows = tuple(row for row in rows if row.get("passed") is True)
         if rejection_path.is_file():
             rejection = _strict_payload(
                 _read_mapping(rejection_path, label="V3 signal rejection"),
-                fields=frozenset(
-                    {
-                        "artifact_digest",
-                        "fit_results",
-                        "promotion_eligible",
-                        "schema_version",
-                    }
-                ),
+                fields=_SIGNAL_REJECTION_FIELDS,
                 schema="causal_alpha_v3_signal_rejection_v2",
                 label="V3 signal rejection",
             )
@@ -467,87 +550,68 @@ def _collect_signal(
                 raise ValueError("V3 signal rejection promotion flag is invalid")
             if passed_rows:
                 raise ValueError("V3 signal rejection contradicts passed fit evidence")
-            paths.append(_relative(root, rejection_path))
+            source_paths.append(_relative(root, rejection_path))
             return RunStageReport(
                 name="signal",
                 status=RunStageStatus.REJECT,
                 metrics={"fit_count": len(tuple(rejection["fit_results"]))},
                 reasons=("signal_gate_rejected",),
                 artifact_digests={"signal_rejection": rejection_digest},
-                source_paths=tuple(paths),
+                source_paths=tuple(source_paths),
             )
-        if passed_rows:
-            metrics: dict[str, object] = {
-                "fit_count": len(rows),
-                "fit_rows": tuple(rows),
-                "passed_fit_count": len(passed_rows),
-            }
-            if len(passed_rows) == 1:
-                for key in (
-                    "expected_independent_episode_count",
-                    "expected_raw_scope_count",
-                    "independent_episode_count",
-                    "raw_scope_count",
-                    "raw_scope_coverage",
-                    "rank_ic_mean",
-                    "rank_ic_lower_ci",
-                    "rank_ic_upper_ci",
-                    "rank_ic_p_value",
-                    "top_bottom_spread_mean",
-                    "top_bottom_spread_lower_ci",
-                    "top_bottom_spread_upper_ci",
-                    "top_bottom_spread_p_value",
-                    "direction_accuracy_excess_mean",
-                    "direction_accuracy_excess_lower_ci",
-                    "direction_accuracy_excess_upper_ci",
-                    "direction_accuracy_excess_p_value",
-                ):
-                    if key in passed_rows[0]:
-                        metrics[key] = passed_rows[0][key]
+
+        if not passed_rows:
             return RunStageReport(
                 name="signal",
-                status=RunStageStatus.PASS,
-                metrics=metrics,
-                artifact_digests={
-                    "signal_evidence": str(passed_rows[0]["artifact_digest"])
-                },
-                source_paths=tuple(paths),
+                status=RunStageStatus.IN_PROGRESS,
+                metrics={"fit_count": len(rows), "fit_rows": tuple(rows)},
+                source_paths=tuple(source_paths),
+            )
+
+        metrics: dict[str, object] = {
+            "fit_count": len(rows),
+            "fit_rows": tuple(rows),
+            "passed_fit_count": len(passed_rows),
+        }
+        if len(passed_rows) == 1:
+            metrics.update(
+                {
+                    key: value
+                    for key, value in passed_rows[0].items()
+                    if key
+                    not in {
+                        "artifact_digest",
+                        "fit_config_digest",
+                        "passed",
+                        "rejection_reasons",
+                        "unavailable_scope_count",
+                    }
+                }
             )
         return RunStageReport(
             name="signal",
-            status=RunStageStatus.IN_PROGRESS,
-            metrics={"fit_count": len(rows), "fit_rows": tuple(rows)},
-            source_paths=tuple(paths),
+            status=RunStageStatus.PASS,
+            metrics=metrics,
+            artifact_digests={
+                "signal_evidence": str(passed_rows[0]["artifact_digest"])
+            },
+            source_paths=tuple(source_paths),
         )
     except (KeyError, TypeError, ValueError) as error:
-        paths = tuple(_relative(root, path) for path in fit_paths)
+        invalid_paths = tuple(_relative(root, path) for path in fit_paths)
         if rejection_path.is_file():
-            paths += (_relative(root, rejection_path),)
+            invalid_paths += (_relative(root, rejection_path),)
         return _invalid(
             "signal",
             reason=f"signal_artifact_invalid:{type(error).__name__}",
-            source_paths=paths,
+            source_paths=invalid_paths,
         )
 
 
 def _selection_progress_metrics(raw: Mapping[str, Any]) -> dict[str, object]:
     values = _strict_payload(
         raw,
-        fields=frozenset(
-            {
-                "candidates",
-                "completed_replay_count",
-                "completion_fraction",
-                "diagnostics_completed_count",
-                "expected_replay_count",
-                "fit_cache_hits",
-                "fit_count",
-                "promotion_eligible",
-                "research_only",
-                "schema_version",
-                "symbols",
-            }
-        ),
+        fields=_SELECTION_PROGRESS_FIELDS,
         schema="causal_alpha_v3_selection_progress_v1",
         label="V3 selection progress",
     )
@@ -597,6 +661,7 @@ def _collect_selection(
         return _not_run("selection")
     if not existing:
         return _missing("selection")
+
     try:
         progress_metrics: dict[str, object] = {}
         source_paths: list[str] = []
@@ -610,16 +675,7 @@ def _collect_selection(
         if evidence_path.is_file():
             evidence = _strict_payload(
                 _read_mapping(evidence_path, label="V3 selection evidence"),
-                fields=frozenset(
-                    {
-                        "artifact_digest",
-                        "candidate_evidence_digests",
-                        "freeze_digest",
-                        "promotion_eligible",
-                        "schema_version",
-                        "selected_candidate_digest",
-                    }
-                ),
+                fields=_SELECTION_EVIDENCE_FIELDS,
                 schema="causal_alpha_v3_selection_evidence_v1",
                 label="V3 selection evidence",
             )
@@ -648,13 +704,7 @@ def _collect_selection(
         if rejection_path.is_file():
             rejection = _strict_payload(
                 _read_mapping(rejection_path, label="V3 selection rejection"),
-                fields=frozenset(
-                    {
-                        "artifact_digest",
-                        "candidate_evidence_digests",
-                        "schema_version",
-                    }
-                ),
+                fields=_SELECTION_REJECTION_FIELDS,
                 schema="causal_alpha_v3_selection_rejection_v1",
                 label="V3 selection rejection",
             )
@@ -718,27 +768,11 @@ def _collect_admission(
             reason="admission_rejection_without_evidence",
             source_paths=tuple(_relative(root, path) for path in existing),
         )
+
     try:
         evidence = _strict_payload(
             _read_mapping(evidence_path, label="V3 admission evidence"),
-            fields=frozenset(
-                {
-                    "aggregate_gross_return",
-                    "aggregate_net_return",
-                    "artifact_digest",
-                    "base_admission_digest",
-                    "hard_risk_violation_count",
-                    "negative_gross_symbol_count",
-                    "passed",
-                    "promotion_eligible",
-                    "record_digests",
-                    "rejection_reasons",
-                    "schema_version",
-                    "total_trade_count",
-                    "unexplained_execution_rejection_count",
-                    "worst_symbol_net_return",
-                }
-            ),
+            fields=_ADMISSION_EVIDENCE_FIELDS,
             schema="causal_alpha_v3_admission_evidence_v3",
             label="V3 admission evidence",
         )
@@ -753,20 +787,13 @@ def _collect_admission(
         reasons = tuple(str(item) for item in reasons_raw)
         if evidence["passed"] == bool(reasons):
             raise ValueError("V3 admission pass state and reasons disagree")
+
         source_paths = [_relative(root, evidence_path)]
         artifact_digests = {"admission_evidence": digest}
         if rejection_path.is_file():
             rejection = _strict_payload(
                 _read_mapping(rejection_path, label="V3 admission rejection"),
-                fields=frozenset(
-                    {
-                        "admission_digest",
-                        "artifact_digest",
-                        "promotion_eligible",
-                        "schema_version",
-                        "selected_candidate_digest",
-                    }
-                ),
+                fields=_ADMISSION_REJECTION_FIELDS,
                 schema="causal_alpha_v3_admission_rejection_v2",
                 label="V3 admission rejection",
             )
@@ -783,6 +810,7 @@ def _collect_admission(
             artifact_digests["admission_rejection"] = rejection_digest
         elif evidence["passed"] is False:
             raise ValueError("V3 failed admission evidence lacks rejection marker")
+
         metrics = {
             "admission_digest": digest,
             "aggregate_gross_return": evidence["aggregate_gross_return"],
@@ -840,30 +868,11 @@ def _collect_teacher_package(
         return _not_run("teacher_package")
     if not path.is_file():
         return _missing("teacher_package")
+
     try:
         raw = _strict_payload(
             _read_mapping(path, label="V3 teacher package"),
-            fields=frozenset(
-                {
-                    "admission_contract_digests",
-                    "artifact_digest",
-                    "batch_artifact_digests",
-                    "batch_digests",
-                    "freeze_digest",
-                    "generator_code_digest",
-                    "partition_digests",
-                    "promotion_eligible",
-                    "research_only",
-                    "run_manifest_digest",
-                    "sample_digests",
-                    "schema_version",
-                    "selected_candidate_digest",
-                    "selection_digest",
-                    "teacher_admission_digest",
-                    "teacher_admission_passed",
-                    "train_symbols",
-                }
-            ),
+            fields=_TEACHER_PACKAGE_FIELDS,
             schema="universal_causal_alpha_v3_teacher_package_v2",
             label="V3 teacher package",
         )
@@ -934,24 +943,15 @@ def _generic_stage(
     path = root / "reporting" / "stages" / f"{name}.json"
     if not path.is_file():
         return _not_run(name) if upstream_rejected else _missing(name)
+
     try:
         raw = _strict_payload(
             _read_mapping(path, label=f"{name} stage evidence"),
-            fields=frozenset(
-                {
-                    "artifact_digest",
-                    "artifact_digests",
-                    "metrics",
-                    "reasons",
-                    "schema_version",
-                    "stage",
-                    "status",
-                }
-            ),
+            fields=_GENERIC_STAGE_FIELDS,
             schema=_GENERIC_STAGE_SCHEMA,
             label=f"{name} stage evidence",
         )
-        digest = _validate_content_digest(raw, label=f"{name} stage evidence")
+        _validate_content_digest(raw, label=f"{name} stage evidence")
         if raw["stage"] != name:
             raise ValueError("generic stage evidence path identity mismatch")
         try:
@@ -975,6 +975,9 @@ def _generic_stage(
         ):
             raise ValueError("generic stage evidence payload types are invalid")
         resolved_reasons = tuple(str(item) for item in reasons)
+        resolved_digests = {
+            str(key): str(value) for key, value in artifact_digests.items()
+        }
         if upstream_rejected and status in {
             RunStageStatus.PASS,
             RunStageStatus.IN_PROGRESS,
@@ -986,10 +989,7 @@ def _generic_stage(
                 reasons=tuple(
                     dict.fromkeys((*resolved_reasons, "upstream_rejection_conflict"))
                 ),
-                artifact_digests={
-                    **{str(key): str(value) for key, value in artifact_digests.items()},
-                    "stage_evidence": digest,
-                },
+                artifact_digests=resolved_digests,
                 source_paths=(_relative(root, path),),
             )
         return RunStageReport(
@@ -997,10 +997,7 @@ def _generic_stage(
             status=status,
             metrics=dict(metrics),
             reasons=resolved_reasons,
-            artifact_digests={
-                **{str(key): str(value) for key, value in artifact_digests.items()},
-                "stage_evidence": digest,
-            },
+            artifact_digests=resolved_digests,
             source_paths=(_relative(root, path),),
         )
     except (KeyError, TypeError, ValueError) as error:

@@ -615,9 +615,12 @@ def stop_generation(
     name = validate_generation(generation)
     launch = _load_launch(state_root=Path(state_root), generation=name)
     state = _inspect_container(launch)
-    if state.running:
-        _run(("docker", "container", "stop", launch.container_name))
-        state = _inspect_container(launch)
+    if not state.running:
+        raise RuntimeError(
+            "V3 research container is already terminal; use collect to preserve its research outcome"
+        )
+    _run(("docker", "container", "stop", launch.container_name))
+    state = _inspect_container(launch)
     if state.running:
         raise RuntimeError("V3 research container remained running after stop")
     return _retain_terminal_evidence(

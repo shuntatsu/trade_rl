@@ -6,6 +6,7 @@ from trade_rl.reporting.run_report import (
     RunReport,
     RunStageReport,
     RunStageStatus,
+    build_run_report,
 )
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "RunReport",
     "RunStageReport",
     "RunStageStatus",
+    "build_run_report",
     "render_run_report_markdown",
 ]

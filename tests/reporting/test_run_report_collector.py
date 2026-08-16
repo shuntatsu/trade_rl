@@ -15,7 +15,9 @@ from trade_rl.workflows.universal_causal_alpha_v3_identity import (
     CausalAlphaV3ExecutionIdentity,
     CausalAlphaV3RunManifestV2,
 )
-from trade_rl.workflows.universal_causal_alpha_v3_pipeline import authored_config_payload
+from trade_rl.workflows.universal_causal_alpha_v3_pipeline import (
+    authored_config_payload,
+)
 
 _EXAMPLE = Path("examples/binance/universal-causal-alpha-v3-research.json")
 

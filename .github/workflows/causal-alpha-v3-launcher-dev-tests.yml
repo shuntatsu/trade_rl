@@ -10,6 +10,8 @@ on:
       - "scripts/control_causal_alpha_v3_research_generation.py"
       - "tests/architecture/test_causal_alpha_v3_research_workflow.py"
       - "tests/examples/test_causal_alpha_v3_research_compose.py"
+      - "tests/scripts/test_control_causal_alpha_v3_research_generation.py"
+      - "tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py"
       - "tests/test_causal_alpha_v3_manual_launcher_documentation.py"
 
 permissions:
@@ -31,11 +33,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tests=(tests/examples/test_causal_alpha_v3_research_compose.py)
-          if test -f tests/architecture/test_causal_alpha_v3_research_workflow.py; then
-            tests+=(tests/architecture/test_causal_alpha_v3_research_workflow.py)
-          fi
-          if test -f tests/test_causal_alpha_v3_manual_launcher_documentation.py; then
-            tests+=(tests/test_causal_alpha_v3_manual_launcher_documentation.py)
-          fi
-          uvx --with pyyaml pytest -q "${tests[@]}"
+          uvx --with pyyaml pytest -q \
+            tests/examples/test_causal_alpha_v3_research_compose.py \
+            tests/architecture/test_causal_alpha_v3_research_workflow.py \
+            tests/test_causal_alpha_v3_manual_launcher_documentation.py
+          uv run --extra dev pytest -q \
+            tests/scripts/test_control_causal_alpha_v3_research_generation.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py

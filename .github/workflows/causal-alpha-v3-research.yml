@@ -35,7 +35,6 @@ jobs:
       TRADE_RL_CAUSAL_ALPHA_V3_STATE_ROOT: ${{ vars.TRADE_RL_CAUSAL_ALPHA_V3_STATE_ROOT }}
       TRADE_RL_CAUSAL_ALPHA_V3_OPERATION: ${{ inputs.operation }}
       TRADE_RL_CAUSAL_ALPHA_V3_GENERATION: ${{ inputs.generation }}
-      TRADE_RL_CAUSAL_ALPHA_V3_EVIDENCE_ROOT: ${{ runner.temp }}/causal-alpha-v3-control-evidence
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -58,6 +57,8 @@ jobs:
           docker info >/dev/null
 
       - name: Control research generation
+        env:
+          TRADE_RL_CAUSAL_ALPHA_V3_EVIDENCE_ROOT: ${{ runner.temp }}/causal-alpha-v3-control-evidence
         shell: bash
         run: |
           set -euo pipefail

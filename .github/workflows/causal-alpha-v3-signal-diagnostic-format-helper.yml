@@ -1,0 +1,52 @@
+name: Causal Alpha V3 Signal Diagnostic Format Helper
+
+on:
+  push:
+    branches:
+      - agent/causal-alpha-v3-signal-diagnostic-format-helper
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-alpha-v3-signal-diagnostic-sidecar
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Install formatter
+        run: uv sync --extra dev
+      - name: Format changed surfaces
+        run: >-
+          uv run ruff format
+          trade_rl/workflows/universal_causal_alpha_v3_signal_diagnostic.py
+          trade_rl/workflows/universal_causal_alpha_v3_signal_diagnostic_builder.py
+          trade_rl/workflows/universal_causal_alpha_v3_signal_diagnostic_codec.py
+          trade_rl/workflows/universal_causal_alpha_v3_artifact_store.py
+          tests/workflows/test_universal_causal_alpha_v3_signal_diagnostic.py
+          tests/workflows/test_universal_causal_alpha_v3_signal_diagnostic_store.py
+      - name: Commit formatter output only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/workflows/universal_causal_alpha_v3_signal_diagnostic.py \
+            trade_rl/workflows/universal_causal_alpha_v3_signal_diagnostic_builder.py \
+            trade_rl/workflows/universal_causal_alpha_v3_signal_diagnostic_codec.py \
+            trade_rl/workflows/universal_causal_alpha_v3_artifact_store.py \
+            tests/workflows/test_universal_causal_alpha_v3_signal_diagnostic.py \
+            tests/workflows/test_universal_causal_alpha_v3_signal_diagnostic_store.py
+          if git diff --cached --quiet; then
+            echo "No format changes"
+            exit 0
+          fi
+          git commit -m "style: format V3 signal diagnostic sidecars"
+          git push origin HEAD:agent/causal-alpha-v3-signal-diagnostic-sidecar

@@ -129,7 +129,10 @@ def test_markdown_renderer_is_fact_only_and_renders_progress_tables() -> None:
     assert rendered.startswith("# Machine Run Report\n")
     assert "| signal | PASS |" in rendered
     assert "| selection | IN_PROGRESS |" in rendered
-    assert "| baseline | 2 | 1.000000% | 0.500000% | -1.000000% | 0.200000 | false |" in rendered
+    assert (
+        "| baseline | 2 | 1.000000% | 0.500000% | -1.000000% | 0.200000 | false |"
+        in rendered
+    )
     assert "| BTCUSDT | 2 | 1.000000% | 0.500000% | 0.200000 | 4 |" in rendered
     assert "recommend" not in rendered.lower()
     assert "should" not in rendered.lower()

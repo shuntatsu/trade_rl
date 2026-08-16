@@ -13,6 +13,31 @@ from trade_rl.reporting._run_report_impl import (
 from trade_rl.reporting._run_report_impl import (
     build_run_report as _build_run_report,
 )
+from trade_rl.reporting.source_validation import validate_run_report_source_shapes
+
+
+def _apply_source_shape_validation(report: RunReport, root: Path) -> RunReport:
+    invalid_sources = validate_run_report_source_shapes(root)
+    if not invalid_sources:
+        return report
+    stages = list(report.stages)
+    indices = {name: index for index, name in enumerate(RUN_REPORT_STAGE_ORDER)}
+    for name, source_paths in invalid_sources.items():
+        index = indices[name]
+        if stages[index].status is RunStageStatus.INVALID:
+            continue
+        stages[index] = RunStageReport(
+            name=name,
+            status=RunStageStatus.INVALID,
+            reasons=("artifact_shape_invalid",),
+            source_paths=source_paths,
+        )
+    return RunReport(
+        root=report.root,
+        identities=report.identities,
+        stages=tuple(stages),
+        schema_version=report.schema_version,
+    )
 
 
 def _upstream_not_passed(stage: RunStageReport) -> RunStageReport:
@@ -82,9 +107,10 @@ def _validate_v3_stage_transitions(report: RunReport) -> RunReport:
 
 
 def build_run_report(root: Path) -> RunReport:
-    """Build and fail closed on impossible persisted V3 stage transitions."""
+    """Build and fail closed on malformed or impossible persisted V3 states."""
 
-    return _validate_v3_stage_transitions(_build_run_report(root))
+    report = _apply_source_shape_validation(_build_run_report(root), root)
+    return _validate_v3_stage_transitions(report)
 
 
 __all__ = [

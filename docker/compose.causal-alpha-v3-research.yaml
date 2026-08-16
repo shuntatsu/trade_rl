@@ -1,0 +1,51 @@
+name: trade_rl_causal_alpha_v3
+
+services:
+  research:
+    image: ${TRADE_RL_CAUSAL_ALPHA_V3_IMAGE:?required}
+    command:
+      - python
+      - scripts/run_universal_causal_alpha_v3_research.py
+      - --config
+      - examples/binance/universal-causal-alpha-v3-research.json
+      - --run-config
+      - examples/binance-multitimeframe/universal-u6-ppo.json
+      - --runtime-factory
+      - trade_rl.workflows.binance_universal_runtime:build_runtime
+      - --runtime-manifest
+      - /workspace/var/universal/runtime-manifest.json
+      - --frozen-metadata-root
+      - /workspace/var/cache/frozen-metadata/usds-m
+      - --output-root
+      - /workspace/var/runs/${TRADE_RL_RUN_GENERATION:?required}
+    environment:
+      TRADE_RL_RUN_GENERATION: ${TRADE_RL_RUN_GENERATION:?required}
+      TRADE_RL_RUNTIME_MANIFEST_DIGEST: ${TRADE_RL_RUNTIME_MANIFEST_DIGEST:?required}
+      OMP_NUM_THREADS: "8"
+      MKL_NUM_THREADS: "8"
+      TORCHINDUCTOR_COMPILE_THREADS: "4"
+    labels:
+      trade-rl.kind: causal-alpha-v3
+      trade-rl.generation: ${TRADE_RL_RUN_GENERATION:?required}
+      trade-rl.git-commit: ${TRADE_RL_GIT_COMMIT:?required}
+      trade-rl.runtime-manifest-digest: ${TRADE_RL_RUNTIME_MANIFEST_DIGEST:?required}
+    gpus: all
+    networks:
+      - trade-rl
+    volumes:
+      - trade-rl-training-data:/workspace/var
+      - type: bind
+        source: ${TRADE_RL_UNIVERSAL_ARTIFACT_ROOT:?required}
+        target: /workspace/var/universal
+        read_only: true
+    restart: "no"
+
+networks:
+  trade-rl:
+    external: true
+    name: trade_rl_default
+
+volumes:
+  trade-rl-training-data:
+    external: true
+    name: trade-rl-training-data

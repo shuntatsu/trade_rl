@@ -359,9 +359,7 @@ def _trend(values: Sequence[float]) -> CausalAlphaV3TrendSummary:
         (float(index) - x_mean) * (value - y_mean)
         for index, value in enumerate(resolved)
     )
-    denominator = sum(
-        (float(index) - x_mean) ** 2 for index in range(len(resolved))
-    )
+    denominator = sum((float(index) - x_mean) ** 2 for index in range(len(resolved)))
     return CausalAlphaV3TrendSummary(
         early_mean=float(fmean(early)),
         late_mean=float(fmean(late)),
@@ -611,7 +609,9 @@ def _fit_comparison(
         right_fit_config_digest=right_fit,
         common_episode_count=len(common),
         mean_rank_ic_delta=float(
-            fmean(left - right for left, right in zip(left_rank, right_rank, strict=True))
+            fmean(
+                left - right for left, right in zip(left_rank, right_rank, strict=True)
+            )
         ),
         mean_top_bottom_spread_delta=float(
             fmean(
@@ -640,7 +640,9 @@ def _require_exact_fields(
     if set(values) != required:
         missing = sorted(required - set(values))
         unknown = sorted(set(values) - required)
-        raise ValueError(f"{field} fields mismatch; missing={missing}, unknown={unknown}")
+        raise ValueError(
+            f"{field} fields mismatch; missing={missing}, unknown={unknown}"
+        )
     return values
 
 
@@ -879,18 +881,14 @@ def load_causal_alpha_v3_signal_forensics(
         )
         metrics_by_fit[fit_digest] = fit_metrics
         clusters = _cluster_metrics(fit_metrics, symbols=manifest.train_symbols)
-        episodes = tuple(
-            _episode_summary(fit_digest, cluster) for cluster in clusters
-        )
+        episodes = tuple(_episode_summary(fit_digest, cluster) for cluster in clusters)
         cluster_scope = {item.cluster_identity for item in episodes}
         if common_cluster_scope is None:
             common_cluster_scope = cluster_scope
         elif cluster_scope != common_cluster_scope:
             raise ValueError("V3 signal fit chronological episode scope drifted")
         episodes_by_fit_list[fit_digest] = episodes
-        episode_maps[fit_digest] = {
-            item.cluster_identity: item for item in episodes
-        }
+        episode_maps[fit_digest] = {item.cluster_identity: item for item in episodes}
         fit_summaries.append(
             _fit_summary(
                 fit_digest,

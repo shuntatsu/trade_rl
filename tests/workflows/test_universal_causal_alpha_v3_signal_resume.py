@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -38,6 +39,9 @@ from trade_rl.workflows.universal_causal_alpha_v3_runtime import (
 )
 from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3SignalScopeMetric,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic_codec import (
+    signal_diagnostic_scope_from_payload,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_signal_v2 import (
     evaluate_causal_alpha_v3_signal_gate_clustered,
@@ -200,6 +204,7 @@ def _run_rejected(
     tmp_path,
     signal_contract_count: int,
     signal_scope_builder,
+    signal_gate_evaluator=evaluate_causal_alpha_v3_signal_gate_clustered,
 ) -> None:
     with pytest.raises(CausalAlphaV3SignalRejected):
         run_universal_causal_alpha_v3_research_pipeline(
@@ -207,7 +212,7 @@ def _run_rejected(
             prepared=_prepared(signal_contract_count=signal_contract_count),
             output_root=tmp_path,
             signal_scope_builder=signal_scope_builder,
-            signal_gate_evaluator=evaluate_causal_alpha_v3_signal_gate_clustered,
+            signal_gate_evaluator=signal_gate_evaluator,
             selection_evaluator=lambda **kwargs: pytest.fail(
                 "selection must not run after signal rejection"
             ),
@@ -374,6 +379,57 @@ def test_signal_resume_rejects_corrupt_diagnostic_before_builder_runs(tmp_path) 
                 "corrupt persisted diagnostic must fail before builder invocation"
             ),
         )
+
+
+def test_signal_resume_rejects_valid_but_cross_bound_pair_before_builder_runs(
+    tmp_path,
+) -> None:
+    _run_rejected(
+        tmp_path=tmp_path,
+        signal_contract_count=1,
+        signal_scope_builder=_counting_builder([]),
+    )
+    _, diagnostic_path = _single_pair_paths(tmp_path)
+    diagnostic = signal_diagnostic_scope_from_payload(
+        json.loads(diagnostic_path.read_text(encoding="utf-8"))
+    )
+    drifted = replace(diagnostic, signal_metric_digest=_sha("f"), digest="")
+    diagnostic_path.write_text(json.dumps(drifted.to_payload()), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="pair identity"):
+        _run_rejected(
+            tmp_path=tmp_path,
+            signal_contract_count=1,
+            signal_scope_builder=lambda **kwargs: pytest.fail(
+                "valid but cross-bound pair must fail before builder invocation"
+            ),
+        )
+
+
+def test_signal_gate_receives_only_canonical_metrics_and_rejection_excludes_sidecars(
+    tmp_path,
+) -> None:
+    observed: list[CausalAlphaV3SignalScopeMetric] = []
+
+    def gate_spy(metrics, **kwargs):
+        assert metrics
+        assert all(type(item) is CausalAlphaV3SignalScopeMetric for item in metrics)
+        assert all(not hasattr(item, "diagnostic") for item in metrics)
+        observed.extend(metrics)
+        return evaluate_causal_alpha_v3_signal_gate_clustered(metrics, **kwargs)
+
+    _run_rejected(
+        tmp_path=tmp_path,
+        signal_contract_count=1,
+        signal_scope_builder=_counting_builder([]),
+        signal_gate_evaluator=gate_spy,
+    )
+
+    assert len(observed) == 1
+    rejection_text = (tmp_path / "signal" / "rejection.json").read_text(
+        encoding="utf-8"
+    )
+    assert "diagnostic" not in rejection_text
 
 
 def test_signal_store_rejects_cross_run_leaf_write(tmp_path) -> None:

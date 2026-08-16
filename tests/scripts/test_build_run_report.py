@@ -38,16 +38,18 @@ def test_cli_chat_profile_writes_markdown_to_stdout(
     assert "| signal | MISSING |" in output
 
 
-def test_cli_json_profile_writes_deterministic_payload_to_file(
+def test_cli_json_profile_writes_deterministic_payload_outside_source_root(
     monkeypatch, tmp_path: Path
 ) -> None:
+    run_root = tmp_path / "run"
+    run_root.mkdir()
     monkeypatch.setattr(module, "build_run_report", lambda root: _report(Path(root)))
     output = tmp_path / "report.json"
 
     exit_code = module.main(
         [
             "--root",
-            str(tmp_path),
+            str(run_root),
             "--profile",
             "json",
             "--output",
@@ -61,6 +63,23 @@ def test_cli_json_profile_writes_deterministic_payload_to_file(
     assert [stage["name"] for stage in payload["stages"]] == list(
         RUN_REPORT_STAGE_ORDER
     )
+
+
+def test_cli_rejects_output_inside_source_root(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    run_root = tmp_path / "run"
+    run_root.mkdir()
+    monkeypatch.setattr(module, "build_run_report", lambda root: _report(Path(root)))
+    output = run_root / "report.md"
+
+    exit_code = module.main(
+        ["--root", str(run_root), "--profile", "chat", "--output", str(output)]
+    )
+
+    assert exit_code == 2
+    assert not output.exists()
+    assert "outside" in capsys.readouterr().err.lower()
 
 
 def test_cli_rejects_missing_root_without_creating_it(tmp_path: Path, capsys) -> None:

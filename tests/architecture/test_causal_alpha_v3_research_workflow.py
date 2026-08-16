@@ -68,6 +68,7 @@ def test_causal_alpha_v3_research_workflow_uses_exact_checkout_and_trusted_roots
     assert environment["TRADE_RL_CAUSAL_ALPHA_V3_GENERATION"] == (
         "${{ inputs.generation }}"
     )
+    assert all("${{ runner." not in str(value) for value in environment.values())
 
     steps = [_mapping(item) for item in job["steps"]]
     checkout = next(
@@ -89,6 +90,12 @@ def test_causal_alpha_v3_research_workflow_uses_exact_checkout_and_trusted_roots
     )
     assert setup_uv["uses"] == (
         "astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86"
+    )
+
+    control = next(step for step in steps if step.get("name") == "Control research generation")
+    control_environment = _mapping(control["env"])
+    assert control_environment["TRADE_RL_CAUSAL_ALPHA_V3_EVIDENCE_ROOT"] == (
+        "${{ runner.temp }}/causal-alpha-v3-control-evidence"
     )
 
     run_steps = "\n".join(str(step.get("run", "")) for step in steps)

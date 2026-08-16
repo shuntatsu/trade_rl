@@ -141,6 +141,20 @@ CLIのterminal research outcomeは、admittedがexit code 0、signal rejection�
 
 Downstream learner pathはこのrunnerの非目標です。`DAgger -> BC`、critic warm start、`anchored PPO`/Lagrangian系は**only after teacher admission**で別工程として実行します。Admission前に`anchored_target_residual`やDAggerを使ってcanonical gateを迂回しません。
 
+### Signal rejectionのread-only forensics
+
+Signal Gateで棄却されたV3 runは、保存済み`signal/records/`を再学習・再fit・environment replayなしで診断できます。`scripts/analyze_universal_causal_alpha_v3_signal.py`はsource runを読み取り専用で扱い、fit、chronological episode、symbolごとのSignal安定性、sample-count geometry、pooled-fit digestの時系列遷移、およびfit間のepisode-paired差を`causal_alpha_v3_signal_forensics_v1` JSONへ集約します。
+
+```bash
+uv run python scripts/analyze_universal_causal_alpha_v3_signal.py \
+  var/causal-alpha-v3-post-v2-full \
+  --output var/causal-alpha-v3-post-v2-full-signal-forensics.json
+```
+
+`--output`はsource run rootの外側だけを許可します。Analyzerは`run-manifest.json`、`authored-config.json`、Signal V2 leafのschema/digest/path/run identity、chronological clusterのcomplete symbol scopeとpooled-fit identityを再検証し、`signal/rejection.json`が存在する場合はそのmetric digest/count/gate/run identityとも照合します。診断結果は常に`research_only=true`かつ`promotion_eligible=false`で、Signal Gateの再判定や閾値緩和には使用しません。
+
+現在のSignal V2 leafには24h/72h個別prediction・realized outcomeやridge coefficient vectorが保存されていません。そのため既存runについて、24h対72h分解、coefficient cosine similarity/sign flip、prediction distribution、episode別residual RMSEは復元せず、report内で**unavailable**として理由を明示します。これらを将来観測する場合は新しいdiagnostic sidecarが必要であり、hashから値を推測したり既存runを再fitして埋めたりしません。
+
 ## 6. Teacher admissionとfail-closed順序
 
 選択後の順序は固定です。

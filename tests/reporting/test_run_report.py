@@ -136,3 +136,37 @@ def test_markdown_renderer_is_fact_only_and_renders_progress_tables() -> None:
     assert "| BTCUSDT | 2 | 1.000000% | 0.500000% | 0.200000 | 4 |" in rendered
     assert "recommend" not in rendered.lower()
     assert "should" not in rendered.lower()
+
+
+def test_markdown_renderer_preserves_structured_metrics_and_source_paths() -> None:
+    stages = list(_empty_stages())
+    stages[0] = RunStageReport(
+        name="signal",
+        status=RunStageStatus.PASS,
+        metrics={
+            "fit_rows": (
+                {
+                    "fit_config_digest": "d" * 64,
+                    "passed": True,
+                    "raw_scope_coverage": 1.0,
+                },
+            ),
+            "train_symbols": ("BTCUSDT", "ETHUSDT"),
+        },
+        source_paths=("signal/fit-a.json", "signal/fit-b.json"),
+    )
+    report = RunReport(
+        root="/tmp/example-run",
+        identities={},
+        stages=tuple(stages),
+    )
+
+    rendered = render_run_report_markdown(report)
+
+    assert "### Structured metrics" in rendered
+    assert '"fit_config_digest": "' + "d" * 64 + '"' in rendered
+    assert '"train_symbols": [' in rendered
+    assert '"BTCUSDT"' in rendered
+    assert "### Source artifacts" in rendered
+    assert "| `signal/fit-a.json` |" in rendered
+    assert "| `signal/fit-b.json` |" in rendered

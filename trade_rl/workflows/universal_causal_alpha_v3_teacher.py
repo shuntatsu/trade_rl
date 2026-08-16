@@ -160,6 +160,7 @@ def _labels_for_decisions(
 
 def build_causal_alpha_v3_signal_scope_metric(
     *,
+    run_manifest_digest: str,
     symbol: str,
     train_symbols: tuple[str, ...],
     samples: Mapping[str, CausalAlphaSymbolSamples],
@@ -169,6 +170,7 @@ def build_causal_alpha_v3_signal_scope_metric(
 ) -> CausalAlphaV3SignalScopeMetric:
     """Fit at the scope start and measure independent realized 24h-equivalent alpha."""
 
+    require_sha256(run_manifest_digest, field="V3 signal run_manifest_digest")
     fitted, forecast, block, decisions, actionable, _ = _prediction_scope(
         symbol=symbol,
         train_symbols=train_symbols,
@@ -215,9 +217,12 @@ def build_causal_alpha_v3_signal_scope_metric(
         - np.mean(realized[bottom], dtype=np.float64)
     )
     return CausalAlphaV3SignalScopeMetric(
+        run_manifest_digest=run_manifest_digest,
         fit_config_digest=candidate.fit.digest,
         symbol=symbol,
         episode_index=contract.episode_index,
+        contract_start=contract.start,
+        contract_stop=contract.stop,
         contract_digest=contract.digest,
         fit_digest=fitted.digest,
         forecast_digest=forecast.digest,

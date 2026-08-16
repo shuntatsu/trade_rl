@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import math
+import platform
+import sys
 from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, TypeVar
 
+import numpy as np
+
 import trade_rl
+from trade_rl._source_checkout import source_checkout_root
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import file_digest
+from trade_rl.data.identity import content_and_arrays_digest
 from trade_rl.domain.common import require_sha256
 from trade_rl.risk.portfolio import PortfolioRiskConfig
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -50,6 +57,144 @@ def causal_alpha_v3_source_tree_digest() -> str:
         raise RuntimeError("V3 source tree is unavailable")
     return content_digest(
         {"files": files, "schema_version": "causal_alpha_v3_source_tree_v1"}
+    )
+
+
+def causal_alpha_v3_dependency_lock_digest(root: Path | None = None) -> str:
+    """Bind V3 research to the exact project and dependency lock files."""
+
+    resolved_root = source_checkout_root() if root is None else Path(root).resolve()
+    files: list[tuple[str, str]] = []
+    for name in ("pyproject.toml", "uv.lock"):
+        path = resolved_root / name
+        if not path.is_file():
+            raise RuntimeError(f"V3 dependency identity is missing {name}")
+        files.append((name, file_digest(path)))
+    return content_digest(
+        {
+            "files": tuple(files),
+            "schema_version": "causal_alpha_v3_dependency_lock_v1",
+        }
+    )
+
+
+def causal_alpha_v3_python_runtime_digest() -> str:
+    """Bind V3 numerical evidence to the exact Python interpreter runtime."""
+
+    return content_digest(
+        {
+            "implementation": platform.python_implementation(),
+            "schema_version": "causal_alpha_v3_python_runtime_v1",
+            "version": (
+                sys.version_info.major,
+                sys.version_info.minor,
+                sys.version_info.micro,
+            ),
+        }
+    )
+
+
+def _validated_clock(value: object, *, symbol: str) -> np.ndarray:
+    clock = np.asarray(value)
+    if (
+        clock.ndim != 1
+        or clock.size == 0
+        or not np.issubdtype(clock.dtype, np.datetime64)
+    ):
+        raise ValueError(f"V3 shared clock is invalid for {symbol}")
+    canonical = np.asarray(clock, dtype="datetime64[ns]").copy(order="C")
+    if np.any(np.isnat(canonical)):
+        raise ValueError(f"V3 shared clock contains NaT for {symbol}")
+    integer_clock = canonical.astype(np.int64)
+    if integer_clock.size > 1 and np.any(np.diff(integer_clock) <= 0):
+        raise ValueError(f"V3 shared clock is not strictly chronological for {symbol}")
+    canonical.setflags(write=False)
+    return canonical
+
+
+def validate_causal_alpha_v3_shared_chronology(
+    *,
+    train_symbols: tuple[str, ...],
+    timestamps_by_symbol: Mapping[str, object],
+    partitions: Mapping[str, CausalAlphaEpisodePartition],
+    decision_bars: Mapping[str, int],
+    signal_delays: Mapping[str, int],
+) -> str:
+    """Require one wall-clock, episode schedule, and label timing across pooled symbols."""
+
+    symbols = tuple(train_symbols)
+    if (
+        not symbols
+        or len(set(symbols)) != len(symbols)
+        or any(not symbol for symbol in symbols)
+    ):
+        raise ValueError("V3 shared chronology train_symbols must be unique")
+    clocks = dict(timestamps_by_symbol)
+    partition_map = dict(partitions)
+    bars_by_symbol = dict(decision_bars)
+    delays_by_symbol = dict(signal_delays)
+    for name, values in (
+        ("clocks", clocks),
+        ("partitions", partition_map),
+        ("decision cadence", bars_by_symbol),
+        ("signal delay", delays_by_symbol),
+    ):
+        if set(values) != set(symbols):
+            raise ValueError(f"V3 shared chronology {name} must match train_symbols")
+
+    reference_clock: np.ndarray | None = None
+    reference_schedule: tuple[tuple[int, int, int], ...] | None = None
+    common_decision_bars: int | None = None
+    common_signal_delay: int | None = None
+    for symbol in symbols:
+        clock = _validated_clock(clocks[symbol], symbol=symbol)
+        if reference_clock is None:
+            reference_clock = clock
+        elif not np.array_equal(reference_clock, clock):
+            raise ValueError("V3 shared clock differs across train symbols")
+
+        partition = partition_map[symbol]
+        if not isinstance(partition, CausalAlphaEpisodePartition):
+            raise TypeError("V3 shared chronology partition type is invalid")
+        schedule = tuple(
+            (contract.episode_index, contract.start, contract.stop)
+            for contract in partition.contracts
+        )
+        if not schedule:
+            raise ValueError("V3 shared episode schedule is empty")
+        if reference_schedule is None:
+            reference_schedule = schedule
+        elif reference_schedule != schedule:
+            raise ValueError("V3 episode schedule differs across train symbols")
+
+        bars = bars_by_symbol[symbol]
+        if isinstance(bars, bool) or not isinstance(bars, int) or bars <= 0:
+            raise ValueError("V3 shared decision cadence must be positive")
+        if common_decision_bars is None:
+            common_decision_bars = bars
+        elif common_decision_bars != bars:
+            raise ValueError("V3 decision cadence differs across train symbols")
+
+        delay = delays_by_symbol[symbol]
+        if isinstance(delay, bool) or not isinstance(delay, int) or delay not in {0, 1}:
+            raise ValueError("V3 shared signal delay must be 0 or 1")
+        if common_signal_delay is None:
+            common_signal_delay = delay
+        elif common_signal_delay != delay:
+            raise ValueError("V3 signal delay differs across train symbols")
+
+    assert reference_clock is not None
+    assert reference_schedule is not None
+    assert common_decision_bars is not None
+    assert common_signal_delay is not None
+    return content_and_arrays_digest(
+        {
+            "decision_bars": common_decision_bars,
+            "episode_schedule": reference_schedule,
+            "schema_version": "causal_alpha_v3_shared_clock_v2",
+            "signal_delay_decisions": common_signal_delay,
+        },
+        (("timestamps", reference_clock),),
     )
 
 
@@ -190,6 +335,7 @@ def prepare_causal_alpha_v3_research_data(
     costs: dict[str, ExecutionCostConfig] = {}
     delays: dict[str, int] = {}
     bars_by_symbol: dict[str, int] = {}
+    clocks_by_symbol: dict[str, object] = {}
     factories: dict[str, Callable[[], Any]] = {}
     episode_hours: list[float] = []
     market_caps: list[float] = []
@@ -240,10 +386,14 @@ def prepare_causal_alpha_v3_research_data(
             cap = risk.max_position_to_market_notional
             if cap is None or not math.isfinite(cap) or cap <= 0.0:
                 raise ValueError("V3 hard market-notional cap is unavailable")
-            dataset_id = getattr(environment.dataset, "dataset_id", None)
+            dataset = getattr(environment, "dataset", None)
+            dataset_id = getattr(dataset, "dataset_id", None)
             if not isinstance(dataset_id, str):
                 raise ValueError(f"V3 dataset identity is unavailable for {symbol}")
             require_sha256(dataset_id, field=f"V3 dataset identity {symbol}")
+            clock = _validated_clock(
+                getattr(dataset, "timestamps", None), symbol=symbol
+            )
             runtime_digest = content_digest(
                 {
                     "dataset_id": dataset_id,
@@ -262,6 +412,7 @@ def prepare_causal_alpha_v3_research_data(
             costs[symbol] = execution
             delays[symbol] = delay
             bars_by_symbol[symbol] = decision_bars
+            clocks_by_symbol[symbol] = clock
             factories[symbol] = partial(concrete, binding)
             episode_hours.append(float(hours))
             market_caps.append(float(cap))
@@ -273,11 +424,21 @@ def prepare_causal_alpha_v3_research_data(
         raise ValueError("V3 episode_hours differs across train symbols")
     if len(set(market_caps)) != 1 or abs(market_caps[0] - 0.02) > 1e-12:
         raise ValueError("V3 hard market-notional cap must remain exactly 0.02")
+    shared_clock_digest = validate_causal_alpha_v3_shared_chronology(
+        train_symbols=symbols,
+        timestamps_by_symbol=clocks_by_symbol,
+        partitions=partitions,
+        decision_bars=bars_by_symbol,
+        signal_delays=delays,
+    )
     execution_identity = CausalAlphaV3ExecutionIdentity(
         train_symbols=symbols,
         training_contract_digest=runtime.training_contract_digest,
         instrument_context_schema_digest=runtime.instrument_context_schema_digest,
         source_tree_digest=causal_alpha_v3_source_tree_digest(),
+        shared_clock_digest=shared_clock_digest,
+        dependency_lock_digest=causal_alpha_v3_dependency_lock_digest(),
+        python_runtime_digest=causal_alpha_v3_python_runtime_digest(),
         symbol_runtime_digests=tuple(runtime_digests),
     )
     return CausalAlphaV3PreparedResearchData(
@@ -301,6 +462,9 @@ def prepare_causal_alpha_v3_research_data(
 
 __all__ = [
     "CausalAlphaV3PreparedResearchData",
+    "causal_alpha_v3_dependency_lock_digest",
+    "causal_alpha_v3_python_runtime_digest",
     "causal_alpha_v3_source_tree_digest",
     "prepare_causal_alpha_v3_research_data",
+    "validate_causal_alpha_v3_shared_chronology",
 ]

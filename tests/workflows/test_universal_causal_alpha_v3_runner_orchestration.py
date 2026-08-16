@@ -71,8 +71,8 @@ def _config() -> CausalAlphaV3ResearchConfig:
             minimum_economic_contract_count=1,
         ),
         signal_gate=CausalAlphaV3SignalGate(
-            minimum_scope_count=1,
-            minimum_scope_coverage=1.0,
+            minimum_independent_episode_count=1,
+            minimum_raw_scope_coverage=1.0,
             minimum_rank_ic_lower_ci=0.0,
             minimum_top_bottom_spread_lower_ci=0.0,
             minimum_direction_accuracy_excess_lower_ci=0.0,
@@ -153,6 +153,9 @@ def _prepared() -> CausalAlphaV3PreparedResearchData:
         training_contract_digest="6" * 64,
         instrument_context_schema_digest="7" * 64,
         source_tree_digest="8" * 64,
+        shared_clock_digest="a" * 64,
+        dependency_lock_digest="b" * 64,
+        python_runtime_digest="c" * 64,
         symbol_runtime_digests=(("BTCUSDT", "9" * 64),),
     )
     return CausalAlphaV3PreparedResearchData(
@@ -174,12 +177,17 @@ def _prepared() -> CausalAlphaV3PreparedResearchData:
     )
 
 
-def _signal_evidence(*, passed: bool) -> CausalAlphaV3SignalGateEvidence:
+def _signal_evidence(
+    *, passed: bool, run_manifest_digest: str
+) -> CausalAlphaV3SignalGateEvidence:
     candidate = _candidate()
     metric = CausalAlphaV3SignalScopeMetric(
+        run_manifest_digest=run_manifest_digest,
         fit_config_digest=candidate.fit.digest,
         symbol="BTCUSDT",
         episode_index=0,
+        contract_start=5,
+        contract_stop=11,
         contract_digest="6" * 64,
         fit_digest="7" * 64,
         forecast_digest="8" * 64,
@@ -198,8 +206,12 @@ def _signal_evidence(*, passed: bool) -> CausalAlphaV3SignalGateEvidence:
     )
     return CausalAlphaV3SignalGateEvidence(
         metrics=(metric,),
-        expected_scope_count=1,
-        scope_coverage=1.0,
+        run_manifest_digest=run_manifest_digest,
+        raw_scope_count=1,
+        expected_raw_scope_count=1,
+        raw_scope_coverage=1.0,
+        independent_episode_count=1,
+        expected_independent_episode_count=1,
         rank_ic=boot,
         top_bottom_spread=boot,
         direction_accuracy_excess=boot,
@@ -210,12 +222,16 @@ def _signal_evidence(*, passed: bool) -> CausalAlphaV3SignalGateEvidence:
 
 
 def _scope_metric(*, passed: bool, **kwargs) -> CausalAlphaV3SignalScopeMetric:
-    base = _signal_evidence(passed=passed).metrics[0]
+    base = _signal_evidence(
+        passed=passed, run_manifest_digest=kwargs["run_manifest_digest"]
+    ).metrics[0]
     contract = kwargs["contract"]
     return replace(
         base,
         symbol=kwargs["symbol"],
         episode_index=contract.episode_index,
+        contract_start=contract.start,
+        contract_stop=contract.stop,
         contract_digest=contract.digest,
         digest="",
     )
@@ -292,7 +308,9 @@ def test_signal_rejection_stops_before_selection_and_holdout(
     monkeypatch.setattr(
         module,
         "evaluate_causal_alpha_v3_signal_gate",
-        lambda *args, **kwargs: _signal_evidence(passed=False),
+        lambda metrics, **kwargs: _signal_evidence(
+            passed=False, run_manifest_digest=metrics[0].run_manifest_digest
+        ),
     )
     monkeypatch.setattr(
         module,
@@ -321,7 +339,9 @@ def test_admission_rejection_never_creates_teacher_package(
     monkeypatch.setattr(
         module,
         "evaluate_causal_alpha_v3_signal_gate",
-        lambda *args, **kwargs: _signal_evidence(passed=True),
+        lambda metrics, **kwargs: _signal_evidence(
+            passed=True, run_manifest_digest=metrics[0].run_manifest_digest
+        ),
     )
     monkeypatch.setattr(
         module,

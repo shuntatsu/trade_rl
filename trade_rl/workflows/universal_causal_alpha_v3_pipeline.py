@@ -9,7 +9,10 @@ from typing import Any
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
-from trade_rl.learning.episode_oracle_teacher import EpisodeOracleBatch
+from trade_rl.learning.episode_oracle_teacher import (
+    EpisodeOracleBatch,
+    OracleEpisodeContract,
+)
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.workflows.universal_causal_alpha_v3_admission import (
     CausalAlphaV3AdmissionEvidenceV2,
@@ -38,6 +41,7 @@ from trade_rl.workflows.universal_causal_alpha_v3_selection import (
 from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3NestedPartition,
     CausalAlphaV3SignalGateEvidence,
+    CausalAlphaV3SignalScopeMetric,
     split_causal_alpha_v3_partitions,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
@@ -150,9 +154,11 @@ def authored_config_payload(config: CausalAlphaV3ResearchConfig) -> dict[str, ob
             "minimum_direction_accuracy_excess_lower_ci": (
                 config.signal_gate.minimum_direction_accuracy_excess_lower_ci
             ),
+            "minimum_independent_episode_count": (
+                config.signal_gate.minimum_independent_episode_count
+            ),
             "minimum_rank_ic_lower_ci": config.signal_gate.minimum_rank_ic_lower_ci,
-            "minimum_scope_count": config.signal_gate.minimum_scope_count,
-            "minimum_scope_coverage": config.signal_gate.minimum_scope_coverage,
+            "minimum_raw_scope_coverage": config.signal_gate.minimum_raw_scope_coverage,
             "minimum_top_bottom_spread_lower_ci": (
                 config.signal_gate.minimum_top_bottom_spread_lower_ci
             ),
@@ -183,6 +189,27 @@ def _resolve_selected(
     if len(matches) != 1:
         raise RuntimeError("V3 selected candidate cannot be resolved")
     return matches[0]
+
+
+def _validate_signal_scope_metric(
+    metric: CausalAlphaV3SignalScopeMetric,
+    *,
+    run_manifest_digest: str,
+    fit_config_digest: str,
+    symbol: str,
+    contract: OracleEpisodeContract,
+) -> None:
+    if (
+        not isinstance(metric, CausalAlphaV3SignalScopeMetric)
+        or metric.run_manifest_digest != run_manifest_digest
+        or metric.fit_config_digest != fit_config_digest
+        or metric.symbol != symbol
+        or metric.episode_index != contract.episode_index
+        or metric.contract_start != contract.start
+        or metric.contract_stop != contract.stop
+        or metric.contract_digest != contract.digest
+    ):
+        raise ValueError("V3 signal scope evidence identity drifted")
 
 
 def _build_teacher_batches(
@@ -315,46 +342,69 @@ def run_universal_causal_alpha_v3_research_pipeline(
         representatives: dict[str, CausalAlphaV3Candidate] = {}
         for candidate in config.candidates:
             representatives.setdefault(candidate.fit.digest, candidate)
+        expected_signal_scopes = {
+            (fit_digest, symbol, contract.episode_index): contract.digest
+            for fit_digest in representatives
+            for symbol in symbols
+            for contract in nested[symbol].signal_contracts
+        }
+        persisted_signal_metrics = base_store.load_signal_scope_metrics(
+            expected=expected_signal_scopes
+        )
         fit_cache = CausalAlphaV3FitCache(
             train_symbols=symbols, samples=prepared.samples
         )
-        expected_signal_scopes = sum(
+        expected_raw_signal_scopes = sum(
             len(nested[symbol].signal_contracts) for symbol in symbols
         )
+        expected_independent_episodes = config.nested_selection.signal_contract_count
         passed_signal: dict[str, CausalAlphaV3SignalGateEvidence] = {}
         fit_results: list[dict[str, object]] = []
         for fit_digest, candidate in representatives.items():
-            metrics = []
+            metrics: list[CausalAlphaV3SignalScopeMetric] = []
             unavailable: list[str] = []
             for symbol in symbols:
                 for contract in nested[symbol].signal_contracts:
-                    try:
-                        metric = signal_scope_builder(
+                    identity = (fit_digest, symbol, contract.episode_index)
+                    metric = persisted_signal_metrics.get(identity)
+                    if metric is None:
+                        try:
+                            metric = signal_scope_builder(
+                                run_manifest_digest=manifest.digest,
+                                symbol=symbol,
+                                train_symbols=symbols,
+                                samples=prepared.samples,
+                                contract=contract,
+                                candidate=candidate,
+                                fit_cache=fit_cache,
+                            )
+                        except CausalAlphaV3SignalScopeUnavailable:
+                            unavailable.append(contract.digest)
+                            continue
+                        _validate_signal_scope_metric(
+                            metric,
+                            run_manifest_digest=manifest.digest,
+                            fit_config_digest=fit_digest,
                             symbol=symbol,
-                            train_symbols=symbols,
-                            samples=prepared.samples,
                             contract=contract,
-                            candidate=candidate,
-                            fit_cache=fit_cache,
                         )
-                    except CausalAlphaV3SignalScopeUnavailable:
-                        unavailable.append(contract.digest)
-                        continue
-                    if (
-                        metric.fit_config_digest != fit_digest
-                        or metric.symbol != symbol
-                        or metric.episode_index != contract.episode_index
-                        or metric.contract_digest != contract.digest
-                    ):
-                        raise ValueError("V3 signal scope evidence identity drifted")
-                    base_store.write_signal_scope_metric(metric)
+                        base_store.write_signal_scope_metric(metric)
+                    else:
+                        _validate_signal_scope_metric(
+                            metric,
+                            run_manifest_digest=manifest.digest,
+                            fit_config_digest=fit_digest,
+                            symbol=symbol,
+                            contract=contract,
+                        )
                     metrics.append(metric)
             evidence = (
                 None
                 if not metrics
                 else signal_gate_evaluator(
                     tuple(metrics),
-                    expected_scope_count=expected_signal_scopes,
+                    expected_raw_scope_count=expected_raw_signal_scopes,
+                    expected_independent_episode_count=expected_independent_episodes,
                     gate=config.signal_gate,
                 )
             )

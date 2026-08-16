@@ -19,14 +19,14 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal import (
 
 def _config_payload() -> dict[str, object]:
     return {
-        "schema_version": "universal_causal_alpha_v3_research_config_v1",
+        "schema_version": "universal_causal_alpha_v3_research_config_v2",
         "nested_selection": {
             "signal_contract_count": 2,
             "minimum_economic_contract_count": 1,
         },
         "signal_gate": {
-            "minimum_scope_count": 2,
-            "minimum_scope_coverage": 1.0,
+            "minimum_independent_episode_count": 2,
+            "minimum_raw_scope_coverage": 1.0,
             "minimum_rank_ic_lower_ci": 0.0,
             "minimum_top_bottom_spread_lower_ci": 0.0,
             "minimum_direction_accuracy_excess_lower_ci": 0.0,
@@ -87,7 +87,10 @@ def _contract(dataset_id: str, episode: int, start: int) -> OracleEpisodeContrac
 def test_research_config_is_strict_and_semantically_unique() -> None:
     config = CausalAlphaV3ResearchConfig.from_mapping(_config_payload())
 
+    assert config.schema_version == "universal_causal_alpha_v3_research_config_v2"
     assert config.nested_selection.signal_contract_count == 2
+    assert config.signal_gate.minimum_independent_episode_count == 2
+    assert config.signal_gate.minimum_raw_scope_coverage == 1.0
     assert len(config.candidates) == 2
     assert config.candidates[0].fit.digest == config.candidates[1].fit.digest
     assert config.candidates[0].semantic_digest != config.candidates[1].semantic_digest
@@ -104,6 +107,38 @@ def test_research_config_is_strict_and_semantically_unique() -> None:
     ]
     with pytest.raises(ValueError, match="semantic"):
         CausalAlphaV3ResearchConfig.from_mapping(duplicate)
+
+
+def test_research_config_rejects_legacy_ambiguous_signal_schema() -> None:
+    legacy = copy.deepcopy(_config_payload())
+    legacy["schema_version"] = "universal_causal_alpha_v3_research_config_v1"
+    signal_gate = legacy["signal_gate"]
+    assert isinstance(signal_gate, dict)
+    signal_gate["minimum_scope_count"] = signal_gate.pop(
+        "minimum_independent_episode_count"
+    )
+    signal_gate["minimum_scope_coverage"] = signal_gate.pop(
+        "minimum_raw_scope_coverage"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="unsupported causal alpha V3 research config schema",
+    ):
+        CausalAlphaV3ResearchConfig.from_mapping(legacy)
+
+
+def test_research_config_rejects_unreachable_independent_episode_requirement() -> None:
+    impossible = copy.deepcopy(_config_payload())
+    signal_gate = impossible["signal_gate"]
+    assert isinstance(signal_gate, dict)
+    signal_gate["minimum_independent_episode_count"] = 3
+
+    with pytest.raises(
+        ValueError,
+        match="minimum_independent_episode_count.*signal_contract_count",
+    ):
+        CausalAlphaV3ResearchConfig.from_mapping(impossible)
 
 
 def test_nested_partition_keeps_signal_selection_and_holdout_disjoint() -> None:

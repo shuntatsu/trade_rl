@@ -35,6 +35,7 @@ jobs:
         run: >-
           uv run ruff check
           trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py
+          scripts/analyze_universal_causal_alpha_v3_signal.py
           tests/workflows/test_universal_causal_alpha_v3_signal_forensics.py
           tests/scripts/test_analyze_universal_causal_alpha_v3_signal.py
 
@@ -42,11 +43,15 @@ jobs:
         run: >-
           uv run ruff format --diff
           trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py
+          scripts/analyze_universal_causal_alpha_v3_signal.py
           tests/workflows/test_universal_causal_alpha_v3_signal_forensics.py
           tests/scripts/test_analyze_universal_causal_alpha_v3_signal.py
 
       - name: Mypy
-        run: uv run mypy trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py
+        run: >-
+          uv run mypy
+          trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py
+          scripts/analyze_universal_causal_alpha_v3_signal.py
 
       - name: Targeted tests
         run: >-
@@ -58,6 +63,7 @@ jobs:
         run: >-
           uv run vulture
           trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py
+          scripts/analyze_universal_causal_alpha_v3_signal.py
           tests/workflows/test_universal_causal_alpha_v3_signal_forensics.py
           tests/scripts/test_analyze_universal_causal_alpha_v3_signal.py
           --min-confidence 100

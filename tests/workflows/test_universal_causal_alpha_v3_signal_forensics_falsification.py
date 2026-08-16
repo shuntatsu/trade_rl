@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,7 +11,9 @@ from tests.workflows.test_universal_causal_alpha_v3_signal_forensics import (
     _build_run,
     _digest,
     _load_metric,
+    _rehash,
     _rewrite_metric,
+    _write_json,
 )
 
 
@@ -62,4 +65,20 @@ def test_signal_forensics_rejects_cross_fit_chronology_drift(tmp_path: Path) -> 
         )
 
     with pytest.raises(ValueError, match="chronological episode scope"):
+        _api().load_causal_alpha_v3_signal_forensics(tmp_path)
+
+
+def test_signal_forensics_rejects_non_boolean_pass_state(tmp_path: Path) -> None:
+    built = _build_run(tmp_path)
+    path = built["rejection_path"]
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    result = raw["fit_results"][0]
+    evidence = result["evidence"]
+    result["passed"] = "false"
+    evidence["passed"] = "false"
+    result["evidence"] = _rehash(evidence)
+    raw["fit_results"][0] = result
+    _write_json(path, _rehash(raw))
+
+    with pytest.raises(ValueError, match="pass state"):
         _api().load_causal_alpha_v3_signal_forensics(tmp_path)

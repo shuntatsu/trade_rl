@@ -34,8 +34,8 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py tests/workflows/test_universal_causal_alpha_v3_signal_forensics.py
 
-      - name: Format
-        run: uv run ruff format --check trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py tests/workflows/test_universal_causal_alpha_v3_signal_forensics.py
+      - name: Format diff
+        run: uv run ruff format --diff trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py tests/workflows/test_universal_causal_alpha_v3_signal_forensics.py
 
       - name: Mypy
         run: uv run mypy trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py

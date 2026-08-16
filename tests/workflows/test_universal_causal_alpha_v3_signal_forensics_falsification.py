@@ -82,3 +82,19 @@ def test_signal_forensics_rejects_non_boolean_pass_state(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="pass state"):
         _api().load_causal_alpha_v3_signal_forensics(tmp_path)
+
+
+def test_signal_forensics_rejects_passed_fit_inside_rejection(tmp_path: Path) -> None:
+    built = _build_run(tmp_path)
+    path = built["rejection_path"]
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    result = raw["fit_results"][0]
+    evidence = result["evidence"]
+    result["passed"] = True
+    evidence["passed"] = True
+    result["evidence"] = _rehash(evidence)
+    raw["fit_results"][0] = result
+    _write_json(path, _rehash(raw))
+
+    with pytest.raises(ValueError, match="rejected fit pass state"):
+        _api().load_causal_alpha_v3_signal_forensics(tmp_path)

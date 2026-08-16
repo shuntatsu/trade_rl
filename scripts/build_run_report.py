@@ -33,6 +33,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
+    if args.output != "-":
+        resolved_root = root.resolve()
+        resolved_output = Path(args.output).resolve()
+        if resolved_output == resolved_root or resolved_output.is_relative_to(
+            resolved_root
+        ):
+            print("run report output must be outside the source artifact root", file=sys.stderr)
+            return 2
+
     report = build_run_report(root)
     content = (
         render_run_report_markdown(report)

@@ -60,7 +60,9 @@ def test_causal_alpha_v3_research_compose_uses_durable_trusted_mounts() -> None:
     assert declared == {"external": True, "name": "trade-rl-training-data"}
 
 
-def test_causal_alpha_v3_research_compose_binds_container_identity_and_network() -> None:
+def test_causal_alpha_v3_research_compose_binds_container_identity_and_network() -> (
+    None
+):
     payload = _payload()
     research = payload["services"]["research"]
 

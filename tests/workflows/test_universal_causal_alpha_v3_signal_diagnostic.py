@@ -6,19 +6,28 @@ import numpy as np
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.learning.causal_alpha_v3 import CausalAlphaV3FitConfig
+from trade_rl.learning.causal_alpha_v3 import (
+    CausalAlphaV3FitConfig,
+    CausalAlphaV3TargetConfig,
+)
+from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
 from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaSymbolSamples
 from trade_rl.workflows.universal_causal_alpha_v3 import (
     build_causal_alpha_v3_symbol_balanced_weights,
     causal_alpha_v3_weight_digest,
     fit_causal_alpha_v3,
 )
+from trade_rl.workflows.universal_causal_alpha_v3_config import CausalAlphaV3Candidate
 from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic import (
     CausalAlphaV3SignalDiagnosticModel,
     CausalAlphaV3SignalDiagnosticPredictionRow,
     CausalAlphaV3SignalDiagnosticRealizedRow,
     CausalAlphaV3SignalDiagnosticScope,
     weighted_effective_sample_size,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
+    build_causal_alpha_v3_signal_scope,
+    build_causal_alpha_v3_signal_scope_metric,
 )
 
 
@@ -45,6 +54,60 @@ def _samples(symbol: str, *, rows: int, offset: float) -> CausalAlphaSymbolSampl
         label_end_indices_24h=decisions + 2,
         labels_72h=0.03 * signal,
         label_end_indices_72h=decisions + 4,
+    )
+
+
+def _paired_samples() -> CausalAlphaSymbolSamples:
+    decisions = np.asarray(
+        [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16],
+        dtype=np.int64,
+    )
+    signal = decisions.astype(np.float64)
+    features = np.column_stack((signal, 0.5 * signal))
+    available = np.ones_like(features, dtype=np.bool_)
+    available[decisions.tolist().index(11), 1] = False
+    return CausalAlphaSymbolSamples(
+        symbol="AAAUSDT",
+        dataset_id=_sha("d"),
+        feature_names=("signal", "descriptor"),
+        feature_schema_digest=content_digest("paired-feature-schema"),
+        context_digest=content_digest("paired-context"),
+        reference_equity_mode="initial_capital",
+        reference_equity=1_000.0,
+        decision_indices=decisions,
+        features=features,
+        feature_available=available,
+        labels_24h=0.001 * signal,
+        label_end_indices_24h=decisions + 1,
+        labels_72h=0.003 * signal,
+        label_end_indices_72h=decisions + 2,
+    )
+
+
+def _candidate() -> CausalAlphaV3Candidate:
+    return CausalAlphaV3Candidate(
+        name="diagnostic",
+        fit=CausalAlphaV3FitConfig(ridge_strength=0.1),
+        target=CausalAlphaV3TargetConfig(
+            target_magnitudes=(0.0, 0.05),
+            uncertainty_multiplier=1.0,
+            execution_cost_multiplier=1.5,
+            edge_margin=0.001,
+            alpha_rebalance_decisions=2,
+            strong_reversal_threshold=0.02,
+            max_target_delta=0.05,
+        ),
+    )
+
+
+def _contract() -> OracleEpisodeContract:
+    return OracleEpisodeContract(
+        dataset_id=_sha("d"),
+        episode_index=0,
+        start=10,
+        stop=16,
+        initial_state_mode="cash",
+        initial_weights=np.zeros(1, dtype=np.float64),
     )
 
 
@@ -80,7 +143,9 @@ def _prediction_row() -> CausalAlphaV3SignalDiagnosticPredictionRow:
     )
 
 
-def _realized_row(*, decision_index: int = 100) -> CausalAlphaV3SignalDiagnosticRealizedRow:
+def _realized_row(
+    *, decision_index: int = 100
+) -> CausalAlphaV3SignalDiagnosticRealizedRow:
     return CausalAlphaV3SignalDiagnosticRealizedRow(
         decision_index=decision_index,
         label_end_index=104,
@@ -138,7 +203,9 @@ def test_weighted_effective_sample_size_uses_positive_weight_concentration() -> 
         np.asarray([1.0, np.nan], dtype=np.float64),
     ),
 )
-def test_weighted_effective_sample_size_rejects_invalid_weights(weights: np.ndarray) -> None:
+def test_weighted_effective_sample_size_rejects_invalid_weights(
+    weights: np.ndarray,
+) -> None:
     with pytest.raises(ValueError, match="weights"):
         weighted_effective_sample_size(weights)
 
@@ -237,7 +304,9 @@ def test_signal_diagnostic_rows_reject_non_finite_or_invalid_availability() -> N
         replace(_realized_row(), available_feature_fraction=1.1)
 
 
-def test_signal_diagnostic_scope_rejects_row_availability_inconsistent_with_width() -> None:
+def test_signal_diagnostic_scope_rejects_row_availability_inconsistent_with_width() -> (
+    None
+):
     diagnostic = _scope()
     inconsistent = replace(
         _prediction_row(),
@@ -247,3 +316,84 @@ def test_signal_diagnostic_scope_rejects_row_availability_inconsistent_with_widt
 
     with pytest.raises(ValueError, match="available"):
         replace(diagnostic, prediction_rows=(inconsistent,), digest="")
+
+
+def test_paired_signal_scope_preserves_canonical_metric_exactly() -> None:
+    samples = {"AAAUSDT": _paired_samples()}
+    kwargs = {
+        "run_manifest_digest": _sha("a"),
+        "symbol": "AAAUSDT",
+        "train_symbols": ("AAAUSDT",),
+        "samples": samples,
+        "contract": _contract(),
+        "candidate": _candidate(),
+    }
+
+    canonical = build_causal_alpha_v3_signal_scope_metric(**kwargs)
+    paired = build_causal_alpha_v3_signal_scope(**kwargs)
+
+    assert paired.metric.to_payload() == canonical.to_payload()
+
+
+def test_paired_signal_scope_preserves_horizons_availability_and_all_realized_rows() -> (
+    None
+):
+    paired = build_causal_alpha_v3_signal_scope(
+        run_manifest_digest=_sha("a"),
+        symbol="AAAUSDT",
+        train_symbols=("AAAUSDT",),
+        samples={"AAAUSDT": _paired_samples()},
+        contract=_contract(),
+        candidate=_candidate(),
+    )
+    diagnostic = paired.diagnostic
+
+    assert tuple(row.decision_index for row in diagnostic.prediction_rows) == (
+        10,
+        11,
+        12,
+        13,
+        14,
+    )
+    assert tuple(row.actionable for row in diagnostic.prediction_rows) == (
+        True,
+        True,
+        False,
+        True,
+        True,
+    )
+    assert tuple(row.available_feature_count for row in diagnostic.prediction_rows) == (
+        2,
+        1,
+        0,
+        2,
+        2,
+    )
+    assert tuple(row.decision_index for row in diagnostic.realized_24h_rows) == (
+        10,
+        11,
+        13,
+        14,
+    )
+    assert tuple(row.decision_index for row in diagnostic.realized_72h_rows) == (
+        10,
+        11,
+        13,
+    )
+    assert tuple(row.decision_index for row in diagnostic.realized_fused_rows) == (
+        10,
+        11,
+        13,
+    )
+    assert diagnostic.canonical_cohort_indices == paired.metric.cohort_indices == (10, 13)
+    assert diagnostic.per_feature_available_fraction == pytest.approx((0.8, 0.6))
+    assert diagnostic.complete_feature_row_count == 3
+    assert diagnostic.incomplete_feature_row_count == 2
+    assert diagnostic.available_feature_fraction_minimum == pytest.approx(0.0)
+    assert diagnostic.available_feature_fraction_mean == pytest.approx(0.7)
+    assert diagnostic.available_feature_fraction_maximum == pytest.approx(1.0)
+    assert all(row.label_end_index < _contract().stop for row in diagnostic.realized_72h_rows)
+    assert diagnostic.model_24h.model_digest
+    assert diagnostic.model_72h.model_digest
+    assert diagnostic.model_24h.pooled_weighted_ess > 0.0
+    assert diagnostic.model_72h.pooled_weighted_ess > 0.0

@@ -77,9 +77,7 @@ class RunStageReport:
             raise ValueError("run report stage reasons must be unique")
         digests = dict(self.artifact_digests)
         if any(
-            not isinstance(name, str)
-            or not name
-            or not _is_digest(digest)
+            not isinstance(name, str) or not name or not _is_digest(digest)
             for name, digest in digests.items()
         ):
             raise ValueError("run report artifact digests are invalid")
@@ -187,7 +185,9 @@ def _missing(name: str) -> RunStageReport:
     return RunStageReport(name=name, status=RunStageStatus.MISSING)
 
 
-def _not_run(name: str, *, reason: str = "blocked_by_upstream_rejection") -> RunStageReport:
+def _not_run(
+    name: str, *, reason: str = "blocked_by_upstream_rejection"
+) -> RunStageReport:
     return RunStageReport(
         name=name,
         status=RunStageStatus.NOT_RUN,
@@ -311,7 +311,10 @@ def _signal_evidence_row(
     digest = _validate_content_digest(values, label="V3 signal evidence")
     if values["promotion_eligible"] is not False:
         raise ValueError("V3 signal evidence promotion flag is invalid")
-    if run_manifest_digest is not None and values["run_manifest_digest"] != run_manifest_digest:
+    if (
+        run_manifest_digest is not None
+        and values["run_manifest_digest"] != run_manifest_digest
+    ):
         raise ValueError("V3 signal evidence run identity mismatch")
     passed = values["passed"]
     reasons = values["rejection_reasons"]
@@ -374,9 +377,7 @@ def _collect_signal(
     rejection_path = signal_root / "rejection.json"
     fit_paths = tuple(
         sorted(
-            path
-            for path in signal_root.glob("*.json")
-            if path.name != "rejection.json"
+            path for path in signal_root.glob("*.json") if path.name != "rejection.json"
         )
     )
     if not rejection_path.is_file() and not fit_paths:
@@ -582,7 +583,9 @@ def _collect_selection(
     rejection_path = root / "selection" / "rejection.json"
     progress_path = root / "selection" / "progress.json"
     existing = tuple(
-        path for path in (evidence_path, rejection_path, progress_path) if path.is_file()
+        path
+        for path in (evidence_path, rejection_path, progress_path)
+        if path.is_file()
     )
     if signal.status is RunStageStatus.REJECT:
         if existing:
@@ -636,9 +639,7 @@ def _collect_selection(
                         tuple(evidence["candidate_evidence_digests"])
                     ),
                     "freeze_digest": evidence["freeze_digest"],
-                    "selected_candidate_digest": evidence[
-                        "selected_candidate_digest"
-                    ],
+                    "selected_candidate_digest": evidence["selected_candidate_digest"],
                     "selection_digest": digest,
                 },
                 artifact_digests={"selection_evidence": digest},
@@ -657,9 +658,7 @@ def _collect_selection(
                 schema="causal_alpha_v3_selection_rejection_v1",
                 label="V3 selection rejection",
             )
-            digest = _validate_content_digest(
-                rejection, label="V3 selection rejection"
-            )
+            digest = _validate_content_digest(rejection, label="V3 selection rejection")
             source_paths.append(_relative(root, rejection_path))
             return RunStageReport(
                 name="selection",
@@ -700,7 +699,10 @@ def _collect_admission(
     evidence_path = root / "admission" / "evidence.json"
     rejection_path = root / "admission" / "rejection.json"
     existing = tuple(path for path in (evidence_path, rejection_path) if path.is_file())
-    if signal.status is RunStageStatus.REJECT or selection.status is RunStageStatus.REJECT:
+    if (
+        signal.status is RunStageStatus.REJECT
+        or selection.status is RunStageStatus.REJECT
+    ):
         if existing:
             return _invalid(
                 "teacher_admission",
@@ -825,7 +827,8 @@ def _collect_teacher_package(
         return _invalid("teacher_package", reason=identity_error)
     path = root / "teacher" / "package.json"
     blocked = any(
-        stage.status is RunStageStatus.REJECT for stage in (signal, selection, admission)
+        stage.status is RunStageStatus.REJECT
+        for stage in (signal, selection, admission)
     )
     if blocked:
         if path.is_file():
@@ -872,16 +875,27 @@ def _collect_teacher_package(
         ):
             raise ValueError("V3 teacher package safety flags are invalid")
         run_manifest_digest = identities.get("run_manifest_digest")
-        if run_manifest_digest is not None and raw["run_manifest_digest"] != run_manifest_digest:
+        if (
+            run_manifest_digest is not None
+            and raw["run_manifest_digest"] != run_manifest_digest
+        ):
             raise ValueError("V3 teacher package run identity mismatch")
         if admission.status is RunStageStatus.PASS:
             admission_digest = admission.metrics.get("admission_digest")
-            if admission_digest is not None and raw["teacher_admission_digest"] != admission_digest:
+            if (
+                admission_digest is not None
+                and raw["teacher_admission_digest"] != admission_digest
+            ):
                 raise ValueError("V3 teacher package admission identity mismatch")
         if selection.status is RunStageStatus.PASS:
             selection_digest = selection.metrics.get("selection_digest")
-            selected_candidate_digest = selection.metrics.get("selected_candidate_digest")
-            if selection_digest is not None and raw["selection_digest"] != selection_digest:
+            selected_candidate_digest = selection.metrics.get(
+                "selected_candidate_digest"
+            )
+            if (
+                selection_digest is not None
+                and raw["selection_digest"] != selection_digest
+            ):
                 raise ValueError("V3 teacher package selection identity mismatch")
             if (
                 selected_candidate_digest is not None
@@ -969,7 +983,9 @@ def _generic_stage(
                 name=name,
                 status=RunStageStatus.INVALID,
                 metrics=dict(metrics),
-                reasons=tuple(dict.fromkeys((*resolved_reasons, "upstream_rejection_conflict"))),
+                reasons=tuple(
+                    dict.fromkeys((*resolved_reasons, "upstream_rejection_conflict"))
+                ),
                 artifact_digests={
                     **{str(key): str(value) for key, value in artifact_digests.items()},
                     "stage_evidence": digest,

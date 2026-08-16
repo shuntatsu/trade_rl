@@ -552,16 +552,6 @@ def _retain_terminal_evidence(
     retained = _retained_directory(retained_root, launch.generation)
     logs = _container_logs(launch)
     (retained / "container.log").write_text(logs, encoding="utf-8")
-    run_copy = retained / "run"
-    run_copy.mkdir()
-    _run(
-        (
-            "docker",
-            "cp",
-            f"{launch.container_name}:{launch.output_path}/.",
-            str(run_copy),
-        )
-    )
     atomic_write_bytes(
         retained / "launch-manifest.json",
         canonical_json_bytes(launch.to_payload()) + b"\n",
@@ -578,10 +568,27 @@ def _retain_terminal_evidence(
         "launch": launch.to_payload(),
         "oom_killed": state.oom_killed,
         "research_outcome": research_outcome,
+        "run_output_retained": False,
         "schema_version": _RESULT_SCHEMA,
     }
+    result_path = retained / "research-result.json"
     atomic_write_bytes(
-        retained / "research-result.json",
+        result_path,
+        canonical_json_bytes(result) + b"\n",
+    )
+    run_copy = retained / "run"
+    run_copy.mkdir()
+    _run(
+        (
+            "docker",
+            "cp",
+            f"{launch.container_name}:{launch.output_path}/.",
+            str(run_copy),
+        )
+    )
+    result["run_output_retained"] = True
+    atomic_write_bytes(
+        result_path,
         canonical_json_bytes(result) + b"\n",
     )
     return result

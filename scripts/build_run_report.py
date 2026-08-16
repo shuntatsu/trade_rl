@@ -27,7 +27,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(None if argv is None else list(argv))
     root = Path(args.root)
     if not root.is_dir():
-        print(f"run report root does not exist or is not a directory: {root}", file=sys.stderr)
+        print(
+            f"run report root does not exist or is not a directory: {root}",
+            file=sys.stderr,
+        )
         return 2
 
     report = build_run_report(root)

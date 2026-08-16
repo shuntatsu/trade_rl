@@ -36,7 +36,9 @@ def _with_digest(payload: dict[str, object]) -> dict[str, object]:
     return result
 
 
-def _write_identity(root: Path) -> tuple[CausalAlphaV3ResearchConfig, CausalAlphaV3RunManifestV2]:
+def _write_identity(
+    root: Path,
+) -> tuple[CausalAlphaV3ResearchConfig, CausalAlphaV3RunManifestV2]:
     config = CausalAlphaV3ResearchConfig.from_json(_EXAMPLE)
     execution = CausalAlphaV3ExecutionIdentity(
         train_symbols=("BTCUSDT",),
@@ -195,9 +197,7 @@ def _write_selection_pass(root: Path, selected_candidate_digest: str) -> str:
     return str(evidence["artifact_digest"])
 
 
-def _write_admission_reject(
-    root: Path, *, selected_candidate_digest: str
-) -> None:
+def _write_admission_reject(root: Path, *, selected_candidate_digest: str) -> None:
     evidence = _with_digest(
         {
             "aggregate_gross_return": 0.01,
@@ -273,9 +273,7 @@ def test_signal_rejection_proves_all_downstream_stages_not_run(tmp_path: Path) -
     report = _build(tmp_path)
 
     assert _status(report, "signal") is RunStageStatus.REJECT
-    assert all(
-        stage.status is RunStageStatus.NOT_RUN for stage in report.stages[1:]
-    )
+    assert all(stage.status is RunStageStatus.NOT_RUN for stage in report.stages[1:])
 
 
 def test_selection_progress_without_terminal_evidence_is_in_progress(
@@ -294,9 +292,7 @@ def test_selection_progress_without_terminal_evidence_is_in_progress(
     assert selection.metrics["expected_replay_count"] == 4
     assert selection.metrics["candidate_rows"][0]["name"] == "baseline"
     assert selection.metrics["symbol_rows"]["BTCUSDT"]["total_trade_count"] == 4
-    assert all(
-        stage.status is RunStageStatus.MISSING for stage in report.stages[2:]
-    )
+    assert all(stage.status is RunStageStatus.MISSING for stage in report.stages[2:])
 
 
 def test_admission_rejection_copies_persisted_economics_and_blocks_learners(
@@ -317,9 +313,7 @@ def test_admission_rejection_copies_persisted_economics_and_blocks_learners(
     assert admission.metrics["aggregate_net_return"] == pytest.approx(-0.01)
     assert admission.metrics["worst_symbol_net_return"] == pytest.approx(-0.01)
     assert admission.reasons == ("negative_aggregate_net_return",)
-    assert all(
-        stage.status is RunStageStatus.NOT_RUN for stage in report.stages[3:]
-    )
+    assert all(stage.status is RunStageStatus.NOT_RUN for stage in report.stages[3:])
 
 
 def test_collector_fails_closed_on_cross_identity_digest_corruption(
@@ -333,12 +327,8 @@ def test_collector_fails_closed_on_cross_identity_digest_corruption(
 
     report = _build(tmp_path)
 
-    assert all(
-        stage.status is RunStageStatus.INVALID for stage in report.stages[:4]
-    )
-    assert all(
-        stage.status is RunStageStatus.MISSING for stage in report.stages[4:]
-    )
+    assert all(stage.status is RunStageStatus.INVALID for stage in report.stages[:4])
+    assert all(stage.status is RunStageStatus.MISSING for stage in report.stages[4:])
 
 
 def test_generic_downstream_stage_evidence_populates_without_llm_analysis(
@@ -368,7 +358,9 @@ def test_generic_stage_pass_is_invalid_when_upstream_rejection_proves_blocking(
     assert "upstream_rejection_conflict" in report.stages[4].reasons
 
 
-def test_malformed_generic_stage_is_invalid_not_silently_missing(tmp_path: Path) -> None:
+def test_malformed_generic_stage_is_invalid_not_silently_missing(
+    tmp_path: Path,
+) -> None:
     _write_json(
         tmp_path / "reporting" / "stages" / "ppo.json",
         {"schema_version": "wrong", "status": "PASS"},

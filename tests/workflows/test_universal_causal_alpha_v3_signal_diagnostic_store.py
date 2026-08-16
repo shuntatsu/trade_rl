@@ -13,6 +13,8 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic import (
     CausalAlphaV3SignalDiagnosticPredictionRow,
     CausalAlphaV3SignalDiagnosticRealizedRow,
     CausalAlphaV3SignalDiagnosticScope,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic_codec import (
     signal_diagnostic_scope_from_payload,
 )
 

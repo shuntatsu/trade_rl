@@ -47,7 +47,9 @@ def _diagnostic_model(
         fitted.weight_digest_24h if horizon == "24h" else fitted.weight_digest_72h
     )
     if weight_digest != expected_weight_digest:
-        raise ValueError("V3 diagnostic weight digest does not reproduce fitted evidence")
+        raise ValueError(
+            "V3 diagnostic weight digest does not reproduce fitted evidence"
+        )
     pooled_weights = np.concatenate(
         tuple(weights[symbol] for symbol in fitted.train_symbols)
     )
@@ -198,9 +200,7 @@ def build_causal_alpha_v3_signal_diagnostic_scope(
             expected_return_24h_equivalent=float(
                 forecast.expected_return_24h_equivalent[row]
             ),
-            uncertainty_24h_equivalent=float(
-                forecast.uncertainty_24h_equivalent[row]
-            ),
+            uncertainty_24h_equivalent=float(forecast.uncertainty_24h_equivalent[row]),
             signal_to_uncertainty=float(forecast.signal_to_uncertainty[row]),
         )
         for row in range(size)
@@ -253,9 +253,7 @@ def build_causal_alpha_v3_signal_diagnostic_scope(
             available_feature_count=int(available_counts[row]),
             available_feature_fraction=float(available_fractions[row]),
             prediction=float(forecast.expected_return_24h_equivalent[row]),
-            realized_return=float(
-                0.5 * (first_labels[row] + second_labels[row] / 3.0)
-            ),
+            realized_return=float(0.5 * (first_labels[row] + second_labels[row] / 3.0)),
         )
         for row in np.flatnonzero(eligible_fused)
     )

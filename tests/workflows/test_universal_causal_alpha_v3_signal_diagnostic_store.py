@@ -162,9 +162,7 @@ def test_signal_diagnostic_store_rejects_cross_run_and_contract_drift(tmp_path) 
 
     store.write_signal_diagnostic_scope(diagnostic)
     with pytest.raises(ValueError, match="contract"):
-        store.load_signal_diagnostic_scopes(
-            expected={diagnostic.identity: _sha("b")}
-        )
+        store.load_signal_diagnostic_scopes(expected={diagnostic.identity: _sha("b")})
 
 
 def test_signal_diagnostic_store_fails_closed_on_corrupt_payload(tmp_path) -> None:
@@ -184,7 +182,9 @@ def test_signal_diagnostic_store_fails_closed_on_corrupt_payload(tmp_path) -> No
         )
 
 
-def test_signal_diagnostic_store_rejects_unknown_and_wrong_path_records(tmp_path) -> None:
+def test_signal_diagnostic_store_rejects_unknown_and_wrong_path_records(
+    tmp_path,
+) -> None:
     diagnostic = _diagnostic()
     store = CausalAlphaV3ArtifactStore(
         tmp_path,

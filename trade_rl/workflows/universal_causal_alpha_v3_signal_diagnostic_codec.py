@@ -215,7 +215,9 @@ def _model_from_payload(payload: object) -> CausalAlphaV3SignalDiagnosticModel:
     ):
         pair = _sequence(item, field="V3 diagnostic per-symbol ESS item")
         if len(pair) != 2:
-            raise ValueError("V3 diagnostic per-symbol ESS item must contain two values")
+            raise ValueError(
+                "V3 diagnostic per-symbol ESS item must contain two values"
+            )
         per_symbol_items.append(
             (
                 _string(pair[0], field="V3 diagnostic ESS symbol"),
@@ -223,9 +225,7 @@ def _model_from_payload(payload: object) -> CausalAlphaV3SignalDiagnosticModel:
             )
         )
     return CausalAlphaV3SignalDiagnosticModel(
-        model_digest=_string(
-            raw["model_digest"], field="V3 diagnostic model digest"
-        ),
+        model_digest=_string(raw["model_digest"], field="V3 diagnostic model digest"),
         feature_names=feature_names,
         intercept=_number(raw["intercept"], field="V3 diagnostic model intercept"),
         coefficients=coefficients,

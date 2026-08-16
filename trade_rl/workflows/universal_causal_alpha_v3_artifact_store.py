@@ -188,9 +188,7 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
         fit = _safe_segment(
             diagnostic.fit_config_digest, field="V3 signal diagnostic fit"
         )
-        symbol = _safe_segment(
-            diagnostic.symbol, field="V3 signal diagnostic symbol"
-        )
+        symbol = _safe_segment(diagnostic.symbol, field="V3 signal diagnostic symbol")
         return (
             self.root
             / "signal"

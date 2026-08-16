@@ -214,8 +214,14 @@ class CausalAlphaV3SignalDiagnosticModel:
             self.overlap_weight_digest, field="V3 diagnostic overlap weight digest"
         )
         names = tuple(self.feature_names)
-        if not names or any(not name for name in names) or len(set(names)) != len(names):
-            raise ValueError("V3 diagnostic model feature names must be non-empty and unique")
+        if (
+            not names
+            or any(not name for name in names)
+            or len(set(names)) != len(names)
+        ):
+            raise ValueError(
+                "V3 diagnostic model feature names must be non-empty and unique"
+            )
         width = len(names)
         coefficients = tuple(float(value) for value in self.coefficients)
         location = tuple(float(value) for value in self.location)
@@ -225,8 +231,12 @@ class CausalAlphaV3SignalDiagnosticModel:
             len(values) != width
             for values in (coefficients, location, scale, constant_mask)
         ):
-            raise ValueError("V3 diagnostic model feature vectors must match feature names")
-        if not all(math.isfinite(value) for value in (*coefficients, *location, *scale)):
+            raise ValueError(
+                "V3 diagnostic model feature vectors must match feature names"
+            )
+        if not all(
+            math.isfinite(value) for value in (*coefficients, *location, *scale)
+        ):
             raise ValueError("V3 diagnostic model feature vectors must be finite")
         if any(value <= 0.0 for value in scale):
             raise ValueError("V3 diagnostic model scale must be positive")
@@ -261,10 +271,7 @@ class CausalAlphaV3SignalDiagnosticModel:
             or any(not symbol for symbol in symbols)
             or len(set(symbols)) != len(symbols)
             or symbols != tuple(sorted(symbols))
-            or any(
-                not math.isfinite(value) or value <= 0.0
-                for _, value in per_symbol
-            )
+            or any(not math.isfinite(value) or value <= 0.0 for _, value in per_symbol)
         ):
             raise ValueError(
                 "V3 diagnostic per_symbol_weighted_ess must be sorted, unique, and positive"
@@ -378,7 +385,9 @@ class CausalAlphaV3SignalDiagnosticScope:
         ) or not isinstance(self.model_72h, CausalAlphaV3SignalDiagnosticModel):
             raise TypeError("V3 diagnostic models are invalid")
         if self.model_24h.feature_names != self.model_72h.feature_names:
-            raise ValueError("V3 diagnostic model feature order drifted across horizons")
+            raise ValueError(
+                "V3 diagnostic model feature order drifted across horizons"
+            )
         feature_width = len(self.model_24h.feature_names)
         feature_fractions = tuple(
             float(value) for value in self.per_feature_available_fraction
@@ -428,7 +437,9 @@ class CausalAlphaV3SignalDiagnosticScope:
                     or row.decision_index >= self.contract_stop
                     or row.label_end_index >= self.contract_stop
                 ):
-                    raise ValueError("V3 diagnostic realized row is outside the contract")
+                    raise ValueError(
+                        "V3 diagnostic realized row is outside the contract"
+                    )
                 _validate_row_availability(
                     count=row.available_feature_count,
                     fraction=row.available_feature_fraction,
@@ -440,7 +451,9 @@ class CausalAlphaV3SignalDiagnosticScope:
         _strictly_increasing(cohort, field="V3 diagnostic canonical cohort")
         fused_decisions = {row.decision_index for row in realized_sets[2]}
         if any(value not in fused_decisions for value in cohort):
-            raise ValueError("V3 diagnostic canonical cohort must be covered by fused rows")
+            raise ValueError(
+                "V3 diagnostic canonical cohort must be covered by fused rows"
+            )
         for field in ("complete_feature_row_count", "incomplete_feature_row_count"):
             value = getattr(self, field)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -453,7 +466,9 @@ class CausalAlphaV3SignalDiagnosticScope:
         mean = _available_fraction(self.available_feature_fraction_mean)
         maximum = _available_fraction(self.available_feature_fraction_maximum)
         if not minimum <= mean <= maximum:
-            raise ValueError("V3 diagnostic available feature fraction summary is invalid")
+            raise ValueError(
+                "V3 diagnostic available feature fraction summary is invalid"
+            )
         observed = tuple(row.available_feature_fraction for row in prediction_rows)
         if (
             not math.isclose(minimum, min(observed), rel_tol=0.0, abs_tol=_EPSILON)

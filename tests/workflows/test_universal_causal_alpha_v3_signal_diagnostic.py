@@ -235,30 +235,39 @@ def test_public_weight_digest_reproduces_fit_weight_identity() -> None:
         horizon="72h",
     )
 
-    assert causal_alpha_v3_weight_digest(
-        fit.train_symbols,
-        weights_24h,
-        horizon="24h",
-        knowledge_cutoff=fit.knowledge_cutoff,
-    ) == fit.weight_digest_24h
-    assert causal_alpha_v3_weight_digest(
-        fit.train_symbols,
-        weights_72h,
-        horizon="72h",
-        knowledge_cutoff=fit.knowledge_cutoff,
-    ) == fit.weight_digest_72h
+    assert (
+        causal_alpha_v3_weight_digest(
+            fit.train_symbols,
+            weights_24h,
+            horizon="24h",
+            knowledge_cutoff=fit.knowledge_cutoff,
+        )
+        == fit.weight_digest_24h
+    )
+    assert (
+        causal_alpha_v3_weight_digest(
+            fit.train_symbols,
+            weights_72h,
+            horizon="72h",
+            knowledge_cutoff=fit.knowledge_cutoff,
+        )
+        == fit.weight_digest_72h
+    )
 
     mutated = dict(weights_24h)
     changed = np.asarray(mutated["AAAUSDT"]).copy()
     positive = np.flatnonzero(changed > 0.0)
     changed[int(positive[0])] *= 1.01
     mutated["AAAUSDT"] = changed
-    assert causal_alpha_v3_weight_digest(
-        fit.train_symbols,
-        mutated,
-        horizon="24h",
-        knowledge_cutoff=fit.knowledge_cutoff,
-    ) != fit.weight_digest_24h
+    assert (
+        causal_alpha_v3_weight_digest(
+            fit.train_symbols,
+            mutated,
+            horizon="24h",
+            knowledge_cutoff=fit.knowledge_cutoff,
+        )
+        != fit.weight_digest_24h
+    )
 
 
 def test_signal_diagnostic_scope_is_research_only_and_content_addressed() -> None:
@@ -385,14 +394,18 @@ def test_paired_signal_scope_preserves_horizons_availability_and_all_realized_ro
         11,
         13,
     )
-    assert diagnostic.canonical_cohort_indices == paired.metric.cohort_indices == (10, 13)
+    assert (
+        diagnostic.canonical_cohort_indices == paired.metric.cohort_indices == (10, 13)
+    )
     assert diagnostic.per_feature_available_fraction == pytest.approx((0.8, 0.6))
     assert diagnostic.complete_feature_row_count == 3
     assert diagnostic.incomplete_feature_row_count == 2
     assert diagnostic.available_feature_fraction_minimum == pytest.approx(0.0)
     assert diagnostic.available_feature_fraction_mean == pytest.approx(0.7)
     assert diagnostic.available_feature_fraction_maximum == pytest.approx(1.0)
-    assert all(row.label_end_index < _contract().stop for row in diagnostic.realized_72h_rows)
+    assert all(
+        row.label_end_index < _contract().stop for row in diagnostic.realized_72h_rows
+    )
     assert diagnostic.model_24h.model_digest
     assert diagnostic.model_72h.model_digest
     assert diagnostic.model_24h.pooled_weighted_ess > 0.0

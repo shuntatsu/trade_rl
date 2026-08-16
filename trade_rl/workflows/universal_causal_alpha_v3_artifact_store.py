@@ -23,6 +23,12 @@ from trade_rl.workflows.universal_causal_alpha_v3_diagnostics import (
 from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3SignalScopeMetric,
 )
+from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic import (
+    CausalAlphaV3SignalDiagnosticScope,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic_codec import (
+    signal_diagnostic_scope_from_payload,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_signal_v2 import (
     signal_scope_metric_from_payload,
 )
@@ -35,6 +41,7 @@ from trade_rl.workflows.universal_causal_alpha_v3_teacher_artifacts import (
 )
 
 SignalIdentity = tuple[str, str, int]
+SignalDiagnosticIdentity = tuple[str, str, int]
 ReplayDiagnosticsIdentity = tuple[str, str, int]
 
 
@@ -48,6 +55,21 @@ def _safe_segment(value: str, *, field: str) -> str:
     ):
         raise ValueError(f"{field} is not a safe artifact path segment")
     return value
+
+
+def _validate_expected_signal_scope(
+    identity: tuple[str, str, int], contract_digest: str, *, field: str
+) -> None:
+    fit_config_digest, symbol, episode_index = identity
+    require_sha256(fit_config_digest, field=f"{field} fit config digest")
+    _safe_segment(symbol, field=f"{field} symbol")
+    if (
+        isinstance(episode_index, bool)
+        or not isinstance(episode_index, int)
+        or episode_index < 0
+    ):
+        raise ValueError(f"{field} episode index is invalid")
+    require_sha256(contract_digest, field=f"{field} contract digest")
 
 
 class CausalAlphaV3RunLock:
@@ -135,6 +157,10 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
         self, *, expected: Mapping[SignalIdentity, str]
     ) -> dict[SignalIdentity, CausalAlphaV3SignalScopeMetric]:
         scopes = dict(expected)
+        for identity, contract_digest in scopes.items():
+            _validate_expected_signal_scope(
+                identity, contract_digest, field="V3 expected signal"
+            )
         records_root = self.root / "signal" / "records"
         if not records_root.is_dir():
             return {}
@@ -154,6 +180,72 @@ class CausalAlphaV3ArtifactStore(CausalAlphaV3RecordStore):
             if identity in result:
                 raise ValueError("V3 signal record scope is duplicated")
             result[identity] = metric
+        return result
+
+    def _signal_diagnostic_path(
+        self, diagnostic: CausalAlphaV3SignalDiagnosticScope
+    ) -> Path:
+        fit = _safe_segment(
+            diagnostic.fit_config_digest, field="V3 signal diagnostic fit"
+        )
+        symbol = _safe_segment(
+            diagnostic.symbol, field="V3 signal diagnostic symbol"
+        )
+        return (
+            self.root
+            / "signal"
+            / "diagnostics"
+            / fit
+            / symbol
+            / f"{diagnostic.episode_index}.json"
+        )
+
+    def _validate_signal_diagnostic_run_identity(
+        self, diagnostic: CausalAlphaV3SignalDiagnosticScope
+    ) -> None:
+        if diagnostic.run_manifest_digest != self.run_manifest_digest:
+            raise ValueError("V3 signal diagnostic run manifest identity mismatch")
+
+    def write_signal_diagnostic_scope(
+        self, diagnostic: CausalAlphaV3SignalDiagnosticScope
+    ) -> Path:
+        if not isinstance(diagnostic, CausalAlphaV3SignalDiagnosticScope):
+            raise TypeError("V3 signal diagnostic store requires a diagnostic scope")
+        self._validate_signal_diagnostic_run_identity(diagnostic)
+        return self.write_exact_artifact(
+            self._signal_diagnostic_path(diagnostic).relative_to(self.root),
+            diagnostic.to_payload(),
+        )
+
+    def load_signal_diagnostic_scopes(
+        self, *, expected: Mapping[SignalDiagnosticIdentity, str]
+    ) -> dict[SignalDiagnosticIdentity, CausalAlphaV3SignalDiagnosticScope]:
+        scopes = dict(expected)
+        for identity, contract_digest in scopes.items():
+            _validate_expected_signal_scope(
+                identity, contract_digest, field="V3 expected signal diagnostic"
+            )
+        records_root = self.root / "signal" / "diagnostics"
+        if not records_root.is_dir():
+            return {}
+        result: dict[SignalDiagnosticIdentity, CausalAlphaV3SignalDiagnosticScope] = {}
+        for path in sorted(records_root.rglob("*.json")):
+            diagnostic = signal_diagnostic_scope_from_payload(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+            self._validate_signal_diagnostic_run_identity(diagnostic)
+            identity = diagnostic.identity
+            if identity not in scopes:
+                raise ValueError(
+                    "V3 signal diagnostic record is outside the expected scope"
+                )
+            if diagnostic.contract_digest != scopes[identity]:
+                raise ValueError("V3 signal diagnostic contract identity drifted")
+            if path != self._signal_diagnostic_path(diagnostic):
+                raise ValueError("V3 signal diagnostic path identity drifted")
+            if identity in result:
+                raise ValueError("V3 signal diagnostic scope is duplicated")
+            result[identity] = diagnostic
         return result
 
     def write_candidate_evidence(
@@ -371,5 +463,6 @@ __all__ = [
     "CausalAlphaV3ArtifactStore",
     "CausalAlphaV3RunLock",
     "ReplayDiagnosticsIdentity",
+    "SignalDiagnosticIdentity",
     "SignalIdentity",
 ]

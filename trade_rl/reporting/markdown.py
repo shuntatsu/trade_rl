@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 
 from trade_rl.reporting.run_report import RunReport, RunStageReport
+
+_SPECIAL_TABLE_METRICS = frozenset({"candidate_rows", "symbol_rows"})
 
 
 def _scalar(value: object) -> str:
@@ -82,14 +85,50 @@ def _render_symbol_rows(rows: object) -> list[str]:
     return lines
 
 
+def _render_structured_metrics(metrics: Mapping[str, object]) -> list[str]:
+    structured = {
+        key: value
+        for key, value in metrics.items()
+        if key not in _SPECIAL_TABLE_METRICS
+        and not isinstance(value, str | int | float | bool)
+    }
+    if not structured:
+        return []
+    return [
+        "### Structured metrics",
+        "",
+        "```json",
+        json.dumps(structured, ensure_ascii=False, indent=2, sort_keys=True),
+        "```",
+        "",
+    ]
+
+
+def _render_source_paths(paths: tuple[str, ...]) -> list[str]:
+    if not paths:
+        return []
+    lines = ["### Source artifacts", "", "| path |", "| --- |"]
+    lines.extend(f"| `{path}` |" for path in paths)
+    lines.append("")
+    return lines
+
+
 def _render_stage_details(stage: RunStageReport) -> list[str]:
     scalar_metrics = {
         key: value
         for key, value in stage.metrics.items()
-        if key not in {"candidate_rows", "symbol_rows"}
+        if key not in _SPECIAL_TABLE_METRICS
         and isinstance(value, str | int | float | bool)
     }
-    if not scalar_metrics and not stage.reasons and not stage.artifact_digests:
+    structured_metrics = _render_structured_metrics(stage.metrics)
+    source_paths = _render_source_paths(stage.source_paths)
+    if (
+        not scalar_metrics
+        and not structured_metrics
+        and not stage.reasons
+        and not stage.artifact_digests
+        and not source_paths
+    ):
         return []
     lines = [f"## {stage.name}", ""]
     if scalar_metrics:
@@ -97,6 +136,7 @@ def _render_stage_details(stage: RunStageReport) -> list[str]:
         for key in sorted(scalar_metrics):
             lines.append(f"| {key} | {_scalar(scalar_metrics[key])} |")
         lines.append("")
+    lines.extend(structured_metrics)
     if stage.reasons:
         lines.append("Reasons: `" + "`, `".join(stage.reasons) + "`")
         lines.append("")
@@ -105,6 +145,7 @@ def _render_stage_details(stage: RunStageReport) -> list[str]:
         for key in sorted(stage.artifact_digests):
             lines.append(f"| {key} | `{stage.artifact_digests[key]}` |")
         lines.append("")
+    lines.extend(source_paths)
     return lines
 
 

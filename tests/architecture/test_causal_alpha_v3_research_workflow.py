@@ -50,7 +50,9 @@ def test_causal_alpha_v3_research_workflow_is_owner_only_manual_control() -> Non
     assert "github.ref == 'refs/heads/main'" in condition
 
 
-def test_causal_alpha_v3_research_workflow_uses_exact_checkout_and_trusted_roots() -> None:
+def test_causal_alpha_v3_research_workflow_uses_exact_checkout_and_trusted_roots() -> (
+    None
+):
     workflow = _load()
     job = _mapping(_mapping(workflow["jobs"])["control"])
     environment = _mapping(job["env"])
@@ -68,7 +70,11 @@ def test_causal_alpha_v3_research_workflow_uses_exact_checkout_and_trusted_roots
     )
 
     steps = [_mapping(item) for item in job["steps"]]
-    checkout = next(step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@"))
+    checkout = next(
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
     assert checkout["uses"] == (
         "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"
     )
@@ -76,7 +82,11 @@ def test_causal_alpha_v3_research_workflow_uses_exact_checkout_and_trusted_roots
     assert checkout_with["ref"] == "${{ github.sha }}"
     assert checkout_with["persist-credentials"] == "false"
 
-    setup_uv = next(step for step in steps if str(step.get("uses", "")).startswith("astral-sh/setup-uv@"))
+    setup_uv = next(
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("astral-sh/setup-uv@")
+    )
     assert setup_uv["uses"] == (
         "astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86"
     )
@@ -90,7 +100,9 @@ def test_causal_alpha_v3_research_workflow_uses_exact_checkout_and_trusted_roots
     assert "--compose-file" not in run_steps
 
 
-def test_causal_alpha_v3_research_workflow_retains_control_evidence_on_failure() -> None:
+def test_causal_alpha_v3_research_workflow_retains_control_evidence_on_failure() -> (
+    None
+):
     workflow = _load()
     job = _mapping(_mapping(workflow["jobs"])["control"])
     steps = [_mapping(item) for item in job["steps"]]
@@ -123,4 +135,6 @@ def test_causal_alpha_v3_research_workflow_retains_control_evidence_on_failure()
         "research-config",
         "run-config",
     ):
-        assert forbidden not in str(_mapping(_mapping(workflow["on"])["workflow_dispatch"])["inputs"])
+        assert forbidden not in str(
+            _mapping(_mapping(workflow["on"])["workflow_dispatch"])["inputs"]
+        )

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import yaml
 
 from tests.architecture.repository_paths import REPOSITORY_ROOT

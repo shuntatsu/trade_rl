@@ -90,8 +90,10 @@ def test_v3_docs_distinguish_authoritative_records_from_diagnostics_and_legacy_j
 
 
 def test_v3_docs_define_deterministic_machine_run_report_contract() -> None:
-    universal = _text("docs/UNIVERSAL_TRAINING.md").lower()
+    reporting = _text("docs/RUN_REPORTING.md").lower()
+    index = _text("docs/README.md").lower()
 
+    assert "run_reporting.md" in index
     for phrase in (
         "build_run_report.py",
         "machine run report",
@@ -103,4 +105,4 @@ def test_v3_docs_define_deterministic_machine_run_report_contract() -> None:
         "pass / reject / in_progress / not_run / missing / invalid",
         "output must stay outside",
     ):
-        assert phrase in universal
+        assert phrase in reporting

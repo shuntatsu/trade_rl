@@ -159,7 +159,9 @@ def test_status_is_read_only_and_validates_container_identity(
 
     assert payload["container_status"] == "running"
     assert payload["generation"] == launch.generation
-    assert all("stop" not in call and "rm" not in call and "cp" not in call for call in calls)
+    assert all(
+        "stop" not in call and "rm" not in call and "cp" not in call for call in calls
+    )
 
 
 def test_status_rejects_foreign_container_identity(

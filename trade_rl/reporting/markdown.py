@@ -16,6 +16,8 @@ def _scalar(value: object) -> str:
 
 
 def _percentage(value: object) -> str:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return str(value)
     return f"{float(value) * 100.0:.6f}%"
 
 

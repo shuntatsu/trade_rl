@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -123,3 +124,42 @@ def test_collection_never_removes_source_container_or_volume(
     flattened = [token for command in commands for token in command]
     assert "rm" not in flattened
     assert "volume" not in flattened
+
+
+def test_copy_failure_retains_logs_launch_and_incomplete_result(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    launch = _write_launch(tmp_path)
+    monkeypatch.setattr(
+        module,
+        "_inspect_container",
+        lambda _launch: module.ContainerState(
+            running=False,
+            oom_killed=False,
+            exit_code=1,
+        ),
+    )
+    monkeypatch.setattr(module, "_container_logs", lambda _launch: "runtime failed\n")
+
+    def fail_copy(command, **_kwargs):
+        assert tuple(command)[:2] == ("docker", "cp")
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(module, "_run", fail_copy)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        module.collect_generation(
+            generation=launch.generation,
+            state_root=tmp_path / "state",
+            retained_root=tmp_path / "retained",
+        )
+
+    retained = tmp_path / "retained" / launch.generation
+    assert (retained / "container.log").read_text() == "runtime failed\n"
+    assert json.loads((retained / "launch-manifest.json").read_text()) == (
+        launch.to_payload()
+    )
+    result = json.loads((retained / "research-result.json").read_text())
+    assert result["execution_status"] == "failed"
+    assert result["research_outcome"] == "unavailable"
+    assert result["run_output_retained"] is False

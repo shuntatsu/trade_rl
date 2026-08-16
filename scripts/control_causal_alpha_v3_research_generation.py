@@ -184,13 +184,19 @@ class ContainerState:
 
 
 def _run(
-    command: Sequence[str], *, cwd: Path | None = None, env: Mapping[str, str] | None = None
+    command: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> None:
     subprocess.run(tuple(command), cwd=cwd, env=env, check=True)
 
 
 def _run_capture(
-    command: Sequence[str], *, cwd: Path | None = None, env: Mapping[str, str] | None = None
+    command: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> str:
     return subprocess.run(
         tuple(command),
@@ -286,7 +292,9 @@ def _inspect_container(launch: CausalAlphaV3Launch) -> ContainerState:
     if isinstance(raw_image_id, str) and raw_image_id:
         normalized = raw_image_id.removeprefix("sha256:")
         if re.fullmatch(r"[0-9a-f]{64}", normalized) and normalized != launch.image_id:
-            raise RuntimeError("container image identity does not match launch manifest")
+            raise RuntimeError(
+                "container image identity does not match launch manifest"
+            )
     state = _mapping(payload.get("State"), field="container State")
     running = state.get("Running")
     oom_killed = state.get("OOMKilled")
@@ -445,7 +453,9 @@ def start_generation(
         "io.trade-rl.runtime-manifest-digest": runtime_manifest_digest,
     }
     if any(labels.get(key) != value for key, value in expected_image_labels.items()):
-        raise RuntimeError("training image provenance labels do not match launch inputs")
+        raise RuntimeError(
+            "training image provenance labels do not match launch inputs"
+        )
 
     output_path = (_CONTAINER_OUTPUT_PREFIX / name).as_posix()
     preflight_code = (
@@ -509,9 +519,7 @@ def start_generation(
     return launch
 
 
-def status_generation(
-    *, generation: str, state_root: str | Path
-) -> dict[str, object]:
+def status_generation(*, generation: str, state_root: str | Path) -> dict[str, object]:
     name = validate_generation(generation)
     launch = _load_launch(state_root=Path(state_root), generation=name)
     state = _inspect_container(launch)

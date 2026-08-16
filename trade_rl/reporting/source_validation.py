@@ -91,10 +91,10 @@ def _signal_shape_valid(root: Path) -> tuple[str, ...]:
             invalid.append(relative)
             continue
         evidence_values = {str(key): value for key, value in evidence.items()}
-        if (
-            evidence_values.get("schema_version")
-            == "causal_alpha_v3_signal_gate_evidence_v2"
-            and not _digest_array(evidence_values.get("metric_digests"))
+        if evidence_values.get(
+            "schema_version"
+        ) == "causal_alpha_v3_signal_gate_evidence_v2" and not _digest_array(
+            evidence_values.get("metric_digests")
         ):
             invalid.append(relative)
     return tuple(invalid)
@@ -191,12 +191,11 @@ def _admission_shape_valid(root: Path) -> tuple[str, ...]:
         raw = _json_object(rejection_path)
         if raw is None:
             invalid.append(relative)
-        elif (
-            raw.get("schema_version") == "causal_alpha_v3_admission_rejection_v2"
-            and not (
-                _sha256(raw.get("admission_digest"))
-                and _sha256(raw.get("selected_candidate_digest"))
-            )
+        elif raw.get(
+            "schema_version"
+        ) == "causal_alpha_v3_admission_rejection_v2" and not (
+            _sha256(raw.get("admission_digest"))
+            and _sha256(raw.get("selected_candidate_digest"))
         ):
             invalid.append(relative)
     return tuple(dict.fromkeys(invalid))

@@ -231,7 +231,19 @@ def test_signal_diagnostic_rows_reject_non_finite_or_invalid_availability() -> N
         replace(_prediction_row(), prediction_24h=float("nan"))
 
     with pytest.raises(ValueError, match="available"):
-        replace(_prediction_row(), available_feature_count=3)
+        replace(_prediction_row(), available_feature_count=-1)
 
     with pytest.raises(ValueError, match="available"):
         replace(_realized_row(), available_feature_fraction=1.1)
+
+
+def test_signal_diagnostic_scope_rejects_row_availability_inconsistent_with_width() -> None:
+    diagnostic = _scope()
+    inconsistent = replace(
+        _prediction_row(),
+        available_feature_count=3,
+        available_feature_fraction=1.0,
+    )
+
+    with pytest.raises(ValueError, match="available"):
+        replace(diagnostic, prediction_rows=(inconsistent,), digest="")

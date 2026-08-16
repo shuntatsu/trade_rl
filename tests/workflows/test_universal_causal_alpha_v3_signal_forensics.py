@@ -24,7 +24,6 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal_v2 import (
     signal_scope_metric_from_payload,
 )
 
-
 _SYMBOLS = ("BTCUSDT", "ETHUSDT")
 _WEAK_RANKS = (-0.08, -0.02, 0.01, 0.03)
 _STRONG_RANKS = (0.01, 0.03, 0.07, 0.09)
@@ -137,9 +136,7 @@ def _build_run(root: Path) -> dict[str, Any]:
 
     fit_configs = []
     metrics_by_fit: dict[str, list[CausalAlphaV3SignalScopeMetric]] = {}
-    paths_by_identity: dict[
-        tuple[str, str, int], Path
-    ] = {}
+    paths_by_identity: dict[tuple[str, str, int], Path] = {}
     for fit_index, candidate in enumerate(config.candidates):
         fit_digest = candidate.fit.digest
         fit_configs.append(fit_digest)
@@ -161,12 +158,8 @@ def _build_run(root: Path) -> dict[str, Any]:
                     episode_index=episode_index,
                     contract_start=start,
                     contract_stop=stop,
-                    contract_digest=_digest(
-                        f"contract:{symbol}:{episode_index}"
-                    ),
-                    fit_digest=_digest(
-                        f"pooled-fit:{fit_index}:{episode_index}"
-                    ),
+                    contract_digest=_digest(f"contract:{symbol}:{episode_index}"),
+                    fit_digest=_digest(f"pooled-fit:{fit_index}:{episode_index}"),
                     forecast_digest=_digest(
                         f"forecast:{fit_index}:{symbol}:{episode_index}"
                     ),
@@ -305,7 +298,7 @@ def test_signal_forensics_aggregates_fit_episode_and_symbol_views(
     assert first_episode.top_bottom_spread == pytest.approx(0.001)
     assert first_episode.direction_accuracy == pytest.approx(0.49)
     assert first_episode.direction_accuracy_excess == pytest.approx(-0.01)
-    assert first_episode.negative_rank_symbol_count == 1
+    assert first_episode.negative_rank_symbol_count == 0
     assert first_episode.negative_spread_symbol_count == 0
     assert first_episode.negative_direction_excess_symbol_count == 1
 

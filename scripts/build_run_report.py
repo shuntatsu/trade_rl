@@ -39,7 +39,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if resolved_output == resolved_root or resolved_output.is_relative_to(
             resolved_root
         ):
-            print("run report output must be outside the source artifact root", file=sys.stderr)
+            print(
+                "run report output must be outside the source artifact root",
+                file=sys.stderr,
+            )
             return 2
 
     report = build_run_report(root)

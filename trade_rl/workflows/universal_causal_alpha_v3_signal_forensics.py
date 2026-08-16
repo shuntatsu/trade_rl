@@ -713,7 +713,9 @@ def _validate_signal_rejection(
         if not isinstance(result_passed, bool):
             raise ValueError("V3 signal rejection fit pass state is invalid")
         if result_passed:
-            raise ValueError("V3 signal rejection contains an invalid rejected fit pass state")
+            raise ValueError(
+                "V3 signal rejection contains an invalid rejected fit pass state"
+            )
         unavailable = result["unavailable_scope_contract_digests"]
         if not isinstance(unavailable, list | tuple):
             raise ValueError("V3 signal unavailable scope evidence is invalid")

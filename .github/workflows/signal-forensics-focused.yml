@@ -37,6 +37,7 @@ jobs:
           trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py
           scripts/analyze_universal_causal_alpha_v3_signal.py
           tests/workflows/test_universal_causal_alpha_v3_signal_forensics.py
+          tests/workflows/test_universal_causal_alpha_v3_signal_forensics_falsification.py
           tests/scripts/test_analyze_universal_causal_alpha_v3_signal.py
 
       - name: Format diff
@@ -45,6 +46,7 @@ jobs:
           trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py
           scripts/analyze_universal_causal_alpha_v3_signal.py
           tests/workflows/test_universal_causal_alpha_v3_signal_forensics.py
+          tests/workflows/test_universal_causal_alpha_v3_signal_forensics_falsification.py
           tests/scripts/test_analyze_universal_causal_alpha_v3_signal.py
 
       - name: Mypy
@@ -57,6 +59,7 @@ jobs:
         run: >-
           uv run pytest -q
           tests/workflows/test_universal_causal_alpha_v3_signal_forensics.py
+          tests/workflows/test_universal_causal_alpha_v3_signal_forensics_falsification.py
           tests/scripts/test_analyze_universal_causal_alpha_v3_signal.py
 
       - name: Dead-code focused scan
@@ -65,5 +68,6 @@ jobs:
           trade_rl/workflows/universal_causal_alpha_v3_signal_forensics.py
           scripts/analyze_universal_causal_alpha_v3_signal.py
           tests/workflows/test_universal_causal_alpha_v3_signal_forensics.py
+          tests/workflows/test_universal_causal_alpha_v3_signal_forensics_falsification.py
           tests/scripts/test_analyze_universal_causal_alpha_v3_signal.py
           --min-confidence 100

@@ -123,7 +123,9 @@ def render_run_report_markdown(report: RunReport) -> str:
         for key in sorted(report.identities):
             lines.append(f"| {key} | `{_scalar(report.identities[key])}` |")
         lines.append("")
-    lines.extend(("## Stages", "", "| stage | status | reasons |", "| --- | --- | --- |"))
+    lines.extend(
+        ("## Stages", "", "| stage | status | reasons |", "| --- | --- | --- |")
+    )
     for stage in report.stages:
         reasons = ", ".join(stage.reasons)
         lines.append(f"| {stage.name} | {stage.status.value} | {reasons} |")

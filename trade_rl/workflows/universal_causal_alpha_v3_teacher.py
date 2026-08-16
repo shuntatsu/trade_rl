@@ -36,6 +36,8 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal import (
 )
 from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic import (
     CausalAlphaV3SignalDiagnosticScope,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic_builder import (
     build_causal_alpha_v3_signal_diagnostic_scope,
 )
 

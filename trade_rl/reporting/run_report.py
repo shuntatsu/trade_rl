@@ -22,9 +22,7 @@ def _upstream_not_passed(stage: RunStageReport) -> RunStageReport:
         name=stage.name,
         status=RunStageStatus.INVALID,
         metrics=stage.metrics,
-        reasons=tuple(
-            dict.fromkeys((*stage.reasons, "upstream_not_passed_conflict"))
-        ),
+        reasons=tuple(dict.fromkeys((*stage.reasons, "upstream_not_passed_conflict"))),
         artifact_digests=stage.artifact_digests,
         source_paths=stage.source_paths,
     )

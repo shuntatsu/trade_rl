@@ -1,0 +1,47 @@
+name: Causal Alpha V3 Signal Builder Protocol Negative Final
+
+on:
+  push:
+    branches:
+      - agent/causal-alpha-v3-signal-builder-protocol-negative-final
+
+permissions:
+  contents: read
+
+jobs:
+  negative-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact hardened tree
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 413550539d9fddfd0290c208dde911ecaec78546
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install dev environment
+        run: uv sync --extra dev
+      - name: Prove legacy metric-only builder is rejected by the paired Protocol
+        run: |
+          cat > trade_rl/workflows/_signal_builder_type_probe.py <<'PY'
+          from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
+              CausalAlphaV3SignalScopeBuilder,
+              build_causal_alpha_v3_signal_scope_metric,
+          )
+
+          invalid_builder: CausalAlphaV3SignalScopeBuilder = build_causal_alpha_v3_signal_scope_metric
+          PY
+          set +e
+          uv run mypy trade_rl/workflows/_signal_builder_type_probe.py > "$RUNNER_TEMP/mypy-probe.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/mypy-probe.log"
+          if [ "$status" -eq 0 ]; then
+            echo "Expected Mypy to reject the metric-only builder, but it was accepted." >&2
+            exit 1
+          fi
+          grep -q "Incompatible types in assignment" "$RUNNER_TEMP/mypy-probe.log"

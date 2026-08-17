@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import Any, NoReturn
 
 import numpy as np
 import pytest
@@ -23,20 +23,7 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic_codec import
 )
 from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
     build_causal_alpha_v3_signal_scope,
-    build_causal_alpha_v3_signal_scope_metric,
 )
-
-if TYPE_CHECKING:
-    from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
-        CausalAlphaV3SignalScopeBuilder,
-    )
-
-    _paired_builder: CausalAlphaV3SignalScopeBuilder = (
-        build_causal_alpha_v3_signal_scope
-    )
-    _metric_only_builder: CausalAlphaV3SignalScopeBuilder = (
-        build_causal_alpha_v3_signal_scope_metric  # type: ignore[assignment]
-    )
 
 
 def _sha(token: str) -> str:
@@ -108,6 +95,12 @@ def _kwargs() -> dict[str, Any]:
     }
 
 
+def _recompute_outer_digest(payload: dict[str, object]) -> None:
+    unsigned = dict(payload)
+    unsigned.pop("artifact_digest")
+    payload["artifact_digest"] = content_digest(unsigned)
+
+
 def test_pipeline_signal_scope_builder_uses_explicit_paired_protocol() -> None:
     annotation = (
         inspect.signature(run_universal_causal_alpha_v3_research_pipeline)
@@ -137,6 +130,24 @@ def test_metric_only_signal_scope_does_not_construct_diagnostic(
     assert metric.sample_count == 2
 
 
+def test_paired_signal_scope_performs_one_fit_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_fit = teacher_module.fit_causal_alpha_v3
+    fit_calls = 0
+
+    def counted_fit(**kwargs: Any):
+        nonlocal fit_calls
+        fit_calls += 1
+        return real_fit(**kwargs)
+
+    monkeypatch.setattr(teacher_module, "fit_causal_alpha_v3", counted_fit)
+
+    build_causal_alpha_v3_signal_scope(**_kwargs())
+
+    assert fit_calls == 1
+
+
 def test_strict_sidecar_rejects_forged_forecast_with_recomputed_outer_digest() -> None:
     diagnostic = build_causal_alpha_v3_signal_scope(**_kwargs()).diagnostic
     payload = diagnostic.to_payload()
@@ -145,9 +156,21 @@ def test_strict_sidecar_rejects_forged_forecast_with_recomputed_outer_digest() -
         float(prediction_rows[0]["prediction_24h"]) + 0.125
     )
     payload["prediction_rows"] = tuple(prediction_rows)
-    unsigned = dict(payload)
-    unsigned.pop("artifact_digest")
-    payload["artifact_digest"] = content_digest(unsigned)
+    _recompute_outer_digest(payload)
+
+    with pytest.raises(ValueError, match="forecast identity"):
+        signal_diagnostic_scope_from_payload(payload)
+
+
+def test_strict_sidecar_rejects_forged_rmse_with_recomputed_outer_digest() -> None:
+    diagnostic = build_causal_alpha_v3_signal_scope(**_kwargs()).diagnostic
+    payload = diagnostic.to_payload()
+    model_24h = dict(payload["model_24h"])
+    model_24h["weighted_residual_rmse"] = (
+        float(model_24h["weighted_residual_rmse"]) + 0.125
+    )
+    payload["model_24h"] = model_24h
+    _recompute_outer_digest(payload)
 
     with pytest.raises(ValueError, match="forecast identity"):
         signal_diagnostic_scope_from_payload(payload)

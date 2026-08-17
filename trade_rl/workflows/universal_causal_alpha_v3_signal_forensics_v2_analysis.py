@@ -114,9 +114,7 @@ def _prediction_values_for_horizon(
         field = "prediction_72h_24h_equivalent"
     else:
         field = "expected_return_24h_equivalent"
-    return tuple(
-        float(getattr(row, field)) for row in scope.diagnostic.prediction_rows
-    )
+    return tuple(float(getattr(row, field)) for row in scope.diagnostic.prediction_rows)
 
 
 def _prediction_distributions(

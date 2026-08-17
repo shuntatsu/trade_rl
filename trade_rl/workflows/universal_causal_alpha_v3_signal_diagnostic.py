@@ -214,11 +214,7 @@ class CausalAlphaV3SignalDiagnosticModel:
             self.overlap_weight_digest, field="V3 diagnostic overlap weight digest"
         )
         names = tuple(self.feature_names)
-        if (
-            not names
-            or any(not name for name in names)
-            or len(set(names)) != len(names)
-        ):
+        if not names or any(not name for name in names) or len(set(names)) != len(names):
             raise ValueError(
                 "V3 diagnostic model feature names must be non-empty and unique"
             )
@@ -234,9 +230,7 @@ class CausalAlphaV3SignalDiagnosticModel:
             raise ValueError(
                 "V3 diagnostic model feature vectors must match feature names"
             )
-        if not all(
-            math.isfinite(value) for value in (*coefficients, *location, *scale)
-        ):
+        if not all(math.isfinite(value) for value in (*coefficients, *location, *scale)):
             raise ValueError("V3 diagnostic model feature vectors must be finite")
         if any(value <= 0.0 for value in scale):
             raise ValueError("V3 diagnostic model scale must be positive")
@@ -385,9 +379,7 @@ class CausalAlphaV3SignalDiagnosticScope:
         ) or not isinstance(self.model_72h, CausalAlphaV3SignalDiagnosticModel):
             raise TypeError("V3 diagnostic models are invalid")
         if self.model_24h.feature_names != self.model_72h.feature_names:
-            raise ValueError(
-                "V3 diagnostic model feature order drifted across horizons"
-            )
+            raise ValueError("V3 diagnostic model feature order drifted across horizons")
         feature_width = len(self.model_24h.feature_names)
         feature_fractions = tuple(
             float(value) for value in self.per_feature_available_fraction
@@ -399,11 +391,13 @@ class CausalAlphaV3SignalDiagnosticScope:
             raise ValueError("V3 diagnostic per-feature availability is invalid")
         prediction_rows = tuple(self.prediction_rows)
         if not prediction_rows or any(
-            not isinstance(row, CausalAlphaV3SignalDiagnosticPredictionRow)
-            for row in prediction_rows
+            not isinstance(prediction_row, CausalAlphaV3SignalDiagnosticPredictionRow)
+            for prediction_row in prediction_rows
         ):
             raise ValueError("V3 diagnostic prediction rows are invalid")
-        prediction_decisions = tuple(row.decision_index for row in prediction_rows)
+        prediction_decisions = tuple(
+            prediction_row.decision_index for prediction_row in prediction_rows
+        )
         _strictly_increasing(
             prediction_decisions, field="V3 diagnostic prediction decisions"
         )
@@ -412,10 +406,10 @@ class CausalAlphaV3SignalDiagnosticScope:
             or prediction_decisions[-1] >= self.contract_stop
         ):
             raise ValueError("V3 diagnostic prediction rows are outside the contract")
-        for row in prediction_rows:
+        for prediction_row in prediction_rows:
             _validate_row_availability(
-                count=row.available_feature_count,
-                fraction=row.available_feature_fraction,
+                count=prediction_row.available_feature_count,
+                fraction=prediction_row.available_feature_fraction,
                 feature_width=feature_width,
             )
         realized_sets = (
@@ -423,33 +417,37 @@ class CausalAlphaV3SignalDiagnosticScope:
             tuple(self.realized_72h_rows),
             tuple(self.realized_fused_rows),
         )
-        for rows in realized_sets:
+        for realized_rows in realized_sets:
             if any(
-                not isinstance(row, CausalAlphaV3SignalDiagnosticRealizedRow)
-                for row in rows
+                not isinstance(realized_row, CausalAlphaV3SignalDiagnosticRealizedRow)
+                for realized_row in realized_rows
             ):
                 raise ValueError("V3 diagnostic realized rows are invalid")
-            decisions = tuple(row.decision_index for row in rows)
+            decisions = tuple(
+                realized_row.decision_index for realized_row in realized_rows
+            )
             _strictly_increasing(decisions, field="V3 diagnostic realized decisions")
-            for row in rows:
+            for realized_row in realized_rows:
                 if (
-                    row.decision_index < self.contract_start
-                    or row.decision_index >= self.contract_stop
-                    or row.label_end_index >= self.contract_stop
+                    realized_row.decision_index < self.contract_start
+                    or realized_row.decision_index >= self.contract_stop
+                    or realized_row.label_end_index >= self.contract_stop
                 ):
                     raise ValueError(
                         "V3 diagnostic realized row is outside the contract"
                     )
                 _validate_row_availability(
-                    count=row.available_feature_count,
-                    fraction=row.available_feature_fraction,
+                    count=realized_row.available_feature_count,
+                    fraction=realized_row.available_feature_fraction,
                     feature_width=feature_width,
                 )
         cohort = tuple(int(value) for value in self.canonical_cohort_indices)
         if not cohort:
             raise ValueError("V3 diagnostic canonical cohort must not be empty")
         _strictly_increasing(cohort, field="V3 diagnostic canonical cohort")
-        fused_decisions = {row.decision_index for row in realized_sets[2]}
+        fused_decisions = {
+            realized_row.decision_index for realized_row in realized_sets[2]
+        }
         if any(value not in fused_decisions for value in cohort):
             raise ValueError(
                 "V3 diagnostic canonical cohort must be covered by fused rows"
@@ -466,10 +464,10 @@ class CausalAlphaV3SignalDiagnosticScope:
         mean = _available_fraction(self.available_feature_fraction_mean)
         maximum = _available_fraction(self.available_feature_fraction_maximum)
         if not minimum <= mean <= maximum:
-            raise ValueError(
-                "V3 diagnostic available feature fraction summary is invalid"
-            )
-        observed = tuple(row.available_feature_fraction for row in prediction_rows)
+            raise ValueError("V3 diagnostic available feature fraction summary is invalid")
+        observed = tuple(
+            prediction_row.available_feature_fraction for prediction_row in prediction_rows
+        )
         if (
             not math.isclose(minimum, min(observed), rel_tol=0.0, abs_tol=_EPSILON)
             or not math.isclose(maximum, max(observed), rel_tol=0.0, abs_tol=_EPSILON)

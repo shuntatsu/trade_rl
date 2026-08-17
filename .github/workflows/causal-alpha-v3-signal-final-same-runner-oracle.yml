@@ -24,6 +24,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
+          version: '0.10.0'
           python-version: '3.12'
       - name: Install one shared dependency environment
         run: uv sync --project head --extra dev

@@ -1,0 +1,57 @@
+name: Causal Alpha V3 Orchestration Fixture Helper
+
+on:
+  push:
+    branches:
+      - agent/causal-alpha-v3-orchestration-fixture-helper
+
+permissions:
+  contents: write
+
+jobs:
+  update-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/causal-alpha-v3-signal-diagnostic-sidecar
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Update orchestration fixture for paired producer contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/workflows/test_universal_causal_alpha_v3_runner_orchestration.py")
+          text = path.read_text(encoding="utf-8")
+          old_range = "decisions = np.arange(2, 30, dtype=np.int64)"
+          if text.count(old_range) != 1:
+              raise SystemExit("expected one orchestration sample-range anchor")
+          text = text.replace(old_range, "decisions = np.arange(0, 30, dtype=np.int64)", 1)
+
+          old_patch = '''    monkeypatch.setattr(\n        module,\n        "build_causal_alpha_v3_signal_scope_metric",\n        lambda **kwargs: _scope_metric(passed=False, **kwargs),\n    )\n'''
+          if text.count(old_patch) != 1:
+              raise SystemExit("expected one rejection metric-only builder patch")
+          text = text.replace(old_patch, "", 1)
+
+          old_patch = '''    monkeypatch.setattr(\n        module,\n        "build_causal_alpha_v3_signal_scope_metric",\n        lambda **kwargs: _scope_metric(passed=True, **kwargs),\n    )\n'''
+          if text.count(old_patch) != 1:
+              raise SystemExit("expected one admission metric-only builder patch")
+          text = text.replace(old_patch, "", 1)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Verify fixture-only diff
+        run: |
+          git diff --check
+          git diff -- tests/workflows/test_universal_causal_alpha_v3_runner_orchestration.py
+          test "$(git diff --name-only | wc -l)" -eq 1
+          test "$(git diff --name-only)" = "tests/workflows/test_universal_causal_alpha_v3_runner_orchestration.py"
+      - name: Commit fixture update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/workflows/test_universal_causal_alpha_v3_runner_orchestration.py
+          git commit -m "test: align V3 orchestration fixture with paired signal producer"
+          git push origin HEAD:agent/causal-alpha-v3-signal-diagnostic-sidecar

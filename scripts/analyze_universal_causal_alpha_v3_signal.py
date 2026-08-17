@@ -8,6 +8,9 @@ from pathlib import Path
 from trade_rl.workflows.universal_causal_alpha_v3_signal_forensics import (
     load_causal_alpha_v3_signal_forensics,
 )
+from trade_rl.workflows.universal_causal_alpha_v3_signal_forensics_v2 import (
+    load_causal_alpha_v3_signal_forensics_v2,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -21,6 +24,12 @@ def _parser() -> argparse.ArgumentParser:
         "run_root",
         type=Path,
         help="Causal Alpha V3 run root containing run-manifest.json and signal/records",
+    )
+    parser.add_argument(
+        "--schema",
+        choices=("v1", "v2"),
+        default="v1",
+        help="Forensics report schema. v1 remains the compatibility default.",
     )
     parser.add_argument(
         "--output",
@@ -59,7 +68,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if output is not None:
         _require_external_output(run_root, output)
 
-    report = load_causal_alpha_v3_signal_forensics(run_root)
+    report = (
+        load_causal_alpha_v3_signal_forensics(run_root)
+        if args.schema == "v1"
+        else load_causal_alpha_v3_signal_forensics_v2(run_root)
+    )
     encoded = _canonical_json(report.to_payload())
     if output is None:
         print(encoded, end="")

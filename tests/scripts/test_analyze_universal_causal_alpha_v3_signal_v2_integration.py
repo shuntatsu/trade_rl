@@ -16,8 +16,16 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal_forensics_v2 import (
 )
 
 
-def _stdout_payload(capsys) -> dict[str, object]:
-    payload = json.loads(capsys.readouterr().out)
+def _assert_canonical_stdout(capsys, expected: object) -> dict[str, object]:
+    encoded = json.dumps(
+        expected,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ) + "\n"
+    observed = capsys.readouterr().out
+    assert observed == encoded
+    payload = json.loads(observed)
     assert isinstance(payload, dict)
     return payload
 
@@ -30,7 +38,7 @@ def test_cli_default_v1_matches_direct_historical_report(
 
     assert cli_module.main([str(tmp_path)]) == 0
 
-    assert _stdout_payload(capsys) == expected
+    _assert_canonical_stdout(capsys, expected)
 
 
 def test_cli_v2_historical_mode_matches_direct_report(tmp_path: Path, capsys) -> None:
@@ -39,8 +47,7 @@ def test_cli_v2_historical_mode_matches_direct_report(tmp_path: Path, capsys) ->
 
     assert cli_module.main([str(tmp_path), "--schema", "v2"]) == 0
 
-    payload = _stdout_payload(capsys)
-    assert payload == expected
+    payload = _assert_canonical_stdout(capsys, expected)
     assert payload["schema_version"] == "causal_alpha_v3_signal_forensics_v2"
     assert payload["sidecar_mode"] == "historical_unavailable"
 
@@ -53,8 +60,7 @@ def test_cli_v2_complete_mode_matches_direct_sidecar_report(
 
     assert cli_module.main([str(tmp_path), "--schema", "v2"]) == 0
 
-    payload = _stdout_payload(capsys)
-    assert payload == expected
+    payload = _assert_canonical_stdout(capsys, expected)
     assert payload["schema_version"] == "causal_alpha_v3_signal_forensics_v2"
     assert payload["sidecar_mode"] == "sidecar_complete"
     assert payload["research_only"] is True

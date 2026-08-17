@@ -188,19 +188,19 @@ def _model_from_payload(payload: object) -> CausalAlphaV3SignalDiagnosticModel:
     }
     _require_fields(raw, expected, field="V3 diagnostic model")
     feature_names = tuple(
-        _string(item, field="V3 diagnostic model feature name")
+        _string(item, field="V3 diagnostic feature name")
         for item in _sequence(raw["feature_names"], field="V3 diagnostic feature_names")
     )
     coefficients = tuple(
-        _number(item, field="V3 diagnostic model coefficient")
+        _number(item, field="V3 diagnostic coefficient")
         for item in _sequence(raw["coefficients"], field="V3 diagnostic coefficients")
     )
     location = tuple(
-        _number(item, field="V3 diagnostic model location")
+        _number(item, field="V3 diagnostic location")
         for item in _sequence(raw["location"], field="V3 diagnostic location")
     )
     scale = tuple(
-        _number(item, field="V3 diagnostic model scale")
+        _number(item, field="V3 diagnostic scale")
         for item in _sequence(raw["scale"], field="V3 diagnostic scale")
     )
     constant_mask_values = _sequence(
@@ -208,6 +208,7 @@ def _model_from_payload(payload: object) -> CausalAlphaV3SignalDiagnosticModel:
     )
     if any(not isinstance(item, bool) for item in constant_mask_values):
         raise ValueError("V3 diagnostic constant_mask values must be boolean")
+    constant_mask = tuple(bool(item) for item in constant_mask_values)
     per_symbol_items: list[tuple[str, float]] = []
     for item in _sequence(
         raw["per_symbol_weighted_ess"],
@@ -231,7 +232,7 @@ def _model_from_payload(payload: object) -> CausalAlphaV3SignalDiagnosticModel:
         coefficients=coefficients,
         location=location,
         scale=scale,
-        constant_mask=tuple(constant_mask_values),
+        constant_mask=constant_mask,
         fitted_row_count=_integer(
             raw["fitted_row_count"], field="V3 diagnostic fitted_row_count"
         ),
@@ -253,9 +254,7 @@ def _model_from_payload(payload: object) -> CausalAlphaV3SignalDiagnosticModel:
 def signal_diagnostic_scope_from_payload(
     payload: object,
 ) -> CausalAlphaV3SignalDiagnosticScope:
-    """Decode one diagnostic sidecar without accepting schema/type drift."""
-
-    raw = _mapping(payload, field="V3 diagnostic scope")
+    raw = _mapping(payload, field="V3 signal diagnostic scope")
     expected = {
         "artifact_digest",
         "available_feature_fraction_maximum",
@@ -286,11 +285,11 @@ def signal_diagnostic_scope_from_payload(
         "signal_metric_digest",
         "symbol",
     }
-    _require_fields(raw, expected, field="V3 diagnostic scope")
+    _require_fields(raw, expected, field="V3 signal diagnostic scope")
     research_only = raw["research_only"]
     promotion_eligible = raw["promotion_eligible"]
-    if not isinstance(research_only, bool) or not isinstance(promotion_eligible, bool):
-        raise ValueError("V3 diagnostic safety flags must be boolean")
+    if research_only is not True or promotion_eligible is not False:
+        raise ValueError("V3 signal diagnostic scope must remain research-only")
     return CausalAlphaV3SignalDiagnosticScope(
         run_manifest_digest=_string(
             raw["run_manifest_digest"], field="V3 diagnostic run_manifest_digest"
@@ -319,8 +318,7 @@ def signal_diagnostic_scope_from_payload(
             raw["forecast_digest"], field="V3 diagnostic forecast_digest"
         ),
         feature_schema_digest=_string(
-            raw["feature_schema_digest"],
-            field="V3 diagnostic feature_schema_digest",
+            raw["feature_schema_digest"], field="V3 diagnostic feature_schema_digest"
         ),
         model_24h=_model_from_payload(raw["model_24h"]),
         model_72h=_model_from_payload(raw["model_72h"]),
@@ -345,19 +343,17 @@ def signal_diagnostic_scope_from_payload(
         realized_fused_rows=tuple(
             _realized_row_from_payload(item)
             for item in _sequence(
-                raw["realized_fused_rows"],
-                field="V3 diagnostic realized_fused_rows",
+                raw["realized_fused_rows"], field="V3 diagnostic realized_fused_rows"
             )
         ),
         canonical_cohort_indices=tuple(
             _integer(item, field="V3 diagnostic cohort index")
             for item in _sequence(
-                raw["canonical_cohort_indices"],
-                field="V3 diagnostic canonical_cohort_indices",
+                raw["canonical_cohort_indices"], field="V3 diagnostic cohort indices"
             )
         ),
         per_feature_available_fraction=tuple(
-            _number(item, field="V3 diagnostic per-feature availability")
+            _number(item, field="V3 diagnostic feature availability")
             for item in _sequence(
                 raw["per_feature_available_fraction"],
                 field="V3 diagnostic per_feature_available_fraction",
@@ -386,9 +382,9 @@ def signal_diagnostic_scope_from_payload(
         schema_version=_string(
             raw["schema_version"], field="V3 diagnostic schema_version"
         ),
-        research_only=research_only,
-        promotion_eligible=promotion_eligible,
-        digest=_string(raw["artifact_digest"], field="V3 diagnostic artifact_digest"),
+        research_only=True,
+        promotion_eligible=False,
+        digest=_string(raw["artifact_digest"], field="V3 diagnostic artifact digest"),
     )
 
 

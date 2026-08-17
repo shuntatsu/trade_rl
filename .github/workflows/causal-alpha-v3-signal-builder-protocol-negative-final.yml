@@ -44,4 +44,5 @@ jobs:
             echo "Expected Mypy to reject the metric-only builder, but it was accepted." >&2
             exit 1
           fi
-          grep -q "Incompatible types in assignment" "$RUNNER_TEMP/mypy-probe.log"
+          grep -q "Incompatible types" "$RUNNER_TEMP/mypy-probe.log"
+          grep -q "CausalAlphaV3SignalScopeBuilder" "$RUNNER_TEMP/mypy-probe.log"

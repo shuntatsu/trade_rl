@@ -214,7 +214,11 @@ class CausalAlphaV3SignalDiagnosticModel:
             self.overlap_weight_digest, field="V3 diagnostic overlap weight digest"
         )
         names = tuple(self.feature_names)
-        if not names or any(not name for name in names) or len(set(names)) != len(names):
+        if (
+            not names
+            or any(not name for name in names)
+            or len(set(names)) != len(names)
+        ):
             raise ValueError(
                 "V3 diagnostic model feature names must be non-empty and unique"
             )
@@ -230,7 +234,9 @@ class CausalAlphaV3SignalDiagnosticModel:
             raise ValueError(
                 "V3 diagnostic model feature vectors must match feature names"
             )
-        if not all(math.isfinite(value) for value in (*coefficients, *location, *scale)):
+        if not all(
+            math.isfinite(value) for value in (*coefficients, *location, *scale)
+        ):
             raise ValueError("V3 diagnostic model feature vectors must be finite")
         if any(value <= 0.0 for value in scale):
             raise ValueError("V3 diagnostic model scale must be positive")
@@ -379,7 +385,9 @@ class CausalAlphaV3SignalDiagnosticScope:
         ) or not isinstance(self.model_72h, CausalAlphaV3SignalDiagnosticModel):
             raise TypeError("V3 diagnostic models are invalid")
         if self.model_24h.feature_names != self.model_72h.feature_names:
-            raise ValueError("V3 diagnostic model feature order drifted across horizons")
+            raise ValueError(
+                "V3 diagnostic model feature order drifted across horizons"
+            )
         feature_width = len(self.model_24h.feature_names)
         feature_fractions = tuple(
             float(value) for value in self.per_feature_available_fraction
@@ -464,9 +472,12 @@ class CausalAlphaV3SignalDiagnosticScope:
         mean = _available_fraction(self.available_feature_fraction_mean)
         maximum = _available_fraction(self.available_feature_fraction_maximum)
         if not minimum <= mean <= maximum:
-            raise ValueError("V3 diagnostic available feature fraction summary is invalid")
+            raise ValueError(
+                "V3 diagnostic available feature fraction summary is invalid"
+            )
         observed = tuple(
-            prediction_row.available_feature_fraction for prediction_row in prediction_rows
+            prediction_row.available_feature_fraction
+            for prediction_row in prediction_rows
         )
         if (
             not math.isclose(minimum, min(observed), rel_tol=0.0, abs_tol=_EPSILON)

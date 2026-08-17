@@ -8,6 +8,7 @@ import pytest
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_v3 import (
     CausalAlphaV3FitConfig,
+    CausalAlphaV3Forecast,
     CausalAlphaV3TargetConfig,
 )
 from trade_rl.learning.episode_oracle_teacher import OracleEpisodeContract
@@ -158,7 +159,38 @@ def _realized_row(
     )
 
 
+def _forecast_digest(
+    prediction_rows: tuple[CausalAlphaV3SignalDiagnosticPredictionRow, ...],
+    model_24h: CausalAlphaV3SignalDiagnosticModel,
+    model_72h: CausalAlphaV3SignalDiagnosticModel,
+) -> str:
+    return CausalAlphaV3Forecast(
+        prediction_24h=np.asarray(
+            [row.prediction_24h for row in prediction_rows], dtype=np.float64
+        ),
+        prediction_72h=np.asarray(
+            [row.prediction_72h for row in prediction_rows], dtype=np.float64
+        ),
+        expected_return_24h_equivalent=np.asarray(
+            [row.expected_return_24h_equivalent for row in prediction_rows],
+            dtype=np.float64,
+        ),
+        uncertainty_24h_equivalent=np.asarray(
+            [row.uncertainty_24h_equivalent for row in prediction_rows],
+            dtype=np.float64,
+        ),
+        signal_to_uncertainty=np.asarray(
+            [row.signal_to_uncertainty for row in prediction_rows], dtype=np.float64
+        ),
+        residual_rmse_24h=model_24h.weighted_residual_rmse,
+        residual_rmse_72h=model_72h.weighted_residual_rmse,
+    ).digest
+
+
 def _scope() -> CausalAlphaV3SignalDiagnosticScope:
+    model_24h = _model(suffix="8")
+    model_72h = _model(suffix="9")
+    prediction_rows = (_prediction_row(),)
     return CausalAlphaV3SignalDiagnosticScope(
         run_manifest_digest=_sha("1"),
         fit_config_digest=_sha("2"),
@@ -169,11 +201,11 @@ def _scope() -> CausalAlphaV3SignalDiagnosticScope:
         contract_digest=_sha("3"),
         signal_metric_digest=_sha("4"),
         fit_digest=_sha("5"),
-        forecast_digest=_sha("6"),
+        forecast_digest=_forecast_digest(prediction_rows, model_24h, model_72h),
         feature_schema_digest=_sha("7"),
-        model_24h=_model(suffix="8"),
-        model_72h=_model(suffix="9"),
-        prediction_rows=(_prediction_row(),),
+        model_24h=model_24h,
+        model_72h=model_72h,
+        prediction_rows=prediction_rows,
         realized_24h_rows=(_realized_row(),),
         realized_72h_rows=(_realized_row(),),
         realized_fused_rows=(_realized_row(),),

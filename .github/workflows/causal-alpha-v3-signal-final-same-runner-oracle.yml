@@ -18,7 +18,7 @@ jobs:
       - name: Checkout final feature head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: 2cbf57f6312fd89085ff4070fc7b7573a79a80bb
+          ref: d0e68eeb9880141a7377d17dfebe8a1d090141c1
           path: head
           persist-credentials: false
       - name: Set up uv

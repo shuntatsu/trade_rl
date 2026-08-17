@@ -50,9 +50,7 @@ def _model(
             ("BTCUSDT", 6.0 + 0.25 * episode_index),
             ("ETHUSDT", 6.5 + 0.25 * episode_index),
         ),
-        overlap_weight_digest=_digest(
-            f"weights:{fit_index}:{episode_index}:{horizon}"
-        ),
+        overlap_weight_digest=_digest(f"weights:{fit_index}:{episode_index}:{horizon}"),
     )
 
 
@@ -265,11 +263,13 @@ def test_v2_sidecar_loader_binds_complete_canonical_scope(tmp_path: Path) -> Non
     bound = _loader().load_causal_alpha_v3_signal_forensics_v2_sidecars(tmp_path)
 
     assert len(bound) == 16
-    assert {item.metric.identity for item in bound} == set(
-        built["diagnostic_paths"]
+    assert {item.metric.identity for item in bound} == set(built["diagnostic_paths"])
+    assert all(
+        item.metric.digest == item.diagnostic.signal_metric_digest for item in bound
     )
-    assert all(item.metric.digest == item.diagnostic.signal_metric_digest for item in bound)
-    assert all(item.metric.forecast_digest == item.diagnostic.forecast_digest for item in bound)
+    assert all(
+        item.metric.forecast_digest == item.diagnostic.forecast_digest for item in bound
+    )
 
 
 def test_v2_sidecar_loader_rejects_existing_empty_diagnostic_root(

@@ -191,6 +191,16 @@ def test_v2_chronological_prediction_std_uses_all_prediction_rows(
     )
 
 
+def test_v2_single_episode_chronological_slope_is_zero() -> None:
+    summary = analysis_module._chronological_metric((1.25,))
+
+    assert summary.count == 1
+    assert summary.defined_count == 1
+    assert summary.early_mean == pytest.approx(1.25)
+    assert summary.late_mean == pytest.approx(1.25)
+    assert summary.slope == pytest.approx(0.0)
+
+
 def test_v2_analysis_layer_has_no_training_or_promotion_dependencies() -> None:
     module_path = analysis_module.__file__
     assert module_path is not None

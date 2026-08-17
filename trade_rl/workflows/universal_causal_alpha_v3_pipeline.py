@@ -50,6 +50,7 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic import (
 from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
     CausalAlphaV3FitCache,
     CausalAlphaV3SignalScopeBuild,
+    CausalAlphaV3SignalScopeBuilder,
     CausalAlphaV3SignalScopeUnavailable,
     build_causal_alpha_v3_episode_batch,
     build_causal_alpha_v3_signal_scope,
@@ -317,7 +318,7 @@ def run_universal_causal_alpha_v3_research_pipeline(
     config: CausalAlphaV3ResearchConfig,
     prepared: CausalAlphaV3PreparedResearchData,
     output_root: Path,
-    signal_scope_builder: Callable[..., Any] = build_causal_alpha_v3_signal_scope,
+    signal_scope_builder: CausalAlphaV3SignalScopeBuilder = build_causal_alpha_v3_signal_scope,
     signal_gate_evaluator: Callable[..., CausalAlphaV3SignalGateEvidence],
     selection_evaluator: Callable[..., CausalAlphaV3SelectionEvidence],
     episode_batch_builder: Callable[..., Any] = build_causal_alpha_v3_episode_batch,

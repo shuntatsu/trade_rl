@@ -24,6 +24,14 @@ def _complete_sidecar_unavailable_analyses() -> tuple[
 ]:
     return (
         CausalAlphaV3UnavailableAnalysis(
+            analysis="availability_error_causal_attribution",
+            reason=(
+                "Availability-stratified diagnostic summaries are descriptive "
+                "associations and cannot establish that missing-feature availability "
+                "caused forecast error."
+            ),
+        ),
+        CausalAlphaV3UnavailableAnalysis(
             analysis="canonical_ridge_model_digest_reconstruction",
             reason=(
                 "Diagnostic sidecars persist a research projection of ridge state, but "
@@ -43,6 +51,13 @@ def _complete_sidecar_unavailable_analyses() -> tuple[
             reason=(
                 "Realized diagnostic rows may overlap in label windows and remain "
                 "descriptive rather than independent confidence samples."
+            ),
+        ),
+        CausalAlphaV3UnavailableAnalysis(
+            analysis="profitability_or_production_go_inference",
+            reason=(
+                "Signal Forensics V2 is research-only diagnostic evidence and does not "
+                "establish strategy profitability, promotion eligibility, or Production GO."
             ),
         ),
         CausalAlphaV3UnavailableAnalysis(

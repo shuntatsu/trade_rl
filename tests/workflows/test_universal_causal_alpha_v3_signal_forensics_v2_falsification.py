@@ -80,7 +80,9 @@ def test_v2_72h_diagnostics_use_24h_equivalent_units_not_raw_72h_units(
         ),
     )
 
-    assert analysis.scope_summaries[0].horizon_72h.to_payload() == equivalent.to_payload()
+    assert (
+        analysis.scope_summaries[0].horizon_72h.to_payload() == equivalent.to_payload()
+    )
     assert analysis.scope_summaries[0].horizon_72h.to_payload() != raw.to_payload()
 
 

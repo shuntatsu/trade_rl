@@ -9,6 +9,7 @@ import pytest
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_v3 import (
     CausalAlphaV3FitConfig,
+    CausalAlphaV3Forecast,
     CausalAlphaV3TargetConfig,
 )
 from trade_rl.learning.episode_oracle_teacher import (
@@ -285,6 +286,30 @@ def _scope_build(*, passed: bool, **kwargs) -> CausalAlphaV3SignalScopeBuild:
         )
         for decision in decisions
     )
+    model_24h = _diagnostic_model()
+    model_72h = _diagnostic_model()
+    forecast_digest = CausalAlphaV3Forecast(
+        prediction_24h=np.asarray(
+            [row.prediction_24h for row in predictions], dtype=np.float64
+        ),
+        prediction_72h=np.asarray(
+            [row.prediction_72h for row in predictions], dtype=np.float64
+        ),
+        expected_return_24h_equivalent=np.asarray(
+            [row.expected_return_24h_equivalent for row in predictions],
+            dtype=np.float64,
+        ),
+        uncertainty_24h_equivalent=np.asarray(
+            [row.uncertainty_24h_equivalent for row in predictions],
+            dtype=np.float64,
+        ),
+        signal_to_uncertainty=np.asarray(
+            [row.signal_to_uncertainty for row in predictions], dtype=np.float64
+        ),
+        residual_rmse_24h=model_24h.weighted_residual_rmse,
+        residual_rmse_72h=model_72h.weighted_residual_rmse,
+    ).digest
+    metric = replace(metric, forecast_digest=forecast_digest, digest="")
     realized = tuple(
         CausalAlphaV3SignalDiagnosticRealizedRow(
             decision_index=decision,
@@ -308,8 +333,8 @@ def _scope_build(*, passed: bool, **kwargs) -> CausalAlphaV3SignalScopeBuild:
         fit_digest=metric.fit_digest,
         forecast_digest=metric.forecast_digest,
         feature_schema_digest=sample.feature_schema_digest,
-        model_24h=_diagnostic_model(),
-        model_72h=_diagnostic_model(),
+        model_24h=model_24h,
+        model_72h=model_72h,
         prediction_rows=predictions,
         realized_24h_rows=realized,
         realized_72h_rows=realized,

@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 
+import numpy as np
 import pytest
 
+from trade_rl.learning.causal_alpha_v3 import CausalAlphaV3Forecast
 from trade_rl.workflows.universal_causal_alpha_v3_artifact_store import (
     CausalAlphaV3ArtifactStore,
 )
@@ -66,11 +68,42 @@ def _realized() -> CausalAlphaV3SignalDiagnosticRealizedRow:
     )
 
 
+def _forecast_digest(
+    prediction_rows: tuple[CausalAlphaV3SignalDiagnosticPredictionRow, ...],
+    model_24h: CausalAlphaV3SignalDiagnosticModel,
+    model_72h: CausalAlphaV3SignalDiagnosticModel,
+) -> str:
+    return CausalAlphaV3Forecast(
+        prediction_24h=np.asarray(
+            [row.prediction_24h for row in prediction_rows], dtype=np.float64
+        ),
+        prediction_72h=np.asarray(
+            [row.prediction_72h for row in prediction_rows], dtype=np.float64
+        ),
+        expected_return_24h_equivalent=np.asarray(
+            [row.expected_return_24h_equivalent for row in prediction_rows],
+            dtype=np.float64,
+        ),
+        uncertainty_24h_equivalent=np.asarray(
+            [row.uncertainty_24h_equivalent for row in prediction_rows],
+            dtype=np.float64,
+        ),
+        signal_to_uncertainty=np.asarray(
+            [row.signal_to_uncertainty for row in prediction_rows], dtype=np.float64
+        ),
+        residual_rmse_24h=model_24h.weighted_residual_rmse,
+        residual_rmse_72h=model_72h.weighted_residual_rmse,
+    ).digest
+
+
 def _diagnostic(
     *,
     run_manifest_digest: str | None = None,
     contract_digest: str | None = None,
 ) -> CausalAlphaV3SignalDiagnosticScope:
+    model_24h = _model("8")
+    model_72h = _model("9")
+    prediction_rows = (_prediction(),)
     return CausalAlphaV3SignalDiagnosticScope(
         run_manifest_digest=run_manifest_digest or _sha("1"),
         fit_config_digest=_sha("2"),
@@ -81,11 +114,11 @@ def _diagnostic(
         contract_digest=contract_digest or _sha("3"),
         signal_metric_digest=_sha("4"),
         fit_digest=_sha("5"),
-        forecast_digest=_sha("6"),
+        forecast_digest=_forecast_digest(prediction_rows, model_24h, model_72h),
         feature_schema_digest=_sha("7"),
-        model_24h=_model("8"),
-        model_72h=_model("9"),
-        prediction_rows=(_prediction(),),
+        model_24h=model_24h,
+        model_72h=model_72h,
+        prediction_rows=prediction_rows,
         realized_24h_rows=(_realized(),),
         realized_72h_rows=(_realized(),),
         realized_fused_rows=(_realized(),),
@@ -109,7 +142,7 @@ def test_signal_diagnostic_payload_round_trips_with_digest_validation() -> None:
 
     corrupted = diagnostic.to_payload()
     corrupted["forecast_digest"] = _sha("a")
-    with pytest.raises(ValueError, match="digest"):
+    with pytest.raises(ValueError, match="forecast identity"):
         signal_diagnostic_scope_from_payload(corrupted)
 
 
@@ -176,7 +209,7 @@ def test_signal_diagnostic_store_fails_closed_on_corrupt_payload(tmp_path) -> No
     raw["forecast_digest"] = _sha("a")
     path.write_text(json.dumps(raw), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="digest"):
+    with pytest.raises(ValueError, match="forecast identity"):
         store.load_signal_diagnostic_scopes(
             expected={diagnostic.identity: diagnostic.contract_digest}
         )

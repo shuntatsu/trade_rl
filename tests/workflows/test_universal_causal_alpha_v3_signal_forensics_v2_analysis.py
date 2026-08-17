@@ -62,9 +62,7 @@ def test_v2_complete_report_preserves_v1_and_exposes_sidecar_analysis(
     assert report.sidecar_analysis.overlapping_realized_rows_are_descriptive is True
     assert report.research_only is True
     assert report.promotion_eligible is False
-    assert {
-        item.analysis for item in report.unavailable_analyses
-    } == {
+    assert {item.analysis for item in report.unavailable_analyses} == {
         "canonical_ridge_model_digest_reconstruction",
         "market_regime_classification",
         "overlapping_row_independent_confidence",
@@ -119,8 +117,12 @@ def test_v2_scope_horizon_diagnostics_reuse_existing_oracle(tmp_path: Path) -> N
     assert first.paired_24h_72h.decision_indices == tuple(
         row.decision_index for row in first_bound.diagnostic.realized_24h_rows
     )
-    assert first.paired_24h_72h.diagnostics_24h.to_payload() == expected_24h.to_payload()
-    assert first.paired_24h_72h.diagnostics_72h.to_payload() == expected_72h.to_payload()
+    assert (
+        first.paired_24h_72h.diagnostics_24h.to_payload() == expected_24h.to_payload()
+    )
+    assert (
+        first.paired_24h_72h.diagnostics_72h.to_payload() == expected_72h.to_payload()
+    )
 
 
 def test_v2_prediction_distributions_use_fixed_quantiles(tmp_path: Path) -> None:

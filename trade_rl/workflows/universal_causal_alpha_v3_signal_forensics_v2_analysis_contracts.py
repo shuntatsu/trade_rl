@@ -62,10 +62,14 @@ class CausalAlphaV3PairedHorizonDiagnostics:
         return {
             "decision_indices": self.decision_indices,
             "diagnostics_24h": (
-                None if self.diagnostics_24h is None else self.diagnostics_24h.to_payload()
+                None
+                if self.diagnostics_24h is None
+                else self.diagnostics_24h.to_payload()
             ),
             "diagnostics_72h": (
-                None if self.diagnostics_72h is None else self.diagnostics_72h.to_payload()
+                None
+                if self.diagnostics_72h is None
+                else self.diagnostics_72h.to_payload()
             ),
             "direction_accuracy_delta_24h_minus_72h": (
                 self.direction_accuracy_delta_24h_minus_72h
@@ -398,6 +402,7 @@ class CausalAlphaV3SignalForensicsV2Analysis:
         if include_digest:
             payload["artifact_digest"] = self.digest
         return payload
+
 
 __all__ = [
     "CAUSAL_ALPHA_V3_SIGNAL_FORENSICS_V2_ANALYSIS_SCHEMA",

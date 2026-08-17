@@ -168,9 +168,7 @@ def _availability_partition(
     complete: bool,
 ) -> CausalAlphaV3AvailabilityPartition:
     selected = tuple(
-        row
-        for row in rows
-        if (row.available_feature_fraction == 1.0) is complete
+        row for row in rows if (row.available_feature_fraction == 1.0) is complete
     )
     if len(selected) < 2:
         return CausalAlphaV3AvailabilityPartition(
@@ -191,7 +189,9 @@ def _availability_summary(
     diagnostic = scope.diagnostic
     feature_names = diagnostic.model_24h.feature_names
     if feature_names != diagnostic.model_72h.feature_names:
-        raise ValueError("V3 signal forensics model feature order differs across horizons")
+        raise ValueError(
+            "V3 signal forensics model feature order differs across horizons"
+        )
     if len(feature_names) != len(diagnostic.per_feature_available_fraction):
         raise ValueError("V3 signal forensics feature availability width drifted")
     fractions = tuple(
@@ -247,9 +247,7 @@ def _chronological_metric(
     if not values:
         raise ValueError("V3 signal forensics chronological series is empty")
     defined = tuple(
-        (index, float(value))
-        for index, value in enumerate(values)
-        if value is not None
+        (index, float(value)) for index, value in enumerate(values) if value is not None
     )
     if any(not math.isfinite(value) for _, value in defined):
         raise ValueError("V3 signal forensics chronological values must be finite")
@@ -273,9 +271,7 @@ def _chronological_metric(
         else float(np.mean(early_values, dtype=np.float64))
     )
     late_mean = (
-        None
-        if late_values.size == 0
-        else float(np.mean(late_values, dtype=np.float64))
+        None if late_values.size == 0 else float(np.mean(late_values, dtype=np.float64))
     )
     slope: float | None = None
     if len(defined) >= 2:
@@ -310,9 +306,7 @@ def _cluster_scopes(
 ) -> tuple[
     tuple[str, int, int, tuple[CausalAlphaV3SignalForensicsV2BoundScope, ...]], ...
 ]:
-    fit_order = tuple(
-        dict.fromkeys(scope.metric.fit_config_digest for scope in scopes)
-    )
+    fit_order = tuple(dict.fromkeys(scope.metric.fit_config_digest for scope in scopes))
     clusters: list[
         tuple[str, int, int, tuple[CausalAlphaV3SignalForensicsV2BoundScope, ...]]
     ] = []
@@ -409,8 +403,7 @@ def _model_transition(
         sign_flip_reason = "no_active_paired_coefficients"
     else:
         sign_flip_rate = float(
-            np.count_nonzero(np.sign(a[active]) != np.sign(b[active]))
-            / active_count
+            np.count_nonzero(np.sign(a[active]) != np.sign(b[active])) / active_count
         )
         sign_flip_reason = None
     location_previous = np.asarray(previous.model.location, dtype=np.float64)
@@ -451,7 +444,9 @@ def _model_transition(
 def _model_series(
     snapshots: tuple[CausalAlphaV3ModelSnapshot, ...],
 ) -> tuple[CausalAlphaV3ModelSeries, ...]:
-    fit_order = tuple(dict.fromkeys(snapshot.fit_config_digest for snapshot in snapshots))
+    fit_order = tuple(
+        dict.fromkeys(snapshot.fit_config_digest for snapshot in snapshots)
+    )
     result: list[CausalAlphaV3ModelSeries] = []
     for fit_digest in fit_order:
         for horizon in _MODEL_HORIZONS:
@@ -511,10 +506,15 @@ def _model_series(
                         )
                     ),
                     pooled_weighted_ess=_chronological_metric(
-                        tuple(snapshot.model.pooled_weighted_ess for snapshot in selected)
+                        tuple(
+                            snapshot.model.pooled_weighted_ess for snapshot in selected
+                        )
                     ),
                     fitted_row_count=_chronological_metric(
-                        tuple(float(snapshot.model.fitted_row_count) for snapshot in selected)
+                        tuple(
+                            float(snapshot.model.fitted_row_count)
+                            for snapshot in selected
+                        )
                     ),
                     per_symbol_weighted_ess=per_symbol_series,
                     overlap_weight_digest_unique_count=len(set(digests)),
@@ -530,9 +530,7 @@ def _model_series(
 def _fit_prediction_distributions(
     scopes: tuple[CausalAlphaV3SignalForensicsV2BoundScope, ...],
 ) -> tuple[CausalAlphaV3FitPredictionDistributions, ...]:
-    fit_order = tuple(
-        dict.fromkeys(scope.metric.fit_config_digest for scope in scopes)
-    )
+    fit_order = tuple(dict.fromkeys(scope.metric.fit_config_digest for scope in scopes))
     return tuple(
         CausalAlphaV3FitPredictionDistributions(
             fit_config_digest=fit_digest,
@@ -556,10 +554,14 @@ def _episode_prediction_distributions(
             fit_config_digest=fit_digest,
             contract_start=contract_start,
             contract_stop=contract_stop,
-            episode_indices=tuple(sorted({scope.metric.episode_index for scope in cluster})),
+            episode_indices=tuple(
+                sorted({scope.metric.episode_index for scope in cluster})
+            ),
             distributions=_prediction_distributions(cluster),
         )
-        for fit_digest, contract_start, contract_stop, cluster in _cluster_scopes(scopes)
+        for fit_digest, contract_start, contract_stop, cluster in _cluster_scopes(
+            scopes
+        )
     )
 
 
@@ -588,9 +590,7 @@ def _chronological_horizon_series(
     scopes: tuple[CausalAlphaV3SignalForensicsV2BoundScope, ...],
     model_series: tuple[CausalAlphaV3ModelSeries, ...],
 ) -> tuple[CausalAlphaV3ChronologicalHorizonSeries, ...]:
-    fit_order = tuple(
-        dict.fromkeys(scope.metric.fit_config_digest for scope in scopes)
-    )
+    fit_order = tuple(dict.fromkeys(scope.metric.fit_config_digest for scope in scopes))
     clusters = _cluster_scopes(scopes)
     result: list[CausalAlphaV3ChronologicalHorizonSeries] = []
     for fit_digest in fit_order:
@@ -659,9 +659,7 @@ def _chronological_horizon_series(
                     prediction_standard_deviation=_chronological_metric(
                         tuple(prediction_std)
                     ),
-                    weighted_residual_rmse=_chronological_metric(
-                        tuple(residual_rmse)
-                    ),
+                    weighted_residual_rmse=_chronological_metric(tuple(residual_rmse)),
                     pooled_weighted_ess=_chronological_metric(tuple(pooled_ess)),
                     mean_feature_availability=_chronological_metric(
                         tuple(availability)
@@ -678,7 +676,9 @@ def build_causal_alpha_v3_signal_forensics_v2_analysis(
 
     bound = tuple(scopes)
     if not bound:
-        raise ValueError("V3 signal forensics V2 sidecar analysis requires bound scopes")
+        raise ValueError(
+            "V3 signal forensics V2 sidecar analysis requires bound scopes"
+        )
     snapshots = _deduplicated_snapshots(bound)
     model_series = _model_series(snapshots)
     return CausalAlphaV3SignalForensicsV2Analysis(
@@ -686,9 +686,7 @@ def build_causal_alpha_v3_signal_forensics_v2_analysis(
         model_series=model_series,
         fit_prediction_distributions=_fit_prediction_distributions(bound),
         episode_prediction_distributions=_episode_prediction_distributions(bound),
-        chronological_horizon_series=_chronological_horizon_series(
-            bound, model_series
-        ),
+        chronological_horizon_series=_chronological_horizon_series(bound, model_series),
     )
 
 

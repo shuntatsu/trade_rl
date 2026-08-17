@@ -1,0 +1,81 @@
+name: Causal Alpha V3 Research Control
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Lifecycle operation for one immutable V3 research generation
+        required: true
+        type: choice
+        options:
+          - start
+          - status
+          - collect
+          - stop
+      generation:
+        description: Immutable generation identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: causal-alpha-v3-control
+  cancel-in-progress: false
+
+jobs:
+  control:
+    if: github.actor == github.repository_owner && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64, gpu, nvidia]
+    environment: gpu-full-training
+    timeout-minutes: 30
+    env:
+      TRADE_RL_UNIVERSAL_ARTIFACT_ROOT: ${{ vars.TRADE_RL_UNIVERSAL_ARTIFACT_ROOT }}
+      TRADE_RL_CAUSAL_ALPHA_V3_STATE_ROOT: ${{ vars.TRADE_RL_CAUSAL_ALPHA_V3_STATE_ROOT }}
+      TRADE_RL_CAUSAL_ALPHA_V3_OPERATION: ${{ inputs.operation }}
+      TRADE_RL_CAUSAL_ALPHA_V3_GENERATION: ${{ inputs.generation }}
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Verify start hardware
+        if: inputs.operation == 'start'
+        shell: bash
+        run: |
+          set -euo pipefail
+          nvidia-smi
+          docker info >/dev/null
+
+      - name: Control research generation
+        env:
+          TRADE_RL_CAUSAL_ALPHA_V3_EVIDENCE_ROOT: ${{ runner.temp }}/causal-alpha-v3-control-evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRADE_RL_CAUSAL_ALPHA_V3_EVIDENCE_ROOT"
+          uv run --frozen python scripts/control_causal_alpha_v3_research_generation.py \
+            --operation "$TRADE_RL_CAUSAL_ALPHA_V3_OPERATION" \
+            --generation "$TRADE_RL_CAUSAL_ALPHA_V3_GENERATION" \
+            --retained-root "$TRADE_RL_CAUSAL_ALPHA_V3_EVIDENCE_ROOT/retained" \
+            | tee "$TRADE_RL_CAUSAL_ALPHA_V3_EVIDENCE_ROOT/control-result.json"
+
+      - name: Upload control evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: causal-alpha-v3-control-evidence
+          path: |
+            ${{ runner.temp }}/causal-alpha-v3-control-evidence/control-result.json
+            ${{ runner.temp }}/causal-alpha-v3-control-evidence/retained
+          if-no-files-found: warn
+          retention-days: 30

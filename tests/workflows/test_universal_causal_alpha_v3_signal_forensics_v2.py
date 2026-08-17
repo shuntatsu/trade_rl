@@ -36,8 +36,11 @@ def test_signal_forensics_v2_historical_mode_binds_v1_without_mutating_source(
     assert report.sidecar_analysis is None
     assert report.research_only is True
     assert report.promotion_eligible is False
-    assert tuple(
-        item.to_payload() for item in report.unavailable_analyses
-    ) == tuple(item.to_payload() for item in base.unavailable_analyses)
-    assert report.digest == v2_api.load_causal_alpha_v3_signal_forensics_v2(tmp_path).digest
+    assert tuple(item.to_payload() for item in report.unavailable_analyses) == tuple(
+        item.to_payload() for item in base.unavailable_analyses
+    )
+    assert (
+        report.digest
+        == v2_api.load_causal_alpha_v3_signal_forensics_v2(tmp_path).digest
+    )
     assert _snapshot(tmp_path) == before

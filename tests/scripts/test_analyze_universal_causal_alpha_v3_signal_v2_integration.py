@@ -17,12 +17,15 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal_forensics_v2 import (
 
 
 def _assert_canonical_stdout(capsys, expected: object) -> dict[str, object]:
-    encoded = json.dumps(
-        expected,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ) + "\n"
+    encoded = (
+        json.dumps(
+            expected,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
     observed = capsys.readouterr().out
     assert observed == encoded
     payload = json.loads(observed)

@@ -298,8 +298,7 @@ def _build_signal_scope_metric(
     cohort_rows = computation.cohort_rows
     prediction = computation.forecast.expected_return_24h_equivalent[cohort_rows]
     realized = 0.5 * (
-        computation.labels_24h[cohort_rows]
-        + computation.labels_72h[cohort_rows] / 3.0
+        computation.labels_24h[cohort_rows] + computation.labels_72h[cohort_rows] / 3.0
     )
     diagnostics = evaluate_causal_alpha_signal_diagnostics(prediction, realized)
     if diagnostics.rank_correlation is None:
@@ -328,9 +327,7 @@ def _build_signal_scope_metric(
         rank_correlation=float(diagnostics.rank_correlation),
         direction_accuracy=diagnostics.direction_accuracy,
         top_bottom_realized_spread=spread,
-        cohort_indices=tuple(
-            int(computation.decisions[row]) for row in cohort_rows
-        ),
+        cohort_indices=tuple(int(computation.decisions[row]) for row in cohort_rows),
     )
 
 

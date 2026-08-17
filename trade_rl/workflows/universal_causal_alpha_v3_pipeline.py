@@ -44,11 +44,16 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3SignalScopeMetric,
     split_causal_alpha_v3_partitions,
 )
+from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic import (
+    CausalAlphaV3SignalDiagnosticScope,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
     CausalAlphaV3FitCache,
+    CausalAlphaV3SignalScopeBuild,
+    CausalAlphaV3SignalScopeBuilder,
     CausalAlphaV3SignalScopeUnavailable,
     build_causal_alpha_v3_episode_batch,
-    build_causal_alpha_v3_signal_scope_metric,
+    build_causal_alpha_v3_signal_scope,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_teacher_artifacts import (
     UniversalCausalAlphaV3TeacherPackageV2,
@@ -212,6 +217,34 @@ def _validate_signal_scope_metric(
         raise ValueError("V3 signal scope evidence identity drifted")
 
 
+def _validate_signal_diagnostic_scope(
+    diagnostic: CausalAlphaV3SignalDiagnosticScope,
+    *,
+    run_manifest_digest: str,
+    fit_config_digest: str,
+    symbol: str,
+    contract: OracleEpisodeContract,
+) -> None:
+    if (
+        not isinstance(diagnostic, CausalAlphaV3SignalDiagnosticScope)
+        or diagnostic.run_manifest_digest != run_manifest_digest
+        or diagnostic.fit_config_digest != fit_config_digest
+        or diagnostic.symbol != symbol
+        or diagnostic.episode_index != contract.episode_index
+        or diagnostic.contract_start != contract.start
+        or diagnostic.contract_stop != contract.stop
+        or diagnostic.contract_digest != contract.digest
+    ):
+        raise ValueError("V3 signal diagnostic evidence identity drifted")
+
+
+def _validate_signal_pair(
+    metric: CausalAlphaV3SignalScopeMetric,
+    diagnostic: CausalAlphaV3SignalDiagnosticScope,
+) -> None:
+    CausalAlphaV3SignalScopeBuild(metric=metric, diagnostic=diagnostic)
+
+
 def _build_teacher_batches(
     *,
     selected: CausalAlphaV3Candidate,
@@ -285,9 +318,7 @@ def run_universal_causal_alpha_v3_research_pipeline(
     config: CausalAlphaV3ResearchConfig,
     prepared: CausalAlphaV3PreparedResearchData,
     output_root: Path,
-    signal_scope_builder: Callable[
-        ..., Any
-    ] = build_causal_alpha_v3_signal_scope_metric,
+    signal_scope_builder: CausalAlphaV3SignalScopeBuilder = build_causal_alpha_v3_signal_scope,
     signal_gate_evaluator: Callable[..., CausalAlphaV3SignalGateEvidence],
     selection_evaluator: Callable[..., CausalAlphaV3SelectionEvidence],
     episode_batch_builder: Callable[..., Any] = build_causal_alpha_v3_episode_batch,
@@ -351,6 +382,9 @@ def run_universal_causal_alpha_v3_research_pipeline(
         persisted_signal_metrics = base_store.load_signal_scope_metrics(
             expected=expected_signal_scopes
         )
+        persisted_signal_diagnostics = base_store.load_signal_diagnostic_scopes(
+            expected=expected_signal_scopes
+        )
         fit_cache = CausalAlphaV3FitCache(
             train_symbols=symbols, samples=prepared.samples
         )
@@ -367,9 +401,28 @@ def run_universal_causal_alpha_v3_research_pipeline(
                 for contract in nested[symbol].signal_contracts:
                     identity = (fit_digest, symbol, contract.episode_index)
                     metric = persisted_signal_metrics.get(identity)
-                    if metric is None:
+                    diagnostic = persisted_signal_diagnostics.get(identity)
+                    if metric is not None:
+                        _validate_signal_scope_metric(
+                            metric,
+                            run_manifest_digest=manifest.digest,
+                            fit_config_digest=fit_digest,
+                            symbol=symbol,
+                            contract=contract,
+                        )
+                    if diagnostic is not None:
+                        _validate_signal_diagnostic_scope(
+                            diagnostic,
+                            run_manifest_digest=manifest.digest,
+                            fit_config_digest=fit_digest,
+                            symbol=symbol,
+                            contract=contract,
+                        )
+                    if metric is not None and diagnostic is not None:
+                        _validate_signal_pair(metric, diagnostic)
+                    else:
                         try:
-                            metric = signal_scope_builder(
+                            built = signal_scope_builder(
                                 run_manifest_digest=manifest.digest,
                                 symbol=symbol,
                                 train_symbols=symbols,
@@ -378,25 +431,52 @@ def run_universal_causal_alpha_v3_research_pipeline(
                                 candidate=candidate,
                                 fit_cache=fit_cache,
                             )
-                        except CausalAlphaV3SignalScopeUnavailable:
+                        except CausalAlphaV3SignalScopeUnavailable as error:
+                            if metric is not None or diagnostic is not None:
+                                raise ValueError(
+                                    "persisted V3 signal pair cannot be reproduced"
+                                ) from error
                             unavailable.append(contract.digest)
                             continue
+                        if not isinstance(built, CausalAlphaV3SignalScopeBuild):
+                            raise TypeError(
+                                "V3 signal scope builder must return a paired scope build"
+                            )
+                        built_metric = built.metric
+                        built_diagnostic = built.diagnostic
                         _validate_signal_scope_metric(
-                            metric,
+                            built_metric,
                             run_manifest_digest=manifest.digest,
                             fit_config_digest=fit_digest,
                             symbol=symbol,
                             contract=contract,
                         )
-                        base_store.write_signal_scope_metric(metric)
-                    else:
-                        _validate_signal_scope_metric(
-                            metric,
+                        _validate_signal_diagnostic_scope(
+                            built_diagnostic,
                             run_manifest_digest=manifest.digest,
                             fit_config_digest=fit_digest,
                             symbol=symbol,
                             contract=contract,
                         )
+                        _validate_signal_pair(built_metric, built_diagnostic)
+                        if metric is not None and metric.digest != built_metric.digest:
+                            raise ValueError(
+                                "persisted V3 signal metric disagrees with recomputed pair"
+                            )
+                        if (
+                            diagnostic is not None
+                            and diagnostic.digest != built_diagnostic.digest
+                        ):
+                            raise ValueError(
+                                "persisted V3 signal diagnostic disagrees with recomputed pair"
+                            )
+                        if metric is None:
+                            base_store.write_signal_scope_metric(built_metric)
+                            metric = built_metric
+                        if diagnostic is None:
+                            base_store.write_signal_diagnostic_scope(built_diagnostic)
+                            diagnostic = built_diagnostic
+                        _validate_signal_pair(metric, diagnostic)
                     metrics.append(metric)
             evidence = (
                 None

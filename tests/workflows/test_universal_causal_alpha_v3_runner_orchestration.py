@@ -9,6 +9,7 @@ import pytest
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_v3 import (
     CausalAlphaV3FitConfig,
+    CausalAlphaV3Forecast,
     CausalAlphaV3TargetConfig,
 )
 from trade_rl.learning.episode_oracle_teacher import (
@@ -45,6 +46,15 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3BootstrapEvidence,
     CausalAlphaV3SignalGateEvidence,
     CausalAlphaV3SignalScopeMetric,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic import (
+    CausalAlphaV3SignalDiagnosticModel,
+    CausalAlphaV3SignalDiagnosticPredictionRow,
+    CausalAlphaV3SignalDiagnosticRealizedRow,
+    CausalAlphaV3SignalDiagnosticScope,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
+    CausalAlphaV3SignalScopeBuild,
 )
 
 
@@ -233,8 +243,111 @@ def _scope_metric(*, passed: bool, **kwargs) -> CausalAlphaV3SignalScopeMetric:
         contract_start=contract.start,
         contract_stop=contract.stop,
         contract_digest=contract.digest,
+        cohort_indices=(contract.start, contract.start + 3),
         digest="",
     )
+
+
+def _diagnostic_model() -> CausalAlphaV3SignalDiagnosticModel:
+    return CausalAlphaV3SignalDiagnosticModel(
+        model_digest="a" * 64,
+        feature_names=("signal", "descriptor"),
+        intercept=0.0,
+        coefficients=(0.0, 0.0),
+        location=(0.0, 0.0),
+        scale=(1.0, 1.0),
+        constant_mask=(False, False),
+        fitted_row_count=2,
+        weighted_residual_rmse=0.0,
+        pooled_weighted_ess=2.0,
+        per_symbol_weighted_ess=(("BTCUSDT", 2.0),),
+        overlap_weight_digest="b" * 64,
+    )
+
+
+def _scope_build(*, passed: bool, **kwargs) -> CausalAlphaV3SignalScopeBuild:
+    metric = _scope_metric(passed=passed, **kwargs)
+    contract = kwargs["contract"]
+    symbol = kwargs["symbol"]
+    sample = kwargs["samples"][symbol]
+    decisions = tuple(range(contract.start, contract.stop - 1))
+    predictions = tuple(
+        CausalAlphaV3SignalDiagnosticPredictionRow(
+            decision_index=decision,
+            actionable=True,
+            available_feature_count=2,
+            available_feature_fraction=1.0,
+            prediction_24h=0.01,
+            prediction_72h=0.03,
+            prediction_72h_24h_equivalent=0.01,
+            expected_return_24h_equivalent=0.01,
+            uncertainty_24h_equivalent=0.1,
+            signal_to_uncertainty=0.1,
+        )
+        for decision in decisions
+    )
+    model_24h = _diagnostic_model()
+    model_72h = _diagnostic_model()
+    forecast_digest = CausalAlphaV3Forecast(
+        prediction_24h=np.asarray(
+            [row.prediction_24h for row in predictions], dtype=np.float64
+        ),
+        prediction_72h=np.asarray(
+            [row.prediction_72h for row in predictions], dtype=np.float64
+        ),
+        expected_return_24h_equivalent=np.asarray(
+            [row.expected_return_24h_equivalent for row in predictions],
+            dtype=np.float64,
+        ),
+        uncertainty_24h_equivalent=np.asarray(
+            [row.uncertainty_24h_equivalent for row in predictions],
+            dtype=np.float64,
+        ),
+        signal_to_uncertainty=np.asarray(
+            [row.signal_to_uncertainty for row in predictions], dtype=np.float64
+        ),
+        residual_rmse_24h=model_24h.weighted_residual_rmse,
+        residual_rmse_72h=model_72h.weighted_residual_rmse,
+    ).digest
+    metric = replace(metric, forecast_digest=forecast_digest, digest="")
+    realized = tuple(
+        CausalAlphaV3SignalDiagnosticRealizedRow(
+            decision_index=decision,
+            label_end_index=decision + 1,
+            available_feature_count=2,
+            available_feature_fraction=1.0,
+            prediction=0.01,
+            realized_return=0.01,
+        )
+        for decision in metric.cohort_indices
+    )
+    diagnostic = CausalAlphaV3SignalDiagnosticScope(
+        run_manifest_digest=metric.run_manifest_digest,
+        fit_config_digest=metric.fit_config_digest,
+        symbol=metric.symbol,
+        episode_index=metric.episode_index,
+        contract_start=metric.contract_start,
+        contract_stop=metric.contract_stop,
+        contract_digest=metric.contract_digest,
+        signal_metric_digest=metric.digest,
+        fit_digest=metric.fit_digest,
+        forecast_digest=metric.forecast_digest,
+        feature_schema_digest=sample.feature_schema_digest,
+        model_24h=model_24h,
+        model_72h=model_72h,
+        prediction_rows=predictions,
+        realized_24h_rows=realized,
+        realized_72h_rows=realized,
+        realized_fused_rows=realized,
+        canonical_cohort_indices=metric.cohort_indices,
+        per_feature_available_fraction=(1.0, 1.0),
+        complete_feature_row_count=len(predictions),
+        incomplete_feature_row_count=0,
+        available_feature_fraction_minimum=1.0,
+        available_feature_fraction_mean=1.0,
+        available_feature_fraction_maximum=1.0,
+    )
+    return CausalAlphaV3SignalScopeBuild(metric=metric, diagnostic=diagnostic)
 
 
 def _selection(freeze_digest: str) -> CausalAlphaV3SelectionEvidence:
@@ -302,8 +415,8 @@ def test_signal_rejection_stops_before_selection_and_holdout(
 
     monkeypatch.setattr(
         module,
-        "build_causal_alpha_v3_signal_scope_metric",
-        lambda **kwargs: _scope_metric(passed=False, **kwargs),
+        "build_causal_alpha_v3_signal_scope",
+        lambda **kwargs: _scope_build(passed=False, **kwargs),
     )
     monkeypatch.setattr(
         module,
@@ -322,6 +435,7 @@ def test_signal_rejection_stops_before_selection_and_holdout(
             config=_config(), prepared=_prepared(), output_root=tmp_path
         )
     assert (tmp_path / "signal" / "rejection.json").is_file()
+    assert len(tuple((tmp_path / "signal" / "diagnostics").rglob("*.json"))) == 1
     assert not (tmp_path / "selection").exists()
     assert not (tmp_path / "admission").exists()
 
@@ -333,8 +447,8 @@ def test_admission_rejection_never_creates_teacher_package(
 
     monkeypatch.setattr(
         module,
-        "build_causal_alpha_v3_signal_scope_metric",
-        lambda **kwargs: _scope_metric(passed=True, **kwargs),
+        "build_causal_alpha_v3_signal_scope",
+        lambda **kwargs: _scope_build(passed=True, **kwargs),
     )
     monkeypatch.setattr(
         module,
@@ -366,6 +480,7 @@ def test_admission_rejection_never_creates_teacher_package(
         run_universal_causal_alpha_v3_research(
             config=_config(), prepared=_prepared(), output_root=tmp_path
         )
+    assert len(tuple((tmp_path / "signal" / "diagnostics").rglob("*.json"))) == 1
     assert (tmp_path / "freeze" / "candidates.json").is_file()
     assert (tmp_path / "selection" / "evidence.json").is_file()
     assert (tmp_path / "admission" / "evidence.json").is_file()

@@ -105,13 +105,15 @@ def _pooled(
     )
 
 
-def _weight_digest(
+def causal_alpha_v3_weight_digest(
     symbols: tuple[str, ...],
     weights: Mapping[str, np.ndarray],
     *,
     horizon: str,
     knowledge_cutoff: int,
 ) -> str:
+    """Return the canonical identity of one V3 horizon weight set."""
+
     return content_and_arrays_digest(
         {
             "horizon": horizon,
@@ -308,13 +310,13 @@ def fit_causal_alpha_v3(
             labels=labels_72h,
             weights=pooled_weights_72h,
         ),
-        weight_digest_24h=_weight_digest(
+        weight_digest_24h=causal_alpha_v3_weight_digest(
             symbols,
             weights_24h,
             horizon="24h",
             knowledge_cutoff=knowledge_cutoff,
         ),
-        weight_digest_72h=_weight_digest(
+        weight_digest_72h=causal_alpha_v3_weight_digest(
             symbols,
             weights_72h,
             horizon="72h",
@@ -328,5 +330,6 @@ def fit_causal_alpha_v3(
 __all__ = [
     "CausalAlphaV3Fit",
     "build_causal_alpha_v3_symbol_balanced_weights",
+    "causal_alpha_v3_weight_digest",
     "fit_causal_alpha_v3",
 ]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 
 import numpy as np
 
@@ -12,6 +12,7 @@ from trade_rl.learning.causal_alpha_diagnostics import (
     evaluate_causal_alpha_signal_diagnostics,
 )
 from trade_rl.learning.causal_alpha_v3 import (
+    CausalAlphaV3Forecast,
     CausalAlphaV3TargetPath,
     causal_alpha_v3_target_path,
 )
@@ -33,6 +34,12 @@ from trade_rl.workflows.universal_causal_alpha_v3_config import CausalAlphaV3Can
 from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3SignalScopeMetric,
     non_overlapping_causal_alpha_v3_rows,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic import (
+    CausalAlphaV3SignalDiagnosticScope,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic_builder import (
+    build_causal_alpha_v3_signal_diagnostic_scope,
 )
 
 
@@ -102,6 +109,66 @@ class CausalAlphaV3ContractTargets:
         object.__setattr__(self, "actions", actions)
 
 
+@dataclass(frozen=True, slots=True)
+class CausalAlphaV3SignalScopeBuild:
+    metric: CausalAlphaV3SignalScopeMetric
+    diagnostic: CausalAlphaV3SignalDiagnosticScope
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.metric, CausalAlphaV3SignalScopeMetric):
+            raise TypeError("V3 signal scope build metric is invalid")
+        if not isinstance(self.diagnostic, CausalAlphaV3SignalDiagnosticScope):
+            raise TypeError("V3 signal scope build diagnostic is invalid")
+        metric = self.metric
+        diagnostic = self.diagnostic
+        if (
+            diagnostic.run_manifest_digest != metric.run_manifest_digest
+            or diagnostic.fit_config_digest != metric.fit_config_digest
+            or diagnostic.symbol != metric.symbol
+            or diagnostic.episode_index != metric.episode_index
+            or diagnostic.contract_start != metric.contract_start
+            or diagnostic.contract_stop != metric.contract_stop
+            or diagnostic.contract_digest != metric.contract_digest
+            or diagnostic.signal_metric_digest != metric.digest
+            or diagnostic.fit_digest != metric.fit_digest
+            or diagnostic.forecast_digest != metric.forecast_digest
+            or diagnostic.canonical_cohort_indices != metric.cohort_indices
+        ):
+            raise ValueError("V3 signal metric/diagnostic pair identity drifted")
+
+
+class CausalAlphaV3SignalScopeBuilder(Protocol):
+    """Typed port for one paired canonical Signal metric plus diagnostic build."""
+
+    def __call__(
+        self,
+        *,
+        run_manifest_digest: str,
+        symbol: str,
+        train_symbols: tuple[str, ...],
+        samples: Mapping[str, CausalAlphaSymbolSamples],
+        contract: OracleEpisodeContract,
+        candidate: CausalAlphaV3Candidate,
+        fit_cache: CausalAlphaV3FitCache | None = None,
+    ) -> CausalAlphaV3SignalScopeBuild: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _CausalAlphaV3SignalScopeComputation:
+    fitted: CausalAlphaV3Fit
+    forecast: CausalAlphaV3Forecast
+    block: CausalAlphaSymbolSamples
+    decisions: np.ndarray
+    actionable: np.ndarray
+    feature_available: np.ndarray
+    matched: np.ndarray
+    labels_24h: np.ndarray
+    labels_72h: np.ndarray
+    ends_24h: np.ndarray
+    ends_72h: np.ndarray
+    cohort_rows: np.ndarray
+
+
 def _prediction_scope(
     *,
     symbol: str,
@@ -111,7 +178,12 @@ def _prediction_scope(
     candidate: CausalAlphaV3Candidate,
     fit_cache: CausalAlphaV3FitCache | None,
 ) -> tuple[
-    CausalAlphaV3Fit, Any, CausalAlphaSymbolSamples, np.ndarray, np.ndarray, np.ndarray
+    CausalAlphaV3Fit,
+    CausalAlphaV3Forecast,
+    CausalAlphaSymbolSamples,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
 ]:
     if symbol not in samples:
         raise ValueError("V3 prediction symbol is outside sample scope")
@@ -158,7 +230,7 @@ def _labels_for_decisions(
     return matched, labels_24h, labels_72h, ends_24h, ends_72h
 
 
-def build_causal_alpha_v3_signal_scope_metric(
+def _build_signal_scope_computation(
     *,
     run_manifest_digest: str,
     symbol: str,
@@ -166,12 +238,10 @@ def build_causal_alpha_v3_signal_scope_metric(
     samples: Mapping[str, CausalAlphaSymbolSamples],
     contract: OracleEpisodeContract,
     candidate: CausalAlphaV3Candidate,
-    fit_cache: CausalAlphaV3FitCache | None = None,
-) -> CausalAlphaV3SignalScopeMetric:
-    """Fit at the scope start and measure independent realized 24h-equivalent alpha."""
-
+    fit_cache: CausalAlphaV3FitCache | None,
+) -> _CausalAlphaV3SignalScopeComputation:
     require_sha256(run_manifest_digest, field="V3 signal run_manifest_digest")
-    fitted, forecast, block, decisions, actionable, _ = _prediction_scope(
+    fitted, forecast, block, decisions, actionable, available = _prediction_scope(
         symbol=symbol,
         train_symbols=train_symbols,
         samples=samples,
@@ -201,8 +271,35 @@ def build_causal_alpha_v3_signal_scope_metric(
         raise CausalAlphaV3SignalScopeUnavailable(
             "V3 signal scope has fewer than two non-overlapping realized labels"
         )
-    prediction = forecast.expected_return_24h_equivalent[cohort_rows]
-    realized = 0.5 * (labels_24h[cohort_rows] + labels_72h[cohort_rows] / 3.0)
+    return _CausalAlphaV3SignalScopeComputation(
+        fitted=fitted,
+        forecast=forecast,
+        block=block,
+        decisions=decisions,
+        actionable=actionable,
+        feature_available=available,
+        matched=matched,
+        labels_24h=labels_24h,
+        labels_72h=labels_72h,
+        ends_24h=ends_24h,
+        ends_72h=ends_72h,
+        cohort_rows=cohort_rows,
+    )
+
+
+def _build_signal_scope_metric(
+    *,
+    run_manifest_digest: str,
+    symbol: str,
+    contract: OracleEpisodeContract,
+    candidate: CausalAlphaV3Candidate,
+    computation: _CausalAlphaV3SignalScopeComputation,
+) -> CausalAlphaV3SignalScopeMetric:
+    cohort_rows = computation.cohort_rows
+    prediction = computation.forecast.expected_return_24h_equivalent[cohort_rows]
+    realized = 0.5 * (
+        computation.labels_24h[cohort_rows] + computation.labels_72h[cohort_rows] / 3.0
+    )
     diagnostics = evaluate_causal_alpha_signal_diagnostics(prediction, realized)
     if diagnostics.rank_correlation is None:
         raise CausalAlphaV3SignalScopeUnavailable(
@@ -224,13 +321,93 @@ def build_causal_alpha_v3_signal_scope_metric(
         contract_start=contract.start,
         contract_stop=contract.stop,
         contract_digest=contract.digest,
-        fit_digest=fitted.digest,
-        forecast_digest=forecast.digest,
+        fit_digest=computation.fitted.digest,
+        forecast_digest=computation.forecast.digest,
         sample_count=int(cohort_rows.size),
         rank_correlation=float(diagnostics.rank_correlation),
         direction_accuracy=diagnostics.direction_accuracy,
         top_bottom_realized_spread=spread,
-        cohort_indices=tuple(int(decisions[row]) for row in cohort_rows),
+        cohort_indices=tuple(int(computation.decisions[row]) for row in cohort_rows),
+    )
+
+
+def build_causal_alpha_v3_signal_scope(
+    *,
+    run_manifest_digest: str,
+    symbol: str,
+    train_symbols: tuple[str, ...],
+    samples: Mapping[str, CausalAlphaSymbolSamples],
+    contract: OracleEpisodeContract,
+    candidate: CausalAlphaV3Candidate,
+    fit_cache: CausalAlphaV3FitCache | None = None,
+) -> CausalAlphaV3SignalScopeBuild:
+    """Build canonical Signal evidence and a non-promotable diagnostic sidecar."""
+
+    computation = _build_signal_scope_computation(
+        run_manifest_digest=run_manifest_digest,
+        symbol=symbol,
+        train_symbols=train_symbols,
+        samples=samples,
+        contract=contract,
+        candidate=candidate,
+        fit_cache=fit_cache,
+    )
+    metric = _build_signal_scope_metric(
+        run_manifest_digest=run_manifest_digest,
+        symbol=symbol,
+        contract=contract,
+        candidate=candidate,
+        computation=computation,
+    )
+    diagnostic = build_causal_alpha_v3_signal_diagnostic_scope(
+        run_manifest_digest=run_manifest_digest,
+        symbol=symbol,
+        samples=samples,
+        fitted=computation.fitted,
+        forecast=computation.forecast,
+        block=computation.block,
+        contract=contract,
+        decisions=computation.decisions,
+        actionable=computation.actionable,
+        feature_available=computation.feature_available,
+        matched=computation.matched,
+        labels_24h=computation.labels_24h,
+        labels_72h=computation.labels_72h,
+        ends_24h=computation.ends_24h,
+        ends_72h=computation.ends_72h,
+        signal_metric_digest=metric.digest,
+        canonical_cohort_indices=metric.cohort_indices,
+    )
+    return CausalAlphaV3SignalScopeBuild(metric=metric, diagnostic=diagnostic)
+
+
+def build_causal_alpha_v3_signal_scope_metric(
+    *,
+    run_manifest_digest: str,
+    symbol: str,
+    train_symbols: tuple[str, ...],
+    samples: Mapping[str, CausalAlphaSymbolSamples],
+    contract: OracleEpisodeContract,
+    candidate: CausalAlphaV3Candidate,
+    fit_cache: CausalAlphaV3FitCache | None = None,
+) -> CausalAlphaV3SignalScopeMetric:
+    """Build only the canonical Signal metric without diagnostic instrumentation."""
+
+    computation = _build_signal_scope_computation(
+        run_manifest_digest=run_manifest_digest,
+        symbol=symbol,
+        train_symbols=train_symbols,
+        samples=samples,
+        contract=contract,
+        candidate=candidate,
+        fit_cache=fit_cache,
+    )
+    return _build_signal_scope_metric(
+        run_manifest_digest=run_manifest_digest,
+        symbol=symbol,
+        contract=contract,
+        candidate=candidate,
+        computation=computation,
     )
 
 
@@ -344,8 +521,11 @@ def build_causal_alpha_v3_episode_batch(
 __all__ = [
     "CausalAlphaV3ContractTargets",
     "CausalAlphaV3FitCache",
+    "CausalAlphaV3SignalScopeBuild",
+    "CausalAlphaV3SignalScopeBuilder",
     "CausalAlphaV3SignalScopeUnavailable",
     "build_causal_alpha_v3_contract_targets",
     "build_causal_alpha_v3_episode_batch",
+    "build_causal_alpha_v3_signal_scope",
     "build_causal_alpha_v3_signal_scope_metric",
 ]

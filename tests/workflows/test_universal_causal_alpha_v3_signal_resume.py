@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -39,8 +40,15 @@ from trade_rl.workflows.universal_causal_alpha_v3_runtime import (
 from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     CausalAlphaV3SignalScopeMetric,
 )
+from trade_rl.workflows.universal_causal_alpha_v3_signal_diagnostic_codec import (
+    signal_diagnostic_scope_from_payload,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_signal_v2 import (
     evaluate_causal_alpha_v3_signal_gate_clustered,
+)
+from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
+    CausalAlphaV3SignalScopeBuild,
+    build_causal_alpha_v3_signal_scope,
 )
 
 
@@ -73,7 +81,7 @@ def _config(*, signal_contract_count: int) -> CausalAlphaV3ResearchConfig:
         signal_gate=CausalAlphaV3SignalGate(
             minimum_independent_episode_count=signal_contract_count,
             minimum_raw_scope_coverage=1.0,
-            minimum_rank_ic_lower_ci=1.0,
+            minimum_rank_ic_lower_ci=2.0,
             minimum_top_bottom_spread_lower_ci=-1.0,
             minimum_direction_accuracy_excess_lower_ci=-1.0,
             bootstrap_resamples=20,
@@ -93,7 +101,7 @@ def _config(*, signal_contract_count: int) -> CausalAlphaV3ResearchConfig:
 
 
 def _contract(episode_index: int) -> OracleEpisodeContract:
-    start = 5 + episode_index * 7
+    start = 10 + episode_index * 7
     return OracleEpisodeContract(
         dataset_id=_sha("d"),
         episode_index=episode_index,
@@ -105,7 +113,7 @@ def _contract(episode_index: int) -> OracleEpisodeContract:
 
 
 def _samples() -> CausalAlphaSymbolSamples:
-    decisions = np.arange(2, 50, dtype=np.int64)
+    decisions = np.arange(2, 60, dtype=np.int64)
     features = np.column_stack(
         (decisions.astype(np.float64), np.ones(decisions.size, dtype=np.float64))
     )
@@ -196,6 +204,7 @@ def _run_rejected(
     tmp_path,
     signal_contract_count: int,
     signal_scope_builder,
+    signal_gate_evaluator=evaluate_causal_alpha_v3_signal_gate_clustered,
 ) -> None:
     with pytest.raises(CausalAlphaV3SignalRejected):
         run_universal_causal_alpha_v3_research_pipeline(
@@ -203,7 +212,7 @@ def _run_rejected(
             prepared=_prepared(signal_contract_count=signal_contract_count),
             output_root=tmp_path,
             signal_scope_builder=signal_scope_builder,
-            signal_gate_evaluator=evaluate_causal_alpha_v3_signal_gate_clustered,
+            signal_gate_evaluator=signal_gate_evaluator,
             selection_evaluator=lambda **kwargs: pytest.fail(
                 "selection must not run after signal rejection"
             ),
@@ -213,51 +222,51 @@ def _run_rejected(
         )
 
 
-def test_signal_leaf_is_reused_without_rebuilding_same_scope(tmp_path) -> None:
-    build_calls: list[int] = []
-
-    def build_once(**kwargs) -> CausalAlphaV3SignalScopeMetric:
+def _counting_builder(calls: list[int]):
+    def build(**kwargs) -> CausalAlphaV3SignalScopeBuild:
         contract = kwargs["contract"]
-        build_calls.append(contract.episode_index)
-        return _signal_metric(
-            run_manifest_digest=kwargs["run_manifest_digest"],
-            fit_config_digest=kwargs["candidate"].fit.digest,
-            symbol=kwargs["symbol"],
-            contract=contract,
-        )
+        calls.append(contract.episode_index)
+        return build_causal_alpha_v3_signal_scope(**kwargs)
 
+    return build
+
+
+def _single_pair_paths(tmp_path) -> tuple[object, object]:
+    records = tuple((tmp_path / "signal" / "records").rglob("*.json"))
+    diagnostics = tuple((tmp_path / "signal" / "diagnostics").rglob("*.json"))
+    assert len(records) == 1
+    assert len(diagnostics) == 1
+    return records[0], diagnostics[0]
+
+
+def test_signal_pair_is_reused_without_rebuilding_same_scope(tmp_path) -> None:
+    build_calls: list[int] = []
     _run_rejected(
         tmp_path=tmp_path,
         signal_contract_count=1,
-        signal_scope_builder=build_once,
+        signal_scope_builder=_counting_builder(build_calls),
     )
     assert build_calls == [0]
+    _single_pair_paths(tmp_path)
 
     _run_rejected(
         tmp_path=tmp_path,
         signal_contract_count=1,
         signal_scope_builder=lambda **kwargs: pytest.fail(
-            "persisted signal leaf must be reused"
+            "complete persisted signal pair must be reused"
         ),
     )
 
 
-def test_signal_resume_rebuilds_only_missing_leaf_after_partial_crash(
-    tmp_path,
-) -> None:
+def test_signal_resume_rebuilds_only_missing_pair_after_partial_crash(tmp_path) -> None:
     first_calls: list[int] = []
 
-    def crash_after_first(**kwargs) -> CausalAlphaV3SignalScopeMetric:
+    def crash_after_first(**kwargs) -> CausalAlphaV3SignalScopeBuild:
         contract = kwargs["contract"]
         first_calls.append(contract.episode_index)
         if contract.episode_index == 1:
             raise RuntimeError("simulated signal-stage crash")
-        return _signal_metric(
-            run_manifest_digest=kwargs["run_manifest_digest"],
-            fit_config_digest=kwargs["candidate"].fit.digest,
-            symbol=kwargs["symbol"],
-            contract=contract,
-        )
+        return build_causal_alpha_v3_signal_scope(**kwargs)
 
     with pytest.raises(RuntimeError, match="simulated signal-stage crash"):
         run_universal_causal_alpha_v3_research_pipeline(
@@ -270,56 +279,157 @@ def test_signal_resume_rebuilds_only_missing_leaf_after_partial_crash(
             admission_evaluator=lambda **kwargs: pytest.fail("admission must not run"),
         )
     assert first_calls == [0, 1]
+    assert len(tuple((tmp_path / "signal" / "records").rglob("*.json"))) == 1
+    assert len(tuple((tmp_path / "signal" / "diagnostics").rglob("*.json"))) == 1
 
     resumed_calls: list[int] = []
-
-    def build_missing(**kwargs) -> CausalAlphaV3SignalScopeMetric:
-        contract = kwargs["contract"]
-        resumed_calls.append(contract.episode_index)
-        return _signal_metric(
-            run_manifest_digest=kwargs["run_manifest_digest"],
-            fit_config_digest=kwargs["candidate"].fit.digest,
-            symbol=kwargs["symbol"],
-            contract=contract,
-        )
-
     _run_rejected(
         tmp_path=tmp_path,
         signal_contract_count=2,
-        signal_scope_builder=build_missing,
+        signal_scope_builder=_counting_builder(resumed_calls),
     )
     assert resumed_calls == [1]
 
 
-def test_signal_resume_rejects_corrupt_leaf_before_builder_runs(tmp_path) -> None:
-    def build_once(**kwargs) -> CausalAlphaV3SignalScopeMetric:
-        contract = kwargs["contract"]
-        return _signal_metric(
-            run_manifest_digest=kwargs["run_manifest_digest"],
-            fit_config_digest=kwargs["candidate"].fit.digest,
-            symbol=kwargs["symbol"],
-            contract=contract,
-        )
-
+def test_signal_resume_repairs_metric_only_partial_write_without_rewriting_metric(
+    tmp_path,
+) -> None:
     _run_rejected(
         tmp_path=tmp_path,
         signal_contract_count=1,
-        signal_scope_builder=build_once,
+        signal_scope_builder=_counting_builder([]),
     )
-    records = tuple((tmp_path / "signal" / "records").rglob("*.json"))
-    assert len(records) == 1
-    raw = json.loads(records[0].read_text(encoding="utf-8"))
+    metric_path, diagnostic_path = _single_pair_paths(tmp_path)
+    metric_bytes = metric_path.read_bytes()
+    diagnostic_path.unlink()
+
+    calls: list[int] = []
+    _run_rejected(
+        tmp_path=tmp_path,
+        signal_contract_count=1,
+        signal_scope_builder=_counting_builder(calls),
+    )
+
+    assert calls == [0]
+    assert metric_path.read_bytes() == metric_bytes
+    assert diagnostic_path.is_file()
+
+
+def test_signal_resume_repairs_diagnostic_only_partial_write_without_rewriting_diagnostic(
+    tmp_path,
+) -> None:
+    _run_rejected(
+        tmp_path=tmp_path,
+        signal_contract_count=1,
+        signal_scope_builder=_counting_builder([]),
+    )
+    metric_path, diagnostic_path = _single_pair_paths(tmp_path)
+    diagnostic_bytes = diagnostic_path.read_bytes()
+    metric_path.unlink()
+
+    calls: list[int] = []
+    _run_rejected(
+        tmp_path=tmp_path,
+        signal_contract_count=1,
+        signal_scope_builder=_counting_builder(calls),
+    )
+
+    assert calls == [0]
+    assert metric_path.is_file()
+    assert diagnostic_path.read_bytes() == diagnostic_bytes
+
+
+def test_signal_resume_rejects_corrupt_metric_before_builder_runs(tmp_path) -> None:
+    _run_rejected(
+        tmp_path=tmp_path,
+        signal_contract_count=1,
+        signal_scope_builder=_counting_builder([]),
+    )
+    metric_path, _ = _single_pair_paths(tmp_path)
+    raw = json.loads(metric_path.read_text(encoding="utf-8"))
     raw["schema_version"] = "tampered"
-    records[0].write_text(json.dumps(raw), encoding="utf-8")
+    metric_path.write_text(json.dumps(raw), encoding="utf-8")
 
     with pytest.raises(ValueError, match="schema"):
         _run_rejected(
             tmp_path=tmp_path,
             signal_contract_count=1,
             signal_scope_builder=lambda **kwargs: pytest.fail(
-                "corrupt persisted leaf must fail before builder invocation"
+                "corrupt persisted metric must fail before builder invocation"
             ),
         )
+
+
+def test_signal_resume_rejects_corrupt_diagnostic_before_builder_runs(tmp_path) -> None:
+    _run_rejected(
+        tmp_path=tmp_path,
+        signal_contract_count=1,
+        signal_scope_builder=_counting_builder([]),
+    )
+    _, diagnostic_path = _single_pair_paths(tmp_path)
+    raw = json.loads(diagnostic_path.read_text(encoding="utf-8"))
+    raw["schema_version"] = "tampered"
+    diagnostic_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="schema"):
+        _run_rejected(
+            tmp_path=tmp_path,
+            signal_contract_count=1,
+            signal_scope_builder=lambda **kwargs: pytest.fail(
+                "corrupt persisted diagnostic must fail before builder invocation"
+            ),
+        )
+
+
+def test_signal_resume_rejects_valid_but_cross_bound_pair_before_builder_runs(
+    tmp_path,
+) -> None:
+    _run_rejected(
+        tmp_path=tmp_path,
+        signal_contract_count=1,
+        signal_scope_builder=_counting_builder([]),
+    )
+    _, diagnostic_path = _single_pair_paths(tmp_path)
+    diagnostic = signal_diagnostic_scope_from_payload(
+        json.loads(diagnostic_path.read_text(encoding="utf-8"))
+    )
+    drifted = replace(diagnostic, signal_metric_digest=_sha("f"), digest="")
+    diagnostic_path.write_text(json.dumps(drifted.to_payload()), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="pair identity"):
+        _run_rejected(
+            tmp_path=tmp_path,
+            signal_contract_count=1,
+            signal_scope_builder=lambda **kwargs: pytest.fail(
+                "valid but cross-bound pair must fail before builder invocation"
+            ),
+        )
+
+
+def test_signal_gate_receives_only_canonical_metrics_and_rejection_excludes_sidecars(
+    tmp_path,
+) -> None:
+    observed: list[CausalAlphaV3SignalScopeMetric] = []
+
+    def gate_spy(metrics, **kwargs):
+        assert metrics
+        assert all(type(item) is CausalAlphaV3SignalScopeMetric for item in metrics)
+        assert all(not hasattr(item, "diagnostic") for item in metrics)
+        observed.extend(metrics)
+        return evaluate_causal_alpha_v3_signal_gate_clustered(metrics, **kwargs)
+
+    _run_rejected(
+        tmp_path=tmp_path,
+        signal_contract_count=1,
+        signal_scope_builder=_counting_builder([]),
+        signal_gate_evaluator=gate_spy,
+    )
+
+    assert len(observed) == 1
+    rejection_text = (tmp_path / "signal" / "rejection.json").read_text(
+        encoding="utf-8"
+    )
+    assert "diagnostic" not in rejection_text
 
 
 def test_signal_store_rejects_cross_run_leaf_write(tmp_path) -> None:

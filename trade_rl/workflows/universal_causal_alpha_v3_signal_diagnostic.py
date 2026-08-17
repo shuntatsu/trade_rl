@@ -10,6 +10,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.learning.causal_alpha_v3 import CausalAlphaV3Forecast
 
 CAUSAL_ALPHA_V3_SIGNAL_DIAGNOSTIC_SCOPE_SCHEMA: Final = (
     "causal_alpha_v3_signal_diagnostic_scope_v1"
@@ -420,6 +421,30 @@ class CausalAlphaV3SignalDiagnosticScope:
                 fraction=prediction_row.available_feature_fraction,
                 feature_width=feature_width,
             )
+        reconstructed_forecast = CausalAlphaV3Forecast(
+            prediction_24h=np.asarray(
+                [row.prediction_24h for row in prediction_rows], dtype=np.float64
+            ),
+            prediction_72h=np.asarray(
+                [row.prediction_72h for row in prediction_rows], dtype=np.float64
+            ),
+            expected_return_24h_equivalent=np.asarray(
+                [row.expected_return_24h_equivalent for row in prediction_rows],
+                dtype=np.float64,
+            ),
+            uncertainty_24h_equivalent=np.asarray(
+                [row.uncertainty_24h_equivalent for row in prediction_rows],
+                dtype=np.float64,
+            ),
+            signal_to_uncertainty=np.asarray(
+                [row.signal_to_uncertainty for row in prediction_rows],
+                dtype=np.float64,
+            ),
+            residual_rmse_24h=self.model_24h.weighted_residual_rmse,
+            residual_rmse_72h=self.model_72h.weighted_residual_rmse,
+        )
+        if reconstructed_forecast.digest != self.forecast_digest:
+            raise ValueError("V3 diagnostic forecast identity drifted")
         realized_sets = (
             tuple(self.realized_24h_rows),
             tuple(self.realized_72h_rows),

@@ -114,7 +114,6 @@ V3 target compilerは絶対positionではなく`delta_weight`のconservative inc
 
 **DAgger**はlearner actionでsimulatorを進め、learnerが実際に訪れた同じstateをcausal teacherで再ラベルします。Dataset、Environment、ActionSpec、Teacher identityがずれたrolloutはmerge時にfail closedします。DAgger datasetはBCのstate-distribution診断・改善用であり、**does not bypass teacher admission**です。
 
-
 ### Artifact-bound V3 research runner
 
 V3 primitivesを実データで最後まで評価するため、`scripts/run_universal_causal_alpha_v3_research.py`をresearch-only entrypointとして使用します。Runnerは次の順序を固定し、途中結果を次段階の選択条件へ流用しません。
@@ -144,6 +143,27 @@ Teacher admissionはcandidate selection完了後にselected candidateだけへ�
 CLIのterminal research outcomeは、admittedがexit code 0、signal rejectionが**exit code 2**、economic selection rejectionが**exit code 3**、teacher admission rejectionが**exit code 4**です。いずれのV3 evidenceも`promotion_eligible=false`で、Software successをProduction GOへ読み替えません。
 
 Downstream learner pathはこのrunnerの非目標です。`DAgger -> BC`、critic warm start、`anchored PPO`/Lagrangian系は**only after teacher admission**で別工程として実行します。Admission前に`anchored_target_residual`やDAggerを使ってcanonical gateを迂回しません。
+
+### Causal Alpha V3 manual research control
+
+長時間のfresh V3実データrunは、GitHub Actionsの`.github/workflows/causal-alpha-v3-research.yml`からowner-only / `main`-onlyで操作します。操作は`start / status / collect / stop`の4つだけです。`start`はexact checkoutとruntime/source/lock/config identityを固定したdetached containerを起動し、Actions job終了後も`trade-rl-training-data` volume上のsource runを継続させます。
+
+Privileged runnerへ任意host pathやscientific configをdispatch inputとして渡しません。Universal runtime artifactはrepository/environment variable `TRADE_RL_UNIVERSAL_ARTIFACT_ROOT`からだけ解決し、control-plane state rootは`TRADE_RL_CAUSAL_ALPHA_V3_STATE_ROOT`で固定できます。self-hosted GPU runner側には、runtime manifest、frozen metadata、persistent volume、必要なcatalog/dataが事前に存在する必要があります。
+
+Containerのterminal exitはlauncher executionとresearch outcomeを分離して記録します。
+
+```text
+0 = admitted
+2 = signal_rejected
+3 = selection_rejected
+4 = admission_rejected
+other = execution failure / research outcome unavailable
+operator stop = operator_stopped / research outcome unavailable
+```
+
+`status`はread-onlyで、containerをstop/remove/copyしません。`collect`はterminal containerだけを対象にrun output、container log、launch manifest、result JSONをretained evidenceへコピーします。**collect does not delete the durable source run**です。Retentionに失敗してもsource runやnamed training-data volumeを削除して成功扱いにしません。
+
+このcontrol planeのsoftware/launcher successとresearch resultは別物です。**launcher success does not prove profitability or Production GO**です。Signal/Selection/AdmissionのPASS、alpha、収益性、RL uplift、Production authorizationは、それぞれ対応する実データevidenceで別途判定します。self-hosted GPU上の実データ実行そのものは、CIとは別のempirical verification layerです。
 
 ## 6. Teacher admissionとfail-closed順序
 

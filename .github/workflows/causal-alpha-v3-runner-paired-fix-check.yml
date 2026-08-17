@@ -1,0 +1,32 @@
+name: Causal Alpha V3 Runner Paired Fix Check
+on:
+  push:
+    branches:
+      - agent/causal-alpha-v3-runner-paired-fix-check
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 2b119b839b012922f729b9f9bcc6069383a8fd2d
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - run: uv sync --extra dev --extra train-sb3
+      - name: Static changed surfaces
+        run: |
+          uv run ruff check trade_rl/workflows/universal_causal_alpha_v3_runner.py tests/workflows/test_universal_causal_alpha_v3_runner_orchestration.py
+          uv run ruff format --check trade_rl/workflows/universal_causal_alpha_v3_runner.py tests/workflows/test_universal_causal_alpha_v3_runner_orchestration.py
+          uv run mypy trade_rl/workflows/universal_causal_alpha_v3_runner.py
+      - name: Focused runner and signal regressions
+        run: |
+          uv run pytest -q \
+            tests/workflows/test_universal_causal_alpha_v3_runner_orchestration.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_signal.py \
+            tests/workflows/test_universal_causal_alpha_v3_signal_resume.py \
+            tests/workflows/test_universal_causal_alpha_v3_signal_diagnostic.py \
+            tests/workflows/test_universal_causal_alpha_v3_signal_diagnostic_store.py

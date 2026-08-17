@@ -9,6 +9,12 @@ from typing import Any
 import numpy as np
 import pytest
 
+from tests.workflows.test_universal_causal_alpha_v3_signal_forensics import (
+    _write_json,
+)
+from tests.workflows.test_universal_causal_alpha_v3_signal_forensics_v2_sidecars import (
+    _complete_sidecars,
+)
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_diagnostics import (
     evaluate_causal_alpha_signal_diagnostics,
@@ -18,12 +24,6 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal_forensics import (
 )
 from trade_rl.workflows.universal_causal_alpha_v3_signal_forensics_v2_loader import (
     load_causal_alpha_v3_signal_forensics_v2_sidecars,
-)
-from tests.workflows.test_universal_causal_alpha_v3_signal_forensics import (
-    _write_json,
-)
-from tests.workflows.test_universal_causal_alpha_v3_signal_forensics_v2_sidecars import (
-    _complete_sidecars,
 )
 
 

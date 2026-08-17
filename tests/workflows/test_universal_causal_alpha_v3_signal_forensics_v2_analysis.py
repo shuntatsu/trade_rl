@@ -66,6 +66,7 @@ def test_v2_complete_report_preserves_v1_and_exposes_sidecar_analysis(
         "canonical_ridge_model_digest_reconstruction",
         "market_regime_classification",
         "overlapping_row_independent_confidence",
+        "profitability_or_production_go_inference",
         "row_feature_error_attribution",
     }
 

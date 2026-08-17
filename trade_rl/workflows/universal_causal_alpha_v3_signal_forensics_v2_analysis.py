@@ -286,7 +286,9 @@ def _chronological_metric(
         None if late_values.size == 0 else float(np.mean(late_values, dtype=np.float64))
     )
     slope: float | None = None
-    if len(defined) >= 2:
+    if len(values) == 1 and len(defined) == 1:
+        slope = 0.0
+    elif len(defined) >= 2:
         x = np.asarray([index for index, _ in defined], dtype=np.float64)
         y = defined_values
         centered_x = x - float(np.mean(x, dtype=np.float64))

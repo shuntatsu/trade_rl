@@ -1,6 +1,6 @@
 # Causal Alpha V3 Signal Diagnostic Sidecar TDD State
 
-Current phase: **verification / falsification**. Production implementation is present, but the task is not complete until the exact final HEAD passes the required full CI and final review gates.
+Current phase: **exact-final-HEAD verification / independent review**. Production implementation is present, but the task is not complete until the exact final HEAD passes the required full CI and final review gates.
 
 ## TDD checkpoints
 
@@ -21,12 +21,23 @@ Architecture review found the first diagnostic module mixed artifact contracts a
 
 ## Canonical metric oracle
 
-A fixed cross-runner model/forecast digest was rejected as a test oracle after the exact same pre-sidecar commit and input produced different low-bit model/forecast/artifact digests on separate GitHub-hosted runners while all Gate observations remained identical. The unit regression therefore fixes the stable Gate observations and scope identities.
+A fixed cross-runner model/forecast digest was rejected as a test oracle after the exact same pre-sidecar commit and input produced different low-bit model/forecast/artifact digests on separate GitHub-hosted runners while all Gate observations remained identical. The design quality contract now explicitly records this pre-existing numerical-backend reproducibility boundary.
 
-Separately, an old-vs-new **same-runner** cross-tree test checks the full canonical metric payload and artifact digest under the same dependency environment and BLAS thread settings. That comparison passed for the pre-sidecar base and the implementation before the final type-only cleanup; it must be repeated against the final implementation HEAD before completion.
+The maintained no-op oracle is an old-vs-new **same-runner** cross-tree test that compares the full canonical metric payload and artifact digest under the same dependency environment and fixed numerical thread settings. A completed comparison passed before the final documentation-only quality-contract refinement; the exact final HEAD must still be checked before completion.
 
 ## Current verification status
 
-A focused Signal regression run passed 41 tests together with Ruff and format checks before the final type-only cleanup. Full CI then found three Mypy errors caused by variable-name type inference and an already-validated boolean sequence not being narrowed for Mypy. The fixes do not change numerical calculations or parser rejection conditions. The formatter has been applied; Mypy and targeted tests are being re-run, followed by exact-final-HEAD full CI.
+After the final type-only cleanup and formatter pass, a focused verification succeeded with:
+
+- Ruff: passed;
+- format check: passed;
+- Mypy: `Success: no issues found in 485 source files`;
+- targeted Signal regression suite: `41 passed`.
+
+The Mypy fixes only disambiguate prediction/realized loop variable types and preserve the strict pre-validation of the diagnostic constant-mask payload. They do not change Signal calculations or parser rejection conditions.
+
+The quality contract was then refined to require exact old-vs-new metric/digest equality within the same numerical execution environment, while treating cross-host low-bit ridge variation as a pre-existing residual risk that must fail closed during partial repair rather than overwrite evidence.
+
+The next and final software verification gate is the full CI/check matrix plus the same-runner cross-tree oracle on the exact final HEAD, followed by final diff/status/PR review and independent acceptance-criteria/falsification review.
 
 No CI result, targeted test result, or reviewer conclusion by itself is treated as completion. Final status requires the quality contract, full checks, final diff review, and residual-risk review to be satisfied on the same HEAD.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import numpy as np
 import pytest
@@ -31,7 +31,9 @@ if TYPE_CHECKING:
         CausalAlphaV3SignalScopeBuilder,
     )
 
-    _paired_builder: CausalAlphaV3SignalScopeBuilder = build_causal_alpha_v3_signal_scope
+    _paired_builder: CausalAlphaV3SignalScopeBuilder = (
+        build_causal_alpha_v3_signal_scope
+    )
     _metric_only_builder: CausalAlphaV3SignalScopeBuilder = (
         build_causal_alpha_v3_signal_scope_metric  # type: ignore[assignment]
     )
@@ -95,7 +97,7 @@ def _contract() -> OracleEpisodeContract:
     )
 
 
-def _kwargs() -> dict[str, object]:
+def _kwargs() -> dict[str, Any]:
     return {
         "run_manifest_digest": _sha("a"),
         "symbol": "AAAUSDT",
@@ -107,9 +109,11 @@ def _kwargs() -> dict[str, object]:
 
 
 def test_pipeline_signal_scope_builder_uses_explicit_paired_protocol() -> None:
-    annotation = inspect.signature(
-        run_universal_causal_alpha_v3_research_pipeline
-    ).parameters["signal_scope_builder"].annotation
+    annotation = (
+        inspect.signature(run_universal_causal_alpha_v3_research_pipeline)
+        .parameters["signal_scope_builder"]
+        .annotation
+    )
 
     assert "CausalAlphaV3SignalScopeBuilder" in str(annotation)
     assert "Any" not in str(annotation)
@@ -137,9 +141,9 @@ def test_strict_sidecar_rejects_forged_forecast_with_recomputed_outer_digest() -
     diagnostic = build_causal_alpha_v3_signal_scope(**_kwargs()).diagnostic
     payload = diagnostic.to_payload()
     prediction_rows = [dict(row) for row in payload["prediction_rows"]]
-    prediction_rows[0]["prediction_24h"] = float(
-        prediction_rows[0]["prediction_24h"]
-    ) + 0.125
+    prediction_rows[0]["prediction_24h"] = (
+        float(prediction_rows[0]["prediction_24h"]) + 0.125
+    )
     payload["prediction_rows"] = tuple(prediction_rows)
     unsigned = dict(payload)
     unsigned.pop("artifact_digest")

@@ -18,6 +18,16 @@ def _top_level_functions(path: Path) -> frozenset[str]:
     )
 
 
+def _function_owners(name: str) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            path.relative_to(PACKAGE_ROOT).as_posix()
+            for path in PACKAGE_ROOT.rglob("*.py")
+            if name in _top_level_functions(path)
+        )
+    )
+
+
 def _import_targets(path: Path, *, module_name: str) -> frozenset[str]:
     return frozenset(
         reference.target
@@ -27,11 +37,9 @@ def _import_targets(path: Path, *, module_name: str) -> frozenset[str]:
 
 
 def test_market_walk_forward_orchestration_has_one_owner() -> None:
-    public = PACKAGE_ROOT / "workflows/market_walk_forward.py"
-    core = PACKAGE_ROOT / "workflows/_market_walk_forward_core.py"
-
-    assert "execute_market_walk_forward" in _top_level_functions(public)
-    assert "execute_market_walk_forward" not in _top_level_functions(core)
+    assert _function_owners("execute_market_walk_forward") == (
+        "workflows/market_walk_forward.py",
+    )
 
 
 def test_market_walk_forward_core_does_not_own_publication_or_ledger_adapters() -> None:

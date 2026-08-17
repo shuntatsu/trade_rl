@@ -105,6 +105,20 @@ def _rows_for_horizon(
     return scope.diagnostic.realized_fused_rows
 
 
+def _prediction_values_for_horizon(
+    scope: CausalAlphaV3SignalForensicsV2BoundScope, horizon: Horizon
+) -> tuple[float, ...]:
+    if horizon == "24h":
+        field = "prediction_24h"
+    elif horizon == "72h":
+        field = "prediction_72h_24h_equivalent"
+    else:
+        field = "expected_return_24h_equivalent"
+    return tuple(
+        float(getattr(row, field)) for row in scope.diagnostic.prediction_rows
+    )
+
+
 def _prediction_distributions(
     scopes: tuple[CausalAlphaV3SignalForensicsV2BoundScope, ...],
 ) -> tuple[CausalAlphaV3PredictionDistribution, ...]:
@@ -616,7 +630,17 @@ def _chronological_horizon_series(
                 direction.append(diagnostics.direction_accuracy)
                 rank.append(diagnostics.rank_correlation)
                 pearson.append(diagnostics.pearson_correlation)
-                prediction_std.append(diagnostics.prediction_std)
+                prediction_values = _finite_values(
+                    [
+                        value
+                        for scope in cluster
+                        for value in _prediction_values_for_horizon(scope, horizon)
+                    ],
+                    field=f"{horizon} prediction chronology",
+                )
+                prediction_std.append(
+                    float(np.std(prediction_values, dtype=np.float64))
+                )
                 availability_values = _finite_values(
                     [
                         row.available_feature_fraction

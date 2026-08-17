@@ -38,7 +38,7 @@ from trade_rl.workflows.universal_causal_alpha_v3_signal_v2 import (
 from trade_rl.workflows.universal_causal_alpha_v3_teacher import (
     build_causal_alpha_v3_contract_targets,
     build_causal_alpha_v3_episode_batch,
-    build_causal_alpha_v3_signal_scope_metric,
+    build_causal_alpha_v3_signal_scope,
 )
 from trade_rl.workflows.universal_causal_alpha_v3_teacher_artifacts import (
     UniversalCausalAlphaV3TeacherPackageV2,
@@ -83,7 +83,7 @@ def run_universal_causal_alpha_v3_research(
         config=config,
         prepared=prepared,
         output_root=output_root,
-        signal_scope_builder=build_causal_alpha_v3_signal_scope_metric,
+        signal_scope_builder=build_causal_alpha_v3_signal_scope,
         signal_gate_evaluator=evaluate_causal_alpha_v3_signal_gate,
         selection_evaluator=evaluate_causal_alpha_v3_selection,
         episode_batch_builder=build_causal_alpha_v3_episode_batch,

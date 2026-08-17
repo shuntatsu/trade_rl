@@ -57,7 +57,9 @@ def _validate_pair(
     if diagnostic.contract_digest != metric.contract_digest:
         raise ValueError("V3 signal diagnostic contract digest does not match metric")
     if diagnostic.signal_metric_digest != metric.digest:
-        raise ValueError("V3 signal diagnostic metric digest does not match canonical metric")
+        raise ValueError(
+            "V3 signal diagnostic metric digest does not match canonical metric"
+        )
     if diagnostic.fit_digest != metric.fit_digest:
         raise ValueError("V3 signal diagnostic fit digest does not match metric")
     if diagnostic.forecast_digest != metric.forecast_digest:
@@ -128,7 +130,9 @@ def load_causal_alpha_v3_signal_forensics_v2_sidecars(
         )
 
     fit_order = {digest: index for index, digest in enumerate(_fit_order(config))}
-    symbol_order = {symbol: index for index, symbol in enumerate(manifest.train_symbols)}
+    symbol_order = {
+        symbol: index for index, symbol in enumerate(manifest.train_symbols)
+    }
     ordered_metrics = tuple(
         sorted(
             metrics,

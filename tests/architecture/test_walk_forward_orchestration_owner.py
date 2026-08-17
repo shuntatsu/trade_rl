@@ -7,6 +7,7 @@ from tests.architecture.import_references import scan_import_references
 from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 
 PACKAGE_ROOT = PYTHON_SOURCE_ROOT
+WORKFLOWS_ROOT = PACKAGE_ROOT / "workflows"
 
 
 def _top_level_functions(path: Path) -> frozenset[str]:
@@ -18,11 +19,11 @@ def _top_level_functions(path: Path) -> frozenset[str]:
     )
 
 
-def _function_owners(name: str) -> tuple[str, ...]:
+def _function_owners(root: Path, name: str) -> tuple[str, ...]:
     return tuple(
         sorted(
             path.relative_to(PACKAGE_ROOT).as_posix()
-            for path in PACKAGE_ROOT.rglob("*.py")
+            for path in root.rglob("*.py")
             if name in _top_level_functions(path)
         )
     )
@@ -36,9 +37,23 @@ def _import_targets(path: Path, *, module_name: str) -> frozenset[str]:
     )
 
 
-def test_market_walk_forward_orchestration_has_one_owner() -> None:
-    assert _function_owners("execute_market_walk_forward") == (
+def test_market_walk_forward_orchestration_has_one_workflow_owner() -> None:
+    assert _function_owners(WORKFLOWS_ROOT, "execute_market_walk_forward") == (
         "workflows/market_walk_forward.py",
+    )
+
+
+def test_market_walk_forward_cli_remains_a_public_workflow_adapter() -> None:
+    path = PACKAGE_ROOT / "cli/extended.py"
+    targets = _import_targets(path, module_name="trade_rl.cli.extended")
+
+    assert (
+        "trade_rl.workflows.market_walk_forward.execute_market_walk_forward" in targets
+    )
+    assert not any(
+        target == "trade_rl.workflows._market_walk_forward_core"
+        or target.startswith("trade_rl.workflows._market_walk_forward_core.")
+        for target in targets
     )
 
 

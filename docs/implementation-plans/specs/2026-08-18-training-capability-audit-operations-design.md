@@ -59,14 +59,15 @@ Make `trade_rl.operations` the owner of training-capability audit behavior while
 
 1. `trade_rl.operations.training_capability_audit` exposes the maintained package API used to execute the full audit.
 2. The heavy implementation is owned by `trade_rl.operations._training_capability_audit_impl`, not by the script adapter.
-3. `scripts/run_training_capability_audit.py` owns only argument parsing, invoking the package API, rendering the returned report, and process exit behavior.
+3. `scripts/run_training_capability_audit.py` owns only argument parsing, invoking the package API, compact sorted-JSON stdout rendering, and process exit behavior.
 4. The script no longer directly imports Gymnasium, NumPy, Torch, `MarketDataset`, SB3 training adapters, RL environment/action/export implementations, execution-cost models, or trend-strategy implementations.
 5. The existing workflow command remains valid without changing `.github/workflows/full-training-capability-audit.yml` unless a contract test proves a change is required.
 6. The generated report remains schema `full_training_capability_audit_v1` with the same field names and deterministic digest construction.
-7. The report remains written to `<output>/audit-report.json`; a pre-existing output root retains the current replace/recreate behavior.
-8. Existing audit probes continue to verify requested timesteps, policy publication, checkpoint publication, expected actor/critic widths, replay artifacts for off-policy algorithms, PPO checkpoint resume, SAC replay resume, deterministic actor export, residual controls, and sequence training.
-9. Architecture tests prevent application-grade training implementation from returning to the script adapter.
-10. Required repository quality gates pass on one exact final HEAD.
+7. The report remains written to `<output>/audit-report.json`; a pre-existing output root is recursively removed and recreated as it is today. The persisted file remains `json.dumps(report, indent=2, sort_keys=True) + "\n"`.
+8. Script stdout remains `print(json.dumps(report, sort_keys=True))`, preserving the existing compact sorted JSON plus print newline.
+9. Existing audit probes continue to verify requested timesteps, policy publication, checkpoint publication, expected actor/critic widths, replay artifacts for off-policy algorithms, PPO checkpoint resume, SAC replay resume, deterministic actor export, residual controls, and sequence training.
+10. Architecture tests prevent application-grade training implementation from returning to the script adapter.
+11. Required repository quality gates pass on one exact final HEAD.
 
 ### Invariants
 
@@ -81,7 +82,7 @@ Make `trade_rl.operations` the owner of training-capability audit behavior while
 
 ### 1. Public operations API
 
-`trade_rl/operations/training_capability_audit.py` is a small facade. It exposes the minimum maintained API, expected to be:
+`trade_rl/operations/training_capability_audit.py` is a small facade. It exposes the minimum maintained API:
 
 ```python
 def run_training_capability_audit(output_root: Path) -> dict[str, object]: ...
@@ -113,10 +114,10 @@ Implementation-only symbols remain private to the package. No new generic abstra
 
 `scripts/run_training_capability_audit.py` becomes a thin executable adapter:
 
-1. parse `--output` with the same default path;
+1. parse `--output` with the same `Path("var/training-capability-audit")` default;
 2. call `run_training_capability_audit(output_root)`;
-3. print the report JSON using the current externally visible representation;
-4. return the current success exit code.
+3. execute `print(json.dumps(report, sort_keys=True))`;
+4. return `0`.
 
 The adapter must not know how individual algorithms are configured or trained.
 
@@ -146,7 +147,7 @@ trade_rl.operations._training_capability_audit_impl
         |
         +--> deterministic report payload + digest
         v
-script prints report JSON
+script prints compact sorted JSON
 ```
 
 The dependency direction is one-way: script -> operations facade -> private implementation -> lower training/data/integration layers. No lower layer may import the operations audit.
@@ -157,6 +158,7 @@ The dependency direction is one-way: script -> operations facade -> private impl
 - Facade leaks private audit classes/functions: public-surface contract test fails.
 - Report schema or keys drift during move: contract/behavior test fails.
 - Digest construction accidentally includes/excludes a field: golden-equivalence or deterministic payload test fails.
+- Persisted JSON or stdout serialization changes during extraction: exact serialization contract fails.
 - Output-root replacement behavior changes: filesystem behavior test fails.
 - One algorithm silently stops short, misses a policy/checkpoint/replay artifact, or changes architecture: existing audit runtime checks continue to fail closed.
 - Resume/export/residual/sequence probe is accidentally omitted during extraction: report field/status contract tests fail.
@@ -170,7 +172,8 @@ Correctness is determined by observable contracts, not by successful import alon
 
 - script AST/import graph shows only CLI/serialization plus the public operations API, not training implementation dependencies;
 - direct package API writes the required `audit-report.json` and returns the report payload;
-- persisted report and returned payload agree;
+- persisted report parses to exactly the returned payload and its bytes match the existing indented/sorted/newline representation;
+- script stdout parses to exactly the returned payload and its text matches the existing compact sorted representation;
 - schema remains `full_training_capability_audit_v1`;
 - digest remains a valid deterministic content digest of the report's pre-digest payload;
 - all expected report sections remain present and status-bearing;
@@ -182,9 +185,9 @@ Correctness is determined by observable contracts, not by successful import alon
 ### Unit / contract
 
 - public operations facade delegation and public-surface contract;
-- report schema/digest/output path contract;
+- report schema/digest/output path and exact serialization contract;
 - script thin-adapter import/AST contract;
-- script argument/default/output behavior with package API substituted at the boundary.
+- script argument/default/stdout behavior with package API substituted at the public boundary.
 
 ### Integration
 
@@ -212,7 +215,7 @@ Correctness is determined by observable contracts, not by successful import alon
 ## TDD sequence
 
 1. Add architecture/contract tests that require a package-owned audit API and a thin script adapter. They must fail against current `main` for the intended ownership reasons.
-2. Add/adjust behavioral tests that pin the existing report schema, output file, digest relationship, and script delegation contract.
+2. Add/adjust behavioral tests that pin the existing report schema, output file, digest relationship, exact serialization, and script delegation contract.
 3. Move the implementation into the private operations module without semantic changes.
 4. Add the public operations facade and reduce the script to a thin adapter.
 5. Run the smallest targeted tests to GREEN.
@@ -229,7 +232,7 @@ The change is not complete unless all of the following are true on the same fina
 - valid RED evidence exists before the implementation move;
 - targeted audit and architecture tests are Green;
 - the script has no application-grade training implementation dependencies;
-- report schema/digest/output contracts remain unchanged;
+- report schema/digest/output/stdout contracts remain unchanged;
 - Ruff and format checks pass;
 - Mypy passes;
 - Import Architecture passes;
@@ -237,7 +240,7 @@ The change is not complete unless all of the following are true on the same fina
 - full pytest and branch-coverage gate pass;
 - critical coverage ratchet passes;
 - the Full training capability audit workflow executes successfully with its existing command and schema assertions;
-- standard CI required jobs pass on the same exact HEAD;
+- standard CI required jobs pass on the same exact final HEAD;
 - final diff is reviewed for unrelated changes, debug code, generated artifacts, and accidental public API expansion;
 - remaining unverified empirical conditions are disclosed.
 
@@ -249,7 +252,8 @@ Before Ready status, explicitly attempt to prove the implementation wrong by che
 - whether a lower layer imports the new operations module;
 - whether one report section was dropped or renamed while tests still pass;
 - whether digest validation can pass when the persisted report and returned report differ;
-- whether the script's default `--output` or printed payload changed;
+- whether persisted file bytes or script stdout changed while JSON-equivalence tests still pass;
+- whether the script's default `--output` changed;
 - whether output-root replacement semantics changed;
 - whether mocks hide failures in actual SB3 training, resume, replay, export, residual, or sequence probes;
 - whether workflow success is being inferred from unit tests rather than the real workflow command;

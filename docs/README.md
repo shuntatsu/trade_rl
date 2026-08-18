@@ -12,6 +12,7 @@
 | 最初の学習を実行する | [START.md](../START.md) |
 | Maintained 1 Run = 1 Instrument契約を確認する | [SINGLE_SYMBOL.md](SINGLE_SYMBOL.md) |
 | Universal U3-U6の学習契約を確認する | [UNIVERSAL_TRAINING.md](UNIVERSAL_TRAINING.md) |
+| 実行artifactからLLMなしの貼付用reportを生成する | [RUN_REPORTING.md](RUN_REPORTING.md) |
 | System構造と責務境界を理解する | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Schema・設定値・互換境界を調べる | [CONFIGURATION.md](CONFIGURATION.md) |
 | 実装済み・CI検証済み・未実証を区別する | [RESEARCH_STATUS.md](RESEARCH_STATUS.md) |
@@ -33,6 +34,7 @@
 - `../START.md`: 維持対象の導入・実行・Troubleshooting。
 - `SINGLE_SYMBOL.md`: Maintained one-run/one-instrument、Action、Identity、Legacy互換。
 - `UNIVERSAL_TRAINING.md`: Universal runtime、causal teacher、selection checkpoint、holdout/admission、BC/critic warm start、U5/U6共有、monitoring。
+- `RUN_REPORTING.md`: persisted research/training artifactから生成するread-only・fact-onlyのMachine Run Report契約とCLI。
 - `ARCHITECTURE.md`: 現行実装の責務、依存方向、Data flow、Identity、Training/Evaluation/ServingのFail-closed境界。
 - `CONFIGURATION.md`: 現行Schema、設定値、拒否する旧設定。
 - `RESEARCH_STATUS.md`: Software、CI、Empirical evidence、Profitability、Production authorizationの状態。

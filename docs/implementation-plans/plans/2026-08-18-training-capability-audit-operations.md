@@ -33,7 +33,7 @@
 
 **Interfaces:**
 - Consumes: existing `scripts/run_training_capability_audit.py` and repository AST/import structure.
-- Produces: architecture contract requiring public `trade_rl.operations.training_capability_audit.run_training_capability_audit(Path) -> dict[str, object]` and forbidding training implementation ownership in the script.
+- Produces: architecture contract requiring public `trade_rl.operations.training_capability_audit.run_training_capability_audit(Path) -> dict[str, object]`, forbidding training implementation ownership in the script, and forbidding lower production layers from importing the audit operation.
 
 - [ ] **Step 1: Write the failing architecture test**
 
@@ -98,6 +98,7 @@ def test_training_capability_audit_has_package_owned_public_boundary() -> None:
     public_source = PUBLIC.read_text(encoding="utf-8")
     assert "def run_training_capability_audit(" in public_source
     assert "_training_capability_audit_impl" in public_source
+    assert _top_level_definitions(PUBLIC) == frozenset({"run_training_capability_audit"})
 
 
 def test_training_capability_audit_script_is_a_thin_adapter() -> None:
@@ -108,6 +109,17 @@ def test_training_capability_audit_script_is_a_thin_adapter() -> None:
             module == prefix or module.startswith(f"{prefix}.") for module in imports
         ), prefix
     assert _top_level_definitions(SCRIPT) == frozenset({"main"})
+
+
+def test_lower_production_layers_do_not_import_training_capability_audit() -> None:
+    forbidden = {
+        "trade_rl.operations.training_capability_audit",
+        "trade_rl.operations._training_capability_audit_impl",
+    }
+    for path in sorted(PYTHON_SOURCE_ROOT.rglob("*.py")):
+        if path in {PUBLIC, PRIVATE}:
+            continue
+        assert _import_modules(path).isdisjoint(forbidden), path
 ```
 
 - [ ] **Step 2: Run the new architecture test and verify RED**
@@ -151,6 +163,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.operations import _training_capability_audit_impl as impl
@@ -194,8 +207,10 @@ def test_run_training_capability_audit_preserves_report_contract(
 
     assert not (root / "stale.txt").exists()
     assert report["schema_version"] == "full_training_capability_audit_v1"
-    assert set(report["algorithms"]) == {"ppo", "sac", "td3", "tqc"}
-    assert report["replay_resume"]["source_matches_sac"] is True
+    algorithms = cast(dict[str, object], report["algorithms"])
+    replay_resume = cast(dict[str, object], report["replay_resume"])
+    assert set(algorithms) == {"ppo", "sac", "td3", "tqc"}
+    assert replay_resume["source_matches_sac"] is True
 
     unsigned = dict(report)
     digest = unsigned.pop("digest")
@@ -205,8 +220,6 @@ def test_run_training_capability_audit_preserves_report_contract(
     assert (root / "audit-report.json").read_bytes() == expected_bytes
     assert json.loads(expected_bytes) == report
 ```
-
-Use a typing-safe local helper/`cast` if Mypy objects to indexing the `dict[str, object]`; do not weaken the runtime assertions.
 
 - [ ] **Step 2: Write the thin script CLI contract test**
 
@@ -239,7 +252,11 @@ def test_main_delegates_to_public_operation_and_preserves_stdout(
         return report
 
     monkeypatch.setattr(cli, "run_training_capability_audit", run)
-    monkeypatch.setattr(sys, "argv", ["run_training_capability_audit.py", "--output", str(output)])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run_training_capability_audit.py", "--output", str(output)],
+    )
 
     assert cli.main() == 0
     assert observed == [output]
@@ -393,7 +410,7 @@ def run_training_capability_audit(output_root: Path) -> dict[str, object]:
     return report
 ```
 
-Do not opportunistically rename private helpers, change constants, reorder report sections, introduce abstractions, or rewrite the synthetic datasets during this move.
+Do not rename private helpers, change constants, reorder report sections, introduce abstractions, or rewrite the synthetic datasets during this move.
 
 - [ ] **Step 2: Add the minimal public operations facade**
 
@@ -462,7 +479,7 @@ uv run pytest -q \
   tests/scripts/test_run_training_capability_audit.py
 ```
 
-Expected: all focused tests PASS. If the report-contract test exposes a typing/test-fixture error, fix the test only when independent inspection shows the original report contract is still represented exactly; do not change production behavior merely to satisfy the fixture.
+Expected: all focused tests PASS. If a test itself is wrong, change it only after comparing it to the pre-refactor implementation and the design contract; never adjust an expectation merely to match new implementation output.
 
 - [ ] **Step 5: Run focused static checks**
 
@@ -483,10 +500,14 @@ uv run ruff format --check \
   tests/architecture/test_training_capability_audit_owner.py \
   tests/operations/test_training_capability_audit.py \
   tests/scripts/test_run_training_capability_audit.py
-uv run mypy trade_rl/operations/training_capability_audit.py trade_rl/operations/_training_capability_audit_impl.py
+uv run mypy \
+  trade_rl/operations/training_capability_audit.py \
+  trade_rl/operations/_training_capability_audit_impl.py \
+  tests/operations/test_training_capability_audit.py \
+  tests/scripts/test_run_training_capability_audit.py
 ```
 
-Expected: PASS. Any Mypy errors newly exposed because the code moved under the package must be fixed with accurate typing/narrowing, not `# type: ignore` expansion unless the same unavoidable typed boundary already existed and is independently justified.
+Expected: PASS. Fix newly exposed typing errors with accurate annotations or narrowing; do not add broad suppressions to hide extraction defects.
 
 - [ ] **Step 6: Commit the implementation move**
 
@@ -512,22 +533,31 @@ Keep test commits separate from the implementation commit so the RED→GREEN his
 - Consumes: all previous tasks.
 - Produces: exact-head evidence that architecture, runtime audit behavior, static gates, regression suite, and CI agree on one final commit.
 
-- [ ] **Step 1: Run architecture/import/dead-code checks**
+- [ ] **Step 1: Run the exact repository static/architecture gates**
 
-Run repository-standard commands used by CI, including:
+Run the commands currently defined in `.github/workflows/ci.yml`:
 
 ```bash
+uv run python .github/check_workflow_security.py .
+uv run ruff check --diff .
+uv run ruff format --check --diff .
+uv run mypy .
+uv run lint-imports
+uv run vulture trade_rl tests --min-confidence 100
 uv run pytest -q tests/architecture
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy trade_rl
 ```
 
-Then run the repository's maintained Import Linter and vulture/dead-code commands exactly as defined in `.github/workflows/ci.yml`. Record exact file/dependency/contract counts from the final run rather than copying counts from another PR.
+Record exact final Import Linter contract/file/dependency counts and Mypy source counts from this HEAD; do not copy counts from another PR.
 
 - [ ] **Step 2: Execute the real training-capability audit command**
 
-With the complete audit dependency set installed, run the exact workflow command:
+Install the same dependency surface as CI/audit first:
+
+```bash
+uv sync --extra dev --extra train-sb3 --extra export
+```
+
+Then run the exact workflow command:
 
 ```bash
 rm -rf var/training-capability-audit
@@ -564,9 +594,19 @@ for name in (
 
 This is the primary Integration Test Oracle for proving the move did not omit a real probe. Mocked unit tests are insufficient for this gate.
 
-- [ ] **Step 3: Run full regression and coverage gates**
+- [ ] **Step 3: Run full regression and coverage gates exactly as CI defines them**
 
-Run the repository-standard full Python suite with branch coverage and the critical branch-coverage ratchet exactly as CI defines them. Also run frontend/packaging/compatibility checks when they are required by the standard CI workflow. Record exact pass/skip/coverage values from this HEAD.
+Run:
+
+```bash
+uv run pytest -q \
+  tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total \
+  tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
+uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+```
+
+The standard GitHub CI must additionally pass its frontend tests/typecheck/build/bundle/layout jobs, Ubuntu/Windows compatibility matrix, training-image build, image identity capture, packaged non-root runtime probe, and package/uv identity checks on the same exact final HEAD.
 
 - [ ] **Step 4: Perform falsification review from the original spec**
 
@@ -579,7 +619,7 @@ scripts/run_training_capability_audit.py
   - only argparse/json/Path + public operations API + main/guard
 
 trade_rl/operations/training_capability_audit.py
-  - only the public operation is exposed
+  - only run_training_capability_audit is defined as public behavior
   - no private audit fixture surface is re-exported
 
 trade_rl/operations/_training_capability_audit_impl.py
@@ -595,11 +635,11 @@ Repository
   - no unrelated production/config/workflow files changed
 ```
 
-Attempt specifically to construct a wrong implementation that would pass unit mocks but omit one real probe; confirm the real command/workflow gate would detect it.
+Construct the specific counterexample mentally: a mocked unit implementation could return all status fields while omitting `_sequence_training` or `_resume_replay`. Confirm that the real audit command and unchanged workflow schema/status assertions execute those real probes and would fail if their artifacts/status were not produced.
 
 - [ ] **Step 5: Verify GitHub Actions on the exact final HEAD**
 
-Push the final HEAD and verify both standard CI and the manually dispatchable `Full training capability audit` workflow against that same SHA. The latter must execute its unchanged command and independent schema assertions. If any final change is made after a successful run, previous workflow evidence becomes stale and must not be cited as final.
+Push the final HEAD and verify standard `CI` plus the manually dispatchable `Full training capability audit` workflow against that same SHA. The audit workflow must execute its unchanged script command and independent schema assertions. If any final change is made after a successful run, previous workflow evidence is stale and must be rerun before completion claims.
 
 - [ ] **Step 6: Final repository-state check and PR preparation**
 
@@ -612,9 +652,9 @@ git diff --stat main...HEAD
 git log --oneline main..HEAD
 ```
 
-Confirm the diff contains only the spec/plan, three tests, two operations modules, and the thin script adapter unless a separately justified test-only correction was required. Check for secrets, generated audit artifacts, debug code, untracked files, and accidental workflow changes.
+Confirm the diff contains only the approved spec/plan, three tests, two operations modules, and the thin script adapter unless a separately justified test-only correction was required. Check for secrets, generated audit artifacts, debug code, untracked files, and accidental workflow changes.
 
-Create/update the PR with:
+Create/update the PR with these exact sections:
 
 ```text
 What

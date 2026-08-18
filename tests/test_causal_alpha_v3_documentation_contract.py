@@ -87,3 +87,22 @@ def test_v3_docs_distinguish_authoritative_records_from_diagnostics_and_legacy_j
         "rolling-window",
     ):
         assert phrase in combined
+
+
+def test_v3_docs_define_deterministic_machine_run_report_contract() -> None:
+    reporting = _text("docs/RUN_REPORTING.md").lower()
+    index = _text("docs/README.md").lower()
+
+    assert "run_reporting.md" in index
+    for phrase in (
+        "build_run_report.py",
+        "machine run report",
+        "--profile chat",
+        "--profile json",
+        "reporting/stages/",
+        "read-only",
+        "llm",
+        "pass / reject / in_progress / not_run / missing / invalid",
+        "output must stay outside",
+    ):
+        assert phrase in reporting

@@ -56,7 +56,9 @@ def test_training_capability_audit_has_package_owned_public_boundary() -> None:
     public_source = PUBLIC.read_text(encoding="utf-8")
     assert "def run_training_capability_audit(" in public_source
     assert "_training_capability_audit_impl" in public_source
-    assert _top_level_definitions(PUBLIC) == frozenset({"run_training_capability_audit"})
+    assert _top_level_definitions(PUBLIC) == frozenset(
+        {"run_training_capability_audit"}
+    )
 
 
 def test_training_capability_audit_script_is_a_thin_adapter() -> None:

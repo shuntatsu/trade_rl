@@ -28,7 +28,9 @@ def test_run_training_capability_audit_preserves_report_contract(
         return {"algorithm": algorithm, "status": "pass"}, results[algorithm]
 
     monkeypatch.setattr(impl, "_train_algorithm", train_algorithm)
-    monkeypatch.setattr(impl, "_behavior_cloning_training", lambda _: {"status": "pass"})
+    monkeypatch.setattr(
+        impl, "_behavior_cloning_training", lambda _: {"status": "pass"}
+    )
     monkeypatch.setattr(impl, "_export_ppo", lambda _: {"status": "pass"})
     monkeypatch.setattr(
         impl,
@@ -38,7 +40,9 @@ def test_run_training_capability_audit_preserves_report_contract(
             "status": "pass",
         },
     )
-    monkeypatch.setattr(impl, "_residual_feature_training", lambda _: {"status": "pass"})
+    monkeypatch.setattr(
+        impl, "_residual_feature_training", lambda _: {"status": "pass"}
+    )
     monkeypatch.setattr(impl, "_sequence_training", lambda _: {"status": "pass"})
     monkeypatch.setattr(impl, "_resume_ppo", lambda _: {"status": "pass"})
 

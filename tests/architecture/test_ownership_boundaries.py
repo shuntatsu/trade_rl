@@ -131,15 +131,24 @@ def test_sealed_test_persistence_has_an_explicit_dedicated_adapter() -> None:
         module_name="trade_rl.catalog.sealed_test",
     )
     assert not _imports_prefix(ledger_targets, "trade_rl.catalog.postgres")
-    for workflow_path in (
-        PACKAGE_ROOT / "workflows/market_walk_forward.py",
-        PACKAGE_ROOT / "workflows/_market_walk_forward_core.py",
-    ):
-        workflow_source = workflow_path.read_text(encoding="utf-8")
-        assert "PostgresSealedTestReservationStore" in workflow_source
-        assert "store.migrate()" not in workflow_source
-        assert "PostgresSealedTestLedger(store)" in workflow_source
-        assert "PostgresArtifactCatalog" not in workflow_source
+
+    workflow_path = PACKAGE_ROOT / "workflows/market_walk_forward.py"
+    workflow_source = workflow_path.read_text(encoding="utf-8")
+    assert "PostgresSealedTestReservationStore" in workflow_source
+    assert "store.migrate()" not in workflow_source
+    assert "PostgresSealedTestLedger(store)" in workflow_source
+    assert "PostgresArtifactCatalog" not in workflow_source
+
+    core_path = PACKAGE_ROOT / "workflows/_market_walk_forward_core.py"
+    core_targets = _import_targets(
+        core_path,
+        module_name="trade_rl.workflows._market_walk_forward_core",
+    )
+    assert not _imports_prefix(
+        core_targets,
+        "trade_rl.catalog.postgres_sealed_test",
+    )
+    assert not _imports_prefix(core_targets, "trade_rl.catalog.sealed_test")
 
 
 def test_rl_terminal_info_owns_runtime_facts_not_evaluation_metrics() -> None:

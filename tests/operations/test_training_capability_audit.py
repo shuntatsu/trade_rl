@@ -153,6 +153,39 @@ def _sequence_failure_diagnostics(root: Path) -> dict[str, object]:
     return diagnostics
 
 
+def test_sequence_training_densifies_audit_episodes_without_changing_time_contract(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    observed: dict[str, float | int | None] = {}
+
+    class _Backend:
+        def __init__(self, factory) -> None:
+            self.factory = factory
+
+        def train(self, *, seed, config, output_path):
+            del seed, config, output_path
+            self.factory()
+            raise RuntimeError("captured sequence environment config")
+
+    def capture_environment(dataset, *, trend_strategy, action_spec, config):
+        del dataset, trend_strategy, action_spec
+        observed["episode_bars"] = config.episode_bars
+        observed["episode_hours"] = config.episode_hours
+        observed["decision_hours"] = config.decision_hours
+        return object()
+
+    monkeypatch.setattr(impl, "ResidualMarketEnv", capture_environment)
+    monkeypatch.setattr(impl, "StableBaselines3Backend", _Backend)
+
+    with pytest.raises(RuntimeError, match="captured sequence environment config"):
+        impl._sequence_training(tmp_path)
+
+    assert observed["episode_bars"] == 2
+    assert observed["episode_hours"] == pytest.approx(2.0)
+    assert observed["decision_hours"] == pytest.approx(0.25)
+
+
 def test_sequence_training_uses_maintained_causal_regret_admission_threshold(
     tmp_path: Path,
     monkeypatch,

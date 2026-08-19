@@ -270,7 +270,6 @@ def evaluate_action_path(
         costs=costs,
         closed_trade_count=diagnostics.closed_trades,
         winning_trade_count=diagnostics.winning_trades,
-        trade_epsilon=action_change_tolerance,
     )
     if action_dimension_count is None:
         raise RuntimeError("evaluation produced no action dimensions")

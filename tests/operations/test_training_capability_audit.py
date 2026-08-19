@@ -62,3 +62,14 @@ def test_run_training_capability_audit_preserves_report_contract(
     expected_bytes = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
     assert (root / "audit-report.json").read_bytes() == expected_bytes
     assert json.loads(expected_bytes) == report
+
+
+def test_sequence_training_exercises_real_hierarchical_behavior_cloning(
+    tmp_path: Path,
+) -> None:
+    record = impl._sequence_training(tmp_path)
+
+    assert record["status"] == "pass"
+    assert record["observation_encoder"] == "hierarchical_sequence_v2"
+    behavior_cloning = cast(dict[str, object], record["behavior_cloning"])
+    assert int(behavior_cloning["sample_count"]) > 0

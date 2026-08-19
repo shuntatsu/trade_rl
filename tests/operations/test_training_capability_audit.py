@@ -64,10 +64,57 @@ def test_run_training_capability_audit_preserves_report_contract(
     assert json.loads(expected_bytes) == report
 
 
+def _sequence_failure_diagnostics(root: Path) -> dict[str, object]:
+    diagnostics: dict[str, object] = {}
+    gate_path = root / "behavior-cloning-gates.json"
+    if gate_path.is_file():
+        gate_payload = json.loads(gate_path.read_text(encoding="utf-8"))
+        causal_group = gate_payload.get("causal_non_collapse_gate", {})
+        diagnostics["causal_gate_metrics"] = {
+            metric["name"]: {
+                "minimum_support": metric.get("minimum_support"),
+                "observed": metric.get("observed"),
+                "status": metric.get("status"),
+                "support": metric.get("support"),
+                "threshold": metric.get("threshold"),
+            }
+            for metric in causal_group.get("metrics", ())
+        }
+    holdout_path = root / "behavior-cloning-holdout.json"
+    if holdout_path.is_file():
+        holdout = json.loads(holdout_path.read_text(encoding="utf-8"))
+        records = holdout.get("records", ())
+        diagnostics["holdout"] = {
+            "causal_net_return_lower_confidence_bound": holdout.get(
+                "causal_net_return_lower_confidence_bound"
+            ),
+            "causal_regret_upper_confidence_bound": holdout.get(
+                "causal_regret_upper_confidence_bound"
+            ),
+            "episode_count": holdout.get("episode_count"),
+            "normalized_oracle_regret": holdout.get("normalized_oracle_regret"),
+            "policy_net_returns": [
+                record["causal_policy_performance"]["net_return"]
+                for record in records
+            ],
+            "oracle_net_returns": [
+                record["oracle_performance"]["net_return"] for record in records
+            ],
+        }
+    return diagnostics
+
+
 def test_sequence_training_exercises_real_hierarchical_behavior_cloning(
     tmp_path: Path,
 ) -> None:
-    record = impl._sequence_training(tmp_path)
+    try:
+        record = impl._sequence_training(tmp_path)
+    except RuntimeError as exc:
+        diagnostics = _sequence_failure_diagnostics(tmp_path / "structured-sequence")
+        raise AssertionError(
+            f"sequence capability audit failed: {exc}; "
+            f"diagnostics={json.dumps(diagnostics, sort_keys=True)}"
+        ) from exc
 
     assert record["status"] == "pass"
     assert record["observation_encoder"] == "hierarchical_sequence_v2"

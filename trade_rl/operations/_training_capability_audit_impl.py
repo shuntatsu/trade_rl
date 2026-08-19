@@ -564,7 +564,7 @@ def _sequence_training(root: Path) -> dict[str, object]:
         sequence_asset_attention_layers=1,
         sequence_dropout=0.0,
         max_policy_parameters=2_000_000,
-        behavior_cloning_epochs=1,
+        behavior_cloning_epochs=45,
         behavior_cloning_batch_size=16,
         behavior_cloning_validation_fraction=0.1,
         device="cpu",

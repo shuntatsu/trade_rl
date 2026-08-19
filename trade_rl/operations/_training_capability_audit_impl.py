@@ -535,7 +535,7 @@ def _sequence_training(root: Path) -> dict[str, object]:
             config=ResidualMarketEnvConfig(
                 episode_hours=2.0,
                 decision_hours=0.25,
-                episode_bars=8,
+                episode_bars=2,
                 decision_every=1,
                 initial_capital=100_000.0,
                 finite_horizon_observation=True,

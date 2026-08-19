@@ -83,9 +83,7 @@ def _sequence_failure_diagnostics(root: Path) -> dict[str, object]:
     diagnostics: dict[str, object] = {}
     behavior_cloning_path = root / "behavior-cloning.json"
     if behavior_cloning_path.is_file():
-        behavior_cloning = json.loads(
-            behavior_cloning_path.read_text(encoding="utf-8")
-        )
+        behavior_cloning = json.loads(behavior_cloning_path.read_text(encoding="utf-8"))
         diagnostics["behavior_cloning"] = {
             field: behavior_cloning.get(field)
             for field in (

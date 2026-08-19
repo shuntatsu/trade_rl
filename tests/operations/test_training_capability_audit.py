@@ -84,6 +84,20 @@ def _sequence_failure_diagnostics(root: Path) -> dict[str, object]:
     if holdout_path.is_file():
         holdout = json.loads(holdout_path.read_text(encoding="utf-8"))
         records = holdout.get("records", ())
+        action_fields = (
+            "direction_agreement_rate",
+            "pearson_correlation",
+            "teacher_mean",
+            "teacher_std",
+            "teacher_positive_rate",
+            "teacher_negative_rate",
+            "teacher_change_count",
+            "policy_mean",
+            "policy_std",
+            "policy_positive_rate",
+            "policy_negative_rate",
+            "policy_change_count",
+        )
         diagnostics["holdout"] = {
             "causal_net_return_lower_confidence_bound": holdout.get(
                 "causal_net_return_lower_confidence_bound"
@@ -98,6 +112,13 @@ def _sequence_failure_diagnostics(root: Path) -> dict[str, object]:
             ],
             "oracle_net_returns": [
                 record["oracle_performance"]["net_return"] for record in records
+            ],
+            "action_diagnostics": [
+                {
+                    field: record.get("action_diagnostics", {}).get(field)
+                    for field in action_fields
+                }
+                for record in records
             ],
         }
     return diagnostics

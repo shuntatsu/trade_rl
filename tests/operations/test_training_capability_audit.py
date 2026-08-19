@@ -94,8 +94,7 @@ def _sequence_failure_diagnostics(root: Path) -> dict[str, object]:
             "episode_count": holdout.get("episode_count"),
             "normalized_oracle_regret": holdout.get("normalized_oracle_regret"),
             "policy_net_returns": [
-                record["causal_policy_performance"]["net_return"]
-                for record in records
+                record["causal_policy_performance"]["net_return"] for record in records
             ],
             "oracle_net_returns": [
                 record["oracle_performance"]["net_return"] for record in records

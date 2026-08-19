@@ -64,22 +64,51 @@ def test_run_training_capability_audit_preserves_report_contract(
     assert json.loads(expected_bytes) == report
 
 
+def _gate_metrics(group: object) -> dict[str, object]:
+    if not isinstance(group, dict):
+        return {}
+    return {
+        metric["name"]: {
+            "minimum_support": metric.get("minimum_support"),
+            "observed": metric.get("observed"),
+            "status": metric.get("status"),
+            "support": metric.get("support"),
+            "threshold": metric.get("threshold"),
+        }
+        for metric in group.get("metrics", ())
+    }
+
+
 def _sequence_failure_diagnostics(root: Path) -> dict[str, object]:
     diagnostics: dict[str, object] = {}
+    behavior_cloning_path = root / "behavior-cloning.json"
+    if behavior_cloning_path.is_file():
+        behavior_cloning = json.loads(
+            behavior_cloning_path.read_text(encoding="utf-8")
+        )
+        diagnostics["behavior_cloning"] = {
+            field: behavior_cloning.get(field)
+            for field in (
+                "best_epoch",
+                "final_mse",
+                "initial_mse",
+                "quality_passed",
+                "relative_improvement",
+                "required_relative_improvement",
+                "sample_count",
+                "validation_mse",
+                "validation_sample_count",
+            )
+        }
     gate_path = root / "behavior-cloning-gates.json"
     if gate_path.is_file():
         gate_payload = json.loads(gate_path.read_text(encoding="utf-8"))
-        causal_group = gate_payload.get("causal_non_collapse_gate", {})
-        diagnostics["causal_gate_metrics"] = {
-            metric["name"]: {
-                "minimum_support": metric.get("minimum_support"),
-                "observed": metric.get("observed"),
-                "status": metric.get("status"),
-                "support": metric.get("support"),
-                "threshold": metric.get("threshold"),
-            }
-            for metric in causal_group.get("metrics", ())
-        }
+        diagnostics["teacher_gate_metrics"] = _gate_metrics(
+            gate_payload.get("teacher_reconstruction_gate")
+        )
+        diagnostics["causal_gate_metrics"] = _gate_metrics(
+            gate_payload.get("causal_non_collapse_gate")
+        )
     holdout_path = root / "behavior-cloning-holdout.json"
     if holdout_path.is_file():
         holdout = json.loads(holdout_path.read_text(encoding="utf-8"))

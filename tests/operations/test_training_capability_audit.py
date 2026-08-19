@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.operations import _training_capability_audit_impl as impl
 from trade_rl.operations.training_capability_audit import run_training_capability_audit
@@ -151,6 +153,27 @@ def _sequence_failure_diagnostics(root: Path) -> dict[str, object]:
     return diagnostics
 
 
+def test_sequence_training_uses_maintained_causal_regret_admission_threshold(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    observed: dict[str, float] = {}
+
+    def capture_train(self, *, seed, config, output_path):
+        del self, seed, output_path
+        observed["max_causal_holdout_regret"] = (
+            config.behavior_cloning_max_causal_holdout_regret
+        )
+        raise RuntimeError("captured sequence training config")
+
+    monkeypatch.setattr(impl.StableBaselines3Backend, "train", capture_train)
+
+    with pytest.raises(RuntimeError, match="captured sequence training config"):
+        impl._sequence_training(tmp_path)
+
+    assert observed["max_causal_holdout_regret"] == pytest.approx(0.2)
+
+
 def test_sequence_training_exercises_real_hierarchical_behavior_cloning(
     tmp_path: Path,
 ) -> None:
@@ -167,3 +190,17 @@ def test_sequence_training_exercises_real_hierarchical_behavior_cloning(
     assert record["observation_encoder"] == "hierarchical_sequence_v2"
     behavior_cloning = cast(dict[str, object], record["behavior_cloning"])
     assert int(behavior_cloning["sample_count"]) > 0
+
+    gate_payload = json.loads(
+        (tmp_path / "structured-sequence" / "behavior-cloning-gates.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    teacher_metrics = _gate_metrics(gate_payload.get("teacher_reconstruction_gate"))
+    causal_metrics = _gate_metrics(gate_payload.get("causal_non_collapse_gate"))
+    assert teacher_metrics["active_target_rmse"]["status"] == "passed"
+    assert causal_metrics["cash_baseline_after_cost_regret"]["status"] == "passed"
+    assert causal_metrics["causal_regret_upper_confidence_bound"]["status"] == "passed"
+    assert causal_metrics["causal_regret_upper_confidence_bound"][
+        "threshold"
+    ] == pytest.approx(0.2)

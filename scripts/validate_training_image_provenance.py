@@ -27,7 +27,9 @@ def provenance_marker_bytes(
     if git_dirty not in _DIRTY_VALUES:
         raise ValueError("git dirty must be true or false")
     if _SHA256.fullmatch(source_tree_digest) is None:
-        raise ValueError("source tree digest must be 64 lowercase hexadecimal characters")
+        raise ValueError(
+            "source tree digest must be 64 lowercase hexadecimal characters"
+        )
     if _SHA256.fullmatch(lockfile_digest) is None:
         raise ValueError("lockfile digest must be 64 lowercase hexadecimal characters")
     if runtime_manifest_digest and _SHA256.fullmatch(runtime_manifest_digest) is None:

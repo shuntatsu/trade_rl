@@ -195,6 +195,7 @@ jobs:
             tests/examples/test_docker_training_assets.py::test_provenance_validation_target_fails_fast_without_valid_arguments \
             tests/operations/test_training_capability_audit.py::test_run_training_capability_audit_preserves_report_contract \
             tests/operations/test_training_capability_audit.py::test_sequence_training_exercises_real_hierarchical_behavior_cloning \
+            tests/operations/test_sequence_platform_diagnostics.py \
             2>&1 | tee compatibility.log
       - name: Upload compatibility diagnostics
         if: always()

@@ -2,7 +2,7 @@
 
 ## Status
 
-This amendment updates the quality contract for the training-capability audit operations-boundary change after the real hierarchical-sequence behavior-cloning integration test exposed a pre-existing audit-fixture incompatibility.
+This amendment updates the quality contract for the training-capability audit operations-boundary change after the real hierarchical-sequence behavior-cloning integration test exposed pre-existing audit-fixture incompatibilities.
 
 It supersedes only the conflicting clauses in:
 
@@ -17,9 +17,30 @@ All report, CLI, workflow-command, ownership, serialization, digest, algorithm-m
 
 The original extraction plan assumed the existing sequence audit fixture was still a valid positive control and therefore treated exact sequence-probe configuration preservation as an invariant.
 
-The strengthened integration test disproved that assumption.
+The strengthened integration test disproved that assumption in three independent sequence-audit dimensions.
 
-At commit `ff5b0d994223177a928836c401fe3662924b08bd`, with the old sequence fixture using `episode_bars=8`, standard CI run `32229984475` failed only the real hierarchical behavior-cloning sequence integration test while static analysis, architecture checks, compatibility jobs, and the training image remained healthy.
+### Behavior-cloning training depth
+
+At commit `5c2a1e0a048ae099867a9c5f4b6c41e4c4dedb00`, with the extracted sequence probe still using `behavior_cloning_epochs=1`, standard CI run `32212431776` failed only the real hierarchical behavior-cloning sequence integration test while the rest of the repository suite remained healthy.
+
+The generated behavior-cloning diagnostics showed:
+
+- teacher positive/change support existed;
+- predicted positive support was `0`;
+- policy activity rate was `0.0`;
+- `all_hold_collapse=true`;
+- `insufficient_target_support=true`; and
+- the teacher-reconstruction gate failed because gate precision had zero positive support.
+
+This is a direct Test Oracle that one behavior-cloning epoch does not exercise the intended real hierarchical sequence capability. Commit `eb5cf4af35f04c44d38bfff4b21fb42919a816dc` therefore changed the synthetic sequence audit probe from `behavior_cloning_epochs=1` to `45`.
+
+After the source-newline repair at `9fc1d1d56916aa87b0e9e3db85c9e60216e981a7`, CI run `32213539551` executed the full suite with `45` epochs. The previous zero-support/all-HOLD teacher-reconstruction failure was gone; execution advanced into causal holdout evaluation and failed a separate rollout-evidence consistency invariant. That downstream failure was subsequently resolved without reverting the training-depth correction.
+
+The value `45` is therefore a regression-backed audit compatibility correction, not a retained exploratory tuning trial.
+
+### Episode support density
+
+At commit `ff5b0d994223177a928836c401fe3662924b08bd`, with the sequence fixture still using `episode_bars=8`, standard CI run `32229984475` failed only the real hierarchical behavior-cloning sequence integration test while static analysis, architecture checks, compatibility jobs, and the training image remained healthy.
 
 Observed failure evidence included:
 
@@ -33,7 +54,7 @@ Observed failure evidence included:
 
 This demonstrated that preserving `episode_bars=8` would preserve an invalid audit positive control rather than preserve a meaningful capability contract.
 
-After changing only the audit fixture to `episode_bars=2`, teacher-event support became dense enough for the same hierarchical head to reconstruct the intended direction and target closely. With the maintained loss weights and patience restored, the observed integration evidence included:
+After changing the audit fixture to `episode_bars=2`, teacher-event support became dense enough for the same hierarchical head to reconstruct the intended direction and target closely. With the maintained loss weights and patience restored, the observed integration evidence included:
 
 - teacher target approximately `+0.4`;
 - learned policy target approximately `+0.38168`;
@@ -43,7 +64,9 @@ After changing only the audit fixture to `episode_bars=2`, teacher-event support
 - after-cost cash baseline PASS; and
 - non-collapse evidence PASS.
 
-The only remaining failure was a tiny positive hindsight-Oracle regret against the inherited legacy default threshold `0.0`.
+### Causal regret admission
+
+The only remaining failure after restoring dense support was a tiny positive hindsight-Oracle regret against the inherited legacy default threshold `0.0`.
 
 Repository-maintained hierarchical behavior-cloning profiles and behavior-cloning gate tests explicitly use `behavior_cloning_max_causal_holdout_regret=0.2`. Requiring exactly `0.0` would make the audit demand effectively exact hindsight-Oracle replication from an approximate neural policy even when direction, target reconstruction, non-collapse, and after-cost cash-baseline checks pass.
 
@@ -69,36 +92,42 @@ The following remain outside this PR:
 
 ## Authorized audit-only compatibility corrections
 
-Exactly two sequence-audit configuration corrections are authorized by this amendment:
+Exactly three sequence-audit configuration corrections are authorized by this amendment:
 
-1. `ResidualMarketEnvConfig.episode_bars` changes from `8` to `2` for the synthetic structured-sequence audit fixture.
+1. `ResidualTrainingConfig.behavior_cloning_epochs` changes from `1` to `45` for the synthetic structured-sequence audit probe.
+   - One epoch is independently proven to collapse the real hierarchical BC probe to all-HOLD with zero predicted positive support.
+   - The generic configuration default and production/example profiles are not changed.
+   - This value exists to make the capability probe actually train through its required teacher-reconstruction path; it is not a profitability or performance-tuning claim.
+
+2. `ResidualMarketEnvConfig.episode_bars` changes from `8` to `2` for the synthetic structured-sequence audit fixture.
    - `episode_hours=2.0` remains unchanged.
    - `decision_hours=0.25` remains unchanged.
    - `decision_every=1` remains unchanged.
    - This is an audit-fixture support-density correction, not a production environment change.
 
-2. `ResidualTrainingConfig.behavior_cloning_max_causal_holdout_regret` is explicitly set to `0.2` for the structured-sequence audit probe.
+3. `ResidualTrainingConfig.behavior_cloning_max_causal_holdout_regret` is explicitly set to `0.2` for the structured-sequence audit probe.
    - The generic configuration default is not changed.
    - Maintained production/example profiles are not changed.
    - Reconstruction, non-collapse, cash-baseline, and lower-confidence-bound gates remain required.
 
-No other exploratory hyperparameter trial is part of the final contract. In particular, the attempted longer behavior-cloning patience and increased target-loss weight were rejected and reverted after producing worse behavior.
+No other exploratory hyperparameter trial is part of the final contract. In particular, the attempted longer behavior-cloning patience and increased target-loss weight were rejected and reverted after producing worse behavior. Those rejected trials are distinct from the regression-backed `behavior_cloning_epochs=45` correction above.
 
 ## Acceptance criteria added by this amendment
 
 In addition to the original acceptance criteria:
 
-1. A lightweight contract test must assert that the sequence audit uses `episode_bars=2` while retaining `episode_hours=2.0` and `decision_hours=0.25`.
-2. A lightweight contract test must assert that the sequence audit explicitly authors `behavior_cloning_max_causal_holdout_regret=0.2`.
-3. The real hierarchical sequence integration test must execute actual behavior cloning and require:
+1. A lightweight contract test must assert that the sequence audit authors `behavior_cloning_epochs=45` so the historical one-epoch all-HOLD collapse cannot silently return.
+2. A lightweight contract test must assert that the sequence audit uses `episode_bars=2` while retaining `episode_hours=2.0` and `decision_hours=0.25`.
+3. A lightweight contract test must assert that the sequence audit explicitly authors `behavior_cloning_max_causal_holdout_regret=0.2`.
+4. The real hierarchical sequence integration test must execute actual behavior cloning and require:
    - `active_target_rmse` gate PASS;
    - after-cost cash-baseline regret gate PASS;
    - causal regret upper-confidence-bound gate PASS;
    - regret threshold exactly `0.2`; and
    - non-empty behavior-cloning sample support.
-4. General rollout-evaluation implementation and tests must match `main`; the audit correction must not leak into shared evaluation semantics.
-5. All original static, architecture, compatibility, coverage, packaging, and exact-final-HEAD CI gates remain required.
-6. The manually dispatched `Full training capability audit` workflow remains required on the same exact final HEAD before the PR is Ready or merged.
+5. General rollout-evaluation implementation and tests must match `main`; the audit correction must not leak into shared evaluation semantics.
+6. All original static, architecture, compatibility, coverage, packaging, and exact-final-HEAD CI gates remain required.
+7. The manually dispatched `Full training capability audit` workflow remains required on the same exact final HEAD before the PR is Ready or merged.
 
 ## Invariants
 
@@ -107,6 +136,7 @@ In addition to the original acceptance criteria:
 - The workflow command remains `uv run python scripts/run_training_capability_audit.py --output var/training-capability-audit`.
 - The audit remains a diagnostic positive-control implementation probe, not evidence of profitability or production readiness.
 - Production training defaults and maintained research workflows do not inherit these audit-only fixture values.
+- The training-depth correction must not be generalized into a production-training recommendation.
 - The regret threshold does not replace reconstruction quality: target reconstruction and economic/non-collapse gates are independently asserted.
 - A future change that causes the sequence policy to flip direction, collapse, fail the cash baseline, or exceed the maintained regret threshold must fail closed.
 
@@ -114,11 +144,13 @@ In addition to the original acceptance criteria:
 
 The amendment specifically guards against:
 
+- insufficient BC training depth producing all-HOLD behavior and zero predicted positive support;
 - sparse episode segmentation producing insufficient or misleading teacher-event support;
 - a wrong-sign target head still appearing superficially trained;
 - all-HOLD/all-TRADE/constant-action collapse;
 - a policy that trades but loses to cash after costs;
 - a policy whose causal regret exceeds the maintained admission floor;
+- accidentally reverting the sequence audit to one behavior-cloning epoch;
 - accidentally reverting to the legacy `0.0` regret default;
 - accidentally changing shared rollout-evaluation semantics to make the audit pass; and
 - treating standard CI as a substitute for the real workflow-dispatch audit.
@@ -127,12 +159,12 @@ Correctness is observed from the authored config values, generated behavior-clon
 
 ## TDD / falsification evidence
 
-Two independent RED phases are preserved as evidence:
+Four independent RED/evidence phases are preserved:
 
 - Ownership RED: historical pre-production commit `471eb43d6a913c04118acc81294ff4ba32dfc7b2`, CI run `32131478755`, failed because the package-owned operations boundary did not yet exist.
+- BC training-depth RED: commit `5c2a1e0a048ae099867a9c5f4b6c41e4c4dedb00`, CI run `32212431776`, produced **1 failed / 3922 passed / 26 skipped** because one BC epoch yielded all-HOLD behavior, zero predicted positive support, and a failed teacher-reconstruction gate. The correction was introduced at `eb5cf4af35f04c44d38bfff4b21fb42919a816dc`; the next full test run at `9fc1d1d56916aa87b0e9e3db85c9e60216e981a7` no longer failed the zero-support teacher-reconstruction condition and instead reached a separate downstream holdout invariant.
+- Episode-support RED: the `episode_bars=2` correction is backed by the earlier `episode_bars=8` integration failure at `ff5b0d994223177a928836c401fe3662924b08bd` / run `32229984475`; it is not justified merely because the final implementation passes.
 - Sequence admission RED: commit `956ce6cd9eea04f078bc51a74baad1fab76b82b6`, CI run `32270028766`, produced exactly two intended failures: the audit still authored regret `0.0` instead of `0.2`, and the real sequence integration failed the same `0.0` regret admission check.
-
-The `episode_bars=2` correction is backed by the earlier `episode_bars=8` integration failure at `ff5b0d994223177a928836c401fe3662924b08bd` / run `32229984475`; it is not justified merely because the final implementation passes.
 
 ## Quality gate
 

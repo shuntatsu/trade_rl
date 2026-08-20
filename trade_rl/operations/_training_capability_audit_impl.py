@@ -117,10 +117,10 @@ def _architecture(algorithm: str, checkpoint: Path) -> dict[str, list[int]]:
     if algorithm == "tqc":
         from sb3_contrib import TQC
 
-        tq_model = TQC.load(str(checkpoint), device="cpu")
+        tqc_model = TQC.load(str(checkpoint), device="cpu")
         return {
-            "actor": _linear_widths(tq_model.policy.actor.latent_pi),
-            "critic": _linear_widths(tq_model.policy.critic.q_networks[0])[:-1],
+            "actor": _linear_widths(tqc_model.policy.actor.latent_pi),
+            "critic": _linear_widths(tqc_model.policy.critic.q_networks[0])[:-1],
         }
     raise ValueError(f"unsupported algorithm: {algorithm}")
 

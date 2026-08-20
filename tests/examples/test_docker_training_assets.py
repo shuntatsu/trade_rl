@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
+from pathlib import Path
 
 from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 
@@ -70,6 +72,9 @@ def test_training_runbook_uses_supervised_control_and_read_only_monitoring() -> 
 def test_training_image_requires_and_exports_packaged_git_provenance() -> None:
     dockerfile = (ROOT / "docker/Dockerfile.training").read_text(encoding="utf-8")
     compose = (ROOT / "docker/compose.training.yaml").read_text(encoding="utf-8")
+    validator = (ROOT / "scripts/validate_training_image_provenance.py").read_text(
+        encoding="utf-8"
+    )
 
     for name in (
         "TRADE_RL_GIT_COMMIT",
@@ -80,9 +85,11 @@ def test_training_image_requires_and_exports_packaged_git_provenance() -> None:
         assert f"ARG {name}" in dockerfile
         assert f"{name}=${{{name}}}" in dockerfile
         assert f"{name}: ${{{name}:-}}" in compose
-    assert "^[0-9a-f]{40}$" in dockerfile
-    assert '"true"|"false"' in dockerfile
+    assert "^[0-9a-f]{40}$" in validator
+    assert "^[0-9a-f]{64}$" in validator
+    assert '"true"' in validator and '"false"' in validator
     assert "TRADE_RL_RUNTIME_MANIFEST_DIGEST" in dockerfile
+    assert "validate_training_image_provenance.py" in dockerfile
     assert "COPY --chown=trainer:trainer scripts ./scripts" in dockerfile
 
 
@@ -164,54 +171,136 @@ def test_training_image_build_checks_non_root_runtime_contract() -> None:
     assert "cat /provenance.valid" in dockerfile[runtime_contract:]
 
 
-def test_provenance_validation_target_fails_fast_without_valid_arguments() -> None:
+def test_provenance_validation_target_fails_fast_without_valid_arguments(
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "provenance.valid"
     base_command = [
-        "docker",
-        "build",
-        "--progress",
-        "plain",
-        "--target",
-        "provenance-validation",
-        "-f",
-        "docker/Dockerfile.training",
+        sys.executable,
+        str(ROOT / "scripts/validate_training_image_provenance.py"),
+        "--output",
+        str(marker),
     ]
     cases = (
-        ([], False),
+        ([], False, None),
         (
             [
-                "--build-arg",
-                f"TRADE_RL_GIT_COMMIT={'a' * 40}",
-                "--build-arg",
-                "TRADE_RL_GIT_DIRTY=invalid",
+                "--git-commit",
+                "a" * 40,
+                "--git-dirty",
+                "invalid",
+                "--source-tree-digest",
+                "b" * 64,
+                "--lockfile-digest",
+                "c" * 64,
             ],
             False,
+            None,
         ),
         (
             [
-                "--build-arg",
-                f"TRADE_RL_GIT_COMMIT={'a' * 40}",
-                "--build-arg",
-                "TRADE_RL_GIT_DIRTY=false",
-                "--build-arg",
-                f"TRADE_RL_SOURCE_TREE_DIGEST={'b' * 64}",
-                "--build-arg",
-                f"TRADE_RL_LOCKFILE_DIGEST={'c' * 64}",
+                "--git-commit",
+                "A" * 40,
+                "--git-dirty",
+                "false",
+                "--source-tree-digest",
+                "b" * 64,
+                "--lockfile-digest",
+                "c" * 64,
+            ],
+            False,
+            None,
+        ),
+        (
+            [
+                "--git-commit",
+                "a" * 40,
+                "--git-dirty",
+                "false",
+                "--source-tree-digest",
+                "b" * 63,
+                "--lockfile-digest",
+                "c" * 64,
+            ],
+            False,
+            None,
+        ),
+        (
+            [
+                "--git-commit",
+                "a" * 40,
+                "--git-dirty",
+                "false",
+                "--source-tree-digest",
+                "b" * 64,
+                "--lockfile-digest",
+                "g" * 64,
+            ],
+            False,
+            None,
+        ),
+        (
+            [
+                "--git-commit",
+                "a" * 40,
+                "--git-dirty",
+                "false",
+                "--source-tree-digest",
+                "b" * 64,
+                "--lockfile-digest",
+                "c" * 64,
+                "--runtime-manifest-digest",
+                "d" * 63,
+            ],
+            False,
+            None,
+        ),
+        (
+            [
+                "--git-commit",
+                "a" * 40,
+                "--git-dirty",
+                "false",
+                "--source-tree-digest",
+                "b" * 64,
+                "--lockfile-digest",
+                "c" * 64,
             ],
             True,
+            f"{'a' * 40}:false:{'b' * 64}:{'c' * 64}:\n".encode(),
+        ),
+        (
+            [
+                "--git-commit",
+                "a" * 40,
+                "--git-dirty",
+                "true",
+                "--source-tree-digest",
+                "b" * 64,
+                "--lockfile-digest",
+                "c" * 64,
+                "--runtime-manifest-digest",
+                "d" * 64,
+            ],
+            True,
+            f"{'a' * 40}:true:{'b' * 64}:{'c' * 64}:{'d' * 64}\n".encode(),
         ),
     )
 
-    for arguments, succeeds in cases:
+    for arguments, succeeds, expected_bytes in cases:
+        marker.unlink(missing_ok=True)
         completed = subprocess.run(
-            [*base_command, *arguments, "."],
+            [*base_command, *arguments],
             cwd=ROOT,
             check=False,
             capture_output=True,
             text=True,
         )
-        output = completed.stdout + completed.stderr
-        assert (completed.returncode == 0) is succeeds, output
-        assert "uv sync --frozen" not in output
+        assert (completed.returncode == 0) is succeeds, completed.stderr
+        if succeeds:
+            assert marker.read_bytes() == expected_bytes
+        else:
+            assert not marker.exists()
 
 
 def test_training_runbook_uses_generation_scoped_evidence_and_external_expectation() -> (

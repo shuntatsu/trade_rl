@@ -5,18 +5,14 @@ ARG TRADE_RL_GIT_DIRTY
 ARG TRADE_RL_SOURCE_TREE_DIGEST
 ARG TRADE_RL_LOCKFILE_DIGEST
 ARG TRADE_RL_RUNTIME_MANIFEST_DIGEST
-RUN printf '%s\n' "${TRADE_RL_GIT_COMMIT}" | grep -Eq '^[0-9a-f]{40}$' \
-    && printf '%s\n' "${TRADE_RL_SOURCE_TREE_DIGEST}" | grep -Eq '^[0-9a-f]{64}$' \
-    && printf '%s\n' "${TRADE_RL_LOCKFILE_DIGEST}" | grep -Eq '^[0-9a-f]{64}$' \
-    && printf '%s\n' "${TRADE_RL_RUNTIME_MANIFEST_DIGEST}" | grep -Eq '^$|^[0-9a-f]{64}$' \
-    && case "${TRADE_RL_GIT_DIRTY}" in "true"|"false") ;; *) exit 1 ;; esac \
-    && printf '%s:%s:%s:%s:%s\n' \
-        "${TRADE_RL_GIT_COMMIT}" \
-        "${TRADE_RL_GIT_DIRTY}" \
-        "${TRADE_RL_SOURCE_TREE_DIGEST}" \
-        "${TRADE_RL_LOCKFILE_DIGEST}" \
-        "${TRADE_RL_RUNTIME_MANIFEST_DIGEST}" \
-        > /provenance.valid
+COPY scripts/validate_training_image_provenance.py /tmp/validate_training_image_provenance.py
+RUN python /tmp/validate_training_image_provenance.py \
+        --git-commit "${TRADE_RL_GIT_COMMIT}" \
+        --git-dirty "${TRADE_RL_GIT_DIRTY}" \
+        --source-tree-digest "${TRADE_RL_SOURCE_TREE_DIGEST}" \
+        --lockfile-digest "${TRADE_RL_LOCKFILE_DIGEST}" \
+        --runtime-manifest-digest "${TRADE_RL_RUNTIME_MANIFEST_DIGEST}" \
+        --output /provenance.valid
 
 FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS training-runtime
 

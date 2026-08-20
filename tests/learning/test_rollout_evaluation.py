@@ -31,11 +31,17 @@ class _Dataset:
 class _Environment:
     dataset = _Dataset()
 
-    def __init__(self, *, omit_rejected_event: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        omit_rejected_event: bool = False,
+        executed_turnover: float = 0.2,
+    ) -> None:
         self.current_index = 0
         self._offset = 0
         self._weights = np.zeros(2, dtype=np.float32)
         self._omit_rejected_event = omit_rejected_event
+        self._executed_turnover = executed_turnover
 
     def _observation(self) -> dict[str, np.ndarray]:
         return {
@@ -54,8 +60,8 @@ class _Environment:
     def step(
         self, action: np.ndarray
     ) -> tuple[dict[str, np.ndarray], float, bool, bool, dict[str, object]]:
-        requested = 0.0 if self._offset == 0 else 0.2
-        filled = 0.0 if self._offset == 0 else 0.2
+        requested = 0.0 if self._offset == 0 else self._executed_turnover
+        filled = 0.0 if self._offset == 0 else self._executed_turnover
         rejected = 1 if self._offset == 0 else 0
         if filled > 0.0:
             self._weights[0] = float(action[0])
@@ -116,6 +122,27 @@ def test_action_path_reports_where_submitted_changes_disappear(
     assert evidence.executed_change_count == 2
     assert evidence.constant_submitted_actions is False
     assert evidence.inactive_mask_rate == 0.5
+
+
+def test_action_path_uses_one_tolerance_for_execution_and_traded_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(rollout_evaluation, "ClosedTradeTracker", _Trades)
+    tolerance = 1e-6
+    environment = _Environment(executed_turnover=5e-7)
+
+    result = rollout_evaluation.evaluate_action_path(
+        environment,
+        evaluation_range=(0, 4),
+        actions=np.array(
+            [[0.4, 0.0], [0.2, 0.0], [0.0, 0.0]],
+            dtype=np.float32,
+        ),
+        action_change_tolerance=tolerance,
+    )
+
+    assert result.collapse_evidence.executed_change_count == 0
+    assert result.performance.traded_step_count == 0
 
 
 def test_action_path_rejects_unreconciled_execution_rejection_events(

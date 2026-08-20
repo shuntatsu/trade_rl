@@ -237,3 +237,23 @@ def test_sequence_training_exercises_real_hierarchical_behavior_cloning(
     assert causal_metrics["causal_regret_upper_confidence_bound"][
         "threshold"
     ] == pytest.approx(0.2)
+
+
+def test_sequence_training_keeps_bc_epochs_above_historical_all_hold_collapse(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    observed: dict[str, int] = {}
+
+    def capture_train(self, *, seed, config, output_path):
+        del self, seed, output_path
+        observed["behavior_cloning_epochs"] = config.behavior_cloning_epochs
+        raise RuntimeError("captured sequence training config")
+
+    monkeypatch.setattr(impl.StableBaselines3Backend, "train", capture_train)
+
+    with pytest.raises(RuntimeError, match="captured sequence training config"):
+        impl._sequence_training(tmp_path)
+
+    # One epoch collapsed this audit probe to all-HOLD with zero positive support.
+    assert observed["behavior_cloning_epochs"] == 45

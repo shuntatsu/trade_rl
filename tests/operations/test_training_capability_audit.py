@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+import torch
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.operations import _training_capability_audit_impl as impl
@@ -205,6 +206,30 @@ def test_sequence_training_uses_maintained_causal_regret_admission_threshold(
         impl._sequence_training(tmp_path)
 
     assert observed["max_causal_holdout_regret"] == pytest.approx(0.2)
+
+
+def test_sequence_training_uses_single_torch_thread_and_restores_process_setting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_threads: list[int] = []
+    original_threads = torch.get_num_threads()
+    requested_threads = 2 if original_threads != 2 else 3
+
+    def capture_train(self, *, seed, config, output_path):
+        del self, seed, config, output_path
+        observed_threads.append(torch.get_num_threads())
+        raise RuntimeError("captured sequence audit thread count")
+
+    monkeypatch.setattr(impl.StableBaselines3Backend, "train", capture_train)
+    torch.set_num_threads(requested_threads)
+    try:
+        with pytest.raises(RuntimeError, match="captured sequence audit thread count"):
+            impl._sequence_training(tmp_path)
+        assert observed_threads == [1]
+        assert torch.get_num_threads() == requested_threads
+    finally:
+        torch.set_num_threads(original_threads)
 
 
 def test_sequence_training_exercises_real_hierarchical_behavior_cloning(

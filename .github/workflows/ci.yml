@@ -186,7 +186,16 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest -q tests/architecture tests/data tests/simulation tests/evaluation tests/serving 2>&1 | tee compatibility.log
+          uv run pytest -q \
+            tests/architecture \
+            tests/data \
+            tests/simulation \
+            tests/evaluation \
+            tests/serving \
+            tests/examples/test_docker_training_assets.py::test_provenance_validation_target_fails_fast_without_valid_arguments \
+            tests/operations/test_training_capability_audit.py::test_run_training_capability_audit_preserves_report_contract \
+            tests/operations/test_training_capability_audit.py::test_sequence_training_exercises_real_hierarchical_behavior_cloning \
+            2>&1 | tee compatibility.log
       - name: Upload compatibility diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

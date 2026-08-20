@@ -242,7 +242,9 @@ def test_sequence_training_exercises_real_hierarchical_behavior_cloning(
         try:
             record = impl._sequence_training(tmp_path)
         except RuntimeError as exc:
-            diagnostics = _sequence_failure_diagnostics(tmp_path / "structured-sequence")
+            diagnostics = _sequence_failure_diagnostics(
+                tmp_path / "structured-sequence"
+            )
             raise AssertionError(
                 f"sequence capability audit failed: {exc}; "
                 f"diagnostics={json.dumps(diagnostics, sort_keys=True)}"
@@ -263,9 +265,9 @@ def test_sequence_training_exercises_real_hierarchical_behavior_cloning(
         causal_metrics = _gate_metrics(gate_payload.get("causal_non_collapse_gate"))
         assert teacher_metrics["active_target_rmse"]["status"] == "passed"
         assert causal_metrics["cash_baseline_after_cost_regret"]["status"] == "passed"
-        assert causal_metrics["causal_regret_upper_confidence_bound"][
-            "status"
-        ] == "passed"
+        assert (
+            causal_metrics["causal_regret_upper_confidence_bound"]["status"] == "passed"
+        )
         assert causal_metrics["causal_regret_upper_confidence_bound"][
             "threshold"
         ] == pytest.approx(0.2)

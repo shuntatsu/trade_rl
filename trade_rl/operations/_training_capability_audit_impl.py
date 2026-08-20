@@ -10,6 +10,7 @@ from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
+import torch
 from gymnasium import spaces
 from torch import nn
 
@@ -116,10 +117,10 @@ def _architecture(algorithm: str, checkpoint: Path) -> dict[str, list[int]]:
     if algorithm == "tqc":
         from sb3_contrib import TQC
 
-        tqc_model = TQC.load(str(checkpoint), device="cpu")
+        tq_model = TQC.load(str(checkpoint), device="cpu")
         return {
-            "actor": _linear_widths(tqc_model.policy.actor.latent_pi),
-            "critic": _linear_widths(tqc_model.policy.critic.q_networks[0])[:-1],
+            "actor": _linear_widths(tq_model.policy.actor.latent_pi),
+            "critic": _linear_widths(tq_model.policy.critic.q_networks[0])[:-1],
         }
     raise ValueError(f"unsupported algorithm: {algorithm}")
 
@@ -571,11 +572,18 @@ def _sequence_training(root: Path) -> dict[str, object]:
         device="cpu",
     )
     output = root / "structured-sequence" / "policy.zip"
-    result = StableBaselines3Backend(factory).train(
-        seed=0,
-        config=config,
-        output_path=output,
-    )
+    # The audit is a deterministic positive-control probe. CPU reduction order can
+    # otherwise choose a different BC checkpoint across Linux and Windows.
+    previous_thread_count = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        result = StableBaselines3Backend(factory).train(
+            seed=0,
+            config=config,
+            output_path=output,
+        )
+    finally:
+        torch.set_num_threads(previous_thread_count)
     architecture_path = output.parent / "model-architecture.json"
     architecture = json.loads(architecture_path.read_text(encoding="utf-8"))
     if architecture["architecture"].get("encoder") != "MultiTimeframeTCNEncoder":
@@ -626,7 +634,7 @@ def run_training_capability_audit(output_root: Path) -> dict[str, object]:
     }
     report["digest"] = content_digest(report)
     report_path = output_root / "audit-report.json"
-    report_path.write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    report_path.write_bytes(
+        (json.dumps(report, indent=2, sort_keys=True) + "\n").encode("utf-8")
     )
     return report

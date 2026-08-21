@@ -473,3 +473,64 @@ def test_collect_recovers_launch_only_partial_retention(
     assert result["run_output_retained"] is True
     assert (retained / "container.log").read_text() == "preserved\n"
     assert (retained / "run/artifact.json").is_file()
+
+
+def test_operator_stop_oom_retry_preserves_operator_classification(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    launch = _launch(module)
+    state_root = tmp_path / "state"
+    retained_root = tmp_path / "retained"
+    _write_launch(
+        state_root / launch.generation / "launch-manifest.json",
+        launch,
+    )
+    retained = retained_root / launch.generation
+    retained.mkdir(parents=True)
+    _write_launch(retained / "launch-manifest.json", launch)
+    (retained / "container.log").write_text("stopped-oom\n", encoding="utf-8")
+    incomplete = {
+        "container_exit_code": 137,
+        "execution_status": "operator_stopped",
+        "generation": launch.generation,
+        "launch": launch.to_payload(),
+        "oom_killed": True,
+        "research_outcome": "unavailable",
+        "run_output_retained": False,
+        "schema_version": "causal_alpha_v3_research_result_v1",
+    }
+    (retained / "research-result.json").write_bytes(_canonical(incomplete))
+    monkeypatch.setattr(
+        module,
+        "_inspect_container",
+        lambda _launch: module.ContainerState(
+            running=False,
+            oom_killed=True,
+            exit_code=137,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_container_logs",
+        lambda _launch: (_ for _ in ()).throw(
+            AssertionError("retry must preserve the retained stop log")
+        ),
+    )
+
+    def copy(command, **_kwargs) -> None:
+        destination = Path(tuple(command)[-1])
+        (destination / "artifact.json").write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "_run", copy)
+    result = module.collect_generation(
+        generation=launch.generation,
+        state_root=state_root,
+        retained_root=retained_root,
+    )
+
+    assert result["execution_status"] == "operator_stopped"
+    assert result["research_outcome"] == "unavailable"
+    assert result["oom_killed"] is True
+    assert result["run_output_retained"] is True

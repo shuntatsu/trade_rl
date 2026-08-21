@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ast
 
+import yaml
+
 from tests.architecture.import_linter_config import configured_layers
 from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT
 
@@ -52,3 +54,21 @@ def test_top_level_modules_are_only_explicit_bootstrap_facades() -> None:
         "_version",
         "runtime_factory",
     }
+
+
+def test_ci_exposes_one_conditional_full_training_capability_gate() -> None:
+    payload = yaml.safe_load(
+        (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    job = payload["jobs"]["full-training-capability"]
+    assert job["name"] == "Full training capability gate"
+    assert job["runs-on"] == "ubuntu-latest"
+    assert job["timeout-minutes"] == 75
+    steps = job["steps"]
+    names = tuple(step.get("name") for step in steps)
+    assert names.count("Detect training-sensitive changes") == 1
+    assert names.count("Run full training capability audit") == 1
+    scripts = "\n".join(str(step.get("run", "")) for step in steps if step.get("run"))
+    assert "scripts/run_training_capability_audit.py" in scripts
+    assert "full_training_capability_audit_v1" in scripts
+    assert "steps.changes.outputs.required == 'true'" in str(steps)

@@ -646,11 +646,12 @@ def _load_retained_result(
     if not isinstance(retained_flag, bool):
         raise ValueError("retained run_output_retained must be a boolean")
     persisted_operator_stopped = result["execution_status"] == "operator_stopped"
+    effective_operator_stopped = operator_stopped or persisted_operator_stopped
     expected_status, expected_outcome = classify_research_outcome(
         state.exit_code,
-        operator_stopped=(operator_stopped or persisted_operator_stopped),
+        operator_stopped=effective_operator_stopped,
     )
-    if state.oom_killed and not operator_stopped:
+    if state.oom_killed and not effective_operator_stopped:
         expected_status, expected_outcome = "failed", "unavailable"
     if (
         result["execution_status"] != expected_status

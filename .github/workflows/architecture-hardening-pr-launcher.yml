@@ -166,23 +166,55 @@ jobs:
                       "trade_rl/workflows/universal_training_runner.py"
                   )
                   generated_source = generated_runner.read_text(encoding="utf-8")
-                  protocol_old = (
-                      "class UniversalTrainingResult(Protocol):\n"
-                      "    checkpoint_path: Path\n"
-                      "    environment_digest: str\n"
-                      "    architecture_digest: str\n"
-                      "    actual_timesteps: int\n"
+                  typing_old = "from typing import Any, Protocol\n"
+                  training_old = (
+                      "from trade_rl.rl.training import ResidualTrainingConfig\n"
                   )
-                  protocol_new = protocol_old.replace(
-                      "    architecture_digest: str\n",
-                      "    architecture_digest: str | None\n",
+                  if generated_source.count(typing_old) != 1:
+                      raise RuntimeError("Universal runner typing import drifted")
+                  if generated_source.count(training_old) != 1:
+                      raise RuntimeError("Universal runner training import drifted")
+                  generated_source = generated_source.replace(
+                      typing_old,
+                      "from typing import Any\n",
+                      1,
+                  ).replace(
+                      training_old,
+                      "from trade_rl.rl.training import (\n"
+                      "    PolicyTrainingBackend,\n"
+                      "    ResidualTrainingConfig,\n"
+                      ")\n",
+                      1,
                   )
-                  if generated_source.count(protocol_old) != 1:
-                      raise RuntimeError(
-                          "Universal result protocol architecture field drifted"
-                      )
+                  protocol_start = generated_source.find(
+                      "\n\nclass UniversalTrainingResult(Protocol):\n"
+                  )
+                  function_marker = generated_source.find(
+                      "\n\ndef train_universal_seeds(\n"
+                  )
+                  if protocol_start < 0 or function_marker <= protocol_start:
+                      raise RuntimeError("Universal duplicate Protocol block drifted")
+                  generated_source = (
+                      generated_source[:protocol_start]
+                      + generated_source[function_marker:]
+                  )
+                  if generated_source.count(
+                      "    backend: UniversalTrainingBackend,\n"
+                  ) != 1:
+                      raise RuntimeError("Universal backend annotation drifted")
+                  generated_source = generated_source.replace(
+                      "    backend: UniversalTrainingBackend,\n",
+                      "    backend: PolicyTrainingBackend,\n",
+                      1,
+                  )
+                  exports = (
+                      '    "UniversalTrainingBackend",\n'
+                      '    "UniversalTrainingResult",\n'
+                  )
+                  if generated_source.count(exports) != 1:
+                      raise RuntimeError("Universal duplicate Protocol exports drifted")
                   generated_runner.write_text(
-                      generated_source.replace(protocol_old, protocol_new, 1),
+                      generated_source.replace(exports, "", 1),
                       encoding="utf-8",
                   )
               if name == "Format changed Python":

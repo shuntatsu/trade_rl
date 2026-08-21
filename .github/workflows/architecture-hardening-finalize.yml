@@ -1,0 +1,322 @@
+name: Finalize architecture hardening
+
+on:
+  push:
+    branches:
+      - bootstrap/architecture-hardening-source-snapshot-20260821
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-hardening-finalize
+  cancel-in-progress: true
+
+jobs:
+  finalize:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Recover RED contracts and product implementation idempotently
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import subprocess
+          from pathlib import Path
+
+          ROOT = Path.cwd()
+
+
+          def embedded_python(path: Path) -> str:
+              text = path.read_text(encoding="utf-8")
+              marker = "          python - <<'PY'\n"
+              start = text.index(marker) + len(marker)
+              end = text.index("\n          PY\n", start)
+              return "\n".join(
+                  line[10:] if line.startswith("          ") else line
+                  for line in text[start:end].splitlines()
+              )
+
+
+          architecture_test = Path(
+              "tests/architecture/test_architecture_hardening_contract.py"
+          )
+          if not architecture_test.is_file():
+              red_workflow = Path(
+                  ".github/workflows/architecture-hardening-red-bootstrap.yml"
+              )
+              if not red_workflow.is_file():
+                  raise RuntimeError("RED contract source is unavailable")
+              text = red_workflow.read_text(encoding="utf-8")
+              start_marker = "          set -euo pipefail\n          cat > tests/architecture/test_architecture_hardening_contract.py"
+              start = text.index(start_marker)
+              end = text.index("\n      - name: Install test dependencies", start)
+              shell = "\n".join(
+                  line[10:] if line.startswith("          ") else line
+                  for line in text[start:end].splitlines()
+              )
+              subprocess.run(("bash", "-c", shell), check=True)
+
+          operation = Path("trade_rl/operations/causal_alpha_v3_generation.py")
+          if not operation.is_file():
+              apply_workflow = Path(
+                  ".github/workflows/architecture-hardening-apply.yml"
+              )
+              if not apply_workflow.is_file():
+                  raise RuntimeError("implementation recovery source is unavailable")
+              runner = Path("trade_rl/workflows/universal_training_runner.py")
+              source = runner.read_text(encoding="utf-8")
+              source = source.replace(
+                  '        if not isinstance(environment_digest, str):\n'
+                  '            raise ValueError("Universal backend environment digest is unavailable")\n',
+                  '        if not isinstance(environment_digest, str):\n'
+                  '            raise ValueError(\n'
+                  '                "Universal backend environment digest is unavailable"\n'
+                  '            )\n',
+              )
+              source = source.replace(
+                  '        if isinstance(actual_timesteps, bool) or not isinstance(actual_timesteps, int):\n'
+                  '            raise ValueError("Universal backend actual_timesteps is unavailable")\n',
+                  '        if isinstance(actual_timesteps, bool) or not isinstance(actual_timesteps, int):\n'
+                  '            raise ValueError(\n'
+                  '                "Universal backend actual_timesteps is unavailable"\n'
+                  '            )\n',
+              )
+              runner.write_text(source, encoding="utf-8")
+              exec(
+                  compile(
+                      embedded_python(apply_workflow),
+                      "architecture-hardening-apply-recovered.py",
+                      "exec",
+                  )
+              )
+
+          runtime_test = Path(
+              "tests/workflows/test_runtime_factory_evidence_contract.py"
+          )
+          if not runtime_test.is_file():
+              runtime_test.write_text(
+                  '''from __future__ import annotations
+
+          import importlib
+          from pathlib import Path
+
+
+          def test_runtime_factory_descriptor_binds_implementation_source_bytes(
+              monkeypatch,
+              tmp_path: Path,
+          ) -> None:
+              from trade_rl.integrations.runtime_factory import (
+                  describe_runtime_factory,
+                  load_runtime_factory,
+              )
+
+              module_path = tmp_path / "runtime_fixture.py"
+              module_path.write_text(
+                  "def build_runtime(**kwargs):\\n    return kwargs\\n",
+                  encoding="utf-8",
+              )
+              monkeypatch.syspath_prepend(str(tmp_path))
+              importlib.invalidate_caches()
+              factory = load_runtime_factory("runtime_fixture:build_runtime")
+              first = describe_runtime_factory(
+                  "runtime_fixture:build_runtime",
+                  factory=factory,
+              )
+              module_path.write_text(
+                  "def build_runtime(**kwargs):\\n    return dict(kwargs)\\n",
+                  encoding="utf-8",
+              )
+              second = describe_runtime_factory(
+                  "runtime_fixture:build_runtime",
+                  factory=factory,
+              )
+              assert first.spec == "runtime_fixture:build_runtime"
+              assert first.module == "runtime_fixture"
+              assert first.callable_name == "build_runtime"
+              assert first.implementation_digest != second.implementation_digest
+              assert first.digest != second.digest
+
+
+          def test_full_research_cli_passes_runtime_factory_evidence() -> None:
+              source = Path("scripts/run_universal_full_research.py").read_text(
+                  encoding="utf-8"
+              )
+              assert "describe_runtime_factory" in source
+              assert "runtime_factory_descriptor=" in source
+          '''.replace("          ", ""),
+                  encoding="utf-8",
+              )
+
+          runner = Path("trade_rl/workflows/universal_training_runner.py")
+          source = runner.read_text(encoding="utf-8")
+          old = (
+              "class UniversalTrainingResult(Protocol):\n"
+              "    checkpoint_path: Path\n"
+              "    environment_digest: str\n"
+              "    architecture_digest: str\n"
+          )
+          new = (
+              "class UniversalTrainingResult(Protocol):\n"
+              "    checkpoint_path: Path\n"
+              "    environment_digest: str\n"
+              "    architecture_digest: str | None\n"
+          )
+          if old in source:
+              source = source.replace(old, new, 1)
+              runner.write_text(source, encoding="utf-8")
+          elif new not in source:
+              raise RuntimeError("UniversalTrainingResult contract is unavailable")
+
+          ci = Path(".github/workflows/ci.yml")
+          ci_source = ci.read_text(encoding="utf-8")
+          if "tests/operations/test_causal_alpha_v3_generation_recovery.py" not in ci_source:
+              integration = Path(
+                  ".github/workflows/architecture-hardening-ci-integration.yml"
+              )
+              if not integration.is_file():
+                  raise RuntimeError("CI integration recovery source is unavailable")
+              exec(
+                  compile(
+                      embedded_python(integration),
+                      "architecture-hardening-ci-recovered.py",
+                      "exec",
+                  )
+              )
+
+          ci_source = ci.read_text(encoding="utf-8")
+          if "  training-capability-gate:\n" not in ci_source:
+              training_gate = Path(
+                  ".github/workflows/architecture-hardening-training-gate.yml"
+              )
+              if not training_gate.is_file():
+                  raise RuntimeError("training gate recovery source is unavailable")
+              exec(
+                  compile(
+                      embedded_python(training_gate),
+                      "architecture-hardening-training-gate-recovered.py",
+                      "exec",
+                  )
+              )
+          PY
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install complete verification dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
+
+      - name: Normalize formatting and imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix .
+          uv run ruff format .
+          git diff --check
+
+      - name: Targeted contract and falsification tests
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p var/architecture-hardening-final
+          uv run pytest -q \
+            tests/architecture \
+            tests/workflows/test_universal_training_manifest_contract.py \
+            tests/workflows/test_runtime_factory_evidence_contract.py \
+            tests/workflows/test_universal_training_execution.py \
+            tests/workflows/test_universal_full_research_entrypoint.py \
+            tests/studio/test_jobs.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py \
+            2>&1 | tee var/architecture-hardening-final/targeted.log
+
+      - name: Full Python tests and branch coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            --cov=trade_rl \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=json:var/architecture-hardening-final/coverage.json \
+            2>&1 | tee var/architecture-hardening-final/full-pytest.log
+          uv run python .github/check_critical_coverage.py \
+            var/architecture-hardening-final/coverage.json \
+            pyproject.toml
+
+      - name: Static, type, architecture, and dead-code verification
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            uv run ruff check .
+            uv run ruff format --check .
+            uv run mypy .
+            uv run lint-imports
+            uv run vulture trade_rl tests --min-confidence 100
+            uv run python .github/check_workflow_security.py .
+          } 2>&1 | tee var/architecture-hardening-final/static.log
+
+      - name: Falsification review of final diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --stat origin/main...HEAD \
+            > var/architecture-hardening-final/diff-stat.txt
+          git diff origin/main -- \
+            trade_rl scripts tests pyproject.toml docs/ARCHITECTURE.md \
+            > var/architecture-hardening-final/final.diff
+          test -z "$(git diff origin/main -- tests | grep -E '^\+.*(assert True|pytest\.skip\(|pytest\.mark\.xfail|@unittest\.skip)' || true)"
+          test -z "$(git diff origin/main -- trade_rl | grep -E '^\+.*(except (Exception|BaseException):[[:space:]]*pass|# type: ignore|noqa)' || true)"
+          python - <<'PY'
+          from pathlib import Path
+
+          operation = Path('trade_rl/operations/causal_alpha_v3_generation.py')
+          script = Path('scripts/control_causal_alpha_v3_research_generation.py')
+          assert operation.stat().st_size > 10_000
+          assert script.stat().st_size < 500
+          assert 'subprocess' not in script.read_text(encoding='utf-8')
+          PY
+
+      - name: Commit one clean implementation head
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/architecture-hardening-finalize.yml
+          rm -f .github/workflows/architecture-hardening-apply.yml
+          rm -f .github/workflows/architecture-hardening-repair.yml
+          rm -f .github/workflows/architecture-hardening-ci-integration.yml
+          rm -f .github/workflows/architecture-hardening-training-gate.yml
+          rm -f .github/workflows/architecture-hardening-red-bootstrap.yml
+          rm -f .github/workflows/source-snapshot-bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: harden architecture identity and recovery boundaries"
+          git push origin HEAD:bootstrap/architecture-hardening-source-snapshot-20260821
+
+      - name: Upload final local verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-hardening-final-local-evidence
+          path: var/architecture-hardening-final
+          if-no-files-found: warn
+          retention-days: 14

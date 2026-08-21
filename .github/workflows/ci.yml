@@ -290,7 +290,7 @@ jobs:
             changed="<full-history-unavailable>"
           else
             changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
-            if printf '%s\n' "$changed" | grep -Eq '^(trade_rl/(rl|learning|integrations|workflows|serving|operations)/|scripts/run_training_capability_audit\.py$|tests/(rl|learning|integrations|workflows|serving|operations|e2e)/|docker/Dockerfile\.training$|pyproject\.toml$|uv\.lock$|\.github/workflows/(ci|full-training-capability-audit)\.yml$)'; then
+            if printf '%s\n' "$changed" | grep -Eq '^(trade_rl/|tests/|scripts/|examples/|configs/|docker/|pyproject\.toml$|uv\.lock$|\.github/workflows/(ci|full-training-capability-audit)\.yml$)'; then
               required=true
             else
               required=false

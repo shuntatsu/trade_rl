@@ -70,3 +70,35 @@ jobs:
           path: wheelhouse
           if-no-files-found: error
           retention-days: 1
+
+  local-verification-wheelhouse:
+    name: Local verification wheelhouse
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+
+      - name: Download lock-matched verification dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download \
+            --dest wheelhouse \
+            --only-binary=:all: \
+            hypothesis==6.156.6 \
+            ruff==0.15.21 \
+            mypy==2.3.0 \
+            import-linter==2.13 \
+            vulture==2.16 \
+            pytest-cov==7.1.0 \
+            PyYAML==6.0.3
+
+      - name: Upload verification wheelhouse
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: trade-rl-local-verification-wheelhouse
+          path: wheelhouse
+          if-no-files-found: error
+          retention-days: 1

@@ -215,6 +215,7 @@ layers = [
     "trade_rl.cli",
     "trade_rl.operations",
     "trade_rl.studio",
+    "trade_rl.reporting",
     "trade_rl.workflows",
     "trade_rl.integrations",
     "trade_rl.serving",

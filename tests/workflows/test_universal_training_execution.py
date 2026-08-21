@@ -65,7 +65,7 @@ def test_train_universal_seeds_writes_manifest_from_exact_backend_outputs(
             return SimpleNamespace(
                 checkpoint_path=output_path,
                 environment_digest=_digest("universal-environment"),
-                architecture_digest=_digest(f"architecture:{seed}"),
+                architecture_digest=_digest("architecture"),
                 actual_timesteps=123,
             )
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts import control_causal_alpha_v3_research_generation as module
+from trade_rl.operations import causal_alpha_v3_generation as module
 
 
 def _launch() -> module.CausalAlphaV3Launch:

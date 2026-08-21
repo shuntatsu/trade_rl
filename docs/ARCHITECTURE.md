@@ -37,6 +37,7 @@ trade_rl/
   integrations/  Stable-Baselines3などのAdapter
   workflows/     Training、Walk-forward、Publication orchestration
   studio/        Local research read modelとJob control
+  reporting/     Persisted evidenceの決定論的read model
   operations/    Maintained GPU・運用検証entry point
   cli/           trade-rlコマンド
 ```
@@ -47,6 +48,7 @@ Import Linterの強制順序は次のとおりです:
 cli
 operations
 studio
+reporting
 workflows
 integrations
 serving

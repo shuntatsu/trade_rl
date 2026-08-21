@@ -9,9 +9,7 @@ import pytest
 
 
 def _module():
-    return importlib.import_module(
-        "trade_rl.operations.causal_alpha_v3_generation"
-    )
+    return importlib.import_module("trade_rl.operations.causal_alpha_v3_generation")
 
 
 def _launch(module):
@@ -34,15 +32,12 @@ def _launch(module):
 
 
 def _canonical(payload: object) -> bytes:
-    return (
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        + b"\n"
-    )
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode() + b"\n"
 
 
 def _write_launch(path: Path, launch) -> bytes:
     payload = _canonical(launch.to_payload())
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
     return payload
 
@@ -53,6 +48,7 @@ def test_start_retries_same_persisted_identity_when_detach_previously_failed(
 ) -> None:
     module = _module()
     launch = _launch(module)
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
     root = tmp_path / "project"
     state_root = tmp_path / "state"
     runtime_root = tmp_path / "runtime"
@@ -63,9 +59,7 @@ def test_start_retries_same_persisted_identity_when_detach_previously_failed(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("fixture\n", encoding="utf-8")
     (runtime_root / "runtime-manifest.json").parent.mkdir(parents=True)
-    (runtime_root / "runtime-manifest.json").write_text(
-        "{}\n", encoding="utf-8"
-    )
+    (runtime_root / "runtime-manifest.json").write_text("{}\n", encoding="utf-8")
     launch_path = state_root / launch.generation / "launch-manifest.json"
     original_bytes = _write_launch(launch_path, launch)
     commands: list[tuple[str, ...]] = []
@@ -75,9 +69,7 @@ def test_start_retries_same_persisted_identity_when_detach_previously_failed(
     monkeypatch.setattr(
         module,
         "load_universal_runtime_manifest",
-        lambda _path: SimpleNamespace(
-            manifest_digest=launch.runtime_manifest_digest
-        ),
+        lambda _path: SimpleNamespace(manifest_digest=launch.runtime_manifest_digest),
     )
     monkeypatch.setattr(
         module, "source_tree_digest", lambda _root: launch.source_tree_digest
@@ -86,9 +78,7 @@ def test_start_retries_same_persisted_identity_when_detach_previously_failed(
     def digest(path: Path) -> str:
         values = {
             "uv.lock": launch.lockfile_digest,
-            "universal-causal-alpha-v3-research.json": (
-                launch.research_config_digest
-            ),
+            "universal-causal-alpha-v3-research.json": (launch.research_config_digest),
             "universal-u6-ppo.json": launch.run_config_digest,
         }
         return values[path.name]
@@ -104,9 +94,7 @@ def test_start_retries_same_persisted_identity_when_detach_previously_failed(
                 "org.opencontainers.image.revision": launch.git_commit,
                 "io.trade-rl.source-tree-digest": launch.source_tree_digest,
                 "io.trade-rl.lockfile-digest": launch.lockfile_digest,
-                "io.trade-rl.runtime-manifest-digest": (
-                    launch.runtime_manifest_digest
-                ),
+                "io.trade-rl.runtime-manifest-digest": (launch.runtime_manifest_digest),
             },
         ),
     )
@@ -184,9 +172,7 @@ def test_collect_resumes_incomplete_copy_and_then_is_idempotent(
         assert call[:2] == ("docker", "cp")
         destination = Path(call[-1])
         destination.mkdir(parents=True, exist_ok=True)
-        (destination / "artifact.json").write_text(
-            "{}\n", encoding="utf-8"
-        )
+        (destination / "artifact.json").write_text("{}\n", encoding="utf-8")
 
     monkeypatch.setattr(module, "_run", copy)
 

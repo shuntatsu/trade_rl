@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 from tests.architecture.import_linter_config import configured_layers
 from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT, REPOSITORY_ROOT

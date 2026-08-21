@@ -38,6 +38,10 @@ from trade_rl.rl.actions import (
     ActionValidationMode,
 )
 from trade_rl.rl.environment import ResidualMarketEnv
+from trade_rl.rl.training import (
+    PolicyTrainingBackend,
+    ResidualTrainingConfig,
+)
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.rl.universal_instrument_context import CausalInstrumentContextProvider
 from trade_rl.rl.universal_single_instrument_env import EpisodeRoutedSingleInstrumentEnv
@@ -724,9 +728,9 @@ def assemble_universal_sb3_training_backend(
 
 def train_universal_seeds(
     *,
-    runtime: Any,
-    training: Any,
-    backend: Any,
+    runtime: UniversalTrainingRuntime,
+    training: ResidualTrainingConfig,
+    backend: PolicyTrainingBackend,
     output_root: Path,
     architecture_name: str,
 ) -> dict[str, object]:
@@ -747,6 +751,8 @@ def train_universal_seeds(
     output_root.mkdir(parents=True, exist_ok=True)
 
     members: list[dict[str, object]] = []
+    expected_environment_digest: str | None = None
+    expected_architecture_digest: str | None = None
     for seed in seeds:
         policy_path = output_root / f"seed-{seed}" / "policy.zip"
         result = backend.train(seed=seed, config=training, output_path=policy_path)
@@ -758,10 +764,38 @@ def train_universal_seeds(
         environment_digest = getattr(result, "environment_digest", None)
         if not isinstance(environment_digest, str):
             raise ValueError("Universal backend environment digest is unavailable")
+        require_sha256(
+            environment_digest,
+            field="Universal backend environment_digest",
+        )
         architecture_digest = getattr(result, "architecture_digest", None)
+        if not isinstance(architecture_digest, str):
+            raise ValueError("Universal backend architecture digest is unavailable")
+        require_sha256(
+            architecture_digest,
+            field="Universal backend architecture_digest",
+        )
         actual_timesteps = getattr(result, "actual_timesteps", None)
-        if isinstance(actual_timesteps, bool) or not isinstance(actual_timesteps, int):
-            raise ValueError("Universal backend actual_timesteps is unavailable")
+        if (
+            isinstance(actual_timesteps, bool)
+            or not isinstance(actual_timesteps, int)
+            or actual_timesteps <= 0
+        ):
+            raise ValueError(
+                "Universal backend actual_timesteps must be a positive integer"
+            )
+        if expected_environment_digest is None:
+            expected_environment_digest = environment_digest
+        elif environment_digest != expected_environment_digest:
+            raise ValueError(
+                "Universal backend environment identity drifted across seeds"
+            )
+        if expected_architecture_digest is None:
+            expected_architecture_digest = architecture_digest
+        elif architecture_digest != expected_architecture_digest:
+            raise ValueError(
+                "Universal backend architecture identity drifted across seeds"
+            )
         members.append(
             {
                 "seed": seed,

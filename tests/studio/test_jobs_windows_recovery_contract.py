@@ -13,6 +13,4 @@ def test_windows_pid_start_token_uses_process_creation_time_provider(
         raising=False,
     )
 
-    assert studio_jobs._pid_start_token(4321, platform_name="nt") == (
-        "creation:4321"
-    )
+    assert studio_jobs._pid_start_token(4321, platform_name="nt") == ("creation:4321")

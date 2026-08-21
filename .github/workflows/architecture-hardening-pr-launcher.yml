@@ -120,6 +120,24 @@ jobs:
               "Targeted GREEN tests",
               "Static and architecture checks",
           )
+          formatted_paths = (
+              "trade_rl/integrations/runtime_factory.py",
+              "trade_rl/runtime_factory.py",
+              "trade_rl/workflows/universal_full_research_entrypoint.py",
+              "trade_rl/workflows/universal_training_runner.py",
+              "trade_rl/studio/jobs.py",
+              "trade_rl/operations/causal_alpha_v3_generation.py",
+              "scripts/control_causal_alpha_v3_research_generation.py",
+              "scripts/run_universal_full_research.py",
+              "tests/architecture/test_architecture_hardening_contract.py",
+              "tests/workflows/test_universal_training_manifest_contract.py",
+              "tests/workflows/test_runtime_factory_evidence_contract.py",
+              "tests/workflows/test_universal_training_execution.py",
+              "tests/studio/test_jobs_windows_recovery_contract.py",
+              "tests/operations/test_causal_alpha_v3_generation_recovery.py",
+              "tests/scripts/test_control_causal_alpha_v3_research_generation.py",
+              "tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py",
+          )
           by_name = {
               step.get("name"): step.get("run")
               for step in steps
@@ -143,6 +161,15 @@ jobs:
                   ("bash", "-euo", "pipefail", "-c", script),
                   check=True,
               )
+              if name == "Format changed Python":
+                  subprocess.run(
+                      ("uv", "run", "ruff", "check", "--fix", *formatted_paths),
+                      check=True,
+                  )
+                  subprocess.run(
+                      ("uv", "run", "ruff", "format", *formatted_paths),
+                      check=True,
+                  )
               print("::endgroup::", flush=True)
           PY
 

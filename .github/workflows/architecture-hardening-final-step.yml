@@ -1,0 +1,350 @@
+name: Final architecture hardening step
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-hardening-final-step-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.number == 420 &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact checkout
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
+
+      - name: Add final falsification and CI contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+          from textwrap import dedent
+
+
+          def append_once(path: str, marker: str, addition: str) -> None:
+              target = Path(path)
+              source = target.read_text(encoding="utf-8")
+              if marker in source:
+                  return
+              target.write_text(source.rstrip() + "\n\n" + dedent(addition).lstrip(), encoding="utf-8")
+
+
+          append_once(
+              "tests/operations/test_causal_alpha_v3_generation_recovery.py",
+              "test_operator_stop_oom_retry_preserves_operator_classification",
+              r'''
+              def test_operator_stop_oom_retry_preserves_operator_classification(
+                  monkeypatch: pytest.MonkeyPatch,
+                  tmp_path: Path,
+              ) -> None:
+                  module = _module()
+                  launch = _launch(module)
+                  state_root = tmp_path / "state"
+                  retained_root = tmp_path / "retained"
+                  _write_launch(
+                      state_root / launch.generation / "launch-manifest.json",
+                      launch,
+                  )
+                  retained = retained_root / launch.generation
+                  retained.mkdir(parents=True)
+                  _write_launch(retained / "launch-manifest.json", launch)
+                  (retained / "container.log").write_text("stopped-oom\n", encoding="utf-8")
+                  incomplete = {
+                      "container_exit_code": 137,
+                      "execution_status": "operator_stopped",
+                      "generation": launch.generation,
+                      "launch": launch.to_payload(),
+                      "oom_killed": True,
+                      "research_outcome": "unavailable",
+                      "run_output_retained": False,
+                      "schema_version": "causal_alpha_v3_research_result_v1",
+                  }
+                  (retained / "research-result.json").write_bytes(_canonical(incomplete))
+                  monkeypatch.setattr(
+                      module,
+                      "_inspect_container",
+                      lambda _launch: module.ContainerState(
+                          running=False,
+                          oom_killed=True,
+                          exit_code=137,
+                      ),
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_container_logs",
+                      lambda _launch: (_ for _ in ()).throw(
+                          AssertionError("retry must preserve the retained stop log")
+                      ),
+                  )
+
+                  def copy(command, **_kwargs) -> None:
+                      destination = Path(tuple(command)[-1])
+                      (destination / "artifact.json").write_text("{}\n", encoding="utf-8")
+
+                  monkeypatch.setattr(module, "_run", copy)
+                  result = module.collect_generation(
+                      generation=launch.generation,
+                      state_root=state_root,
+                      retained_root=retained_root,
+                  )
+
+                  assert result["execution_status"] == "operator_stopped"
+                  assert result["research_outcome"] == "unavailable"
+                  assert result["oom_killed"] is True
+                  assert result["run_output_retained"] is True
+              ''',
+          )
+
+          architecture = Path("tests/architecture/test_architecture_hardening_contract.py")
+          source = architecture.read_text(encoding="utf-8")
+          if "import yaml\n" not in source:
+              source = source.replace("import ast\n", "import ast\n\nimport yaml\n", 1)
+              architecture.write_text(source, encoding="utf-8")
+          append_once(
+              "tests/architecture/test_architecture_hardening_contract.py",
+              "test_ci_exposes_one_conditional_full_training_capability_gate",
+              r'''
+              def test_ci_exposes_one_conditional_full_training_capability_gate() -> None:
+                  payload = yaml.safe_load(
+                      (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(
+                          encoding="utf-8"
+                      )
+                  )
+                  job = payload["jobs"]["full-training-capability"]
+                  assert job["name"] == "Full training capability gate"
+                  assert job["runs-on"] == "ubuntu-latest"
+                  assert job["timeout-minutes"] == 75
+                  steps = job["steps"]
+                  names = tuple(step.get("name") for step in steps)
+                  assert names.count("Detect training-sensitive changes") == 1
+                  assert names.count("Run full training capability audit") == 1
+                  scripts = "\n".join(
+                      str(step.get("run", "")) for step in steps if step.get("run")
+                  )
+                  assert "scripts/run_training_capability_audit.py" in scripts
+                  assert "full_training_capability_audit_v1" in scripts
+                  assert "steps.changes.outputs.required == 'true'" in str(steps)
+              ''',
+          )
+
+          ci = Path(".github/workflows/ci.yml")
+          ci_source = ci.read_text(encoding="utf-8")
+          if "  full-training-capability:\n" not in ci_source:
+              ci_job = dedent(
+                  r'''
+
+                    full-training-capability:
+                      name: Full training capability gate
+                      runs-on: ubuntu-latest
+                      timeout-minutes: 75
+                      steps:
+                        - name: Checkout exact head
+                          uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+                          with:
+                            ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                            fetch-depth: 0
+                            persist-credentials: false
+
+                        - name: Detect training-sensitive changes
+                          id: changes
+                          shell: bash
+                          env:
+                            BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+                            HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+                          run: |
+                            set -euo pipefail
+                            if test -z "$BASE_SHA" || test "$BASE_SHA" = "0000000000000000000000000000000000000000"; then
+                              required=true
+                              changed="<full-history-unavailable>"
+                            else
+                              changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+                              if printf '%s\n' "$changed" | grep -Eq '^(trade_rl/(rl|learning|integrations|workflows|serving|operations)/|scripts/run_training_capability_audit\.py$|tests/(rl|learning|integrations|workflows|serving|operations|e2e)/|docker/Dockerfile\.training$|pyproject\.toml$|uv\.lock$|\.github/workflows/(ci|full-training-capability-audit)\.yml$)'; then
+                                required=true
+                              else
+                                required=false
+                              fi
+                            fi
+                            printf '%s\n' "$changed" > training-audit-paths.txt
+                            echo "required=$required" >> "$GITHUB_OUTPUT"
+
+                        - name: Set up uv
+                          if: steps.changes.outputs.required == 'true'
+                          uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+                          with:
+                            python-version: "3.12"
+                            enable-cache: true
+
+                        - name: Install complete audit dependencies
+                          if: steps.changes.outputs.required == 'true'
+                          run: uv sync --extra dev --extra train-sb3 --extra export
+
+                        - name: Run full training capability audit
+                          if: steps.changes.outputs.required == 'true'
+                          shell: bash
+                          run: |
+                            set -euo pipefail
+                            mkdir -p var/training-capability-audit
+                            uv run python scripts/run_training_capability_audit.py \
+                              --output var/training-capability-audit \
+                              2>&1 | tee var/training-capability-audit.log
+
+                        - name: Verify full training capability audit
+                          if: steps.changes.outputs.required == 'true'
+                          shell: bash
+                          run: |
+                            uv run python - <<'PY'
+                            import json
+                            from pathlib import Path
+
+                            path = Path("var/training-capability-audit/audit-report.json")
+                            payload = json.loads(path.read_text(encoding="utf-8"))
+                            assert payload["schema_version"] == "full_training_capability_audit_v1"
+                            assert len(payload["digest"]) == 64
+                            for name, record in payload["algorithms"].items():
+                                assert record["status"] == "pass", (name, record)
+                                assert record["actual_timesteps"] >= 16
+                                assert record["checkpoint_count"] >= 1
+                            for name in (
+                                "behavior_cloning",
+                                "exports",
+                                "replay_resume",
+                                "residual_controls",
+                                "sequence",
+                                "training_resume",
+                            ):
+                                assert payload[name]["status"] == "pass", (name, payload[name])
+                            PY
+
+                        - name: Upload full training audit evidence
+                          if: always() && steps.changes.outputs.required == 'true'
+                          uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+                          with:
+                            name: full-training-capability-gate
+                            path: |
+                              training-audit-paths.txt
+                              var/training-capability-audit
+                              var/training-capability-audit.log
+                            if-no-files-found: error
+                            retention-days: 14
+                  '''
+              )
+              ci.write_text(ci_source.rstrip() + ci_job + "\n", encoding="utf-8")
+          PY
+
+      - name: Confirm OOM retry RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py::test_operator_stop_oom_retry_preserves_operator_classification \
+            > oom-red.log 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+
+      - name: Fix effective terminal classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/operations/causal_alpha_v3_generation.py")
+          source = path.read_text(encoding="utf-8")
+          old = (
+              '    persisted_operator_stopped = result["execution_status"] == "operator_stopped"\n'
+              '    expected_status, expected_outcome = classify_research_outcome(\n'
+              '        state.exit_code,\n'
+              '        operator_stopped=(operator_stopped or persisted_operator_stopped),\n'
+              '    )\n'
+              '    if state.oom_killed and not operator_stopped:\n'
+          )
+          new = (
+              '    persisted_operator_stopped = result["execution_status"] == "operator_stopped"\n'
+              '    effective_operator_stopped = operator_stopped or persisted_operator_stopped\n'
+              '    expected_status, expected_outcome = classify_research_outcome(\n'
+              '        state.exit_code,\n'
+              '        operator_stopped=effective_operator_stopped,\n'
+              '    )\n'
+              '    if state.oom_killed and not effective_operator_stopped:\n'
+          )
+          if source.count(old) != 1:
+              raise RuntimeError("terminal classification contract drifted")
+          path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          PY
+
+      - name: Verify final source and workflow contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix \
+            trade_rl/operations/causal_alpha_v3_generation.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/architecture/test_architecture_hardening_contract.py
+          uv run ruff format \
+            trade_rl/operations/causal_alpha_v3_generation.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/architecture/test_architecture_hardening_contract.py
+          uv run pytest -q \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py
+          uv run python .github/check_workflow_security.py .
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy trade_rl
+          uv run lint-imports
+          git diff --check
+
+      - name: Commit canonical final state
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/architecture-hardening-final-step.yml
+          rm -f .github/workflows/architecture-hardening-finalize.yml
+          rm -f .github/workflows/architecture-hardening-materialize-candidate.yml
+          rm -f .github/workflows/architecture-hardening-repair.yml
+          rm -f .github/workflows/architecture-hardening-training-gate.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "ci: enforce conditional full training capability gate"
+          git push origin "HEAD:$HEAD_BRANCH"

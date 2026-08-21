@@ -161,6 +161,30 @@ jobs:
                   ("bash", "-euo", "pipefail", "-c", script),
                   check=True,
               )
+              if name == "Implement minimal architecture hardening":
+                  generated_runner = Path(
+                      "trade_rl/workflows/universal_training_runner.py"
+                  )
+                  generated_source = generated_runner.read_text(encoding="utf-8")
+                  protocol_old = (
+                      "class UniversalTrainingResult(Protocol):\n"
+                      "    checkpoint_path: Path\n"
+                      "    environment_digest: str\n"
+                      "    architecture_digest: str\n"
+                      "    actual_timesteps: int\n"
+                  )
+                  protocol_new = protocol_old.replace(
+                      "    architecture_digest: str\n",
+                      "    architecture_digest: str | None\n",
+                  )
+                  if generated_source.count(protocol_old) != 1:
+                      raise RuntimeError(
+                          "Universal result protocol architecture field drifted"
+                      )
+                  generated_runner.write_text(
+                      generated_source.replace(protocol_old, protocol_new, 1),
+                      encoding="utf-8",
+                  )
               if name == "Format changed Python":
                   subprocess.run(
                       ("uv", "run", "ruff", "check", "--fix", *formatted_paths),

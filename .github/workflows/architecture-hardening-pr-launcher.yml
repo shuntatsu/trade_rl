@@ -52,7 +52,6 @@ jobs:
           uv run python - <<'PY'
           from __future__ import annotations
 
-          import re
           import subprocess
           from pathlib import Path
 
@@ -105,31 +104,13 @@ jobs:
           for name in selected:
               script = by_name[name]
               if name == "Implement minimal architecture hardening":
-                  helper = (
-                      "ROOT = Path.cwd()\n\n\n"
-                      "def _dedent10(value: str) -> str:\n"
-                      "    return \"\".join(\n"
-                      "        line[10:] if line.startswith(\" \" * 10) else line\n"
-                      "        for line in value.splitlines(keepends=True)\n"
-                      "    )\n\n\n"
-                  )
-                  if "ROOT = Path.cwd()\n\n\n" not in script:
-                      raise RuntimeError("implementation root marker drifted")
-                  script = script.replace(
-                      "ROOT = Path.cwd()\n\n\n",
-                      helper,
-                      1,
-                  )
-                  script, replacements = re.subn(
-                      r"'''(.*?)'''\.replace\(\" {10}\", \"\"\)",
-                      lambda match: "_dedent10('''" + match.group(1) + "''')",
-                      script,
-                      flags=re.DOTALL,
-                  )
+                  unsafe = "'''.replace(\"          \", \"\")"
+                  replacements = script.count(unsafe)
                   if replacements < 5:
                       raise RuntimeError(
-                          "implementation dedent contracts were not fully rewritten"
+                          "implementation indentation contracts were not found"
                       )
+                  script = script.replace(unsafe, "'''")
               print(f"::group::{name}", flush=True)
               subprocess.run(
                   ("bash", "-euo", "pipefail", "-c", script),

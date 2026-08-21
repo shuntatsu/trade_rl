@@ -1,0 +1,289 @@
+name: Review architecture hardening tests
+
+on:
+  push:
+    branches:
+      - bootstrap/architecture-hardening-source-snapshot-20260821
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-hardening-test-review
+  cancel-in-progress: true
+
+jobs:
+  review-tests:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require materialized implementation
+        run: |
+          test -f trade_rl/operations/causal_alpha_v3_generation.py
+          test -f trade_rl/integrations/runtime_factory.py
+
+      - name: Add falsification and ownership tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          architecture = Path(
+              "tests/architecture/test_architecture_hardening_contract.py"
+          )
+          text = architecture.read_text(encoding="utf-8")
+          addition = '''
+
+          def test_top_level_modules_are_only_explicit_bootstrap_facades() -> None:
+              modules = {
+                  path.stem
+                  for path in PYTHON_SOURCE_ROOT.glob("*.py")
+                  if path.is_file()
+              }
+              assert modules == {
+                  "__init__",
+                  "_source_checkout",
+                  "_version",
+                  "runtime_factory",
+              }
+          '''.replace("          ", "")
+          if "test_top_level_modules_are_only_explicit_bootstrap_facades" not in text:
+              architecture.write_text(text.rstrip() + addition + "\n", encoding="utf-8")
+
+          studio = Path("tests/studio/test_jobs_windows_recovery_contract.py")
+          text = studio.read_text(encoding="utf-8")
+          addition = '''
+
+          def test_windows_process_start_token_closes_handle_and_uses_creation_time(
+              monkeypatch,
+          ) -> None:
+              calls: list[tuple[str, object]] = []
+
+              class Function:
+                  def __init__(self, name, implementation):
+                      self.name = name
+                      self.implementation = implementation
+                      self.argtypes = None
+                      self.restype = None
+
+                  def __call__(self, *args):
+                      calls.append((self.name, args))
+                      return self.implementation(*args)
+
+              def open_process(_access, _inherit, pid):
+                  assert pid == 4321
+                  return 99
+
+              def get_process_times(_handle, creation, _exit, _kernel, _user):
+                  creation._obj.low = 1
+                  creation._obj.high = 2
+                  return 1
+
+              kernel32 = type(
+                  "Kernel32",
+                  (),
+                  {
+                      "OpenProcess": Function("open", open_process),
+                      "GetProcessTimes": Function("times", get_process_times),
+                      "CloseHandle": Function("close", lambda _handle: 1),
+                  },
+              )()
+              monkeypatch.setattr(
+                  studio_jobs.ctypes,
+                  "WinDLL",
+                  lambda *_args, **_kwargs: kernel32,
+                  raising=False,
+              )
+
+              token = studio_jobs._windows_process_start_token(4321)
+
+              assert token == "0000000200000001"
+              assert [name for name, _args in calls] == ["open", "times", "close"]
+          '''.replace("          ", "")
+          if "test_windows_process_start_token_closes_handle" not in text:
+              studio.write_text(text.rstrip() + addition + "\n", encoding="utf-8")
+
+          operations = Path(
+              "tests/operations/test_causal_alpha_v3_generation_recovery.py"
+          )
+          text = operations.read_text(encoding="utf-8")
+          addition = '''
+
+          def test_start_is_idempotent_for_an_already_running_matching_generation(
+              monkeypatch: pytest.MonkeyPatch,
+              tmp_path: Path,
+          ) -> None:
+              module = _module()
+              launch = _launch(module)
+              state_root = tmp_path / "state"
+              _write_launch(
+                  state_root / launch.generation / "launch-manifest.json",
+                  launch,
+              )
+              monkeypatch.setattr(module, "_git_status", lambda _root: "")
+              monkeypatch.setattr(module, "_container_exists", lambda _name: True)
+              monkeypatch.setattr(
+                  module,
+                  "_inspect_container",
+                  lambda _launch: module.ContainerState(
+                      running=True,
+                      oom_killed=False,
+                      exit_code=0,
+                  ),
+              )
+              monkeypatch.setattr(
+                  module,
+                  "_run",
+                  lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                      AssertionError("idempotent start must not mutate Docker")
+                  ),
+              )
+
+              result = module.start_generation(
+                  project_root=tmp_path,
+                  generation=launch.generation,
+                  compose_file=tmp_path / "unused-compose.yml",
+                  runtime_artifact_root=tmp_path / "unused-runtime",
+                  state_root=state_root,
+              )
+
+              assert result == launch
+
+
+          def test_fresh_start_persists_launch_before_detached_execution(
+              monkeypatch: pytest.MonkeyPatch,
+              tmp_path: Path,
+          ) -> None:
+              module = _module()
+              launch = _launch(module)
+              root = tmp_path / "project"
+              state_root = tmp_path / "state"
+              runtime_root = tmp_path / "runtime"
+              compose = root / "docker/compose.causal-alpha-v3-research.yaml"
+              research = root / "examples/binance/universal-causal-alpha-v3-research.json"
+              run_config = root / "examples/binance-multitimeframe/universal-u6-ppo.json"
+              for path in (compose, research, run_config, root / "uv.lock"):
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.write_text("fixture\\n", encoding="utf-8")
+              (runtime_root / "runtime-manifest.json").parent.mkdir(parents=True)
+              (runtime_root / "runtime-manifest.json").write_text(
+                  "{}\\n", encoding="utf-8"
+              )
+              commands: list[tuple[str, ...]] = []
+
+              monkeypatch.setattr(module, "_git_status", lambda _root: "")
+              monkeypatch.setattr(module, "_git", lambda *_args: launch.git_commit)
+              monkeypatch.setattr(
+                  module,
+                  "load_universal_runtime_manifest",
+                  lambda _path: SimpleNamespace(
+                      manifest_digest=launch.runtime_manifest_digest
+                  ),
+              )
+              monkeypatch.setattr(
+                  module, "source_tree_digest", lambda _root: launch.source_tree_digest
+              )
+              monkeypatch.setattr(
+                  module,
+                  "_sha256_file",
+                  lambda path: {
+                      "uv.lock": launch.lockfile_digest,
+                      "universal-causal-alpha-v3-research.json": (
+                          launch.research_config_digest
+                      ),
+                      "universal-u6-ppo.json": launch.run_config_digest,
+                  }[path.name],
+              )
+              monkeypatch.setattr(module, "_container_exists", lambda _name: False)
+              monkeypatch.setattr(
+                  module,
+                  "_inspect_image",
+                  lambda _image: (
+                      launch.image_id,
+                      {
+                          "org.opencontainers.image.revision": launch.git_commit,
+                          "io.trade-rl.source-tree-digest": launch.source_tree_digest,
+                          "io.trade-rl.lockfile-digest": launch.lockfile_digest,
+                          "io.trade-rl.runtime-manifest-digest": (
+                              launch.runtime_manifest_digest
+                          ),
+                      },
+                  ),
+              )
+
+              def run(command, **_kwargs) -> None:
+                  call = tuple(command)
+                  if "--detach" in call:
+                      launch_path = (
+                          state_root / launch.generation / "launch-manifest.json"
+                      )
+                      assert launch_path.is_file()
+                      assert json.loads(launch_path.read_text()) == launch.to_payload()
+                  commands.append(call)
+
+              monkeypatch.setattr(module, "_run", run)
+
+              result = module.start_generation(
+                  project_root=root,
+                  generation=launch.generation,
+                  compose_file=compose,
+                  runtime_artifact_root=runtime_root,
+                  state_root=state_root,
+              )
+
+              assert result == launch
+              assert sum(call[:2] == ("docker", "build") for call in commands) == 1
+              assert sum("--detach" in call for call in commands) == 1
+          '''.replace("          ", "")
+          if "test_start_is_idempotent_for_an_already_running" not in text:
+              operations.write_text(text.rstrip() + addition + "\n", encoding="utf-8")
+          PY
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Run reviewed tests and local quality checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3
+          uv run ruff check --fix \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py
+          uv run ruff format \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py
+          uv run pytest -q \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py
+          uv run ruff check .
+          uv run ruff format --check .
+          git diff --check
+
+      - name: Commit reviewed tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/architecture-hardening-test-review.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "test: strengthen architecture recovery oracles"
+          git push origin HEAD:bootstrap/architecture-hardening-source-snapshot-20260821

@@ -1,0 +1,893 @@
+name: Apply architecture hardening follow-up
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-hardening-followup-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  followup:
+    if: >-
+      github.event.pull_request.number == 420 &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact checkout
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
+
+      - name: Add falsification tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+          from textwrap import dedent
+
+
+          def append_once(path: str, marker: str, addition: str) -> None:
+              target = Path(path)
+              source = target.read_text(encoding="utf-8")
+              if marker in source:
+                  return
+              target.write_text(source.rstrip() + "\n\n" + dedent(addition).lstrip(), encoding="utf-8")
+
+
+          append_once(
+              "tests/workflows/test_runtime_factory_evidence_contract.py",
+              "test_runtime_factory_descriptor_rejects_a_callable_from_another_spec",
+              r'''
+              def test_runtime_factory_descriptor_rejects_a_callable_from_another_spec(
+                  monkeypatch,
+                  tmp_path: Path,
+              ) -> None:
+                  from trade_rl.integrations.runtime_factory import (
+                      describe_runtime_factory,
+                      load_runtime_factory,
+                  )
+
+                  module_path = tmp_path / "runtime_mismatch_fixture.py"
+                  module_path.write_text(
+                      "def expected(**kwargs):\n    return kwargs\n\n"
+                      "def foreign(**kwargs):\n    return dict(kwargs)\n",
+                      encoding="utf-8",
+                  )
+                  monkeypatch.syspath_prepend(str(tmp_path))
+                  importlib.invalidate_caches()
+                  foreign = load_runtime_factory("runtime_mismatch_fixture:foreign")
+
+                  with pytest.raises(ValueError, match="does not match"):
+                      describe_runtime_factory(
+                          "runtime_mismatch_fixture:expected",
+                          factory=foreign,
+                      )
+              ''',
+          )
+
+          runtime_test = Path("tests/workflows/test_runtime_factory_evidence_contract.py")
+          runtime_source = runtime_test.read_text(encoding="utf-8")
+          if "import pytest\n" not in runtime_source:
+              runtime_source = runtime_source.replace(
+                  "from pathlib import Path\n\n",
+                  "from pathlib import Path\n\nimport pytest\n\n",
+                  1,
+              )
+              runtime_test.write_text(runtime_source, encoding="utf-8")
+
+          append_once(
+              "tests/operations/test_causal_alpha_v3_generation_recovery.py",
+              "test_running_generation_rejects_current_identity_drift_before_docker",
+              r'''
+              def _prepared_start_inputs(tmp_path: Path, launch) -> tuple[Path, Path, Path, Path]:
+                  root = tmp_path / "project"
+                  state_root = tmp_path / "state"
+                  runtime_root = tmp_path / "runtime"
+                  compose = root / "docker/compose.causal-alpha-v3-research.yaml"
+                  for path in (
+                      compose,
+                      root / "examples/binance/universal-causal-alpha-v3-research.json",
+                      root / "examples/binance-multitimeframe/universal-u6-ppo.json",
+                      root / "uv.lock",
+                  ):
+                      path.parent.mkdir(parents=True, exist_ok=True)
+                      path.write_text("fixture\n", encoding="utf-8")
+                  runtime_manifest = runtime_root / "runtime-manifest.json"
+                  runtime_manifest.parent.mkdir(parents=True, exist_ok=True)
+                  runtime_manifest.write_text("{}\n", encoding="utf-8")
+                  _write_launch(
+                      state_root / launch.generation / "launch-manifest.json",
+                      launch,
+                  )
+                  return root, state_root, runtime_root, compose
+
+
+              def _mock_start_identity(
+                  monkeypatch: pytest.MonkeyPatch,
+                  module,
+                  launch,
+                  *,
+                  source_digest: str | None = None,
+              ) -> None:
+                  monkeypatch.delenv("GITHUB_SHA", raising=False)
+                  monkeypatch.setattr(module, "_git_status", lambda _root: "")
+                  monkeypatch.setattr(module, "_git", lambda *_args: launch.git_commit)
+                  monkeypatch.setattr(
+                      module,
+                      "load_universal_runtime_manifest",
+                      lambda _path: SimpleNamespace(
+                          manifest_digest=launch.runtime_manifest_digest
+                      ),
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "source_tree_digest",
+                      lambda _root: source_digest or launch.source_tree_digest,
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_sha256_file",
+                      lambda path: {
+                          "uv.lock": launch.lockfile_digest,
+                          "universal-causal-alpha-v3-research.json": (
+                              launch.research_config_digest
+                          ),
+                          "universal-u6-ppo.json": launch.run_config_digest,
+                      }[path.name],
+                  )
+
+
+              def test_running_generation_rejects_current_identity_drift_before_docker(
+                  monkeypatch: pytest.MonkeyPatch,
+                  tmp_path: Path,
+              ) -> None:
+                  module = _module()
+                  launch = _launch(module)
+                  root, state_root, runtime_root, compose = _prepared_start_inputs(
+                      tmp_path, launch
+                  )
+                  _mock_start_identity(
+                      monkeypatch,
+                      module,
+                      launch,
+                      source_digest="9" * 64,
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_container_exists",
+                      lambda _name: (_ for _ in ()).throw(
+                          AssertionError("identity drift must fail before Docker inspection")
+                      ),
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_run",
+                      lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                          AssertionError("identity drift must not mutate Docker")
+                      ),
+                  )
+
+                  with pytest.raises(RuntimeError, match="persisted launch identity"):
+                      module.start_generation(
+                          project_root=root,
+                          generation=launch.generation,
+                          compose_file=compose,
+                          runtime_artifact_root=runtime_root,
+                          state_root=state_root,
+                      )
+
+
+              def test_running_matching_generation_is_idempotent_without_docker_mutation(
+                  monkeypatch: pytest.MonkeyPatch,
+                  tmp_path: Path,
+              ) -> None:
+                  module = _module()
+                  launch = _launch(module)
+                  root, state_root, runtime_root, compose = _prepared_start_inputs(
+                      tmp_path, launch
+                  )
+                  _mock_start_identity(monkeypatch, module, launch)
+                  monkeypatch.setattr(module, "_container_exists", lambda _name: True)
+                  monkeypatch.setattr(
+                      module,
+                      "_inspect_container",
+                      lambda _launch: module.ContainerState(
+                          running=True,
+                          oom_killed=False,
+                          exit_code=0,
+                      ),
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_run",
+                      lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                          AssertionError("idempotent start must not mutate Docker")
+                      ),
+                  )
+
+                  result = module.start_generation(
+                      project_root=root,
+                      generation=launch.generation,
+                      compose_file=compose,
+                      runtime_artifact_root=runtime_root,
+                      state_root=state_root,
+                  )
+
+                  assert result == launch
+
+
+              def test_operator_stop_copy_failure_resumes_through_collect(
+                  monkeypatch: pytest.MonkeyPatch,
+                  tmp_path: Path,
+              ) -> None:
+                  import subprocess
+
+                  module = _module()
+                  launch = _launch(module)
+                  state_root = tmp_path / "state"
+                  retained_root = tmp_path / "retained"
+                  _write_launch(
+                      state_root / launch.generation / "launch-manifest.json",
+                      launch,
+                  )
+                  states = iter(
+                      (
+                          module.ContainerState(
+                              running=True,
+                              oom_killed=False,
+                              exit_code=0,
+                          ),
+                          module.ContainerState(
+                              running=False,
+                              oom_killed=False,
+                              exit_code=143,
+                          ),
+                      )
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_inspect_container",
+                      lambda _launch: next(states),
+                  )
+                  monkeypatch.setattr(module, "_container_logs", lambda _launch: "stopped\n")
+
+                  def fail_copy(command, **_kwargs) -> None:
+                      if tuple(command)[:3] == ("docker", "container", "stop"):
+                          return
+                      assert tuple(command)[:2] == ("docker", "cp")
+                      raise subprocess.CalledProcessError(1, command)
+
+                  monkeypatch.setattr(module, "_run", fail_copy)
+                  with pytest.raises(subprocess.CalledProcessError):
+                      module.stop_generation(
+                          generation=launch.generation,
+                          state_root=state_root,
+                          retained_root=retained_root,
+                      )
+
+                  retained = retained_root / launch.generation
+                  incomplete = json.loads(
+                      (retained / "research-result.json").read_text(encoding="utf-8")
+                  )
+                  assert incomplete["execution_status"] == "operator_stopped"
+                  assert incomplete["run_output_retained"] is False
+
+                  monkeypatch.setattr(
+                      module,
+                      "_inspect_container",
+                      lambda _launch: module.ContainerState(
+                          running=False,
+                          oom_killed=False,
+                          exit_code=143,
+                      ),
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_container_logs",
+                      lambda _launch: (_ for _ in ()).throw(
+                          AssertionError("retry must preserve the first retained log")
+                      ),
+                  )
+
+                  def copy(command, **_kwargs) -> None:
+                      assert tuple(command)[:2] == ("docker", "cp")
+                      destination = Path(tuple(command)[-1])
+                      (destination / "artifact.json").write_text("{}\n", encoding="utf-8")
+
+                  monkeypatch.setattr(module, "_run", copy)
+                  result = module.collect_generation(
+                      generation=launch.generation,
+                      state_root=state_root,
+                      retained_root=retained_root,
+                  )
+
+                  assert result["execution_status"] == "operator_stopped"
+                  assert result["research_outcome"] == "unavailable"
+                  assert result["run_output_retained"] is True
+                  assert (retained / "run/artifact.json").is_file()
+                  assert (retained / "container.log").read_text() == "stopped\n"
+
+
+              def test_collect_recovers_launch_only_partial_retention(
+                  monkeypatch: pytest.MonkeyPatch,
+                  tmp_path: Path,
+              ) -> None:
+                  module = _module()
+                  launch = _launch(module)
+                  state_root = tmp_path / "state"
+                  retained_root = tmp_path / "retained"
+                  _write_launch(
+                      state_root / launch.generation / "launch-manifest.json",
+                      launch,
+                  )
+                  retained = retained_root / launch.generation
+                  retained.mkdir(parents=True)
+                  _write_launch(retained / "launch-manifest.json", launch)
+                  (retained / "container.log").write_text(
+                      "preserved\n", encoding="utf-8"
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_inspect_container",
+                      lambda _launch: module.ContainerState(
+                          running=False,
+                          oom_killed=False,
+                          exit_code=1,
+                      ),
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_container_logs",
+                      lambda _launch: (_ for _ in ()).throw(
+                          AssertionError("partial retry must preserve retained logs")
+                      ),
+                  )
+
+                  def copy(command, **_kwargs) -> None:
+                      destination = Path(tuple(command)[-1])
+                      (destination / "artifact.json").write_text("{}\n", encoding="utf-8")
+
+                  monkeypatch.setattr(module, "_run", copy)
+                  result = module.collect_generation(
+                      generation=launch.generation,
+                      state_root=state_root,
+                      retained_root=retained_root,
+                  )
+
+                  assert result["execution_status"] == "failed"
+                  assert result["run_output_retained"] is True
+                  assert (retained / "container.log").read_text() == "preserved\n"
+                  assert (retained / "run/artifact.json").is_file()
+              ''',
+          )
+
+          append_once(
+              "tests/studio/test_jobs_windows_recovery_contract.py",
+              "test_windows_process_start_token_closes_handle_and_uses_creation_time",
+              r'''
+              def test_windows_process_start_token_closes_handle_and_uses_creation_time(
+                  monkeypatch,
+              ) -> None:
+                  calls: list[str] = []
+
+                  class Function:
+                      def __init__(self, name, implementation):
+                          self.name = name
+                          self.implementation = implementation
+                          self.argtypes = None
+                          self.restype = None
+
+                      def __call__(self, *args):
+                          calls.append(self.name)
+                          return self.implementation(*args)
+
+                  def open_process(_access, _inherit, pid):
+                      assert pid == 4321
+                      return 99
+
+                  def get_process_times(_handle, creation, _exit, _kernel, _user):
+                      creation._obj.low = 1
+                      creation._obj.high = 2
+                      return 1
+
+                  kernel32 = type(
+                      "Kernel32",
+                      (),
+                      {
+                          "OpenProcess": Function("open", open_process),
+                          "GetProcessTimes": Function("times", get_process_times),
+                          "CloseHandle": Function("close", lambda _handle: 1),
+                      },
+                  )()
+                  monkeypatch.setattr(
+                      studio_jobs.ctypes,
+                      "WinDLL",
+                      lambda *_args, **_kwargs: kernel32,
+                      raising=False,
+                  )
+
+                  token = studio_jobs._windows_process_start_token(4321)
+
+                  assert token == "0000000200000001"
+                  assert calls == ["open", "times", "close"]
+
+
+              def test_windows_process_start_token_closes_handle_when_times_fail(
+                  monkeypatch,
+              ) -> None:
+                  closed: list[int] = []
+
+                  class Function:
+                      def __init__(self, implementation):
+                          self.implementation = implementation
+                          self.argtypes = None
+                          self.restype = None
+
+                      def __call__(self, *args):
+                          return self.implementation(*args)
+
+                  kernel32 = type(
+                      "Kernel32",
+                      (),
+                      {
+                          "OpenProcess": Function(lambda *_args: 99),
+                          "GetProcessTimes": Function(lambda *_args: 0),
+                          "CloseHandle": Function(lambda handle: closed.append(handle) or 1),
+                      },
+                  )()
+                  monkeypatch.setattr(
+                      studio_jobs.ctypes,
+                      "WinDLL",
+                      lambda *_args, **_kwargs: kernel32,
+                      raising=False,
+                  )
+
+                  assert studio_jobs._windows_process_start_token(4321) is None
+                  assert closed == [99]
+              ''',
+          )
+
+          append_once(
+              "tests/architecture/test_architecture_hardening_contract.py",
+              "test_top_level_modules_are_only_explicit_bootstrap_facades",
+              r'''
+              def test_top_level_modules_are_only_explicit_bootstrap_facades() -> None:
+                  modules = {
+                      path.stem
+                      for path in PYTHON_SOURCE_ROOT.glob("*.py")
+                      if path.is_file()
+                  }
+                  assert modules == {
+                      "__init__",
+                      "_source_checkout",
+                      "_version",
+                      "runtime_factory",
+                  }
+              ''',
+          )
+
+          manifest_test = Path("tests/workflows/test_universal_training_execution.py")
+          manifest_source = manifest_test.read_text(encoding="utf-8")
+          if "import json\n" not in manifest_source:
+              manifest_source = manifest_source.replace(
+                  "from __future__ import annotations\n\n",
+                  "from __future__ import annotations\n\nimport json\n",
+                  1,
+              )
+          old_assertions = (
+              '    assert len(manifest["run_digest"]) == 64\n'
+              '    assert [item["seed"] for item in manifest["members"]] == [3, 5]\n'
+          )
+          new_assertions = (
+              '    persisted = json.loads(\n'
+              '        (tmp_path / "universal-training.json").read_text(encoding="utf-8")\n'
+              '    )\n'
+              '    assert persisted == manifest\n'
+              '    digest_payload = {\n'
+              '        key: value for key, value in manifest.items() if key != "run_digest"\n'
+              '    }\n'
+              '    assert manifest["run_digest"] == content_digest(digest_payload)\n'
+              '    assert [item["seed"] for item in manifest["members"]] == [3, 5]\n'
+              '    assert {\n'
+              '        item["environment_digest"] for item in manifest["members"]\n'
+              '    } == {_digest("universal-environment")}\n'
+              '    assert {\n'
+              '        item["architecture_digest"] for item in manifest["members"]\n'
+              '    } == {_digest("architecture")}\n'
+          )
+          if old_assertions in manifest_source:
+              manifest_source = manifest_source.replace(old_assertions, new_assertions, 1)
+          manifest_test.write_text(manifest_source, encoding="utf-8")
+
+          append_once(
+              "tests/workflows/test_universal_training_manifest_contract.py",
+              "test_member_environment_identity_cannot_drift_between_seeds",
+              r'''
+              def test_member_environment_identity_cannot_drift_between_seeds(
+                  tmp_path: Path,
+              ) -> None:
+                  backend = _Backend(
+                      lambda seed: (
+                          _digest(f"environment:{seed}"),
+                          _digest("architecture"),
+                          32,
+                      )
+                  )
+
+                  with pytest.raises(ValueError, match="environment"):
+                      _run(tmp_path, backend)
+
+                  assert not (tmp_path / "universal-training.json").exists()
+              ''',
+          )
+
+          append_once(
+              "tests/workflows/test_universal_full_research_entrypoint.py",
+              "test_entrypoint_manifest_binds_runtime_factory_descriptor",
+              r'''
+              def test_entrypoint_manifest_binds_runtime_factory_descriptor(
+                  monkeypatch: pytest.MonkeyPatch,
+                  tmp_path: Path,
+              ) -> None:
+                  import trade_rl.workflows.universal_full_research_entrypoint as module
+                  from trade_rl.integrations.runtime_factory import RuntimeFactoryDescriptor
+
+                  authored = _run_configs()
+                  descriptor = RuntimeFactoryDescriptor(
+                      spec="example_runtime:build_runtime",
+                      module="example_runtime",
+                      callable_name="build_runtime",
+                      implementation_digest=_digest("runtime-factory-source"),
+                  )
+                  run_digests = {
+                      algorithm: _digest(f"descriptor-run:{algorithm.value}")
+                      for algorithm in FullResearchAlgorithm
+                  }
+                  monkeypatch.setattr(module, "UniversalTrainingRuntime", SimpleNamespace)
+                  monkeypatch.setattr(
+                      module,
+                      "train_universal_full_research_comparison",
+                      lambda **_kwargs: SimpleNamespace(
+                          digest=_digest("descriptor-comparison"),
+                          runs=tuple(
+                              SimpleNamespace(
+                                  algorithm=algorithm,
+                                  run_digest=run_digests[algorithm],
+                              )
+                              for algorithm in FullResearchAlgorithm
+                          ),
+                          required_pairs=("pair",),
+                          completed_pairs=(),
+                      ),
+                  )
+
+                  result = module.run_universal_full_research_training(
+                      selected_architecture=UniversalArchitectureName.U_MEDIUM_DIRECT,
+                      run_configs=authored,
+                      runtime_factory=lambda **_kwargs: SimpleNamespace(),
+                      runtime_factory_descriptor=descriptor,
+                      fold_train_range=(100, 500),
+                      normalizer_digest=_digest("normalizer"),
+                      feature_schema_digest=_digest("features"),
+                      baseline_names=("supervised_allocator",),
+                      folds=(0,),
+                      output_root=tmp_path,
+                  )
+
+                  manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+                  manifest_digest = manifest.pop("manifest_digest")
+                  assert manifest["schema_version"] == (
+                      "universal_full_research_training_entrypoint_v2"
+                  )
+                  assert manifest["runtime_factory"] == descriptor.to_payload()
+                  assert manifest_digest == content_digest(manifest)
+                  assert result.manifest_digest == manifest_digest
+              ''',
+          )
+          PY
+
+      - name: Confirm RED failures
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p var/architecture-hardening-followup
+          for test_id in \
+            tests/workflows/test_runtime_factory_evidence_contract.py::test_runtime_factory_descriptor_rejects_a_callable_from_another_spec \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py::test_running_generation_rejects_current_identity_drift_before_docker \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py::test_operator_stop_copy_failure_resumes_through_collect \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py::test_collect_recovers_launch_only_partial_retention
+          do
+            set +e
+            uv run pytest -q "$test_id" >> var/architecture-hardening-followup/red.log 2>&1
+            status=$?
+            set -e
+            if test "$status" -eq 0; then
+              echo "expected RED test unexpectedly passed: $test_id" >&2
+              exit 1
+            fi
+          done
+
+      - name: Implement minimal follow-up fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              source = target.read_text(encoding="utf-8")
+              if source.count(old) != 1:
+                  raise RuntimeError(f"replacement contract drifted: {path}")
+              target.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+
+          replace_once(
+              "trade_rl/integrations/runtime_factory.py",
+              "    module_name, function_name = _factory_parts(spec)\n"
+              "    resolved = factory or load_runtime_factory(spec)\n"
+              "    source_name = inspect.getsourcefile(resolved) or inspect.getfile(resolved)\n",
+              "    module_name, function_name = _factory_parts(spec)\n"
+              "    loaded = load_runtime_factory(spec)\n"
+              "    if factory is not None and factory is not loaded:\n"
+              "        raise ValueError(\n"
+              "            \"provided runtime factory does not match the declared spec target\"\n"
+              "        )\n"
+              "    resolved = loaded if factory is None else factory\n"
+              "    source_name = inspect.getsourcefile(resolved) or inspect.getfile(resolved)\n",
+          )
+
+          replace_once(
+              "trade_rl/operations/causal_alpha_v3_generation.py",
+              "    existing_launch: CausalAlphaV3Launch | None = None\n"
+              "    if state_directory.exists():\n"
+              "        existing_launch = _load_launch(\n"
+              "            state_root=Path(state_root),\n"
+              "            generation=name,\n"
+              "        )\n"
+              "        if _container_exists(existing_launch.container_name):\n"
+              "            existing_state = _inspect_container(existing_launch)\n"
+              "            if existing_state.running:\n"
+              "                return existing_launch\n"
+              "            raise RuntimeError(\n"
+              "                \"generation container is terminal; use collect to retain its outcome\"\n"
+              "            )\n",
+              "    existing_launch: CausalAlphaV3Launch | None = None\n"
+              "    if state_directory.exists():\n"
+              "        existing_launch = _load_launch(\n"
+              "            state_root=Path(state_root),\n"
+              "            generation=name,\n"
+              "        )\n",
+          )
+
+          replace_once(
+              "trade_rl/operations/causal_alpha_v3_generation.py",
+              "    container_name = f\"trade-rl-causal-alpha-v3-{name}\"\n"
+              "    if _container_exists(container_name):\n"
+              "        raise FileExistsError(f\"container already exists: {container_name}\")\n\n"
+              "    _run((\"docker\", \"volume\", \"inspect\", _REQUIRED_VOLUME), cwd=root)\n"
+              "    _run((\"docker\", \"network\", \"inspect\", _REQUIRED_NETWORK), cwd=root)\n\n"
+              "    image = f\"trade-rl-causal-alpha-v3:{commit[:12]}-{runtime_manifest_digest[:12]}\"\n"
+              "    output_path = (_CONTAINER_OUTPUT_PREFIX / name).as_posix()\n"
+              "    if existing_launch is not None:\n"
+              "        expected_static_identity = {\n"
+              "            \"container_name\": container_name,\n"
+              "            \"generation\": name,\n"
+              "            \"git_commit\": commit,\n"
+              "            \"image\": image,\n"
+              "            \"lockfile_digest\": lock_digest,\n"
+              "            \"output_path\": output_path,\n"
+              "            \"research_config_digest\": research_config_digest,\n"
+              "            \"run_config_digest\": run_config_digest,\n"
+              "            \"runtime_manifest_digest\": runtime_manifest_digest,\n"
+              "            \"source_tree_digest\": source_digest,\n"
+              "        }\n"
+              "        actual_static_identity = {\n"
+              "            key: value\n"
+              "            for key, value in existing_launch.to_payload().items()\n"
+              "            if key in expected_static_identity\n"
+              "        }\n"
+              "        if actual_static_identity != expected_static_identity:\n"
+              "            raise RuntimeError(\n"
+              "                \"persisted launch identity does not match current launch inputs\"\n"
+              "            )\n"
+              "    environment = _start_environment(\n",
+              "    container_name = f\"trade-rl-causal-alpha-v3-{name}\"\n"
+              "    image = f\"trade-rl-causal-alpha-v3:{commit[:12]}-{runtime_manifest_digest[:12]}\"\n"
+              "    output_path = (_CONTAINER_OUTPUT_PREFIX / name).as_posix()\n"
+              "    if existing_launch is not None:\n"
+              "        expected_static_identity = {\n"
+              "            \"container_name\": container_name,\n"
+              "            \"generation\": name,\n"
+              "            \"git_commit\": commit,\n"
+              "            \"image\": image,\n"
+              "            \"lockfile_digest\": lock_digest,\n"
+              "            \"output_path\": output_path,\n"
+              "            \"research_config_digest\": research_config_digest,\n"
+              "            \"run_config_digest\": run_config_digest,\n"
+              "            \"runtime_manifest_digest\": runtime_manifest_digest,\n"
+              "            \"source_tree_digest\": source_digest,\n"
+              "        }\n"
+              "        actual_static_identity = {\n"
+              "            key: value\n"
+              "            for key, value in existing_launch.to_payload().items()\n"
+              "            if key in expected_static_identity\n"
+              "        }\n"
+              "        if actual_static_identity != expected_static_identity:\n"
+              "            raise RuntimeError(\n"
+              "                \"persisted launch identity does not match current launch inputs\"\n"
+              "            )\n"
+              "        if _container_exists(container_name):\n"
+              "            existing_state = _inspect_container(existing_launch)\n"
+              "            if existing_state.running:\n"
+              "                return existing_launch\n"
+              "            raise RuntimeError(\n"
+              "                \"generation container is terminal; use collect to retain its outcome\"\n"
+              "            )\n"
+              "    elif _container_exists(container_name):\n"
+              "        raise FileExistsError(f\"container already exists: {container_name}\")\n\n"
+              "    _run((\"docker\", \"volume\", \"inspect\", _REQUIRED_VOLUME), cwd=root)\n"
+              "    _run((\"docker\", \"network\", \"inspect\", _REQUIRED_NETWORK), cwd=root)\n\n"
+              "    environment = _start_environment(\n",
+          )
+
+          replace_once(
+              "trade_rl/operations/causal_alpha_v3_generation.py",
+              "    if not launch_path.exists() and not result_path.exists():\n"
+              "        return None\n"
+              "    if not launch_path.is_file() or not result_path.is_file():\n"
+              "        raise ValueError(\"retained generation evidence is incomplete\")\n"
+              "    persisted_launch = CausalAlphaV3Launch.from_payload(\n"
+              "        _retained_mapping(launch_path, field=\"retained launch manifest\")\n"
+              "    )\n"
+              "    if persisted_launch != launch:\n"
+              "        raise RuntimeError(\"retained launch identity does not match source state\")\n"
+              "    result = _retained_mapping(result_path, field=\"retained research result\")\n",
+              "    if not launch_path.exists() and not result_path.exists():\n"
+              "        return None\n"
+              "    if not launch_path.is_file():\n"
+              "        raise ValueError(\"retained generation evidence is incomplete\")\n"
+              "    persisted_launch = CausalAlphaV3Launch.from_payload(\n"
+              "        _retained_mapping(launch_path, field=\"retained launch manifest\")\n"
+              "    )\n"
+              "    if persisted_launch != launch:\n"
+              "        raise RuntimeError(\"retained launch identity does not match source state\")\n"
+              "    if not result_path.exists():\n"
+              "        return None\n"
+              "    if not result_path.is_file():\n"
+              "        raise ValueError(\"retained generation evidence is incomplete\")\n"
+              "    result = _retained_mapping(result_path, field=\"retained research result\")\n",
+          )
+
+          replace_once(
+              "trade_rl/operations/causal_alpha_v3_generation.py",
+              "    expected_status, expected_outcome = classify_research_outcome(\n"
+              "        state.exit_code,\n"
+              "        operator_stopped=operator_stopped,\n"
+              "    )\n",
+              "    persisted_operator_stopped = (\n"
+              "        result[\"execution_status\"] == \"operator_stopped\"\n"
+              "    )\n"
+              "    expected_status, expected_outcome = classify_research_outcome(\n"
+              "        state.exit_code,\n"
+              "        operator_stopped=(operator_stopped or persisted_operator_stopped),\n"
+              "    )\n",
+          )
+
+          replace_once(
+              "trade_rl/operations/causal_alpha_v3_generation.py",
+              "    if result is None:\n"
+              "        logs = _container_logs(launch)\n"
+              "        (retained / \"container.log\").write_text(logs, encoding=\"utf-8\")\n"
+              "        atomic_write_bytes(\n",
+              "    if result is None:\n"
+              "        log_path = retained / \"container.log\"\n"
+              "        if log_path.exists():\n"
+              "            if not log_path.is_file():\n"
+              "                raise ValueError(\"retained container log is not a file\")\n"
+              "        else:\n"
+              "            logs = _container_logs(launch)\n"
+              "            log_path.write_text(logs, encoding=\"utf-8\")\n"
+              "        atomic_write_bytes(\n",
+          )
+          PY
+
+      - name: Run GREEN tests and static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p var/architecture-hardening-followup
+          uv run ruff check --fix \
+            trade_rl/integrations/runtime_factory.py \
+            trade_rl/operations/causal_alpha_v3_generation.py \
+            tests/workflows/test_runtime_factory_evidence_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/workflows/test_universal_training_execution.py \
+            tests/workflows/test_universal_training_manifest_contract.py \
+            tests/workflows/test_universal_full_research_entrypoint.py
+          uv run ruff format \
+            trade_rl/integrations/runtime_factory.py \
+            trade_rl/operations/causal_alpha_v3_generation.py \
+            tests/workflows/test_runtime_factory_evidence_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/workflows/test_universal_training_execution.py \
+            tests/workflows/test_universal_training_manifest_contract.py \
+            tests/workflows/test_universal_full_research_entrypoint.py
+          uv run pytest -q \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/workflows/test_runtime_factory_evidence_contract.py \
+            tests/workflows/test_universal_training_execution.py \
+            tests/workflows/test_universal_training_manifest_contract.py \
+            tests/workflows/test_universal_full_research_entrypoint.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py \
+            tests/studio/test_jobs.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            2>&1 | tee var/architecture-hardening-followup/green.log
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy trade_rl
+          uv run lint-imports
+          uv run vulture trade_rl tests --min-confidence 100
+          git diff --check
+
+      - name: Commit reviewed follow-up
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/architecture-hardening-followup.yml
+          rm -f .github/workflows/architecture-hardening-test-review.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: close architecture recovery falsification gaps"
+          git push origin "HEAD:$HEAD_BRANCH"
+
+      - name: Upload follow-up evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-hardening-followup-evidence
+          path: var/architecture-hardening-followup
+          if-no-files-found: warn
+          retention-days: 14

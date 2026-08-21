@@ -105,17 +105,14 @@ jobs:
           for name in selected:
               script = by_name[name]
               if name == "Implement minimal architecture hardening":
-                  helper = '''ROOT = Path.cwd()
-
-
-def _dedent10(value: str) -> str:
-    return "".join(
-        line[10:] if line.startswith(" " * 10) else line
-        for line in value.splitlines(keepends=True)
-    )
-
-
-'''
+                  helper = (
+                      "ROOT = Path.cwd()\n\n\n"
+                      "def _dedent10(value: str) -> str:\n"
+                      "    return \"\".join(\n"
+                      "        line[10:] if line.startswith(\" \" * 10) else line\n"
+                      "        for line in value.splitlines(keepends=True)\n"
+                      "    )\n\n\n"
+                  )
                   if "ROOT = Path.cwd()\n\n\n" not in script:
                       raise RuntimeError("implementation root marker drifted")
                   script = script.replace(

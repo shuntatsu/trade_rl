@@ -372,13 +372,6 @@ def start_generation(
             state_root=Path(state_root),
             generation=name,
         )
-        if _container_exists(existing_launch.container_name):
-            existing_state = _inspect_container(existing_launch)
-            if existing_state.running:
-                return existing_launch
-            raise RuntimeError(
-                "generation container is terminal; use collect to retain its outcome"
-            )
 
     commit = _require_git_commit(_git(root, "rev-parse", "HEAD"), field="Git HEAD")
     expected_head = os.environ.get("GITHUB_SHA", "").strip()
@@ -421,12 +414,6 @@ def start_generation(
         require_sha256(digest, field=field)
 
     container_name = f"trade-rl-causal-alpha-v3-{name}"
-    if _container_exists(container_name):
-        raise FileExistsError(f"container already exists: {container_name}")
-
-    _run(("docker", "volume", "inspect", _REQUIRED_VOLUME), cwd=root)
-    _run(("docker", "network", "inspect", _REQUIRED_NETWORK), cwd=root)
-
     image = f"trade-rl-causal-alpha-v3:{commit[:12]}-{runtime_manifest_digest[:12]}"
     output_path = (_CONTAINER_OUTPUT_PREFIX / name).as_posix()
     if existing_launch is not None:
@@ -451,6 +438,19 @@ def start_generation(
             raise RuntimeError(
                 "persisted launch identity does not match current launch inputs"
             )
+        if _container_exists(container_name):
+            existing_state = _inspect_container(existing_launch)
+            if existing_state.running:
+                return existing_launch
+            raise RuntimeError(
+                "generation container is terminal; use collect to retain its outcome"
+            )
+    elif _container_exists(container_name):
+        raise FileExistsError(f"container already exists: {container_name}")
+
+    _run(("docker", "volume", "inspect", _REQUIRED_VOLUME), cwd=root)
+    _run(("docker", "network", "inspect", _REQUIRED_NETWORK), cwd=root)
+
     environment = _start_environment(
         commit=commit,
         source_digest=source_digest,
@@ -608,13 +608,17 @@ def _load_retained_result(
     result_path = retained / "research-result.json"
     if not launch_path.exists() and not result_path.exists():
         return None
-    if not launch_path.is_file() or not result_path.is_file():
+    if not launch_path.is_file():
         raise ValueError("retained generation evidence is incomplete")
     persisted_launch = CausalAlphaV3Launch.from_payload(
         _retained_mapping(launch_path, field="retained launch manifest")
     )
     if persisted_launch != launch:
         raise RuntimeError("retained launch identity does not match source state")
+    if not result_path.exists():
+        return None
+    if not result_path.is_file():
+        raise ValueError("retained generation evidence is incomplete")
     result = _retained_mapping(result_path, field="retained research result")
     expected_fields = {
         "container_exit_code",
@@ -641,9 +645,10 @@ def _load_retained_result(
     retained_flag = result["run_output_retained"]
     if not isinstance(retained_flag, bool):
         raise ValueError("retained run_output_retained must be a boolean")
+    persisted_operator_stopped = result["execution_status"] == "operator_stopped"
     expected_status, expected_outcome = classify_research_outcome(
         state.exit_code,
-        operator_stopped=operator_stopped,
+        operator_stopped=(operator_stopped or persisted_operator_stopped),
     )
     if state.oom_killed and not operator_stopped:
         expected_status, expected_outcome = "failed", "unavailable"
@@ -675,8 +680,13 @@ def _retain_terminal_evidence(
     if result is not None and result["run_output_retained"] is True:
         return result
     if result is None:
-        logs = _container_logs(launch)
-        (retained / "container.log").write_text(logs, encoding="utf-8")
+        log_path = retained / "container.log"
+        if log_path.exists():
+            if not log_path.is_file():
+                raise ValueError("retained container log is not a file")
+        else:
+            logs = _container_logs(launch)
+            log_path.write_text(logs, encoding="utf-8")
         atomic_write_bytes(
             retained / "launch-manifest.json",
             canonical_json_bytes(launch.to_payload()) + b"\n",

@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+import pytest
+
 
 def test_runtime_factory_descriptor_binds_implementation_source_bytes(
     monkeypatch,
@@ -47,3 +49,29 @@ def test_full_research_cli_passes_runtime_factory_evidence() -> None:
 
     assert "describe_runtime_factory" in source
     assert "runtime_factory_descriptor=" in source
+
+
+def test_runtime_factory_descriptor_rejects_a_callable_from_another_spec(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from trade_rl.integrations.runtime_factory import (
+        describe_runtime_factory,
+        load_runtime_factory,
+    )
+
+    module_path = tmp_path / "runtime_mismatch_fixture.py"
+    module_path.write_text(
+        "def expected(**kwargs):\n    return kwargs\n\n"
+        "def foreign(**kwargs):\n    return dict(kwargs)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    foreign = load_runtime_factory("runtime_mismatch_fixture:foreign")
+
+    with pytest.raises(ValueError, match="does not match"):
+        describe_runtime_factory(
+            "runtime_mismatch_fixture:expected",
+            factory=foreign,
+        )

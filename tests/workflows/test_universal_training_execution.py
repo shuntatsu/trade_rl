@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -101,5 +102,18 @@ def test_train_universal_seeds_writes_manifest_from_exact_backend_outputs(
     assert (tmp_path / "universal-training.json").is_file()
     assert manifest["train_symbols"] == ["AAAUSDT", "BBBUSDT"]
     assert manifest["research_success"] is False
-    assert len(manifest["run_digest"]) == 64
+    persisted = json.loads(
+        (tmp_path / "universal-training.json").read_text(encoding="utf-8")
+    )
+    assert persisted == manifest
+    digest_payload = {
+        key: value for key, value in manifest.items() if key != "run_digest"
+    }
+    assert manifest["run_digest"] == content_digest(digest_payload)
     assert [item["seed"] for item in manifest["members"]] == [3, 5]
+    assert {item["environment_digest"] for item in manifest["members"]} == {
+        _digest("universal-environment")
+    }
+    assert {item["architecture_digest"] for item in manifest["members"]} == {
+        _digest("architecture")
+    }

@@ -81,7 +81,12 @@ def describe_runtime_factory(
     """Bind one runtime factory to the exact source file that implements it."""
 
     module_name, function_name = _factory_parts(spec)
-    resolved = factory or load_runtime_factory(spec)
+    loaded = load_runtime_factory(spec)
+    if factory is not None and factory is not loaded:
+        raise ValueError(
+            "provided runtime factory does not match the declared spec target"
+        )
+    resolved = loaded if factory is None else factory
     source_name = inspect.getsourcefile(resolved) or inspect.getfile(resolved)
     source_path = Path(source_name)
     if not source_path.is_file():

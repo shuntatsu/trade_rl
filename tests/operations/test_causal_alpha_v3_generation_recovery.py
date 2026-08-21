@@ -202,3 +202,274 @@ def test_collect_resumes_incomplete_copy_and_then_is_idempotent(
     assert second == first
     assert len(copy_calls) == 1
     assert not any(path.name.startswith(".run-") for path in retained.iterdir())
+
+
+def _prepared_start_inputs(tmp_path: Path, launch) -> tuple[Path, Path, Path, Path]:
+    root = tmp_path / "project"
+    state_root = tmp_path / "state"
+    runtime_root = tmp_path / "runtime"
+    compose = root / "docker/compose.causal-alpha-v3-research.yaml"
+    for path in (
+        compose,
+        root / "examples/binance/universal-causal-alpha-v3-research.json",
+        root / "examples/binance-multitimeframe/universal-u6-ppo.json",
+        root / "uv.lock",
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("fixture\n", encoding="utf-8")
+    runtime_manifest = runtime_root / "runtime-manifest.json"
+    runtime_manifest.parent.mkdir(parents=True, exist_ok=True)
+    runtime_manifest.write_text("{}\n", encoding="utf-8")
+    _write_launch(
+        state_root / launch.generation / "launch-manifest.json",
+        launch,
+    )
+    return root, state_root, runtime_root, compose
+
+
+def _mock_start_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    module,
+    launch,
+    *,
+    source_digest: str | None = None,
+) -> None:
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
+    monkeypatch.setattr(module, "_git_status", lambda _root: "")
+    monkeypatch.setattr(module, "_git", lambda *_args: launch.git_commit)
+    monkeypatch.setattr(
+        module,
+        "load_universal_runtime_manifest",
+        lambda _path: SimpleNamespace(manifest_digest=launch.runtime_manifest_digest),
+    )
+    monkeypatch.setattr(
+        module,
+        "source_tree_digest",
+        lambda _root: source_digest or launch.source_tree_digest,
+    )
+    monkeypatch.setattr(
+        module,
+        "_sha256_file",
+        lambda path: {
+            "uv.lock": launch.lockfile_digest,
+            "universal-causal-alpha-v3-research.json": (launch.research_config_digest),
+            "universal-u6-ppo.json": launch.run_config_digest,
+        }[path.name],
+    )
+
+
+def test_running_generation_rejects_current_identity_drift_before_docker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    launch = _launch(module)
+    root, state_root, runtime_root, compose = _prepared_start_inputs(tmp_path, launch)
+    _mock_start_identity(
+        monkeypatch,
+        module,
+        launch,
+        source_digest="9" * 64,
+    )
+    monkeypatch.setattr(
+        module,
+        "_container_exists",
+        lambda _name: (_ for _ in ()).throw(
+            AssertionError("identity drift must fail before Docker inspection")
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("identity drift must not mutate Docker")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="persisted launch identity"):
+        module.start_generation(
+            project_root=root,
+            generation=launch.generation,
+            compose_file=compose,
+            runtime_artifact_root=runtime_root,
+            state_root=state_root,
+        )
+
+
+def test_running_matching_generation_is_idempotent_without_docker_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    launch = _launch(module)
+    root, state_root, runtime_root, compose = _prepared_start_inputs(tmp_path, launch)
+    _mock_start_identity(monkeypatch, module, launch)
+    monkeypatch.setattr(module, "_container_exists", lambda _name: True)
+    monkeypatch.setattr(
+        module,
+        "_inspect_container",
+        lambda _launch: module.ContainerState(
+            running=True,
+            oom_killed=False,
+            exit_code=0,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("idempotent start must not mutate Docker")
+        ),
+    )
+
+    result = module.start_generation(
+        project_root=root,
+        generation=launch.generation,
+        compose_file=compose,
+        runtime_artifact_root=runtime_root,
+        state_root=state_root,
+    )
+
+    assert result == launch
+
+
+def test_operator_stop_copy_failure_resumes_through_collect(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import subprocess
+
+    module = _module()
+    launch = _launch(module)
+    state_root = tmp_path / "state"
+    retained_root = tmp_path / "retained"
+    _write_launch(
+        state_root / launch.generation / "launch-manifest.json",
+        launch,
+    )
+    states = iter(
+        (
+            module.ContainerState(
+                running=True,
+                oom_killed=False,
+                exit_code=0,
+            ),
+            module.ContainerState(
+                running=False,
+                oom_killed=False,
+                exit_code=143,
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        module,
+        "_inspect_container",
+        lambda _launch: next(states),
+    )
+    monkeypatch.setattr(module, "_container_logs", lambda _launch: "stopped\n")
+
+    def fail_copy(command, **_kwargs) -> None:
+        if tuple(command)[:3] == ("docker", "container", "stop"):
+            return
+        assert tuple(command)[:2] == ("docker", "cp")
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(module, "_run", fail_copy)
+    with pytest.raises(subprocess.CalledProcessError):
+        module.stop_generation(
+            generation=launch.generation,
+            state_root=state_root,
+            retained_root=retained_root,
+        )
+
+    retained = retained_root / launch.generation
+    incomplete = json.loads(
+        (retained / "research-result.json").read_text(encoding="utf-8")
+    )
+    assert incomplete["execution_status"] == "operator_stopped"
+    assert incomplete["run_output_retained"] is False
+
+    monkeypatch.setattr(
+        module,
+        "_inspect_container",
+        lambda _launch: module.ContainerState(
+            running=False,
+            oom_killed=False,
+            exit_code=143,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_container_logs",
+        lambda _launch: (_ for _ in ()).throw(
+            AssertionError("retry must preserve the first retained log")
+        ),
+    )
+
+    def copy(command, **_kwargs) -> None:
+        assert tuple(command)[:2] == ("docker", "cp")
+        destination = Path(tuple(command)[-1])
+        (destination / "artifact.json").write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "_run", copy)
+    result = module.collect_generation(
+        generation=launch.generation,
+        state_root=state_root,
+        retained_root=retained_root,
+    )
+
+    assert result["execution_status"] == "operator_stopped"
+    assert result["research_outcome"] == "unavailable"
+    assert result["run_output_retained"] is True
+    assert (retained / "run/artifact.json").is_file()
+    assert (retained / "container.log").read_text() == "stopped\n"
+
+
+def test_collect_recovers_launch_only_partial_retention(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    launch = _launch(module)
+    state_root = tmp_path / "state"
+    retained_root = tmp_path / "retained"
+    _write_launch(
+        state_root / launch.generation / "launch-manifest.json",
+        launch,
+    )
+    retained = retained_root / launch.generation
+    retained.mkdir(parents=True)
+    _write_launch(retained / "launch-manifest.json", launch)
+    (retained / "container.log").write_text("preserved\n", encoding="utf-8")
+    monkeypatch.setattr(
+        module,
+        "_inspect_container",
+        lambda _launch: module.ContainerState(
+            running=False,
+            oom_killed=False,
+            exit_code=1,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_container_logs",
+        lambda _launch: (_ for _ in ()).throw(
+            AssertionError("partial retry must preserve retained logs")
+        ),
+    )
+
+    def copy(command, **_kwargs) -> None:
+        destination = Path(tuple(command)[-1])
+        (destination / "artifact.json").write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "_run", copy)
+    result = module.collect_generation(
+        generation=launch.generation,
+        state_root=state_root,
+        retained_root=retained_root,
+    )
+
+    assert result["execution_status"] == "failed"
+    assert result["run_output_retained"] is True
+    assert (retained / "container.log").read_text() == "preserved\n"
+    assert (retained / "run/artifact.json").is_file()

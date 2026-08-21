@@ -42,3 +42,13 @@ def test_causal_alpha_generation_script_is_a_thin_operations_adapter() -> None:
     assert "subprocess" not in source
     assert "trade_rl.operations.causal_alpha_v3_generation" in source
     assert len(source.splitlines()) <= 12
+
+
+def test_top_level_modules_are_only_explicit_bootstrap_facades() -> None:
+    modules = {path.stem for path in PYTHON_SOURCE_ROOT.glob("*.py") if path.is_file()}
+    assert modules == {
+        "__init__",
+        "_source_checkout",
+        "_version",
+        "runtime_factory",
+    }

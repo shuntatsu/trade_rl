@@ -120,3 +120,20 @@ def test_actual_timesteps_must_be_positive_before_manifest_publish(
         _run(tmp_path, backend)
 
     assert not (tmp_path / "universal-training.json").exists()
+
+
+def test_member_environment_identity_cannot_drift_between_seeds(
+    tmp_path: Path,
+) -> None:
+    backend = _Backend(
+        lambda seed: (
+            _digest(f"environment:{seed}"),
+            _digest("architecture"),
+            32,
+        )
+    )
+
+    with pytest.raises(ValueError, match="environment"):
+        _run(tmp_path, backend)
+
+    assert not (tmp_path / "universal-training.json").exists()

@@ -201,3 +201,62 @@ def test_runtime_factory_context_loads_manifest_and_rejects_compatibility_drift(
             frozen_metadata_root=tmp_path / "frozen",
             normalizer_digest=_digest("drift"),
         )
+
+
+def test_entrypoint_manifest_binds_runtime_factory_descriptor(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import trade_rl.workflows.universal_full_research_entrypoint as module
+    from trade_rl.integrations.runtime_factory import RuntimeFactoryDescriptor
+
+    authored = _run_configs()
+    descriptor = RuntimeFactoryDescriptor(
+        spec="example_runtime:build_runtime",
+        module="example_runtime",
+        callable_name="build_runtime",
+        implementation_digest=_digest("runtime-factory-source"),
+    )
+    run_digests = {
+        algorithm: _digest(f"descriptor-run:{algorithm.value}")
+        for algorithm in FullResearchAlgorithm
+    }
+    monkeypatch.setattr(module, "UniversalTrainingRuntime", SimpleNamespace)
+    monkeypatch.setattr(
+        module,
+        "train_universal_full_research_comparison",
+        lambda **_kwargs: SimpleNamespace(
+            digest=_digest("descriptor-comparison"),
+            runs=tuple(
+                SimpleNamespace(
+                    algorithm=algorithm,
+                    run_digest=run_digests[algorithm],
+                )
+                for algorithm in FullResearchAlgorithm
+            ),
+            required_pairs=("pair",),
+            completed_pairs=(),
+        ),
+    )
+
+    result = module.run_universal_full_research_training(
+        selected_architecture=UniversalArchitectureName.U_MEDIUM_DIRECT,
+        run_configs=authored,
+        runtime_factory=lambda **_kwargs: SimpleNamespace(),
+        runtime_factory_descriptor=descriptor,
+        fold_train_range=(100, 500),
+        normalizer_digest=_digest("normalizer"),
+        feature_schema_digest=_digest("features"),
+        baseline_names=("supervised_allocator",),
+        folds=(0,),
+        output_root=tmp_path,
+    )
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    manifest_digest = manifest.pop("manifest_digest")
+    assert manifest["schema_version"] == (
+        "universal_full_research_training_entrypoint_v2"
+    )
+    assert manifest["runtime_factory"] == descriptor.to_payload()
+    assert manifest_digest == content_digest(manifest)
+    assert result.manifest_digest == manifest_digest

@@ -1,0 +1,187 @@
+name: Repair and verify architecture hardening
+
+on:
+  push:
+    branches:
+      - bootstrap/architecture-hardening-source-snapshot-20260821
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-hardening-apply
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
+
+      - name: Recover implementation when the prior apply stopped before commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p var/architecture-hardening-repair
+          if test ! -f trade_rl/operations/causal_alpha_v3_generation.py; then
+            test -f .github/workflows/architecture-hardening-apply.yml
+            python - <<'PY'
+            from pathlib import Path
+
+            workflow = Path(
+                ".github/workflows/architecture-hardening-apply.yml"
+            ).read_text(encoding="utf-8")
+            marker = "          python - <<'PY'\n"
+            start = workflow.index(marker) + len(marker)
+            end = workflow.index("\n          PY\n", start)
+            lines = workflow[start:end].splitlines()
+            script = "\n".join(
+                line[10:] if line.startswith("          ") else line
+                for line in lines
+            )
+            exec(compile(script, "architecture-hardening-recovered.py", "exec"))
+            PY
+          fi
+
+      - name: Correct raw adapter typing and normalize imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/universal_training_runner.py")
+          source = path.read_text(encoding="utf-8")
+          old = "class UniversalTrainingResult(Protocol):\n    checkpoint_path: Path\n    environment_digest: str\n    architecture_digest: str\n"
+          new = "class UniversalTrainingResult(Protocol):\n    checkpoint_path: Path\n    environment_digest: str\n    architecture_digest: str | None\n"
+          if old in source:
+              path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          elif new not in source:
+              raise RuntimeError("UniversalTrainingResult protocol shape drifted")
+          PY
+          uv run ruff check --fix \
+            trade_rl/integrations/runtime_factory.py \
+            trade_rl/runtime_factory.py \
+            trade_rl/workflows/universal_full_research_entrypoint.py \
+            trade_rl/workflows/universal_training_runner.py \
+            trade_rl/studio/jobs.py \
+            trade_rl/operations/causal_alpha_v3_generation.py \
+            scripts/control_causal_alpha_v3_research_generation.py \
+            scripts/run_universal_full_research.py \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/workflows/test_universal_training_manifest_contract.py \
+            tests/workflows/test_runtime_factory_evidence_contract.py \
+            tests/workflows/test_universal_training_execution.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py
+          uv run ruff format \
+            trade_rl/integrations/runtime_factory.py \
+            trade_rl/runtime_factory.py \
+            trade_rl/workflows/universal_full_research_entrypoint.py \
+            trade_rl/workflows/universal_training_runner.py \
+            trade_rl/studio/jobs.py \
+            trade_rl/operations/causal_alpha_v3_generation.py \
+            scripts/control_causal_alpha_v3_research_generation.py \
+            scripts/run_universal_full_research.py \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/workflows/test_universal_training_manifest_contract.py \
+            tests/workflows/test_runtime_factory_evidence_contract.py \
+            tests/workflows/test_universal_training_execution.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py
+
+      - name: Targeted functional and falsification verification
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/architecture \
+            tests/workflows/test_universal_training_manifest_contract.py \
+            tests/workflows/test_runtime_factory_evidence_contract.py \
+            tests/workflows/test_universal_training_execution.py \
+            tests/workflows/test_universal_full_research_entrypoint.py \
+            tests/studio/test_jobs.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py \
+            2>&1 | tee var/architecture-hardening-repair/targeted.log
+
+      - name: Static, type, and dependency verification
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            uv run ruff check .
+            uv run ruff format --check .
+            uv run mypy .
+            uv run lint-imports
+            uv run vulture trade_rl tests --min-confidence 100
+            uv run python .github/check_workflow_security.py .
+          } 2>&1 | tee var/architecture-hardening-repair/static.log
+
+      - name: Review final diff for scope and test loopholes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git diff --stat origin/main...HEAD > var/architecture-hardening-repair/precommit-stat.txt
+          git diff -- \
+            trade_rl \
+            scripts \
+            tests \
+            pyproject.toml \
+            docs/ARCHITECTURE.md \
+            > var/architecture-hardening-repair/precommit.diff
+          test -z "$(git grep -nE 'pytest\.mark\.(skip|xfail)|@unittest\.skip' -- \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/workflows/test_universal_training_manifest_contract.py \
+            tests/workflows/test_runtime_factory_evidence_contract.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py || true)"
+          test -z "$(git diff origin/main -- tests | grep -E '^\+.*(assert True|pass[[:space:]]*$|pytest\.skip)' || true)"
+
+      - name: Commit repaired implementation and remove temporary workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/architecture-hardening-apply.yml
+          rm -f .github/workflows/architecture-hardening-repair.yml
+          rm -f .github/workflows/source-snapshot-bootstrap.yml
+          rm -f .github/workflows/architecture-hardening-red-bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if ! git diff --cached --quiet; then
+            git commit -m "fix: close architecture identity and recovery gaps"
+            git push origin HEAD:bootstrap/architecture-hardening-source-snapshot-20260821
+          fi
+
+      - name: Upload repair evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-hardening-repair-evidence
+          path: var/architecture-hardening-repair
+          if-no-files-found: warn
+          retention-days: 14

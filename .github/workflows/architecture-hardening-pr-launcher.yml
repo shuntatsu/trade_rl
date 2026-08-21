@@ -57,6 +57,28 @@ jobs:
 
           import yaml
 
+          runner = Path("trade_rl/workflows/universal_training_runner.py")
+          source = runner.read_text(encoding="utf-8")
+          source = source.replace(
+              '        if not isinstance(environment_digest, str):\n'
+              '            raise ValueError("Universal backend environment digest is unavailable")\n',
+              '        if not isinstance(environment_digest, str):\n'
+              '            raise ValueError(\n'
+              '                "Universal backend environment digest is unavailable"\n'
+              '            )\n',
+              1,
+          )
+          source = source.replace(
+              '        if isinstance(actual_timesteps, bool) or not isinstance(actual_timesteps, int):\n'
+              '            raise ValueError("Universal backend actual_timesteps is unavailable")\n',
+              '        if isinstance(actual_timesteps, bool) or not isinstance(actual_timesteps, int):\n'
+              '            raise ValueError(\n'
+              '                "Universal backend actual_timesteps is unavailable"\n'
+              '            )\n',
+              1,
+          )
+          runner.write_text(source, encoding="utf-8")
+
           workflow_path = Path(
               ".github/workflows/architecture-hardening-apply.yml"
           )

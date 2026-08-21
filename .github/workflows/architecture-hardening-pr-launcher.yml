@@ -1,0 +1,116 @@
+name: Launch architecture hardening implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-hardening-pr-launcher-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    if: >-
+      github.event.pull_request.number == 420 &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Verify immutable PR checkout
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install complete verification dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
+
+      - name: Execute reviewed RED to GREEN implementation steps
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import subprocess
+          from pathlib import Path
+
+          import yaml
+
+          workflow_path = Path(
+              ".github/workflows/architecture-hardening-apply.yml"
+          )
+          payload = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+          steps = payload["jobs"]["apply"]["steps"]
+          selected = (
+              "Verify RED contract commit is present",
+              "Reconfirm committed RED behavior",
+              "Add runtime-factory RED contract",
+              "Implement minimal architecture hardening",
+              "Format changed Python",
+              "Targeted GREEN tests",
+              "Static and architecture checks",
+          )
+          by_name = {
+              step.get("name"): step.get("run")
+              for step in steps
+              if isinstance(step, dict)
+          }
+          missing = [name for name in selected if not isinstance(by_name.get(name), str)]
+          if missing:
+              raise RuntimeError(f"architecture hardening steps are missing: {missing}")
+          for name in selected:
+              print(f"::group::{name}", flush=True)
+              subprocess.run(
+                  ("bash", "-euo", "pipefail", "-c", by_name[name]),
+                  check=True,
+              )
+              print("::endgroup::", flush=True)
+          PY
+
+      - name: Review and commit implementation result
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/architecture-hardening-apply.yml
+          rm -f .github/workflows/architecture-hardening-pr-launcher.yml
+          git diff --check
+          git status --short
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "fix: harden architecture identity and recovery contracts"
+          git push origin "HEAD:$HEAD_BRANCH"
+
+      - name: Upload implementation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b540449e92b4886f43607fa02
+        with:
+          name: architecture-hardening-implementation-evidence
+          path: var/architecture-hardening
+          if-no-files-found: warn
+          retention-days: 14

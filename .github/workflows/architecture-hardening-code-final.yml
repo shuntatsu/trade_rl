@@ -1,0 +1,243 @@
+name: Finalize architecture hardening code
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-hardening-code-final-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.number == 420 &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact checkout
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra export --extra studio
+
+      - name: Apply final code and test contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+          from textwrap import dedent
+
+
+          def append_once(path: str, marker: str, addition: str) -> None:
+              target = Path(path)
+              source = target.read_text(encoding="utf-8")
+              if marker not in source:
+                  target.write_text(
+                      source.rstrip() + "\n\n" + dedent(addition).lstrip(),
+                      encoding="utf-8",
+                  )
+
+
+          append_once(
+              "tests/operations/test_causal_alpha_v3_generation_recovery.py",
+              "test_operator_stop_oom_retry_preserves_operator_classification",
+              r'''
+              def test_operator_stop_oom_retry_preserves_operator_classification(
+                  monkeypatch: pytest.MonkeyPatch,
+                  tmp_path: Path,
+              ) -> None:
+                  module = _module()
+                  launch = _launch(module)
+                  state_root = tmp_path / "state"
+                  retained_root = tmp_path / "retained"
+                  _write_launch(
+                      state_root / launch.generation / "launch-manifest.json",
+                      launch,
+                  )
+                  retained = retained_root / launch.generation
+                  retained.mkdir(parents=True)
+                  _write_launch(retained / "launch-manifest.json", launch)
+                  (retained / "container.log").write_text(
+                      "stopped-oom\n", encoding="utf-8"
+                  )
+                  incomplete = {
+                      "container_exit_code": 137,
+                      "execution_status": "operator_stopped",
+                      "generation": launch.generation,
+                      "launch": launch.to_payload(),
+                      "oom_killed": True,
+                      "research_outcome": "unavailable",
+                      "run_output_retained": False,
+                      "schema_version": "causal_alpha_v3_research_result_v1",
+                  }
+                  (retained / "research-result.json").write_bytes(
+                      _canonical(incomplete)
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_inspect_container",
+                      lambda _launch: module.ContainerState(
+                          running=False,
+                          oom_killed=True,
+                          exit_code=137,
+                      ),
+                  )
+                  monkeypatch.setattr(
+                      module,
+                      "_container_logs",
+                      lambda _launch: (_ for _ in ()).throw(
+                          AssertionError("retry must preserve the retained stop log")
+                      ),
+                  )
+
+                  def copy(command, **_kwargs) -> None:
+                      destination = Path(tuple(command)[-1])
+                      (destination / "artifact.json").write_text(
+                          "{}\n", encoding="utf-8"
+                      )
+
+                  monkeypatch.setattr(module, "_run", copy)
+                  result = module.collect_generation(
+                      generation=launch.generation,
+                      state_root=state_root,
+                      retained_root=retained_root,
+                  )
+
+                  assert result["execution_status"] == "operator_stopped"
+                  assert result["research_outcome"] == "unavailable"
+                  assert result["oom_killed"] is True
+                  assert result["run_output_retained"] is True
+              ''',
+          )
+
+          operation = Path("trade_rl/operations/causal_alpha_v3_generation.py")
+          source = operation.read_text(encoding="utf-8")
+          old = (
+              '    persisted_operator_stopped = result["execution_status"] == "operator_stopped"\n'
+              '    expected_status, expected_outcome = classify_research_outcome(\n'
+              '        state.exit_code,\n'
+              '        operator_stopped=(operator_stopped or persisted_operator_stopped),\n'
+              '    )\n'
+              '    if state.oom_killed and not operator_stopped:\n'
+          )
+          new = (
+              '    persisted_operator_stopped = result["execution_status"] == "operator_stopped"\n'
+              '    effective_operator_stopped = operator_stopped or persisted_operator_stopped\n'
+              '    expected_status, expected_outcome = classify_research_outcome(\n'
+              '        state.exit_code,\n'
+              '        operator_stopped=effective_operator_stopped,\n'
+              '    )\n'
+              '    if state.oom_killed and not effective_operator_stopped:\n'
+          )
+          if old in source:
+              operation.write_text(source.replace(old, new, 1), encoding="utf-8")
+          elif "effective_operator_stopped" not in source:
+              raise RuntimeError("terminal classification contract drifted")
+
+          architecture = Path(
+              "tests/architecture/test_architecture_hardening_contract.py"
+          )
+          source = architecture.read_text(encoding="utf-8")
+          if "import yaml\n" not in source:
+              source = source.replace("import ast\n", "import ast\n\nimport yaml\n", 1)
+              architecture.write_text(source, encoding="utf-8")
+          append_once(
+              str(architecture),
+              "test_ci_exposes_one_conditional_full_training_capability_gate",
+              r'''
+              def test_ci_exposes_one_conditional_full_training_capability_gate() -> None:
+                  payload = yaml.safe_load(
+                      (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(
+                          encoding="utf-8"
+                      )
+                  )
+                  job = payload["jobs"]["full-training-capability"]
+                  assert job["name"] == "Full training capability gate"
+                  assert job["runs-on"] == "ubuntu-latest"
+                  assert job["timeout-minutes"] == 75
+                  steps = job["steps"]
+                  names = tuple(step.get("name") for step in steps)
+                  assert names.count("Detect training-sensitive changes") == 1
+                  assert names.count("Run full training capability audit") == 1
+                  scripts = "\n".join(
+                      str(step.get("run", ""))
+                      for step in steps
+                      if step.get("run")
+                  )
+                  assert "scripts/run_training_capability_audit.py" in scripts
+                  assert "full_training_capability_audit_v1" in scripts
+                  assert "steps.changes.outputs.required == 'true'" in str(steps)
+              ''',
+          )
+          PY
+
+      - name: Verify code, tests, and architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix \
+            trade_rl/operations/causal_alpha_v3_generation.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/architecture/test_architecture_hardening_contract.py
+          uv run ruff format \
+            trade_rl/operations/causal_alpha_v3_generation.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/architecture/test_architecture_hardening_contract.py
+          uv run pytest -q \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py
+          uv run python .github/check_workflow_security.py .
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy trade_rl
+          uv run lint-imports
+          uv run vulture trade_rl tests --min-confidence 100
+          git diff --check
+
+      - name: Commit code and tests only
+        shell: bash
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/operations/causal_alpha_v3_generation.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/architecture/test_architecture_hardening_contract.py
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "fix: preserve terminal recovery identity contracts"
+          git push origin "HEAD:$HEAD_BRANCH"

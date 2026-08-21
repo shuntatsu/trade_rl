@@ -1,0 +1,249 @@
+name: Materialize architecture hardening candidate
+
+on:
+  push:
+    branches:
+      - bootstrap/architecture-hardening-source-snapshot-20260821
+
+permissions:
+  contents: write
+
+concurrency:
+  group: architecture-hardening-materialize
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Materialize idempotent candidate tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import subprocess
+          from pathlib import Path
+
+
+          def embedded_python(path: Path) -> str:
+              text = path.read_text(encoding="utf-8")
+              marker = "          python - <<'PY'\n"
+              start = text.index(marker) + len(marker)
+              end = text.index("\n          PY\n", start)
+              return "\n".join(
+                  line[10:] if line.startswith("          ") else line
+                  for line in text[start:end].splitlines()
+              )
+
+
+          architecture_test = Path(
+              "tests/architecture/test_architecture_hardening_contract.py"
+          )
+          if not architecture_test.is_file():
+              red = Path(
+                  ".github/workflows/architecture-hardening-red-bootstrap.yml"
+              )
+              text = red.read_text(encoding="utf-8")
+              start_marker = "          set -euo pipefail\n          cat > tests/architecture/test_architecture_hardening_contract.py"
+              start = text.index(start_marker)
+              end = text.index("\n      - name: Install test dependencies", start)
+              shell = "\n".join(
+                  line[10:] if line.startswith("          ") else line
+                  for line in text[start:end].splitlines()
+              )
+              subprocess.run(("bash", "-c", shell), check=True)
+
+          if not Path("trade_rl/operations/causal_alpha_v3_generation.py").is_file():
+              runner = Path("trade_rl/workflows/universal_training_runner.py")
+              source = runner.read_text(encoding="utf-8")
+              source = source.replace(
+                  '        if not isinstance(environment_digest, str):\n'
+                  '            raise ValueError("Universal backend environment digest is unavailable")\n',
+                  '        if not isinstance(environment_digest, str):\n'
+                  '            raise ValueError(\n'
+                  '                "Universal backend environment digest is unavailable"\n'
+                  '            )\n',
+              )
+              source = source.replace(
+                  '        if isinstance(actual_timesteps, bool) or not isinstance(actual_timesteps, int):\n'
+                  '            raise ValueError("Universal backend actual_timesteps is unavailable")\n',
+                  '        if isinstance(actual_timesteps, bool) or not isinstance(actual_timesteps, int):\n'
+                  '            raise ValueError(\n'
+                  '                "Universal backend actual_timesteps is unavailable"\n'
+                  '            )\n',
+              )
+              runner.write_text(source, encoding="utf-8")
+              apply = Path(".github/workflows/architecture-hardening-apply.yml")
+              exec(
+                  compile(
+                      embedded_python(apply),
+                      "architecture-hardening-materialized.py",
+                      "exec",
+                  )
+              )
+
+          runtime_test = Path(
+              "tests/workflows/test_runtime_factory_evidence_contract.py"
+          )
+          if not runtime_test.is_file():
+              runtime_test.write_text(
+                  '''from __future__ import annotations
+
+          import importlib
+          from pathlib import Path
+
+
+          def test_runtime_factory_descriptor_binds_implementation_source_bytes(
+              monkeypatch,
+              tmp_path: Path,
+          ) -> None:
+              from trade_rl.integrations.runtime_factory import (
+                  describe_runtime_factory,
+                  load_runtime_factory,
+              )
+              module_path = tmp_path / "runtime_fixture.py"
+              module_path.write_text(
+                  "def build_runtime(**kwargs):\\n    return kwargs\\n",
+                  encoding="utf-8",
+              )
+              monkeypatch.syspath_prepend(str(tmp_path))
+              importlib.invalidate_caches()
+              factory = load_runtime_factory("runtime_fixture:build_runtime")
+              first = describe_runtime_factory(
+                  "runtime_fixture:build_runtime", factory=factory
+              )
+              module_path.write_text(
+                  "def build_runtime(**kwargs):\\n    return dict(kwargs)\\n",
+                  encoding="utf-8",
+              )
+              second = describe_runtime_factory(
+                  "runtime_fixture:build_runtime", factory=factory
+              )
+              assert first.implementation_digest != second.implementation_digest
+              assert first.digest != second.digest
+
+
+          def test_full_research_cli_passes_runtime_factory_evidence() -> None:
+              source = Path("scripts/run_universal_full_research.py").read_text(
+                  encoding="utf-8"
+              )
+              assert "describe_runtime_factory" in source
+              assert "runtime_factory_descriptor=" in source
+          '''.replace("          ", ""),
+                  encoding="utf-8",
+              )
+
+          runner = Path("trade_rl/workflows/universal_training_runner.py")
+          source = runner.read_text(encoding="utf-8")
+          source = source.replace(
+              "class UniversalTrainingResult(Protocol):\n"
+              "    checkpoint_path: Path\n"
+              "    environment_digest: str\n"
+              "    architecture_digest: str\n",
+              "class UniversalTrainingResult(Protocol):\n"
+              "    checkpoint_path: Path\n"
+              "    environment_digest: str\n"
+              "    architecture_digest: str | None\n",
+              1,
+          )
+          runner.write_text(source, encoding="utf-8")
+
+          ci = Path(".github/workflows/ci.yml")
+          if "tests/operations/test_causal_alpha_v3_generation_recovery.py" not in ci.read_text(encoding="utf-8"):
+              integration = Path(
+                  ".github/workflows/architecture-hardening-ci-integration.yml"
+              )
+              exec(
+                  compile(
+                      embedded_python(integration),
+                      "architecture-hardening-ci-materialized.py",
+                      "exec",
+                  )
+              )
+          if "  training-capability-gate:\n" not in ci.read_text(encoding="utf-8"):
+              gate = Path(
+                  ".github/workflows/architecture-hardening-training-gate.yml"
+              )
+              exec(
+                  compile(
+                      embedded_python(gate),
+                      "architecture-hardening-gate-materialized.py",
+                      "exec",
+                  )
+              )
+          PY
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Normalize and capture targeted result without masking failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra train-sb3 --extra export --extra studio
+          uv run ruff check --fix .
+          uv run ruff format .
+          mkdir -p var/architecture-hardening-candidate
+          set +e
+          uv run pytest -q \
+            tests/architecture/test_architecture_hardening_contract.py \
+            tests/workflows/test_universal_training_manifest_contract.py \
+            tests/workflows/test_runtime_factory_evidence_contract.py \
+            tests/studio/test_jobs_windows_recovery_contract.py \
+            tests/operations/test_causal_alpha_v3_generation_recovery.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation.py \
+            tests/scripts/test_control_causal_alpha_v3_research_generation_falsification.py \
+            > var/architecture-hardening-candidate/targeted.log 2>&1
+          targeted_status=$?
+          uv run mypy trade_rl \
+            > var/architecture-hardening-candidate/mypy.log 2>&1
+          mypy_status=$?
+          uv run lint-imports \
+            > var/architecture-hardening-candidate/import-linter.log 2>&1
+          import_status=$?
+          set -e
+          printf '{"targeted":%s,"mypy":%s,"import_linter":%s}\n' \
+            "$targeted_status" "$mypy_status" "$import_status" \
+            > var/architecture-hardening-candidate/status.json
+          git diff --check
+
+      - name: Commit Draft candidate and remove all temporary workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/architecture-hardening-materialize-candidate.yml
+          rm -f .github/workflows/architecture-hardening-finalize.yml
+          rm -f .github/workflows/architecture-hardening-apply.yml
+          rm -f .github/workflows/architecture-hardening-repair.yml
+          rm -f .github/workflows/architecture-hardening-ci-integration.yml
+          rm -f .github/workflows/architecture-hardening-training-gate.yml
+          rm -f .github/workflows/architecture-hardening-red-bootstrap.yml
+          rm -f .github/workflows/source-snapshot-bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: materialize architecture hardening candidate"
+          git push origin HEAD:bootstrap/architecture-hardening-source-snapshot-20260821
+
+      - name: Upload candidate diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-hardening-candidate-diagnostics
+          path: var/architecture-hardening-candidate
+          if-no-files-found: warn
+          retention-days: 14

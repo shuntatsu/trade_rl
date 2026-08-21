@@ -57,6 +57,33 @@ jobs:
 
           import yaml
 
+          recovery_test = Path(
+              "tests/operations/test_causal_alpha_v3_generation_recovery.py"
+          )
+          test_source = recovery_test.read_text(encoding="utf-8")
+          helper_old = "    path.parent.mkdir(parents=True)\n"
+          helper_new = "    path.parent.mkdir(parents=True, exist_ok=True)\n"
+          if test_source.count(helper_old) != 1:
+              raise RuntimeError("V3 test fixture directory contract drifted")
+          test_source = test_source.replace(helper_old, helper_new, 1)
+          start_old = (
+              "    module = _module()\n"
+              "    launch = _launch(module)\n"
+              "    root = tmp_path / \"project\"\n"
+          )
+          start_new = (
+              "    module = _module()\n"
+              "    launch = _launch(module)\n"
+              "    monkeypatch.delenv(\"GITHUB_SHA\", raising=False)\n"
+              "    root = tmp_path / \"project\"\n"
+          )
+          if test_source.count(start_old) != 1:
+              raise RuntimeError("V3 retry test environment marker drifted")
+          recovery_test.write_text(
+              test_source.replace(start_old, start_new, 1),
+              encoding="utf-8",
+          )
+
           runner = Path("trade_rl/workflows/universal_training_runner.py")
           source = runner.read_text(encoding="utf-8")
           source = source.replace(

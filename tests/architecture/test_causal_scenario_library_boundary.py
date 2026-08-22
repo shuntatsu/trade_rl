@@ -6,6 +6,8 @@ from pathlib import Path
 from tests.architecture.import_references import (
     causal_scenario_dependency_violations,
     forbidden_json_key_paths,
+    module_name_from_path,
+    scan_import_references,
 )
 from trade_rl.workflows.causal_scenario import (
     CAUSAL_SCENARIO_LIBRARY_ARTIFACT_SCHEMA,
@@ -22,14 +24,37 @@ from trade_rl.workflows.causal_scenario import (
 _PACKAGE_ROOT = Path("trade_rl")
 _CAUSAL_SCENARIO_PREFIX = "trade_rl.workflows.causal_scenario"
 _CAUSAL_SCENARIO_ROOT = _PACKAGE_ROOT / "workflows" / "causal_scenario"
+_INTEGRATIONS_ROOT = _PACKAGE_ROOT / "integrations"
+_BOOTSTRAP_EXTENSION_BOUNDARY = _INTEGRATIONS_ROOT / "runtime_factory.py"
 _PROTECTED_ROOTS = (
     _PACKAGE_ROOT / "rl",
     _PACKAGE_ROOT / "serving",
     _PACKAGE_ROOT / "release",
     _PACKAGE_ROOT / "workflows",
-    _PACKAGE_ROOT / "integrations",
 )
 _WALK_FORWARD_CONFIG = Path("examples/binance-multitimeframe/walk-forward-full.json")
+
+
+def _runtime_dependency_violations() -> list[str]:
+    violations = list(
+        causal_scenario_dependency_violations(
+            protected_roots=_PROTECTED_ROOTS,
+            excluded_root=_CAUSAL_SCENARIO_ROOT,
+            package_root=_PACKAGE_ROOT,
+            root_package="trade_rl",
+            prohibited_prefix=_CAUSAL_SCENARIO_PREFIX,
+        )
+    )
+    violations.extend(
+        causal_scenario_dependency_violations(
+            protected_roots=(_INTEGRATIONS_ROOT,),
+            excluded_root=_BOOTSTRAP_EXTENSION_BOUNDARY,
+            package_root=_PACKAGE_ROOT,
+            root_package="trade_rl",
+            prohibited_prefix=_CAUSAL_SCENARIO_PREFIX,
+        )
+    )
+    return violations
 
 
 def test_c2_public_api_is_available() -> None:
@@ -44,16 +69,28 @@ def test_c2_public_api_is_available() -> None:
     assert load_causal_scenario_library_artifact is not None
 
 
-def test_causal_scenario_library_remains_outside_runtime_paths() -> None:
-    violations = list(
-        causal_scenario_dependency_violations(
-            protected_roots=_PROTECTED_ROOTS,
-            excluded_root=_CAUSAL_SCENARIO_ROOT,
-            package_root=_PACKAGE_ROOT,
-            root_package="trade_rl",
-            prohibited_prefix=_CAUSAL_SCENARIO_PREFIX,
-        )
+def test_runtime_factory_is_one_explicit_dynamic_bootstrap_extension_boundary() -> None:
+    assert _BOOTSTRAP_EXTENSION_BOUNDARY.is_file()
+    module_name = module_name_from_path(
+        _BOOTSTRAP_EXTENSION_BOUNDARY,
+        package_root=_PACKAGE_ROOT,
+        root_package="trade_rl",
     )
+    unresolved_dynamic = tuple(
+        reference
+        for reference in scan_import_references(
+            _BOOTSTRAP_EXTENSION_BOUNDARY,
+            module_name=module_name,
+        )
+        if reference.kind == "dynamic" and reference.unresolved
+    )
+
+    assert len(unresolved_dynamic) == 1
+    assert unresolved_dynamic[0].target is None
+
+
+def test_causal_scenario_library_remains_outside_runtime_paths() -> None:
+    violations = _runtime_dependency_violations()
     if _WALK_FORWARD_CONFIG.exists():
         payload = json.loads(_WALK_FORWARD_CONFIG.read_text(encoding="utf-8"))
         violations.extend(

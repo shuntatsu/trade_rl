@@ -75,3 +75,28 @@ def test_runtime_factory_descriptor_rejects_a_callable_from_another_spec(
             "runtime_mismatch_fixture:expected",
             factory=foreign,
         )
+
+
+@pytest.mark.parametrize(
+    "spec",
+    (
+        "trade_rl.workflows.causal_scenario:build_runtime",
+        "trade_rl.workflows.causal_scenario.c3:build_runtime",
+    ),
+)
+def test_runtime_factory_rejects_causal_scenario_targets_before_import(
+    monkeypatch: pytest.MonkeyPatch,
+    spec: str,
+) -> None:
+    import trade_rl.integrations.runtime_factory as runtime_factory
+
+    monkeypatch.setattr(
+        runtime_factory.importlib,
+        "import_module",
+        lambda _module_name: pytest.fail(
+            "forbidden runtime-factory target reached the import boundary"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="causal scenario"):
+        runtime_factory.load_runtime_factory(spec)

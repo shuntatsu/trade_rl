@@ -76,17 +76,27 @@ def test_runtime_factory_is_one_explicit_dynamic_bootstrap_extension_boundary() 
         package_root=_PACKAGE_ROOT,
         root_package="trade_rl",
     )
-    unresolved_dynamic = tuple(
+    references = scan_import_references(
+        _BOOTSTRAP_EXTENSION_BOUNDARY,
+        module_name=module_name,
+    )
+    causal_scenario_references = tuple(
         reference
-        for reference in scan_import_references(
-            _BOOTSTRAP_EXTENSION_BOUNDARY,
-            module_name=module_name,
+        for reference in references
+        if reference.target is not None
+        and (
+            reference.target == _CAUSAL_SCENARIO_PREFIX
+            or reference.target.startswith(f"{_CAUSAL_SCENARIO_PREFIX}.")
         )
-        if reference.kind == "dynamic" and reference.unresolved
+    )
+    unresolved_references = tuple(
+        reference for reference in references if reference.unresolved
     )
 
-    assert len(unresolved_dynamic) == 1
-    assert unresolved_dynamic[0].target is None
+    assert causal_scenario_references == ()
+    assert len(unresolved_references) == 1
+    assert unresolved_references[0].kind == "dynamic"
+    assert unresolved_references[0].target is None
 
 
 def test_causal_scenario_library_remains_outside_runtime_paths() -> None:

@@ -15,6 +15,13 @@ from trade_rl.domain.common import require_sha256
 
 RuntimeFactory = Callable[..., Any]
 _DESCRIPTOR_SCHEMA = "runtime_factory_descriptor_v1"
+_FORBIDDEN_RUNTIME_FACTORY_MODULE_PREFIXES = (
+    "trade_rl.workflows.causal_scenario",
+)
+
+
+def _is_module_or_descendant(module_name: str, *, prefix: str) -> bool:
+    return module_name == prefix or module_name.startswith(f"{prefix}.")
 
 
 def _factory_parts(spec: str) -> tuple[str, str]:
@@ -23,6 +30,11 @@ def _factory_parts(spec: str) -> tuple[str, str]:
     module_name, function_name = (part.strip() for part in spec.split(":", 1))
     if not module_name or not function_name:
         raise ValueError("runtime factory must use module:function syntax")
+    if any(
+        _is_module_or_descendant(module_name, prefix=prefix)
+        for prefix in _FORBIDDEN_RUNTIME_FACTORY_MODULE_PREFIXES
+    ):
+        raise ValueError("runtime factory cannot target the causal scenario library")
     return module_name, function_name
 
 

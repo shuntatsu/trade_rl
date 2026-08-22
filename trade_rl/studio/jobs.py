@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import os
 import re
 import signal
@@ -93,7 +94,65 @@ def _default_process_factory(
     return cast(ProcessHandle, process)
 
 
-def _pid_start_token(pid: int) -> str | None:
+def _windows_process_start_token(pid: int) -> str | None:
+    loader = getattr(ctypes, "WinDLL", None)
+    if loader is None:
+        return None
+
+    class FileTime(ctypes.Structure):
+        _fields_ = (
+            ("low", ctypes.c_uint32),
+            ("high", ctypes.c_uint32),
+        )
+
+    kernel32 = loader("kernel32", use_last_error=True)
+    open_process = kernel32.OpenProcess
+    open_process.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
+    open_process.restype = ctypes.c_void_p
+    get_process_times = kernel32.GetProcessTimes
+    get_process_times.argtypes = (
+        ctypes.c_void_p,
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+        ctypes.POINTER(FileTime),
+    )
+    get_process_times.restype = ctypes.c_int
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (ctypes.c_void_p,)
+    close_handle.restype = ctypes.c_int
+
+    handle = open_process(0x1000, 0, pid)
+    if not handle:
+        return None
+    try:
+        creation = FileTime()
+        exit_time = FileTime()
+        kernel_time = FileTime()
+        user_time = FileTime()
+        if not get_process_times(
+            handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel_time),
+            ctypes.byref(user_time),
+        ):
+            return None
+        return f"{creation.high:08x}{creation.low:08x}"
+    finally:
+        close_handle(handle)
+
+
+def _pid_start_token(
+    pid: int,
+    *,
+    platform_name: str | None = None,
+) -> str | None:
+    platform = os.name if platform_name is None else platform_name
+    if platform == "nt":
+        return _windows_process_start_token(pid)
+    if platform != "posix":
+        return None
     path = Path(f"/proc/{pid}/stat")
     try:
         fields = path.read_text(encoding="utf-8").split()

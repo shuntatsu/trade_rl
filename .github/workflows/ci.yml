@@ -264,3 +264,97 @@ jobs:
             test -w /workspace/var
             python -c "import torch, trade_rl; print(torch.__version__)"
           '
+
+  full-training-capability:
+    name: Full training capability gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect training-sensitive changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if test -z "$BASE_SHA" || test "$BASE_SHA" = "0000000000000000000000000000000000000000"; then
+            required=true
+            changed="<full-history-unavailable>"
+          else
+            changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+            if printf '%s\n' "$changed" | grep -Eq '^(trade_rl/|tests/|scripts/|examples/|configs/|docker/|pyproject\.toml$|uv\.lock$|\.github/workflows/(ci|full-training-capability-audit)\.yml$)'; then
+              required=true
+            else
+              required=false
+            fi
+          fi
+          printf '%s\n' "$changed" > training-audit-paths.txt
+          echo "required=$required" >> "$GITHUB_OUTPUT"
+
+      - name: Set up uv
+        if: steps.changes.outputs.required == 'true'
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install complete audit dependencies
+        if: steps.changes.outputs.required == 'true'
+        run: uv sync --extra dev --extra train-sb3 --extra export
+
+      - name: Run full training capability audit
+        if: steps.changes.outputs.required == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p var/training-capability-audit
+          uv run python scripts/run_training_capability_audit.py \
+            --output var/training-capability-audit \
+            2>&1 | tee var/training-capability-audit.log
+
+      - name: Verify full training capability audit
+        if: steps.changes.outputs.required == 'true'
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("var/training-capability-audit/audit-report.json")
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          assert payload["schema_version"] == "full_training_capability_audit_v1"
+          assert len(payload["digest"]) == 64
+          for name, record in payload["algorithms"].items():
+              assert record["status"] == "pass", (name, record)
+              assert record["actual_timesteps"] >= 16
+              assert record["checkpoint_count"] >= 1
+          for name in (
+              "behavior_cloning",
+              "exports",
+              "replay_resume",
+              "residual_controls",
+              "sequence",
+              "training_resume",
+          ):
+              assert payload[name]["status"] == "pass", (name, payload[name])
+          PY
+
+      - name: Upload full training audit evidence
+        if: always() && steps.changes.outputs.required == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: full-training-capability-gate
+          path: |
+            training-audit-paths.txt
+            var/training-capability-audit
+            var/training-capability-audit.log
+          if-no-files-found: error
+          retention-days: 14

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts import control_causal_alpha_v3_research_generation as module
+from trade_rl.operations import causal_alpha_v3_generation as module
 
 
 def _launch() -> module.CausalAlphaV3Launch:
@@ -107,7 +107,7 @@ def test_start_rejects_existing_generation_state_before_build(
     monkeypatch.setattr(module, "_git_status", lambda _root: "")
     monkeypatch.setattr(module, "_git", lambda *_args: "a" * 40)
 
-    with pytest.raises(FileExistsError, match="state"):
+    with pytest.raises(FileNotFoundError, match="launch manifest"):
         module.start_generation(
             project_root=tmp_path,
             generation="causal-alpha-v3-v2-r1",

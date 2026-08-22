@@ -5,6 +5,7 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from trade_rl.integrations.runtime_factory import describe_runtime_factory
 from trade_rl.rl.training_run_config import TrainingRunConfig
 from trade_rl.rl.universal_architecture import UniversalArchitectureName
 from trade_rl.workflows.universal_full_research_entrypoint import (
@@ -81,6 +82,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         feature_schema_digest=args.feature_schema_digest,
     )
     raw_runtime_factory = load_universal_runtime_factory(args.runtime_factory)
+    runtime_factory_descriptor = describe_runtime_factory(
+        args.runtime_factory,
+        factory=raw_runtime_factory,
+    )
 
     def runtime_factory(
         *,
@@ -97,6 +102,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         selected_architecture=UniversalArchitectureName(args.selected_architecture),
         run_configs=authored_configs,
         runtime_factory=runtime_factory,
+        runtime_factory_descriptor=runtime_factory_descriptor,
         fold_train_range=context.manifest.fold_train_range,
         normalizer_digest=context.manifest.statistics_digest,
         feature_schema_digest=context.manifest.feature_schema_digest,

@@ -11,10 +11,13 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.integrations.runtime_factory import (
+    RuntimeFactoryDescriptor,
+    load_runtime_factory,
+)
 from trade_rl.rl.training import ResidualTrainingConfig
 from trade_rl.rl.training_run_config import TrainingRunConfig
 from trade_rl.rl.universal_architecture import UniversalArchitectureName
-from trade_rl.runtime_factory import load_runtime_factory
 from trade_rl.workflows.universal_full_research_training import (
     UniversalFullResearchTrainingComparison,
     train_universal_full_research_comparison,
@@ -154,6 +157,7 @@ def run_universal_full_research_training(
     selected_architecture: UniversalArchitectureName | str,
     run_configs: Mapping[FullResearchAlgorithm | str, TrainingRunConfig],
     runtime_factory: UniversalEntrypointRuntimeFactory,
+    runtime_factory_descriptor: RuntimeFactoryDescriptor | None = None,
     fold_train_range: tuple[int, int],
     normalizer_digest: str,
     feature_schema_digest: str,
@@ -168,6 +172,12 @@ def run_universal_full_research_training(
     configs = _resolved_run_configs(run_configs)
     if not callable(runtime_factory):
         raise TypeError("runtime_factory must be callable")
+    if runtime_factory_descriptor is not None and not isinstance(
+        runtime_factory_descriptor, RuntimeFactoryDescriptor
+    ):
+        raise TypeError(
+            "runtime_factory_descriptor must be RuntimeFactoryDescriptor or null"
+        )
     if len({_non_training_identity(config) for config in configs.values()}) != 1:
         raise ValueError("Universal U6 non-training run surfaces must be identical")
     require_sha256(normalizer_digest, field="Universal U6 normalizer_digest")
@@ -227,6 +237,9 @@ def run_universal_full_research_training(
         "schema_version": "universal_full_research_training_entrypoint_v1",
         "selected_architecture": architecture.value,
     }
+    if runtime_factory_descriptor is not None:
+        payload["runtime_factory"] = runtime_factory_descriptor.to_payload()
+        payload["schema_version"] = "universal_full_research_training_entrypoint_v2"
     manifest_digest = content_digest(payload)
     manifest_path = output / "universal-full-research-training.json"
     atomic_write_bytes(

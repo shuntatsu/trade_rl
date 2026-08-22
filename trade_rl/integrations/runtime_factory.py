@@ -15,9 +15,7 @@ from trade_rl.domain.common import require_sha256
 
 RuntimeFactory = Callable[..., Any]
 _DESCRIPTOR_SCHEMA = "runtime_factory_descriptor_v1"
-_FORBIDDEN_RUNTIME_FACTORY_MODULE_PREFIXES = (
-    "trade_rl.workflows.causal_scenario",
-)
+_FORBIDDEN_RUNTIME_FACTORY_MODULE_PREFIXES = ("trade_rl.workflows.causal_scenario",)
 
 
 def _is_module_or_descendant(module_name: str, *, prefix: str) -> bool:

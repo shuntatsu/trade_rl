@@ -87,6 +87,13 @@ def _ordered_nonempty(values: Sequence[str], *, field: str) -> tuple[str, ...]:
     return result
 
 
+def _official_urls(values: Sequence[str]) -> tuple[str, ...]:
+    urls = _ordered_nonempty(values, field="urls")
+    if any(not url.startswith(_VISION_PREFIX) for url in urls):
+        raise ValueError("cache URL must be an official Binance Vision URL")
+    return urls
+
+
 def _next_month(value: datetime) -> datetime:
     if value.month == 12:
         return value.replace(year=value.year + 1, month=1, day=1)
@@ -150,17 +157,20 @@ def vision_cache_path(cache_root: str | Path, url: str) -> Path:
     return Path(cache_root) / digest[:2] / f"{digest}.bin"
 
 
-def inspect_binance_vision_cache(
-    plan: BinanceVisionCachePlan,
+def inspect_binance_vision_urls(
+    urls: Sequence[str],
     *,
     cache_root: str | Path,
 ) -> BinanceVisionCacheReport:
+    """Validate an arbitrary authored set of official Vision URLs in shared cache."""
+
+    resolved_urls = _official_urls(urls)
     root = Path(cache_root)
     cached: list[str] = []
     missing: list[str] = []
     empty: list[str] = []
     invalid: list[str] = []
-    for url in plan.urls:
+    for url in resolved_urls:
         path = vision_cache_path(root, url)
         if not path.is_file():
             missing.append(url)
@@ -175,13 +185,21 @@ def inspect_binance_vision_cache(
                 cached.append(url)
     return BinanceVisionCacheReport(
         cache_root=root,
-        planned_count=len(plan.urls),
+        planned_count=len(resolved_urls),
         cached_count=len(cached),
         downloaded_count=0,
         missing_urls=tuple(missing),
         empty_urls=tuple(empty),
         invalid_urls=tuple(invalid),
     )
+
+
+def inspect_binance_vision_cache(
+    plan: BinanceVisionCachePlan,
+    *,
+    cache_root: str | Path,
+) -> BinanceVisionCacheReport:
+    return inspect_binance_vision_urls(plan.urls, cache_root=cache_root)
 
 
 def require_complete_binance_vision_cache(
@@ -199,22 +217,22 @@ def require_complete_binance_vision_cache(
     return report
 
 
-def sync_binance_vision_cache(
-    plan: BinanceVisionCachePlan,
+def sync_binance_vision_urls(
+    urls: Sequence[str],
     *,
     transport: _VisionArchiveTransport | BinancePublicTransport,
 ) -> BinanceVisionCacheReport:
-    """Download only absent or empty archives into the transport cache root."""
+    """Synchronize only missing/invalid members of an official authored URL set."""
 
+    resolved_urls = _official_urls(urls)
     if transport.cache_root is None:
         raise ValueError("transport cache_root is required for Vision synchronization")
     root = Path(transport.cache_root)
-    before = inspect_binance_vision_cache(plan, cache_root=root)
+    before = inspect_binance_vision_urls(resolved_urls, cache_root=root)
     required = (
         set(before.missing_urls) | set(before.empty_urls) | set(before.invalid_urls)
     )
-    targets = tuple(url for url in plan.urls if url in required)
-
+    targets = tuple(url for url in resolved_urls if url in required)
     for url in targets:
         path = vision_cache_path(root, url)
         if path.exists():
@@ -227,8 +245,7 @@ def sync_binance_vision_cache(
             raise RuntimeError(
                 f"transport did not publish Binance Vision cache file: {path}"
             )
-
-    after = inspect_binance_vision_cache(plan, cache_root=root)
+    after = inspect_binance_vision_urls(resolved_urls, cache_root=root)
     if not after.complete:
         raise FileNotFoundError(
             "Binance Vision synchronization incomplete: "
@@ -244,3 +261,26 @@ def sync_binance_vision_cache(
         empty_urls=after.empty_urls,
         invalid_urls=after.invalid_urls,
     )
+
+
+def sync_binance_vision_cache(
+    plan: BinanceVisionCachePlan,
+    *,
+    transport: _VisionArchiveTransport | BinancePublicTransport,
+) -> BinanceVisionCacheReport:
+    """Download only absent or empty archives into the transport cache root."""
+
+    return sync_binance_vision_urls(plan.urls, transport=transport)
+
+
+__all__ = [
+    "BinanceVisionCachePlan",
+    "BinanceVisionCacheReport",
+    "inspect_binance_vision_cache",
+    "inspect_binance_vision_urls",
+    "plan_binance_vision_cache",
+    "require_complete_binance_vision_cache",
+    "sync_binance_vision_cache",
+    "sync_binance_vision_urls",
+    "vision_cache_path",
+]

@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.universal_features import UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES
 from trade_rl.data.v4_context import V4TargetContext
 from trade_rl.learning.causal_alpha_teacher import forward_log_return_label
 from trade_rl.learning.causal_alpha_v4 import CausalAlphaV4SymbolSamples
@@ -79,6 +80,47 @@ def _build_4h_labels(
     return labels, ends
 
 
+def _split_v3_feature_surface(
+    base_samples: CausalAlphaSymbolSamples,
+) -> tuple[
+    tuple[str, ...],
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
+    names = tuple(base_samples.feature_names)
+    descriptor_names = UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES
+    descriptor_count = len(descriptor_names)
+    if len(names) <= descriptor_count or names[-descriptor_count:] != descriptor_names:
+        raise ValueError(
+            "V4 source feature schema must end with the maintained instrument descriptors"
+        )
+    target_names = names[:-descriptor_count]
+    split = len(target_names)
+    target_features = np.asarray(
+        base_samples.features[:, :split], dtype=np.float64
+    ).copy(order="C")
+    target_available = np.asarray(
+        base_samples.feature_available[:, :split], dtype=np.bool_
+    ).copy(order="C")
+    descriptors = np.asarray(
+        base_samples.features[:, split:], dtype=np.float64
+    ).copy(order="C")
+    descriptor_available = np.asarray(
+        base_samples.feature_available[:, split:], dtype=np.bool_
+    ).copy(order="C")
+    if descriptors.shape[1] != descriptor_count:
+        raise RuntimeError("V4 descriptor split width drifted")
+    return (
+        target_names,
+        target_features,
+        target_available,
+        descriptors,
+        descriptor_available,
+    )
+
+
 def build_causal_alpha_v4_symbol_samples(
     *,
     base_samples: CausalAlphaSymbolSamples,
@@ -126,6 +168,13 @@ def build_causal_alpha_v4_symbol_samples(
     ):
         raise ValueError("V4 decision_bars must be a positive integer")
 
+    (
+        target_names,
+        target_features,
+        target_available,
+        descriptors,
+        descriptor_available,
+    ) = _split_v3_feature_surface(base_samples)
     labels_4h, ends_4h = _build_4h_labels(
         dataset=dataset,
         decision_indices=base_samples.decision_indices,
@@ -136,21 +185,25 @@ def build_causal_alpha_v4_symbol_samples(
     feature_schema_digest = content_digest(
         {
             "base_feature_schema_digest": base_samples.feature_schema_digest,
-            "feature_names": base_samples.feature_names,
-            "schema_version": "causal_alpha_v4_target_local_feature_schema_v1",
+            "instrument_descriptor_names": UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
+            "schema_version": "causal_alpha_v4_target_local_feature_schema_v2",
             "source_context_digest": base_samples.context_digest,
+            "target_local_feature_names": target_names,
         }
     )
     return CausalAlphaV4SymbolSamples(
         symbol=base_samples.symbol,
         dataset_id=base_samples.dataset_id,
-        target_local_feature_names=base_samples.feature_names,
+        target_local_feature_names=target_names,
         target_local_feature_schema_digest=feature_schema_digest,
         source_sample_digest=base_samples.digest,
         source_context_digest=context.digest,
         decision_indices=base_samples.decision_indices,
-        target_local_features=base_samples.features,
-        target_local_available=base_samples.feature_available,
+        target_local_features=target_features,
+        target_local_available=target_available,
+        instrument_descriptor_names=UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
+        instrument_descriptors=descriptors,
+        instrument_descriptor_available=descriptor_available,
         local_context=context.local,
         global_context=context.global_market,
         beta=context.beta,
@@ -191,10 +244,15 @@ def validate_causal_alpha_v4_train_sample_scope(
         ordered[symbol] = sample
     names = {sample.target_local_feature_names for sample in ordered.values()}
     schemas = {sample.target_local_feature_schema_digest for sample in ordered.values()}
+    descriptor_names = {
+        sample.instrument_descriptor_names for sample in ordered.values()
+    }
     local_names = {sample.local_context.feature_names for sample in ordered.values()}
     global_names = {sample.global_context.feature_names for sample in ordered.values()}
     if len(names) != 1 or len(schemas) != 1:
         raise ValueError("V4 target-local feature schema drifted across train symbols")
+    if descriptor_names != {UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES}:
+        raise ValueError("V4 descriptor schema drifted across train symbols")
     if len(local_names) != 1 or len(global_names) != 1:
         raise ValueError("V4 context feature schema drifted across train symbols")
     return ordered

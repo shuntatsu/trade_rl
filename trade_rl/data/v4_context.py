@@ -194,7 +194,9 @@ class V4CrossMarketInputs:
         )
         rows = len(indices)
         arrays = {
-            "spot_close": _aligned_float(self.spot_close, rows=rows, field="spot_close"),
+            "spot_close": _aligned_float(
+                self.spot_close, rows=rows, field="spot_close"
+            ),
             "spot_quote_volume": _aligned_float(
                 self.spot_quote_volume, rows=rows, field="spot_quote_volume"
             ),
@@ -203,7 +205,9 @@ class V4CrossMarketInputs:
                 rows=rows,
                 field="spot_taker_buy_quote_volume",
             ),
-            "perp_close": _aligned_float(self.perp_close, rows=rows, field="perp_close"),
+            "perp_close": _aligned_float(
+                self.perp_close, rows=rows, field="perp_close"
+            ),
             "perp_mark_price": _aligned_float(
                 self.perp_mark_price, rows=rows, field="perp_mark_price"
             ),
@@ -376,7 +380,9 @@ class FundingContextSeries:
         ):
             raise ValueError("funding context values must be finite")
         if np.any(staleness < 0.0) or not np.isfinite(staleness).all():
-            raise ValueError("funding context staleness must be finite and non-negative")
+            raise ValueError(
+                "funding context staleness must be finite and non-negative"
+            )
         object.__setattr__(self, "rate", rate)
         object.__setattr__(self, "change", change)
         object.__setattr__(self, "robust_z_7d", robust_z)
@@ -396,7 +402,11 @@ class V4ContextBlock:
 
     def __post_init__(self) -> None:
         names = tuple(self.feature_names)
-        if not names or any(not name for name in names) or len(set(names)) != len(names):
+        if (
+            not names
+            or any(not name for name in names)
+            or len(set(names)) != len(names)
+        ):
             raise ValueError("V4 context feature names must be non-empty and unique")
         indices = _readonly_int(self.decision_indices).reshape(-1)
         values = _readonly_float(self.values)
@@ -412,7 +422,9 @@ class V4ContextBlock:
         if np.any(staleness < 0.0):
             raise ValueError("V4 context staleness must be non-negative")
         if np.any(values[~available] != 0.0):
-            raise ValueError("unavailable V4 context values must use inert zero storage")
+            raise ValueError(
+                "unavailable V4 context values must use inert zero storage"
+            )
         if indices.size == 0 or np.any(indices < 0) or np.any(np.diff(indices) != 1):
             raise ValueError("V4 context decision indices must be contiguous")
         _validate_sha256(self.source_digest, field="V4 context source_digest")
@@ -458,7 +470,9 @@ class CausalBetaConfig:
             raise ValueError("causal beta horizons must be finite and positive")
         ratio = self.lookback_hours / self.return_horizon_hours
         if not math.isclose(ratio, round(ratio), rel_tol=0.0, abs_tol=1e-12):
-            raise ValueError("causal beta lookback must contain complete return horizons")
+            raise ValueError(
+                "causal beta lookback must contain complete return horizons"
+            )
         if (
             isinstance(self.minimum_complete_samples, bool)
             or not isinstance(self.minimum_complete_samples, int)
@@ -573,8 +587,10 @@ class V4TargetContext:
             or beta_available.shape != beta.shape
         ):
             raise ValueError("V4 target beta must align to context rows")
-        if not np.isfinite(beta).all() or np.any(beta[beta_available] < -3.0) or np.any(
-            beta[beta_available] > 3.0
+        if (
+            not np.isfinite(beta).all()
+            or np.any(beta[beta_available] < -3.0)
+            or np.any(beta[beta_available] > 3.0)
         ):
             raise ValueError("V4 target beta values are invalid")
         if self.symbol == "BTCUSDT" and np.any(beta[beta_available] != 1.0):
@@ -640,12 +656,7 @@ def taker_quote_imbalance(taker_buy_quote: float, total_quote: float) -> float:
 
 
 def spot_perp_log_basis(*, spot: float, perp: float) -> float:
-    if (
-        not math.isfinite(spot)
-        or not math.isfinite(perp)
-        or spot <= 0.0
-        or perp <= 0.0
-    ):
+    if not math.isfinite(spot) or not math.isfinite(perp) or spot <= 0.0 or perp <= 0.0:
         raise ValueError("basis prices must be finite and positive")
     return math.log(perp / spot)
 
@@ -812,9 +823,7 @@ def _window_max(
     values: np.ndarray, available: np.ndarray, *, bars: int
 ) -> tuple[np.ndarray, np.ndarray]:
     complete = _window_complete(available, bars=bars)
-    result = np.full(
-        values.shape, _UNAVAILABLE_STALENESS_HOURS, dtype=np.float64
-    )
+    result = np.full(values.shape, _UNAVAILABLE_STALENESS_HOURS, dtype=np.float64)
     for index in np.flatnonzero(complete):
         start = index - bars + 1
         result[index] = float(np.max(values[start : index + 1]))
@@ -1023,12 +1032,8 @@ def _local_feature_map(
             spot_volume_z_24h, spot_volume_z_24h_ok
         ),
         "spot_perp_log_basis": _feature(basis, basis_available),
-        "spot_perp_basis_change_1h": _feature(
-            basis_change_1h, basis_change_1h_ok
-        ),
-        "spot_perp_basis_change_4h": _feature(
-            basis_change_4h, basis_change_4h_ok
-        ),
+        "spot_perp_basis_change_1h": _feature(basis_change_1h, basis_change_1h_ok),
+        "spot_perp_basis_change_4h": _feature(basis_change_4h, basis_change_4h_ok),
         "spot_perp_basis_robust_z_7d": _feature(basis_z, basis_z_ok),
         "spot_minus_perp_log_return_1h": _feature(
             spot_minus_perp_1h, spot_minus_perp_1h_ok
@@ -1123,9 +1128,7 @@ def _local_feature_map(
             window=BARS_4H,
             minimum_support=8,
         )
-        ratio_age, _ = _window_max(
-            derivative_age, derivative_available, bars=BARS_4H
-        )
+        ratio_age, _ = _window_max(derivative_age, derivative_available, bars=BARS_4H)
         basis_oi_ok = basis_z_ok & oi_4h_ok
         funding_oi_ok = funding.available[:, 2] & oi_4h_ok
         feature_map.update(
@@ -1216,9 +1219,7 @@ def _global_anchor_map(
         f"{prefix}_perp_log_return_24h": local["_perp_return_24h"],
         f"{prefix}_spot_perp_log_basis": local["spot_perp_log_basis"],
         f"{prefix}_spot_perp_basis_change_4h": local["spot_perp_basis_change_4h"],
-        f"{prefix}_spot_perp_basis_robust_z_7d": local[
-            "spot_perp_basis_robust_z_7d"
-        ],
+        f"{prefix}_spot_perp_basis_robust_z_7d": local["spot_perp_basis_robust_z_7d"],
         f"{prefix}_spot_taker_quote_imbalance_1h": local[
             "spot_taker_quote_imbalance_1h"
         ],
@@ -1272,7 +1273,9 @@ def _combine_two(
         value = 0.5 * np.abs(left_value - right_value)
     else:
         raise ValueError("unsupported V4 two-anchor operation")
-    return _feature(value, available, staleness=np.maximum(left_staleness, right_staleness))
+    return _feature(
+        value, available, staleness=np.maximum(left_staleness, right_staleness)
+    )
 
 
 def build_global_market_context(
@@ -1281,10 +1284,11 @@ def build_global_market_context(
     if not isinstance(inputs, V4GlobalMarketInputs):
         raise TypeError("V4 global context requires V4GlobalMarketInputs")
     if include_derivatives and (
-        inputs.btc.open_interest_value is None
-        or inputs.eth.open_interest_value is None
+        inputs.btc.open_interest_value is None or inputs.eth.open_interest_value is None
     ):
-        raise ValueError("V4 global derivative context requires BTC and ETH derivatives")
+        raise ValueError(
+            "V4 global derivative context requires BTC and ETH derivatives"
+        )
     btc = _global_anchor_map(inputs.btc, prefix="btc")
     eth = _global_anchor_map(inputs.eth, prefix="eth")
     feature_map = {**btc, **eth}

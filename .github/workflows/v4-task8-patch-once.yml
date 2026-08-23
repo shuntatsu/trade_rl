@@ -31,6 +31,8 @@ jobs:
         run: uv sync --extra dev
       - name: Patch V4 uncertainty
         run: python scripts/v4_task8_uncertainty_patch_once.py
+      - name: Patch V4 state representation
+        run: python scripts/v4_task8_state_patch_once.py
       - name: Format Task 8 files
         run: |
           uv run ruff check --fix \

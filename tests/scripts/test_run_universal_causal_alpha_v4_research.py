@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.workflows.universal_causal_alpha_v4_pipeline import (
     CausalAlphaV4AdmissionRejected,
     CausalAlphaV4ResearchPackage,
@@ -22,15 +23,15 @@ class _Evidence:
     def __init__(self, name: str, passed: bool) -> None:
         self.name = name
         self.passed = passed
-        self.digest = _digest(name[0] if name[0].isalnum() else "a")
+        self.digest = content_digest({"name": name, "passed": passed})
 
     def to_payload(self) -> dict[str, object]:
-        return {
-            "artifact_digest": self.digest,
+        body: dict[str, object] = {
             "name": self.name,
             "passed": self.passed,
             "schema_version": f"test_{self.name}_v1",
         }
+        return {**body, "artifact_digest": content_digest(body)}
 
 
 def _argv(tmp_path: Path) -> list[str]:

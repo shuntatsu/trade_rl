@@ -81,13 +81,14 @@ def test_v4_store_rejects_corruption_and_wrong_run_identity(tmp_path: Path) -> N
             expected_schema="causal_alpha_v4_test_leaf_v1",
         )
 
-    wrong = Path("signal/slow/BTCUSDT/0.json")
+    relative_wrong = Path("signal/slow/BTCUSDT/0.json")
+    wrong = tmp_path / relative_wrong
     wrong.parent.mkdir(parents=True, exist_ok=True)
     wrong_payload = _payload(run=_digest("8"))
     wrong.write_text(json.dumps(wrong_payload), encoding="utf-8")
     with pytest.raises(ValueError, match="run manifest identity mismatch"):
         store.load_leaf(
-            Path("signal/slow/BTCUSDT/0.json"),
+            relative_wrong,
             expected_schema="causal_alpha_v4_test_leaf_v1",
         )
 

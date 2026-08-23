@@ -24,5 +24,8 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev
-      - name: Run targeted V4 policy-context tests
-        run: uv run pytest -q tests/rl/test_universal_v4_context.py
+      - name: Run targeted V4 runtime-observation tests
+        run: |
+          uv run pytest -q \
+            tests/rl/test_universal_v4_context.py \
+            tests/workflows/test_binance_universal_runtime.py

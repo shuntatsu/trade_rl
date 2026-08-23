@@ -369,9 +369,11 @@ class FundingContextSeries:
             raise ValueError("funding context value arrays must align")
         if available.shape != (len(rate), 3) or staleness.shape != available.shape:
             raise ValueError("funding availability/staleness arrays must be (row, 3)")
-        if not np.isfinite(rate).all() or not np.isfinite(change).all() or not np.isfinite(
-            robust_z
-        ).all():
+        if (
+            not np.isfinite(rate).all()
+            or not np.isfinite(change).all()
+            or not np.isfinite(robust_z).all()
+        ):
             raise ValueError("funding context values must be finite")
         if np.any(staleness < 0.0) or not np.isfinite(staleness).all():
             raise ValueError("funding context staleness must be finite and non-negative")
@@ -513,7 +515,9 @@ class CausalBetaSeries:
             raise ValueError("causal beta value exceeds configured bounds")
         if np.any(source_start[available] < 0) or np.any(source_end[available] < 0):
             raise ValueError("available causal beta rows require source ranges")
-        if np.any(source_start[~available] != -1) or np.any(source_end[~available] != -1):
+        if np.any(source_start[~available] != -1) or np.any(
+            source_end[~available] != -1
+        ):
             raise ValueError("unavailable causal beta rows must use -1 source ranges")
         _validate_sha256(self.source_digest, field="causal beta source_digest")
         expected = content_and_arrays_digest(
@@ -564,7 +568,10 @@ class V4TargetContext:
             raise ValueError("V4 target local/global decision indices must align")
         beta = _readonly_float(self.beta).reshape(-1)
         beta_available = _readonly_bool(self.beta_available).reshape(-1)
-        if beta.shape != self.local.decision_indices.shape or beta_available.shape != beta.shape:
+        if (
+            beta.shape != self.local.decision_indices.shape
+            or beta_available.shape != beta.shape
+        ):
             raise ValueError("V4 target beta must align to context rows")
         if not np.isfinite(beta).all() or np.any(beta[beta_available] < -3.0) or np.any(
             beta[beta_available] > 3.0
@@ -700,7 +707,9 @@ def build_funding_context_series(
         raise ValueError("funding context inputs must be aligned and finite")
     timestamps = timestamps.astype("datetime64[ns]")
     timestamp_ns = timestamps.astype(np.int64)
-    if np.any(timestamp_ns == np.iinfo(np.int64).min) or np.any(np.diff(timestamp_ns) <= 0):
+    if np.any(timestamp_ns == np.iinfo(np.int64).min) or np.any(
+        np.diff(timestamp_ns) <= 0
+    ):
         raise ValueError("funding timestamps must be valid and increasing")
     if (
         not math.isfinite(maximum_staleness_hours)
@@ -717,9 +726,7 @@ def build_funding_context_series(
     out_change = np.zeros(rates.shape, dtype=np.float64)
     out_z = np.zeros(rates.shape, dtype=np.float64)
     available = np.zeros((len(rates), 3), dtype=np.bool_)
-    staleness = np.full(
-        (len(rates), 3), maximum_staleness_hours, dtype=np.float64
-    )
+    staleness = np.full((len(rates), 3), maximum_staleness_hours, dtype=np.float64)
     event_indices: list[int] = []
     z_window_ns = int(round(z_window_hours * _NS_PER_HOUR))
     for index in range(len(rates)):
@@ -805,7 +812,9 @@ def _window_max(
     values: np.ndarray, available: np.ndarray, *, bars: int
 ) -> tuple[np.ndarray, np.ndarray]:
     complete = _window_complete(available, bars=bars)
-    result = np.full(values.shape, _UNAVAILABLE_STALENESS_HOURS, dtype=np.float64)
+    result = np.full(
+        values.shape, _UNAVAILABLE_STALENESS_HOURS, dtype=np.float64
+    )
     for index in np.flatnonzero(complete):
         start = index - bars + 1
         result[index] = float(np.max(values[start : index + 1]))
@@ -1144,9 +1153,7 @@ def _local_feature_map(
                 "funding_z_x_open_interest_change_4h": _feature(
                     funding.robust_z_7d * oi_4h,
                     funding_oi_ok,
-                    staleness=np.maximum(
-                        funding.staleness_hours[:, 2], oi_age_4h
-                    ),
+                    staleness=np.maximum(funding.staleness_hours[:, 2], oi_age_4h),
                 ),
             }
         )
@@ -1265,11 +1272,7 @@ def _combine_two(
         value = 0.5 * np.abs(left_value - right_value)
     else:
         raise ValueError("unsupported V4 two-anchor operation")
-    return _feature(
-        value,
-        available,
-        staleness=np.maximum(left_staleness, right_staleness),
-    )
+    return _feature(value, available, staleness=np.maximum(left_staleness, right_staleness))
 
 
 def build_global_market_context(
@@ -1278,7 +1281,8 @@ def build_global_market_context(
     if not isinstance(inputs, V4GlobalMarketInputs):
         raise TypeError("V4 global context requires V4GlobalMarketInputs")
     if include_derivatives and (
-        inputs.btc.open_interest_value is None or inputs.eth.open_interest_value is None
+        inputs.btc.open_interest_value is None
+        or inputs.eth.open_interest_value is None
     ):
         raise ValueError("V4 global derivative context requires BTC and ETH derivatives")
     btc = _global_anchor_map(inputs.btc, prefix="btc")

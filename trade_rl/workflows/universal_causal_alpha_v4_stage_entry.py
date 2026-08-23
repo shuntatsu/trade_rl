@@ -9,6 +9,7 @@ from typing import Any, Final
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.workflows.universal_causal_alpha_v4_artifact_store import (
     CausalAlphaV4ArtifactStore,
+    CausalAlphaV4RunLock,
 )
 from trade_rl.workflows.universal_causal_alpha_v4_pipeline import (
     CausalAlphaV4ResearchPackage,
@@ -88,47 +89,49 @@ def execute_causal_alpha_v4_prepared_entry(
     for field_name in ("signal_stage", "selection_stage", "admission_stage"):
         if not callable(locals()[field_name]):
             raise TypeError(f"V4 {field_name} must be callable")
-    store = CausalAlphaV4ArtifactStore(
-        Path(output_root),
-        run_manifest_digest=prepared.run_manifest_digest,
-        v4_context_manifest_digest=prepared.v4_context_manifest_digest,
-        config_digest=prepared.config_digest,
-        generator_code_digest=prepared.generator_code_digest,
-    )
-    store.write_leaf("run-manifest.json", _run_manifest_payload(prepared))
-    store.write_leaf(
-        "authored-config.json",
-        _authored_config_payload(
-            config=config,
-            config_path=Path(config_path),
-            prepared=prepared,
-        ),
-    )
-    return run_universal_causal_alpha_v4_research_pipeline(
-        store=store,
-        prepare_stage=lambda: prepared,
-        signal_stage=lambda value: signal_stage(
-            value,
-            config=config,
+    root = Path(output_root)
+    with CausalAlphaV4RunLock(root):
+        store = CausalAlphaV4ArtifactStore(
+            root,
+            run_manifest_digest=prepared.run_manifest_digest,
+            v4_context_manifest_digest=prepared.v4_context_manifest_digest,
+            config_digest=prepared.config_digest,
+            generator_code_digest=prepared.generator_code_digest,
+        )
+        store.write_leaf("run-manifest.json", _run_manifest_payload(prepared))
+        store.write_leaf(
+            "authored-config.json",
+            _authored_config_payload(
+                config=config,
+                config_path=Path(config_path),
+                prepared=prepared,
+            ),
+        )
+        return run_universal_causal_alpha_v4_research_pipeline(
             store=store,
-            slice_forecast=slice_causal_alpha_v4_forecast,
-        ),
-        selection_stage=lambda value, signal: selection_stage(
-            value,
-            signal,
-            config=config,
-            store=store,
-            slice_forecast=slice_causal_alpha_v4_forecast,
-        ),
-        admission_stage=lambda value, signal, selection: admission_stage(
-            value,
-            signal,
-            selection,
-            config=config,
-            store=store,
-            slice_forecast=slice_causal_alpha_v4_forecast,
-        ),
-    )
+            prepare_stage=lambda: prepared,
+            signal_stage=lambda value: signal_stage(
+                value,
+                config=config,
+                store=store,
+                slice_forecast=slice_causal_alpha_v4_forecast,
+            ),
+            selection_stage=lambda value, signal: selection_stage(
+                value,
+                signal,
+                config=config,
+                store=store,
+                slice_forecast=slice_causal_alpha_v4_forecast,
+            ),
+            admission_stage=lambda value, signal, selection: admission_stage(
+                value,
+                signal,
+                selection,
+                config=config,
+                store=store,
+                slice_forecast=slice_causal_alpha_v4_forecast,
+            ),
+        )
 
 
 def run_causal_alpha_v4_stage_entry(

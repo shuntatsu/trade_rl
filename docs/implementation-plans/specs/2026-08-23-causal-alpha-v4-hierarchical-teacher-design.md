@@ -7,8 +7,8 @@ or reinterpretation of any existing Causal Alpha V3 evidence.
 
 The predeclared V3 market/residual counterfactual in
 `2026-08-22-causal-alpha-v3-market-residual-decomposition-design.md` remains
-immutable research history. V4 does not rewrite its hypothesis, thresholds,
-ridge strengths, evidence, or pass/fail semantics.
+immutable research history. V4 does not rewrite its hypothesis, thresholds, ridge
+strengths, evidence, or pass/fail semantics.
 
 ## Objective
 
@@ -16,22 +16,22 @@ Build the next research teacher generation around the economic objective already
 maintained by Trade RL: cost-inclusive net-equity log growth. Reward remains
 unchanged.
 
-The teacher must improve the quality and liveness of the causal expected-return
-signal by separating four responsibilities that the pooled V3 ridge currently
-mixes together:
+The V4 teacher separates responsibilities that the pooled V3 ridge currently mixes:
 
-1. common crypto-market return;
+1. fixed market-proxy return;
 2. target-instrument residual alpha;
-3. fast cross-market flow impulse; and
-4. state-dependent forecast uncertainty.
+3. fast cross-market flow impulse;
+4. independent direction evidence; and
+5. state-dependent forecast uncertainty.
 
 The target outcome is not more trading. The target outcome is a causal teacher
 whose action changes are supported by economically meaningful, time-varying edge
-and whose information set can be reproduced by the downstream BC/PPO student.
+and whose current information set can be reproduced by the downstream BC/PPO
+student and serving path.
 
 ## Non-goals
 
-This change does not:
+V4 does not:
 
 - change `reward_t = scale * log(net_equity_after / net_equity_before)`;
 - add baseline/excess-growth shaping to the reward;
@@ -39,482 +39,574 @@ This change does not:
   participation, or target-weight accounting semantics;
 - lower existing Signal, economic-selection, Teacher-admission, BC, or RL gates to
   make a weak hypothesis pass;
-- silently tune V3 retained evidence or mutate the existing 2026-08-22
-  market/residual counterfactual;
+- mutate or silently retune retained V3 evidence;
 - build a simultaneous multi-asset portfolio policy;
-- duplicate the complete 206-channel futures technical feature set for Spot;
-- make non-point-in-time on-chain data admissible for backtests;
-- introduce a large nonlinear neural teacher before deterministic linear
-  decomposition has been falsified;
-- authorize exchange order routing or Production GO.
+- duplicate the complete 206-channel futures technical feature stack for Spot;
+- admit non-point-in-time on-chain history into backtest evidence;
+- introduce a large nonlinear neural teacher before the deterministic hierarchical
+  design is falsified;
+- authorize direct exchange routing or Production GO.
 
 A separate prerequisite patch may correct activity-accounting semantics where
 closed-trade count is currently used as a proxy for meaningful execution. That
-patch must remain independently reviewable and must not be bundled into V4 model
+patch must be independently reviewable and must not be bundled into V4 model
 performance claims.
 
 ## Current Evidence
 
 The current V3 lane uses symbol-balanced, overlap-aware pooled ridge models for
-24-hour and 72-hour forward gross log returns. The two horizons are converted to a
-24-hour-equivalent expected return and uncertainty bundle before a conservative
+24-hour and 72-hour forward gross log returns. Their predictions are converted to a
+24-hour-equivalent expected return and uncertainty bundle before the conservative
 cost-aware target compiler.
 
-The fresh research evidence preceding this design shows that bounded variations of
-the pooled ridge can produce useful relative ranking while absolute direction
-remains unstable. The existing 2026-08-22 design therefore correctly isolates a
-common market component from symbol residuals as the next falsification step.
+The evidence preceding this design shows that bounded pooled-ridge variations can
+improve relative ranking while absolute direction remains unstable. The existing
+2026-08-22 market/residual counterfactual is therefore the correct next direct test
+of the common-factor hypothesis and remains unchanged.
 
-V4 extends that diagnosis rather than replacing it. The additional architectural
-findings are:
+V4 adds four architectural conclusions:
 
-- a 15-minute decision clock should not force all newly available Spot/derivative
-  flow information through only 24h/72h labels;
-- a teacher that reads cross-symbol current state unavailable to the deployed
-  student creates an irreducible teacher/student information mismatch;
-- fully per-symbol hidden models also create a transfer problem for a Universal
-  policy that does not consume a secret symbol ID;
-- static fit RMSE plus horizon disagreement is insufficient to describe forecast
-  risk during volatility/liquidity/basis stress;
-- non-zero prediction level is not signal liveness: the dynamic contribution must
-  be material relative to residual error and execution hurdle.
+- a 15-minute decision clock should not force newly available Spot/derivative flow
+  information through only 24h/72h labels;
+- a teacher that reads current information unavailable to the student has an
+  irreducible BC reconstruction error by construction;
+- hidden per-symbol residual models are a poor canonical dependency for a Universal
+  student that does not consume a private symbol ID;
+- non-zero prediction level is not signal liveness: dynamic contribution must be
+  material relative to residual error and execution hurdle.
 
 ## Options Considered
 
-### Option A — add Spot/on-chain columns to the existing pooled V3 ridge
+### Option A — append Spot/on-chain columns to the pooled V3 ridge
 
-Rejected as the main architecture. It is easy to implement but asks the same model
-to learn common direction, residual ranking, fast flow, and slow trend on one loss.
-New high-frequency channels can be averaged away by 24h/72h regression and the
-teacher/student information problem remains unresolved.
+Rejected as the main architecture. It leaves common direction, residual ranking,
+fast flow, and slow trend on one loss and one representation. High-frequency flow
+can be averaged away by 24h/72h regression and teacher/student information mismatch
+remains unresolved.
 
-### Option B — market/residual only, with one market model and per-symbol residual models
+### Option B — use the existing V3 market/residual design unchanged as canonical V4
 
-Retained as the already-authored V3 counterfactual. It is the correct next
-falsification of the common-factor hypothesis and must run without retroactive V4
-changes. It is not adopted unchanged as the final V4 production-teacher design
-because per-symbol hidden heads and train-universe aggregate current inputs need a
-student-transfer contract.
+Retained only as the already-authored V3 counterfactual. It is a valid falsification
+of the common-factor hypothesis. It is not adopted unchanged as V4 because its
+nine-symbol current aggregate and per-symbol residual heads do not yet define a
+clean student/serving information contract.
 
-### Option C — hierarchical deterministic V4 teacher
+### Option C — deterministic hierarchical V4 teacher
 
 Chosen.
 
-Use a fixed global market context available to both teacher and student; a common
-market return model; a shared residual model conditioned on target-local features
-and public instrument descriptors; a shared symbol-direction score; separate 4h
-fast and 24h/72h slow responsibilities; and state-conditioned residual uncertainty.
-Reuse deterministic ridge primitives where possible and keep reward/execution/risk
-unchanged.
+Use a fixed BTC market proxy; fixed BTC/ETH public Global Market Context; a shared
+residual model conditioned on target-local information and public instrument
+descriptors; separate 4h fast and 24h/72h slow responsibilities; an independent
+shared direction score; and state-conditioned uncertainty. Reuse deterministic
+ridge primitives initially.
 
 ### Option D — nonlinear mixture-of-experts teacher immediately
 
-Deferred. A nonlinear teacher may ultimately be justified, but it adds optimizer,
-capacity, calibration, determinism, and overfitting questions before the linear
-hierarchical contract has been falsified.
+Deferred. It adds optimizer, capacity, calibration, determinism, and overfitting
+questions before the hierarchical decomposition itself has been falsified.
 
 ## High-level Architecture
 
 ```text
-                         fixed global market context
-                  BTC/ETH Spot + Perp + derivatives + PIT flow
-                                      |
-                                      v
-                    +----------------------------------+
-                    | Common Market Return Heads       |
-                    | 4h / 24h / 72h                  |
-                    +----------------------------------+
-                                      |
-                         causal beta_s(t) x market
-                                      |
-                                      v
- target-local futures + Spot + basis + derivatives + descriptors
-                                      |
-                                      v
-                    +----------------------------------+
-                    | Shared Residual Return Heads     |
-                    | 4h / 24h / 72h                  |
-                    +----------------------------------+
-                                      |
-                                      +----> mu_s,h
-                                      |
- target-local + global context -------+
-                                      |
-                                      v
-                    +----------------------------------+
-                    | Shared Direction Heads           |
-                    | 4h / 24h / 72h sign scores      |
-                    +----------------------------------+
-                                      |
-                                      v
-                    +----------------------------------+
-                    | State-conditioned uncertainty    |
-                    +----------------------------------+
-                         |                       |
-                         v                       v
-                 24h/72h slow anchor        4h fast impulse
-                         |                       |
-                         +-----------+-----------+
-                                     v
-                         conservative final target
-                                     |
-                                     v
-                         existing execution/risk
-                                     |
-                                     v
-                        existing pure net-log reward
+                         auxiliary public context
+                  BTC/ETH Spot + Perp + derivatives
+                         + optional PIT flows
+                                   |
+                                   v
+                   +-------------------------------+
+                   | BTC Market Proxy Return Heads |
+                   | 4h / 24h / 72h               |
+                   +-------------------------------+
+                                   |
+                         beta_s(t) * proxy
+                                   |
+                                   v
+ target-local futures + local Spot/perp + descriptors + global context
+                                   |
+                                   v
+                   +-------------------------------+
+                   | Shared Residual Return Heads  |
+                   | 4h / 24h / 72h               |
+                   +-------------------------------+
+                                   |
+                                   +----> mu_s,h
+                                   |
+ target-local + global context ----+
+                                   |
+                                   v
+                   +-------------------------------+
+                   | Shared Direction Heads        |
+                   | 4h / 24h / 72h sign score    |
+                   +-------------------------------+
+                                   |
+                                   v
+                   +-------------------------------+
+                   | State-conditioned uncertainty |
+                   +-------------------------------+
+                         |                    |
+                         v                    v
+                 24h/72h slow anchor     4h fast impulse
+                         |                    |
+                         +---------+----------+
+                                   v
+                        conservative final target
+                                   |
+                                   v
+                        existing execution/risk
+                                   |
+                                   v
+                       existing pure net-log reward
 ```
 
 ## Information-set Invariant
 
-The most important new invariant is:
+The central V4 invariant is:
 
-> Every current-time input used to generate a teacher action must be constructible
-> from the same decision-time public information available to the downstream
+> Every current-time input that can affect a V4 teacher action must be
+> reconstructible from the same decision-time public information available to the
 > student and serving path.
 
-Training labels may of course use realized future outcomes after their label ends
-become known, subject to the existing knowledge cutoff. Current-time teacher inputs
-may not depend on validation/test outcomes or on hidden train-symbol state that the
-student cannot observe.
+Future labels may be used only after their label ends become strictly earlier than
+the fit knowledge cutoff. Current teacher inputs may not depend on validation/test
+outcomes, the Teacher-admission holdout, or a hidden train-symbol-only state.
 
 Consequences:
 
-- the market head does not consume an implicit current aggregate over whichever
-  nine symbols happened to be authored as the training universe unless that exact
-  aggregate is also part of the student observation and serving contract;
-- V4 instead uses a fixed Global Market Context whose semantic identity is stable
-  across train, validation, test, and serving;
-- the residual return function is shared across instruments;
-- instrument-specific behavior is conditioned on continuous public descriptors,
-  not on a private per-symbol model selector;
-- if V4 adds Global Market Context to teacher prediction, the same frozen context
-  channels must be added to the Universal student observation schema before V4 BC
-  is admissible.
+- V4 does not use the current equal-weight state of the authored nine-symbol train
+  universe as an implicit market input;
+- V4 uses fixed BTC/ETH auxiliary context with stable semantics across train,
+  validation, test, and serving;
+- the residual return function is shared across target instruments;
+- instrument-specific behavior is conditioned on public continuous descriptors and
+  local market state, not `symbol -> hidden model` dispatch;
+- causal beta is an explicit observable V4 input and can be reconstructed from
+  target and BTC histories;
+- V4 BC is inadmissible until every V4 context channel that affects teacher actions
+  exists in the student observation contract.
+
+## Runtime and Student Observation Boundary
+
+V4 introduces auxiliary context as a distinct runtime capability rather than
+silently expanding the maintained 206 target-local channels.
+
+The existing target-local 206 features retain their V3 meaning. V4 adds two
+separate observation/context blocks:
+
+```text
+local_cross_market_context
+  = target Spot/perpetual/derivative relationships
+
+global_market_context
+  = fixed BTC/ETH public market context
+```
+
+The Universal observation schema must expose both blocks as explicit immutable
+keys/counts. The hierarchical policy encoder may project these blocks separately
+before joining the target-local/instrument representation. V4 does not require
+copying the global vector into every sequence token.
+
+The runtime manifest must bind auxiliary BTC/ETH Spot/perpetual datasets and any
+futures-metrics/PIT-flow artifacts needed to construct the global block. Read-only
+serving must use the same constructor and fail closed if required context is
+missing, stale, identity-drifted, or unavailable. It must not replace missing
+context with zero vectors.
 
 ## Data Architecture
 
-V4 adds information by source role, not by duplicating every technical indicator
-on every venue.
+V4 adds information by source role, not by multiplying generic indicators.
 
 ### Existing target-local futures block
 
-The maintained 206 target-local market features and nine instrument descriptors
-remain available. Their exact identity and causality contract are unchanged unless
-a later implementation plan explicitly bumps the feature schema.
+The maintained 206 target-local features and nine instrument descriptors remain
+available without semantic reinterpretation.
 
-### Core cross-market feature pack
+### Core local cross-market profile
 
-The first V4 feature generation uses public exchange data and is expected to be
-reproducible without an authenticated trading account.
+`cross_market_core_v1` contains exactly 24 channels built from target Spot,
+target USD-M perpetual, and funding data:
 
-For each target instrument where Spot and USD-M perpetual data both exist, author a
-bounded local cross-market pack containing approximately the following channels.
-The final ordered list is frozen before the first V4 counterfactual and is not
-expanded after observing its result.
+1. `spot_log_return_1h`
+2. `spot_log_return_4h`
+3. `spot_log_return_24h`
+4. `spot_log_quote_volume_robust_z_4h`
+5. `spot_log_quote_volume_robust_z_24h`
+6. `spot_perp_log_basis`
+7. `spot_perp_basis_change_1h`
+8. `spot_perp_basis_change_4h`
+9. `spot_perp_basis_robust_z_7d`
+10. `spot_minus_perp_log_return_1h`
+11. `spot_minus_perp_log_return_4h`
+12. `spot_to_perp_log_quote_volume_ratio_1h`
+13. `spot_to_perp_log_quote_volume_ratio_4h`
+14. `spot_to_perp_log_quote_volume_ratio_24h`
+15. `spot_taker_quote_imbalance_1h`
+16. `spot_taker_quote_imbalance_4h`
+17. `perp_taker_quote_imbalance_1h`
+18. `perp_taker_quote_imbalance_4h`
+19. `spot_minus_perp_taker_imbalance_1h`
+20. `spot_minus_perp_taker_imbalance_4h`
+21. `funding_rate`
+22. `funding_rate_change`
+23. `funding_rate_robust_z_7d`
+24. `basis_z_x_flow_divergence_4h`
 
-#### Local Spot/perpetual state
+The taker imbalance for an interval is conceptually:
 
-- Spot log return: 1h, 4h, 24h;
-- Spot quote-volume robust z-score: 4h, 24h;
-- perpetual/Spot log basis level;
-- basis change: 1h, 4h;
-- basis robust z-score over a fixed trailing window;
-- Spot minus perpetual return: 1h, 4h;
-- Spot/perpetual quote-volume ratio: 1h, 4h, 24h;
-- Spot taker-flow imbalance: 1h, 4h when source fields are available;
-- perpetual taker-flow imbalance: 1h, 4h when source fields are available;
-- Spot minus perpetual flow imbalance: 1h, 4h;
-- open-interest change: 1h, 4h, 24h when immutable historical coverage exists;
-- funding level, funding change, and funding robust z-score;
-- basis-z x open-interest-change;
-- funding-z x open-interest-change;
-- basis-z x Spot/perpetual-flow divergence.
+```text
+(2 * taker_buy_quote_volume / total_quote_volume) - 1
+```
 
-This is intentionally larger than a minimal basis-only experiment but remains
-small relative to a duplicated 206-channel Spot technical stack.
+and is unavailable when the source interval has no valid positive total quote
+volume. It is never replaced with an informative zero when the source field is
+missing.
+
+The basis is:
+
+```text
+log(perpetual_mark_price / spot_close_price)
+```
+
+using aligned decision-time values only. Return and volume windows are trailing,
+fully closed windows. Robust z-scores use a fixed causal trailing window and an
+authored minimum support; the exact numerical primitive is frozen in the
+implementation plan before any V4 outcome is read.
+
+### Derivatives extension profile
+
+`cross_market_derivatives_v1` adds exactly seven channels to the 24-channel core:
+
+25. `open_interest_log_change_1h`
+26. `open_interest_log_change_4h`
+27. `open_interest_log_change_24h`
+28. `global_long_short_ratio_robust_z_4h`
+29. `top_position_long_short_ratio_robust_z_4h`
+30. `basis_z_x_open_interest_change_4h`
+31. `funding_z_x_open_interest_change_4h`
+
+This profile is enabled only when a pre-outcome data-capability audit proves
+immutable historical coverage for the complete authored interval. Binance Vision
+USD-M futures `metrics` archives are preferred over short-retention REST history.
+The capability decision may inspect source coverage and schema but may not inspect
+return labels, model metrics, or trading outcomes.
+
+If full required coverage is absent, the generation is explicitly authored as
+`cross_market_core_v1`; it does not silently create sparse OI fields or switch
+profiles after seeing performance.
+
+Historical liquidation data is intentionally excluded from the first V4 profiles.
+It may be added in a later authored generation only after an immutable source with
+adequate interval coverage and timestamp semantics is proven.
 
 ### Fixed Global Market Context
 
-Use fixed semantic anchors rather than a changing train-symbol aggregate. BTC and
-ETH are the initial public market anchors because they have deep Spot/perpetual
-markets and are meaningful across target symbols.
+`global_market_core_v1` contains 38 channels. For each anchor in
+`(BTCUSDT, ETHUSDT)`, include the following 17 channels:
 
-The global context contains an authored subset of:
+1. Spot return 1h
+2. Spot return 4h
+3. Spot return 24h
+4. perpetual return 1h
+5. perpetual return 4h
+6. perpetual return 24h
+7. Spot/perpetual basis
+8. basis change 4h
+9. basis robust z 7d
+10. Spot taker imbalance 1h
+11. Spot taker imbalance 4h
+12. perpetual taker imbalance 1h
+13. perpetual taker imbalance 4h
+14. Spot/perpetual log quote-volume ratio 4h
+15. Spot/perpetual log quote-volume ratio 24h
+16. funding rate
+17. funding robust z 7d
 
-- BTC/ETH Spot returns: 1h, 4h, 24h;
-- BTC/ETH perpetual returns: 1h, 4h, 24h;
-- BTC/ETH basis level/z-score/change;
-- BTC/ETH Spot and perpetual flow imbalance: 1h, 4h;
-- BTC/ETH Spot/perpetual volume ratio;
-- BTC/ETH open-interest change where immutable historical coverage exists;
-- BTC/ETH funding level/z-score;
-- cross-anchor dispersion and BTC-vs-ETH relative return;
-- optional PIT BTC/ETH exchange netflow and stablecoin exchange flow as described
-  below.
+The final four core channels are:
 
-The Global Market Context has one explicit schema/digest and is identical in
-meaning regardless of the target instrument.
+35. `btc_minus_eth_perp_return_4h`
+36. `btc_minus_eth_perp_return_24h`
+37. `btc_minus_eth_basis`
+38. `btc_eth_perp_return_dispersion_4h`
 
-### Historical derivatives availability
+`global_market_derivatives_v1` adds six channels, for a total of 44. For each of
+BTC and ETH add:
 
-Current repository ingestion already supports Binance public Spot and USD-M market
-construction, funding, mark/index price, and multi-timeframe data. V4 may extend
-that source contract for Binance Vision futures `metrics` archives or equivalent
-immutable public artifacts when their historical coverage is complete enough for
-the authored research interval.
+- open-interest log change 4h;
+- open-interest log change 24h;
+- global long/short ratio robust z 4h.
 
-Do not backfill a long historical training interval from an endpoint that only
-returns a short recent window. Missing historical derivatives coverage fails the
-feature family closed or excludes that family from the predeclared generation.
-It must not be silently imputed as zero and interpreted as market state.
+The global context constructor, ordered anchor tuple, channel order, staleness
+policy, and data identities are part of the V4 artifact digest.
 
-### On-chain / exchange-flow pack
+### Optional point-in-time flow profile
 
-On-chain flow is a secondary, lower-frequency context source, not the first source
-of fast actions.
+`pit_flow_v1` is a lower-frequency optional extension to the Global Market Context.
+It contains:
 
-V4 defines an optional `pit_flow` pack containing only a few high-value families:
+- BTC exchange netflow 6h and 24h;
+- ETH exchange netflow 6h and 24h;
+- USDT exchange netflow 6h and 24h;
+- USDC exchange netflow 6h and 24h when the provider has equivalent PIT coverage;
+- BTC exchange-reserve change 24h and 7d;
+- ETH exchange-reserve change 24h and 7d.
 
-- BTC exchange netflow: 6h, 24h;
-- ETH exchange netflow: 6h, 24h;
-- USDT exchange netflow: 6h, 24h;
-- USDC exchange netflow: 6h, 24h when supported;
-- optionally BTC/ETH exchange reserve change: 24h and 7d.
+Only a provider with point-in-time or otherwise revision-frozen historical
+semantics is admissible. Artifact identity binds provider, metric identity,
+observation time, effective time, retrieval time, PIT/revision mode, raw-content
+digest, and staleness contract.
 
-This pack is admissible only from a provider that exposes point-in-time or
-otherwise revision-frozen historical semantics suitable for systematic backtests.
-The artifact identity must bind provider, metric identity, observation timestamp,
-effective timestamp, retrieval timestamp, revision/PIT mode, raw-content digest,
-and allowed staleness.
-
-A non-PIT current label history must never be presented as historical evidence.
-If no admissible provider/credential is available, the first V4 generation runs
-with `pit_flow` disabled and records that absence explicitly; it does not substitute
-unverified scraped values.
+If no admissible source/credential exists, `pit_flow_v1` is disabled explicitly.
+V4 does not scrape or substitute current reconstructed histories and call them
+historical evidence.
 
 ### Feature timing
 
-Every added source must provide or derive:
+Every added source must carry or derive:
 
-- event/source end time;
+- event/source-end time;
 - first usable decision time;
-- source availability flag;
+- availability;
 - staleness;
 - raw/source identity.
 
-A value can enter decision `t` only if it was observable no later than the decision
-close under the maintained signal-delay contract. Publication latency is applied
-where source timestamps are not identical to information availability.
+A value may enter decision `t` only when it was observable no later than the
+decision close under the existing signal-delay contract. Higher-timeframe and
+low-frequency sources use as-of joins and only completed observations. Publication
+latency is applied where source event time and usable time differ.
 
-Higher-timeframe and low-frequency flows use as-of joins and never use a partially
-formed future bar.
+## Market Proxy and Label Decomposition
 
-## Label Decomposition
-
-V4 preserves causal forward gross log-return labels and the existing strict
-knowledge-cutoff rule.
-
-For horizon `h` in `{4h, 24h, 72h}` at decision `t`, define the common market label
-from the fixed training universe only for model fitting:
+V4 avoids a current train-universe aggregate as the market factor. The first V4
+market proxy is fixed:
 
 ```text
-market_label_h(t) = equal_weight_mean_s(return_s,h(t))
+market_proxy_symbol = BTCUSDT
+market_proxy_instrument = USD-M perpetual
 ```
 
-This uses train labels only after all required label ends are strictly before the
-knowledge cutoff. The training-universe label is not itself a current-time input.
+The preflight requires the market proxy to belong to training capability for the
+V4 generation and not to be a validation/test-only label source. If that invariant
+changes in a future split, the V4 generation is invalid rather than silently using
+held-out future BTC outcomes for fitting.
+
+For horizon `h` in `{4h, 24h, 72h}`:
+
+```text
+market_proxy_label_h(t)
+  = BTCUSDT forward gross log return with the same causal timing rule
+```
+
+Only labels whose ends are strictly before the knowledge cutoff enter fitting.
+BTC/ETH current public context may be observed at inference; no ETH future outcome
+is used to fit the market proxy unless a future separately authored design changes
+the proxy contract.
 
 ### Causal beta
 
-For target symbol `s`, estimate `beta_s(t)` only from returns fully observed before
-`t`. Use a deterministic rolling covariance/variance estimator over an authored
-lookback, with a minimum support requirement and an authored finite clip.
+For BTC itself, `beta_BTC(t) = 1.0` by identity.
 
-Conceptually:
+For every other target, V4 computes beta only from fully observed historical
+returns:
 
 ```text
-beta_s(t) = cov_past(r_s, r_market) / var_past(r_market)
+beta_s(t)
+  = cov_past(r_s_4h, r_BTC_4h) / var_past(r_BTC_4h)
 ```
 
-The implementation must specify exact return clock, lookback, support, clipping,
-and zero-variance fallback before the counterfactual. It may not fit beta from the
-future label being predicted.
+The first V4 authored beta contract is:
 
-The residual label is:
+```text
+return_horizon = 4h
+lookback = 720h
+minimum_complete_samples = 90
+clip = [-3.0, 3.0]
+```
+
+The window ends at or before decision `t`; it never includes the forward label
+being predicted. If support is insufficient or BTC variance is numerically zero,
+beta is unavailable and the affected V4 decision is non-actionable; it is not
+filled with a learned or guessed value.
+
+Beta is included in the student-observable V4 context and its source range/digest is
+bound to forecast evidence.
+
+For each training symbol and horizon:
 
 ```text
 residual_label_s,h(t)
-  = symbol_label_s,h(t) - beta_s(t) * market_label_h(t)
+  = symbol_label_s,h(t)
+    - beta_s(t) * market_proxy_label_h(t)
 ```
 
-The decomposition must reconstruct the symbol label within numerical tolerance.
+The decomposition must reconstruct the original symbol label within explicit
+floating-point tolerance.
 
 ## Estimator Semantics
 
-### Common market return heads
+### BTC market-proxy return heads
 
-Fit one deterministic overlap-aware return model per horizon using only Global
-Market Context as current-time inputs:
+Fit one deterministic overlap-aware weighted ridge model per horizon:
 
 ```text
-market_return_4h
-market_return_24h
-market_return_72h
+market_proxy_return_4h
+market_proxy_return_24h
+market_proxy_return_72h
 ```
 
-The first V4 model family reuses weighted/objective-normalized ridge. A nonlinear
-replacement requires a separate authored hypothesis.
+Current inputs are Global Market Context only. The first V4 generation reuses the
+existing weighted/objective-normalized ridge primitive. A nonlinear model family
+requires a separately authored hypothesis.
 
 ### Shared residual return heads
 
-Fit one shared model per horizon across all training symbols:
+Fit one shared residual ridge per horizon across all train symbols:
 
 ```text
 residual_return_h = f_h(
-    target_local_features,
-    local_cross_market_features,
+    existing_target_local_features,
+    local_cross_market_context,
     global_market_context,
-    instrument_descriptors
+    instrument_descriptors,
+    causal_beta
 )
 ```
 
-Use symbol-balanced overlap-aware weights so one highly liquid/long-history symbol
-does not dominate simply by row count.
-
-There is no hidden `symbol -> model` lookup in the V4 canonical path.
+Use overlap-aware symbol-balanced weights. There is no canonical
+`symbol -> residual model` dispatch.
 
 ### Final expected return
 
-For each symbol/horizon:
+For target symbol `s`:
 
 ```text
 mu_s,h(t)
-  = beta_s(t) * market_prediction_h(t)
+  = beta_s(t) * market_proxy_prediction_h(t)
     + residual_prediction_s,h(t)
 ```
 
-Persist common, beta, residual, and final contributions separately.
+Persist proxy prediction, beta, beta-scaled contribution, residual contribution,
+and final prediction separately and require exact reconstruction within authored
+tolerance.
 
 ### Shared direction heads
 
-A separate shared direction model per horizon is trained on the sign of the
-original symbol forward return using the same causal current-time information set.
-The first implementation reuses deterministic weighted ridge on `{-1, +1}` labels
-rather than introducing a new probabilistic solver.
+Fit one shared weighted ridge direction model per horizon on:
 
-The output is a signed direction score, not a calibrated probability.
+```text
+direction_label_s,h(t) = sign(symbol_label_s,h(t))
+```
 
-Direction score is not added to expected return. It is an independent consensus
-constraint:
+so exact zero labels remain zero and do not invent a direction. The direction score
+is signed evidence, not a calibrated probability and is never added to expected
+return.
 
-- reducing absolute exposure toward zero is always allowed subject to risk and
-  execution rules;
-- increasing exposure in a direction requires the final return forecast and
-  direction score to have the same non-zero sign;
-- a fast sign reversal requires the same consensus;
-- disagreement produces HOLD or exposure reduction, never a forced opposite trade.
+Direction is a consensus constraint:
 
-This keeps return magnitude and directional classification as separately
-falsifiable capabilities.
+- risk-reducing movement toward zero is always allowed;
+- increasing absolute exposure requires final return forecast and direction score
+  to have the same non-zero sign;
+- a fast sign reversal requires the same agreement;
+- disagreement results in HOLD or risk reduction, never a forced opposite trade.
+
+Return regression and direction score are evaluated and persisted separately.
 
 ## Fast and Slow Responsibilities
 
-V4 does not average the 4h flow signal into the 24h/72h return forecast.
+The 4h head is not averaged into the 24h/72h forecast.
 
 ### Slow anchor
 
-24h and 72h remain the medium/slow investment horizon. Their existing
-24-hour-equivalent fusion and disagreement-aware uncertainty may be retained as the
-initial slow-anchor primitive to isolate the architectural change.
+The first V4 generation deliberately keeps the existing V3 24h/72h
+24-hour-equivalent fusion and horizon-disagreement uncertainty **only for the slow
+anchor**. This isolates the effect of the new decomposition and fast-flow lane from
+a simultaneous slow-fusion redesign.
 
-The slow controller produces a desired `anchor_weight`. It is recomputed only on
-an authored slow cadence or a risk/liquidity emergency.
+The slow controller produces `anchor_weight` on an authored slow cadence or when
+risk/liquidity forces a reduction.
 
 ### Fast impulse
 
-The 4h head produces a bounded tactical deviation around the slow anchor. It is
-intended to consume Spot/perpetual flow, basis, open-interest, and other faster
-cross-market state.
+The 4h final return/direction/uncertainty bundle produces a bounded tactical
+deviation around the slow anchor. It consumes the new cross-market flow/basis/
+derivatives information without requiring that information to move a 24h/72h
+regression first.
 
-The fast component must not independently create unlimited target turnover. It has
-its own maximum deviation and uses the existing overall liquidity and absolute
-weight caps.
+The implementation plan freezes `fast_max_abs_delta` and its decision cadence
+before outcomes are read. The fast lane remains subject to the existing overall
+absolute-weight, liquidity, execution, and hard-risk caps.
 
-### Cost accounting
+### Exact cost rule
 
-The compiler must not double-charge execution cost when a fast deviation is applied
-to a slow anchor.
+V4 must not double-charge cost across slow and fast stages.
 
-For a current weight `w0`, chosen slow anchor `a`, and final candidate `f`, the
-implementation scores the actual final turnover cost from `w0 -> f`. If staged
-objectives are used internally, the fast stage uses only the marginal difference
-between final and anchor execution hurdle so total charged cost equals the actual
-one-way turnover assumption exactly once.
+For current weight `w0`, slow anchor `a`, and final candidate `f`, total execution
+hurdle equals the existing one-way cost function for the **actual final change**
+`abs(f - w0)` exactly once.
 
-This property requires direct tests.
+If implementation uses staged objective comparisons, the fast stage may use the
+marginal difference:
+
+```text
+C(abs(f - w0)) - C(abs(a - w0))
+```
+
+relative to the already scored anchor. Tests must prove staged and direct total
+cost are identical.
 
 ## State-conditioned Uncertainty
 
-V3 fit residual RMSE and horizon disagreement remain valid ingredients but are not
-enough by themselves.
+V4 retains final composite residual RMSE and slow horizon disagreement, then adds a
+deterministic train-only state calibration.
 
-V4 adds a deterministic train-only residual calibration by causal market state.
-The first design uses a small authored state taxonomy rather than a neural
-uncertainty model:
+The first design uses four mutually resolved states:
 
 - normal;
 - high realized-volatility;
 - low-liquidity;
 - basis/positioning stress.
 
-State thresholds are derived only from the eligible training prefix with fixed
-quantile rules. If multiple stress states apply, deterministic severity precedence
-is used.
+Thresholds and severity precedence are fixed from eligible train-prefix quantiles
+before the first V4 outcome is read. Each horizon/state estimates weighted RMSE of
+the **final reconstructed forecast**, not independent component RMSEs added under an
+independence assumption.
 
-For each horizon/state, estimate weighted final-forecast residual RMSE. A state
-bucket below the authored effective-sample minimum falls back to the global
-horizon RMSE; it is not filled from holdout data.
+A state below the authored effective-sample minimum falls back to the global
+horizon RMSE. It never borrows holdout residuals.
 
-The target compiler consumes the state-conditioned final forecast uncertainty.
-Persist both global and selected state RMSE plus support/effective sample size.
+Persist state, threshold digest, support/effective sample size, global RMSE,
+state RMSE, selected uncertainty, and fallback reason.
 
 ## Signal Liveness Evidence
 
-V4 adds non-promotable but mandatory diagnostic evidence to distinguish a non-zero
-intercept from a live market signal.
+V4 makes intercept-dominated or stale predictions visible before economic replay.
+For each fit/symbol/horizon persist non-promotable diagnostics including:
 
-For every fit/symbol/horizon scope, persist at least:
-
-- prediction mean/std/min/max and quantiles;
-- prediction unique count under an authored numerical tolerance;
-- maximum and median consecutive near-identical run length;
+- prediction mean/std/min/max/quantiles;
+- unique count under authored numerical tolerance;
+- median and maximum near-identical run length;
 - intercept;
 - `std(prediction - intercept)`;
-- weighted residual RMSE;
-- dynamic-signal-to-RMSE ratio;
-- constant-feature count;
-- available-feature count;
-- contribution variance by feature family;
-- contribution variance by timeframe for existing market features;
-- common-market contribution variance;
-- beta contribution variance;
-- residual contribution variance;
-- direction-score mean/std/sign balance;
-- fast/slow target contribution counts.
+- weighted final residual RMSE;
+- `std(prediction - intercept) / RMSE`;
+- constant-feature and available-feature counts;
+- contribution variance by existing timeframe;
+- contribution variance for local cross-market, global market, beta-scaled proxy,
+  and shared residual families;
+- direction-score mean/std and sign balance;
+- slow-anchor change count;
+- fast-impulse change count.
 
-A diagnostic artifact cannot by itself promote a model. Its purpose is to make
-prediction collapse observable before a later economic failure.
+These diagnostics do not lower or replace the canonical Signal Gate. They make
+failure interpretable.
 
 ## Artifact and Identity Contract
 
-Introduce distinct V4 schemas; do not reinterpret V3 payloads.
-
-Conceptually:
+Introduce distinct V4 schemas and never reinterpret V3 payloads. Conceptually:
 
 ```text
-causal_alpha_v4_global_context_v1
 causal_alpha_v4_local_cross_market_v1
+causal_alpha_v4_global_market_context_v1
+causal_alpha_v4_beta_v1
 causal_alpha_v4_fit_config_v1
 causal_alpha_v4_fit_v1
 causal_alpha_v4_forecast_v1
@@ -522,241 +614,247 @@ causal_alpha_v4_target_path_v1
 causal_alpha_v4_signal_diagnostic_v1
 ```
 
-V4 fit identity binds at least:
+V4 identity binds at least:
 
 - source/run/runtime/dataset identities;
-- global-context schema and source digests;
-- local cross-market schema and source digests;
-- optional PIT-flow schema/source digests and explicit enabled/disabled state;
-- ordered train-symbol tuple;
-- feature and instrument-descriptor schema digests;
+- market proxy identity;
+- local/global feature profile names, channel order, source digests, and coverage;
+- explicit derivatives/PIT profile enabled/disabled state;
+- target-local feature and descriptor schemas;
 - knowledge cutoff;
-- beta configuration/digest;
-- all market/residual/direction model digests;
-- overlap-weight digests;
-- state-uncertainty configuration/support/RMSE;
-- final forecast reconstruction evidence.
+- beta config/source range/digest;
+- all proxy/residual/direction model digests;
+- overlap/symbol-balance weight digests;
+- uncertainty state config/support/RMSE;
+- student-observation schema digest;
+- forecast component reconstruction;
+- target compiler configuration.
 
-Any stale source, changed feature order, missing model, wrong beta, changed PIT mode,
-or teacher/student information-set mismatch fails closed.
+Stale source content, channel-order drift, changed PIT mode, missing auxiliary
+context, wrong beta, hidden per-symbol model state, or student/teacher observation
+mismatch fails closed.
 
 ## Research Sequence
 
-V4 is not allowed to consume the untouched Teacher-admission holdout for tuning.
-The sequence is:
+The retained V3 counterfactual is not rewritten by V4. Research order is:
 
 ```text
-1. preserve and execute the already-authored V3 market/residual counterfactual
+1. execute/preserve the already-authored V3 market/residual counterfactual
 2. retain its result as independent evidence
-3. author/freeze V4 feature and model configuration before V4 outcomes are read
-4. build V4 train-only counterfactual on earlier chronological Signal contracts
-5. evaluate unchanged canonical Signal evidence plus new V4 component diagnostics
-6. only after Signal admission, run economic selection
-7. only after selection, open the untouched Teacher-admission holdout once
-8. only after Teacher admission, run BC/DAgger/anchored PPO stages
+3. audit V4 source capabilities without reading model/trading outcomes
+4. freeze one V4 feature profile and model configuration
+5. run V4 train-only Signal counterfactual on earlier chronological contracts
+6. evaluate unchanged canonical Signal evidence plus V4 component/liveness evidence
+7. only after Signal admission, run existing economic selection
+8. only after selection, open Teacher-admission holdout once
+9. only after Teacher admission, run BC/DAgger/anchored PPO stages
 ```
 
-V4 Signal failure stops the generation. It does not authorize threshold relaxation,
-feature-family fishing, holdout inspection, or silent model-family substitution.
+V4 Signal failure stops that generation. It does not authorize threshold
+relaxation, feature fishing, hidden profile switching, holdout inspection, or silent
+model-family replacement.
 
-## Objective Quality Contract
+## Quality Contract
 
 ### Objective
 
 Produce a causal, auditable, student-reproducible hierarchical teacher whose
-forecast and target behavior is materially state-dependent and whose admitted
-candidate has positive after-cost economics under the existing reward/execution
-contract.
+forecast/target behavior is materially state-dependent and whose admitted candidate
+has positive after-cost economics under the existing reward/execution contract.
 
 ### Acceptance Criteria
 
-1. Reward, risk, execution, action semantics, and V3 historical artifacts are
-   unchanged.
-2. All V4 teacher current-time inputs are present in the declared student
-   observation contract or are proven not to affect teacher actions.
-3. Common + beta + residual predictions reconstruct final horizon prediction.
-4. Beta uses only information available before each decision and reconstructs the
-   authored residual label exactly.
-5. 4h fast and 24h/72h slow components are separately persisted and attributable.
-6. Direction heads are independently evaluated; return/direction disagreement can
-   suppress exposure increase without blocking risk-reducing actions.
-7. State uncertainty never reads a residual whose label end is not before its
-   knowledge cutoff.
-8. Execution cost is charged once for the actual final target change.
-9. Added Spot/derivative/PIT features have explicit timing, availability,
-   staleness, provenance, and immutable identity.
-10. No non-PIT on-chain history enters backtest/training evidence.
-11. Signal liveness diagnostics make a constant/intercept-dominated predictor
-    directly observable.
-12. The predeclared V4 generation passes every existing required Signal/economic/
-    Teacher-admission gate before any downstream learner update.
-13. BC/PPO is not claimed successful merely because Teacher V4 passes; learner
-    contribution remains separately evaluated.
+1. Reward, risk, execution, action semantics, and V3 historical artifact meanings
+   are unchanged.
+2. Every V4 current-time teacher input that can affect actions is present in the
+   declared student/serving observation capability.
+3. `beta * market_proxy + residual` reconstructs every final horizon prediction.
+4. Beta uses only past target/BTC returns and obeys the frozen 4h/720h/90-sample
+   contract.
+5. 4h fast and 24h/72h slow contributions are separately persisted and
+   attributable.
+6. Direction evidence is independently evaluated and never blocks risk-reducing
+   movement toward zero.
+7. State uncertainty never reads a residual whose forward label is unavailable at
+   the fit cutoff.
+8. Slow+fast target construction charges the actual final turnover hurdle once.
+9. Spot/derivative/PIT features have explicit availability, staleness, source
+   timing, provenance, and immutable identity.
+10. The data-capability audit selects core vs derivatives profile without reading
+    return labels or trading outcomes.
+11. No non-PIT on-chain history enters training/backtest evidence.
+12. Signal-liveness evidence directly exposes an intercept-only or nearly static
+    predictor.
+13. Existing required Signal/economic/Teacher-admission gates all pass before any
+    downstream learner update.
+14. Passing Teacher V4 is not reported as BC/PPO success; learner contribution is
+    evaluated separately.
 
 ### Invariants
 
-- no future label crosses the knowledge cutoff;
+- no future label crosses a knowledge cutoff;
 - validation/test/Teacher-admission outcomes never flow into fit/tuning;
-- historical artifact semantics never change in place;
+- historical artifacts never change meaning in place;
 - final action remains one target weight for one concrete instrument;
 - reward remains pure net-equity log growth;
 - hard risk remains independent of teacher success;
-- target generation is deterministic given identical immutable inputs;
-- train-symbol row count cannot change symbol mass unintentionally;
-- current-time teacher information is student-observable;
-- unavailable source data is not silently converted into a meaningful zero.
+- identical immutable inputs produce identical teacher outputs;
+- train-symbol row count cannot accidentally change symbol mass;
+- teacher current information is student/serving observable;
+- unavailable source data is not silently converted to meaningful zero;
+- BTC proxy future outcomes are training labels only and never taken from a
+  validation/test-only capability.
 
 ### Failure Modes
 
-- Spot/perpetual timestamp misalignment creates lookahead;
-- historical OI/flow endpoint has insufficient retention and silently truncates
-  early training history;
-- on-chain provider retroactively relabels exchange wallets;
-- common market label uses incomplete train universe;
-- rolling beta uses future returns or unstable zero market variance;
-- shared residual model leaks symbol identity through an unintended field;
-- global context exists in Teacher but not BC/PPO observation;
-- 4h fast head dominates and creates excessive turnover;
-- slow and fast stages double-count execution costs;
-- direction gate prevents necessary risk-reducing deleveraging;
-- stress buckets have too little support and overfit uncertainty;
-- fit has non-zero intercept but negligible dynamic prediction;
-- duplicate/overlapping horizons inflate apparent sample support;
-- missing Spot/OI/on-chain rows are interpreted as genuine zeros;
-- source schema/order drift reuses stale cached evidence;
-- closed-trade count is mistaken for executed-change count in economic admission.
+- Spot/perpetual timestamp alignment leaks a future close/mark;
+- historical OI/ratio API retention truncates early history without failing;
+- current reconstructed on-chain wallet labels rewrite old backtest values;
+- BTC proxy is accidentally assigned a held-out-only role;
+- causal beta includes the forward prediction interval;
+- beta has insufficient support or near-zero BTC variance but is silently filled;
+- shared residual model leaks private symbol identity;
+- Teacher global context is absent from BC/PPO/serving observation;
+- auxiliary BTC/ETH context goes stale and serving silently substitutes zero;
+- fast head dominates and creates turnover with no after-cost edge;
+- slow and fast stages double-charge one execution delta;
+- direction disagreement blocks necessary risk reduction;
+- stress-state support is too small and overfits RMSE;
+- prediction has a non-zero intercept but negligible dynamic contribution;
+- overlapping 4h/24h/72h labels inflate apparent independent support;
+- feature profile changes after performance is observed;
+- closed-trade count is mistaken for executed-change evidence.
 
 ### Risk
 
-High. The change modifies teacher information, labels, model decomposition,
-observation inputs, target generation, data provenance, and research artifacts.
-A defect can create lookahead, false profitability evidence, an unreproducible BC
-teacher, or unnecessary turnover while leaving ordinary unit tests green.
+High. V4 changes teacher data, auxiliary runtime capability, student observation,
+labels, model decomposition, uncertainty, target composition, and artifact identity.
+A defect can create lookahead, false profitability evidence, unreproducible BC
+behavior, serving mismatch, or unnecessary turnover while ordinary unit tests still
+pass.
 
 ### Test Oracle
 
-Correctness is judged from independently observable contracts, not from training
-loss alone.
+Correctness is judged from observable contracts, not training loss alone.
 
-Required controlled oracles include:
+Required synthetic/controlled oracles include:
 
-- synthetic common-factor path where market/residual reconstruction is exact;
-- two symbols with different known beta and identical residual alpha;
-- residual-only path where market return is zero;
-- market-only path where residual is zero;
-- return head/direction head agreement and disagreement cases;
-- risk-reducing action during direction disagreement;
-- known 4h impulse on a stable 24h/72h anchor;
-- exact one-way cost comparison showing no double charging;
-- source row that becomes available just before/after a decision boundary;
-- missing/stale Spot/OI/PIT-flow source;
-- revised non-PIT on-chain history rejected by identity contract;
+- market-only path: residual is zero and beta-scaled BTC proxy reconstructs target;
+- residual-only path: BTC proxy return is zero and residual reconstructs target;
+- two targets with known different beta and identical residual alpha;
+- BTC identity beta exactly one;
+- insufficient beta support produces non-actionable evidence;
+- modifying any future target/BTC return cannot move an earlier beta/forecast;
+- return/direction agreement and disagreement;
+- direction disagreement still permits flattening;
+- known 4h impulse around stable 24h/72h anchor;
+- direct-vs-staged cost equality for final target;
+- source becoming available immediately before vs after decision boundary;
+- stale/missing Spot/OI/global context fails according to contract;
+- non-PIT revised on-chain payload changes identity or is rejected;
 - state-RMSE fallback with insufficient support;
-- intercept-only model flagged as dynamically inactive;
-- identical model input in Teacher and student observation builder;
-- old V3 artifacts still parse and retain their original digests/meaning.
+- intercept-only model is flagged dynamically inactive;
+- Teacher and student context constructors produce exactly equal vectors/digests;
+- old V3 artifacts still parse and preserve their original meaning.
 
-Economic test oracles include gross return, net return, turnover, filled/executed
-changes, closed trades as a separate metric, maximum drawdown, execution rejection,
-hard-risk violations, and target-reason attribution.
+Economic oracles include gross return, net return, turnover, submitted change,
+filled/executed change, closed trades as a separate statistic, maximum drawdown,
+execution rejections, hard-risk violations, and target-reason attribution.
 
 ### Required Test Layers
 
-- static analysis / type check / lint / format;
-- unit tests for source timing, feature arithmetic, beta, decomposition, direction,
-  uncertainty, target composition, and identity;
-- property/contract tests for reconstruction, causality, and digest drift;
-- integration tests for Spot + USD-M + futures metrics + optional PIT source into
-  immutable dataset artifacts;
+- lint / format / type check / static analysis / import boundaries;
+- unit tests for source timing, feature formulas, beta, label decomposition,
+  direction, uncertainty, target composition, liveness, and identity;
+- property/contract tests for reconstruction, causality, source/order drift, and
+  deterministic digests;
+- integration tests for Spot + USD-M + funding + optional Vision metrics into
+  immutable V4 context artifacts;
+- integration tests for auxiliary Global Market Context through training and
+  read-only serving observation construction;
 - integration tests through the real V4 replay environment;
-- regression tests proving reward/risk/execution/V3 schemas are unchanged;
-- reporting/artifact corruption and resume tests;
+- regression tests proving reward/risk/execution/V3 schemas remain unchanged;
+- artifact corruption/resume tests;
 - full repository test suite;
-- frontend checks only if the implementation changes Studio/report UI;
-- build/package checks and platform compatibility required by the repository CI;
-- real train-only counterfactual before any production-teacher implementation is
-  considered economically admitted.
+- frontend tests only if Studio/report UI is changed;
+- build/package/platform checks required by repository CI;
+- immutable train-only V4 counterfactual before economic adoption.
 
 ### Quality Gate
 
-Do not claim V4 complete unless all of the following are true on the same final
-HEAD:
+Do not report V4 complete unless, on the same final HEAD:
 
 - Acceptance Criteria are mapped to concrete evidence;
-- targeted tests pass;
-- related module/integration tests pass;
-- lint/format/type/static/import-boundary checks pass;
-- full test suite passes or every unrelated pre-existing failure is documented and
-  independently reproduced;
-- build/package checks pass;
-- changed lines and important failure paths are exercised by meaningful assertions;
-- causality tests cover source latency and label cutoff;
-- falsification review attempts to break reconstruction, identity, cost, and
-  teacher/student information invariants;
-- architecture self-review finds no unintended dependency reversal or hidden
-  per-symbol teacher state;
-- independent review is performed from the original requirements and final diff;
-- CI/required checks are verified against the same final commit when CI is
-  available;
+- targeted and related integration tests pass;
+- lint/format/type/static/import checks pass;
+- full test suite passes or every unrelated pre-existing failure is independently
+  reproduced and documented;
+- build/package/platform checks pass;
+- changed lines and important failure paths have meaningful assertions;
+- source-latency and label-cutoff causality are tested;
+- falsification review attempts to break reconstruction, source identity, beta,
+  cost, direction, and teacher/student information invariants;
+- architecture self-review finds no hidden per-symbol dependency or observation
+  mismatch;
+- an independent review reconstructs the evaluation from original requirements,
+  final diff, tests, and actual outputs;
+- CI/required checks are verified for the same final commit when CI is available;
 - unverified items and residual risks are explicitly reported.
 
-A green training run, a green unit suite, or a passing Signal Gate alone is not the
-Quality Gate.
+A green unit suite, successful training process, or passing Signal Gate alone is
+not this Quality Gate.
 
 ## Falsification Review Questions
 
-Before promotion, explicitly try to prove V4 wrong:
+Before promotion, explicitly attempt to prove V4 wrong:
 
-- Can the Teacher see a current feature the student cannot reconstruct?
+- Can Teacher see any current input Student/serving cannot reproduce?
 - Can a future Spot/OI/PIT value move an earlier prediction?
-- Can changing symbol order alter a shared prediction without changing identity?
-- Can beta accidentally use the same forward horizon it is decomposing?
-- Can the return head be positive while its dynamic component is effectively zero?
-- Can the fast head create turnover with no incremental after-cost edge?
-- Can direction disagreement block flattening a dangerous position?
-- Can unavailable OI or PIT flow be mistaken for zero state?
-- Can a revised provider payload preserve the same artifact digest?
-- Can slow and fast stages charge two costs for one executed delta?
-- Can an implementation pass current tests while swapping common and residual
-  contributions?
-- Can overlapping 4h/24h/72h rows inflate confidence?
-- Can a zero closed-trade count incorrectly reject a path with real filled
-  turnover?
+- Can a future target/BTC return move an earlier beta?
+- Can a validation/test-only BTC label enter market-proxy fit?
+- Can symbol order alter shared predictions without identity drift?
+- Can return prediction stay non-zero while dynamic contribution is negligible?
+- Can the 4h lane create turnover with no incremental after-cost edge?
+- Can direction disagreement block flattening?
+- Can unavailable OI/PIT/global context be mistaken for zero state?
+- Can a provider revision preserve a stale artifact digest?
+- Can slow and fast stages charge two costs for one final delta?
+- Can overlapping labels inflate confidence?
+- Can zero closed trades incorrectly reject a path with real filled turnover?
 
 ## External Evidence Informing the Design
 
-The design uses external literature as supporting context, not as proof of Trade RL
+External work informs feature families but does not establish Trade RL
 profitability.
 
 - `arXiv:2108.09750`, *Fragmentation, Price Formation, and Cross-Impact in Bitcoin
-  Markets*, supports treating cross-market microstructure and leader/lagger effects
-  as distinct information rather than assuming one venue always leads.
+  Markets*, supports modeling cross-market state/leader-lagger effects rather than
+  assuming one venue always leads.
 - `arXiv:2212.06888`, *Fundamentals of Perpetual Futures*, supports basis/funding as
-  structural Spot-perpetual state rather than another arbitrary technical feature.
+  structural Spot-perpetual state.
 - `arXiv:2411.06327`, *Return and Volatility Forecasting Using On-Chain Flows in
-  Cryptocurrency Markets*, motivates bounded exchange-flow features while also
-  showing that effects differ by asset.
-- Binance public-data documentation/issues expose historical USD-M `metrics`
-  archives containing open-interest/ratio fields, while short-retention REST
-  endpoints are not sufficient by themselves for a long immutable training
-  history. V4 therefore binds historical coverage and source identity rather than
-  assuming endpoint availability implies backtest availability.
+  Cryptocurrency Markets*, motivates bounded exchange-flow context while showing
+  effects can differ by asset.
+- Binance public-data documentation/issues show USD-M futures `metrics` archives
+  contain historical derivative statistics, while short-retention REST endpoints
+  alone are not a valid long-history backtest source. V4 therefore gates those
+  channels on immutable coverage capability.
 
 ## Implementation Boundary
 
-This document is the design contract only. The implementation plan must decompose
-work into independently reviewable stages, at minimum:
+This document is the design contract only. The implementation plan must split work
+into independently reviewable stages at minimum:
 
-1. prerequisite activity-accounting correction, if still required;
-2. immutable public Spot/derivative source extensions and feature pack;
-3. Global Market Context + student observation contract;
-4. causal beta + label decomposition;
-5. common/residual/direction model bundle;
+1. prerequisite execution-activity accounting correction if still required;
+2. Spot/taker/futures-metrics ingestion and immutable context artifacts;
+3. Global Market Context runtime + student/serving observation contract;
+4. causal beta and BTC-proxy label decomposition;
+5. proxy/residual/direction model bundle;
 6. state-conditioned uncertainty;
 7. slow-anchor/fast-impulse target compiler;
 8. V4 artifact/reporting/liveness evidence;
-9. train-only counterfactual and gate execution;
+9. train-only counterfactual and existing gate execution;
 10. downstream BC/PPO only after Teacher admission.
 
-No implementation stage may use later-stage empirical outcomes to rewrite the
-predeclared acceptance threshold of an earlier stage.
+No stage may use later empirical outcomes to rewrite an earlier authored acceptance
+condition.

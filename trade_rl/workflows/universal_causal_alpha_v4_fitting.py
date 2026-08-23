@@ -6,6 +6,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import TypeVar
 
 import numpy as np
 
@@ -31,6 +32,7 @@ from trade_rl.workflows.universal_causal_alpha_v4_runtime import (
 _V4_HORIZONS = ("4h", "24h", "72h")
 _V4_FIT_SCHEMA = "universal_causal_alpha_v4_fit_v1"
 _V4_WEIGHT_SCHEMA = "universal_causal_alpha_v4_weight_v1"
+_T = TypeVar("_T")
 
 
 def _horizon_labels(
@@ -41,9 +43,7 @@ def _horizon_labels(
         raise ValueError("unsupported V4 horizon")
     return (
         np.asarray(getattr(sample, f"labels_{horizon}"), dtype=np.float64),
-        np.asarray(
-            getattr(sample, f"label_end_indices_{horizon}"), dtype=np.int64
-        ),
+        np.asarray(getattr(sample, f"label_end_indices_{horizon}"), dtype=np.int64),
     )
 
 
@@ -155,9 +155,7 @@ def _weighted_rmse(
     return value
 
 
-def _mapping_exact(
-    value: Mapping[str, object], *, field: str
-) -> dict[str, object]:
+def _mapping_exact(value: Mapping[str, _T], *, field: str) -> dict[str, _T]:
     resolved = dict(value)
     if tuple(resolved) != _V4_HORIZONS:
         raise ValueError(f"{field} must use the canonical V4 horizon order")
@@ -200,22 +198,20 @@ class CausalAlphaV4Fit:
             raise TypeError("V4 fit config is invalid")
 
         market_models = _mapping_exact(self.market_models, field="market_models")
-        residual_models = _mapping_exact(
-            self.residual_models, field="residual_models"
-        )
+        residual_models = _mapping_exact(self.residual_models, field="residual_models")
         direction_models = _mapping_exact(
             self.direction_models, field="direction_models"
         )
-        for mapping, field in (
+        for model_mapping, field_name in (
             (market_models, "market_models"),
             (residual_models, "residual_models"),
             (direction_models, "direction_models"),
         ):
             if any(
                 not isinstance(model, CausalAlphaRidgeModel)
-                for model in mapping.values()
+                for model in model_mapping.values()
             ):
-                raise TypeError(f"V4 {field} must contain ridge models")
+                raise TypeError(f"V4 {field_name} must contain ridge models")
 
         market_names = tuple(self.market_feature_names)
         shared_names = tuple(self.shared_feature_names)
@@ -236,30 +232,30 @@ class CausalAlphaV4Fit:
                     raise ValueError("V4 shared model feature schema drifted")
 
         digest_maps: dict[str, dict[str, str]] = {}
-        for field in (
+        for field_name in (
             "market_weight_digests",
             "residual_weight_digests",
             "direction_weight_digests",
         ):
-            resolved = _mapping_exact(getattr(self, field), field=field)
+            resolved = _mapping_exact(getattr(self, field_name), field=field_name)
             typed: dict[str, str] = {}
             for horizon, raw in resolved.items():
-                value = str(raw)
-                if len(value) != 64:
-                    raise ValueError(f"V4 {field}[{horizon}] is invalid")
-                typed[horizon] = value
-            digest_maps[field] = typed
+                digest_value = str(raw)
+                if len(digest_value) != 64:
+                    raise ValueError(f"V4 {field_name}[{horizon}] is invalid")
+                typed[horizon] = digest_value
+            digest_maps[field_name] = typed
 
         numeric_maps: dict[str, dict[str, float]] = {}
-        for field in ("market_rmse", "residual_rmse", "direction_rmse"):
-            resolved = _mapping_exact(getattr(self, field), field=field)
+        for field_name in ("market_rmse", "residual_rmse", "direction_rmse"):
+            resolved = _mapping_exact(getattr(self, field_name), field=field_name)
             typed_float: dict[str, float] = {}
             for horizon, raw in resolved.items():
-                value = float(raw)
-                if not math.isfinite(value) or value < 0.0:
-                    raise ValueError(f"V4 {field}[{horizon}] must be non-negative")
-                typed_float[horizon] = value
-            numeric_maps[field] = typed_float
+                numeric_value = float(raw)
+                if not math.isfinite(numeric_value) or numeric_value < 0.0:
+                    raise ValueError(f"V4 {field_name}[{horizon}] must be non-negative")
+                typed_float[horizon] = numeric_value
+            numeric_maps[field_name] = typed_float
 
         zero_raw = _mapping_exact(
             self.direction_zero_label_counts,
@@ -270,7 +266,10 @@ class CausalAlphaV4Fit:
             if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
                 raise ValueError("V4 direction zero-label counts must be non-negative")
             zero_counts[horizon] = raw
-        if not isinstance(self.sample_scope_digest, str) or len(self.sample_scope_digest) != 64:
+        if (
+            not isinstance(self.sample_scope_digest, str)
+            or len(self.sample_scope_digest) != 64
+        ):
             raise ValueError("V4 fit sample_scope_digest is invalid")
 
         payload = {
@@ -314,10 +313,10 @@ class CausalAlphaV4Fit:
         object.__setattr__(self, "market_models", MappingProxyType(market_models))
         object.__setattr__(self, "residual_models", MappingProxyType(residual_models))
         object.__setattr__(self, "direction_models", MappingProxyType(direction_models))
-        for field, mapping in digest_maps.items():
-            object.__setattr__(self, field, MappingProxyType(mapping))
-        for field, mapping in numeric_maps.items():
-            object.__setattr__(self, field, MappingProxyType(mapping))
+        for field_name, digest_mapping in digest_maps.items():
+            object.__setattr__(self, field_name, MappingProxyType(digest_mapping))
+        for field_name, numeric_mapping in numeric_maps.items():
+            object.__setattr__(self, field_name, MappingProxyType(numeric_mapping))
         object.__setattr__(
             self,
             "direction_zero_label_counts",
@@ -330,7 +329,9 @@ class CausalAlphaV4Fit:
             raise TypeError("V4 fit prediction requires V4 symbol samples")
         if sample.global_context.feature_names != self.market_feature_names:
             raise ValueError("V4 prediction global feature schema drifted")
-        shared_names, shared_features, shared_available = _shared_feature_surface(sample)
+        shared_names, shared_features, shared_available = _shared_feature_surface(
+            sample
+        )
         if shared_names != self.shared_feature_names:
             raise ValueError("V4 prediction shared feature schema drifted")
         market_predictions = {
@@ -446,9 +447,7 @@ def fit_causal_alpha_v4(
             label_end_indices=btc_ends,
             knowledge_cutoff=knowledge_cutoff,
             feature_names=market_feature_names,
-            config=CausalAlphaRidgeConfig(
-                ridge_strength=config.market_ridge_strength
-            ),
+            config=CausalAlphaRidgeConfig(ridge_strength=config.market_ridge_strength),
             sample_weights=market_weights,
             normalize_objective=True,
         )

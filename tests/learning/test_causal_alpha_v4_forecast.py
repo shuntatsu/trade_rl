@@ -110,9 +110,15 @@ def test_v4_forecast_rejects_horizon_or_shape_drift() -> None:
             "24h": np.ones(2),
             "72h": np.ones(2),
         },
-        market_model_digests={horizon: _digest("1") for horizon in ("4h", "24h", "72h")},
-        residual_model_digests={horizon: _digest("2") for horizon in ("4h", "24h", "72h")},
-        direction_model_digests={horizon: _digest("3") for horizon in ("4h", "24h", "72h")},
+        market_model_digests={
+            horizon: _digest("1") for horizon in ("4h", "24h", "72h")
+        },
+        residual_model_digests={
+            horizon: _digest("2") for horizon in ("4h", "24h", "72h")
+        },
+        direction_model_digests={
+            horizon: _digest("3") for horizon in ("4h", "24h", "72h")
+        },
         fit_digest=_digest("4"),
     )
     with pytest.raises(ValueError, match="horizon"):

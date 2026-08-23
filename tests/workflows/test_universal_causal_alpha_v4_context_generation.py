@@ -9,7 +9,9 @@ import pytest
 
 from trade_rl.data.v4_context import CausalBetaConfig, V4CrossMarketInputs
 from trade_rl.data.v4_context_artifact import load_v4_target_context_artifact
-from trade_rl.integrations.binance_v4_context_capability import BinanceV4ProfileCapability
+from trade_rl.integrations.binance_v4_context_capability import (
+    BinanceV4ProfileCapability,
+)
 from trade_rl.workflows.universal_causal_alpha_v4_context_generation import (
     materialize_causal_alpha_v4_context_generation,
 )
@@ -50,14 +52,22 @@ def _capability(symbols: tuple[str, ...]) -> BinanceV4ProfileCapability:
 
 def _input(symbol: str, *, multiplier: float, rows: int = 64) -> V4CrossMarketInputs:
     decisions = np.arange(100, 100 + rows, dtype=np.int64)
-    timestamps = np.datetime64("2026-01-01T00:00", "ns") + np.arange(rows) * np.timedelta64(15, "m")
+    timestamps = np.datetime64("2026-01-01T00:00", "ns") + np.arange(
+        rows
+    ) * np.timedelta64(15, "m")
     block_amplitudes = np.asarray([0.0010, 0.0020, -0.0010, 0.0030], dtype=np.float64)
     btc_returns = np.repeat(block_amplitudes, 16)[: rows - 1]
-    close = np.exp(
-        np.concatenate(
-            (np.asarray([0.0], dtype=np.float64), np.cumsum(multiplier * btc_returns))
+    close = (
+        np.exp(
+            np.concatenate(
+                (
+                    np.asarray([0.0], dtype=np.float64),
+                    np.cumsum(multiplier * btc_returns),
+                )
+            )
         )
-    ) * 100.0
+        * 100.0
+    )
     spot = close * 0.999
     quote = np.full(rows, 1_000_000.0 + multiplier * 1_000.0, dtype=np.float64)
     taker = quote * 0.55
@@ -137,7 +147,9 @@ def test_materializer_writes_contexts_then_manifest(tmp_path: Path) -> None:
     assert np.any(loaded["ETHUSDT"].beta_available)
 
 
-def test_materializer_recovers_missing_context_before_manifest_publish(tmp_path: Path) -> None:
+def test_materializer_recovers_missing_context_before_manifest_publish(
+    tmp_path: Path,
+) -> None:
     symbols, inputs = _inputs()
     root = tmp_path / "generation"
     first = materialize_causal_alpha_v4_context_generation(
@@ -176,7 +188,9 @@ def test_materializer_rejects_input_scope_drift(tmp_path: Path) -> None:
         )
 
 
-def test_materializer_rejects_profile_and_derivative_input_mismatch(tmp_path: Path) -> None:
+def test_materializer_rejects_profile_and_derivative_input_mismatch(
+    tmp_path: Path,
+) -> None:
     from datetime import UTC, datetime
 
     symbols, inputs = _inputs()
@@ -202,7 +216,9 @@ def test_materializer_rejects_profile_and_derivative_input_mismatch(tmp_path: Pa
         )
 
 
-def test_materializer_rejects_published_manifest_if_context_disappears(tmp_path: Path) -> None:
+def test_materializer_rejects_published_manifest_if_context_disappears(
+    tmp_path: Path,
+) -> None:
     symbols, inputs = _inputs()
     root = tmp_path / "generation"
     materialize_causal_alpha_v4_context_generation(
@@ -213,7 +229,9 @@ def test_materializer_rejects_published_manifest_if_context_disappears(tmp_path:
         beta_config=_beta_config(),
     )
     shutil.rmtree(root / "contexts" / "ETHUSDT")
-    with pytest.raises((FileNotFoundError, ValueError), match="context|manifest|missing"):
+    with pytest.raises(
+        (FileNotFoundError, ValueError), match="context|manifest|missing"
+    ):
         materialize_causal_alpha_v4_context_generation(
             base_runtime=_base(symbols),
             inputs=inputs,

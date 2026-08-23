@@ -21,7 +21,9 @@ from trade_rl.data.v4_context_artifact import (
     load_v4_target_context_artifact,
     write_v4_target_context_artifact,
 )
-from trade_rl.integrations.binance_v4_context_capability import BinanceV4ProfileCapability
+from trade_rl.integrations.binance_v4_context_capability import (
+    BinanceV4ProfileCapability,
+)
 from trade_rl.workflows.universal_causal_alpha_v4_manifest import (
     CausalAlphaV4ContextManifest,
     load_causal_alpha_v4_context_manifest,
@@ -53,7 +55,9 @@ def _base_symbols(base_runtime: Any) -> tuple[str, ...]:
     validation = tuple(getattr(base_runtime, "validation_symbols", ()))
     test = tuple(getattr(base_runtime, "test_symbols", ()))
     symbols = (*train, *validation, *test)
-    if not symbols or any(not isinstance(symbol, str) or not symbol for symbol in symbols):
+    if not symbols or any(
+        not isinstance(symbol, str) or not symbol for symbol in symbols
+    ):
         raise ValueError("V4 base runtime symbols are unavailable")
     if len(set(symbols)) != len(symbols):
         raise ValueError("V4 base runtime symbols overlap")
@@ -67,7 +71,9 @@ def _validate_input_scope(
     capability: BinanceV4ProfileCapability,
 ) -> dict[str, V4CrossMarketInputs]:
     if set(inputs) != set(symbols):
-        raise ValueError("V4 context input scope must exactly match base runtime symbols")
+        raise ValueError(
+            "V4 context input scope must exactly match base runtime symbols"
+        )
     if tuple(capability.symbols) != symbols:
         raise ValueError("V4 source capability symbols must match base runtime order")
     ordered: dict[str, V4CrossMarketInputs] = {}
@@ -177,9 +183,7 @@ def _require_published_contexts_exist(
             )
         loaded = load_v4_target_context_artifact(path)
         if loaded.digest != expected_digest:
-            raise ValueError(
-                f"published V4 context digest mismatch for {symbol}"
-            )
+            raise ValueError(f"published V4 context digest mismatch for {symbol}")
 
 
 def materialize_causal_alpha_v4_context_generation(
@@ -262,8 +266,13 @@ def materialize_causal_alpha_v4_context_generation(
         source_capability_digest=capability.source_digest,
     )
     validate_causal_alpha_v4_context_manifest_against_base(manifest, base_runtime)
-    if existing_manifest is not None and existing_manifest.manifest_digest != manifest.manifest_digest:
-        raise ValueError("existing V4 context manifest identity differs from current generation")
+    if (
+        existing_manifest is not None
+        and existing_manifest.manifest_digest != manifest.manifest_digest
+    ):
+        raise ValueError(
+            "existing V4 context manifest identity differs from current generation"
+        )
     write_causal_alpha_v4_context_manifest(manifest_path, manifest)
     return CausalAlphaV4ContextGenerationResult(
         manifest_path=manifest_path,

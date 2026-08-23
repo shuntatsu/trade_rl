@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final
@@ -81,7 +80,9 @@ class AlignedV4KlineSeries:
             > arrays["quote_volume"] + np.finfo(np.float64).eps
         ):
             raise ValueError("V4 aligned kline taker buy quote exceeds quote volume")
-        source = _require_sha256(self.source_digest, field="V4 aligned kline source_digest")
+        source = _require_sha256(
+            self.source_digest, field="V4 aligned kline source_digest"
+        )
         for field, array in arrays.items():
             object.__setattr__(self, field, array)
         object.__setattr__(self, "source_digest", source)
@@ -200,7 +201,11 @@ def align_funding_events_to_decisions(
             "events_digest": events.digest,
             "schema_version": _ALIGNED_FUNDING_SCHEMA,
         },
-        (("decision_timestamps_ns", decisions_ns), ("rate", rate), ("available", available)),
+        (
+            ("decision_timestamps_ns", decisions_ns),
+            ("rate", rate),
+            ("available", available),
+        ),
     )
     return rate, available, digest
 
@@ -230,7 +235,9 @@ def assemble_v4_cross_market_inputs(
     if np.any(decisions < 0) or (
         decisions.size > 1 and np.any(decisions[1:] <= decisions[:-1])
     ):
-        raise ValueError("V4 decision indices must be strictly increasing and non-negative")
+        raise ValueError(
+            "V4 decision indices must be strictly increasing and non-negative"
+        )
     _decision_ns(timestamps)
     size = decisions.size
     for field, value in (("spot", spot), ("perp", perp), ("mark", mark)):

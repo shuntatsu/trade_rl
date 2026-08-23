@@ -6,9 +6,11 @@ from datetime import UTC, datetime
 import numpy as np
 
 from trade_rl.integrations.binance_v4_context import (
-    AlignedV4KlineSeries,
     BinanceFundingEventSeries,
     BinanceV4KlineSeries,
+)
+from trade_rl.integrations.binance_v4_context_assembly import (
+    AlignedV4KlineSeries,
     align_funding_events_to_decisions,
     align_v4_kline_to_decisions,
     assemble_v4_cross_market_inputs,
@@ -61,7 +63,6 @@ def test_mark_price_kline_url_is_frozen() -> None:
 
 
 def test_kline_alignment_uses_exact_closed_bar_without_carry() -> None:
-    # Missing the middle 00:15-open bar. 00:30 decision must therefore be unavailable.
     source = _series(
         opens=(1767225600000, 1767227400000),
         closes=(100.0, 102.0),
@@ -80,7 +81,7 @@ def test_kline_alignment_uses_exact_closed_bar_without_carry() -> None:
 def test_kline_alignment_rejects_source_bar_not_closed_by_decision() -> None:
     source = _series()
     close_time = source.close_time_ms.copy()
-    close_time[0] = 1767226500001  # one millisecond after the 00:15 decision boundary
+    close_time[0] = 1767226500001
     source = replace(source, close_time_ms=close_time, digest="")
     aligned = align_v4_kline_to_decisions(
         _decisions(),
@@ -92,7 +93,7 @@ def test_kline_alignment_rejects_source_bar_not_closed_by_decision() -> None:
 
 def test_funding_event_maps_once_to_first_observable_decision() -> None:
     events = BinanceFundingEventSeries(
-        event_time_ms=np.asarray([1767226200000], dtype=np.int64),  # 00:10 UTC
+        event_time_ms=np.asarray([1767226200000], dtype=np.int64),
         rate=np.asarray([0.001], dtype=np.float64),
         source_digest=_digest("2"),
     )
@@ -104,7 +105,7 @@ def test_funding_event_maps_once_to_first_observable_decision() -> None:
 
 def test_funding_event_after_last_decision_is_not_visible() -> None:
     events = BinanceFundingEventSeries(
-        event_time_ms=np.asarray([1767229200000], dtype=np.int64),  # 01:00 UTC
+        event_time_ms=np.asarray([1767229200000], dtype=np.int64),
         rate=np.asarray([0.001], dtype=np.float64),
         source_digest=_digest("2"),
     )

@@ -24,8 +24,9 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev
-      - name: Run targeted V4 Task 12 tests
+      - name: Run targeted V4 Task 13 RED tests
         run: |
           uv run pytest -q \
-            tests/workflows/test_universal_causal_alpha_v4_selection.py \
-            tests/workflows/test_universal_causal_alpha_v4_admission.py
+            tests/workflows/test_universal_causal_alpha_v4_artifact_store.py \
+            tests/workflows/test_universal_causal_alpha_v4_pipeline.py \
+            tests/scripts/test_run_universal_causal_alpha_v4_research.py

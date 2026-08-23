@@ -1,6 +1,6 @@
 # Causal Alpha V4 Source Availability Plan Amendment
 
-> **For agentic workers:** Read this after the base V4 plan and the beta-materialization plan amendment. This file overrides the raw `V4CrossMarketInputs` definition and source-timing portions of Tasks 1 and 3. Other plan sections remain authoritative.
+> **For agentic workers:** Read this after the base V4 plan and the beta-materialization plan amendment. This file overrides the raw `V4CrossMarketInputs` definition and source-timing portions of Tasks 1 and 3. The derivatives staleness cutoff in `2026-08-23-causal-alpha-v4-derivatives-staleness-amendment.md` is also authoritative. Other plan sections remain authoritative.
 
 **Spec amendment:** `docs/implementation-plans/specs/2026-08-23-causal-alpha-v4-source-availability-amendment.md`
 
@@ -222,6 +222,14 @@ derivatives_staleness_hours = (
 
 If no earlier metric exists, all derivative fields are unavailable. Future metrics events are never consulted.
 
+The first generation additionally applies the pre-outcome cutoff from `2026-08-23-causal-alpha-v4-derivatives-staleness-amendment.md`:
+
+```text
+maximum_derivatives_staleness_hours = 0.25
+```
+
+The latest backward-as-of row is available only when its age is in `[0.0, 0.25]` hours. Older rows keep exact inert values and exact age for diagnostics but set `derivatives_available=False`.
+
 Add exact tests:
 
 ```python
@@ -235,6 +243,28 @@ def test_future_metrics_event_is_not_visible_to_earlier_decision():
     assert not aligned.available[0]
     assert aligned.available[1]
     assert aligned.staleness_hours[1] == pytest.approx(5.0 / 60.0)
+
+
+def test_metrics_older_than_one_decision_are_unavailable():
+    decisions = np.asarray(
+        [np.datetime64("2026-01-01T00:30")],
+        dtype="datetime64[ns]",
+    )
+    metrics_time = np.asarray([np.datetime64("2026-01-01T00:10")], dtype="datetime64[ns]")
+    aligned = align_futures_metrics_to_decisions(decisions, make_metrics(metrics_time))
+    assert not aligned.available[0]
+    assert aligned.staleness_hours[0] == pytest.approx(20.0 / 60.0)
+
+
+def test_metrics_exactly_fifteen_minutes_old_remain_available():
+    decisions = np.asarray(
+        [np.datetime64("2026-01-01T00:30")],
+        dtype="datetime64[ns]",
+    )
+    metrics_time = np.asarray([np.datetime64("2026-01-01T00:15")], dtype="datetime64[ns]")
+    aligned = align_futures_metrics_to_decisions(decisions, make_metrics(metrics_time))
+    assert aligned.available[0]
+    assert aligned.staleness_hours[0] == pytest.approx(0.25)
 ```
 
 ## Verification additions
@@ -246,6 +276,8 @@ tests/data/test_v4_context.py::test_funding_context_carries_event_age_then_expir
 tests/data/test_v4_context.py::test_funding_z_counts_events_not_carried_rows
 tests/data/test_v4_context.py::test_missing_spot_bar_invalidates_four_hour_spot_return
 tests/integrations/test_binance_v4_context.py::test_future_metrics_event_is_not_visible_to_earlier_decision
+tests/integrations/test_binance_v4_context.py::test_metrics_older_than_one_decision_are_unavailable
+tests/integrations/test_binance_v4_context.py::test_metrics_exactly_fifteen_minutes_old_remain_available
 ```
 
 Falsification review additionally asks:
@@ -254,6 +286,7 @@ Falsification review additionally asks:
 Can a missing Spot/perp bar become a valid flat period?
 Can one funding event gain artificial sample weight through 15m carry-forward?
 Can a future metrics row enter an earlier decision by nearest-neighbor rather than backward as-of join?
+Can a stale metrics row older than one decision remain actionable?
 Can a stale event appear with zero staleness in the Student observation?
 ```
 

@@ -31,4 +31,5 @@ jobs:
             tests/workflows/test_universal_causal_alpha_v4_pipeline.py \
             tests/workflows/test_universal_causal_alpha_v4_stage_runner.py \
             tests/workflows/test_universal_causal_alpha_v4_stage_runner_context_scope.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_helpers.py \
             tests/scripts/test_run_universal_causal_alpha_v4_research.py

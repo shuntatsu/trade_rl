@@ -8,6 +8,7 @@ import pytest
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.workflows.universal_causal_alpha_v4_artifact_store import (
     CausalAlphaV4ArtifactStore,
+    CausalAlphaV4RunLock,
 )
 
 
@@ -98,3 +99,14 @@ def test_v4_store_rejects_path_traversal(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="relative artifact path"):
         store.write_leaf(Path("../escape.json"), _payload())
+
+
+def test_v4_run_lock_excludes_second_writer_and_releases_on_exit(tmp_path: Path) -> None:
+    lock_path = tmp_path / ".causal-alpha-v4.lock"
+
+    with CausalAlphaV4RunLock(tmp_path):
+        assert lock_path.is_file()
+        with pytest.raises(RuntimeError, match="active or unrecovered writer"):
+            CausalAlphaV4RunLock(tmp_path).acquire()
+
+    assert not lock_path.exists()

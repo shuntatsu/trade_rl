@@ -6,7 +6,10 @@ from trade_rl.learning.causal_alpha_v4 import (
     CausalAlphaV4TargetConfig,
     causal_alpha_v4_target_path,
 )
-from trade_rl.learning.evaluation import ActionPathCollapseEvidence, PathPerformanceMetrics
+from trade_rl.learning.evaluation import (
+    ActionPathCollapseEvidence,
+    PathPerformanceMetrics,
+)
 from trade_rl.learning.rollout_evaluation import ActionPathEvaluation
 from trade_rl.workflows.universal_causal_alpha_v4_replay import (
     build_causal_alpha_v4_replay_metric,

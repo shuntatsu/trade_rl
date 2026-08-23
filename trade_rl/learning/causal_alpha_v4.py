@@ -8,6 +8,7 @@ from typing import Any, Final
 import numpy as np
 
 from trade_rl.data.identity import content_and_arrays_digest
+from trade_rl.data.universal_features import UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES
 from trade_rl.data.v4_context import V4ContextBlock
 from trade_rl.domain.common import require_sha256
 
@@ -52,6 +53,9 @@ class CausalAlphaV4SymbolSamples:
     decision_indices: np.ndarray
     target_local_features: np.ndarray
     target_local_available: np.ndarray
+    instrument_descriptor_names: tuple[str, ...]
+    instrument_descriptors: np.ndarray
+    instrument_descriptor_available: np.ndarray
     local_context: V4ContextBlock
     global_context: V4ContextBlock
     beta: np.ndarray
@@ -83,6 +87,14 @@ class CausalAlphaV4SymbolSamples:
             raise ValueError(
                 "V4 target-local feature names must be non-empty and unique"
             )
+        descriptor_names = tuple(self.instrument_descriptor_names)
+        if descriptor_names != UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES:
+            raise ValueError(
+                "V4 instrument descriptor names must match the maintained order"
+            )
+        if set(names).intersection(descriptor_names):
+            raise ValueError("V4 target-local features must not duplicate descriptors")
+
         decisions = _readonly(self.decision_indices, dtype=np.int64).reshape(-1)
         rows = int(decisions.size)
         if rows == 0 or np.any(decisions < 0) or np.any(np.diff(decisions) <= 0):
@@ -93,6 +105,19 @@ class CausalAlphaV4SymbolSamples:
             raise ValueError("V4 target-local arrays do not match feature schema")
         if not np.isfinite(features).all():
             raise ValueError("V4 target-local features must be finite")
+        descriptors = _readonly(self.instrument_descriptors, dtype=np.float64)
+        descriptor_available = _readonly(
+            self.instrument_descriptor_available, dtype=np.bool_
+        )
+        descriptor_shape = (rows, len(descriptor_names))
+        if (
+            descriptors.shape != descriptor_shape
+            or descriptor_available.shape != descriptor_shape
+        ):
+            raise ValueError("V4 instrument descriptor arrays do not match schema")
+        if not np.isfinite(descriptors).all():
+            raise ValueError("V4 instrument descriptors must be finite")
+
         if not isinstance(self.local_context, V4ContextBlock) or not isinstance(
             self.global_context, V4ContextBlock
         ):
@@ -135,6 +160,7 @@ class CausalAlphaV4SymbolSamples:
             {
                 "dataset_id": self.dataset_id,
                 "global_context_digest": self.global_context.digest,
+                "instrument_descriptor_names": descriptor_names,
                 "local_context_digest": self.local_context.digest,
                 "schema_version": CAUSAL_ALPHA_V4_SYMBOL_SAMPLES_SCHEMA,
                 "source_context_digest": self.source_context_digest,
@@ -149,6 +175,8 @@ class CausalAlphaV4SymbolSamples:
                 ("decision_indices", decisions),
                 ("target_local_features", features),
                 ("target_local_available", available),
+                ("instrument_descriptors", descriptors),
+                ("instrument_descriptor_available", descriptor_available),
                 ("beta", beta),
                 ("beta_available", beta_available),
                 ("labels_4h", labels["4h"]),
@@ -162,9 +190,14 @@ class CausalAlphaV4SymbolSamples:
         if self.digest and self.digest != expected:
             raise ValueError("V4 symbol sample digest mismatch")
         object.__setattr__(self, "target_local_feature_names", names)
+        object.__setattr__(self, "instrument_descriptor_names", descriptor_names)
         object.__setattr__(self, "decision_indices", decisions)
         object.__setattr__(self, "target_local_features", features)
         object.__setattr__(self, "target_local_available", available)
+        object.__setattr__(self, "instrument_descriptors", descriptors)
+        object.__setattr__(
+            self, "instrument_descriptor_available", descriptor_available
+        )
         object.__setattr__(self, "beta", beta)
         object.__setattr__(self, "beta_available", beta_available)
         for horizon in ("4h", "24h", "72h"):

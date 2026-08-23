@@ -23,7 +23,7 @@ jobs:
           python-version: '3.12'
           enable-cache: true
       - name: Install
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra train-sb3
       - name: Run targeted V4 runtime-observation tests
         run: |
           uv run pytest -q \

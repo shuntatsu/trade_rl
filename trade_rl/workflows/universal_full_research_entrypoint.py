@@ -18,6 +18,11 @@ from trade_rl.integrations.runtime_factory import (
 from trade_rl.rl.training import ResidualTrainingConfig
 from trade_rl.rl.training_run_config import TrainingRunConfig
 from trade_rl.rl.universal_architecture import UniversalArchitectureName
+from trade_rl.workflows.universal_causal_alpha_v4_manifest import (
+    CausalAlphaV4ContextManifest,
+    load_causal_alpha_v4_context_manifest,
+    validate_causal_alpha_v4_context_manifest_against_base,
+)
 from trade_rl.workflows.universal_full_research_training import (
     UniversalFullResearchTrainingComparison,
     train_universal_full_research_comparison,
@@ -43,13 +48,28 @@ class UniversalRuntimeFactoryContext:
     fold_train_range: tuple[int, int] | None = None
     normalizer_digest: str | None = None
     feature_schema_digest: str | None = None
+    v4_context_manifest_path: Path | None = None
     manifest: UniversalRuntimeManifest = field(init=False)
     normalizer_artifact_root: Path = field(init=False)
+    v4_context_manifest: CausalAlphaV4ContextManifest | None = field(
+        init=False, default=None
+    )
 
     def __post_init__(self) -> None:
         manifest_path = Path(self.runtime_manifest_path)
         frozen_root = Path(self.frozen_metadata_root)
         manifest = load_universal_runtime_manifest(manifest_path)
+        v4_manifest_path = (
+            None
+            if self.v4_context_manifest_path is None
+            else Path(self.v4_context_manifest_path)
+        )
+        v4_manifest: CausalAlphaV4ContextManifest | None = None
+        if v4_manifest_path is not None:
+            v4_manifest = load_causal_alpha_v4_context_manifest(v4_manifest_path)
+            validate_causal_alpha_v4_context_manifest_against_base(
+                v4_manifest, manifest
+            )
         base = manifest_path.parent
         instrument_root = base / manifest.instrument_artifact_relpath
         dataset_root = base / manifest.dataset_artifact_relpath
@@ -83,6 +103,8 @@ class UniversalRuntimeFactoryContext:
         object.__setattr__(self, "instrument_artifact_root", instrument_root)
         object.__setattr__(self, "dataset_artifact_root", dataset_root)
         object.__setattr__(self, "normalizer_artifact_root", normalizer_root)
+        object.__setattr__(self, "v4_context_manifest_path", v4_manifest_path)
+        object.__setattr__(self, "v4_context_manifest", v4_manifest)
         object.__setattr__(self, "fold_train_range", manifest.fold_train_range)
         object.__setattr__(self, "normalizer_digest", manifest.statistics_digest)
         object.__setattr__(

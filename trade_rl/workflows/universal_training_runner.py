@@ -45,6 +45,7 @@ from trade_rl.rl.training import (
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
 from trade_rl.rl.universal_instrument_context import CausalInstrumentContextProvider
 from trade_rl.rl.universal_single_instrument_env import EpisodeRoutedSingleInstrumentEnv
+from trade_rl.rl.universal_v4_context import V4ContextProvider
 from trade_rl.strategies.trend import TrendStrategy
 from trade_rl.workflows.universal_causal_alpha_teacher import (
     UniversalCausalAlphaTeacherPackage,
@@ -342,6 +343,8 @@ class UniversalRoutedEnvironmentFactory:
     instrument_context_provider: CausalInstrumentContextProvider | None
     training_contract_digest: str
     run_seed: int
+    v4_context_provider: V4ContextProvider | None = None
+    v4_context_manifest_digest: str | None = None
     max_cached_environments: int | None = 1
 
     def __post_init__(self) -> None:
@@ -358,6 +361,18 @@ class UniversalRoutedEnvironmentFactory:
             )
         if not callable(self.concrete_environment_factory):
             raise TypeError("concrete_environment_factory must be callable")
+        provider = self.v4_context_provider
+        manifest_digest = self.v4_context_manifest_digest
+        if provider is not None and not isinstance(provider, V4ContextProvider):
+            raise TypeError("v4_context_provider must be a V4ContextProvider")
+        if (provider is None) != (manifest_digest is None):
+            raise ValueError(
+                "V4 context provider and manifest digest must be supplied together"
+            )
+        if manifest_digest is not None:
+            require_sha256(
+                manifest_digest, field="Universal V4 context manifest digest"
+            )
         if (
             isinstance(self.run_seed, bool)
             or not isinstance(self.run_seed, int)
@@ -376,6 +391,12 @@ class UniversalRoutedEnvironmentFactory:
                 "schema_version": "universal_routed_environment_factory_v1",
                 "training_contract_digest": self.training_contract_digest,
                 "train_symbols": self.train_symbols,
+                "v4_context_manifest_digest": (self.v4_context_manifest_digest),
+                "v4_context_provider_digest": (
+                    None
+                    if self.v4_context_provider is None
+                    else self.v4_context_provider.digest
+                ),
             }
         )
 
@@ -388,6 +409,7 @@ class UniversalRoutedEnvironmentFactory:
             run_seed=self.run_seed,
             environment_index=environment_index,
             instrument_context_provider=self.instrument_context_provider,
+            v4_context_provider=self.v4_context_provider,
             training_contract_digest=self.training_contract_digest,
             max_cached_environments=self.max_cached_environments,
         )

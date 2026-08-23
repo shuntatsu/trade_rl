@@ -7,6 +7,9 @@ from typing import Any
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import load_market_dataset_artifact
+from trade_rl.data.v4_context_artifact import (
+    load_v4_target_context_artifact,
+)
 from trade_rl.integrations.binance import BinanceMarket
 from trade_rl.integrations.frozen_binance_metadata import (
     FrozenBinanceExchangeInfoTransport,
@@ -14,6 +17,7 @@ from trade_rl.integrations.frozen_binance_metadata import (
 from trade_rl.integrations.postgres_universal_source import MAINTAINED_SYMBOLS
 from trade_rl.rl.training_run_config import TrainingRunConfig
 from trade_rl.rl.universal_instrument_context import CausalInstrumentContextProvider
+from trade_rl.rl.universal_v4_context import V4ContextProvider
 from trade_rl.workflows.binance_metadata_modes import resolve_frozen_snapshot
 from trade_rl.workflows.universal_full_research_entrypoint import (
     UniversalRuntimeFactoryContext,
@@ -87,6 +91,28 @@ def _require_static_artifact_closure(
     return bundle, datasets, paths, shared
 
 
+def _load_v4_context_provider(
+    context: UniversalRuntimeFactoryContext,
+) -> tuple[V4ContextProvider | None, str | None]:
+    manifest = context.v4_context_manifest
+    if manifest is None:
+        return None, None
+    manifest_path = context.v4_context_manifest_path
+    if manifest_path is None:
+        raise RuntimeError("V4 context manifest path was not retained")
+    root = Path(manifest_path).parent / manifest.context_artifact_relpath
+    contexts = {}
+    for symbol, expected_digest in manifest.context_digests:
+        loaded = load_v4_target_context_artifact(root / symbol)
+        if loaded.symbol != symbol or loaded.digest != expected_digest:
+            raise ValueError(f"V4 context artifact identity mismatch for {symbol}")
+        contexts[symbol] = loaded
+    provider = V4ContextProvider(contexts=contexts)
+    if provider.profile_name != manifest.profile_name:
+        raise ValueError("V4 context provider profile does not match manifest")
+    return provider, manifest.manifest_digest
+
+
 def build_runtime(
     *,
     algorithm: FullResearchAlgorithm | str,
@@ -128,6 +154,7 @@ def build_runtime(
         train_symbols=manifest.train_symbols,
     )
     provider = CausalInstrumentContextProvider(contracts=contracts)
+    v4_provider, v4_manifest_digest = _load_v4_context_provider(context)
     normalizers = {
         symbol: bind_universal_normalizers(
             datasets[symbol],
@@ -155,6 +182,8 @@ def build_runtime(
         instrument_context_provider=provider,
         training_contract_digest=content_digest({"phase": "runtime-rebind"}),
         run_seed=min(run_config.training.seeds),
+        v4_context_provider=v4_provider,
+        v4_context_manifest_digest=v4_manifest_digest,
     )
     return build_universal_training_runtime(
         train_symbols=manifest.train_symbols,

@@ -34,9 +34,10 @@ def _context(
     local_values = np.arange(2 * len(local_names), dtype=np.float64).reshape(
         2, len(local_names)
     )
-    global_values = np.arange(2 * len(global_names), dtype=np.float64).reshape(
-        2, len(global_names)
-    ) + 1000.0
+    global_values = (
+        np.arange(2 * len(global_names), dtype=np.float64).reshape(2, len(global_names))
+        + 1000.0
+    )
     local = V4ContextBlock(
         feature_names=local_names,
         decision_indices=decisions,

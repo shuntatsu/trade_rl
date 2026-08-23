@@ -1,0 +1,185 @@
+name: V4 env patch once
+
+on:
+  push:
+    branches:
+      - design/causal-alpha-v4-hierarchical-teacher
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.repository == 'shuntatsu/trade_rl'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: design/causal-alpha-v4-hierarchical-teacher
+          persist-credentials: true
+      - name: Patch routed environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/rl/universal_single_instrument_env.py')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one match, got {count}: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              'from trade_rl.rl.universal_instrument_binding import (\n'
+              '    GENERIC_INSTRUMENT_SYMBOLS,\n'
+              '    GENERIC_TARGET_WEIGHT_ACTION_NAMES,\n'
+              '    InstrumentDatasetBinding,\n'
+              '    InstrumentEpisodeBinding,\n'
+              '    validate_training_instrument_bindings,\n'
+              ')\n',
+              'from trade_rl.rl.universal_instrument_binding import (\n'
+              '    GENERIC_INSTRUMENT_SYMBOLS,\n'
+              '    GENERIC_TARGET_WEIGHT_ACTION_NAMES,\n'
+              '    InstrumentDatasetBinding,\n'
+              '    InstrumentEpisodeBinding,\n'
+              '    validate_training_instrument_bindings,\n'
+              ')\n'
+              'from trade_rl.rl.universal_v4_context import V4ContextProvider\n',
+          )
+
+          replace_once(
+              'UNIVERSAL_OBSERVATION_SCHEMA: Final = "universal_single_instrument_observation_v1"\n',
+              'UNIVERSAL_OBSERVATION_SCHEMA: Final = "universal_single_instrument_observation_v1"\n'
+              '_V4_OBSERVATION_KEYS: Final = (\n'
+              '    "local_cross_market_context",\n'
+              '    "local_cross_market_available",\n'
+              '    "local_cross_market_staleness_hours",\n'
+              '    "global_market_context",\n'
+              '    "global_market_available",\n'
+              '    "global_market_staleness_hours",\n'
+              '    "causal_beta",\n'
+              '    "causal_beta_available",\n'
+              ')\n',
+          )
+
+          replace_once(
+              '        instrument_context_provider: InstrumentContextProvider | None = None,\n'
+              '        training_contract_digest: str | None = None,\n',
+              '        instrument_context_provider: InstrumentContextProvider | None = None,\n'
+              '        v4_context_provider: V4ContextProvider | None = None,\n'
+              '        training_contract_digest: str | None = None,\n',
+          )
+
+          replace_once(
+              '        if training_contract_digest is not None:\n',
+              '        if v4_context_provider is not None and not isinstance(\n'
+              '            v4_context_provider, V4ContextProvider\n'
+              '        ):\n'
+              '            raise TypeError("v4_context_provider must be a V4ContextProvider")\n'
+              '        if training_contract_digest is not None:\n',
+          )
+
+          replace_once(
+              '        self._instrument_context_provider = instrument_context_provider\n'
+              '        self._training_contract_digest = training_contract_digest\n',
+              '        self._instrument_context_provider = instrument_context_provider\n'
+              '        self._v4_context_provider = v4_context_provider\n'
+              '        if v4_context_provider is not None:\n'
+              '            missing_v4_symbols = set(self._bindings) - set(\n'
+              '                v4_context_provider.contexts\n'
+              '            )\n'
+              '            if missing_v4_symbols:\n'
+              '                raise ValueError(\n'
+              '                    "V4 context provider does not cover routed symbols: "\n'
+              '                    f"{sorted(missing_v4_symbols)}"\n'
+              '                )\n'
+              '        self._training_contract_digest = training_contract_digest\n',
+          )
+
+          replace_once(
+              '        context_schema_digest = getattr(\n'
+              '            instrument_context_provider,\n'
+              '            "schema_digest",\n'
+              '            None,\n'
+              '        )\n'
+              '        if context_schema_digest is not None:\n'
+              '            require_sha256(\n'
+              '                context_schema_digest,\n'
+              '                field="instrument context schema digest",\n'
+              '            )\n'
+              '        self._observation_contract_digest = content_digest(\n'
+              '            {\n'
+              '                "concrete_observation_contract_digest": (\n'
+              '                    concrete_observation_digest\n'
+              '                    if training_contract_digest is None\n'
+              '                    else None\n'
+              '                ),\n'
+              '                "instrument_context_schema_digest": context_schema_digest,\n'
+              '                "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,\n'
+              '                "training_contract_digest": training_contract_digest,\n'
+              '            }\n'
+              '        )\n',
+              '        context_schema_digest = getattr(\n'
+              '            instrument_context_provider,\n'
+              '            "schema_digest",\n'
+              '            None,\n'
+              '        )\n'
+              '        if context_schema_digest is not None:\n'
+              '            require_sha256(\n'
+              '                context_schema_digest,\n'
+              '                field="instrument context schema digest",\n'
+              '            )\n'
+              '        v4_context_schema_digest = (\n'
+              '            None\n'
+              '            if v4_context_provider is None\n'
+              '            else v4_context_provider.schema_digest\n'
+              '        )\n'
+              '        if v4_context_schema_digest is not None:\n'
+              '            require_sha256(\n'
+              '                v4_context_schema_digest,\n'
+              '                field="V4 context schema digest",\n'
+              '            )\n'
+              '        self._observation_contract_digest = content_digest(\n'
+              '            {\n'
+              '                "concrete_observation_contract_digest": (\n'
+              '                    concrete_observation_digest\n'
+              '                    if training_contract_digest is None\n'
+              '                    else None\n'
+              '                ),\n'
+              '                "instrument_context_schema_digest": context_schema_digest,\n'
+              '                "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,\n'
+              '                "training_contract_digest": training_contract_digest,\n'
+              '                "v4_context_schema_digest": v4_context_schema_digest,\n'
+              '            }\n'
+              '        )\n',
+          )
+
+          old_space = '''    def _policy_observation_space(\n        self,\n        observation_space: gym.spaces.Space[Any],\n    ) -> gym.spaces.Space[Any]:\n        if self._instrument_context_provider is None:\n            return observation_space\n        if not isinstance(observation_space, gym.spaces.Dict):\n            raise TypeError(\n                "instrument context requires a Dict concrete observation space"\n            )\n        if "instrument_context" in observation_space.spaces:\n            raise ValueError("concrete observation already contains instrument_context")\n        return gym.spaces.Dict(\n            {\n                **observation_space.spaces,\n                "instrument_context": gym.spaces.Box(\n                    low=-np.inf,\n                    high=np.inf,\n                    shape=(1, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES)),\n                    dtype=np.float32,\n                ),\n            }\n        )\n'''
+          new_space = '''    def _policy_observation_space(\n        self,\n        observation_space: gym.spaces.Space[Any],\n    ) -> gym.spaces.Space[Any]:\n        instrument_provider = self._instrument_context_provider\n        v4_provider = self._v4_context_provider\n        if instrument_provider is None and v4_provider is None:\n            return observation_space\n        if not isinstance(observation_space, gym.spaces.Dict):\n            raise TypeError("Universal context requires a Dict concrete observation space")\n        spaces = dict(observation_space.spaces)\n        if instrument_provider is not None:\n            if "instrument_context" in spaces:\n                raise ValueError("concrete observation already contains instrument_context")\n            spaces["instrument_context"] = gym.spaces.Box(\n                low=-np.inf,\n                high=np.inf,\n                shape=(1, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES)),\n                dtype=np.float32,\n            )\n        if v4_provider is not None:\n            collisions = tuple(key for key in _V4_OBSERVATION_KEYS if key in spaces)\n            if collisions:\n                raise ValueError(\n                    f"concrete observation already contains V4 context keys: {collisions}"\n                )\n            local_shape = (1, v4_provider.local_width)\n            global_shape = (1, v4_provider.global_width)\n            spaces.update(\n                {\n                    "local_cross_market_context": gym.spaces.Box(\n                        low=-np.inf, high=np.inf, shape=local_shape, dtype=np.float32\n                    ),\n                    "local_cross_market_available": gym.spaces.Box(\n                        low=0.0, high=1.0, shape=local_shape, dtype=np.float32\n                    ),\n                    "local_cross_market_staleness_hours": gym.spaces.Box(\n                        low=0.0, high=np.inf, shape=local_shape, dtype=np.float32\n                    ),\n                    "global_market_context": gym.spaces.Box(\n                        low=-np.inf, high=np.inf, shape=global_shape, dtype=np.float32\n                    ),\n                    "global_market_available": gym.spaces.Box(\n                        low=0.0, high=1.0, shape=global_shape, dtype=np.float32\n                    ),\n                    "global_market_staleness_hours": gym.spaces.Box(\n                        low=0.0, high=np.inf, shape=global_shape, dtype=np.float32\n                    ),\n                    "causal_beta": gym.spaces.Box(\n                        low=-3.0, high=3.0, shape=(1, 1), dtype=np.float32\n                    ),\n                    "causal_beta_available": gym.spaces.Box(\n                        low=0.0, high=1.0, shape=(1, 1), dtype=np.float32\n                    ),\n                }\n            )\n        return gym.spaces.Dict(spaces)\n'''
+          replace_once(old_space, new_space)
+
+          old_layout = '''        raw = getattr(environment, "sequence_layout_metadata", None)\n        if raw is None:\n            return None\n        if not isinstance(raw, dict):\n            raise TypeError("concrete sequence_layout_metadata must be a dict")\n        resolved = dict(raw)\n        if self._instrument_context_provider is not None:\n            resolved["instrument_context_width"] = len(\n                UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES\n            )\n        return resolved\n'''
+          new_layout = '''        raw = getattr(environment, "sequence_layout_metadata", None)\n        if raw is None:\n            if self._v4_context_provider is None:\n                return None\n            resolved: dict[str, Any] = {}\n        else:\n            if not isinstance(raw, dict):\n                raise TypeError("concrete sequence_layout_metadata must be a dict")\n            resolved = dict(raw)\n        if self._instrument_context_provider is not None:\n            resolved["instrument_context_width"] = len(\n                UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES\n            )\n        if self._v4_context_provider is not None:\n            resolved["v4_local_context_width"] = self._v4_context_provider.local_width\n            resolved["v4_global_context_width"] = self._v4_context_provider.global_width\n            resolved["v4_context_schema_digest"] = (\n                self._v4_context_provider.schema_digest\n            )\n        return resolved\n'''
+          replace_once(old_layout, new_layout)
+
+          old_obs = '''    def _policy_observation(\n        self,\n        observation: Any,\n        *,\n        environment: ConcreteSingleInstrumentEnv,\n        binding: InstrumentDatasetBinding,\n    ) -> Any:\n        provider = self._instrument_context_provider\n        if provider is None:\n            return observation\n        if not isinstance(observation, Mapping):\n            raise TypeError("instrument context requires mapping observations")\n        context = np.asarray(provider(environment, binding), dtype=np.float32)\n        expected = (1, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES))\n        if context.shape != expected or not np.isfinite(context).all():\n            raise ValueError("instrument_context must be a finite (1, 9) matrix")\n        return {**dict(observation), "instrument_context": context.copy()}\n'''
+          new_obs = '''    def _policy_observation(\n        self,\n        observation: Any,\n        *,\n        environment: ConcreteSingleInstrumentEnv,\n        binding: InstrumentDatasetBinding,\n    ) -> Any:\n        instrument_provider = self._instrument_context_provider\n        v4_provider = self._v4_context_provider\n        if instrument_provider is None and v4_provider is None:\n            return observation\n        if not isinstance(observation, Mapping):\n            raise TypeError("Universal context requires mapping observations")\n        resolved = dict(observation)\n        if instrument_provider is not None:\n            context = np.asarray(\n                instrument_provider(environment, binding), dtype=np.float32\n            )\n            expected = (1, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES))\n            if context.shape != expected or not np.isfinite(context).all():\n                raise ValueError("instrument_context must be a finite (1, 9) matrix")\n            resolved["instrument_context"] = context.copy()\n        if v4_provider is not None:\n            decision_index = _require_non_negative_int(\n                getattr(environment, "current_index", None),\n                field="V4 decision_index",\n            )\n            v4 = v4_provider.resolve(\n                symbol=binding.concrete_symbol,\n                decision_index=decision_index,\n            )\n            resolved.update(\n                {\n                    "local_cross_market_context": v4.local_values.copy(),\n                    "local_cross_market_available": v4.local_available.copy(),\n                    "local_cross_market_staleness_hours": (\n                        v4.local_staleness_hours.copy()\n                    ),\n                    "global_market_context": v4.global_values.copy(),\n                    "global_market_available": v4.global_available.copy(),\n                    "global_market_staleness_hours": (\n                        v4.global_staleness_hours.copy()\n                    ),\n                    "causal_beta": v4.beta.copy(),\n                    "causal_beta_available": v4.beta_available.copy(),\n                }\n            )\n        return resolved\n'''
+          replace_once(old_obs, new_obs)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+          git diff -- trade_rl/rl/universal_single_instrument_env.py
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/rl/universal_single_instrument_env.py
+          git commit -m 'feat: expose v4 context in routed observations'
+          git push origin HEAD:design/causal-alpha-v4-hierarchical-teacher

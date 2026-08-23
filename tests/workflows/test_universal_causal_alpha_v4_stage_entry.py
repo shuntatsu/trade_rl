@@ -49,16 +49,21 @@ def test_prepared_v4_entry_uses_one_store_and_persists_identity_chain(
         generator_code_digest=_digest("1"),
     )
     stores: list[object] = []
+    lock_states: list[bool] = []
+    root = tmp_path / "output"
+    lock_path = root / ".causal-alpha-v4.lock"
 
     def signal_stage(value: object, **kwargs: object) -> _Evidence:
         assert value is prepared
         stores.append(kwargs["store"])
+        lock_states.append(lock_path.is_file())
         return _Evidence("signal")
 
     def selection_stage(value: object, signal: object, **kwargs: object) -> _Evidence:
         assert value is prepared
         assert isinstance(signal, _Evidence)
         stores.append(kwargs["store"])
+        lock_states.append(lock_path.is_file())
         return _Evidence("selection")
 
     def admission_stage(
@@ -68,13 +73,14 @@ def test_prepared_v4_entry_uses_one_store_and_persists_identity_chain(
         assert isinstance(signal, _Evidence)
         assert isinstance(selection, _Evidence)
         stores.append(kwargs["store"])
+        lock_states.append(lock_path.is_file())
         return _Evidence("admission")
 
     package = execute_causal_alpha_v4_prepared_entry(
         config=config,
         config_path=config_path,
         prepared=prepared,
-        output_root=tmp_path / "output",
+        output_root=root,
         signal_stage=signal_stage,
         selection_stage=selection_stage,
         admission_stage=admission_stage,
@@ -84,7 +90,8 @@ def test_prepared_v4_entry_uses_one_store_and_persists_identity_chain(
     assert package.run_manifest_digest == _digest("a")
     assert len(stores) == 3
     assert stores[0] is stores[1] is stores[2]
-    root = tmp_path / "output"
+    assert lock_states == [True, True, True]
+    assert not lock_path.exists()
     for relative in (
         "run-manifest.json",
         "authored-config.json",

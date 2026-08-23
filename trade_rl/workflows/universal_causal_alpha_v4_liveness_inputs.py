@@ -74,6 +74,7 @@ def build_causal_alpha_v4_liveness_inputs(
     sample: object,
     forecast: CausalAlphaV4Forecast,
     horizon: str,
+    row_indices: object | None = None,
 ) -> CausalAlphaV4LivenessInputs:
     """Decompose the shared residual ridge into stable descriptive families."""
 
@@ -98,71 +99,92 @@ def build_causal_alpha_v4_liveness_inputs(
     if model.feature_names != names:
         raise ValueError("V4 liveness residual feature schema drifted")
 
-    rows = int(np.asarray(getattr(sample, "target_local_features", None)).shape[0])
-    if rows <= 0 or forecast.decision_indices.size != rows:
+    source_rows = int(np.asarray(getattr(sample, "target_local_features", None)).shape[0])
+    if source_rows <= 0:
+        raise ValueError("V4 liveness sample rows are unavailable")
+    rows = (
+        np.arange(source_rows, dtype=np.int64)
+        if row_indices is None
+        else np.asarray(row_indices, dtype=np.int64).reshape(-1)
+    )
+    if (
+        rows.size == 0
+        or np.any(rows < 0)
+        or np.any(rows >= source_rows)
+        or (rows.size > 1 and np.any(np.diff(rows) <= 0))
+    ):
+        raise ValueError("V4 liveness row indices must be unique increasing rows")
+    if forecast.decision_indices.size != rows.size:
         raise ValueError("V4 liveness sample/forecast rows drifted")
+
     target = _matrix(
         getattr(sample, "target_local_features", None),
-        rows=rows,
+        rows=source_rows,
         width=len(target_names),
         field="target local features",
         dtype=np.float64,
-    )
+    )[rows]
     target_available = _matrix(
         getattr(sample, "target_local_available", None),
-        rows=rows,
+        rows=source_rows,
         width=len(target_names),
         field="target local availability",
         dtype=np.bool_,
-    )
+    )[rows]
     local_values = _matrix(
         getattr(local, "values", None),
-        rows=rows,
+        rows=source_rows,
         width=len(local_names),
         field="local context",
         dtype=np.float64,
-    )
+    )[rows]
     local_available = _matrix(
         getattr(local, "available", None),
-        rows=rows,
+        rows=source_rows,
         width=len(local_names),
         field="local availability",
         dtype=np.bool_,
-    )
+    )[rows]
     global_values = _matrix(
         getattr(global_market, "values", None),
-        rows=rows,
+        rows=source_rows,
         width=len(global_names),
         field="global context",
         dtype=np.float64,
-    )
+    )[rows]
     global_available = _matrix(
         getattr(global_market, "available", None),
-        rows=rows,
+        rows=source_rows,
         width=len(global_names),
         field="global availability",
         dtype=np.bool_,
-    )
+    )[rows]
     descriptors = _matrix(
         getattr(sample, "instrument_descriptors", None),
-        rows=rows,
+        rows=source_rows,
         width=len(descriptor_names),
         field="instrument descriptors",
         dtype=np.float64,
-    )
+    )[rows]
     descriptor_available = _matrix(
         getattr(sample, "instrument_descriptor_available", None),
-        rows=rows,
+        rows=source_rows,
         width=len(descriptor_names),
         field="descriptor availability",
         dtype=np.bool_,
-    )
-    beta = np.asarray(getattr(sample, "beta", None), dtype=np.float64).reshape(-1)
-    beta_available = np.asarray(
+    )[rows]
+    beta_full = np.asarray(getattr(sample, "beta", None), dtype=np.float64).reshape(-1)
+    beta_available_full = np.asarray(
         getattr(sample, "beta_available", None), dtype=np.bool_
     ).reshape(-1)
-    if beta.shape != (rows,) or beta_available.shape != (rows,) or not np.isfinite(beta).all():
+    if (
+        beta_full.shape != (source_rows,)
+        or beta_available_full.shape != (source_rows,)
+        or not np.isfinite(beta_full).all()
+    ):
         raise ValueError("V4 liveness beta arrays are misaligned")
+    beta = beta_full[rows]
+    beta_available = beta_available_full[rows]
 
     features = np.column_stack((target, local_values, global_values, descriptors, beta[:, None]))
     available = np.column_stack(
@@ -174,11 +196,12 @@ def build_causal_alpha_v4_liveness_inputs(
     target_stop = len(target_names)
     local_stop = target_stop + len(local_names)
     global_stop = local_stop + len(global_names)
+    output_rows = int(rows.size)
     contributions = {
-        "existing_15m": np.zeros(rows, dtype=np.float64),
-        "existing_1h": np.zeros(rows, dtype=np.float64),
-        "existing_4h": np.zeros(rows, dtype=np.float64),
-        "existing_1d": np.zeros(rows, dtype=np.float64),
+        "existing_15m": np.zeros(output_rows, dtype=np.float64),
+        "existing_1h": np.zeros(output_rows, dtype=np.float64),
+        "existing_4h": np.zeros(output_rows, dtype=np.float64),
+        "existing_1d": np.zeros(output_rows, dtype=np.float64),
         "local_cross_market": per_feature[:, target_stop:local_stop].sum(axis=1),
         "global_market": per_feature[:, local_stop:global_stop].sum(axis=1),
         "beta_scaled_proxy": np.asarray(

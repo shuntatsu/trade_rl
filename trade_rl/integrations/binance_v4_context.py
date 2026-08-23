@@ -109,7 +109,9 @@ def _archive_rows(payload: bytes, *, source_uri: str) -> list[list[str]]:
         raise ValueError("V4 Binance archive payload must be non-empty bytes")
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            members = tuple(name for name in archive.namelist() if not name.endswith("/"))
+            members = tuple(
+                name for name in archive.namelist() if not name.endswith("/")
+            )
             if len(members) != 1:
                 raise ValueError("V4 Binance archive must contain exactly one CSV file")
             text = archive.read(members[0]).decode("utf-8-sig")
@@ -274,7 +276,9 @@ class BinanceFuturesMetricsSeries:
     digest: str = ""
 
     def __post_init__(self) -> None:
-        create_time = np.asarray(self.create_time, dtype="datetime64[ns]").reshape(-1).copy()
+        create_time = (
+            np.asarray(self.create_time, dtype="datetime64[ns]").reshape(-1).copy()
+        )
         if create_time.size == 0 or np.any(np.isnat(create_time)):
             raise ValueError("V4 metrics create_time must be non-empty and finite")
         create_ns = create_time.astype(np.int64)
@@ -285,7 +289,9 @@ class BinanceFuturesMetricsSeries:
             ("global_long_short_ratio", self.global_long_short_ratio),
             ("top_position_long_short_ratio", self.top_position_long_short_ratio),
         ):
-            array = _freeze_vector(value, dtype=np.dtype(np.float64), field=f"V4 metrics {name}")
+            array = _freeze_vector(
+                value, dtype=np.dtype(np.float64), field=f"V4 metrics {name}"
+            )
             if array.shape != create_time.shape:
                 raise ValueError("V4 metrics arrays must be row aligned")
             if np.any(array < 0.0):
@@ -548,7 +554,9 @@ def parse_binance_futures_metrics_archive(
             "V4 Binance metrics header columns mismatch; "
             f"missing={missing}, unknown={unknown}"
         )
-    header = {name: header_values.index(name) for name in BINANCE_FUTURES_METRICS_COLUMNS}
+    header = {
+        name: header_values.index(name) for name in BINANCE_FUTURES_METRICS_COLUMNS
+    }
     if len(rows) == 1:
         raise ValueError("V4 Binance metrics archive has no data rows")
 
@@ -578,7 +586,9 @@ def parse_binance_futures_metrics_archive(
             "sum_taker_long_short_vol_ratio",
         ):
             if values[name] <= 0.0:
-                raise ValueError("V4 Binance metrics long/short ratios must be positive")
+                raise ValueError(
+                    "V4 Binance metrics long/short ratios must be positive"
+                )
         create_time.append(_parse_metrics_time(row[header["create_time"]]))
         oi_value.append(values["sum_open_interest_value"])
         global_ratio.append(values["count_long_short_ratio"])
@@ -626,7 +636,9 @@ def align_futures_metrics_to_decisions(
     for row, source_index in enumerate(indices):
         if source_index < 0:
             continue
-        age_hours = float(decision_ns[row] - metric_ns[source_index]) / 3_600_000_000_000.0
+        age_hours = (
+            float(decision_ns[row] - metric_ns[source_index]) / 3_600_000_000_000.0
+        )
         if age_hours < 0.0:
             raise RuntimeError("V4 metrics backward as-of join produced negative age")
         open_interest[row] = metrics.open_interest_value[source_index]

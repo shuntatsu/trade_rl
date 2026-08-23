@@ -87,8 +87,12 @@ def _kline_url(day: int, *, kind: str = "klines") -> str:
 def test_cached_kline_loader_merges_archives_in_authored_order(tmp_path: Path) -> None:
     first = _kline_url(1, kind="spot")
     second = _kline_url(2, kind="spot")
-    _publish(tmp_path, first, _zip_csv([_kline_row(1767225600000, 100.0)], name="a.csv"))
-    _publish(tmp_path, second, _zip_csv([_kline_row(1767312000000, 110.0)], name="b.csv"))
+    _publish(
+        tmp_path, first, _zip_csv([_kline_row(1767225600000, 100.0)], name="a.csv")
+    )
+    _publish(
+        tmp_path, second, _zip_csv([_kline_row(1767312000000, 110.0)], name="b.csv")
+    )
 
     series = load_cached_v4_kline_series((first, second), cache_root=tmp_path)
     np.testing.assert_array_equal(
@@ -103,7 +107,9 @@ def test_cached_kline_loader_rejects_duplicate_or_reversed_time(tmp_path: Path) 
     first = _kline_url(1, kind="spot")
     second = _kline_url(2, kind="spot")
     duplicate = _zip_csv([_kline_row(1767225600000, 101.0)], name="dup.csv")
-    _publish(tmp_path, first, _zip_csv([_kline_row(1767225600000, 100.0)], name="a.csv"))
+    _publish(
+        tmp_path, first, _zip_csv([_kline_row(1767225600000, 100.0)], name="a.csv")
+    )
     _publish(tmp_path, second, duplicate)
     with pytest.raises(ValueError, match="strictly increasing|duplicate|order"):
         load_cached_v4_kline_series((first, second), cache_root=tmp_path)
@@ -196,7 +202,9 @@ def test_cached_cross_market_builder_uses_verified_archives(tmp_path: Path) -> N
     )
     metrics_url = _metrics_url(1)
     for url, close in ((spot_url, 100.0), (perp_url, 101.0), (mark_url, 100.5)):
-        _publish(tmp_path, url, _zip_csv([_kline_row(1767225600000, close)], name="k.csv"))
+        _publish(
+            tmp_path, url, _zip_csv([_kline_row(1767225600000, close)], name="k.csv")
+        )
     _publish(
         tmp_path,
         funding_url,

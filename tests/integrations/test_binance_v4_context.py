@@ -253,9 +253,7 @@ def test_future_metrics_event_is_not_visible_to_earlier_decision() -> None:
 
 
 def test_metrics_older_than_one_decision_are_unavailable() -> None:
-    decisions = np.asarray(
-        [np.datetime64("2026-01-01T00:30")], dtype="datetime64[ns]"
-    )
+    decisions = np.asarray([np.datetime64("2026-01-01T00:30")], dtype="datetime64[ns]")
     metrics = _make_metrics(
         np.asarray([np.datetime64("2026-01-01T00:10")], dtype="datetime64[ns]")
     )
@@ -263,13 +261,13 @@ def test_metrics_older_than_one_decision_are_unavailable() -> None:
     assert BINANCE_V4_MAX_DERIVATIVES_STALENESS_HOURS == pytest.approx(0.25)
     assert not aligned.available[0]
     assert aligned.staleness_hours[0] == pytest.approx(20.0 / 60.0)
-    assert aligned.open_interest_value[0] == pytest.approx(metrics.open_interest_value[0])
+    assert aligned.open_interest_value[0] == pytest.approx(
+        metrics.open_interest_value[0]
+    )
 
 
 def test_metrics_exactly_fifteen_minutes_old_remain_available() -> None:
-    decisions = np.asarray(
-        [np.datetime64("2026-01-01T00:30")], dtype="datetime64[ns]"
-    )
+    decisions = np.asarray([np.datetime64("2026-01-01T00:30")], dtype="datetime64[ns]")
     metrics = _make_metrics(
         np.asarray([np.datetime64("2026-01-01T00:15")], dtype="datetime64[ns]")
     )
@@ -279,9 +277,7 @@ def test_metrics_exactly_fifteen_minutes_old_remain_available() -> None:
 
 
 def test_future_metrics_mutation_cannot_change_existing_prefix() -> None:
-    decisions = np.asarray(
-        [np.datetime64("2026-01-01T00:15")], dtype="datetime64[ns]"
-    )
+    decisions = np.asarray([np.datetime64("2026-01-01T00:15")], dtype="datetime64[ns]")
     before = _make_metrics(
         np.asarray([np.datetime64("2026-01-01T00:10")], dtype="datetime64[ns]")
     )

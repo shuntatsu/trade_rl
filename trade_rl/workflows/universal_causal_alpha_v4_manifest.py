@@ -11,9 +11,7 @@ from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
 
-CAUSAL_ALPHA_V4_CONTEXT_MANIFEST_SCHEMA: Final = (
-    "causal_alpha_v4_context_manifest_v1"
-)
+CAUSAL_ALPHA_V4_CONTEXT_MANIFEST_SCHEMA: Final = "causal_alpha_v4_context_manifest_v1"
 _ALLOWED_PROFILES: Final = frozenset(
     {"cross_market_core_v1", "cross_market_derivatives_v1"}
 )

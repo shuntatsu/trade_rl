@@ -43,7 +43,9 @@ def _series(
         open_time_ms=np.asarray(opens, dtype=np.int64),
         close_time_ms=np.asarray([value + 899_999 for value in opens], dtype=np.int64),
         close=np.asarray(closes, dtype=np.float64),
-        quote_volume=np.asarray([1_000.0, 1_100.0, 1_200.0], dtype=np.float64)[: len(opens)],
+        quote_volume=np.asarray([1_000.0, 1_100.0, 1_200.0], dtype=np.float64)[
+            : len(opens)
+        ],
         taker_buy_quote_volume=np.asarray([550.0, 500.0, 650.0], dtype=np.float64)[
             : len(opens)
         ],

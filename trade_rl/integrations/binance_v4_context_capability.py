@@ -44,7 +44,12 @@ class BinanceV4ProfileCapability:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"V4 capability {name} must be non-negative")
-        if self.cached_archive_count + self.missing_archive_count + self.invalid_archive_count > self.required_archive_count:
+        if (
+            self.cached_archive_count
+            + self.missing_archive_count
+            + self.invalid_archive_count
+            > self.required_archive_count
+        ):
             raise ValueError("V4 capability archive counts are inconsistent")
         expected_complete = (
             self.required_archive_count > 0
@@ -93,7 +98,9 @@ def inspect_binance_v4_derivative_capability(
 ) -> BinanceV4ProfileCapability:
     """Resolve core vs derivatives profile from immutable archive coverage only."""
 
-    resolved_symbols = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
+    resolved_symbols = tuple(
+        dict.fromkeys(str(symbol).strip().upper() for symbol in symbols)
+    )
     if not resolved_symbols or any(not symbol for symbol in resolved_symbols):
         raise ValueError("symbols must contain non-empty values")
     start = _aware_utc(start_time, field="start_time")
@@ -104,9 +111,7 @@ def inspect_binance_v4_derivative_capability(
     report = inspect_binance_vision_urls(urls, cache_root=cache_root)
     invalid_count = len(report.empty_urls) + len(report.invalid_urls)
     complete = report.complete and report.cached_count == len(urls)
-    profile_name = (
-        "cross_market_derivatives_v1" if complete else "cross_market_core_v1"
-    )
+    profile_name = "cross_market_derivatives_v1" if complete else "cross_market_core_v1"
     source_digest = content_digest(
         {
             "cached_urls": tuple(

@@ -40,7 +40,9 @@ def _publish(cache_root: Path, url: str, payload: bytes = b"payload") -> None:
     )
 
 
-def test_generic_vision_url_inspection_reports_missing_and_cached(tmp_path: Path) -> None:
+def test_generic_vision_url_inspection_reports_missing_and_cached(
+    tmp_path: Path,
+) -> None:
     first = (
         "https://data.binance.vision/data/futures/um/daily/metrics/"
         "BTCUSDT/BTCUSDT-metrics-2026-01-01.zip"

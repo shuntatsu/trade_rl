@@ -6,13 +6,17 @@ from pathlib import Path
 import pytest
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.workflows import universal_causal_alpha_v4_stage_entry as stage_entry
 from trade_rl.workflows.universal_causal_alpha_v4_pipeline import (
     CausalAlphaV4AdmissionRejected,
     CausalAlphaV4ResearchPackage,
     CausalAlphaV4SelectionRejected,
     CausalAlphaV4SignalRejected,
 )
-from trade_rl.workflows.universal_causal_alpha_v4_runner import cli_main
+from trade_rl.workflows.universal_causal_alpha_v4_runner import (
+    cli_main,
+    run_universal_causal_alpha_v4_research_from_paths,
+)
 
 
 def _digest(char: str) -> str:
@@ -49,6 +53,17 @@ def _argv(tmp_path: Path) -> list[str]:
         "--output-root",
         str(tmp_path / "output"),
     ]
+
+
+def _package() -> CausalAlphaV4ResearchPackage:
+    return CausalAlphaV4ResearchPackage(
+        signal_evidence_digest=_digest("a"),
+        selection_evidence_digest=_digest("b"),
+        admission_evidence_digest=_digest("c"),
+        run_manifest_digest=_digest("d"),
+        v4_context_manifest_digest=_digest("e"),
+        config_digest=_digest("f"),
+    )
 
 
 def test_v4_cli_requires_context_manifest(tmp_path: Path) -> None:
@@ -92,14 +107,7 @@ def test_v4_cli_returns_zero_only_for_research_admission(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    package = CausalAlphaV4ResearchPackage(
-        signal_evidence_digest=_digest("a"),
-        selection_evidence_digest=_digest("b"),
-        admission_evidence_digest=_digest("c"),
-        run_manifest_digest=_digest("d"),
-        v4_context_manifest_digest=_digest("e"),
-        config_digest=_digest("f"),
-    )
+    package = _package()
 
     status = cli_main(_argv(tmp_path), run_from_paths=lambda **_: package)
     payload = json.loads(capsys.readouterr().out)
@@ -108,6 +116,38 @@ def test_v4_cli_returns_zero_only_for_research_admission(
     assert payload["status"] == "admitted"
     assert payload["research_only"] is True
     assert payload["promotion_eligible"] is False
+
+
+def test_v4_path_runner_delegates_to_artifact_bound_stage_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = _package()
+    captured: dict[str, object] = {}
+
+    def fake_entry(**kwargs: object) -> CausalAlphaV4ResearchPackage:
+        captured.update(kwargs)
+        return package
+
+    monkeypatch.setattr(stage_entry, "run_causal_alpha_v4_stage_entry", fake_entry)
+    result = run_universal_causal_alpha_v4_research_from_paths(
+        config_path=tmp_path / "v4.json",
+        run_config_path=tmp_path / "run.json",
+        runtime_manifest_path=tmp_path / "runtime-manifest.json",
+        v4_context_manifest_path=tmp_path / "v4-context-manifest.json",
+        frozen_metadata_root=tmp_path / "metadata",
+        output_root=tmp_path / "output",
+    )
+
+    assert result is package
+    assert captured == {
+        "config_path": tmp_path / "v4.json",
+        "run_config_path": tmp_path / "run.json",
+        "runtime_manifest_path": tmp_path / "runtime-manifest.json",
+        "v4_context_manifest_path": tmp_path / "v4-context-manifest.json",
+        "frozen_metadata_root": tmp_path / "metadata",
+        "output_root": tmp_path / "output",
+    }
 
 
 def test_v4_cli_entrypoint_file_exists() -> None:

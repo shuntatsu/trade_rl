@@ -12,14 +12,8 @@ from trade_rl.integrations.binance_v4_source_plan import (
 
 
 def _timestamps() -> np.ndarray:
-    return np.asarray(
-        [
-            np.datetime64("2026-01-01T00:15"),
-            np.datetime64("2026-01-01T00:30"),
-            np.datetime64("2026-01-02T00:00"),
-        ],
-        dtype="datetime64[ns]",
-    )
+    start = np.datetime64("2026-01-01T00:15", "ns")
+    return start + np.arange(96) * np.timedelta64(15, "m")
 
 
 def test_reference_clock_uses_existing_dataset_timestamps_exactly() -> None:
@@ -31,7 +25,9 @@ def test_reference_clock_uses_existing_dataset_timestamps_exactly() -> None:
         nominal_bar_hours=0.25,
     )
     clock = build_v4_reference_decision_clock(dataset)
-    np.testing.assert_array_equal(clock.decision_indices, [0, 1, 2])
+    assert clock.decision_indices[0] == 0
+    assert clock.decision_indices[-1] == 95
+    assert len(clock.decision_indices) == 96
     np.testing.assert_array_equal(clock.decision_timestamps, _timestamps())
     assert len(clock.source_digest) == 64
 

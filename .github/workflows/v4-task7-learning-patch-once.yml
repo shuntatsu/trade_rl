@@ -30,7 +30,40 @@ jobs:
       - name: Install
         run: uv sync --extra dev
       - name: Patch V4 fit config and forecast
-        shell: bash
+        run: python scripts/v4_task7_patch_once.py
+      - name: Format Task 7 files
         run: |
-          set -euo pipefail
-          python -c "import base64; exec(base64.b64decode('aW1wb3J0IGJhc2U2NApmcm9tIHBhdGhsaWIgaW1wb3J0IFBhdGgKcD1QYXRoKCJ0cmFkZV9ybC9sZWFybmluZy9jYXVzYWxfYWxwaGFfdjQucHkiKQp0PXAucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpCmRlZiByKG8sbik6CiAgICBnbG9iYWwgdAogICAgYXNzZXJ0IHQuY291bnQobyk9PTEsKG9bOjgwXSx0LmNvdW50KG8pKQogICAgdD10LnJlcGxhY2UobyxuLDEpCnIoImZyb20gZGF0YWNsYXNzZXMgaW1wb3J0IGRhdGFjbGFzc1xuZnJvbSB0eXBpbmcgaW1wb3J0IEFueSwgRmluYWxcbiIsImZyb20gY29sbGVjdGlvbnMuYWJjIGltcG9ydCBNYXBwaW5nXG5mcm9tIGRhdGFjbGFzc2VzIGltcG9ydCBkYXRhY2xhc3MsIGZpZWxkXG5mcm9tIHR5cGVzIGltcG9ydCBNYXBwaW5nUHJveHlUeXBlXG5mcm9tIHR5cGluZyBpbXBvcnQgQW55LCBGaW5hbFxuIikKcigiaW1wb3J0IG51bXB5IGFzIG5wXG5cbmZyb20gdHJhZGVfcmwuZGF0YS5pZGVudGl0eSBpbXBvcnQgY29udGVudF9hbmRfYXJyYXlzX2RpZ2VzdFxuIiwiaW1wb3J0IG51bXB5IGFzIG5wXG5cbmZyb20gdHJhZGVfcmwuYXJ0aWZhY3RzLmhhc2hpbmcgaW1wb3J0IGNvbnRlbnRfZGlnZXN0XG5mcm9tIHRyYWRlX3JsLmRhdGEuaWRlbnRpdHkgaW1wb3J0IGNvbnRlbnRfYW5kX2FycmF5c19kaWdlc3RcbiIpCmM9J0NBVVNBTF9BTFBIQV9WNF9TWU1CT0xfU0FNUExFU19TQ0hFTUE6IEZpbmFsID0gImNhdXNhbF9hbHBoYV92NF9zeW1ib2xfc2FtcGxlc192MSJcbkNBVVNBTF9BTFBIQV9WNF9SRVNJRFVBTF9MQUJFTFNfU0NIRU1BOiBGaW5hbCA9ICJjYXVzYWxfYWxwaGFfdjRfcmVzaWR1YWxfbGFiZWxzX3YxIlxuJwpyKGMsYysnQ0FVU0FMX0FMUEhBX1Y0X0ZJVF9DT05GSUdfU0NIRU1BOiBGaW5hbCA9ICJjYXVzYWxfYWxwaGFfdjRfZml0X2NvbmZpZ192MSJcbkNBVVNBTF9BTFBIQV9WNF9GT1JFQ0FTVF9TQ0hFTUE6IEZpbmFsID0gImNhdXNhbF9hbHBoYV92NF9mb3JlY2FzdF92MSJcbkNBVVNBTF9BTFBIQV9WNF9IT1JJWk9OUzogRmluYWwgPSAoIjRoIiwgIjI0aCIsICI3MmgiKVxuJykKYT1iYXNlNjQuYjY0ZGVjb2RlKCJDa0JrWVhSaFkyeGhjM01vWm5KdmVtVnVQVlJ5ZFdVc0lITnNiM1J6UFZSeWRXVXBDbU5zWVhOeklFTmhkWE5oYkVGc2NHaGhWalJHYVhSRGIyNW1hV2M2Q2lBZ0lDQWlJa1JvWlNCemFXNW5iR1VnY0hKbFpHVmpiR0Z5WldRZ2FHbGxjbUZ5WTJocFkyRnNJSEpwWkdkbElHaDViRzkwYUdWemFYTWdabTl5SUZZMExpSWlJZ29LSUNBZ2JXRnlhMlYwWDNKcFpHZGxYM04wY21WdVozUm9PaUJtYkc5aGRDQWdQU0F4TGpBS0lDQWdjbVZ6YVdSMVlXeGZjbWxrWjJWZmMzUnlaVzVuZEdnNklHWnNiMkYwSUQwZ01DNHhDaUFnSUNCa2FYSmxZM1JwYjI1ZmNtbGtaMlZmYzNSeVpXNW5kR2c2SUdac2IyRjBJQ0FnUFNBd0xqRUtJQ0FnYzJOb1pXMWhYM1psY25OcGIyNDZJSE4wY2lBOUlFTkJWVk5CVEY5QlRGQklRVjlXTkY5R1NWUmZRMjlPUmtsSFgxTkRTRVZOUVFvS0lDQWdaR1ZtSUY5ZmNHOXpkRjlwYm1sMFgxOG9jMlZzWmlrZ0xUNGdUbTl1WlRvS0lDQWdJQ0FnYVdZZ2MyVnNaaTV6WTJobGJXRmZkbVZ5YzJsdmJpQWhQU0JEUVZWVFFVeGZRVXhRU0VGZlZqUmZSa2xVWDBOUFRrWkpSMDlVWDFORFNFMUZOZ29nSUNBZ0lDQWdJSEpoYVhObElGWmhiSFZsUlhKeWIzSW9JblZ1YzNWd2NHOXlkR1ZrSUZZMElHWnBkQ0JqYjI1bWFXY2djMk5vWlcxaElpa0tJQ0FnSUNCcFppQnpaV3htTG0xaGNtdGxkRjl5YVdSblpWOXpkSEpsYm1kMGFDQWhQU0F4TGpBNklDQWdJQ0FnSUhKaGFYTmxJRlpoYkhWbFJYSnliM0lvSWxZMElHMWhjbXRsZENCeWFXUm5aU0J6ZEhKbGJtZDBhQ0J0ZFhOMElISmxiV0ZwYmlBeExqQWlLU0FnSUNCcFppQnpaV3htTG5KbGMybGtkV0ZzWDNKcFpHZGxYM04wY21WdVozUm9JVDhnTUM0eE9pQWdJQ0FnSUNCeVlXbHpaU0JXWVd4MVpVVnljbTl5S0NKV05DQnlaWE5wWkhWaGJDQnlhV1JuWlNCemRISmxibWQwYUNCdGRYTjBJR0psSURBdU1TSXBDaUFnSUNCcFppQnpaV3htTG1ScGNtVmpkR2x2Ymw5eWFXUm5aVjl6ZEhKbGJtZDBJVDhnTUM0eE9pQWdJQ0FnSUNCeVlXbHpaU0JXWVd4MVpVVnljbTl5S0NKV05DQmthWEpsWTNScGIyNGdjbWxrWjJVZ2MzUnlaVzVuZEdnZ2JYVnpkQ0J5WlcxaGFXNGdNQzR4SWlrS0NpQWdJRUJ3Y205d1pYSjVDbUFnSUNCa1pXWWdaR2xuWlhOMEtITmxiR1lwSUMwK0lITjBjam9LSUNBZ0lDQWdJSEpsZEhWeWJpQmpiMjUwWlc1MFgyUnBaMlZ6ZENoelpXeG1LUW9LQ21SbFppQmZZMkZ1YjI1cFkyRnNYMmh2Y21sNmIyNWZZWEp5WVhsektBb2dJQ0FnZG1Gc2RXVTZJRTFoY0hCcGJtZGJjM1J5TENCdlltcGxZM1JkTEFvZ0lDQWdLaXdnWm1sbGJHUmZibUZ0WlRvZ2MzUnlMQW9nSUNBZ2NtOTNjem9nYVc1MExBb3BJQzArSUdScFkzUmJjM1J5TENCdWNDNXVaR0Z5Y21GNUhRb2dJQ0FnYVdZZ2MyVjBLSFpoYkhWbEtTQWhQU0J6WlhRb1EwRlZVMUZNUVRsZlZqUmZTRTlTU1ZwUFRsTXBPZ29nSUNBZ0lDQWdJSEpoYVhObElGWmhiSFZsUlhKeWIzSW9aaUpXTkNCbWIzSmxZMkZ6ZENCN1ptbGxiR1JmYm1GdFpYMGdhRzl5YVhwdmJpQnpaWFFnYVhNZ2FXNTJZV3hwWkNJUENpQWdJSEpsYzI5c2RtVmtPaUJrYVdOMFczTjBjaXdnYm5BdWJtUmhjbkpoZVYwZ1BTQjdmUW9nSUNBZ1ptOXlJR2h2Y21sNmIyNGdhVzRnUTBGVlUwRk1YMEZNVUVoQlgxWTBYMGhQVWtsYVQwNVRPZ29nSUNBZ0lDQWdaR0ZuWlhOMElEMGdjM1J5S0haaGJIVmxXMmh2Y21sNmJsMHBDaUFnSUNBZ0lDQnlaWEYxYVhKbFgzTm9ZVEkxTmloa2FXZGxjM1FzSUdacFpXeGtQV1lpVmpRZ1ptOXlaV05oYzNRZ2UybHBiV1Z5YVdGNWZWOWJJajlyYjNKcGVtOXVYU0lwQ2lBZ0lDQWdJSEpsYzI5c2RtVmtXMmh2Y21sNmJsMGdQU0JrYVdkbGMzUUtJQ0FnY21WMGRYSnVJSEpsYzI5c2RtVmtDZ29LUUdSaGRHRmpiR0Z6Y3lobWNtOTZaVzQ5VkhKMVpTd2djMnh2ZEhNOVEyaGxZMnRsWkZseElDa0tZMnhoYzNNZ1EyRjFjMkZzUVd4d2FHRldORVp2Y21Wall3UTZDaUFnSUNBaUlsUnljMkZrWlNWMElERWdjM2x0WW05c0ozTWdhVzF0ZFhSaFlteGxJSFJvY21WbExXaHZjbWw2YjI0Z2FHbGxjbUZ5WTJocFkyRnNJR1p2Y21Wall3UXVJaUlLQ2lBZ0lDQnplVzFpYjJ3NklITjBjaUFnSUNCa1pXTnBjMmx2Ymw5cGJtUnBZMlZ6T2lCdWNDNXVaR0Z5Y21GNUMp...
+          uv run ruff check --fix \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_fitting.py \
+            tests/learning/test_causal_alpha_v4_forecast.py \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py
+          uv run ruff format \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_fitting.py \
+            tests/learning/test_causal_alpha_v4_forecast.py \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py
+          git diff --check
+      - name: Verify Task 7 tests
+        run: |
+          uv run pytest -q \
+            tests/learning/test_causal_alpha_v4_forecast.py \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py
+      - name: Verify Task 7 typing
+        run: |
+          uv run mypy \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_fitting.py
+      - name: Verify import architecture
+        run: uv run lint-imports
+      - name: Commit Task 7 patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_fitting.py \
+            tests/learning/test_causal_alpha_v4_forecast.py \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py
+          git commit -m 'feat: add hierarchical causal alpha v4 fit'
+          git push origin HEAD:design/causal-alpha-v4-hierarchical-teacher

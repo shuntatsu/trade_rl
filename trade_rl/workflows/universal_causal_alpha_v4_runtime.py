@@ -104,9 +104,9 @@ def _split_v3_feature_surface(
     target_available = np.asarray(
         base_samples.feature_available[:, :split], dtype=np.bool_
     ).copy(order="C")
-    descriptors = np.asarray(
-        base_samples.features[:, split:], dtype=np.float64
-    ).copy(order="C")
+    descriptors = np.asarray(base_samples.features[:, split:], dtype=np.float64).copy(
+        order="C"
+    )
     descriptor_available = np.asarray(
         base_samples.feature_available[:, split:], dtype=np.bool_
     ).copy(order="C")

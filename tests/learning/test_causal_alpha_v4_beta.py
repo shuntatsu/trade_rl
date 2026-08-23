@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from trade_rl.data.v4_context import V4ContextBlock
@@ -129,14 +131,7 @@ def test_unavailable_persisted_beta_makes_residual_unavailable() -> None:
     )
     unavailable = symbol.beta_available.copy()
     unavailable[1] = False
-    symbol = CausalAlphaV4SymbolSamples(
-        **{
-            field: getattr(symbol, field)
-            for field in symbol.__dataclass_fields__
-            if field != "digest"
-        },
-        beta_available=unavailable,
-    )
+    symbol = replace(symbol, beta_available=unavailable, digest="")
 
     residual = build_causal_alpha_v4_residual_labels(
         symbol_samples=symbol,

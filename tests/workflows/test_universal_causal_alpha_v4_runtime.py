@@ -6,6 +6,9 @@ import numpy as np
 import pytest
 
 from trade_rl.data.v4_context import V4ContextBlock, V4TargetContext
+from trade_rl.data.universal_features import (
+    UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
+)
 from trade_rl.learning.causal_alpha_teacher import forward_log_return_label
 from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaSymbolSamples
 from trade_rl.workflows.universal_causal_alpha_v4_runtime import (
@@ -37,13 +40,20 @@ class _Dataset:
 def _base_samples(*, symbol: str = "ETHUSDT") -> CausalAlphaSymbolSamples:
     decisions = np.arange(10, 41, dtype=np.int64)
     rows = len(decisions)
-    features = decisions.astype(np.float64)[:, None]
+    market = decisions.astype(np.float64)[:, None]
+    descriptors = np.column_stack(
+        tuple(
+            decisions.astype(np.float64) + float(index + 1)
+            for index in range(len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES))
+        )
+    )
+    features = np.column_stack((market, descriptors))
     unavailable = np.full(rows, np.nan, dtype=np.float64)
     missing_end = np.full(rows, -1, dtype=np.int64)
     return CausalAlphaSymbolSamples(
         symbol=symbol,
         dataset_id=_digest("a" if symbol == "BTCUSDT" else "b"),
-        feature_names=("target_x",),
+        feature_names=("target_x", *UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES),
         feature_schema_digest=_digest("c"),
         context_digest=_digest("d"),
         reference_equity_mode="initial_capital",
@@ -133,6 +143,48 @@ def test_v4_sample_builder_uses_persisted_context_beta_exactly() -> None:
     np.testing.assert_array_equal(result.beta, context.beta)
     np.testing.assert_array_equal(result.beta_available, context.beta_available)
     assert result.source_context_digest == context.digest
+
+
+def test_v4_sample_builder_separates_market_features_and_descriptors_exactly() -> None:
+    base = _base_samples()
+    result = build_causal_alpha_v4_symbol_samples(
+        base_samples=base,
+        context=_context(),
+        dataset=_Dataset(),
+        train_stop=50,
+        signal_delay_decisions=1,
+        decision_bars=1,
+    )
+    assert result.target_local_feature_names == ("target_x",)
+    assert result.instrument_descriptor_names == UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES
+    np.testing.assert_array_equal(result.target_local_features, base.features[:, :1])
+    np.testing.assert_array_equal(result.instrument_descriptors, base.features[:, 1:])
+    np.testing.assert_array_equal(
+        np.column_stack((result.target_local_features, result.instrument_descriptors)),
+        base.features,
+    )
+    np.testing.assert_array_equal(
+        np.column_stack(
+            (result.target_local_available, result.instrument_descriptor_available)
+        ),
+        base.feature_available,
+    )
+
+
+def test_v4_sample_builder_rejects_descriptor_suffix_drift() -> None:
+    base = _base_samples()
+    names = list(base.feature_names)
+    names[-1] = "wrong_descriptor"
+    drifted = replace(base, feature_names=tuple(names), digest="")
+    with pytest.raises(ValueError, match="descriptor"):
+        build_causal_alpha_v4_symbol_samples(
+            base_samples=drifted,
+            context=_context(),
+            dataset=_Dataset(),
+            train_stop=50,
+            signal_delay_decisions=1,
+            decision_bars=1,
+        )
 
 
 def test_v4_sample_builder_future_price_mutation_after_train_stop_changes_nothing() -> (

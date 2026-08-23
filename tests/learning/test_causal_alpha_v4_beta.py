@@ -6,6 +6,9 @@ import numpy as np
 import pytest
 
 from trade_rl.data.v4_context import V4ContextBlock
+from trade_rl.data.universal_features import (
+    UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
+)
 from trade_rl.learning.causal_alpha_v4 import (
     CausalAlphaV4SymbolSamples,
     build_causal_alpha_v4_residual_labels,
@@ -48,6 +51,15 @@ def _samples(
         decision_indices=decisions,
         target_local_features=target,
         target_local_available=np.ones(target.shape, dtype=np.bool_),
+        instrument_descriptor_names=UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
+        instrument_descriptors=np.ones(
+            (len(decisions), len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES)),
+            dtype=np.float64,
+        ),
+        instrument_descriptor_available=np.ones(
+            (len(decisions), len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES)),
+            dtype=np.bool_,
+        ),
         local_context=_block(decisions=decisions, source="1", offset=10.0),
         global_context=_block(decisions=decisions, source="2", offset=20.0),
         beta=beta,

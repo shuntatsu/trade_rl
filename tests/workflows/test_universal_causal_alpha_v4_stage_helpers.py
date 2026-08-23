@@ -6,7 +6,7 @@ import numpy as np
 
 from trade_rl.learning.causal_alpha_teacher import CausalAlphaRidgeConfig, fit_causal_alpha_ridge
 from trade_rl.learning.causal_alpha_v4 import build_causal_alpha_v4_forecast
-from trade_rl.workflows.universal_causal_alpha_v4_fitting import (
+from trade_rl.workflows.universal_causal_alpha_v4_liveness_inputs import (
     build_causal_alpha_v4_liveness_inputs,
 )
 from trade_rl.workflows.universal_causal_alpha_v4_stage_runner import (

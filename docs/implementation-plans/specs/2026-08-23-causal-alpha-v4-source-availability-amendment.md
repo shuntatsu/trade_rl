@@ -60,6 +60,14 @@ For Spot/perpetual rows, `*_row_available` means the fully closed source bar was
 
 For futures metrics, the adapter performs an as-of join using source `create_time <= decision_timestamp` and emits both `derivatives_available` and exact non-negative `derivatives_staleness_hours`.
 
+The first V4 generation freezes:
+
+```text
+maximum_derivatives_staleness_hours = 0.25
+```
+
+This value is derived from the maintained 15-minute decision clock, not from model or trading outcomes. The latest metrics row is available at a decision only when its age is in `[0.0, 0.25]` hours. If the latest source row is older than 15 minutes, the adapter keeps its stored numeric values inert, sets `derivatives_available=False`, and preserves the exact age in `derivatives_staleness_hours` for diagnostics. A later generation may change this threshold only through a new pre-outcome authored contract.
+
 ## Funding event semantics
 
 `funding_event_rate` contains the actual funding value only on source funding-event rows and uses inert numeric zero elsewhere. `funding_event_available` identifies those actual events.
@@ -139,7 +147,8 @@ The source availability contract is correct when:
 4. Duplicating the same carried funding value on 15-minute rows does not change the event-based funding z-score.
 5. A futures metrics event with `create_time` after decision `t` cannot affect context at `t`.
 6. An as-of metrics value has staleness equal to `decision_time - create_time`.
-7. Interaction feature staleness is the maximum of its inputs.
-8. Mutating any future source row leaves all earlier feature values, availability, and staleness unchanged.
+7. A futures metrics value older than 15 minutes is unavailable even though its exact staleness remains observable for diagnostics.
+8. Interaction feature staleness is the maximum of its inputs.
+9. Mutating any future source row leaves all earlier feature values, availability, and staleness unchanged.
 
 Any violation is a causality/information-contract failure and blocks V4 Teacher admission.

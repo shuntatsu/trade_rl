@@ -64,17 +64,20 @@ class CausalAlphaV4ArtifactStore:
 
     def _validate_identity(self, payload: Mapping[str, object]) -> None:
         expected = (
-            ("run_manifest_digest", self.run_manifest_digest),
-            ("v4_context_manifest_digest", self.v4_context_manifest_digest),
-            ("config_digest", self.config_digest),
-            ("generator_code_digest", self.generator_code_digest),
+            ("run_manifest_digest", self.run_manifest_digest, "run manifest"),
+            (
+                "v4_context_manifest_digest",
+                self.v4_context_manifest_digest,
+                "V4 context manifest",
+            ),
+            ("config_digest", self.config_digest, "config"),
+            ("generator_code_digest", self.generator_code_digest, "generator code"),
         )
-        for field_name, expected_value in expected:
+        for field_name, expected_value, label in expected:
             observed = payload.get(field_name)
             if observed is None:
                 continue
             if observed != expected_value:
-                label = field_name.replace("_", " ")
                 raise ValueError(f"V4 artifact {label} identity mismatch")
         for field_name in (
             "contract_digest",

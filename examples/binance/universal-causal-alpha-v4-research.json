@@ -1,0 +1,28 @@
+{
+  "schema_version": "universal_causal_alpha_v4_research_config_v1",
+  "fit": {
+    "market_ridge_strength": 1.0,
+    "residual_ridge_strength": 0.1,
+    "direction_ridge_strength": 0.1
+  },
+  "target": {
+    "slow_target_magnitudes": [0.0, 0.025, 0.05, 0.1, 0.25],
+    "fast_deviation_magnitudes": [0.0, 0.025, 0.05],
+    "uncertainty_multiplier": 1.0,
+    "execution_cost_multiplier": 1.5,
+    "edge_margin": 0.001,
+    "slow_rebalance_decisions": 16,
+    "fast_rebalance_decisions": 4,
+    "maximum_final_target_delta": 0.125,
+    "maximum_fast_absolute_deviation": 0.05
+  },
+  "signal_gate": {
+    "independent_episode_count": 8,
+    "minimum_rank_ic_lower_ci": 0.0,
+    "minimum_top_bottom_spread_lower_ci": 0.0,
+    "minimum_direction_accuracy_excess_lower_ci": 0.0,
+    "bootstrap_resamples": 10000,
+    "bootstrap_seed": 20260823,
+    "bootstrap_block_size": 2
+  }
+}

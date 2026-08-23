@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build an opt-in, research-only Causal Alpha V4 lane that adds reproducible Spot/perpetual/global market context, a BTC-proxy + shared-residual hierarchical teacher with 4h/24h/72h responsibilities, state-conditioned uncertainty, and correctly defined economic replay through Teacher admission while leaving reward, risk, execution, and all V3 historical meanings unchanged.
+**Goal:** Build an opt-in, research-only Causal Alpha V4 lane that adds reproducible Spot/perpetual/global context, a BTC-proxy plus shared-residual hierarchical teacher with 4h/24h/72h responsibilities, state-conditioned uncertainty, and correctly defined economic replay through Teacher admission while leaving reward, risk, execution, and every V3 historical meaning unchanged.
 
-**Architecture:** Keep the maintained Universal runtime and V3 lane intact. Materialize V4 auxiliary context into separately digested artifacts, expose the same context to the Universal student observation surface, fit deterministic V4 market-proxy/residual/direction heads from train-only data, compile a 24h/72h slow anchor plus bounded 4h fast impulse, and evaluate it through a V4-only Signal/selection/admission evidence chain.
+**Architecture:** Keep the maintained Universal runtime and V3 lane intact. Materialize V4 auxiliary context into separately digested artifacts, expose exactly the same current-time context and missingness to the Universal student observation surface, fit deterministic V4 market-proxy/residual/direction heads from train-only data, compile a 24h/72h slow anchor plus bounded 4h fast impulse, and evaluate it through a V4-only Signal/selection/admission evidence chain.
 
 **Tech Stack:** Python 3.12, NumPy `<2.0`, Gymnasium 0.29.1, existing Binance Vision/Public REST infrastructure, existing weighted ridge primitives, pytest, Hypothesis, Ruff, MyPy, Import Linter, Docker training image.
 
@@ -15,40 +15,146 @@
 - Reward remains the maintained cost-inclusive pure net-equity log-growth objective. Do not modify reward configuration or `trade_rl/rl/rewards.py`.
 - Risk, execution, latency, partial-fill, liquidation, target-weight, and accounting semantics remain unchanged.
 - Existing V3 source files and retained V3 artifacts keep their historical meaning; V4 gets new schemas and artifact roots.
-- Do not reinterpret V3 `trade_count`; V4 replay evidence must persist `executed_change_count` and `closed_trade_count` separately from inception.
+- Do not reinterpret V3 `trade_count`; V4 replay evidence persists `executed_change_count` and `closed_trade_count` separately from inception.
 - Keep the maintained 206 target-local Universal market features and nine instrument descriptors semantically unchanged.
-- `cross_market_core_v1` has exactly 24 local channels; `cross_market_derivatives_v1` has exactly 31.
-- `global_market_core_v1` has exactly 38 channels; `global_market_derivatives_v1` has exactly 44.
+- `cross_market_core_v1` has exactly 24 local value channels; `cross_market_derivatives_v1` has exactly 31.
+- `global_market_core_v1` has exactly 38 global value channels; `global_market_derivatives_v1` has exactly 44.
+- Value channels, availability masks, and staleness arrays are separate. Missing context is unavailable, never an informative numeric zero.
 - The first V4 market proxy is `BTCUSDT` USD-M perpetual.
 - Causal beta uses 4h returns, a 720h lookback, at least 90 complete samples, and clipping to `[-3.0, 3.0]`; BTC beta is exactly `1.0`.
-- Missing required local/global context is unavailable, not informative zero. A required-context miss makes the V4 decision non-actionable.
-- On-chain `pit_flow_v1` is disabled unless a provider-specific artifact proves point-in-time/revision-frozen history for the complete authored interval. No scraped reconstructed history is allowed.
+- A required local/global/beta availability failure makes that V4 decision non-actionable for alpha changes; risk-reducing environment actions remain available.
+- On-chain `pit_flow_v1` is disabled unless a provider-specific artifact proves point-in-time or revision-frozen history for the complete authored interval. No scraped reconstructed history is allowed.
 - The first V4 deterministic model hypothesis uses weighted/objective-normalized ridge only: market-proxy ridge `1.0`, residual ridge `0.1`, direction ridge `0.1`.
 - The first target hypothesis uses slow target magnitudes `(0.0, 0.025, 0.05, 0.10, 0.25)`, fast deviations `(0.0, 0.025, 0.05)`, slow cadence `16` decisions, fast cadence `4` decisions, maximum final target delta `0.125`, maximum fast absolute deviation `0.05`, execution-cost multiplier `1.5`, and edge margin `0.001`.
-- Direction evidence is a signed score, not a calibrated probability. Increasing exposure or reversing sign requires return forecast and direction score to agree in sign. Flattening/reducing absolute exposure is never blocked by direction disagreement.
-- Uncertainty state precedence is `basis_positioning_stress > low_liquidity > high_realized_volatility > normal`; state thresholds are derived from eligible train-prefix quantiles and bound into fit identity.
+- Direction evidence is a signed score, not a calibrated probability. Increasing exposure or reversing sign requires return forecast and direction score to agree in sign. Flattening or reducing absolute exposure is never blocked by direction disagreement.
+- Uncertainty state precedence is `basis_positioning_stress > low_liquidity > high_realized_volatility > normal`; thresholds are derived from eligible train-prefix quantiles and included in fit identity.
 - A state whose effective sample size is below `30.0` uses the horizon-global weighted RMSE and records the fallback.
-- Signal liveness is required evidence but is not a tunable post-hoc hard threshold in the first generation. Exact-zero dynamic prediction variance is an integrity failure; otherwise liveness metrics remain descriptive until a separate authored gate is justified.
+- Signal liveness is required evidence but is not a post-hoc tunable hard threshold in the first generation. Exact-zero dynamic prediction variance with varying supported inputs is an integrity failure; otherwise liveness remains descriptive until a separate authored gate is justified.
 - No validation symbol, test symbol, Teacher-admission holdout outcome, BC result, RL result, or sealed evaluation may tune V4 features, thresholds, ridge strengths, target parameters, or state definitions.
-- No BC/PPO training starts in this plan. This plan ends at a student-compatible, Teacher-admitted V4 package or a preserved research rejection. A downstream learner plan is authored only after Teacher admission.
+- No BC/PPO training starts in this plan. This plan ends at a student-compatible, Teacher-admitted V4 package or a preserved research rejection. A learner implementation plan is authored only after Teacher admission.
+
+## Frozen Feature Names
+
+`CROSS_MARKET_CORE_NAMES` is exactly:
+
+```python
+(
+    "spot_log_return_1h",
+    "spot_log_return_4h",
+    "spot_log_return_24h",
+    "spot_log_quote_volume_robust_z_4h",
+    "spot_log_quote_volume_robust_z_24h",
+    "spot_perp_log_basis",
+    "spot_perp_basis_change_1h",
+    "spot_perp_basis_change_4h",
+    "spot_perp_basis_robust_z_7d",
+    "spot_minus_perp_log_return_1h",
+    "spot_minus_perp_log_return_4h",
+    "spot_to_perp_log_quote_volume_ratio_1h",
+    "spot_to_perp_log_quote_volume_ratio_4h",
+    "spot_to_perp_log_quote_volume_ratio_24h",
+    "spot_taker_quote_imbalance_1h",
+    "spot_taker_quote_imbalance_4h",
+    "perp_taker_quote_imbalance_1h",
+    "perp_taker_quote_imbalance_4h",
+    "spot_minus_perp_taker_imbalance_1h",
+    "spot_minus_perp_taker_imbalance_4h",
+    "funding_rate",
+    "funding_rate_change",
+    "funding_rate_robust_z_7d",
+    "basis_z_x_flow_divergence_4h",
+)
+```
+
+`CROSS_MARKET_DERIVATIVE_NAMES` is exactly:
+
+```python
+(
+    "open_interest_log_change_1h",
+    "open_interest_log_change_4h",
+    "open_interest_log_change_24h",
+    "global_long_short_ratio_robust_z_4h",
+    "top_position_long_short_ratio_robust_z_4h",
+    "basis_z_x_open_interest_change_4h",
+    "funding_z_x_open_interest_change_4h",
+)
+```
+
+`GLOBAL_MARKET_CORE_NAMES` is exactly:
+
+```python
+(
+    "btc_spot_log_return_1h",
+    "btc_spot_log_return_4h",
+    "btc_spot_log_return_24h",
+    "btc_perp_log_return_1h",
+    "btc_perp_log_return_4h",
+    "btc_perp_log_return_24h",
+    "btc_spot_perp_log_basis",
+    "btc_spot_perp_basis_change_4h",
+    "btc_spot_perp_basis_robust_z_7d",
+    "btc_spot_taker_quote_imbalance_1h",
+    "btc_spot_taker_quote_imbalance_4h",
+    "btc_perp_taker_quote_imbalance_1h",
+    "btc_perp_taker_quote_imbalance_4h",
+    "btc_spot_to_perp_log_quote_volume_ratio_4h",
+    "btc_spot_to_perp_log_quote_volume_ratio_24h",
+    "btc_funding_rate",
+    "btc_funding_rate_robust_z_7d",
+    "eth_spot_log_return_1h",
+    "eth_spot_log_return_4h",
+    "eth_spot_log_return_24h",
+    "eth_perp_log_return_1h",
+    "eth_perp_log_return_4h",
+    "eth_perp_log_return_24h",
+    "eth_spot_perp_log_basis",
+    "eth_spot_perp_basis_change_4h",
+    "eth_spot_perp_basis_robust_z_7d",
+    "eth_spot_taker_quote_imbalance_1h",
+    "eth_spot_taker_quote_imbalance_4h",
+    "eth_perp_taker_quote_imbalance_1h",
+    "eth_perp_taker_quote_imbalance_4h",
+    "eth_spot_to_perp_log_quote_volume_ratio_4h",
+    "eth_spot_to_perp_log_quote_volume_ratio_24h",
+    "eth_funding_rate",
+    "eth_funding_rate_robust_z_7d",
+    "btc_minus_eth_perp_return_4h",
+    "btc_minus_eth_perp_return_24h",
+    "btc_minus_eth_basis",
+    "btc_eth_perp_return_dispersion_4h",
+)
+```
+
+`GLOBAL_MARKET_DERIVATIVE_NAMES` is exactly:
+
+```python
+(
+    "btc_open_interest_log_change_4h",
+    "btc_open_interest_log_change_24h",
+    "btc_global_long_short_ratio_robust_z_4h",
+    "eth_open_interest_log_change_4h",
+    "eth_open_interest_log_change_24h",
+    "eth_global_long_short_ratio_robust_z_4h",
+)
+```
 
 ---
 
 ## File Structure
 
-Create focused V4 files instead of expanding the large V3 and Binance modules:
+Create these focused V4 files:
 
-- `trade_rl/data/v4_context.py` — immutable local/global context schemas, aligned arrays, feature formulas, availability/staleness rules, and deterministic digests.
+- `trade_rl/data/v4_context.py` — context schemas, aligned arrays, formulas, availability/staleness rules, deterministic digests.
 - `trade_rl/data/v4_context_artifact.py` — filesystem artifact writer/loader for per-symbol V4 context arrays.
-- `trade_rl/integrations/binance_v4_context.py` — Binance Spot/perpetual/funding/metrics source adapters and context materialization inputs.
+- `trade_rl/integrations/binance_v4_context.py` — Binance Spot/perpetual/funding/metrics adapters and context materialization inputs.
 - `trade_rl/workflows/universal_causal_alpha_v4_manifest.py` — V4 auxiliary manifest referencing one immutable base `UniversalRuntimeManifest`.
-- `trade_rl/rl/universal_v4_context.py` — policy observation provider and schema metadata for local/global V4 context.
-- `trade_rl/learning/causal_alpha_v4.py` — beta, forecast contracts, direction score, state uncertainty, liveness primitives, and fast/slow target compiler.
-- `trade_rl/workflows/universal_causal_alpha_v4_runtime.py` — load/validate base runtime plus V4 context artifacts and prepare train-only V4 samples.
+- `trade_rl/rl/universal_v4_context.py` — policy observation provider and V4 context schema metadata.
+- `trade_rl/learning/causal_alpha_v4.py` — beta, forecast, direction, uncertainty, liveness, and fast/slow target primitives.
+- `trade_rl/workflows/universal_causal_alpha_v4_runtime.py` — load/validate base runtime plus V4 context and prepare train-only samples.
 - `trade_rl/workflows/universal_causal_alpha_v4_fitting.py` — fit/cache market-proxy, shared residual, and shared direction heads.
-- `trade_rl/workflows/universal_causal_alpha_v4_signal.py` — canonical 4h and slow fused Signal evidence plus liveness sidecars.
+- `trade_rl/workflows/universal_causal_alpha_v4_signal.py` — canonical 4h and slow-fused Signal evidence plus liveness sidecars.
 - `trade_rl/workflows/universal_causal_alpha_v4_replay.py` — production-environment economic replay with correct activity accounting.
-- `trade_rl/workflows/universal_causal_alpha_v4_selection.py` — V4 candidate evidence/ranking.
+- `trade_rl/workflows/universal_causal_alpha_v4_selection.py` — V4 candidate admission/rejection.
 - `trade_rl/workflows/universal_causal_alpha_v4_admission.py` — untouched selected-teacher holdout admission.
 - `trade_rl/workflows/universal_causal_alpha_v4_artifact_store.py` — immutable/restart-safe V4 evidence storage.
 - `trade_rl/workflows/universal_causal_alpha_v4_pipeline.py` — ordered Gate orchestration.
@@ -57,37 +163,33 @@ Create focused V4 files instead of expanding the large V3 and Binance modules:
 - `scripts/run_universal_causal_alpha_v4_research.py` — research-only CLI.
 - `examples/binance/universal-causal-alpha-v4-research.json` — frozen first V4 hypothesis.
 
-Only modify existing files at integration seams:
+Modify only these existing integration seams unless a failing maintained contract proves another edit necessary:
 
-- `trade_rl/integrations/binance_cache.py` — public generic Vision URL planning/sync helper required by the metrics archive adapter.
-- `trade_rl/rl/universal_single_instrument_env.py` — opt-in auxiliary context provider insertion into Dict observation space/observations.
-- `trade_rl/workflows/binance_universal_runtime.py` — opt-in construction of the V4 observation provider when a V4 manifest is supplied; canonical V3 behavior remains byte-for-byte configuration-equivalent when absent.
-- `trade_rl/workflows/universal_full_research_entrypoint.py` — optional V4 context manifest path in the runtime factory context, default `None`.
-
-Tests are created under matching `tests/data`, `tests/integrations`, `tests/rl`, `tests/learning`, `tests/workflows`, and `tests/scripts` paths.
+- `trade_rl/integrations/binance_cache.py`
+- `trade_rl/rl/universal_single_instrument_env.py`
+- `trade_rl/workflows/binance_universal_runtime.py`
+- `trade_rl/workflows/universal_full_research_entrypoint.py`
 
 ---
 
-### Task 1: Immutable V4 context contracts and core formulas
+### Task 1: Immutable V4 context contracts and formulas
 
 **Files:**
 - Create: `trade_rl/data/v4_context.py`
 - Test: `tests/data/test_v4_context.py`
 
 **Interfaces:**
-- Consumes: finite aligned arrays already placed on the maintained 15m decision clock.
-- Produces: `V4ContextProfile`, `V4ContextBlock`, `V4TargetContext`, `build_cross_market_core(...)`, `build_global_market_core(...)`, `robust_trailing_zscore(...)`.
+- Consumes: `V4CrossMarketInputs` and `V4GlobalMarketInputs` on the maintained 15m decision clock.
+- Produces: `V4ContextBlock`, `V4TargetContext`, `build_cross_market_context`, `build_global_market_context`, `robust_trailing_zscore`, `taker_quote_imbalance`, `spot_perp_log_basis`.
 
-- [ ] **Step 1: Write failing schema and formula tests**
-
-Add tests that assert exact channel order and basic formulas:
+- [ ] **Step 1: Write failing schema/formula tests**
 
 ```python
 from trade_rl.data.v4_context import (
     CROSS_MARKET_CORE_NAMES,
     GLOBAL_MARKET_CORE_NAMES,
-    taker_quote_imbalance,
     spot_perp_log_basis,
+    taker_quote_imbalance,
 )
 
 
@@ -107,27 +209,38 @@ def test_spot_perp_log_basis_uses_perp_over_spot():
     assert spot_perp_log_basis(spot=100.0, perp=101.0) > 0.0
 ```
 
-Also assert malformed volume, non-positive prices, duplicate names, mismatched availability arrays, and non-finite values fail closed.
+Also assert non-positive prices, non-positive quote volume, mismatched array shapes, duplicate feature names, and non-finite available values fail closed.
 
-- [ ] **Step 2: Run focused tests and verify RED**
-
-Run:
+- [ ] **Step 2: Run tests and verify RED**
 
 ```bash
 uv run pytest -q tests/data/test_v4_context.py
 ```
 
-Expected: import/collection failure because `trade_rl.data.v4_context` does not exist.
+Expected: collection/import failure because `trade_rl.data.v4_context` does not exist.
 
-- [ ] **Step 3: Implement frozen names and immutable blocks**
-
-Define these public contracts:
+- [ ] **Step 3: Implement input and output contracts**
 
 ```python
-CROSS_MARKET_CORE_NAMES: tuple[str, ...] = (...24 exact spec names...)
-CROSS_MARKET_DERIVATIVE_NAMES: tuple[str, ...] = (...7 exact spec names...)
-GLOBAL_MARKET_CORE_NAMES: tuple[str, ...] = (...38 exact spec names...)
-GLOBAL_MARKET_DERIVATIVE_NAMES: tuple[str, ...] = (...6 exact spec names...)
+@dataclass(frozen=True, slots=True)
+class V4CrossMarketInputs:
+    decision_indices: np.ndarray
+    spot_close: np.ndarray
+    spot_quote_volume: np.ndarray
+    spot_taker_buy_quote_volume: np.ndarray
+    perp_close: np.ndarray
+    perp_mark_price: np.ndarray
+    perp_quote_volume: np.ndarray
+    perp_taker_buy_quote_volume: np.ndarray
+    funding_rate: np.ndarray
+    funding_available: np.ndarray
+    open_interest_value: np.ndarray | None
+    open_interest_available: np.ndarray | None
+    global_long_short_ratio: np.ndarray | None
+    top_position_long_short_ratio: np.ndarray | None
+    derivatives_available: np.ndarray | None
+    source_digest: str
+
 
 @dataclass(frozen=True, slots=True)
 class V4ContextBlock:
@@ -139,6 +252,7 @@ class V4ContextBlock:
     source_digest: str
     digest: str = ""
 
+
 @dataclass(frozen=True, slots=True)
 class V4TargetContext:
     symbol: str
@@ -148,43 +262,44 @@ class V4TargetContext:
     digest: str = ""
 ```
 
-Every NumPy array is copied C-contiguous, validated, made read-only, and included in `content_and_arrays_digest`. `values` remains finite even where unavailable; availability controls semantic use. Unavailable values must be numerically zero only as storage representation and must never be interpreted without the Boolean mask.
+`V4GlobalMarketInputs` contains `btc: V4CrossMarketInputs`, `eth: V4CrossMarketInputs`, and one `source_digest`.
 
-- [ ] **Step 4: Implement causal formula primitives**
+Every array is copied C-contiguous, validated, made read-only, and included in `content_and_arrays_digest`.
 
-Implement:
+- [ ] **Step 4: Implement primitive formulas**
 
 ```python
 def taker_quote_imbalance(taker_buy_quote: float, total_quote: float) -> float:
+    if not math.isfinite(taker_buy_quote) or taker_buy_quote < 0.0:
+        raise ValueError("taker_buy_quote must be finite and non-negative")
     if not math.isfinite(total_quote) or total_quote <= 0.0:
         raise ValueError("total_quote must be finite and positive")
-    value = 2.0 * taker_buy_quote / total_quote - 1.0
-    return float(np.clip(value, -1.0, 1.0))
+    return float(np.clip(2.0 * taker_buy_quote / total_quote - 1.0, -1.0, 1.0))
 
 
 def spot_perp_log_basis(*, spot: float, perp: float) -> float:
-    if spot <= 0.0 or perp <= 0.0:
-        raise ValueError("basis prices must be positive")
+    if not math.isfinite(spot) or not math.isfinite(perp) or spot <= 0.0 or perp <= 0.0:
+        raise ValueError("basis prices must be finite and positive")
     return math.log(perp / spot)
 ```
 
-`robust_trailing_zscore` uses only rows `<= current row`, median and `1.4826 * MAD`, a fixed minimum support `32`, and returns `(value, available)`; zero MAD returns `0.0, True` only when support exists.
+`robust_trailing_zscore` uses only the current and earlier rows, a causal trailing window, median, `1.4826 * MAD`, and minimum support `32`. Zero MAD returns `0.0` with `available=True` only when support exists.
 
-- [ ] **Step 5: Add future-mutation causality/property tests**
+- [ ] **Step 5: Implement context builders using frozen names**
 
-Use Hypothesis or deterministic prefix copies to prove changing rows after decision `t` cannot alter any context value at or before `t`.
+`build_cross_market_context(inputs, include_derivatives)` returns 24 or 31 columns in the frozen order. `build_global_market_context(inputs, include_derivatives)` returns 38 or 44 columns in the frozen order. Windowed returns and ratios use only complete trailing windows. Missing source values set `available=False`; stored numeric value is zero only as inert storage.
 
-- [ ] **Step 6: Run tests and commit**
+- [ ] **Step 6: Add prefix-causality/property tests**
 
-Run:
+For every feature family, mutate all source rows after a selected decision index and assert all context rows at or before that decision are bitwise unchanged.
+
+- [ ] **Step 7: Verify and commit**
 
 ```bash
 uv run pytest -q tests/data/test_v4_context.py
 uv run ruff check trade_rl/data/v4_context.py tests/data/test_v4_context.py
 uv run mypy trade_rl/data/v4_context.py
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/data/v4_context.py tests/data/test_v4_context.py
@@ -200,20 +315,21 @@ git commit -m "feat: define causal alpha v4 context contracts"
 - Test: `tests/data/test_v4_context_artifact.py`
 
 **Interfaces:**
-- Consumes: `V4TargetContext` from Task 1.
-- Produces: `write_v4_target_context_artifact(path, context) -> Path`, `load_v4_target_context_artifact(path) -> V4TargetContext`.
+- Consumes: `V4TargetContext`.
+- Produces: `write_v4_target_context_artifact(path: Path, context: V4TargetContext) -> Path` and `load_v4_target_context_artifact(path: Path) -> V4TargetContext`.
 
-- [ ] **Step 1: Write failing round-trip and corruption tests**
-
-Tests must assert exact round-trip equality of digests and rejection of changed array bytes, changed feature order, changed source digest, duplicate symbol, missing manifest, and unexpected extra arrays.
+- [ ] **Step 1: Write failing round-trip/corruption tests**
 
 ```python
 def test_v4_context_artifact_round_trip(tmp_path, sample_v4_context):
-    output = write_v4_target_context_artifact(tmp_path / "BTCUSDT", sample_v4_context)
-    loaded = load_v4_target_context_artifact(output)
+    path = tmp_path / "BTCUSDT"
+    write_v4_target_context_artifact(path, sample_v4_context)
+    loaded = load_v4_target_context_artifact(path)
     assert loaded.digest == sample_v4_context.digest
     np.testing.assert_array_equal(loaded.local.values, sample_v4_context.local.values)
 ```
+
+Corruption cases: changed array bytes, changed feature order, changed source digest, missing `manifest.json`, missing `arrays.npz`, unexpected array member, and manifest digest drift.
 
 - [ ] **Step 2: Verify RED**
 
@@ -221,28 +337,24 @@ def test_v4_context_artifact_round_trip(tmp_path, sample_v4_context):
 uv run pytest -q tests/data/test_v4_context_artifact.py
 ```
 
-Expected: import failure.
+- [ ] **Step 3: Implement artifact layout**
 
-- [ ] **Step 3: Implement immutable artifact format**
-
-Use:
+Each context directory contains exactly:
 
 ```text
-<artifact>/manifest.json
-<artifact>/arrays.npz
+manifest.json
+arrays.npz
 ```
 
-Manifest schema: `causal_alpha_v4_target_context_artifact_v1`. Bind symbol, profile, ordered local/global feature names, source digests, array SHA-256/content digest, row count, first/last decision index, and context digest. Existing content at the same path may be reused only when bytes/digest match exactly; otherwise fail with `FileExistsError`.
+Schema is `causal_alpha_v4_target_context_artifact_v1`. Manifest binds symbol, profile, ordered names, source digests, row count, first/last decision index, array digest, and context digest. Existing identical bytes are idempotent; different content at the same path raises `FileExistsError`.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [ ] **Step 4: Verify and commit**
 
 ```bash
 uv run pytest -q tests/data/test_v4_context.py tests/data/test_v4_context_artifact.py
-uv run ruff check trade_rl/data/v4_context*.py tests/data/test_v4_context*.py
+uv run ruff check trade_rl/data/v4_context.py trade_rl/data/v4_context_artifact.py tests/data/test_v4_context.py tests/data/test_v4_context_artifact.py
 uv run mypy trade_rl/data/v4_context.py trade_rl/data/v4_context_artifact.py
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/data/v4_context_artifact.py tests/data/test_v4_context_artifact.py
@@ -251,21 +363,19 @@ git commit -m "feat: persist causal alpha v4 context artifacts"
 
 ---
 
-### Task 3: Binance Spot/perpetual and futures-metrics source adapter
+### Task 3: Binance Spot/perpetual and futures-metrics adapter
 
 **Files:**
 - Create: `trade_rl/integrations/binance_v4_context.py`
 - Modify: `trade_rl/integrations/binance_cache.py`
-- Test: `tests/integrations/test_binance_v4_context.py`
-- Modify/Test: `tests/examples/test_market_data_sync.py`
+- Create: `tests/integrations/test_binance_v4_context.py`
+- Modify: `tests/examples/test_market_data_sync.py`
 
 **Interfaces:**
-- Consumes: `BinancePublicTransport`, official Binance Vision cache, target symbol, BTC/ETH anchor symbols, research start/end.
-- Produces: `BinanceV4SourceBundle`, `build_binance_v4_context(...) -> V4TargetContext`, optional `BinanceFuturesMetricsSeries`.
+- Consumes: `BinancePublicTransport`, official Binance Vision cache, target symbol, anchors `BTCUSDT`/`ETHUSDT`, research start/end.
+- Produces: `BinanceFuturesMetricsSeries`, `BinanceV4ProfileCapability`, and `build_binance_v4_context`.
 
-- [ ] **Step 1: Write failing official-URL and parser tests**
-
-Freeze the Vision futures metrics URL form:
+- [ ] **Step 1: Write failing metrics URL and parser tests**
 
 ```python
 def vision_futures_metrics_url(symbol: str, day: datetime) -> str:
@@ -276,7 +386,22 @@ def vision_futures_metrics_url(symbol: str, day: datetime) -> str:
     )
 ```
 
-Parser tests use small ZIP/CSV fixtures and require fields to map by header name, not column position. Required derivative fields are `sum_open_interest`, `sum_open_interest_value`, and the exact long/short/taker columns selected by the adapter. Missing required columns reject the derivative profile.
+Require these exact CSV headers:
+
+```python
+BINANCE_FUTURES_METRICS_COLUMNS = (
+    "create_time",
+    "symbol",
+    "sum_open_interest",
+    "sum_open_interest_value",
+    "count_toptrader_long_short_ratio",
+    "sum_toptrader_long_short_ratio",
+    "count_long_short_ratio",
+    "sum_taker_long_short_vol_ratio",
+)
+```
+
+Map `count_long_short_ratio` to `global_long_short_ratio` and `sum_toptrader_long_short_ratio` to `top_position_long_short_ratio`. Do not use `sum_taker_long_short_vol_ratio` as a substitute for kline-derived taker quote imbalance.
 
 - [ ] **Step 2: Verify RED**
 
@@ -284,9 +409,7 @@ Parser tests use small ZIP/CSV fixtures and require fields to map by header name
 uv run pytest -q tests/integrations/test_binance_v4_context.py tests/examples/test_market_data_sync.py
 ```
 
-- [ ] **Step 3: Add generic immutable Vision URL plan/sync helper**
-
-In `binance_cache.py`, add public helpers without changing existing plan semantics:
+- [ ] **Step 3: Add public generic Vision URL cache helpers**
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -296,44 +419,56 @@ class BinanceVisionUrlPlan:
 
 def inspect_binance_vision_urls(
     urls: Sequence[str], *, cache_root: str | Path
-) -> BinanceVisionCacheReport: ...
+) -> BinanceVisionCacheReport:
+    return _inspect_urls(tuple(urls), cache_root=Path(cache_root))
 
 
 def sync_binance_vision_urls(
     urls: Sequence[str], *, transport: _VisionArchiveTransport | BinancePublicTransport
-) -> BinanceVisionCacheReport: ...
+) -> BinanceVisionCacheReport:
+    return _sync_urls(tuple(urls), transport=transport)
 ```
 
-Reuse `vision_cache_path` and `validate_cached_vision_payload`; reject non-Binance-Vision URLs.
+Implement `_inspect_urls` and `_sync_urls` by reusing `vision_cache_path` and `validate_cached_vision_payload`; reject any URL outside `https://data.binance.vision/data/`.
 
-- [ ] **Step 4: Implement source bundle assembly**
-
-`build_binance_v4_context` loads/aligned target Spot and target USD-M datasets plus BTC/ETH Spot/perpetual sources. Core profile is available from klines/funding. Derivative profile is enabled only when the complete required metrics URL plan validates for the full interval.
-
-Do not fetch short-retention REST OI history to backfill missing old metrics. Return a capability decision object:
+- [ ] **Step 4: Implement source series parsing and capability**
 
 ```python
+@dataclass(frozen=True, slots=True)
+class BinanceFuturesMetricsSeries:
+    timestamps_ms: np.ndarray
+    open_interest_value: np.ndarray
+    global_long_short_ratio: np.ndarray
+    top_position_long_short_ratio: np.ndarray
+    source_digest: str
+
+
 @dataclass(frozen=True, slots=True)
 class BinanceV4ProfileCapability:
     profile_name: str
     derivative_metrics_complete: bool
     missing_url_count: int
+    invalid_url_count: int
     source_digest: str
 ```
 
-- [ ] **Step 5: Add timestamp/as-of causality tests**
+Derivative profile is enabled only if every required daily metrics archive for every required target/anchor day is present and valid. Do not backfill old OI/ratio history from short-retention REST endpoints.
 
-Construct a metrics row whose event timestamp lies after a decision close and prove it is unavailable at that decision. Prove modifying future Spot/perp rows cannot alter earlier context.
+- [ ] **Step 5: Implement Spot/perpetual/global context assembly**
 
-- [ ] **Step 6: Verify and commit**
+`build_binance_v4_context` uses existing public Binance dataset construction for Spot and USD-M kline/funding data, then aligns source rows to the maintained decision clock and calls Task 1 builders. The source digest binds every input dataset/metrics archive identity.
+
+- [ ] **Step 6: Add timing and missing-data falsification tests**
+
+A metrics row with `create_time` after a decision is unavailable at that decision. Missing metrics reject derivative profile instead of filling OI/ratio values with zero. Future source mutations cannot change earlier context.
+
+- [ ] **Step 7: Verify and commit**
 
 ```bash
 uv run pytest -q tests/integrations/test_binance_v4_context.py tests/examples/test_market_data_sync.py
-uv run ruff check trade_rl/integrations/binance_v4_context.py trade_rl/integrations/binance_cache.py tests/integrations/test_binance_v4_context.py
+uv run ruff check trade_rl/integrations/binance_v4_context.py trade_rl/integrations/binance_cache.py tests/integrations/test_binance_v4_context.py tests/examples/test_market_data_sync.py
 uv run mypy trade_rl/integrations/binance_v4_context.py trade_rl/integrations/binance_cache.py
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/integrations/binance_v4_context.py trade_rl/integrations/binance_cache.py tests/integrations/test_binance_v4_context.py tests/examples/test_market_data_sync.py
@@ -342,7 +477,7 @@ git commit -m "feat: add binance v4 cross-market sources"
 
 ---
 
-### Task 4: V4 auxiliary manifest and deterministic context materialization
+### Task 4: V4 context manifest and deterministic materialization
 
 **Files:**
 - Create: `trade_rl/workflows/universal_causal_alpha_v4_manifest.py`
@@ -351,12 +486,10 @@ git commit -m "feat: add binance v4 cross-market sources"
 - Create: `tests/scripts/test_materialize_universal_causal_alpha_v4_context.py`
 
 **Interfaces:**
-- Consumes: base `UniversalRuntimeManifest`, all 15 maintained target symbols, Task 3 source capability.
-- Produces: `CausalAlphaV4ContextManifest` plus one V4 context artifact per train/validation/test target.
+- Consumes: base `UniversalRuntimeManifest`, all maintained target symbols, Task 3 capability.
+- Produces: `CausalAlphaV4ContextManifest` and one V4 target context artifact per train/validation/test symbol.
 
 - [ ] **Step 1: Write failing strict-manifest tests**
-
-Define:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -373,7 +506,7 @@ class CausalAlphaV4ContextManifest:
     manifest_digest: str = ""
 ```
 
-The ordered `context_digests` must exactly follow `train + validation + test` order from the base manifest. Unknown fields, missing symbols, reordering, profile drift, or base-manifest digest drift fail closed.
+`context_digests` follows exact `train + validation + test` order from the base runtime. Reject unknown fields, missing symbols, reordered symbols, profile drift, and base-manifest digest drift.
 
 - [ ] **Step 2: Verify RED**
 
@@ -381,32 +514,30 @@ The ordered `context_digests` must exactly follow `train + validation + test` or
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_manifest.py tests/scripts/test_materialize_universal_causal_alpha_v4_context.py
 ```
 
-- [ ] **Step 3: Implement materializer**
+- [ ] **Step 3: Implement CLI and coverage-only profile resolution**
 
-CLI arguments:
+Arguments are:
 
 ```text
 --runtime-manifest
 --frozen-metadata-root
 --market-data-cache-root
 --output-root
---profile {core,derivatives-auto}
+--profile core|derivatives-auto
 ```
 
-`derivatives-auto` decides only from complete source coverage before reading model labels or outcomes. It resolves once to `cross_market_core_v1/global_market_core_v1` or `cross_market_derivatives_v1/global_market_derivatives_v1` and records the decision.
+`derivatives-auto` inspects source coverage only, before model labels or outcomes, and freezes exactly one resolved profile into the manifest.
 
-- [ ] **Step 4: Test idempotency and partial failure**
+- [ ] **Step 4: Implement idempotency and partial recovery**
 
-If 14 artifacts exist and one is missing, regenerate only the missing artifact; any existing digest mismatch aborts without overwrite. Manifest is written only after all 15 target artifacts validate.
+If 14 valid target artifacts exist and one is missing, generate the missing artifact and then write the manifest. Any existing digest mismatch aborts without overwrite. Manifest is created only when every expected target artifact validates.
 
 - [ ] **Step 5: Verify and commit**
 
 ```bash
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_manifest.py tests/scripts/test_materialize_universal_causal_alpha_v4_context.py
-uv run py_compile scripts/materialize_universal_causal_alpha_v4_context.py
+uv run python -m py_compile scripts/materialize_universal_causal_alpha_v4_context.py
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/workflows/universal_causal_alpha_v4_manifest.py scripts/materialize_universal_causal_alpha_v4_context.py tests/workflows/test_universal_causal_alpha_v4_manifest.py tests/scripts/test_materialize_universal_causal_alpha_v4_context.py
@@ -427,26 +558,22 @@ git commit -m "feat: materialize causal alpha v4 context generation"
 - Modify: `tests/workflows/test_binance_universal_runtime.py`
 
 **Interfaces:**
-- Consumes: `CausalAlphaV4ContextManifest` + loaded `V4TargetContext` artifacts.
-- Produces: `V4ContextProvider` and opt-in Dict observation keys `local_cross_market_context`, `global_market_context`, `causal_beta`.
+- Consumes: `CausalAlphaV4ContextManifest` and loaded `V4TargetContext` artifacts.
+- Produces: `V4ContextProvider`, `V4PolicyContext`, and opt-in Dict observation keys for values, availability, staleness, and beta.
 
 - [ ] **Step 1: Write failing observation-space parity tests**
 
-Canonical runtime without a V4 manifest must expose exactly its previous observation keys/digest behavior. V4 runtime must add exactly:
+Non-V4 runtime must preserve existing keys. V4 runtime adds exactly:
 
 ```text
-local_cross_market_context: shape (1, 24 or 31)
-global_market_context: shape (1, 38 or 44)
-causal_beta: shape (1, 1)
-```
-
-Provider test:
-
-```python
-def test_v4_provider_returns_context_for_exact_decision(provider, binding):
-    result = provider(environment_at(index=100), binding)
-    assert result.local.shape == (1, 24)
-    assert result.global_market.shape == (1, 38)
+local_cross_market_context          float32 shape (1, 24) or (1, 31)
+local_cross_market_available        float32 shape (1, 24) or (1, 31)
+local_cross_market_staleness_hours  float32 shape (1, 24) or (1, 31)
+global_market_context               float32 shape (1, 38) or (1, 44)
+global_market_available             float32 shape (1, 38) or (1, 44)
+global_market_staleness_hours       float32 shape (1, 38) or (1, 44)
+causal_beta                         float32 shape (1, 1)
+causal_beta_available               float32 shape (1, 1)
 ```
 
 - [ ] **Step 2: Verify RED**
@@ -460,31 +587,42 @@ uv run pytest -q tests/rl/test_universal_v4_context.py tests/workflows/test_bina
 ```python
 @dataclass(frozen=True, slots=True)
 class V4PolicyContext:
-    local: np.ndarray
-    global_market: np.ndarray
+    local_values: np.ndarray
+    local_available: np.ndarray
+    local_staleness_hours: np.ndarray
+    global_values: np.ndarray
+    global_available: np.ndarray
+    global_staleness_hours: np.ndarray
     beta: np.ndarray
+    beta_available: np.ndarray
     digest: str
+
 
 class V4ContextProvider:
     local_width: int
     global_width: int
     schema_digest: str
-    def __call__(self, environment: object, binding: InstrumentDatasetBinding) -> V4PolicyContext: ...
+
+    def resolve(
+        self, *, symbol: str, decision_index: int, beta: float, beta_available: bool
+    ) -> V4PolicyContext:
+        context = self._contexts[symbol]
+        return _resolve_exact_row(context, decision_index, beta, beta_available)
 ```
 
-The provider finds the exact `current_index` row. If local/global/beta availability required for the current action is false, it raises `V4ContextUnavailable`; the environment catches this only to mark the V4 action decision non-actionable in the V4 path. Canonical non-V4 environments never instantiate this provider.
+Context values and masks are visible to the student. Provider rejects missing target artifact, duplicate decision index, and schema drift.
 
-- [ ] **Step 4: Extend routed environment opt-in only**
+- [ ] **Step 4: Extend routed environment only when provider is present**
 
-Add `v4_context_provider: V4ContextProvider | None = None` to `EpisodeRoutedSingleInstrumentEnv`. `_policy_observation_space` adds the three keys only when provider is present. `_policy_observation` appends the values using the same provider instance. Bind its schema digest into `observation_contract_digest` and sequence layout metadata.
+Add `v4_context_provider: V4ContextProvider | None = None` to `EpisodeRoutedSingleInstrumentEnv`. `_policy_observation_space` adds the eight keys only for V4. `_policy_observation` resolves the exact current decision row. Bind provider schema digest into `observation_contract_digest` and sequence layout metadata.
 
-- [ ] **Step 5: Extend runtime context without mutating base manifest**
+- [ ] **Step 5: Extend runtime factory context**
 
-Add `v4_context_manifest_path: Path | None = None` to `UniversalRuntimeFactoryContext`. If non-null, load and validate the V4 manifest against `context.manifest.manifest_digest`; otherwise current behavior is unchanged.
+Add `v4_context_manifest_path: Path | None = None` to `UniversalRuntimeFactoryContext`. Non-null path loads the V4 manifest and validates `base_runtime_manifest_digest == context.manifest.manifest_digest`. Null preserves current runtime behavior.
 
 - [ ] **Step 6: Add falsification tests**
 
-Reject stale/missing global context, wrong symbol artifact, wrong decision index, wrong feature order, base-manifest mismatch, and V4 teacher context that cannot be surfaced to policy observation.
+Reject stale/missing global context, wrong symbol artifact, wrong decision index, wrong feature order, base-manifest mismatch, and any teacher action input that is not exposed through the V4 observation contract.
 
 - [ ] **Step 7: Verify and commit**
 
@@ -493,8 +631,6 @@ uv run pytest -q tests/rl/test_universal_v4_context.py tests/rl/test_universal_r
 uv run mypy trade_rl/rl/universal_v4_context.py trade_rl/rl/universal_single_instrument_env.py trade_rl/workflows/binance_universal_runtime.py trade_rl/workflows/universal_full_research_entrypoint.py
 uv run lint-imports
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/rl/universal_v4_context.py trade_rl/rl/universal_single_instrument_env.py trade_rl/workflows/universal_full_research_entrypoint.py trade_rl/workflows/binance_universal_runtime.py tests/rl/test_universal_v4_context.py tests/rl/test_universal_research_u3_u6.py tests/workflows/test_binance_universal_runtime.py
@@ -512,12 +648,10 @@ git commit -m "feat: expose v4 market context to universal policy"
 - Create: `tests/workflows/test_universal_causal_alpha_v4_runtime.py`
 
 **Interfaces:**
-- Consumes: existing `CausalAlphaSymbolSamples`, V4 context artifacts, base datasets.
-- Produces: `CausalAlphaV4SymbolSamples`, `CausalBetaSeries`, `causal_alpha_v4_beta(...)`.
+- Consumes: existing train-symbol datasets and V4 context artifacts.
+- Produces: `CausalBetaConfig`, `CausalBetaSeries`, `CausalAlphaV4SymbolSamples`, `causal_alpha_v4_beta_series`.
 
 - [ ] **Step 1: Write failing beta tests**
-
-Freeze exact contract:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -530,7 +664,7 @@ class CausalBetaConfig:
     maximum_beta: float = 3.0
 ```
 
-Tests assert BTC beta equals `1.0`, future target/BTC returns do not alter earlier beta, insufficient support produces `available=False`, and clipping works.
+Assert BTC beta is `1.0`; future target/BTC returns cannot change earlier beta; insufficient support returns `available=False`; clipping is exact.
 
 - [ ] **Step 2: Verify RED**
 
@@ -538,9 +672,29 @@ Tests assert BTC beta equals `1.0`, future target/BTC returns do not alter earli
 uv run pytest -q tests/learning/test_causal_alpha_v4_beta.py tests/workflows/test_universal_causal_alpha_v4_runtime.py
 ```
 
-- [ ] **Step 3: Implement 4h forward labels with existing timing primitive**
+- [ ] **Step 3: Implement 4h labels through the existing timing primitive**
 
-Use `forward_log_return_label(..., horizon_hours=4.0, signal_delay_decisions=..., decision_bars=...)`; do not duplicate timing math. `CausalAlphaV4SymbolSamples` contains original 24h/72h arrays plus 4h label/end arrays, local/global context arrays, context availability, beta and beta availability.
+Call `forward_log_return_label` with `horizon_hours=4.0`. Do not duplicate execution-start/label-end timing math.
+
+```python
+@dataclass(frozen=True, slots=True)
+class CausalAlphaV4SymbolSamples:
+    symbol: str
+    decision_indices: np.ndarray
+    target_local_features: np.ndarray
+    target_local_available: np.ndarray
+    local_context: V4ContextBlock
+    global_context: V4ContextBlock
+    beta: np.ndarray
+    beta_available: np.ndarray
+    labels_4h: np.ndarray
+    label_end_indices_4h: np.ndarray
+    labels_24h: np.ndarray
+    label_end_indices_24h: np.ndarray
+    labels_72h: np.ndarray
+    label_end_indices_72h: np.ndarray
+    digest: str = ""
+```
 
 - [ ] **Step 4: Implement residual decomposition**
 
@@ -551,11 +705,11 @@ residual = symbol_label - beta * btc_market_proxy_label
 reconstructed = beta * btc_market_proxy_label + residual
 ```
 
-Require `abs(reconstructed - symbol_label) <= 1e-15` for finite eligible rows.
+For finite eligible rows require `abs(reconstructed - symbol_label) <= 1e-15`.
 
-- [ ] **Step 5: Reject validation/test BTC labels in fit preparation**
+- [ ] **Step 5: Prove fit scope uses train labels only**
 
-Prepared V4 fitting scope must contain only authored train-symbol label blocks. Current-time BTC/ETH context for validation/test evaluation is permitted; future validation/test labels cannot enter fit arrays.
+Prepared V4 fit arrays include only authored train-symbol labels. Validation/test current public context may be read during later prediction, but validation/test future labels never enter fit, beta calibration, state thresholds, or uncertainty calibration.
 
 - [ ] **Step 6: Verify and commit**
 
@@ -565,8 +719,6 @@ uv run ruff check trade_rl/learning/causal_alpha_v4.py trade_rl/workflows/univer
 uv run mypy trade_rl/learning/causal_alpha_v4.py trade_rl/workflows/universal_causal_alpha_v4_runtime.py
 ```
 
-Commit:
-
 ```bash
 git add trade_rl/learning/causal_alpha_v4.py trade_rl/workflows/universal_causal_alpha_v4_runtime.py tests/learning/test_causal_alpha_v4_beta.py tests/workflows/test_universal_causal_alpha_v4_runtime.py
 git commit -m "feat: add v4 causal beta and residual labels"
@@ -574,7 +726,7 @@ git commit -m "feat: add v4 causal beta and residual labels"
 
 ---
 
-### Task 7: Market-proxy, shared residual, and direction fits
+### Task 7: Market-proxy, shared residual, and shared direction fits
 
 **Files:**
 - Create: `trade_rl/workflows/universal_causal_alpha_v4_fitting.py`
@@ -583,12 +735,10 @@ git commit -m "feat: add v4 causal beta and residual labels"
 - Create: `tests/learning/test_causal_alpha_v4_forecast.py`
 
 **Interfaces:**
-- Consumes: Task 6 V4 samples, existing `fit_causal_alpha_ridge`, existing overlap uniqueness weights.
-- Produces: `CausalAlphaV4FitConfig`, `CausalAlphaV4Fit`, `CausalAlphaV4Forecast`.
+- Consumes: Task 6 samples, `fit_causal_alpha_ridge`, `causal_alpha_overlap_uniqueness_weights`.
+- Produces: `CausalAlphaV4FitConfig`, `CausalAlphaV4Fit`, `CausalAlphaV4Forecast`, `fit_causal_alpha_v4`.
 
-- [ ] **Step 1: Write failing synthetic decomposition fit test**
-
-Generate two symbols where common return depends on a global feature and residual return depends on a local feature. Assert the shared residual fit is one model per horizon, not one per symbol.
+- [ ] **Step 1: Write failing synthetic fit test**
 
 ```python
 fit = fit_causal_alpha_v4(
@@ -606,36 +756,40 @@ assert set(fit.residual_models) == {"4h", "24h", "72h"}
 assert set(fit.direction_models) == {"4h", "24h", "72h"}
 ```
 
+The synthetic data makes common return depend on global context and residual return depend on local context, proving decomposition and shared-model behavior.
+
 - [ ] **Step 2: Verify RED**
 
 ```bash
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_fitting.py tests/learning/test_causal_alpha_v4_forecast.py
 ```
 
-- [ ] **Step 3: Implement symbol-balanced overlap-aware shared fits**
+- [ ] **Step 3: Implement market-proxy and shared residual heads**
 
-Market-proxy head fits BTC forward return on global context. Residual head pools train symbols with equal eligible weight mass and fits target residual on concatenated target-local + local cross-market + global context + instrument descriptors + beta. Direction head fits `sign(original symbol return)` on the same current-time input matrix using labels `-1.0` and `+1.0`; exact-zero labels are excluded from direction fit and recorded.
+Market head fits BTC forward return on global context. Residual head pools train symbols with equal eligible weight mass and fits residual return on concatenated target-local features, local context, global context, nine instrument descriptors, beta, and their explicit availability masks. There is one residual model per horizon, never a `symbol -> model` dispatch.
 
-- [ ] **Step 4: Implement forecast composition**
+- [ ] **Step 4: Implement shared direction heads**
+
+Fit labels `-1.0` and `+1.0` from original symbol forward-return sign. Exact-zero return labels are excluded and counted. Direction model consumes the same current-time feature surface as residual prediction.
+
+- [ ] **Step 5: Implement forecast composition**
 
 ```python
-final_h = beta * market_prediction_h + residual_prediction_h
+final_prediction = beta * market_prediction + residual_prediction
 ```
 
-Persist `market_prediction`, `beta`, `beta_scaled_market`, `residual_prediction`, `final_prediction`, and `direction_score` for each horizon. The forecast digest binds all component arrays and model digests.
+Persist per horizon: market prediction, beta, beta-scaled market contribution, residual prediction, final prediction, direction score, component model digests, and forecast digest.
 
-- [ ] **Step 5: Add symbol-order and future-cutoff falsification tests**
+- [ ] **Step 6: Add cutoff/order falsification tests**
 
-Changing a label whose end is at/after cutoff cannot change fit digest. Permuting train-symbol order changes scope digest but, after re-aligning equal semantic rows, cannot silently produce the same scope identity. No hidden symbol-specific model mapping exists.
+Changing a label ending at or after cutoff cannot change fit digest. Train-symbol order is part of sample-scope identity. No validation/test label can affect a fit. There is no symbol-specific residual model mapping.
 
-- [ ] **Step 6: Verify and commit**
+- [ ] **Step 7: Verify and commit**
 
 ```bash
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_fitting.py tests/learning/test_causal_alpha_v4_forecast.py
 uv run mypy trade_rl/workflows/universal_causal_alpha_v4_fitting.py trade_rl/learning/causal_alpha_v4.py
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/workflows/universal_causal_alpha_v4_fitting.py trade_rl/learning/causal_alpha_v4.py tests/workflows/test_universal_causal_alpha_v4_fitting.py tests/learning/test_causal_alpha_v4_forecast.py
@@ -653,12 +807,10 @@ git commit -m "feat: fit hierarchical causal alpha v4 heads"
 - Create: `tests/workflows/test_universal_causal_alpha_v4_liveness.py`
 
 **Interfaces:**
-- Consumes: Task 7 final reconstructed in-prefix forecasts and context state variables.
+- Consumes: final reconstructed train-prefix forecasts and state variables.
 - Produces: `CausalAlphaV4UncertaintyModel`, `CausalAlphaV4LivenessEvidence`.
 
 - [ ] **Step 1: Write failing state precedence/fallback tests**
-
-Freeze state order:
 
 ```python
 class V4ForecastState(str, Enum):
@@ -668,7 +820,7 @@ class V4ForecastState(str, Enum):
     BASIS_POSITIONING_STRESS = "basis_positioning_stress"
 ```
 
-State thresholds are train-prefix weighted quantiles: high volatility >= 80th percentile, low liquidity <= 20th percentile, basis/positioning stress >= 80th percentile of absolute authored stress score. Precedence is stress, low-liquidity, high-volatility, normal.
+Thresholds: high realized volatility at or above the eligible train-prefix 80th percentile; low liquidity at or below the 20th percentile; basis/positioning stress at or above the 80th percentile of absolute stress score. Precedence is stress, low liquidity, high volatility, normal.
 
 - [ ] **Step 2: Verify RED**
 
@@ -676,43 +828,54 @@ State thresholds are train-prefix weighted quantiles: high volatility >= 80th pe
 uv run pytest -q tests/learning/test_causal_alpha_v4_uncertainty.py tests/workflows/test_universal_causal_alpha_v4_liveness.py
 ```
 
-- [ ] **Step 3: Implement weighted final-residual RMSE by state**
+- [ ] **Step 3: Implement final-residual RMSE by state**
 
-Each horizon/state uses residuals of the final `beta * market + residual` prediction against original symbol labels. Effective sample size is `sum(w)^2 / sum(w^2)`. If ESS `< 30.0`, select the global horizon RMSE and record `fallback_reason="insufficient_state_ess"`.
+Use residuals of final `beta * market + residual` prediction against original symbol labels. Effective sample size is `sum(w)^2 / sum(w^2)`. ESS below `30.0` selects the global horizon RMSE and records `fallback_reason="insufficient_state_ess"`.
 
 - [ ] **Step 4: Implement liveness sidecar**
 
-`CausalAlphaV4LivenessEvidence` persists, per fit/symbol/horizon:
+Persist per fit/symbol/horizon:
 
 ```text
-prediction_mean/std/min/max/quantiles
+prediction_mean
+prediction_std
+prediction_min
+prediction_max
+prediction_quantiles
 unique_count_at_tolerance_1e-12
 median_near_identical_run_length
 maximum_near_identical_run_length
 intercept
-dynamic_prediction_std = std(prediction - intercept)
+dynamic_prediction_std
 weighted_final_rmse
 dynamic_to_rmse_ratio
 constant_feature_count
 available_feature_count
-contribution_variance_by_family
-contribution_variance_by_existing_timeframe
-direction_score_mean/std/positive_fraction/negative_fraction
+contribution_variance_existing_15m
+contribution_variance_existing_1h
+contribution_variance_existing_4h
+contribution_variance_existing_1d
+contribution_variance_local_cross_market
+contribution_variance_global_market
+contribution_variance_beta_scaled_proxy
+contribution_variance_shared_residual
+direction_score_mean
+direction_score_std
+direction_positive_fraction
+direction_negative_fraction
 ```
 
-If `dynamic_prediction_std == 0.0` for a scope with at least two available varying source features, artifact construction fails because the forecast is not state-dependent. Otherwise the evidence is descriptive and `promotion_eligible=False`.
+If `dynamic_prediction_std == 0.0` while at least two fitted features are available and non-constant, evidence construction fails. Otherwise sidecar is descriptive and always `promotion_eligible=False`.
 
 - [ ] **Step 5: Add intercept-dominated falsification test**
 
-Construct a model with non-zero intercept and all dynamic coefficients zero. Assert non-zero mean prediction does not satisfy liveness construction when varying features exist.
+A non-zero intercept with zero dynamic coefficients must fail liveness integrity when source features vary.
 
 - [ ] **Step 6: Verify and commit**
 
 ```bash
 uv run pytest -q tests/learning/test_causal_alpha_v4_uncertainty.py tests/workflows/test_universal_causal_alpha_v4_liveness.py
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/learning/causal_alpha_v4.py trade_rl/workflows/universal_causal_alpha_v4_signal.py tests/learning/test_causal_alpha_v4_uncertainty.py tests/workflows/test_universal_causal_alpha_v4_liveness.py
@@ -728,12 +891,10 @@ git commit -m "feat: calibrate v4 uncertainty and liveness"
 - Create: `tests/learning/test_causal_alpha_v4_target.py`
 
 **Interfaces:**
-- Consumes: 4h/24h/72h forecast, state uncertainty, one-way execution cost, liquidity cap, current weight.
-- Produces: `CausalAlphaV4TargetConfig`, `CausalAlphaV4TargetPath`.
+- Consumes: 4h/24h/72h forecast, state uncertainty, one-way cost, liquidity cap, current weight.
+- Produces: `CausalAlphaV4TargetConfig`, `CausalAlphaV4TargetPath`, `causal_alpha_v4_target_path`.
 
 - [ ] **Step 1: Write failing target invariants**
-
-Freeze config:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -759,33 +920,25 @@ uv run pytest -q tests/learning/test_causal_alpha_v4_target.py
 
 - [ ] **Step 3: Implement slow anchor**
 
-Reuse V3 24h-equivalent slow fusion:
+Use:
 
 ```python
 slow_mu = 0.5 * (prediction_24h + prediction_72h / 3.0)
 ```
 
-Slow uncertainty uses state-conditioned 24h/72h RMSE plus horizon disagreement. Score candidate anchor turnover from the current actual weight with the same incremental edge formula used by V3.
+Slow uncertainty combines state-conditioned 24h/72h RMSE and horizon disagreement. Score candidate anchor turnover from current actual weight using the V3 incremental-edge semantics.
 
-- [ ] **Step 4: Implement fast impulse as bounded deviation**
+- [ ] **Step 4: Implement bounded fast impulse**
 
-4h chooses a deviation around the already chosen slow anchor. Final candidate is clipped by liquidity/absolute cap and `maximum_final_target_delta` from current weight. Require 4h return forecast and 4h direction score sign agreement for exposure-increasing fast deviation.
+The 4h lane chooses a deviation around the selected slow anchor. Final target is clipped by liquidity/absolute cap, `maximum_fast_absolute_deviation`, and `maximum_final_target_delta`. Exposure-increasing fast changes require 4h return forecast and direction score sign agreement.
 
-- [ ] **Step 5: Prove execution cost is charged exactly once**
+- [ ] **Step 5: Prove cost is charged exactly once**
 
-Test direct and staged objective equality:
+For current `w0`, anchor `a`, final `f`, tests assert direct final turnover cost equals the total cost charged by the staged objective. Implement fast improvement as `direct_objective(w0, f) - direct_objective(w0, a)`, not as a second independent `a -> f` fee if that would double count the authored turnover model.
 
-```python
-assert total_cost_hurdle(current, final) == (
-    slow_stage_cost(current, anchor) + fast_marginal_cost(current, anchor, final)
-)
-```
+- [ ] **Step 6: Add no-edge and risk-reduction falsification tests**
 
-The implementation may compute the direct total cost once and express fast marginal improvement relative to the selected anchor; it must never charge `current -> anchor` and `anchor -> final` if that exceeds the authored absolute one-way final turnover model.
-
-- [ ] **Step 6: Add no-edge fast-lane falsification test**
-
-A positive 4h forecast below `uncertainty + cost + margin` must not create a target change. Strong fast direction does not bypass the economic hurdle.
+A positive 4h forecast below uncertainty plus execution hurdle plus edge margin cannot create a target change. Direction disagreement cannot block flattening or liquidity deleveraging.
 
 - [ ] **Step 7: Verify and commit**
 
@@ -794,8 +947,6 @@ uv run pytest -q tests/learning/test_causal_alpha_v4_target.py
 uv run mypy trade_rl/learning/causal_alpha_v4.py
 ```
 
-Commit:
-
 ```bash
 git add trade_rl/learning/causal_alpha_v4.py tests/learning/test_causal_alpha_v4_target.py
 git commit -m "feat: compile v4 slow anchor and fast impulse"
@@ -803,7 +954,7 @@ git commit -m "feat: compile v4 slow anchor and fast impulse"
 
 ---
 
-### Task 10: Canonical V4 Signal gates
+### Task 10: Canonical fast and slow Signal gates
 
 **Files:**
 - Modify: `trade_rl/workflows/universal_causal_alpha_v4_signal.py`
@@ -811,16 +962,14 @@ git commit -m "feat: compile v4 slow anchor and fast impulse"
 - Create: `examples/binance/universal-causal-alpha-v4-research.json`
 
 **Interfaces:**
-- Consumes: Task 7 forecasts, Task 8 uncertainty/liveness, chronological V3-compatible partitions.
+- Consumes: V4 forecasts, uncertainty, liveness, chronological partitions.
 - Produces: `CausalAlphaV4SignalScopeMetric`, `CausalAlphaV4SignalEvidence`.
 
-- [ ] **Step 1: Write failing 4h/slow cohort tests**
+- [ ] **Step 1: Write failing independent-cohort tests**
 
-Use non-overlapping cohort selection based on each metric horizon's label ends. The 4h cohort must not count 15m-overlapping 4h labels as independent. Slow cohort continues to use 72h label-end spacing for the fused 24h/72h metric.
+4h Signal uses non-overlapping rows based on 4h label ends. Slow Signal uses non-overlapping rows based on 72h label ends for fused 24h/72h evidence. Adjacent 15m overlapping labels are not independent observations.
 
-- [ ] **Step 2: Freeze first V4 authored config**
-
-Create JSON with exactly one model hypothesis and target config:
+- [ ] **Step 2: Freeze exact first V4 research config**
 
 ```json
 {
@@ -853,7 +1002,7 @@ Create JSON with exactly one model hypothesis and target config:
 }
 ```
 
-The gate is applied independently to `fast_4h` and `slow_fused`; both must pass every lower-bound requirement before economic replay.
+Apply the same lower-bound requirements independently to `fast_4h` and `slow_fused`; both must pass before economic replay.
 
 - [ ] **Step 3: Verify RED**
 
@@ -861,17 +1010,15 @@ The gate is applied independently to `fast_4h` and `slow_fused`; both must pass 
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_signal.py
 ```
 
-- [ ] **Step 4: Implement canonical metrics and clustered episode bootstrap**
+- [ ] **Step 4: Implement canonical metrics**
 
-Reuse V3 signal diagnostic math where semantics match, but write V4 schemas and preserve separate fast/slow evidence. Liveness sidecar digests are bound to scope evidence but not used to relax Signal thresholds.
+Reuse V3 rank/spread/direction/bootstrap primitives only where their mathematical semantics are identical. V4 writes V4 schema identities and keeps fast/slow evidence separate. Liveness digest is bound to scope evidence but cannot relax Signal thresholds.
 
 - [ ] **Step 5: Verify and commit**
 
 ```bash
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_signal.py
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/workflows/universal_causal_alpha_v4_signal.py tests/workflows/test_universal_causal_alpha_v4_signal.py examples/binance/universal-causal-alpha-v4-research.json
@@ -880,27 +1027,34 @@ git commit -m "feat: add causal alpha v4 signal gates"
 
 ---
 
-### Task 11: V4 replay metrics with correct activity accounting
+### Task 11: V4 replay metric with correct activity accounting
 
 **Files:**
 - Create: `trade_rl/workflows/universal_causal_alpha_v4_replay.py`
 - Create: `tests/workflows/test_universal_causal_alpha_v4_replay.py`
 
 **Interfaces:**
-- Consumes: V4 target path and existing `evaluate_episode_action_path_on_environment` result.
+- Consumes: V4 target path and existing `ActionPathEvaluation`.
 - Produces: `CausalAlphaV4ReplayMetric`.
 
-- [ ] **Step 1: Write failing zero-closed-trade/positive-execution test**
+- [ ] **Step 1: Write failing positive-execution/zero-closed-trade test**
 
-Construct an evaluation with positive turnover and `executed_change_count > 0` but `closed_trade_count == 0`. Assert it is meaningful activity.
+Construct an `ActionPathEvaluation` with positive filled turnover and `executed_change_count > 0` but `trade_count == 0`; assert V4 evidence calls it meaningful execution.
 
-- [ ] **Step 2: Define metric schema**
+- [ ] **Step 2: Define complete metric schema**
 
 ```python
 @dataclass(frozen=True, slots=True)
 class CausalAlphaV4ReplayMetric:
+    run_manifest_digest: str
+    v4_context_manifest_digest: str
+    config_digest: str
     symbol: str
     episode_index: int
+    contract_digest: str
+    fit_digest: str
+    forecast_digest: str
+    target_path_digest: str
     gross_return: float
     net_return: float
     turnover_per_day: float
@@ -914,30 +1068,29 @@ class CausalAlphaV4ReplayMetric:
     risk_projection_reason_counts: tuple[tuple[str, int], ...]
     target_reason_counts: tuple[tuple[str, int], ...]
     hard_risk_violation: bool
-    ...identity digests...
+    schema_version: str = "causal_alpha_v4_replay_metric_v1"
+    digest: str = ""
 ```
 
-`has_meaningful_execution` is true when `executed_change_count > 0` or total turnover exceeds the existing action-change tolerance. `closed_trade_count` never participates alone in liveness rejection.
+`has_meaningful_execution` is true when `executed_change_count > 0` or total filled turnover exceeds the existing evaluation action-change tolerance. `closed_trade_count` alone is never a liveness condition.
 
-- [ ] **Step 3: Verify RED then implement replay adapter**
+- [ ] **Step 3: Verify RED then implement adapter**
 
 ```bash
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_replay.py
 ```
 
-Use `evaluation.collapse_evidence.executed_change_count`, `evaluation.performance.trade_count`, and actual simulator turnover/cost. Do not reconstruct execution from target changes.
+Read `evaluation.collapse_evidence.executed_change_count`, `evaluation.performance.trade_count`, `evaluation.performance.turnover_total`, actual simulator cost, and drawdown. Do not infer execution from target changes.
 
-- [ ] **Step 4: Add rejection attribution tests**
+- [ ] **Step 4: Add attribution tests**
 
-Differentiate no submitted change, submitted-but-suppressed, execution rejection, positive filled turnover with no close, and hard-risk failure.
+Separate no submitted change, submitted-but-suppressed, execution rejection, positive fill without close, and hard-risk violation.
 
 - [ ] **Step 5: Verify and commit**
 
 ```bash
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_replay.py
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/workflows/universal_causal_alpha_v4_replay.py tests/workflows/test_universal_causal_alpha_v4_replay.py
@@ -946,7 +1099,7 @@ git commit -m "feat: add v4 economic replay accounting"
 
 ---
 
-### Task 12: V4 selection and untouched Teacher admission
+### Task 12: V4 economic selection and untouched Teacher admission
 
 **Files:**
 - Create: `trade_rl/workflows/universal_causal_alpha_v4_selection.py`
@@ -955,24 +1108,24 @@ git commit -m "feat: add v4 economic replay accounting"
 - Create: `tests/workflows/test_universal_causal_alpha_v4_admission.py`
 
 **Interfaces:**
-- Consumes: complete V4 replay metrics; selected candidate only for holdout.
+- Consumes: complete V4 replay metrics; selected single authored hypothesis for holdout.
 - Produces: `CausalAlphaV4SelectionEvidence`, `CausalAlphaV4AdmissionEvidence`.
 
 - [ ] **Step 1: Write failing selection tests**
 
-First V4 has one authored candidate, so selection is admission/rejection rather than grid tuning. Require:
+The first generation has one authored candidate. Require all of:
 
 ```text
 mean gross return >= 0
 mean net return >= 0
-worst symbol/episode net >= -0.05
+worst symbol/episode net return >= -0.05
 positive gross episode fraction >= 0.5
-no unexplained execution rejection
-no hard-risk violation
+unexplained execution rejection count == 0
+hard risk violation count == 0
 meaningful executed activity exists
 ```
 
-Do not reject solely because `closed_trade_count == 0`.
+Do not reject solely because all `closed_trade_count` values are zero.
 
 - [ ] **Step 2: Verify RED and implement selection**
 
@@ -980,23 +1133,21 @@ Do not reject solely because `closed_trade_count == 0`.
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_selection.py
 ```
 
-Ranking code must not exist for an un-authored parameter sweep in V1. A failed candidate preserves evidence and ends the run.
+Do not add a parameter-ranking grid in V1. Failure preserves evidence and stops.
 
-- [ ] **Step 3: Write untouched holdout admission tests**
+- [ ] **Step 3: Write untouched holdout tests**
 
-Admission opens only after Signal and selection pass. Fit cutoff is the holdout start and no holdout label is available to fitting, state thresholds, liveness thresholds, or target tuning.
+Teacher admission opens only after both Signal gates and economic selection pass. The selected fit cutoff is at holdout start. Holdout labels cannot enter fit, beta history, state thresholds, uncertainty calibration, liveness thresholding, or target configuration.
 
-- [ ] **Step 4: Implement admission evidence**
+- [ ] **Step 4: Implement admission**
 
-Use the same V4 metric semantics including executed/closed count separation. Require aggregate gross/net non-negative, at most half negative-gross symbol holdouts, worst net >= `-0.05`, no hard risk, no unexplained rejection, and meaningful execution across the holdout set.
+Require aggregate gross/net non-negative, no more than half negative-gross symbol holdouts, worst net at least `-0.05`, zero hard-risk violations, zero unexplained rejections, and meaningful execution across holdout records. Persist executed and closed counts separately.
 
 - [ ] **Step 5: Verify and commit**
 
 ```bash
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_selection.py tests/workflows/test_universal_causal_alpha_v4_admission.py
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/workflows/universal_causal_alpha_v4_selection.py trade_rl/workflows/universal_causal_alpha_v4_admission.py tests/workflows/test_universal_causal_alpha_v4_selection.py tests/workflows/test_universal_causal_alpha_v4_admission.py
@@ -1017,65 +1168,59 @@ git commit -m "feat: gate causal alpha v4 economics"
 - Create: `tests/scripts/test_run_universal_causal_alpha_v4_research.py`
 
 **Interfaces:**
-- Consumes: V4 config, base runtime context, V4 context manifest.
+- Consumes: V4 JSON config, base runtime context, V4 context manifest.
 - Produces: terminal `signal_rejected`, `selection_rejected`, `admission_rejected`, or research-only admitted V4 teacher package.
 
 - [ ] **Step 1: Write failing resume/corruption tests**
 
-Store identities include base runtime manifest digest, V4 context manifest digest, V4 config digest, source-tree/generator digest, contract digest, fit digest, forecast digest, and target-path digest. Missing scope can resume; corrupt/stale/wrong-run evidence fails closed and is never overwritten as if valid.
+Store identity binds base runtime manifest digest, V4 context manifest digest, V4 config digest, source-tree/generator digest, contract digest, fit digest, forecast digest, and target-path digest. Missing scopes can resume; corrupt/stale/wrong-run evidence fails closed and is not overwritten as valid.
 
-- [ ] **Step 2: Implement artifact paths**
-
-Use:
+- [ ] **Step 2: Implement exact artifact layout**
 
 ```text
-signal/fast/<symbol>/<episode>.json
-signal/slow/<symbol>/<episode>.json
-signal/liveness/<symbol>/<episode>.json
-selection/<symbol>/<episode>.json
-admission/<symbol>.json
+signal/fast/BTCUSDT/0.json
+signal/slow/BTCUSDT/0.json
+signal/liveness/BTCUSDT/0.json
+selection/BTCUSDT/0.json
+admission/BTCUSDT.json
 result.json
 ```
 
-Every leaf is atomic and content-digested.
+The same directory pattern applies to each symbol/episode. Every leaf is atomic and content-digested.
 
 - [ ] **Step 3: Implement pipeline order**
 
 ```text
-strict config
--> base runtime + V4 context identity closure
--> train-only V4 preparation
--> fast Signal gate
--> slow Signal gate
--> economic replay/selection
--> untouched Teacher admission
--> research-only V4 teacher package
+strict V4 config
+base runtime + V4 context identity closure
+train-only V4 preparation
+fast Signal gate
+slow Signal gate
+economic replay and selection
+untouched Teacher admission
+research-only V4 teacher package
 ```
 
 Any failure prevents all later stages.
 
 - [ ] **Step 4: Implement CLI exit codes**
 
-Match V3 operator semantics without sharing artifact schema:
-
 ```text
-0 = admitted research teacher
-2 = signal_rejected
-3 = selection_rejected
-4 = admission_rejected
-other = execution/configuration failure
+0 admitted research teacher
+2 signal_rejected
+3 selection_rejected
+4 admission_rejected
+other execution or configuration failure
 ```
 
-CLI requires `--v4-context-manifest` in addition to V3-equivalent runtime inputs.
+CLI requires `--v4-context-manifest` in addition to the V3-equivalent runtime inputs.
 
 - [ ] **Step 5: Verify and commit**
 
 ```bash
 uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_artifact_store.py tests/workflows/test_universal_causal_alpha_v4_pipeline.py tests/scripts/test_run_universal_causal_alpha_v4_research.py
-uv run py_compile scripts/run_universal_causal_alpha_v4_research.py
+uv run python -m py_compile scripts/run_universal_causal_alpha_v4_research.py
 ```
-
-Commit:
 
 ```bash
 git add trade_rl/workflows/universal_causal_alpha_v4_artifact_store.py trade_rl/workflows/universal_causal_alpha_v4_pipeline.py trade_rl/workflows/universal_causal_alpha_v4_runner.py scripts/run_universal_causal_alpha_v4_research.py tests/workflows/test_universal_causal_alpha_v4_artifact_store.py tests/workflows/test_universal_causal_alpha_v4_pipeline.py tests/scripts/test_run_universal_causal_alpha_v4_research.py
@@ -1084,15 +1229,14 @@ git commit -m "feat: add causal alpha v4 research runner"
 
 ---
 
-### Task 14: Cross-layer regression and architecture verification
+### Task 14: Cross-layer regression, static checks, and falsification review
 
 **Files:**
-- Modify only tests/docs required by failing maintained contracts discovered in this task.
-- Test: existing architecture, data, RL, learning, workflow, and serving suites.
+- Modify only files required to correct failures found by this task; keep each correction in a separate focused commit.
 
 **Interfaces:**
-- Consumes: complete implementation from Tasks 1-13.
-- Produces: objective evidence that V3/non-V4 behavior did not drift and V4 context is student-reproducible.
+- Consumes: Tasks 1-13 implementation.
+- Produces: verification evidence for V4 plus proof that V3/non-V4 behavior did not drift.
 
 - [ ] **Step 1: Run focused V4 suite**
 
@@ -1106,6 +1250,7 @@ uv run pytest -q \
   tests/learning/test_causal_alpha_v4_forecast.py \
   tests/learning/test_causal_alpha_v4_uncertainty.py \
   tests/learning/test_causal_alpha_v4_target.py \
+  tests/workflows/test_universal_causal_alpha_v4_manifest.py \
   tests/workflows/test_universal_causal_alpha_v4_runtime.py \
   tests/workflows/test_universal_causal_alpha_v4_fitting.py \
   tests/workflows/test_universal_causal_alpha_v4_liveness.py \
@@ -1131,7 +1276,7 @@ uv run pytest -q \
   tests/learning/test_causal_alpha_weighted_ridge.py
 ```
 
-Expected: no V3 fixture/schema changes are required for V4.
+Expected: no V3 fixture or schema migration is needed for V4.
 
 - [ ] **Step 3: Run static and architecture checks**
 
@@ -1143,16 +1288,14 @@ uv run lint-imports
 uv run vulture trade_rl tests --min-confidence 100
 ```
 
-- [ ] **Step 4: Run full tests with branch coverage**
+- [ ] **Step 4: Run full tests and branch coverage**
 
 ```bash
 uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
 uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
 ```
 
-- [ ] **Step 5: Run cross-platform compatibility scope**
-
-On Linux and Windows runners, execute the same compatibility set used by CI:
+- [ ] **Step 5: Run the repository compatibility scope on Linux and Windows CI**
 
 ```bash
 uv run pytest -q \
@@ -1166,123 +1309,115 @@ uv run pytest -q \
   tests/operations/test_training_capability_audit.py::test_sequence_training_exercises_real_hierarchical_behavior_cloning
 ```
 
-- [ ] **Step 6: Build/probe training image**
+- [ ] **Step 6: Build and probe the training image**
 
-Use the exact final HEAD/source/lock digests and the same `docker/Dockerfile.training` build procedure as `.github/workflows/ci.yml`. Verify packaged import of every new V4 module and the V4 CLI `--help` path under the non-root runtime.
+Use the exact final HEAD/source/lock digests and the same `docker/Dockerfile.training` build procedure as `.github/workflows/ci.yml`. Inside the non-root image, import every new V4 module and run `python scripts/run_universal_causal_alpha_v4_research.py --help`.
 
-- [ ] **Step 7: Falsification review before empirical run**
+- [ ] **Step 7: Perform independent falsification review**
 
-Independently inspect the final diff against the spec and attempt to prove each of the following failure modes still exists:
+Attempt to construct a counterexample for every item below. Any successful counterexample blocks empirical execution until corrected and reverified.
 
 ```text
-Teacher-only current input hidden from Student
-future Spot/OI row changes earlier context
-future target/BTC return changes earlier beta
-validation/test label enters fit
-symbol order silently changes semantics
+Teacher sees a current input Student cannot reproduce
+future Spot or OI changes earlier context
+future target or BTC return changes earlier beta
+validation or test label enters fit
+symbol order silently changes model semantics
 non-zero intercept hides zero dynamic signal
-4h fast lane trades below cost/uncertainty hurdle
+4h lane trades below cost and uncertainty hurdle
 direction disagreement blocks flattening
 missing context becomes informative zero
 provider revision preserves stale digest
-slow+fast target double-charges one turnover
+slow and fast stages charge two costs for one final delta
 closed-trade count is treated as executed activity
 ```
 
-Any successful counterexample blocks the next task.
+- [ ] **Step 8: Re-run Steps 1-7 after every corrective code change**
 
-- [ ] **Step 8: Commit verification-only fixes, if any, as separate commits**
-
-Do not bundle unrelated refactors. Re-run Steps 1-7 after any code correction.
+Do not weaken a test or acceptance rule to obtain green status.
 
 ---
 
 ### Task 15: Execute one immutable train-only V4 generation
 
 **Files:**
-- No scientific source changes after generation identity is frozen.
-- Persisted output only under a new retained V4 generation root.
+- No scientific source change is permitted after generation identity is frozen.
+- Retained output root: `var/retained-causal-alpha-v4/hierarchical-v1-20260823-r1`.
 
 **Interfaces:**
-- Consumes: clean final HEAD, complete V4 context manifest, exact authored V4 JSON config, maintained immutable Universal runtime.
-- Produces: retained source/config/context identities, per-scope Signal/liveness/replay/admission evidence, terminal result.
+- Consumes: clean final HEAD, complete V4 context manifest, exact authored V4 config, maintained immutable Universal runtime.
+- Produces: retained identities, Signal/liveness/replay/admission evidence, terminal result.
 
-- [ ] **Step 1: Freeze generation identity before reading outcomes**
+- [ ] **Step 1: Freeze generation identity**
 
-Persist:
+Persist source HEAD, source-tree digest, `uv.lock` digest, training image identity, base runtime manifest digest, V4 context manifest digest, V4 config digest, V4 generator code digest, resolved profile, and PIT-flow state. Refuse dirty source.
 
-```text
-source HEAD
-source tree digest
-uv.lock digest
-training image identity
-base runtime manifest digest
-V4 context manifest digest
-V4 research config digest
-V4 generator code digest
-profile name and PIT-flow state
-```
+- [ ] **Step 2: Materialize and validate V4 context**
 
-Refuse dirty source.
-
-- [ ] **Step 2: Run V4 context materialization/validation**
+Use these environment variables already supported by the project/operator contract:
 
 ```bash
+RUNTIME_ROOT="$TRADE_RL_UNIVERSAL_ARTIFACT_ROOT"
+CACHE_ROOT="${TRADE_RL_MARKET_DATA_CACHE_ROOT:-/workspace/market-data/binance-vision}"
+V4_CONTEXT_ROOT="$RUNTIME_ROOT/v4-context/hierarchical-v1-20260823-r1"
+
 uv run python scripts/materialize_universal_causal_alpha_v4_context.py \
-  --runtime-manifest <immutable-runtime>/runtime-manifest.json \
-  --frozen-metadata-root <immutable-runtime>/frozen-metadata/usds-m \
-  --market-data-cache-root <cache>/binance-vision \
-  --output-root <immutable-runtime>/v4-context \
+  --runtime-manifest "$RUNTIME_ROOT/runtime-manifest.json" \
+  --frozen-metadata-root "$RUNTIME_ROOT/frozen-metadata/usds-m" \
+  --market-data-cache-root "$CACHE_ROOT" \
+  --output-root "$V4_CONTEXT_ROOT" \
   --profile derivatives-auto
 ```
 
-The resolved profile is frozen by data coverage only.
+The resolved profile is frozen by source coverage only.
 
-- [ ] **Step 3: Run the authored V4 research path once**
+- [ ] **Step 3: Run authored V4 research path once**
 
 ```bash
+OUTPUT_ROOT="var/retained-causal-alpha-v4/hierarchical-v1-20260823-r1"
+
 uv run python scripts/run_universal_causal_alpha_v4_research.py \
   --config examples/binance/universal-causal-alpha-v4-research.json \
   --run-config examples/binance-multitimeframe/universal-u6-ppo.json \
-  --runtime-manifest <immutable-runtime>/runtime-manifest.json \
-  --v4-context-manifest <immutable-runtime>/v4-context/manifest.json \
-  --frozen-metadata-root <immutable-runtime>/frozen-metadata/usds-m \
-  --output-root <retained-v4-generation>
+  --runtime-manifest "$RUNTIME_ROOT/runtime-manifest.json" \
+  --v4-context-manifest "$V4_CONTEXT_ROOT/manifest.json" \
+  --frozen-metadata-root "$RUNTIME_ROOT/frozen-metadata/usds-m" \
+  --output-root "$OUTPUT_ROOT"
 ```
 
-- [ ] **Step 4: Validate retained evidence before interpretation**
+- [ ] **Step 4: Validate retained evidence before interpreting outcomes**
 
-Re-load every artifact through strict readers, require all expected Signal scopes, liveness sidecars, replay records, and admission records for the terminal stage reached, and verify all digests against the frozen generation identity.
+Re-load every retained file through strict readers. Require every expected fast/slow Signal scope and liveness sidecar, plus complete replay/admission records for the terminal stage reached. Recompute and compare all identity digests.
 
 - [ ] **Step 5: Apply terminal semantics without tuning**
 
-- Signal failure: retain evidence and stop. Do not alter feature pack, ridge strengths, direction rule, bootstrap, or target parameters in this generation.
+- Signal failure: retain evidence and stop; no parameter or feature change in this generation.
 - Selection failure: retain evidence and stop before holdout admission.
-- Admission failure: retain evidence and do not create a BC/PPO learner plan from this generation.
-- Admission pass: create a research-only V4 teacher package with `promotion_eligible=false`; only then author a separate learner implementation plan.
+- Admission failure: retain evidence and do not start BC/PPO.
+- Admission pass: create a research-only V4 teacher package with `promotion_eligible=false`; then author the learner plan as a new task/design cycle.
 
-- [ ] **Step 6: Final report evidence**
+- [ ] **Step 6: Produce final evidence report**
 
-Report exact fast/slow Signal lower bounds, liveness distributions, state uncertainty support/fallback, gross/net/worst returns, submitted/executed/closed counts, turnover/cost, target reason attribution, hard-risk/rejection counts, and untouched admission result. Explicitly separate what the run proves from what remains unverified.
+Report fast/slow Signal lower bounds, liveness distributions, uncertainty-state support/fallback, gross/net/worst returns, submitted/executed/closed counts, turnover/cost, target-reason attribution, hard-risk/rejection counts, and untouched admission result. State separately what is proven and what remains unverified.
 
 ---
 
 ## Final Quality Gate
 
-Do not call the implementation complete unless all of the following hold on the same final HEAD:
+Do not report the implementation complete unless all items below hold on the same final HEAD:
 
 1. Reward/risk/execution/action semantics have no V4-driven change.
-2. Existing V3 tests and historical schema readers remain valid.
-3. All V4 current-time teacher inputs are exposed through the V4 student observation capability.
-4. Core/derivative feature profile names and ordered counts match the spec exactly.
+2. Existing V3 tests and historical schema readers remain valid without migration.
+3. Every V4 current-time teacher input, availability mask, staleness value, and beta needed for actions is exposed through the V4 student observation capability.
+4. Core/derivative feature profile names and ordered counts match this plan and the spec exactly.
 5. Future source values cannot alter earlier context, beta, fit, or prediction.
-6. Market-proxy/residual reconstruction is exact within the authored tolerance.
-7. Direction disagreement cannot block risk-reducing flatten/deleveraging.
-8. State uncertainty uses train-prefix residuals only and records fallback support.
+6. Market-proxy/residual reconstruction is exact within `1e-15` on finite eligible rows.
+7. Direction disagreement cannot block flattening or liquidity deleveraging.
+8. State uncertainty uses train-prefix final residuals only and records fallback support.
 9. Slow/fast objective tests prove execution cost is charged once.
 10. V4 meaningful execution uses executed changes/filled turnover, with closed trades separate.
-11. Targeted tests, V3 regressions, full pytest/branch coverage, Ruff, format, MyPy, Import Linter, Vulture, compatibility checks, and training-image build/probe pass.
+11. Focused tests, V3 regressions, full pytest with branch coverage, Ruff, format, MyPy, Import Linter, Vulture, compatibility checks, and training-image build/probe succeed.
 12. Independent falsification review finds no uncorrected counterexample to the listed invariants.
 13. CI/required checks are green for the exact final commit used for the retained generation.
-14. The immutable V4 generation is either validly rejected at its first failed gate or reaches Teacher admission without post-outcome parameter changes.
-15. Remaining unverified items are explicitly recorded; Teacher admission alone is not a profitability or Production claim.
+14. The immutable V4 generation is validly rejected at its first failed gate or reaches Teacher admission without post-outcome scientific parameter changes.
+15. Remaining unverified items are explicit; Teacher admission is not a profitability claim and is not Production GO.

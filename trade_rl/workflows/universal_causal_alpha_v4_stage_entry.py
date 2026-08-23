@@ -7,10 +7,6 @@ from pathlib import Path
 from typing import Any, Final
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.rl.training_run_config import TrainingRunConfig
-from trade_rl.workflows.universal_causal_alpha_v3_runtime import (
-    prepare_causal_alpha_v3_research_data,
-)
 from trade_rl.workflows.universal_causal_alpha_v4_artifact_store import (
     CausalAlphaV4ArtifactStore,
 )
@@ -27,11 +23,6 @@ from trade_rl.workflows.universal_causal_alpha_v4_stage_runner import (
     prepare_causal_alpha_v4_stage_data,
     slice_causal_alpha_v4_forecast,
 )
-from trade_rl.workflows.universal_full_research_entrypoint import (
-    UniversalRuntimeFactoryContext,
-    load_universal_runtime_factory,
-)
-from trade_rl.workflows.universal_research import FullResearchAlgorithm
 
 _V4_RUNTIME_FACTORY: Final = "trade_rl.workflows.binance_universal_runtime:build_runtime"
 
@@ -93,9 +84,21 @@ def run_causal_alpha_v4_stage_entry(
 ) -> CausalAlphaV4ResearchPackage:
     """Resolve immutable runtime/context identity and execute V4 gates in order."""
 
+    # Keep the import-only CLI surface usable without the heavyweight training
+    # extras. These dependencies are required only when the concrete research run
+    # is actually executed.
+    from trade_rl.rl.training_run_config import TrainingRunConfig
+    from trade_rl.workflows.universal_causal_alpha_v3_runtime import (
+        prepare_causal_alpha_v3_research_data,
+    )
     from trade_rl.workflows.universal_causal_alpha_v4_runner import (
         CausalAlphaV4ResearchConfig,
     )
+    from trade_rl.workflows.universal_full_research_entrypoint import (
+        UniversalRuntimeFactoryContext,
+        load_universal_runtime_factory,
+    )
+    from trade_rl.workflows.universal_research import FullResearchAlgorithm
 
     config_path = Path(config_path)
     config = CausalAlphaV4ResearchConfig.from_json(config_path)

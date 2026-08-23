@@ -1,4 +1,4 @@
-name: V4 static correction once
+name: V4 targeted verification
 
 on:
   push:
@@ -6,18 +6,17 @@ on:
       - design/causal-alpha-v4-hierarchical-teacher
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  correct:
-    if: github.actor != 'github-actions[bot]'
+  verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          persist-credentials: true
+          persist-credentials: false
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
@@ -25,91 +24,7 @@ jobs:
           enable-cache: true
       - name: Install formal CI dependencies
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
-      - name: Apply bounded type corrections
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          def replace_once(path: str, old: str, new: str) -> None:
-              source = Path(path)
-              text = source.read_text(encoding="utf-8")
-              count = text.count(old)
-              if count != 1:
-                  raise RuntimeError(f"expected one replacement in {path}, found {count}")
-              source.write_text(text.replace(old, new), encoding="utf-8")
-
-          replace_once(
-              "trade_rl/workflows/universal_causal_alpha_v4_artifact_store.py",
-              '''            value = payload.get(field_name)\n            if value is not None:\n                require_sha256(value, field=f"V4 artifact {field_name}")\n''',
-              '''            value = payload.get(field_name)\n            if value is None:\n                continue\n            if not isinstance(value, str):\n                raise ValueError(\n                    f"V4 artifact {field_name} must be a SHA-256 digest"\n                )\n            require_sha256(value, field=f"V4 artifact {field_name}")\n''',
-          )
-
-          pipeline = "trade_rl/workflows/universal_causal_alpha_v4_pipeline.py"
-          replace_once(
-              pipeline,
-              '''        rejection = CausalAlphaV4SignalRejected(signal)\n        store.write_leaf(\n            "result.json",\n            store.envelope(\n                schema_version="causal_alpha_v4_terminal_result_v1",\n                evidence_digest=rejection.digest,\n                payload={"status": "signal_rejected", **rejection.to_payload()},\n            ),\n        )\n        raise rejection\n''',
-              '''        signal_rejection = CausalAlphaV4SignalRejected(signal)\n        store.write_leaf(\n            "result.json",\n            store.envelope(\n                schema_version="causal_alpha_v4_terminal_result_v1",\n                evidence_digest=signal_rejection.digest,\n                payload={\n                    "status": "signal_rejected",\n                    **signal_rejection.to_payload(),\n                },\n            ),\n        )\n        raise signal_rejection\n''',
-          )
-          replace_once(
-              pipeline,
-              '''        rejection = CausalAlphaV4SelectionRejected(selection)\n        store.write_leaf(\n            "result.json",\n            store.envelope(\n                schema_version="causal_alpha_v4_terminal_result_v1",\n                evidence_digest=rejection.digest,\n                payload={"status": "selection_rejected", **rejection.to_payload()},\n            ),\n        )\n        raise rejection\n''',
-              '''        selection_rejection = CausalAlphaV4SelectionRejected(selection)\n        store.write_leaf(\n            "result.json",\n            store.envelope(\n                schema_version="causal_alpha_v4_terminal_result_v1",\n                evidence_digest=selection_rejection.digest,\n                payload={\n                    "status": "selection_rejected",\n                    **selection_rejection.to_payload(),\n                },\n            ),\n        )\n        raise selection_rejection\n''',
-          )
-          replace_once(
-              pipeline,
-              '''        rejection = CausalAlphaV4AdmissionRejected(admission)\n        store.write_leaf(\n            "result.json",\n            store.envelope(\n                schema_version="causal_alpha_v4_terminal_result_v1",\n                evidence_digest=rejection.digest,\n                payload={"status": "admission_rejected", **rejection.to_payload()},\n            ),\n        )\n        raise rejection\n''',
-              '''        admission_rejection = CausalAlphaV4AdmissionRejected(admission)\n        store.write_leaf(\n            "result.json",\n            store.envelope(\n                schema_version="causal_alpha_v4_terminal_result_v1",\n                evidence_digest=admission_rejection.digest,\n                payload={\n                    "status": "admission_rejected",\n                    **admission_rejection.to_payload(),\n                },\n            ),\n        )\n        raise admission_rejection\n''',
-          )
-
-          replace_once(
-              "trade_rl/workflows/universal_causal_alpha_v4_stage_runner.py",
-              '''    samples: dict[str, Any] = {}\n''',
-              '''    assert isinstance(base_samples, Mapping)\n    assert isinstance(environment_factories, Mapping)\n    assert isinstance(signal_delays, Mapping)\n    assert isinstance(decision_bars, Mapping)\n    assert isinstance(partitions, Mapping)\n\n    samples: dict[str, Any] = {}\n''',
-          )
-
-          execution = "trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py"
-          replace_once(
-              execution,
-              '''def _signal_metric_from_payload(\n    raw: Mapping[str, object],\n) -> CausalAlphaV4SignalScopeMetric:\n''',
-              '''def _signal_metric_from_payload(\n    raw: Mapping[str, Any],\n) -> CausalAlphaV4SignalScopeMetric:\n''',
-          )
-          replace_once(
-              execution,
-              '''def _replay_metric_from_payload(raw: Mapping[str, object]) -> CausalAlphaV4ReplayMetric:\n''',
-              '''def _replay_metric_from_payload(raw: Mapping[str, Any]) -> CausalAlphaV4ReplayMetric:\n''',
-          )
-
-          binance = "trade_rl/integrations/binance_v4_context.py"
-          replace_once(
-              binance,
-              '''from typing import Final\n''',
-              '''from typing import Any, Final, cast\n''',
-          )
-          replace_once(
-              binance,
-              '''def _freeze_vector(value: object, *, dtype: np.dtype[object], field: str) -> np.ndarray:\n''',
-              '''def _freeze_vector(value: object, *, dtype: np.dtype[Any], field: str) -> np.ndarray:\n''',
-          )
-          replace_once(
-              binance,
-              '''        result = float(value)\n''',
-              '''        result = float(cast(Any, value))\n''',
-          )
-          PY
-      - name: Format bounded files
-        run: |
-          files=(
-            trade_rl/workflows/universal_causal_alpha_v4_artifact_store.py
-            trade_rl/workflows/universal_causal_alpha_v4_pipeline.py
-            trade_rl/workflows/universal_causal_alpha_v4_stage_runner.py
-            trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py
-            trade_rl/integrations/binance_v4_context.py
-            trade_rl/rl/universal_single_instrument_env.py
-            trade_rl/rl/universal_v4_context.py
-          )
-          uv run ruff format "${files[@]}"
-          git diff --check
-      - name: Focused behavioral verification
+      - name: Run focused V4 runner and context tests
         run: |
           uv run pytest -q \
             tests/workflows/test_universal_causal_alpha_v4_artifact_store.py \
@@ -124,27 +39,10 @@ jobs:
             tests/integrations/test_binance_v4_context.py \
             tests/rl/test_universal_v4_context.py \
             tests/rl/test_universal_single_instrument_env.py
-      - name: Full static and architecture verification
+          uv run python -m py_compile scripts/run_universal_causal_alpha_v4_research.py
+      - name: Run full static and architecture checks
         run: |
           uv run ruff check --diff .
           uv run ruff format --check --diff .
           uv run mypy .
           uv run lint-imports
-      - name: Commit verified correction
-        env:
-          BRANCH_NAME: ${{ github.ref_name }}
-        run: |
-          files=(
-            trade_rl/workflows/universal_causal_alpha_v4_artifact_store.py
-            trade_rl/workflows/universal_causal_alpha_v4_pipeline.py
-            trade_rl/workflows/universal_causal_alpha_v4_stage_runner.py
-            trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py
-            trade_rl/integrations/binance_v4_context.py
-            trade_rl/rl/universal_single_instrument_env.py
-            trade_rl/rl/universal_v4_context.py
-          )
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- "${files[@]}"
-          git commit -m 'fix: close causal alpha v4 static contracts'
-          git push origin "HEAD:${BRANCH_NAME}"

@@ -1,4 +1,4 @@
-name: V4 format remaining files once
+name: V4 targeted test once
 
 on:
   push:
@@ -6,61 +6,88 @@ on:
       - design/causal-alpha-v4-hierarchical-teacher
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  format:
-    if: github.actor != 'github-actions[bot]'
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          persist-credentials: true
+          persist-credentials: false
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: '3.12'
           enable-cache: true
-      - name: Install formatter
+      - name: Install
         run: uv sync --extra dev
-      - name: Format bounded remaining files
+      - name: Run targeted V4 Task 13 tests
         run: |
-          files=(
-            tests/workflows/test_universal_causal_alpha_v4_artifact_store.py
-            tests/workflows/test_universal_causal_alpha_v4_stage_execution.py
-            tests/workflows/test_universal_causal_alpha_v4_stage_runner.py
-            tests/workflows/test_universal_causal_alpha_v4_stage_science.py
-            trade_rl/workflows/universal_causal_alpha_v4_liveness_inputs.py
-            trade_rl/workflows/universal_causal_alpha_v4_stage_entry.py
-            trade_rl/workflows/universal_causal_alpha_v4_stage_runner.py
-            trade_rl/workflows/universal_causal_alpha_v4_stage_science.py
-          )
-          uv run ruff format "${files[@]}"
-          uv run ruff check "${files[@]}"
-          uv run ruff format --check "${files[@]}"
-          git diff --check
-      - name: Commit formatter output
-        env:
-          BRANCH_NAME: ${{ github.ref_name }}
+          uv run pytest -q \
+            tests/workflows/test_universal_causal_alpha_v4_artifact_store.py \
+            tests/workflows/test_universal_causal_alpha_v4_pipeline.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_runner.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_runner_context_scope.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_helpers.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_science.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_entry.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_execution.py \
+            tests/scripts/test_run_universal_causal_alpha_v4_research.py
+      - name: Ruff
         run: |
-          files=(
-            tests/workflows/test_universal_causal_alpha_v4_artifact_store.py
-            tests/workflows/test_universal_causal_alpha_v4_stage_execution.py
-            tests/workflows/test_universal_causal_alpha_v4_stage_runner.py
-            tests/workflows/test_universal_causal_alpha_v4_stage_science.py
-            trade_rl/workflows/universal_causal_alpha_v4_liveness_inputs.py
+          uv run ruff check \
+            trade_rl/workflows/universal_causal_alpha_v4_artifact_store.py \
+            trade_rl/workflows/universal_causal_alpha_v4_pipeline.py \
+            trade_rl/workflows/universal_causal_alpha_v4_runner.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_runner.py \
+            trade_rl/workflows/universal_causal_alpha_v4_liveness_inputs.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_science.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_entry.py \
+            scripts/run_universal_causal_alpha_v4_research.py \
+            tests/workflows/test_universal_causal_alpha_v4_artifact_store.py \
+            tests/workflows/test_universal_causal_alpha_v4_pipeline.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_runner.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_runner_context_scope.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_helpers.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_science.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_entry.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_execution.py \
+            tests/scripts/test_run_universal_causal_alpha_v4_research.py
+      - name: Format check
+        run: |
+          uv run ruff format --check \
+            trade_rl/workflows/universal_causal_alpha_v4_artifact_store.py \
+            trade_rl/workflows/universal_causal_alpha_v4_pipeline.py \
+            trade_rl/workflows/universal_causal_alpha_v4_runner.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_runner.py \
+            trade_rl/workflows/universal_causal_alpha_v4_liveness_inputs.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_science.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_entry.py \
+            scripts/run_universal_causal_alpha_v4_research.py \
+            tests/workflows/test_universal_causal_alpha_v4_artifact_store.py \
+            tests/workflows/test_universal_causal_alpha_v4_pipeline.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_runner.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_runner_context_scope.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_helpers.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_science.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_entry.py \
+            tests/workflows/test_universal_causal_alpha_v4_stage_execution.py \
+            tests/scripts/test_run_universal_causal_alpha_v4_research.py
+      - name: Mypy
+        run: |
+          uv run mypy \
+            trade_rl/workflows/universal_causal_alpha_v4_artifact_store.py \
+            trade_rl/workflows/universal_causal_alpha_v4_pipeline.py \
+            trade_rl/workflows/universal_causal_alpha_v4_runner.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_runner.py \
+            trade_rl/workflows/universal_causal_alpha_v4_liveness_inputs.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_science.py \
+            trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py \
             trade_rl/workflows/universal_causal_alpha_v4_stage_entry.py
-            trade_rl/workflows/universal_causal_alpha_v4_stage_runner.py
-            trade_rl/workflows/universal_causal_alpha_v4_stage_science.py
-          )
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- "${files[@]}"
-          if git diff --cached --quiet; then
-            echo 'No formatter changes were required.'
-            exit 0
-          fi
-          git commit -m 'style: format remaining causal alpha v4 files'
-          git push origin "HEAD:${BRANCH_NAME}"
+      - name: Import architecture
+        run: uv run lint-imports

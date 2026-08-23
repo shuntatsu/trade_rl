@@ -157,11 +157,11 @@ def run_universal_causal_alpha_v4_research_from_paths(
     boundary and unit tests can inject a side-effect-free runner.
     """
 
-    from trade_rl.workflows.universal_causal_alpha_v4_stage_runner import (
-        run_causal_alpha_v4_stage_runner,
+    from trade_rl.workflows.universal_causal_alpha_v4_stage_entry import (
+        run_causal_alpha_v4_stage_entry,
     )
 
-    return run_causal_alpha_v4_stage_runner(
+    return run_causal_alpha_v4_stage_entry(
         config_path=Path(config_path),
         run_config_path=Path(run_config_path),
         runtime_manifest_path=Path(runtime_manifest_path),

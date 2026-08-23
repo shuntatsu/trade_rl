@@ -29,9 +29,9 @@ def _digest(value: str) -> str:
 
 
 def _timestamps(row_count: int) -> np.ndarray:
-    return np.datetime64("2026-01-01T00:00", "ns") + np.arange(row_count) * np.timedelta64(
-        15, "m"
-    )
+    return np.datetime64("2026-01-01T00:00", "ns") + np.arange(
+        row_count
+    ) * np.timedelta64(15, "m")
 
 
 def _cross_market_inputs(
@@ -43,9 +43,7 @@ def _cross_market_inputs(
     index = np.arange(row_count, dtype=np.float64)
     decision_indices = np.arange(row_count, dtype=np.int64)
     timestamps = _timestamps(row_count)
-    spot_close = 100.0 * np.exp(
-        0.00015 * index + 0.003 * np.sin(index / 19.0 + phase)
-    )
+    spot_close = 100.0 * np.exp(0.00015 * index + 0.003 * np.sin(index / 19.0 + phase))
     perp_close = spot_close * np.exp(0.0005 + 0.0002 * np.sin(index / 23.0))
     perp_mark = perp_close * np.exp(0.00005 * np.cos(index / 17.0))
     spot_quote = 1_000_000.0 * (1.1 + 0.08 * np.sin(index / 11.0 + phase))
@@ -130,9 +128,7 @@ def test_taker_quote_imbalance_is_signed_and_bounded() -> None:
 
 
 def test_spot_perp_log_basis_uses_perp_over_spot() -> None:
-    assert spot_perp_log_basis(spot=100.0, perp=101.0) == pytest.approx(
-        np.log(1.01)
-    )
+    assert spot_perp_log_basis(spot=100.0, perp=101.0) == pytest.approx(np.log(1.01))
     with pytest.raises(ValueError, match="basis prices"):
         spot_perp_log_basis(spot=0.0, perp=101.0)
 
@@ -155,7 +151,9 @@ def test_robust_trailing_zscore_is_prefix_causal() -> None:
         minimum_support=32,
     )
     np.testing.assert_array_equal(first_available[:80], second_available[:80])
-    np.testing.assert_allclose(first_values[:80], second_values[:80], atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(
+        first_values[:80], second_values[:80], atol=0.0, rtol=0.0
+    )
     assert not first_available[30]
     assert first_available[31]
 
@@ -316,9 +314,7 @@ def test_causal_beta_recovers_known_two_beta() -> None:
         btc_source_digest=_digest("2"),
     )
     assert np.count_nonzero(result.available) > 0
-    np.testing.assert_allclose(
-        result.beta[result.available], 2.0, atol=1e-12, rtol=0.0
-    )
+    np.testing.assert_allclose(result.beta[result.available], 2.0, atol=1e-12, rtol=0.0)
 
 
 def test_causal_beta_future_mutation_does_not_change_prefix() -> None:
@@ -414,7 +410,10 @@ def test_causal_beta_uses_non_overlapping_four_hour_returns() -> None:
     )
     assert np.count_nonzero(first.available) > 0
     np.testing.assert_allclose(
-        first.beta[first.available], second.beta[second.available], atol=1e-12, rtol=0.0
+        first.beta[first.available],
+        second.beta[second.available],
+        atol=1e-12,
+        rtol=0.0,
     )
 
 

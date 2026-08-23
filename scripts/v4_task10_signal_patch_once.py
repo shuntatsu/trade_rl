@@ -22,7 +22,7 @@ replace_once(
     "from dataclasses import dataclass\n"
     "from enum import Enum\n"
     "from statistics import fmean\n"
-    "from typing import Final, Mapping\n",
+    "from typing import Any, Final, Mapping\n",
 )
 replace_once(
     "from trade_rl.artifacts.hashing import content_digest\nfrom trade_rl.domain.common import require_sha256\n",
@@ -417,7 +417,7 @@ class CausalAlphaV4SignalEvidence:
         return payload
 
 
-def _signal_array(value: object, *, rows: int, field_name: str, dtype: object) -> np.ndarray:
+def _signal_array(value: object, *, rows: int, field_name: str, dtype: Any) -> np.ndarray:
     array = np.asarray(value, dtype=dtype).reshape(-1)
     if array.shape != (rows,):
         raise ValueError(f"V4 signal {field_name} is not decision aligned")

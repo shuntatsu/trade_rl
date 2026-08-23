@@ -73,6 +73,64 @@ def _authored_config_payload(
     )
 
 
+def execute_causal_alpha_v4_prepared_entry(
+    *,
+    config: Any,
+    config_path: Path,
+    prepared: Any,
+    output_root: Path,
+    signal_stage: Any = run_causal_alpha_v4_signal_stage,
+    selection_stage: Any = run_causal_alpha_v4_selection_stage,
+    admission_stage: Any = run_causal_alpha_v4_admission_stage,
+) -> CausalAlphaV4ResearchPackage:
+    """Persist one prepared V4 identity and execute every stage with one store."""
+
+    for field_name in ("signal_stage", "selection_stage", "admission_stage"):
+        if not callable(locals()[field_name]):
+            raise TypeError(f"V4 {field_name} must be callable")
+    store = CausalAlphaV4ArtifactStore(
+        Path(output_root),
+        run_manifest_digest=prepared.run_manifest_digest,
+        v4_context_manifest_digest=prepared.v4_context_manifest_digest,
+        config_digest=prepared.config_digest,
+        generator_code_digest=prepared.generator_code_digest,
+    )
+    store.write_leaf("run-manifest.json", _run_manifest_payload(prepared))
+    store.write_leaf(
+        "authored-config.json",
+        _authored_config_payload(
+            config=config,
+            config_path=Path(config_path),
+            prepared=prepared,
+        ),
+    )
+    return run_universal_causal_alpha_v4_research_pipeline(
+        store=store,
+        prepare_stage=lambda: prepared,
+        signal_stage=lambda value: signal_stage(
+            value,
+            config=config,
+            store=store,
+            slice_forecast=slice_causal_alpha_v4_forecast,
+        ),
+        selection_stage=lambda value, signal: selection_stage(
+            value,
+            signal,
+            config=config,
+            store=store,
+            slice_forecast=slice_causal_alpha_v4_forecast,
+        ),
+        admission_stage=lambda value, signal, selection: admission_stage(
+            value,
+            signal,
+            selection,
+            config=config,
+            store=store,
+            slice_forecast=slice_causal_alpha_v4_forecast,
+        ),
+    )
+
+
 def run_causal_alpha_v4_stage_entry(
     *,
     config_path: Path,
@@ -131,47 +189,15 @@ def run_causal_alpha_v4_stage_entry(
         runtime=runtime,
         prepared_v3=prepared_v3,
     )
-    store = CausalAlphaV4ArtifactStore(
-        Path(output_root),
-        run_manifest_digest=prepared.run_manifest_digest,
-        v4_context_manifest_digest=prepared.v4_context_manifest_digest,
-        config_digest=prepared.config_digest,
-        generator_code_digest=prepared.generator_code_digest,
-    )
-    store.write_leaf("run-manifest.json", _run_manifest_payload(prepared))
-    store.write_leaf(
-        "authored-config.json",
-        _authored_config_payload(
-            config=config,
-            config_path=config_path,
-            prepared=prepared,
-        ),
-    )
-    return run_universal_causal_alpha_v4_research_pipeline(
-        store=store,
-        prepare_stage=lambda: prepared,
-        signal_stage=lambda value: run_causal_alpha_v4_signal_stage(
-            value,
-            config=config,
-            store=store,
-            slice_forecast=slice_causal_alpha_v4_forecast,
-        ),
-        selection_stage=lambda value, signal: run_causal_alpha_v4_selection_stage(
-            value,
-            signal,
-            config=config,
-            store=store,
-            slice_forecast=slice_causal_alpha_v4_forecast,
-        ),
-        admission_stage=lambda value, signal, selection: run_causal_alpha_v4_admission_stage(
-            value,
-            signal,
-            selection,
-            config=config,
-            store=store,
-            slice_forecast=slice_causal_alpha_v4_forecast,
-        ),
+    return execute_causal_alpha_v4_prepared_entry(
+        config=config,
+        config_path=config_path,
+        prepared=prepared,
+        output_root=Path(output_root),
     )
 
 
-__all__ = ["run_causal_alpha_v4_stage_entry"]
+__all__ = [
+    "execute_causal_alpha_v4_prepared_entry",
+    "run_causal_alpha_v4_stage_entry",
+]

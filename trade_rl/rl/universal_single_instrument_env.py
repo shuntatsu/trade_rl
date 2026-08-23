@@ -23,10 +23,21 @@ from trade_rl.rl.universal_instrument_binding import (
     InstrumentEpisodeBinding,
     validate_training_instrument_bindings,
 )
+from trade_rl.rl.universal_v4_context import V4ContextProvider
 
 INSTRUMENT_EPISODE_INFO_KEY: Final = "instrument_episode_binding"
 INSTRUMENT_EPISODE_DIGEST_INFO_KEY: Final = "instrument_episode_binding_digest"
 UNIVERSAL_OBSERVATION_SCHEMA: Final = "universal_single_instrument_observation_v1"
+_V4_OBSERVATION_KEYS: Final = (
+    "local_cross_market_context",
+    "local_cross_market_available",
+    "local_cross_market_staleness_hours",
+    "global_market_context",
+    "global_market_available",
+    "global_market_staleness_hours",
+    "causal_beta",
+    "causal_beta_available",
+)
 
 ConcreteSingleInstrumentEnv = gym.Env[Any, np.ndarray]
 InstrumentEnvironmentFactory = Callable[
@@ -85,6 +96,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         run_seed: int,
         environment_index: int,
         instrument_context_provider: InstrumentContextProvider | None = None,
+        v4_context_provider: V4ContextProvider | None = None,
         training_contract_digest: str | None = None,
         max_cached_environments: int | None = None,
     ) -> None:
@@ -95,6 +107,10 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
             instrument_context_provider
         ):
             raise TypeError("instrument_context_provider must be callable")
+        if v4_context_provider is not None and not isinstance(
+            v4_context_provider, V4ContextProvider
+        ):
+            raise TypeError("v4_context_provider must be a V4ContextProvider")
         if training_contract_digest is not None:
             training_contract_digest = require_sha256(
                 training_contract_digest,
@@ -120,6 +136,16 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         )
         self._environment_factory = environment_factory
         self._instrument_context_provider = instrument_context_provider
+        self._v4_context_provider = v4_context_provider
+        if v4_context_provider is not None:
+            missing_v4_symbols = set(self._bindings) - set(
+                v4_context_provider.contexts
+            )
+            if missing_v4_symbols:
+                raise ValueError(
+                    "V4 context provider does not cover routed symbols: "
+                    f"{sorted(missing_v4_symbols)}"
+                )
         self._training_contract_digest = training_contract_digest
         self._training_identity_enabled = training_contract_digest is not None
         self._max_cached_environments = max_cached_environments
@@ -219,6 +245,16 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
                 context_schema_digest,
                 field="instrument context schema digest",
             )
+        v4_context_schema_digest = (
+            None
+            if v4_context_provider is None
+            else v4_context_provider.schema_digest
+        )
+        if v4_context_schema_digest is not None:
+            require_sha256(
+                v4_context_schema_digest,
+                field="V4 context schema digest",
+            )
         self._observation_contract_digest = content_digest(
             {
                 "concrete_observation_contract_digest": (
@@ -229,6 +265,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
                 "instrument_context_schema_digest": context_schema_digest,
                 "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,
                 "training_contract_digest": training_contract_digest,
+                "v4_context_schema_digest": v4_context_schema_digest,
             }
         )
         self._environment_digest = content_digest(
@@ -248,25 +285,59 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         self,
         observation_space: gym.spaces.Space[Any],
     ) -> gym.spaces.Space[Any]:
-        if self._instrument_context_provider is None:
+        instrument_provider = self._instrument_context_provider
+        v4_provider = self._v4_context_provider
+        if instrument_provider is None and v4_provider is None:
             return observation_space
         if not isinstance(observation_space, gym.spaces.Dict):
-            raise TypeError(
-                "instrument context requires a Dict concrete observation space"
+            raise TypeError("Universal context requires a Dict concrete observation space")
+        spaces = dict(observation_space.spaces)
+        if instrument_provider is not None:
+            if "instrument_context" in spaces:
+                raise ValueError("concrete observation already contains instrument_context")
+            spaces["instrument_context"] = gym.spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(1, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES)),
+                dtype=np.float32,
             )
-        if "instrument_context" in observation_space.spaces:
-            raise ValueError("concrete observation already contains instrument_context")
-        return gym.spaces.Dict(
-            {
-                **observation_space.spaces,
-                "instrument_context": gym.spaces.Box(
-                    low=-np.inf,
-                    high=np.inf,
-                    shape=(1, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES)),
-                    dtype=np.float32,
-                ),
-            }
-        )
+        if v4_provider is not None:
+            collisions = tuple(key for key in _V4_OBSERVATION_KEYS if key in spaces)
+            if collisions:
+                raise ValueError(
+                    f"concrete observation already contains V4 context keys: {collisions}"
+                )
+            local_shape = (1, v4_provider.local_width)
+            global_shape = (1, v4_provider.global_width)
+            spaces.update(
+                {
+                    "local_cross_market_context": gym.spaces.Box(
+                        low=-np.inf, high=np.inf, shape=local_shape, dtype=np.float32
+                    ),
+                    "local_cross_market_available": gym.spaces.Box(
+                        low=0.0, high=1.0, shape=local_shape, dtype=np.float32
+                    ),
+                    "local_cross_market_staleness_hours": gym.spaces.Box(
+                        low=0.0, high=np.inf, shape=local_shape, dtype=np.float32
+                    ),
+                    "global_market_context": gym.spaces.Box(
+                        low=-np.inf, high=np.inf, shape=global_shape, dtype=np.float32
+                    ),
+                    "global_market_available": gym.spaces.Box(
+                        low=0.0, high=1.0, shape=global_shape, dtype=np.float32
+                    ),
+                    "global_market_staleness_hours": gym.spaces.Box(
+                        low=0.0, high=np.inf, shape=global_shape, dtype=np.float32
+                    ),
+                    "causal_beta": gym.spaces.Box(
+                        low=-3.0, high=3.0, shape=(1, 1), dtype=np.float32
+                    ),
+                    "causal_beta_available": gym.spaces.Box(
+                        low=0.0, high=1.0, shape=(1, 1), dtype=np.float32
+                    ),
+                }
+            )
+        return gym.spaces.Dict(spaces)
 
     def _resolve_sequence_layout_metadata(
         self,
@@ -274,13 +345,22 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
     ) -> dict[str, Any] | None:
         raw = getattr(environment, "sequence_layout_metadata", None)
         if raw is None:
-            return None
-        if not isinstance(raw, dict):
-            raise TypeError("concrete sequence_layout_metadata must be a dict")
-        resolved = dict(raw)
+            if self._v4_context_provider is None:
+                return None
+            resolved: dict[str, Any] = {}
+        else:
+            if not isinstance(raw, dict):
+                raise TypeError("concrete sequence_layout_metadata must be a dict")
+            resolved = dict(raw)
         if self._instrument_context_provider is not None:
             resolved["instrument_context_width"] = len(
                 UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES
+            )
+        if self._v4_context_provider is not None:
+            resolved["v4_local_context_width"] = self._v4_context_provider.local_width
+            resolved["v4_global_context_width"] = self._v4_context_provider.global_width
+            resolved["v4_context_schema_digest"] = (
+                self._v4_context_provider.schema_digest
             )
         return resolved
 
@@ -630,16 +710,47 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         environment: ConcreteSingleInstrumentEnv,
         binding: InstrumentDatasetBinding,
     ) -> Any:
-        provider = self._instrument_context_provider
-        if provider is None:
+        instrument_provider = self._instrument_context_provider
+        v4_provider = self._v4_context_provider
+        if instrument_provider is None and v4_provider is None:
             return observation
         if not isinstance(observation, Mapping):
-            raise TypeError("instrument context requires mapping observations")
-        context = np.asarray(provider(environment, binding), dtype=np.float32)
-        expected = (1, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES))
-        if context.shape != expected or not np.isfinite(context).all():
-            raise ValueError("instrument_context must be a finite (1, 9) matrix")
-        return {**dict(observation), "instrument_context": context.copy()}
+            raise TypeError("Universal context requires mapping observations")
+        resolved = dict(observation)
+        if instrument_provider is not None:
+            context = np.asarray(
+                instrument_provider(environment, binding), dtype=np.float32
+            )
+            expected = (1, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES))
+            if context.shape != expected or not np.isfinite(context).all():
+                raise ValueError("instrument_context must be a finite (1, 9) matrix")
+            resolved["instrument_context"] = context.copy()
+        if v4_provider is not None:
+            decision_index = _require_non_negative_int(
+                getattr(environment, "current_index", None),
+                field="V4 decision_index",
+            )
+            v4 = v4_provider.resolve(
+                symbol=binding.concrete_symbol,
+                decision_index=decision_index,
+            )
+            resolved.update(
+                {
+                    "local_cross_market_context": v4.local_values.copy(),
+                    "local_cross_market_available": v4.local_available.copy(),
+                    "local_cross_market_staleness_hours": (
+                        v4.local_staleness_hours.copy()
+                    ),
+                    "global_market_context": v4.global_values.copy(),
+                    "global_market_available": v4.global_available.copy(),
+                    "global_market_staleness_hours": (
+                        v4.global_staleness_hours.copy()
+                    ),
+                    "causal_beta": v4.beta.copy(),
+                    "causal_beta_available": v4.beta_available.copy(),
+                }
+            )
+        return resolved
 
     @property
     def canonical_probe_seed(self) -> int:

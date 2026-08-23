@@ -169,8 +169,7 @@ def test_v4_sample_builder_future_price_mutation_after_train_stop_changes_nothin
 
 def test_v4_sample_builder_rejects_context_decision_drift() -> None:
     context = _context()
-    decisions = context.local.decision_indices.copy()
-    decisions[0] += 1
+    decisions = context.local.decision_indices.copy() + 1
     drifted_local = V4ContextBlock(
         feature_names=context.local.feature_names,
         decision_indices=decisions,
@@ -179,7 +178,17 @@ def test_v4_sample_builder_rejects_context_decision_drift() -> None:
         staleness_hours=context.local.staleness_hours,
         source_digest=_digest("4"),
     )
-    drifted = replace(context, local=drifted_local, digest="")
+    drifted_global = V4ContextBlock(
+        feature_names=context.global_market.feature_names,
+        decision_indices=decisions,
+        values=context.global_market.values,
+        available=context.global_market.available,
+        staleness_hours=context.global_market.staleness_hours,
+        source_digest=_digest("5"),
+    )
+    drifted = replace(
+        context, local=drifted_local, global_market=drifted_global, digest=""
+    )
 
     with pytest.raises(ValueError, match="decision"):
         build_causal_alpha_v4_symbol_samples(
@@ -192,20 +201,18 @@ def test_v4_sample_builder_rejects_context_decision_drift() -> None:
         )
 
 
-def test_v4_btc_samples_require_persisted_beta_exactly_one() -> None:
+def test_v4_btc_samples_preserve_persisted_unit_beta() -> None:
     context = _context(symbol="BTCUSDT")
-    beta = context.beta.copy()
-    beta[5] = 0.9
-    drifted = replace(context, beta=beta, digest="")
-    with pytest.raises(ValueError, match="BTCUSDT.*beta|beta.*one"):
-        build_causal_alpha_v4_symbol_samples(
-            base_samples=_base_samples(symbol="BTCUSDT"),
-            context=drifted,
-            dataset=_Dataset(),
-            train_stop=50,
-            signal_delay_decisions=1,
-            decision_bars=1,
-        )
+    result = build_causal_alpha_v4_symbol_samples(
+        base_samples=_base_samples(symbol="BTCUSDT"),
+        context=context,
+        dataset=_Dataset(),
+        train_stop=50,
+        signal_delay_decisions=1,
+        decision_bars=1,
+    )
+    np.testing.assert_array_equal(result.beta, np.ones(len(result.beta)))
+    np.testing.assert_array_equal(result.beta, context.beta)
 
 
 def test_v4_train_scope_rejects_validation_or_test_samples() -> None:

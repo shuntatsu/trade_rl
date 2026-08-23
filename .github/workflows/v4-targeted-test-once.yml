@@ -1,4 +1,4 @@
-name: V4 type and format correction once
+name: V4 static correction once
 
 on:
   push:
@@ -67,15 +67,33 @@ jobs:
               '''    assert isinstance(base_samples, Mapping)\n    assert isinstance(environment_factories, Mapping)\n    assert isinstance(signal_delays, Mapping)\n    assert isinstance(decision_bars, Mapping)\n    assert isinstance(partitions, Mapping)\n\n    samples: dict[str, Any] = {}\n''',
           )
 
+          execution = "trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py"
           replace_once(
-              "trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py",
+              execution,
               '''def _signal_metric_from_payload(\n    raw: Mapping[str, object],\n) -> CausalAlphaV4SignalScopeMetric:\n''',
               '''def _signal_metric_from_payload(\n    raw: Mapping[str, Any],\n) -> CausalAlphaV4SignalScopeMetric:\n''',
           )
           replace_once(
-              "trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py",
+              execution,
               '''def _replay_metric_from_payload(raw: Mapping[str, object]) -> CausalAlphaV4ReplayMetric:\n''',
               '''def _replay_metric_from_payload(raw: Mapping[str, Any]) -> CausalAlphaV4ReplayMetric:\n''',
+          )
+
+          binance = "trade_rl/integrations/binance_v4_context.py"
+          replace_once(
+              binance,
+              '''from typing import Final\n''',
+              '''from typing import Any, Final, cast\n''',
+          )
+          replace_once(
+              binance,
+              '''def _freeze_vector(value: object, *, dtype: np.dtype[object], field: str) -> np.ndarray:\n''',
+              '''def _freeze_vector(value: object, *, dtype: np.dtype[Any], field: str) -> np.ndarray:\n''',
+          )
+          replace_once(
+              binance,
+              '''        result = float(value)\n''',
+              '''        result = float(cast(Any, value))\n''',
           )
           PY
       - name: Format bounded files
@@ -85,6 +103,7 @@ jobs:
             trade_rl/workflows/universal_causal_alpha_v4_pipeline.py
             trade_rl/workflows/universal_causal_alpha_v4_stage_runner.py
             trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py
+            trade_rl/integrations/binance_v4_context.py
             trade_rl/rl/universal_single_instrument_env.py
             trade_rl/rl/universal_v4_context.py
           )
@@ -102,6 +121,7 @@ jobs:
             tests/workflows/test_universal_causal_alpha_v4_stage_entry.py \
             tests/workflows/test_universal_causal_alpha_v4_stage_execution.py \
             tests/scripts/test_run_universal_causal_alpha_v4_research.py \
+            tests/integrations/test_binance_v4_context.py \
             tests/rl/test_universal_v4_context.py \
             tests/rl/test_universal_single_instrument_env.py
       - name: Full static and architecture verification
@@ -119,6 +139,7 @@ jobs:
             trade_rl/workflows/universal_causal_alpha_v4_pipeline.py
             trade_rl/workflows/universal_causal_alpha_v4_stage_runner.py
             trade_rl/workflows/universal_causal_alpha_v4_stage_execution.py
+            trade_rl/integrations/binance_v4_context.py
             trade_rl/rl/universal_single_instrument_env.py
             trade_rl/rl/universal_v4_context.py
           )

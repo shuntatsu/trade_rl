@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from trade_rl.data.v4_context import V4ContextBlock
 from trade_rl.learning.causal_alpha_v4 import (
@@ -144,3 +145,29 @@ def test_unavailable_persisted_beta_makes_residual_unavailable() -> None:
     assert np.isnan(residual.residual_labels_4h[1])
     assert np.isnan(residual.residual_labels_24h[1])
     assert np.isnan(residual.residual_labels_72h[1])
+
+
+def test_residual_labels_reject_btc_label_end_mismatch() -> None:
+    btc = _samples(
+        symbol="BTCUSDT",
+        beta=np.ones(3, dtype=np.float64),
+        labels_4h=np.asarray([0.01, -0.02, 0.03]),
+        labels_24h=np.asarray([0.04, 0.01, -0.02]),
+        labels_72h=np.asarray([0.09, 0.03, -0.06]),
+    )
+    symbol = _samples(
+        symbol="ETHUSDT",
+        beta=np.asarray([0.5, 1.5, 2.0]),
+        labels_4h=np.asarray([0.015, -0.01, 0.08]),
+        labels_24h=np.asarray([0.03, 0.025, -0.01]),
+        labels_72h=np.asarray([0.10, 0.07, -0.02]),
+    )
+    mismatched_ends = btc.label_end_indices_4h.copy()
+    mismatched_ends[1] += 1
+    btc = replace(btc, label_end_indices_4h=mismatched_ends, digest="")
+
+    with pytest.raises(ValueError, match="label ends"):
+        build_causal_alpha_v4_residual_labels(
+            symbol_samples=symbol,
+            btc_market_proxy_samples=btc,
+        )

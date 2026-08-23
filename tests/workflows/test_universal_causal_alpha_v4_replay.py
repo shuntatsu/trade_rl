@@ -212,17 +212,19 @@ def test_replay_uses_simulator_performance_without_reconstructing_accounting() -
     )
 
 
-def test_replay_fails_closed_when_turnover_and_executed_count_disagree() -> None:
-    inconsistent = _evaluation(
+def test_total_turnover_above_tolerance_is_meaningful_without_executed_step() -> None:
+    aggregate_fill = _evaluation(
         submitted=1,
         executed=0,
         closed=0,
         turnover=0.25,
     )
+    below_tolerance = _evaluation(
+        submitted=1,
+        executed=0,
+        closed=0,
+        turnover=5e-7,
+    )
 
-    try:
-        _metric(evaluation=inconsistent)
-    except ValueError as error:
-        assert "turnover" in str(error) or "execution" in str(error)
-    else:
-        raise AssertionError("V4 replay accepted inconsistent execution evidence")
+    assert _metric(evaluation=aggregate_fill).has_meaningful_execution is True
+    assert _metric(evaluation=below_tolerance).has_meaningful_execution is False

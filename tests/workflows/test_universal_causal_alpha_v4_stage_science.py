@@ -27,7 +27,9 @@ def _sample() -> SimpleNamespace:
     )
     available = np.ones_like(values, dtype=np.bool_)
     local_names = ("spot_perp_basis_robust_z_7d", "other_local")
-    local_values = np.column_stack((np.linspace(-2.0, 2.0, len(decisions)), np.ones(len(decisions))))
+    local_values = np.column_stack(
+        (np.linspace(-2.0, 2.0, len(decisions)), np.ones(len(decisions)))
+    )
     local_available = np.ones_like(local_values, dtype=np.bool_)
     global_values = np.ones((len(decisions), 2), dtype=np.float64)
     global_available = np.ones_like(global_values, dtype=np.bool_)
@@ -62,7 +64,9 @@ def test_v4_contract_rows_require_complete_decision_coverage() -> None:
         resolve_causal_alpha_v4_contract_rows(broken, start=101, stop=106)
 
 
-def test_v4_stage_state_inputs_use_frozen_channels_and_required_context_availability() -> None:
+def test_v4_stage_state_inputs_use_frozen_channels_and_required_context_availability() -> (
+    None
+):
     sample = _sample()
     resolved = resolve_causal_alpha_v4_stage_state_inputs(sample)
 

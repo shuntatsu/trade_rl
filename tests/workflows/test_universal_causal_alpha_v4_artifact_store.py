@@ -101,7 +101,9 @@ def test_v4_store_rejects_path_traversal(tmp_path: Path) -> None:
         store.write_leaf(Path("../escape.json"), _payload())
 
 
-def test_v4_run_lock_excludes_second_writer_and_releases_on_exit(tmp_path: Path) -> None:
+def test_v4_run_lock_excludes_second_writer_and_releases_on_exit(
+    tmp_path: Path,
+) -> None:
     lock_path = tmp_path / ".causal-alpha-v4.lock"
 
     with CausalAlphaV4RunLock(tmp_path):

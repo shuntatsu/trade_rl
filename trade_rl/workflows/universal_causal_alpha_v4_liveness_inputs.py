@@ -39,7 +39,9 @@ class CausalAlphaV4LivenessInputs:
         if not math.isfinite(self.intercept):
             raise ValueError("V4 liveness intercept must be finite")
         available = np.asarray(self.feature_available, dtype=np.bool_).copy(order="C")
-        constant = np.asarray(self.constant_feature_mask, dtype=np.bool_).reshape(-1).copy()
+        constant = (
+            np.asarray(self.constant_feature_mask, dtype=np.bool_).reshape(-1).copy()
+        )
         if available.ndim != 2 or available.shape[1] != constant.size:
             raise ValueError("V4 liveness feature masks are misaligned")
         raw = dict(self.contribution_series)
@@ -47,7 +49,9 @@ class CausalAlphaV4LivenessInputs:
             raise ValueError("V4 liveness contribution family order drifted")
         contributions: dict[str, np.ndarray] = {}
         for family in _CONTRIBUTION_FAMILIES:
-            values = np.asarray(raw[family], dtype=np.float64).reshape(-1).copy(order="C")
+            values = (
+                np.asarray(raw[family], dtype=np.float64).reshape(-1).copy(order="C")
+            )
             if values.shape != (available.shape[0],) or not np.isfinite(values).all():
                 raise ValueError("V4 liveness contribution series are misaligned")
             values.setflags(write=False)
@@ -59,7 +63,9 @@ class CausalAlphaV4LivenessInputs:
         object.__setattr__(self, "contribution_series", MappingProxyType(contributions))
 
 
-def _matrix(value: object, *, rows: int, width: int, field: str, dtype: Any) -> np.ndarray:
+def _matrix(
+    value: object, *, rows: int, width: int, field: str, dtype: Any
+) -> np.ndarray:
     result = np.asarray(value, dtype=dtype)
     if result.shape != (rows, width):
         raise ValueError(f"V4 liveness {field} shape drifted")
@@ -95,11 +101,19 @@ def build_causal_alpha_v4_liveness_inputs(
     descriptor_names = tuple(getattr(sample, "instrument_descriptor_names", ()))
     local_names = tuple(getattr(local, "feature_names", ()))
     global_names = tuple(getattr(global_market, "feature_names", ()))
-    names = (*target_names, *local_names, *global_names, *descriptor_names, "causal_beta")
+    names = (
+        *target_names,
+        *local_names,
+        *global_names,
+        *descriptor_names,
+        "causal_beta",
+    )
     if model.feature_names != names:
         raise ValueError("V4 liveness residual feature schema drifted")
 
-    source_rows = int(np.asarray(getattr(sample, "target_local_features", None)).shape[0])
+    source_rows = int(
+        np.asarray(getattr(sample, "target_local_features", None)).shape[0]
+    )
     if source_rows <= 0:
         raise ValueError("V4 liveness sample rows are unavailable")
     rows = (
@@ -186,9 +200,17 @@ def build_causal_alpha_v4_liveness_inputs(
     beta = beta_full[rows]
     beta_available = beta_available_full[rows]
 
-    features = np.column_stack((target, local_values, global_values, descriptors, beta[:, None]))
+    features = np.column_stack(
+        (target, local_values, global_values, descriptors, beta[:, None])
+    )
     available = np.column_stack(
-        (target_available, local_available, global_available, descriptor_available, beta_available[:, None])
+        (
+            target_available,
+            local_available,
+            global_available,
+            descriptor_available,
+            beta_available[:, None],
+        )
     ).astype(np.bool_, copy=False)
     scaled = model.transform(features, feature_available=available)
     per_feature = scaled * model.coefficients[None, :]
@@ -207,7 +229,9 @@ def build_causal_alpha_v4_liveness_inputs(
         "beta_scaled_proxy": np.asarray(
             forecast.beta_scaled_market_contributions[horizon], dtype=np.float64
         ),
-        "shared_residual": np.asarray(forecast.residual_predictions[horizon], dtype=np.float64),
+        "shared_residual": np.asarray(
+            forecast.residual_predictions[horizon], dtype=np.float64
+        ),
     }
     for index, name in enumerate(target_names):
         for timeframe in ("15m", "1h", "4h", "1d"):

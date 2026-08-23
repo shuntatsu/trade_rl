@@ -187,7 +187,9 @@ def test_v4_stage_preparation_builds_each_symbol_once_and_binds_nested_scope(
         )
         return f"v4:{getattr(kwargs['context'], 'symbol')}"
 
-    def fake_validate_scope(*, train_symbols: tuple[str, ...], samples: object) -> object:
+    def fake_validate_scope(
+        *, train_symbols: tuple[str, ...], samples: object
+    ) -> object:
         assert train_symbols == symbols
         return samples
 
@@ -197,7 +199,9 @@ def test_v4_stage_preparation_builds_each_symbol_once_and_binds_nested_scope(
         assert kwargs["minimum_economic_contract_count"] == 4
         return nested
 
-    monkeypatch.setattr(stage_runner, "build_causal_alpha_v4_symbol_samples", fake_build_samples)
+    monkeypatch.setattr(
+        stage_runner, "build_causal_alpha_v4_symbol_samples", fake_build_samples
+    )
     monkeypatch.setattr(
         stage_runner, "validate_causal_alpha_v4_train_sample_scope", fake_validate_scope
     )

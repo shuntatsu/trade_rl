@@ -25,7 +25,9 @@ from trade_rl.workflows.universal_causal_alpha_v4_stage_runner import (
     slice_causal_alpha_v4_forecast,
 )
 
-_V4_RUNTIME_FACTORY: Final = "trade_rl.workflows.binance_universal_runtime:build_runtime"
+_V4_RUNTIME_FACTORY: Final = (
+    "trade_rl.workflows.binance_universal_runtime:build_runtime"
+)
 
 
 def _artifact(payload: dict[str, object]) -> dict[str, object]:

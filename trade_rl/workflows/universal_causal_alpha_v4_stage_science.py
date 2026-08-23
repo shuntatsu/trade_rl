@@ -24,13 +24,17 @@ class CausalAlphaV4StageStateInputs:
         arrays = {
             "realized_volatility": np.asarray(
                 self.realized_volatility, dtype=np.float64
-            ).reshape(-1).copy(order="C"),
+            )
+            .reshape(-1)
+            .copy(order="C"),
             "liquidity": np.asarray(self.liquidity, dtype=np.float64)
             .reshape(-1)
             .copy(order="C"),
             "basis_positioning_stress": np.asarray(
                 self.basis_positioning_stress, dtype=np.float64
-            ).reshape(-1).copy(order="C"),
+            )
+            .reshape(-1)
+            .copy(order="C"),
             "state_eligible": np.asarray(self.state_eligible, dtype=np.bool_)
             .reshape(-1)
             .copy(order="C"),
@@ -39,7 +43,11 @@ class CausalAlphaV4StageStateInputs:
             .copy(order="C"),
         }
         shape = arrays["realized_volatility"].shape
-        if not shape or shape[0] == 0 or any(value.shape != shape for value in arrays.values()):
+        if (
+            not shape
+            or shape[0] == 0
+            or any(value.shape != shape for value in arrays.values())
+        ):
             raise ValueError("V4 stage state arrays must be non-empty and aligned")
         for name in (
             "realized_volatility",
@@ -72,7 +80,9 @@ def resolve_causal_alpha_v4_contract_rows(
         or stop <= start + 1
     ):
         raise ValueError("V4 contract range must contain at least one decision")
-    decisions = np.asarray(getattr(sample, "decision_indices", None), dtype=np.int64).reshape(-1)
+    decisions = np.asarray(
+        getattr(sample, "decision_indices", None), dtype=np.int64
+    ).reshape(-1)
     if decisions.size == 0 or np.any(np.diff(decisions) <= 0):
         raise ValueError("V4 sample decisions must be strictly increasing")
     expected = np.arange(start, stop - 1, dtype=np.int64)

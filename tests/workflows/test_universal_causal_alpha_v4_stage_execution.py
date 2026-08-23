@@ -38,7 +38,9 @@ def test_v4_admission_stage_cannot_bypass_failed_upstream_gate() -> None:
         )
 
 
-def test_v4_uncertainty_weights_exclude_unrealized_nan_and_state_ineligible_rows() -> None:
+def test_v4_uncertainty_weights_exclude_unrealized_nan_and_state_ineligible_rows() -> (
+    None
+):
     decisions = np.arange(6, dtype=np.int64)
     labels = np.asarray([0.1, 0.2, np.nan, 0.4, 0.5, 0.6], dtype=np.float64)
     ends = np.asarray([1, 2, -1, 4, 5, 6], dtype=np.int64)

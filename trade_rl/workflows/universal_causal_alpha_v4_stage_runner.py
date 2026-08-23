@@ -96,7 +96,8 @@ def slice_causal_alpha_v4_forecast(
             horizon: forecast.market_predictions[horizon][rows] for horizon in horizons
         },
         residual_predictions={
-            horizon: forecast.residual_predictions[horizon][rows] for horizon in horizons
+            horizon: forecast.residual_predictions[horizon][rows]
+            for horizon in horizons
         },
         direction_scores={
             horizon: forecast.direction_scores[horizon][rows] for horizon in horizons
@@ -168,7 +169,8 @@ def require_causal_alpha_v4_context_scope(
         not expected_symbols
         or len(set(expected_symbols)) != len(expected_symbols)
         or set(contexts) != set(expected_symbols)
-        or tuple(symbol for symbol in expected_symbols if symbol in set(symbols)) != symbols
+        or tuple(symbol for symbol in expected_symbols if symbol in set(symbols))
+        != symbols
     ):
         raise ValueError("V4 stage context scope does not match train_symbols")
 

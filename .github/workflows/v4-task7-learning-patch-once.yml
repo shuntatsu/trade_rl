@@ -31,6 +31,8 @@ jobs:
         run: uv sync --extra dev
       - name: Patch V4 fit config and forecast
         run: python scripts/v4_task7_patch_once.py
+      - name: Patch V4 fitting types
+        run: python scripts/v4_task7_type_patch_once.py
       - name: Format Task 7 files
         run: |
           uv run ruff check --fix \

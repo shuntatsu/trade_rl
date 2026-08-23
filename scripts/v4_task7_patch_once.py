@@ -18,7 +18,7 @@ def replace_once(old: str, new: str) -> None:
 replace_once(
     "from dataclasses import dataclass\nfrom typing import Any, Final\n",
     "from collections.abc import Mapping\n"
-    "from dataclasses import dataclass, field\n"
+    "from dataclasses import dataclass, field as dataclass_field\n"
     "from types import MappingProxyType\n"
     "from typing import Any, Final\n",
 )
@@ -120,10 +120,10 @@ class CausalAlphaV4Forecast:
     residual_model_digests: Mapping[str, str]
     direction_model_digests: Mapping[str, str]
     fit_digest: str
-    beta_scaled_market_contributions: Mapping[str, np.ndarray] = field(
+    beta_scaled_market_contributions: Mapping[str, np.ndarray] = dataclass_field(
         init=False, default_factory=dict
     )
-    final_predictions: Mapping[str, np.ndarray] = field(
+    final_predictions: Mapping[str, np.ndarray] = dataclass_field(
         init=False, default_factory=dict
     )
     digest: str = ""

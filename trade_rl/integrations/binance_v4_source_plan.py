@@ -20,9 +20,7 @@ _DECISION_INTERVAL_NS: Final = 15 * 60 * 1_000_000_000
 
 
 def _decision_timestamps(value: object, *, field: str) -> np.ndarray:
-    timestamps = (
-        np.asarray(value, dtype="datetime64[ns]").reshape(-1).copy(order="C")
-    )
+    timestamps = np.asarray(value, dtype="datetime64[ns]").reshape(-1).copy(order="C")
     if timestamps.size == 0 or np.any(np.isnat(timestamps)):
         raise ValueError(f"{field} must be non-empty and finite")
     timestamp_ns = timestamps.astype(np.int64)
@@ -49,10 +47,7 @@ def _unique_period_strings(values: np.ndarray, unit: str) -> tuple[str, ...]:
 
 
 def _daily_kline_url(*, symbol: str, day: str, path: str) -> str:
-    return (
-        f"{_BINANCE_VISION_ROOT}{path}/{symbol}/15m/"
-        f"{symbol}-15m-{day}.zip"
-    )
+    return f"{_BINANCE_VISION_ROOT}{path}/{symbol}/15m/{symbol}-15m-{day}.zip"
 
 
 def _funding_url(*, symbol: str, month: str) -> str:
@@ -86,7 +81,9 @@ class V4ReferenceDecisionClock:
         if indices.shape != timestamps.shape or not np.array_equal(
             indices, np.arange(timestamps.size, dtype=np.int64)
         ):
-            raise ValueError("V4 reference decision indices must be zero-based and contiguous")
+            raise ValueError(
+                "V4 reference decision indices must be zero-based and contiguous"
+            )
         require_sha256(self.source_digest, field="V4 reference clock source_digest")
         indices.setflags(write=False)
         object.__setattr__(self, "decision_indices", indices)
@@ -121,8 +118,7 @@ class BinanceV4SymbolSourcePlan:
             if len(set(urls)) != len(urls):
                 raise ValueError(f"V4 source plan {field_name} contains duplicates")
             if any(
-                not isinstance(url, str)
-                or not url.startswith(_BINANCE_VISION_ROOT)
+                not isinstance(url, str) or not url.startswith(_BINANCE_VISION_ROOT)
                 for url in urls
             ):
                 raise ValueError(f"V4 source plan {field_name} contains an invalid URL")
@@ -225,8 +221,7 @@ def plan_binance_v4_symbol_sources(
         for day in kline_days
     )
     funding_urls = tuple(
-        _funding_url(symbol=resolved_symbol, month=month)
-        for month in funding_months
+        _funding_url(symbol=resolved_symbol, month=month) for month in funding_months
     )
     metrics_urls = (
         tuple(_metrics_url(symbol=resolved_symbol, day=day) for day in metrics_days)

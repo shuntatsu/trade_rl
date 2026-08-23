@@ -15,4 +15,11 @@ new_mask = '''            state_mask = np.fromiter(\n                (value is s
 if text.count(old_mask) != 1:
     raise SystemExit(f"expected one V4 state mask, got {text.count(old_mask)}")
 text = text.replace(old_mask, new_mask, 1)
+old_selection = '''            fallback = ess < _V4_MINIMUM_STATE_ESS\n            horizon_cells[state] = CausalAlphaV4UncertaintyCell(\n                state=state,\n                support=support,\n                effective_sample_size=ess,\n                global_rmse=global_value,\n                state_rmse=state_rmse,\n                selected_uncertainty=(\n                    global_value if fallback else float(state_rmse)\n                ),\n                fallback_reason=("insufficient_state_ess" if fallback else None),\n            )\n'''
+new_selection = '''            fallback = ess < _V4_MINIMUM_STATE_ESS\n            if fallback:\n                selected_uncertainty = global_value\n                fallback_reason = "insufficient_state_ess"\n            else:\n                assert state_rmse is not None\n                selected_uncertainty = state_rmse\n                fallback_reason = None\n            horizon_cells[state] = CausalAlphaV4UncertaintyCell(\n                state=state,\n                support=support,\n                effective_sample_size=ess,\n                global_rmse=global_value,\n                state_rmse=state_rmse,\n                selected_uncertainty=selected_uncertainty,\n                fallback_reason=fallback_reason,\n            )\n'''
+if text.count(old_selection) != 1:
+    raise SystemExit(
+        f"expected one V4 uncertainty selection block, got {text.count(old_selection)}"
+    )
+text = text.replace(old_selection, new_selection, 1)
 path.write_text(text, encoding="utf-8")

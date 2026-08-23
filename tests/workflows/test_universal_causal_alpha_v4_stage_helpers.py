@@ -4,7 +4,10 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from trade_rl.learning.causal_alpha_teacher import CausalAlphaRidgeConfig, fit_causal_alpha_ridge
+from trade_rl.learning.causal_alpha_teacher import (
+    CausalAlphaRidgeConfig,
+    fit_causal_alpha_ridge,
+)
 from trade_rl.learning.causal_alpha_v4 import build_causal_alpha_v4_forecast
 from trade_rl.workflows.universal_causal_alpha_v4_liveness_inputs import (
     build_causal_alpha_v4_liveness_inputs,
@@ -44,26 +47,34 @@ def _forecast():
 
 def test_v4_forecast_slice_keeps_every_component_aligned() -> None:
     source = _forecast()
-    sliced = slice_causal_alpha_v4_forecast(source, np.asarray([1, 3, 4], dtype=np.int64))
+    sliced = slice_causal_alpha_v4_forecast(
+        source, np.asarray([1, 3, 4], dtype=np.int64)
+    )
 
     np.testing.assert_array_equal(sliced.decision_indices, np.asarray([101, 103, 104]))
     np.testing.assert_allclose(sliced.beta, source.beta[[1, 3, 4]])
     for horizon in ("4h", "24h", "72h"):
         np.testing.assert_allclose(
-            sliced.market_predictions[horizon], source.market_predictions[horizon][[1, 3, 4]]
+            sliced.market_predictions[horizon],
+            source.market_predictions[horizon][[1, 3, 4]],
         )
         np.testing.assert_allclose(
-            sliced.residual_predictions[horizon], source.residual_predictions[horizon][[1, 3, 4]]
+            sliced.residual_predictions[horizon],
+            source.residual_predictions[horizon][[1, 3, 4]],
         )
         np.testing.assert_allclose(
-            sliced.direction_scores[horizon], source.direction_scores[horizon][[1, 3, 4]]
+            sliced.direction_scores[horizon],
+            source.direction_scores[horizon][[1, 3, 4]],
         )
         np.testing.assert_allclose(
-            sliced.final_predictions[horizon], source.final_predictions[horizon][[1, 3, 4]]
+            sliced.final_predictions[horizon],
+            source.final_predictions[horizon][[1, 3, 4]],
         )
 
 
-def test_v4_liveness_inputs_attribute_shared_linear_families_without_forging_proxy() -> None:
+def test_v4_liveness_inputs_attribute_shared_linear_families_without_forging_proxy() -> (
+    None
+):
     rows = 8
     names = (
         "15m__a",
@@ -90,7 +101,9 @@ def test_v4_liveness_inputs_attribute_shared_linear_families_without_forging_pro
         config=CausalAlphaRidgeConfig(ridge_strength=0.1),
     )
     forecast = _forecast()
-    forecast = slice_causal_alpha_v4_forecast(forecast, np.arange(rows - 2, dtype=np.int64))
+    forecast = slice_causal_alpha_v4_forecast(
+        forecast, np.arange(rows - 2, dtype=np.int64)
+    )
     sample = SimpleNamespace(
         target_local_feature_names=names[:4],
         target_local_features=x[: rows - 2, :4],
@@ -135,7 +148,8 @@ def test_v4_liveness_inputs_attribute_shared_linear_families_without_forging_pro
         forecast.beta_scaled_market_contributions["4h"],
     )
     np.testing.assert_allclose(
-        result.contribution_series["shared_residual"], forecast.residual_predictions["4h"]
+        result.contribution_series["shared_residual"],
+        forecast.residual_predictions["4h"],
     )
     assert result.feature_available.shape[0] == rows - 2
     assert result.constant_feature_mask.shape == (len(names),)

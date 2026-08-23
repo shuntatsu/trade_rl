@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
@@ -76,7 +75,9 @@ _LIQUIDITY_SAFETY_MULTIPLIER: Final = 0.80
 class CausalAlphaV4FitCache:
     """Reuse the single authored V4 fit once per chronological knowledge cutoff."""
 
-    def __init__(self, *, train_symbols: tuple[str, ...], samples: Mapping[str, Any], config: Any) -> None:
+    def __init__(
+        self, *, train_symbols: tuple[str, ...], samples: Mapping[str, Any], config: Any
+    ) -> None:
         self.train_symbols = tuple(train_symbols)
         self.samples = dict(samples)
         self.config = config
@@ -96,7 +97,9 @@ class CausalAlphaV4FitCache:
         return fitted
 
 
-def _signal_metric_from_payload(raw: Mapping[str, object]) -> CausalAlphaV4SignalScopeMetric:
+def _signal_metric_from_payload(
+    raw: Mapping[str, object],
+) -> CausalAlphaV4SignalScopeMetric:
     return CausalAlphaV4SignalScopeMetric(
         run_manifest_digest=str(raw["run_manifest_digest"]),
         fit_config_digest=str(raw["fit_config_digest"]),
@@ -142,13 +145,19 @@ def _replay_metric_from_payload(raw: Mapping[str, object]) -> CausalAlphaV4Repla
         turnover_per_day=float(raw["turnover_per_day"]),
         total_execution_cost=float(raw["total_execution_cost"]),
         submitted_change_count=int(raw["submitted_change_count"]),
-        downstream_no_trade_suppression_count=int(raw["downstream_no_trade_suppression_count"]),
+        downstream_no_trade_suppression_count=int(
+            raw["downstream_no_trade_suppression_count"]
+        ),
         executed_change_count=int(raw["executed_change_count"]),
         closed_trade_count=int(raw["closed_trade_count"]),
         sign_flip_count=int(raw["sign_flip_count"]),
         maximum_drawdown=float(raw["maximum_drawdown"]),
-        execution_rejection_reason_counts=_reason_counts(raw["execution_rejection_reason_counts"]),
-        risk_projection_reason_counts=_reason_counts(raw["risk_projection_reason_counts"]),
+        execution_rejection_reason_counts=_reason_counts(
+            raw["execution_rejection_reason_counts"]
+        ),
+        risk_projection_reason_counts=_reason_counts(
+            raw["risk_projection_reason_counts"]
+        ),
         target_reason_counts=_reason_counts(raw["target_reason_counts"]),
         hard_risk_violation=bool(raw["hard_risk_violation"]),
         has_meaningful_execution=bool(raw["has_meaningful_execution"]),
@@ -214,14 +223,23 @@ def _horizon_weights(
     labels = _horizon_labels(sample)
     result: dict[str, np.ndarray] = {}
     for horizon in CAUSAL_ALPHA_V4_HORIZONS:
-        ends = np.asarray(getattr(sample, f"label_end_indices_{horizon}"), dtype=np.int64)
+        ends = np.asarray(
+            getattr(sample, f"label_end_indices_{horizon}"), dtype=np.int64
+        )
         weights = causal_alpha_overlap_uniqueness_weights(
             decisions,
             ends,
             knowledge_cutoff=cutoff,
         )
-        eligible = state.state_eligible & np.isfinite(labels[horizon]) & (ends >= 0) & (ends < cutoff)
-        result[horizon] = np.where(eligible, weights, 0.0).astype(np.float64, copy=False)
+        eligible = (
+            state.state_eligible
+            & np.isfinite(labels[horizon])
+            & (ends >= 0)
+            & (ends < cutoff)
+        )
+        result[horizon] = np.where(eligible, weights, 0.0).astype(
+            np.float64, copy=False
+        )
     return result
 
 
@@ -235,7 +253,9 @@ def _uncertainty_model(
     return fit_causal_alpha_v4_uncertainty(
         final_predictions=full_forecast.final_predictions,
         labels=_horizon_labels(sample),
-        weights=_horizon_weights(sample=sample, cutoff=fit.knowledge_cutoff, state=state),
+        weights=_horizon_weights(
+            sample=sample, cutoff=fit.knowledge_cutoff, state=state
+        ),
         state_eligible=state.state_eligible,
         realized_volatility=state.realized_volatility,
         liquidity=state.liquidity,
@@ -249,8 +269,16 @@ def _contract_bundle(
     sample: Any,
     contract: Any,
     slice_forecast: Any,
-) -> tuple[np.ndarray, CausalAlphaV4Forecast, CausalAlphaV4StageStateInputs, CausalAlphaV4UncertaintyModel, dict[str, np.ndarray]]:
-    rows = resolve_causal_alpha_v4_contract_rows(sample, start=contract.start, stop=contract.stop)
+) -> tuple[
+    np.ndarray,
+    CausalAlphaV4Forecast,
+    CausalAlphaV4StageStateInputs,
+    CausalAlphaV4UncertaintyModel,
+    dict[str, np.ndarray],
+]:
+    rows = resolve_causal_alpha_v4_contract_rows(
+        sample, start=contract.start, stop=contract.stop
+    )
     full_forecast = fit.predict(sample)
     forecast = slice_forecast(full_forecast, rows)
     state = resolve_causal_alpha_v4_stage_state_inputs(sample)
@@ -328,7 +356,8 @@ def _liveness_payload(
         "fast_4h_liveness_digest": evidence["4h"].digest,
         "slow_fused_liveness_digest": slow_digest,
         "horizon_evidence": {
-            horizon: evidence[horizon].to_payload() for horizon in CAUSAL_ALPHA_V4_HORIZONS
+            horizon: evidence[horizon].to_payload()
+            for horizon in CAUSAL_ALPHA_V4_HORIZONS
         },
     }
     return {**body, "artifact_digest": content_digest(body)}, {
@@ -347,7 +376,8 @@ def _validate_liveness_payload(
 ) -> dict[str, str]:
     if (
         payload.get("run_manifest_digest") != prepared.run_manifest_digest
-        or payload.get("v4_context_manifest_digest") != prepared.v4_context_manifest_digest
+        or payload.get("v4_context_manifest_digest")
+        != prepared.v4_context_manifest_digest
         or payload.get("config_digest") != prepared.config_digest
         or payload.get("generator_code_digest") != prepared.generator_code_digest
         or payload.get("fit_config_digest") != config.fit.digest
@@ -379,7 +409,9 @@ def run_causal_alpha_v4_signal_stage(
     for symbol in prepared.train_symbols:
         sample = prepared.samples[symbol]
         for contract in prepared.nested_partitions[symbol].signal_contracts:
-            liveness_path = Path("signal/liveness") / symbol / f"{contract.episode_index}.json"
+            liveness_path = (
+                Path("signal/liveness") / symbol / f"{contract.episode_index}.json"
+            )
             fast_path = Path("signal/fast") / symbol / f"{contract.episode_index}.json"
             slow_path = Path("signal/slow") / symbol / f"{contract.episode_index}.json"
             liveness_raw = store.load_leaf(
@@ -391,7 +423,11 @@ def run_causal_alpha_v4_signal_stage(
             slow_raw = store.load_leaf(
                 slow_path, expected_schema="causal_alpha_v4_signal_scope_v1"
             )
-            if liveness_raw is not None and fast_raw is not None and slow_raw is not None:
+            if (
+                liveness_raw is not None
+                and fast_raw is not None
+                and slow_raw is not None
+            ):
                 lane_digests = _validate_liveness_payload(
                     liveness_raw,
                     prepared=prepared,
@@ -417,7 +453,10 @@ def run_causal_alpha_v4_signal_stage(
                     contract=contract,
                     lane=CausalAlphaV4SignalLane.SLOW_FUSED,
                 )
-                if fast.liveness_digest != lane_digests["fast_4h"] or slow.liveness_digest != lane_digests["slow_fused"]:
+                if (
+                    fast.liveness_digest != lane_digests["fast_4h"]
+                    or slow.liveness_digest != lane_digests["slow_fused"]
+                ):
                     raise ValueError("V4 persisted signal/liveness identity drifted")
             else:
                 fit = fit_cache.resolve(contract.start)
@@ -453,9 +492,13 @@ def run_causal_alpha_v4_signal_stage(
                     labels_4h=np.asarray(sample.labels_4h)[rows],
                     label_end_indices_4h=np.asarray(sample.label_end_indices_4h)[rows],
                     labels_24h=np.asarray(sample.labels_24h)[rows],
-                    label_end_indices_24h=np.asarray(sample.label_end_indices_24h)[rows],
+                    label_end_indices_24h=np.asarray(sample.label_end_indices_24h)[
+                        rows
+                    ],
                     labels_72h=np.asarray(sample.labels_72h)[rows],
-                    label_end_indices_72h=np.asarray(sample.label_end_indices_72h)[rows],
+                    label_end_indices_72h=np.asarray(sample.label_end_indices_72h)[
+                        rows
+                    ],
                 )
                 fast = built[CausalAlphaV4SignalLane.FAST_4H]
                 slow = built[CausalAlphaV4SignalLane.SLOW_FUSED]
@@ -506,11 +549,18 @@ def _target_and_replay(
         resolved_initial = resolve_episode_initial_weights(
             environment, contract.initial_state_mode, contract.start
         )
-        if expected_initial.shape != (1,) or not np.array_equal(expected_initial, resolved_initial):
+        if expected_initial.shape != (1,) or not np.array_equal(
+            expected_initial, resolved_initial
+        ):
             raise ValueError("V4 replay initial state drifted from frozen contract")
-        execution = getattr(getattr(environment, "config", None), "execution_cost", None)
+        execution = getattr(
+            getattr(environment, "config", None), "execution_cost", None
+        )
         prepared_costs = getattr(prepared.prepared_v3, "execution_costs", None)
-        if not isinstance(prepared_costs, Mapping) or execution != prepared_costs[symbol]:
+        if (
+            not isinstance(prepared_costs, Mapping)
+            or execution != prepared_costs[symbol]
+        ):
             raise ValueError("V4 replay execution cost identity drifted")
         delay = getattr(prepared.prepared_v3, "signal_delays", {})[symbol]
         decision_bars = getattr(prepared.prepared_v3, "decision_bars", {})[symbol]
@@ -522,7 +572,9 @@ def _target_and_replay(
             decision_bars=decision_bars,
         )
         reference_equity = float(getattr(environment, "initial_capital", np.nan))
-        market_cap = float(getattr(prepared.prepared_v3, "max_position_to_market_notional", np.nan))
+        market_cap = float(
+            getattr(prepared.prepared_v3, "max_position_to_market_notional", np.nan)
+        )
         caps = causal_alpha_liquidity_weight_caps(
             environment.dataset,
             decision_indices=forecast.decision_indices,
@@ -587,7 +639,9 @@ def run_causal_alpha_v4_selection_stage(
     for symbol in prepared.train_symbols:
         for contract in prepared.nested_partitions[symbol].economic_contracts:
             path = Path("selection") / symbol / f"{contract.episode_index}.json"
-            raw = store.load_leaf(path, expected_schema="causal_alpha_v4_replay_metric_v1")
+            raw = store.load_leaf(
+                path, expected_schema="causal_alpha_v4_replay_metric_v1"
+            )
             if raw is None:
                 metric = _target_and_replay(
                     prepared=prepared,
@@ -600,7 +654,9 @@ def run_causal_alpha_v4_selection_stage(
                 store.write_leaf(path, metric.to_payload())
             else:
                 metric = _replay_metric_from_payload(raw)
-                _validate_replay_metric(metric, prepared=prepared, symbol=symbol, contract=contract)
+                _validate_replay_metric(
+                    metric, prepared=prepared, symbol=symbol, contract=contract
+                )
             records.append(metric)
     return evaluate_causal_alpha_v4_selection(tuple(records))
 
@@ -617,7 +673,8 @@ def run_causal_alpha_v4_admission_stage(
     if not signal_evidence.passed or not selection_evidence.passed:
         raise ValueError("V4 admission cannot bypass upstream gates")
     holdouts = tuple(
-        prepared.nested_partitions[symbol].holdout_contract for symbol in prepared.train_symbols
+        prepared.nested_partitions[symbol].holdout_contract
+        for symbol in prepared.train_symbols
     )
     starts = {contract.start for contract in holdouts}
     if len(starts) != 1:
@@ -645,7 +702,9 @@ def run_causal_alpha_v4_admission_stage(
             store.write_leaf(path, metric.to_payload())
         else:
             metric = _replay_metric_from_payload(raw)
-            _validate_replay_metric(metric, prepared=prepared, symbol=symbol, contract=contract)
+            _validate_replay_metric(
+                metric, prepared=prepared, symbol=symbol, contract=contract
+            )
             if metric.fit_digest != fit.digest:
                 raise ValueError("V4 persisted admission fit identity drifted")
         records.append(metric)

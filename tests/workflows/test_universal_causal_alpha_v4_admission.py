@@ -5,7 +5,9 @@ from dataclasses import replace
 from trade_rl.workflows.universal_causal_alpha_v4_admission import (
     evaluate_causal_alpha_v4_admission,
 )
-from trade_rl.workflows.universal_causal_alpha_v4_replay import CausalAlphaV4ReplayMetric
+from trade_rl.workflows.universal_causal_alpha_v4_replay import (
+    CausalAlphaV4ReplayMetric,
+)
 from trade_rl.workflows.universal_causal_alpha_v4_selection import (
     evaluate_causal_alpha_v4_selection,
 )
@@ -282,13 +284,13 @@ def test_admission_rejects_risk_unexplained_rejection_and_no_execution() -> None
     assert "no_meaningful_execution" in evidence.rejection_reasons
 
 
-def test_admission_requires_unique_symbol_holdout_records_and_identity_closure() -> None:
+def test_admission_requires_unique_symbol_holdout_records_and_identity_closure() -> (
+    None
+):
     selection = evaluate_causal_alpha_v4_selection(_selection_metrics())
     records = _holdout_records()
     duplicate = records + (records[0],)
-    drifted = records[:-1] + (
-        replace(records[-1], fit_digest=_digest("5"), digest=""),
-    )
+    drifted = records[:-1] + (replace(records[-1], fit_digest=_digest("5"), digest=""),)
 
     for invalid in (duplicate, drifted):
         try:

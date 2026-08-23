@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from trade_rl.workflows.universal_causal_alpha_v4_replay import CausalAlphaV4ReplayMetric
+from trade_rl.workflows.universal_causal_alpha_v4_replay import (
+    CausalAlphaV4ReplayMetric,
+)
 from trade_rl.workflows.universal_causal_alpha_v4_selection import (
     evaluate_causal_alpha_v4_selection,
 )

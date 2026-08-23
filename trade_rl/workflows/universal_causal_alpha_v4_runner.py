@@ -10,16 +10,23 @@ from pathlib import Path
 from typing import Any, Final
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.learning.causal_alpha_v4 import CausalAlphaV4FitConfig, CausalAlphaV4TargetConfig
+from trade_rl.learning.causal_alpha_v4 import (
+    CausalAlphaV4FitConfig,
+    CausalAlphaV4TargetConfig,
+)
 from trade_rl.workflows.universal_causal_alpha_v4_pipeline import (
     CausalAlphaV4AdmissionRejected,
     CausalAlphaV4ResearchPackage,
     CausalAlphaV4SelectionRejected,
     CausalAlphaV4SignalRejected,
 )
-from trade_rl.workflows.universal_causal_alpha_v4_signal import CausalAlphaV4SignalGateConfig
+from trade_rl.workflows.universal_causal_alpha_v4_signal import (
+    CausalAlphaV4SignalGateConfig,
+)
 
-CAUSAL_ALPHA_V4_RESEARCH_CONFIG_SCHEMA: Final = "universal_causal_alpha_v4_research_config_v1"
+CAUSAL_ALPHA_V4_RESEARCH_CONFIG_SCHEMA: Final = (
+    "universal_causal_alpha_v4_research_config_v1"
+)
 
 
 def _exact_dict(value: object, *, field: str, keys: frozenset[str]) -> dict[str, Any]:
@@ -80,7 +87,11 @@ class CausalAlphaV4ResearchConfig:
             root["fit"],
             field="V4 fit config",
             keys=frozenset(
-                {"market_ridge_strength", "residual_ridge_strength", "direction_ridge_strength"}
+                {
+                    "market_ridge_strength",
+                    "residual_ridge_strength",
+                    "direction_ridge_strength",
+                }
             ),
         )
         target = _exact_dict(
@@ -189,7 +200,9 @@ def _emit(payload: dict[str, object]) -> None:
 def cli_main(
     argv: Sequence[str] | None = None,
     *,
-    run_from_paths: Callable[..., object] = run_universal_causal_alpha_v4_research_from_paths,
+    run_from_paths: Callable[
+        ..., object
+    ] = run_universal_causal_alpha_v4_research_from_paths,
 ) -> int:
     args = _parser().parse_args(argv)
     try:

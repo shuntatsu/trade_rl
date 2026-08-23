@@ -11,11 +11,15 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.workflows.universal_causal_alpha_selection import (
     causal_alpha_unexplained_execution_rejection_count,
 )
-from trade_rl.workflows.universal_causal_alpha_v4_replay import CausalAlphaV4ReplayMetric
+from trade_rl.workflows.universal_causal_alpha_v4_replay import (
+    CausalAlphaV4ReplayMetric,
+)
 from trade_rl.workflows.universal_causal_alpha_v4_selection import (
     CausalAlphaV4SelectionEvidence,
 )
-from trade_rl.workflows.universal_causal_alpha_v4_signal import CausalAlphaV4SignalEvidence
+from trade_rl.workflows.universal_causal_alpha_v4_signal import (
+    CausalAlphaV4SignalEvidence,
+)
 
 CAUSAL_ALPHA_V4_ADMISSION_SCHEMA: Final = "causal_alpha_v4_admission_evidence_v1"
 _V4_MINIMUM_SYMBOL_NET_RETURN: Final = -0.05
@@ -60,7 +64,9 @@ class CausalAlphaV4AdmissionEvidence:
             "config_digest",
             "fit_digest",
         ):
-            require_sha256(getattr(self, field_name), field=f"V4 admission {field_name}")
+            require_sha256(
+                getattr(self, field_name), field=f"V4 admission {field_name}"
+            )
         if {record.run_manifest_digest for record in records} != {
             self.run_manifest_digest
         }:

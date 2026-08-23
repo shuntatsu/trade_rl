@@ -12,7 +12,9 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.workflows.universal_causal_alpha_selection import (
     causal_alpha_unexplained_execution_rejection_count,
 )
-from trade_rl.workflows.universal_causal_alpha_v4_replay import CausalAlphaV4ReplayMetric
+from trade_rl.workflows.universal_causal_alpha_v4_replay import (
+    CausalAlphaV4ReplayMetric,
+)
 
 CAUSAL_ALPHA_V4_SELECTION_SCHEMA: Final = "causal_alpha_v4_selection_evidence_v1"
 _V4_MINIMUM_WORST_NET_RETURN: Final = -0.05
@@ -55,7 +57,9 @@ class CausalAlphaV4SelectionEvidence:
             "v4_context_manifest_digest",
             "config_digest",
         ):
-            require_sha256(getattr(self, field_name), field=f"V4 selection {field_name}")
+            require_sha256(
+                getattr(self, field_name), field=f"V4 selection {field_name}"
+            )
         if {metric.run_manifest_digest for metric in metrics} != {
             self.run_manifest_digest
         }:

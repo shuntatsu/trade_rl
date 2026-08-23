@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Final, Protocol
+from typing import Callable, Final, Protocol
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
@@ -105,7 +105,9 @@ class CausalAlphaV4ResearchPackage:
         ):
             require_sha256(getattr(self, field_name), field=f"V4 package {field_name}")
         if not self.research_only or self.promotion_eligible:
-            raise ValueError("V4 teacher package must remain research-only and non-promotable")
+            raise ValueError(
+                "V4 teacher package must remain research-only and non-promotable"
+            )
         if self.schema_version != CAUSAL_ALPHA_V4_RESEARCH_PACKAGE_SCHEMA:
             raise ValueError("unsupported V4 research package schema")
         expected = content_digest(self.to_payload(include_digest=False))
@@ -175,9 +177,7 @@ def run_universal_causal_alpha_v4_research_pipeline(
         )
         raise rejection
 
-    selection = _validate_evidence(
-        selection_stage(prepared, signal), stage="selection"
-    )
+    selection = _validate_evidence(selection_stage(prepared, signal), stage="selection")
     _persist_stage(store, stage="selection", evidence=selection)
     if not selection.passed:
         rejection = CausalAlphaV4SelectionRejected(selection)

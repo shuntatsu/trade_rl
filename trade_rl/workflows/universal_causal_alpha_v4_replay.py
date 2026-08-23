@@ -85,7 +85,9 @@ class CausalAlphaV4ReplayMetric:
             "closed_trade_count",
             "sign_flip_count",
         ):
-            _non_negative_count(getattr(self, field_name), field=f"V4 replay {field_name}")
+            _non_negative_count(
+                getattr(self, field_name), field=f"V4 replay {field_name}"
+            )
         if self.downstream_no_trade_suppression_count > self.submitted_change_count:
             raise ValueError("V4 replay suppression count exceeds submitted changes")
         for field_name in (

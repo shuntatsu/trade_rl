@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
+from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
@@ -16,7 +19,11 @@ CAUSAL_ALPHA_V4_STORE_SCHEMA: Final = "causal_alpha_v4_artifact_store_v1"
 
 def _relative_artifact_path(value: str | Path) -> Path:
     path = Path(value)
-    if path.is_absolute() or not path.parts or any(part in {"", ".", ".."} for part in path.parts):
+    if (
+        path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
         raise ValueError("V4 relative artifact path is invalid")
     return path
 
@@ -31,10 +38,64 @@ def _strict_payload(raw: object, *, expected_schema: str) -> dict[str, object]:
     if not isinstance(artifact_digest, str):
         raise ValueError("V4 artifact digest is missing")
     require_sha256(artifact_digest, field="V4 artifact digest")
-    digest_payload = {key: value for key, value in payload.items() if key != "artifact_digest"}
+    digest_payload = {
+        key: value for key, value in payload.items() if key != "artifact_digest"
+    }
     if content_digest(digest_payload) != artifact_digest:
         raise ValueError("V4 artifact digest mismatch")
     return payload
+
+
+class CausalAlphaV4RunLock:
+    """Exclusive single-writer ownership for one V4 output root."""
+
+    def __init__(self, root: str | Path) -> None:
+        self.root = Path(root)
+        self.path = self.root / ".causal-alpha-v4.lock"
+        self._token: str | None = None
+
+    def acquire(self) -> CausalAlphaV4RunLock:
+        if self._token is not None:
+            raise RuntimeError("V4 run lock is already acquired")
+        self.root.mkdir(parents=True, exist_ok=True)
+        token = f"{os.getpid()}:{uuid.uuid4().hex}"
+        try:
+            descriptor = os.open(
+                self.path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+        except FileExistsError as error:
+            raise RuntimeError(
+                "V4 output root already has an active or unrecovered writer lock"
+            ) from error
+        os.close(descriptor)
+        try:
+            atomic_write_bytes(self.path, token.encode("utf-8"))
+        except Exception:
+            self.path.unlink(missing_ok=True)
+            raise
+        self._token = token
+        return self
+
+    def release(self) -> None:
+        token = self._token
+        if token is None:
+            return
+        try:
+            current = self.path.read_text(encoding="utf-8")
+        except FileNotFoundError as error:
+            raise RuntimeError("V4 run lock disappeared before release") from error
+        if current != token:
+            raise RuntimeError("V4 run lock ownership changed before release")
+        self.path.unlink()
+        self._token = None
+
+    def __enter__(self) -> CausalAlphaV4RunLock:
+        return self.acquire()
+
+    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+        self.release()
 
 
 class CausalAlphaV4ArtifactStore:
@@ -89,7 +150,9 @@ class CausalAlphaV4ArtifactStore:
             if value is not None:
                 require_sha256(value, field=f"V4 artifact {field_name}")
 
-    def write_leaf(self, relative_path: str | Path, payload: Mapping[str, object]) -> Path:
+    def write_leaf(
+        self, relative_path: str | Path, payload: Mapping[str, object]
+    ) -> Path:
         relative = _relative_artifact_path(relative_path)
         values = {str(key): value for key, value in payload.items()}
         schema = values.get("schema_version")
@@ -102,7 +165,9 @@ class CausalAlphaV4ArtifactStore:
         if output.exists():
             if output.is_file() and output.read_bytes() == encoded:
                 return output
-            raise FileExistsError(f"V4 artifact already exists with different content: {output}")
+            raise FileExistsError(
+                f"V4 artifact already exists with different content: {output}"
+            )
         output.parent.mkdir(parents=True, exist_ok=True)
         temporary = output.with_name(f".{output.name}.tmp")
         temporary.write_bytes(encoded)
@@ -149,4 +214,8 @@ class CausalAlphaV4ArtifactStore:
         return {**body, "artifact_digest": content_digest(body)}
 
 
-__all__ = ["CAUSAL_ALPHA_V4_STORE_SCHEMA", "CausalAlphaV4ArtifactStore"]
+__all__ = [
+    "CAUSAL_ALPHA_V4_STORE_SCHEMA",
+    "CausalAlphaV4ArtifactStore",
+    "CausalAlphaV4RunLock",
+]

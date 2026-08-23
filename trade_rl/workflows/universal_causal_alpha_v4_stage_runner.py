@@ -283,6 +283,12 @@ def prepare_causal_alpha_v4_stage_data(
         if not isinstance(values, Mapping) or set(values) != set(symbols):
             raise ValueError(f"V4 stage prepared V3 {field_name} scope is invalid")
 
+    assert isinstance(base_samples, Mapping)
+    assert isinstance(environment_factories, Mapping)
+    assert isinstance(signal_delays, Mapping)
+    assert isinstance(decision_bars, Mapping)
+    assert isinstance(partitions, Mapping)
+
     samples: dict[str, Any] = {}
     for symbol in symbols:
         factory = environment_factories[symbol]

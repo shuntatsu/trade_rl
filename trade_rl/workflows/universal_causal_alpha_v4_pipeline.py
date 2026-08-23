@@ -166,46 +166,55 @@ def run_universal_causal_alpha_v4_research_pipeline(
     signal = _validate_evidence(signal_stage(prepared), stage="signal")
     _persist_stage(store, stage="signal", evidence=signal)
     if not signal.passed:
-        rejection = CausalAlphaV4SignalRejected(signal)
+        signal_rejection = CausalAlphaV4SignalRejected(signal)
         store.write_leaf(
             "result.json",
             store.envelope(
                 schema_version="causal_alpha_v4_terminal_result_v1",
-                evidence_digest=rejection.digest,
-                payload={"status": "signal_rejected", **rejection.to_payload()},
+                evidence_digest=signal_rejection.digest,
+                payload={
+                    "status": "signal_rejected",
+                    **signal_rejection.to_payload(),
+                },
             ),
         )
-        raise rejection
+        raise signal_rejection
 
     selection = _validate_evidence(selection_stage(prepared, signal), stage="selection")
     _persist_stage(store, stage="selection", evidence=selection)
     if not selection.passed:
-        rejection = CausalAlphaV4SelectionRejected(selection)
+        selection_rejection = CausalAlphaV4SelectionRejected(selection)
         store.write_leaf(
             "result.json",
             store.envelope(
                 schema_version="causal_alpha_v4_terminal_result_v1",
-                evidence_digest=rejection.digest,
-                payload={"status": "selection_rejected", **rejection.to_payload()},
+                evidence_digest=selection_rejection.digest,
+                payload={
+                    "status": "selection_rejected",
+                    **selection_rejection.to_payload(),
+                },
             ),
         )
-        raise rejection
+        raise selection_rejection
 
     admission = _validate_evidence(
         admission_stage(prepared, signal, selection), stage="admission"
     )
     _persist_stage(store, stage="admission", evidence=admission)
     if not admission.passed:
-        rejection = CausalAlphaV4AdmissionRejected(admission)
+        admission_rejection = CausalAlphaV4AdmissionRejected(admission)
         store.write_leaf(
             "result.json",
             store.envelope(
                 schema_version="causal_alpha_v4_terminal_result_v1",
-                evidence_digest=rejection.digest,
-                payload={"status": "admission_rejected", **rejection.to_payload()},
+                evidence_digest=admission_rejection.digest,
+                payload={
+                    "status": "admission_rejected",
+                    **admission_rejection.to_payload(),
+                },
             ),
         )
-        raise rejection
+        raise admission_rejection
 
     package = CausalAlphaV4ResearchPackage(
         signal_evidence_digest=signal.digest,

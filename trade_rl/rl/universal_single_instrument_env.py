@@ -138,9 +138,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         self._instrument_context_provider = instrument_context_provider
         self._v4_context_provider = v4_context_provider
         if v4_context_provider is not None:
-            missing_v4_symbols = set(self._bindings) - set(
-                v4_context_provider.contexts
-            )
+            missing_v4_symbols = set(self._bindings) - set(v4_context_provider.contexts)
             if missing_v4_symbols:
                 raise ValueError(
                     "V4 context provider does not cover routed symbols: "
@@ -246,9 +244,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
                 field="instrument context schema digest",
             )
         v4_context_schema_digest = (
-            None
-            if v4_context_provider is None
-            else v4_context_provider.schema_digest
+            None if v4_context_provider is None else v4_context_provider.schema_digest
         )
         if v4_context_schema_digest is not None:
             require_sha256(
@@ -290,11 +286,15 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
         if instrument_provider is None and v4_provider is None:
             return observation_space
         if not isinstance(observation_space, gym.spaces.Dict):
-            raise TypeError("Universal context requires a Dict concrete observation space")
+            raise TypeError(
+                "Universal context requires a Dict concrete observation space"
+            )
         spaces = dict(observation_space.spaces)
         if instrument_provider is not None:
             if "instrument_context" in spaces:
-                raise ValueError("concrete observation already contains instrument_context")
+                raise ValueError(
+                    "concrete observation already contains instrument_context"
+                )
             spaces["instrument_context"] = gym.spaces.Box(
                 low=-np.inf,
                 high=np.inf,
@@ -743,9 +743,7 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
                     ),
                     "global_market_context": v4.global_values.copy(),
                     "global_market_available": v4.global_available.copy(),
-                    "global_market_staleness_hours": (
-                        v4.global_staleness_hours.copy()
-                    ),
+                    "global_market_staleness_hours": (v4.global_staleness_hours.copy()),
                     "causal_beta": v4.beta.copy(),
                     "causal_beta_available": v4.beta_available.copy(),
                 }

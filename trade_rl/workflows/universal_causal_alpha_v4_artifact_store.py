@@ -147,8 +147,11 @@ class CausalAlphaV4ArtifactStore:
             "target_path_digest",
         ):
             value = payload.get(field_name)
-            if value is not None:
-                require_sha256(value, field=f"V4 artifact {field_name}")
+            if value is None:
+                continue
+            if not isinstance(value, str):
+                raise ValueError(f"V4 artifact {field_name} must be a SHA-256 digest")
+            require_sha256(value, field=f"V4 artifact {field_name}")
 
     def write_leaf(
         self, relative_path: str | Path, payload: Mapping[str, object]

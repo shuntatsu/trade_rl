@@ -98,7 +98,7 @@ class CausalAlphaV4FitCache:
 
 
 def _signal_metric_from_payload(
-    raw: Mapping[str, object],
+    raw: Mapping[str, Any],
 ) -> CausalAlphaV4SignalScopeMetric:
     return CausalAlphaV4SignalScopeMetric(
         run_manifest_digest=str(raw["run_manifest_digest"]),
@@ -129,7 +129,7 @@ def _reason_counts(value: object) -> tuple[tuple[str, int], ...]:
     return tuple((str(reason), int(count)) for reason, count in value)
 
 
-def _replay_metric_from_payload(raw: Mapping[str, object]) -> CausalAlphaV4ReplayMetric:
+def _replay_metric_from_payload(raw: Mapping[str, Any]) -> CausalAlphaV4ReplayMetric:
     return CausalAlphaV4ReplayMetric(
         run_manifest_digest=str(raw["run_manifest_digest"]),
         v4_context_manifest_digest=str(raw["v4_context_manifest_digest"]),

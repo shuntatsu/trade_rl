@@ -9,7 +9,7 @@ import math
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Final
+from typing import Any, Final, cast
 
 import numpy as np
 
@@ -71,7 +71,7 @@ _KLINE_HEADER_ALIASES: Final = {
 }
 
 
-def _freeze_vector(value: object, *, dtype: np.dtype[object], field: str) -> np.ndarray:
+def _freeze_vector(value: object, *, dtype: np.dtype[Any], field: str) -> np.ndarray:
     array = np.asarray(value, dtype=dtype).reshape(-1).copy(order="C")
     if array.size == 0:
         raise ValueError(f"{field} must not be empty")
@@ -137,7 +137,7 @@ def _normalize_epoch_ms(value: object) -> int:
 
 def _finite_float(value: object, *, field: str) -> float:
     try:
-        result = float(value)
+        result = float(cast(Any, value))
     except (TypeError, ValueError) as error:
         raise ValueError(f"{field} must be numeric") from error
     if not math.isfinite(result):

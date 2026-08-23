@@ -96,16 +96,13 @@ class V4PolicyContext:
         ):
             raise ValueError("V4 policy context staleness must be non-negative")
         if np.any(
-            (arrays["local_available"] != 0.0)
-            & (arrays["local_available"] != 1.0)
+            (arrays["local_available"] != 0.0) & (arrays["local_available"] != 1.0)
         ) or np.any(
-            (arrays["global_available"] != 0.0)
-            & (arrays["global_available"] != 1.0)
+            (arrays["global_available"] != 0.0) & (arrays["global_available"] != 1.0)
         ):
             raise ValueError("V4 policy availability masks must be binary")
         if np.any(
-            (arrays["beta_available"] != 0.0)
-            & (arrays["beta_available"] != 1.0)
+            (arrays["beta_available"] != 0.0) & (arrays["beta_available"] != 1.0)
         ):
             raise ValueError("V4 beta availability mask must be binary")
         if not isinstance(self.digest, str) or len(self.digest) != 64:
@@ -132,7 +129,9 @@ class V4ContextProvider:
             raise ValueError("V4 context provider symbol/context identity is invalid")
         profiles = {context.profile_name for context in contexts.values()}
         if len(profiles) != 1:
-            raise ValueError("V4 context provider profile schema drifted across symbols")
+            raise ValueError(
+                "V4 context provider profile schema drifted across symbols"
+            )
         profile = next(iter(profiles))
         expected = _PROFILE_SCHEMAS.get(profile)
         if expected is None:
@@ -190,7 +189,9 @@ class V4ContextProvider:
         try:
             context = self.contexts[symbol]
         except KeyError as error:
-            raise ValueError("V4 context provider does not contain routed symbol") from error
+            raise ValueError(
+                "V4 context provider does not contain routed symbol"
+            ) from error
         decisions = context.local.decision_indices
         row = int(np.searchsorted(decisions, decision_index, side="left"))
         if row >= len(decisions) or int(decisions[row]) != decision_index:
@@ -205,9 +206,7 @@ class V4ContextProvider:
             global_available=context.global_market.available[row : row + 1].astype(
                 np.float32, copy=False
             ),
-            global_staleness_hours=context.global_market.staleness_hours[
-                row : row + 1
-            ],
+            global_staleness_hours=context.global_market.staleness_hours[row : row + 1],
             beta=context.beta[row : row + 1, None],
             beta_available=context.beta_available[row : row + 1, None].astype(
                 np.float32, copy=False

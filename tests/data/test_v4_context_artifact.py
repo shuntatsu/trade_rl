@@ -22,9 +22,7 @@ def _context(*, beta_shift: float = 0.0) -> V4TargetContext:
     local = V4ContextBlock(
         feature_names=("local_a", "local_b"),
         decision_indices=decision_indices,
-        values=np.asarray(
-            [[1.0, 2.0], [1.5, 2.5], [2.0, 3.0]], dtype=np.float64
-        ),
+        values=np.asarray([[1.0, 2.0], [1.5, 2.5], [2.0, 3.0]], dtype=np.float64),
         available=np.ones((3, 2), dtype=np.bool_),
         staleness_hours=np.zeros((3, 2), dtype=np.float64),
         source_digest=_digest("1"),
@@ -69,7 +67,9 @@ def test_v4_context_artifact_round_trip(tmp_path: Path) -> None:
     np.testing.assert_array_equal(
         loaded.local.staleness_hours, context.local.staleness_hours
     )
-    np.testing.assert_array_equal(loaded.global_market.values, context.global_market.values)
+    np.testing.assert_array_equal(
+        loaded.global_market.values, context.global_market.values
+    )
     np.testing.assert_array_equal(loaded.beta, context.beta)
     np.testing.assert_array_equal(loaded.beta_available, context.beta_available)
     assert not loaded.beta.flags.writeable
@@ -86,7 +86,9 @@ def test_v4_context_artifact_manifest_binds_exact_schema(tmp_path: Path) -> None
     assert manifest["context_digest"] == context.digest
     assert manifest["beta_source_digest"] == context.beta_source_digest
     assert tuple(manifest["local_feature_names"]) == context.local.feature_names
-    assert tuple(manifest["global_feature_names"]) == context.global_market.feature_names
+    assert (
+        tuple(manifest["global_feature_names"]) == context.global_market.feature_names
+    )
     assert manifest["row_count"] == 3
     assert manifest["first_decision_index"] == 100
     assert manifest["last_decision_index"] == 102

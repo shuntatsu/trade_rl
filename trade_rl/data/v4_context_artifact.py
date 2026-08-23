@@ -130,7 +130,9 @@ def _strict_manifest(raw: object) -> dict[str, Any]:
     if not isinstance(artifact_digest, str):
         raise ValueError("V4 context artifact digest is missing")
     require_sha256(artifact_digest, field="V4 context artifact digest")
-    identity = {key: value for key, value in payload.items() if key != "artifact_digest"}
+    identity = {
+        key: value for key, value in payload.items() if key != "artifact_digest"
+    }
     if content_digest(identity) != artifact_digest:
         raise ValueError("V4 context artifact digest mismatch")
     return payload
@@ -171,7 +173,10 @@ def _load_arrays(path: Path, *, expected_sha256: str) -> dict[str, np.ndarray]:
                     "V4 context array members mismatch; "
                     f"missing={missing}, unknown={unknown}"
                 )
-            return {name: np.asarray(payload[name]).copy(order="C") for name in payload.files}
+            return {
+                name: np.asarray(payload[name]).copy(order="C")
+                for name in payload.files
+            }
     except (OSError, ValueError) as error:
         if isinstance(error, ValueError) and str(error).startswith("V4 context"):
             raise

@@ -96,7 +96,9 @@ def build_causal_alpha_v4_symbol_samples(
         raise TypeError("V4 context must be V4TargetContext")
     if base_samples.symbol != context.symbol:
         raise ValueError("V4 sample/context symbol identity drifted")
-    if not np.array_equal(base_samples.decision_indices, context.local.decision_indices):
+    if not np.array_equal(
+        base_samples.decision_indices, context.local.decision_indices
+    ):
         raise ValueError("V4 sample/local-context decision indices drifted")
     if not np.array_equal(
         base_samples.decision_indices,
@@ -181,13 +183,14 @@ def validate_causal_alpha_v4_train_sample_scope(
     ordered: dict[str, CausalAlphaV4SymbolSamples] = {}
     for symbol in symbols:
         sample = samples[symbol]
-        if not isinstance(sample, CausalAlphaV4SymbolSamples) or sample.symbol != symbol:
+        if (
+            not isinstance(sample, CausalAlphaV4SymbolSamples)
+            or sample.symbol != symbol
+        ):
             raise ValueError("V4 train sample symbol identity drifted")
         ordered[symbol] = sample
     names = {sample.target_local_feature_names for sample in ordered.values()}
-    schemas = {
-        sample.target_local_feature_schema_digest for sample in ordered.values()
-    }
+    schemas = {sample.target_local_feature_schema_digest for sample in ordered.values()}
     local_names = {sample.local_context.feature_names for sample in ordered.values()}
     global_names = {sample.global_context.feature_names for sample in ordered.values()}
     if len(names) != 1 or len(schemas) != 1:

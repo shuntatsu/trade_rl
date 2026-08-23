@@ -34,9 +34,7 @@ def _validate_labels(
     if np.any(valid & ~np.isfinite(labels)):
         raise ValueError(f"V4 {horizon} realized labels must be finite")
     if np.any(~valid & np.isfinite(labels)):
-        raise ValueError(
-            f"V4 {horizon} unavailable labels require non-finite storage"
-        )
+        raise ValueError(f"V4 {horizon} unavailable labels require non-finite storage")
     if np.any(~valid & (ends != -1)):
         raise ValueError(f"V4 {horizon} unavailable label ends must be -1")
 
@@ -82,7 +80,9 @@ class CausalAlphaV4SymbolSamples:
             or any(not name for name in names)
             or len(set(names)) != len(names)
         ):
-            raise ValueError("V4 target-local feature names must be non-empty and unique")
+            raise ValueError(
+                "V4 target-local feature names must be non-empty and unique"
+            )
         decisions = _readonly(self.decision_indices, dtype=np.int64).reshape(-1)
         rows = int(decisions.size)
         if rows == 0 or np.any(decisions < 0) or np.any(np.diff(decisions) <= 0):
@@ -222,8 +222,10 @@ class CausalAlphaV4ResidualLabels:
             available = _readonly(
                 getattr(self, f"available_{horizon}"), dtype=np.bool_
             ).reshape(-1)
-            if proxy.shape != (rows,) or residual.shape != (rows,) or available.shape != (
-                rows,
+            if (
+                proxy.shape != (rows,)
+                or residual.shape != (rows,)
+                or available.shape != (rows,)
             ):
                 raise ValueError(f"V4 residual {horizon} arrays are not aligned")
             if np.any(available & (~np.isfinite(proxy) | ~np.isfinite(residual))):
@@ -278,7 +280,9 @@ def _residual_for_horizon(
         symbol_labels[available] - beta[available] * market_labels[available]
     )
     reconstructed = beta[available] * market_labels[available] + residual[available]
-    if reconstructed.size and np.any(np.abs(reconstructed - symbol_labels[available]) > 1e-15):
+    if reconstructed.size and np.any(
+        np.abs(reconstructed - symbol_labels[available]) > 1e-15
+    ):
         raise RuntimeError(f"V4 {horizon} residual reconstruction drifted")
     return market_labels.copy(), residual, available
 

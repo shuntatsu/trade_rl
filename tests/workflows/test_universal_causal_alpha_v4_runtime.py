@@ -135,7 +135,9 @@ def test_v4_sample_builder_uses_persisted_context_beta_exactly() -> None:
     assert result.source_context_digest == context.digest
 
 
-def test_v4_sample_builder_future_price_mutation_after_train_stop_changes_nothing() -> None:
+def test_v4_sample_builder_future_price_mutation_after_train_stop_changes_nothing() -> (
+    None
+):
     first_dataset = _Dataset()
     second_dataset = _Dataset()
     second_dataset.open[50:] *= 100.0

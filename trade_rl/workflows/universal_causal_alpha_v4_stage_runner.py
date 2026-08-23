@@ -6,8 +6,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
+import numpy as np
+
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.learning.causal_alpha_v4 import (
+    CausalAlphaV4Forecast,
+    build_causal_alpha_v4_forecast,
+)
 from trade_rl.workflows.universal_causal_alpha_v3_signal import (
     split_causal_alpha_v3_partitions,
 )
@@ -62,6 +68,44 @@ class CausalAlphaV4PreparedStageData:
         ):
             require_sha256(getattr(self, field_name), field=f"V4 prepared {field_name}")
         object.__setattr__(self, "train_symbols", symbols)
+
+
+def slice_causal_alpha_v4_forecast(
+    forecast: CausalAlphaV4Forecast,
+    row_indices: object,
+) -> CausalAlphaV4Forecast:
+    """Slice every V4 forecast component by the same ordered source rows."""
+
+    if not isinstance(forecast, CausalAlphaV4Forecast):
+        raise TypeError("V4 forecast slice requires CausalAlphaV4Forecast")
+    rows = np.asarray(row_indices, dtype=np.int64).reshape(-1)
+    if (
+        rows.size == 0
+        or np.any(rows < 0)
+        or np.any(rows >= forecast.decision_indices.size)
+        or np.any(np.diff(rows) <= 0)
+    ):
+        raise ValueError("V4 forecast slice rows must be unique increasing indices")
+    horizons = ("4h", "24h", "72h")
+    return build_causal_alpha_v4_forecast(
+        symbol=forecast.symbol,
+        decision_indices=forecast.decision_indices[rows],
+        beta=forecast.beta[rows],
+        beta_available=forecast.beta_available[rows],
+        market_predictions={
+            horizon: forecast.market_predictions[horizon][rows] for horizon in horizons
+        },
+        residual_predictions={
+            horizon: forecast.residual_predictions[horizon][rows] for horizon in horizons
+        },
+        direction_scores={
+            horizon: forecast.direction_scores[horizon][rows] for horizon in horizons
+        },
+        market_model_digests=forecast.market_model_digests,
+        residual_model_digests=forecast.residual_model_digests,
+        direction_model_digests=forecast.direction_model_digests,
+        fit_digest=forecast.fit_digest,
+    )
 
 
 def build_causal_alpha_v4_stage_run_identity(
@@ -309,4 +353,5 @@ __all__ = [
     "build_causal_alpha_v4_stage_run_identity",
     "prepare_causal_alpha_v4_stage_data",
     "require_causal_alpha_v4_context_scope",
+    "slice_causal_alpha_v4_forecast",
 ]

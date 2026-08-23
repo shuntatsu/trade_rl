@@ -103,18 +103,10 @@ The `causal_alpha_v4_target_context_artifact_v1` manifest therefore also binds `
 
 ## Student and serving contract change
 
-`V4ContextProvider.resolve` no longer accepts beta from its caller.
+`V4ContextProvider.resolve` no longer accepts beta from its caller. Its authoritative callable interface is:
 
-Authoritative signature:
-
-```python
-class V4ContextProvider:
-    def resolve(
-        self,
-        *,
-        symbol: str,
-        decision_index: int,
-    ) -> V4PolicyContext: ...
+```text
+resolve(*, symbol: str, decision_index: int) -> V4PolicyContext
 ```
 
 It resolves local context, global context, `causal_beta`, and `causal_beta_available` from the same immutable target-context artifact.

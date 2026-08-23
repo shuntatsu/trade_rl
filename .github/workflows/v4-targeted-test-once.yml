@@ -1,4 +1,4 @@
-name: V4 targeted verification
+name: V4 Task 14 verification
 
 on:
   push:
@@ -24,9 +24,27 @@ jobs:
           enable-cache: true
       - name: Install formal CI dependencies
         run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
-      - name: Run focused V4 runner and context tests
+      - name: Run focused V4 suite
         run: |
           uv run pytest -q \
+            tests/data/test_v4_context.py \
+            tests/data/test_v4_context_artifact.py \
+            tests/integrations/test_binance_v4_context.py \
+            tests/integrations/test_binance_v4_source_plan.py \
+            tests/rl/test_universal_v4_context.py \
+            tests/rl/test_universal_single_instrument_env.py \
+            tests/learning/test_causal_alpha_v4_beta.py \
+            tests/learning/test_causal_alpha_v4_forecast.py \
+            tests/learning/test_causal_alpha_v4_uncertainty.py \
+            tests/learning/test_causal_alpha_v4_target.py \
+            tests/workflows/test_universal_causal_alpha_v4_manifest.py \
+            tests/workflows/test_universal_causal_alpha_v4_runtime.py \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py \
+            tests/workflows/test_universal_causal_alpha_v4_liveness.py \
+            tests/workflows/test_universal_causal_alpha_v4_signal.py \
+            tests/workflows/test_universal_causal_alpha_v4_replay.py \
+            tests/workflows/test_universal_causal_alpha_v4_selection.py \
+            tests/workflows/test_universal_causal_alpha_v4_admission.py \
             tests/workflows/test_universal_causal_alpha_v4_artifact_store.py \
             tests/workflows/test_universal_causal_alpha_v4_pipeline.py \
             tests/workflows/test_universal_causal_alpha_v4_stage_runner.py \
@@ -35,14 +53,38 @@ jobs:
             tests/workflows/test_universal_causal_alpha_v4_stage_science.py \
             tests/workflows/test_universal_causal_alpha_v4_stage_entry.py \
             tests/workflows/test_universal_causal_alpha_v4_stage_execution.py \
-            tests/scripts/test_run_universal_causal_alpha_v4_research.py \
-            tests/integrations/test_binance_v4_context.py \
-            tests/rl/test_universal_v4_context.py \
-            tests/rl/test_universal_single_instrument_env.py
+            tests/scripts/test_materialize_universal_causal_alpha_v4_context.py \
+            tests/scripts/test_run_universal_causal_alpha_v4_research.py
           uv run python -m py_compile scripts/run_universal_causal_alpha_v4_research.py
+      - name: Run maintained V3 regressions
+        run: |
+          uv run pytest -q \
+            tests/workflows/test_universal_causal_alpha_v3_runner_engine.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_orchestration.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_failure_semantics.py \
+            tests/workflows/test_universal_causal_alpha_v3_runner_store.py \
+            tests/workflows/test_universal_causal_alpha_v3_selection_diagnostics.py \
+            tests/learning/test_causal_alpha_weighted_ridge.py
+      - name: Run explicit V4 falsification contracts
+        run: |
+          uv run pytest -q \
+            tests/rl/test_universal_v4_context.py::test_v4_routed_environment_adds_only_authored_context_keys \
+            tests/data/test_v4_context.py::test_cross_market_context_future_mutation_cannot_change_prefix \
+            tests/data/test_v4_context.py::test_causal_beta_future_mutation_does_not_change_prefix \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py::test_v4_fit_digest_ignores_labels_not_realized_before_cutoff \
+            tests/learning/test_causal_alpha_v4_uncertainty.py::test_v4_uncertainty_ignores_rows_outside_authored_train_prefix \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py::test_v4_fit_digest_binds_train_symbol_order \
+            tests/workflows/test_universal_causal_alpha_v4_liveness.py::test_v4_liveness_rejects_intercept_only_prediction_with_live_features \
+            tests/learning/test_causal_alpha_v4_target.py::test_fast_forecast_below_uncertainty_cost_and_margin_cannot_trade \
+            tests/learning/test_causal_alpha_v4_target.py::test_direction_disagreement_blocks_risk_increase_but_not_flattening \
+            tests/data/test_v4_context.py::test_missing_spot_bar_invalidates_four_hour_spot_return \
+            tests/data/test_v4_context_artifact.py::test_v4_context_artifact_rejects_tampered_beta \
+            tests/learning/test_causal_alpha_v4_target.py::test_v4_staged_objective_charges_final_turnover_hurdle_once \
+            tests/workflows/test_universal_causal_alpha_v4_replay.py::test_positive_fill_without_closed_trade_is_meaningful_execution
       - name: Run full static and architecture checks
         run: |
           uv run ruff check --diff .
           uv run ruff format --check --diff .
           uv run mypy .
           uv run lint-imports
+          uv run vulture trade_rl tests --min-confidence 100

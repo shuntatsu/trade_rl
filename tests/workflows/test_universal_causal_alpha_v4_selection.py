@@ -94,6 +94,7 @@ def test_selection_requires_worst_net_and_positive_gross_fraction() -> None:
     values = list(_passing_metrics())
     values[0] = replace(values[0], gross_return=-0.01, net_return=-0.06, digest="")
     values[1] = replace(values[1], gross_return=-0.01, digest="")
+    values[2] = replace(values[2], gross_return=0.0, digest="")
     evidence = evaluate_causal_alpha_v4_selection(tuple(values))
 
     assert "worst_symbol_episode_net_return_below_floor" in evidence.rejection_reasons

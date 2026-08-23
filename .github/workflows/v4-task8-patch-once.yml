@@ -1,0 +1,69 @@
+name: V4 Task8 patch once
+
+on:
+  push:
+    branches:
+      - design/causal-alpha-v4-hierarchical-teacher
+
+permissions:
+  contents: write
+
+concurrency:
+  group: v4-task8-patch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    if: github.repository == 'shuntatsu/trade_rl'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: design/causal-alpha-v4-hierarchical-teacher
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev
+      - name: Patch V4 uncertainty
+        run: python scripts/v4_task8_uncertainty_patch_once.py
+      - name: Format Task 8 files
+        run: |
+          uv run ruff check --fix \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_signal.py \
+            tests/learning/test_causal_alpha_v4_uncertainty.py \
+            tests/workflows/test_universal_causal_alpha_v4_liveness.py
+          uv run ruff format \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_signal.py \
+            tests/learning/test_causal_alpha_v4_uncertainty.py \
+            tests/workflows/test_universal_causal_alpha_v4_liveness.py
+          git diff --check
+      - name: Verify Task 8 tests
+        run: |
+          uv run pytest -q \
+            tests/learning/test_causal_alpha_v4_uncertainty.py \
+            tests/workflows/test_universal_causal_alpha_v4_liveness.py
+      - name: Verify Task 8 typing
+        run: |
+          uv run mypy \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_signal.py
+      - name: Verify import architecture
+        run: uv run lint-imports
+      - name: Commit Task 8 patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_signal.py \
+            tests/learning/test_causal_alpha_v4_uncertainty.py \
+            tests/workflows/test_universal_causal_alpha_v4_liveness.py
+          git commit -m 'feat: calibrate v4 uncertainty and liveness'
+          git push origin HEAD:design/causal-alpha-v4-hierarchical-teacher

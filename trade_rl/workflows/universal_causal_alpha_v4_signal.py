@@ -150,7 +150,10 @@ class CausalAlphaV4LivenessEvidence:
         ):
             if value < 0.0:
                 raise ValueError("V4 liveness non-negative metric became negative")
-        if not 0.0 <= self.direction_positive_fraction <= 1.0 or not 0.0 <= self.direction_negative_fraction <= 1.0:
+        if (
+            not 0.0 <= self.direction_positive_fraction <= 1.0
+            or not 0.0 <= self.direction_negative_fraction <= 1.0
+        ):
             raise ValueError("V4 liveness direction fractions are invalid")
         for value in (
             self.unique_count_at_tolerance_1e_12,
@@ -160,7 +163,10 @@ class CausalAlphaV4LivenessEvidence:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError("V4 liveness counts must be non-negative integers")
-        if self.unique_count_at_tolerance_1e_12 <= 0 or self.maximum_near_identical_run_length <= 0:
+        if (
+            self.unique_count_at_tolerance_1e_12 <= 0
+            or self.maximum_near_identical_run_length <= 0
+        ):
             raise ValueError("V4 liveness prediction support must be positive")
         if not self.research_only or self.promotion_eligible:
             raise ValueError("V4 liveness evidence must remain non-promotable")
@@ -258,7 +264,9 @@ def build_causal_alpha_v4_liveness_evidence(
         )
 
     if tuple(contribution_series) != _CONTRIBUTION_FAMILIES:
-        raise ValueError("V4 liveness contribution families are incomplete or reordered")
+        raise ValueError(
+            "V4 liveness contribution families are incomplete or reordered"
+        )
     contribution_variance: dict[str, float] = {}
     for family in _CONTRIBUTION_FAMILIES:
         values = _finite_vector(

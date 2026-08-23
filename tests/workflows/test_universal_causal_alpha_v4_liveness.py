@@ -83,7 +83,9 @@ def test_v4_liveness_rejects_intercept_only_prediction_with_live_features() -> N
         )
 
 
-def test_v4_liveness_allows_constant_prediction_when_no_dynamic_feature_support() -> None:
+def test_v4_liveness_allows_constant_prediction_when_no_dynamic_feature_support() -> (
+    None
+):
     rows = 8
     evidence = build_causal_alpha_v4_liveness_evidence(
         fit_digest=_digest("e"),

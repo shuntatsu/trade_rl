@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import numpy as np
 
 from trade_rl.learning.causal_alpha_v4 import (
     V4ForecastState,
     fit_causal_alpha_v4_uncertainty,
 )
-
 
 HORIZONS = ("4h", "24h", "72h")
 

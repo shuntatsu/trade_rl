@@ -51,9 +51,8 @@ def _capability(symbols: tuple[str, ...]) -> BinanceV4ProfileCapability:
 def _input(symbol: str, *, multiplier: float, rows: int = 64) -> V4CrossMarketInputs:
     decisions = np.arange(100, 100 + rows, dtype=np.int64)
     timestamps = np.datetime64("2026-01-01T00:00", "ns") + np.arange(rows) * np.timedelta64(15, "m")
-    btc_returns = np.asarray(
-        [0.003, -0.002, 0.004, -0.001] * ((rows + 3) // 4), dtype=np.float64
-    )[: rows - 1]
+    block_amplitudes = np.asarray([0.0010, 0.0020, -0.0010, 0.0030], dtype=np.float64)
+    btc_returns = np.repeat(block_amplitudes, 16)[: rows - 1]
     close = np.exp(
         np.concatenate(
             (np.asarray([0.0], dtype=np.float64), np.cumsum(multiplier * btc_returns))

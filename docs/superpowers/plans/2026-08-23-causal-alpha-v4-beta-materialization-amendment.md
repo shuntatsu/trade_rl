@@ -44,28 +44,82 @@ def build_causal_beta_series(
     target_close: object,
     btc_close: object,
     bars_per_4h: int,
-    config: CausalBetaConfig = CausalBetaConfig(),
+    config: CausalBetaConfig,
     target_source_digest: str,
     btc_source_digest: str,
-) -> CausalBetaSeries: ...
+) -> CausalBetaSeries:
+    """Build one immutable causal beta series from trailing completed 4h returns."""
 ```
 
-The primitive constructs trailing, fully observed 4h log-return pairs. For BTCUSDT, every row with sufficient valid source prices is exactly beta `1.0`. For other targets, each decision uses only 4h returns whose closes are at or before that decision.
+The implementation validates the explicit config rather than using a mutable/implicit default. The primitive constructs trailing, fully observed 4h log-return pairs. For BTCUSDT, every row with sufficient valid source prices is exactly beta `1.0`. For other targets, each decision uses only 4h returns whose closes are at or before that decision.
 
-Add tests:
+Add deterministic tests with a shortened *test-only* support contract while retaining the production defaults above:
 
 ```python
+def _prices_from_log_returns(returns: np.ndarray) -> np.ndarray:
+    return np.exp(np.concatenate(([0.0], np.cumsum(returns, dtype=np.float64))))
+
+
 def test_causal_beta_recovers_known_two_beta():
-    # Build BTC 4h returns and target returns exactly 2x BTC.
-    result = build_causal_beta_series(...)
-    assert np.allclose(result.beta[result.available], 2.0)
+    btc_returns = np.asarray(
+        [0.01, -0.02, 0.03, -0.01, 0.015, -0.005, 0.02, -0.012],
+        dtype=np.float64,
+    )
+    btc_close = _prices_from_log_returns(btc_returns)
+    target_close = _prices_from_log_returns(2.0 * btc_returns)
+    decision_indices = np.arange(len(btc_close), dtype=np.int64)
+    config = CausalBetaConfig(
+        return_horizon_hours=4.0,
+        lookback_hours=24.0,
+        minimum_complete_samples=3,
+        minimum_market_variance=1e-12,
+        minimum_beta=-3.0,
+        maximum_beta=3.0,
+    )
+    result = build_causal_beta_series(
+        symbol="ETHUSDT",
+        decision_indices=decision_indices,
+        target_close=target_close,
+        btc_close=btc_close,
+        bars_per_4h=1,
+        config=config,
+        target_source_digest="1" * 64,
+        btc_source_digest="2" * 64,
+    )
+    assert np.count_nonzero(result.available) > 0
+    np.testing.assert_allclose(result.beta[result.available], 2.0, atol=1e-12, rtol=0.0)
 
 
 def test_causal_beta_future_mutation_does_not_change_prefix():
-    before = build_causal_beta_series(...)
+    btc_returns = np.asarray(
+        [0.01, -0.02, 0.03, -0.01, 0.015, -0.005, 0.02, -0.012],
+        dtype=np.float64,
+    )
+    btc_close = _prices_from_log_returns(btc_returns)
+    target_close = _prices_from_log_returns(1.5 * btc_returns)
+    decision_indices = np.arange(len(btc_close), dtype=np.int64)
+    config = CausalBetaConfig(
+        return_horizon_hours=4.0,
+        lookback_hours=24.0,
+        minimum_complete_samples=3,
+        minimum_market_variance=1e-12,
+        minimum_beta=-3.0,
+        maximum_beta=3.0,
+    )
+    common = dict(
+        symbol="ETHUSDT",
+        decision_indices=decision_indices,
+        btc_close=btc_close,
+        bars_per_4h=1,
+        config=config,
+        target_source_digest="1" * 64,
+        btc_source_digest="2" * 64,
+    )
+    before = build_causal_beta_series(target_close=target_close, **common)
+    prefix_stop = 6
     mutated_target = target_close.copy()
-    mutated_target[future_start:] *= 5.0
-    after = build_causal_beta_series(target_close=mutated_target, ...)
+    mutated_target[prefix_stop + 1 :] *= 5.0
+    after = build_causal_beta_series(target_close=mutated_target, **common)
     np.testing.assert_array_equal(before.beta[:prefix_stop], after.beta[:prefix_stop])
     np.testing.assert_array_equal(
         before.available[:prefix_stop], after.available[:prefix_stop]
@@ -87,6 +141,40 @@ class V4TargetContext:
     beta_source_digest: str
     profile_name: str
     digest: str = ""
+
+    def policy_row_digest(self, row: int) -> str:
+        if isinstance(row, bool) or not isinstance(row, int):
+            raise TypeError("row must be an integer")
+        if not 0 <= row < len(self.beta):
+            raise IndexError("row is outside V4 target context")
+        return content_and_arrays_digest(
+            {
+                "context_digest": self.digest,
+                "decision_index": int(self.local.decision_indices[row]),
+                "profile_name": self.profile_name,
+                "schema_version": "causal_alpha_v4_policy_context_row_v1",
+                "symbol": self.symbol,
+            },
+            (
+                ("local_values", self.local.values[row : row + 1]),
+                ("local_available", self.local.available[row : row + 1]),
+                (
+                    "local_staleness_hours",
+                    self.local.staleness_hours[row : row + 1],
+                ),
+                ("global_values", self.global_market.values[row : row + 1]),
+                (
+                    "global_available",
+                    self.global_market.available[row : row + 1],
+                ),
+                (
+                    "global_staleness_hours",
+                    self.global_market.staleness_hours[row : row + 1],
+                ),
+                ("beta", self.beta[row : row + 1]),
+                ("beta_available", self.beta_available[row : row + 1]),
+            ),
+        )
 ```
 
 `beta` and `beta_available` are row-aligned with local/global decision indices and included in the target-context digest.
@@ -106,7 +194,7 @@ and manifest field:
 beta_source_digest
 ```
 
-Round-trip/corruption tests must mutate beta bytes independently and prove strict rejection.
+Round-trip/corruption tests mutate beta bytes independently and prove strict rejection.
 
 ## Corrected Task 4 materialization
 
@@ -152,7 +240,7 @@ class V4ContextProvider:
             global_staleness_hours=context.global_market.staleness_hours[row : row + 1],
             beta=context.beta[row : row + 1, None],
             beta_available=context.beta_available[row : row + 1, None],
-            digest=_policy_context_digest(...),
+            digest=context.policy_row_digest(row),
         )
 ```
 
@@ -171,21 +259,33 @@ Remove teacher-private beta computation from this task.
 `CausalAlphaV4SymbolSamples` receives beta from `V4TargetContext`:
 
 ```python
-beta=np.asarray(context.beta, dtype=np.float64)
-beta_available=np.asarray(context.beta_available, dtype=np.bool_)
+beta = np.asarray(context.beta, dtype=np.float64)
+beta_available = np.asarray(context.beta_available, dtype=np.bool_)
 ```
 
-Before sample construction, independently verify alignment and identity:
+Before sample construction, add focused assertions/tests equivalent to:
 
 ```python
-np.testing-equivalent requirements:
-sample decision index == context decision index
-context beta length == context row count
-available beta inside [-3, 3]
-BTC available beta == 1.0
+np.testing.assert_array_equal(
+    sample_decision_indices,
+    context.local.decision_indices,
+)
+np.testing.assert_array_equal(
+    context.local.decision_indices,
+    context.global_market.decision_indices,
+)
+assert context.beta.shape == sample_decision_indices.shape
+assert context.beta_available.shape == sample_decision_indices.shape
+assert np.all(context.beta[context.beta_available] >= -3.0)
+assert np.all(context.beta[context.beta_available] <= 3.0)
+if context.symbol == "BTCUSDT":
+    np.testing.assert_array_equal(
+        context.beta[context.beta_available],
+        np.ones(np.count_nonzero(context.beta_available), dtype=np.float64),
+    )
 ```
 
-For focused correctness tests, reconstruct beta from the same synthetic raw histories and compare it with the persisted context beta. Production runtime itself must not silently replace a persisted beta by recomputation.
+For focused correctness tests, reconstruct beta from the same synthetic raw histories and compare it with the persisted context beta. Production runtime itself must not silently replace persisted beta by recomputation.
 
 Residual labels remain:
 

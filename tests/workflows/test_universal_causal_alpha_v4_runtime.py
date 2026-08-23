@@ -5,10 +5,10 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from trade_rl.data.v4_context import V4ContextBlock, V4TargetContext
 from trade_rl.data.universal_features import (
     UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
 )
+from trade_rl.data.v4_context import V4ContextBlock, V4TargetContext
 from trade_rl.learning.causal_alpha_teacher import forward_log_return_label
 from trade_rl.workflows.universal_causal_alpha_contracts import CausalAlphaSymbolSamples
 from trade_rl.workflows.universal_causal_alpha_v4_runtime import (

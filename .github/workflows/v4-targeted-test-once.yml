@@ -24,5 +24,55 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev
-      - name: Run targeted V4 Task 10 tests
-        run: uv run pytest -q tests/workflows/test_universal_causal_alpha_v4_signal.py
+      - name: Run V4 Task 6 through 10 tests
+        run: |
+          uv run pytest -q \
+            tests/learning/test_causal_alpha_v4_beta.py \
+            tests/learning/test_causal_alpha_v4_forecast.py \
+            tests/learning/test_causal_alpha_v4_uncertainty.py \
+            tests/learning/test_causal_alpha_v4_target.py \
+            tests/workflows/test_universal_causal_alpha_v4_runtime.py \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py \
+            tests/workflows/test_universal_causal_alpha_v4_liveness.py \
+            tests/workflows/test_universal_causal_alpha_v4_signal.py
+      - name: Ruff
+        run: |
+          uv run ruff check \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_runtime.py \
+            trade_rl/workflows/universal_causal_alpha_v4_fitting.py \
+            trade_rl/workflows/universal_causal_alpha_v4_signal.py \
+            tests/learning/test_causal_alpha_v4_beta.py \
+            tests/learning/test_causal_alpha_v4_forecast.py \
+            tests/learning/test_causal_alpha_v4_uncertainty.py \
+            tests/learning/test_causal_alpha_v4_target.py \
+            tests/workflows/test_universal_causal_alpha_v4_runtime.py \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py \
+            tests/workflows/test_universal_causal_alpha_v4_liveness.py \
+            tests/workflows/test_universal_causal_alpha_v4_signal.py
+      - name: Format check
+        run: |
+          uv run ruff format --check \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_runtime.py \
+            trade_rl/workflows/universal_causal_alpha_v4_fitting.py \
+            trade_rl/workflows/universal_causal_alpha_v4_signal.py \
+            tests/learning/test_causal_alpha_v4_beta.py \
+            tests/learning/test_causal_alpha_v4_forecast.py \
+            tests/learning/test_causal_alpha_v4_uncertainty.py \
+            tests/learning/test_causal_alpha_v4_target.py \
+            tests/workflows/test_universal_causal_alpha_v4_runtime.py \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py \
+            tests/workflows/test_universal_causal_alpha_v4_liveness.py \
+            tests/workflows/test_universal_causal_alpha_v4_signal.py
+      - name: Validate authored JSON
+        run: python -m json.tool examples/binance/universal-causal-alpha-v4-research.json > /dev/null
+      - name: Mypy
+        run: |
+          uv run mypy \
+            trade_rl/learning/causal_alpha_v4.py \
+            trade_rl/workflows/universal_causal_alpha_v4_runtime.py \
+            trade_rl/workflows/universal_causal_alpha_v4_fitting.py \
+            trade_rl/workflows/universal_causal_alpha_v4_signal.py
+      - name: Import architecture
+        run: uv run lint-imports

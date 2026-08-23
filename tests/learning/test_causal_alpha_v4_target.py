@@ -117,16 +117,17 @@ def test_v4_staged_objective_charges_final_turnover_hurdle_once() -> None:
     expected_cost_hurdle = abs(final - previous) * (
         cost * config.execution_cost_multiplier + config.edge_margin
     )
-    slow_alpha_risk = (anchor - previous) * slow_mu - abs(anchor - previous) * slow_sigma
+    slow_alpha_risk = (anchor - previous) * slow_mu - abs(
+        anchor - previous
+    ) * slow_sigma
     fast_alpha_risk_delta = (
         (final - previous) * fast_mu
         - abs(final - previous) * fast_sigma
-        - (
-            (anchor - previous) * fast_mu
-            - abs(anchor - previous) * fast_sigma
-        )
+        - ((anchor - previous) * fast_mu - abs(anchor - previous) * fast_sigma)
     )
-    assert np.isclose(staged, slow_alpha_risk + fast_alpha_risk_delta - expected_cost_hurdle)
+    assert np.isclose(
+        staged, slow_alpha_risk + fast_alpha_risk_delta - expected_cost_hurdle
+    )
     assert np.isclose(staged, slow + fast_improvement)
 
 

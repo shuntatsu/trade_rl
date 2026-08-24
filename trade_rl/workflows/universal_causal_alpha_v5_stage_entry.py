@@ -98,7 +98,6 @@ _LIQUIDITY_SAFETY_MULTIPLIER: Final = 0.80
 class _CalibrationResolved:
     base_fit: CausalAlphaV4Fit
     calibration_fit: CausalAlphaV5CalibrationFit
-    uncertainties: Mapping[str, Mapping[str, np.ndarray]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,15 +157,17 @@ def _horizon_weights(sample: Any, *, cutoff: int, state: Any) -> dict[str, np.nd
     return result
 
 
-def _uncertainties(fit: CausalAlphaV4Fit, sample: Any) -> dict[str, np.ndarray]:
-    forecast = fit.predict(sample)
+def _uncertainties(
+    fit: CausalAlphaV4Fit, sample: Any, *, forecast: Any | None = None
+) -> dict[str, np.ndarray]:
+    resolved_forecast = fit.predict(sample) if forecast is None else forecast
     state = resolve_causal_alpha_v4_stage_state_inputs(sample)
     labels = {
         horizon: np.asarray(getattr(sample, f"labels_{horizon}"), dtype=np.float64)
         for horizon in CAUSAL_ALPHA_V4_HORIZONS
     }
     model: CausalAlphaV4UncertaintyModel = fit_causal_alpha_v4_uncertainty(
-        final_predictions=forecast.final_predictions,
+        final_predictions=resolved_forecast.final_predictions,
         labels=labels,
         weights=_horizon_weights(sample, cutoff=fit.knowledge_cutoff, state=state),
         state_eligible=state.state_eligible,
@@ -186,11 +187,9 @@ def _uncertainties(fit: CausalAlphaV4Fit, sample: Any) -> dict[str, np.ndarray]:
 
 
 def _slow_uncertainty(
-    fit: CausalAlphaV4Fit,
-    sample: Any,
+    forecast: Any,
     uncertainty: Mapping[str, np.ndarray],
 ) -> np.ndarray:
-    forecast = fit.predict(sample)
     p24 = np.asarray(forecast.final_predictions["24h"])
     p72 = np.asarray(forecast.final_predictions["72h"]) / 3.0
     disagreement = 0.5 * np.abs(p24 - p72)
@@ -229,16 +228,15 @@ def _fit_calibrations(
                 knowledge_cutoff=split.calibration_start,
                 config=fit_config,
             )
-            uncertainty = {
-                symbol: _uncertainties(base_fit, prepared.samples[symbol])
-                for symbol in prepared.train_symbols
-            }
-            slow = {
-                symbol: _slow_uncertainty(
-                    base_fit, prepared.samples[symbol], uncertainty[symbol]
+            uncertainty: dict[str, dict[str, np.ndarray]] = {}
+            slow: dict[str, np.ndarray] = {}
+            for symbol in prepared.train_symbols:
+                sample = prepared.samples[symbol]
+                forecast = base_fit.predict(sample)
+                uncertainty[symbol] = _uncertainties(
+                    base_fit, sample, forecast=forecast
                 )
-                for symbol in prepared.train_symbols
-            }
+                slow[symbol] = _slow_uncertainty(forecast, uncertainty[symbol])
             calibration_fit = fit_causal_alpha_v5_calibration(
                 train_symbols=prepared.train_symbols,
                 samples=prepared.samples,
@@ -250,13 +248,9 @@ def _fit_calibrations(
             resolved[cutoff] = _CalibrationResolved(
                 base_fit=base_fit,
                 calibration_fit=calibration_fit,
-                uncertainties=MappingProxyType(
-                    {
-                        symbol: MappingProxyType(values)
-                        for symbol, values in uncertainty.items()
-                    }
-                ),
             )
+            del uncertainty, slow
+            gc.collect()
         return CausalAlphaV5CalibrationStageEvidence(
             fits=resolved, config_digest=config.calibration.digest, passed=True
         )
@@ -358,19 +352,29 @@ def _selective_bundle(
     calibration: CausalAlphaV5CalibrationStageEvidence,
     symbol: str,
     contract: Any,
-) -> tuple[np.ndarray, Any, Any, Any, np.ndarray, np.ndarray]:
+) -> tuple[
+    np.ndarray,
+    Any,
+    Any,
+    Any,
+    np.ndarray,
+    np.ndarray,
+    Mapping[str, np.ndarray],
+]:
     fitted = calibration.fits[contract.start]
     sample = prepared.samples[symbol]
     rows = resolve_causal_alpha_v4_contract_rows(
         sample, start=contract.start, stop=contract.stop
     )
-    forecast = slice_causal_alpha_v4_forecast(fitted.base_fit.predict(sample), rows)
+    full_forecast = fitted.base_fit.predict(sample)
+    forecast = slice_causal_alpha_v4_forecast(full_forecast, rows)
+    uncertainty = _uncertainties(fitted.base_fit, sample, forecast=full_forecast)
     state = resolve_causal_alpha_v4_stage_state_inputs(sample)
     environment = _environment(prepared, symbol)
     costs, caps = _costs_and_caps(
         prepared, symbol, environment, forecast.decision_indices
     )
-    slow_full = _slow_uncertainty(fitted.base_fit, sample, fitted.uncertainties[symbol])
+    slow_full = _slow_uncertainty(full_forecast, uncertainty)
     selective = calibrate_causal_alpha_v5_forecast(
         v4_forecast=forecast,
         sample=_slice_sample(sample, rows),
@@ -379,7 +383,7 @@ def _selective_bundle(
         actionable_mask=state.actionable[rows],
         calibration_fit=fitted.calibration_fit,
     )
-    return rows, forecast, selective, environment, costs, caps
+    return rows, forecast, selective, environment, costs, caps, uncertainty
 
 
 class _InitialStateEnvironment:
@@ -418,8 +422,8 @@ def _replay(
     symbol: str,
     contract: Any,
 ) -> CausalAlphaV5ReplayMetric:
-    rows, forecast, selective, environment, costs, caps = _selective_bundle(
-        prepared, calibration, symbol, contract
+    rows, forecast, selective, environment, costs, caps, uncertainty = (
+        _selective_bundle(prepared, calibration, symbol, contract)
     )
     try:
         fitted = calibration.fits[contract.start]
@@ -427,7 +431,7 @@ def _replay(
             selective,
             forecast.final_predictions["4h"],
             direction_score_4h=forecast.direction_scores["4h"],
-            uncertainty_4h=fitted.uncertainties[symbol]["4h"][rows],
+            uncertainty_4h=uncertainty["4h"][rows],
             one_way_cost_rates=costs,
             liquidity_weight_caps=caps,
             config=CausalAlphaV4TargetConfig(),
@@ -524,9 +528,15 @@ def _signal_stage(
     for symbol in prepared.train_symbols:
         sample = prepared.samples[symbol]
         for contract in prepared.nested_partitions[symbol].signal_contracts:
-            rows, _forecast, selective, environment, _costs, _caps = _selective_bundle(
-                prepared, calibration, symbol, contract
-            )
+            (
+                rows,
+                _forecast,
+                selective,
+                environment,
+                _costs,
+                _caps,
+                _uncertainty,
+            ) = _selective_bundle(prepared, calibration, symbol, contract)
             environment.close()
             v5_metrics.append(
                 build_causal_alpha_v5_signal_scope_metric(

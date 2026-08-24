@@ -1,7 +1,7 @@
 {
   "schema_version": "universal_causal_alpha_v5_research_config_v1",
   "calibration": {
-    "calibration_fraction": 0.2,
+    "calibration_fraction": 0.5,
     "forward_block_count": 4,
     "ridge_strength": 1.0,
     "minimum_pooled_support": 256,

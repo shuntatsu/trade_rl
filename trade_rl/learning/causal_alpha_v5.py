@@ -90,7 +90,7 @@ def _digest_tuple(value: object, *, count: int, field: str) -> tuple[str, ...]:
 class CausalAlphaV5CalibrationConfig:
     """The single predeclared train-only calibration and abstention hypothesis."""
 
-    calibration_fraction: float = 0.20
+    calibration_fraction: float = 0.50
     forward_block_count: int = 4
     ridge_strength: float = 1.0
     minimum_pooled_support: int = 256
@@ -106,7 +106,7 @@ class CausalAlphaV5CalibrationConfig:
     def __post_init__(self) -> None:
         _require_exact_float(
             self.calibration_fraction,
-            expected=0.20,
+            expected=0.50,
             field="V5 calibration fraction",
         )
         _require_exact_int(

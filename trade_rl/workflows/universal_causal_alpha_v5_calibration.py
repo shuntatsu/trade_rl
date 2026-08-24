@@ -29,9 +29,6 @@ from trade_rl.learning.causal_alpha_v5 import (
     CausalAlphaV5SelectiveForecast,
     build_causal_alpha_v5_selective_forecast,
 )
-from trade_rl.workflows.universal_causal_alpha_v3_signal import (
-    non_overlapping_causal_alpha_v3_rows,
-)
 from trade_rl.workflows.universal_causal_alpha_v4_fitting import CausalAlphaV4Fit
 from trade_rl.workflows.universal_causal_alpha_v4_runtime import (
     validate_causal_alpha_v4_train_sample_scope,
@@ -125,11 +122,7 @@ class CausalAlphaV5CalibrationSplit:
             & (ends >= decisions)
             & (ends < train_stop)
         )
-        selected = non_overlapping_causal_alpha_v3_rows(
-            decision_indices=decisions,
-            label_end_indices=ends,
-            eligible_mask=calibration_eligible,
-        )
+        selected = np.flatnonzero(calibration_eligible)
         if selected.size < config.forward_block_count:
             raise ValueError("V5 calibration split has insufficient forward blocks")
         blocks = tuple(
@@ -207,11 +200,7 @@ def _symbol_rows(
         calibration_eligible & ~np.all(sample.instrument_descriptor_available, axis=1)
     ):
         raise ValueError("V5 calibration descriptor availability is incomplete")
-    selected = non_overlapping_causal_alpha_v3_rows(
-        decision_indices=decisions,
-        label_end_indices=ends,
-        eligible_mask=calibration_eligible,
-    )
+    selected = np.flatnonzero(calibration_eligible)
     raw_return, raw_direction = _slow_arrays(forecast)
     realized = 0.5 * (
         np.asarray(sample.labels_24h, dtype=np.float64)
@@ -454,6 +443,7 @@ def fit_causal_alpha_v5_calibration(
         eval_labels: list[np.ndarray] = []
         eval_directions: list[np.ndarray] = []
         eval_realized: list[np.ndarray] = []
+        eval_weights: list[np.ndarray] = []
         symbols_present = 0
         for symbol in symbols:
             record = records[symbol]
@@ -465,6 +455,13 @@ def fit_causal_alpha_v5_calibration(
             eval_labels.append(record.residual_labels[rows])
             eval_directions.append(record.raw_direction[rows])
             eval_realized.append(record.realized[rows])
+            eval_weights.append(
+                causal_alpha_overlap_uniqueness_weights(
+                    record.decisions[rows],
+                    record.label_ends[rows],
+                    knowledge_cutoff=split.train_stop,
+                )
+            )
         forward_symbol_counts.append(symbols_present)
         x_eval = np.concatenate(eval_features, axis=0)
         a_eval = np.concatenate(eval_available, axis=0)
@@ -473,7 +470,9 @@ def fit_causal_alpha_v5_calibration(
         realized_eval = np.concatenate(eval_realized)
         prediction = model.predict(x_eval, feature_available=a_eval)
         residual = y_eval - prediction
-        eval_weight = np.ones(residual.shape, dtype=np.float64)
+        eval_weight = np.concatenate(eval_weights)
+        if not np.any(eval_weight > 0.0):
+            raise ValueError("V5 forward evaluation weights have no support")
         forward_residuals.append(
             content_and_arrays_digest(
                 {

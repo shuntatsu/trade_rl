@@ -108,13 +108,16 @@ def _samples(*, rows: int = 1_100) -> dict[str, CausalAlphaV4SymbolSamples]:
 
 
 def _split(
-    samples: dict[str, CausalAlphaV4SymbolSamples], *, train_stop: int = 1_000
+    samples: dict[str, CausalAlphaV4SymbolSamples],
+    *,
+    train_stop: int = 1_000,
+    config: CausalAlphaV5CalibrationConfig | None = None,
 ) -> CausalAlphaV5CalibrationSplit:
     return CausalAlphaV5CalibrationSplit.from_samples(
         train_symbols=_SYMBOLS,
         samples=samples,
         train_stop=train_stop,
-        config=CausalAlphaV5CalibrationConfig(),
+        config=CausalAlphaV5CalibrationConfig() if config is None else config,
     )
 
 
@@ -139,8 +142,14 @@ def _uncertainty(
     }
 
 
-def _fit(samples: dict[str, CausalAlphaV4SymbolSamples], *, train_stop: int = 1_000):
-    split = _split(samples, train_stop=train_stop)
+def _fit(
+    samples: dict[str, CausalAlphaV4SymbolSamples],
+    *,
+    train_stop: int = 1_000,
+    config: CausalAlphaV5CalibrationConfig | None = None,
+):
+    resolved = CausalAlphaV5CalibrationConfig() if config is None else config
+    split = _split(samples, train_stop=train_stop, config=resolved)
     v4_fit = _v4_fit(samples, split)
     fit = fit_causal_alpha_v5_calibration(
         train_symbols=_SYMBOLS,
@@ -148,7 +157,7 @@ def _fit(samples: dict[str, CausalAlphaV4SymbolSamples], *, train_stop: int = 1_
         v4_fit=v4_fit,
         slow_uncertainty=_uncertainty(samples),
         train_stop=train_stop,
-        config=CausalAlphaV5CalibrationConfig(),
+        config=resolved,
     )
     return split, v4_fit, fit
 
@@ -157,9 +166,9 @@ def test_v5_split_is_chronological_purged_and_has_no_mask_escape_hatch() -> None
     samples = _samples()
     split = _split(samples)
 
-    assert split.calibration_start == 796
+    assert split.calibration_start == 498
     assert split.train_stop == 1_000
-    assert split.block_boundaries == (796, 846, 896, 946, 1_000)
+    assert split.block_boundaries == (498, 623, 748, 872, 1_000)
     assert tuple(split.train_symbols) == _SYMBOLS
     parameters = inspect.signature(
         CausalAlphaV5CalibrationSplit.from_samples
@@ -188,9 +197,9 @@ def test_v5_fit_persists_support_forward_evidence_and_v4_identity() -> None:
     assert len(fit.forward_model_digests) == 3
     assert len(fit.forward_residual_digests) == 3
     assert len(fit.forward_weight_digests) == 3
-    assert fit.calibration_block_support == (90, 90, 90, 90)
+    assert fit.calibration_block_support == (1_125, 1_125, 1_116, 1_116)
     assert fit.forward_block_symbol_counts == (9, 9, 9)
-    assert dict(fit.per_symbol_support) == {symbol: 40 for symbol in _SYMBOLS}
+    assert dict(fit.per_symbol_support) == {symbol: 498 for symbol in _SYMBOLS}
     assert fit.calibration_residual_rmse >= 0.0
     assert fit.direction_score_rmse >= 0.0
 
@@ -278,8 +287,8 @@ def test_v5_fit_rejects_v4_cutoff_drift() -> None:
 
 
 def test_v5_fit_fails_closed_on_insufficient_symbol_support() -> None:
-    samples = _samples(rows=350)
-    split = _split(samples, train_stop=300)
+    samples = _samples(rows=70)
+    split = _split(samples, train_stop=34)
     v4_fit = _v4_fit(samples, split)
     with pytest.raises(ValueError, match="symbol support"):
         fit_causal_alpha_v5_calibration(
@@ -287,9 +296,26 @@ def test_v5_fit_fails_closed_on_insufficient_symbol_support() -> None:
             samples=samples,
             v4_fit=v4_fit,
             slow_uncertainty=_uncertainty(samples),
-            train_stop=300,
+            train_stop=34,
             config=CausalAlphaV5CalibrationConfig(),
         )
+
+
+def test_v5_calibration_uses_overlap_weighted_rows_for_long_horizons() -> None:
+    samples = {
+        symbol: replace(
+            sample,
+            label_end_indices_72h=sample.decision_indices + 100,
+            digest="",
+        )
+        for symbol, sample in _samples(rows=1_050).items()
+    }
+
+    split, _v4_fit_value, fit = _fit(samples, train_stop=950)
+
+    assert split.calibration_start == 425
+    assert split.block_boundaries == (425, 532, 638, 744, 950)
+    assert dict(fit.per_symbol_support) == {symbol: 425 for symbol in _SYMBOLS}
 
 
 def test_v5_fit_rejects_missing_calibration_descriptor_availability() -> None:

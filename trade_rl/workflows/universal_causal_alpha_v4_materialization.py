@@ -82,7 +82,7 @@ def _validate_frozen_metadata(
     resolution = resolve_frozen_snapshot(
         transport=FrozenBinanceExchangeInfoTransport(frozen_metadata_root),
         market=BinanceMarket.USDS_M,
-        symbols=symbols,
+        symbols=MAINTAINED_SYMBOLS,
         start_time=manifest.research_start,
         end_time=manifest.research_end,
     )

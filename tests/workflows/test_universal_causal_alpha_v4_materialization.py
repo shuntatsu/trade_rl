@@ -119,6 +119,47 @@ def _install_base_fakes(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     return runtime
 
 
+def test_binance_v4_materialization_validates_metadata_in_canonical_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _runtime_manifest()
+    runtime.train_symbols = (
+        "APTUSDT",
+        "ARBUSDT",
+        "BCHUSDT",
+        "BNBUSDT",
+        "BTCUSDT",
+        "LINKUSDT",
+        "LTCUSDT",
+        "SOLUSDT",
+        "XRPUSDT",
+    )
+    runtime.validation_symbols = ("AVAXUSDT", "DOGEUSDT", "ETHUSDT")
+    runtime.test_symbols = ("ADAUSDT", "OPUSDT", "SUIUSDT")
+    observed_symbols: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        materialization,
+        "resolve_frozen_snapshot",
+        lambda **kwargs: (
+            observed_symbols.append(tuple(kwargs["symbols"]))
+            or SimpleNamespace(evidence_digest=runtime.metadata_evidence_digest)
+        ),
+    )
+
+    materialization._validate_frozen_metadata(
+        manifest=runtime,
+        symbols=(
+            *runtime.train_symbols,
+            *runtime.validation_symbols,
+            *runtime.test_symbols,
+        ),
+        frozen_metadata_root=tmp_path / "metadata",
+    )
+
+    assert observed_symbols == [tuple(MAINTAINED_SYMBOLS)]
+
+
 def test_binance_v4_materialization_closes_core_source_and_context_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

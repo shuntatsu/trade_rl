@@ -201,7 +201,6 @@ def build_causal_alpha_v4_symbol_samples(
             "base_feature_schema_digest": base_samples.feature_schema_digest,
             "instrument_descriptor_names": UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
             "schema_version": "causal_alpha_v4_target_local_feature_schema_v2",
-            "source_context_digest": base_samples.context_digest,
             "target_local_feature_names": target_names,
         }
     )

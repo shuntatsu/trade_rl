@@ -55,7 +55,7 @@ def _base_samples(*, symbol: str = "ETHUSDT") -> CausalAlphaSymbolSamples:
         dataset_id=_digest("a" if symbol == "BTCUSDT" else "b"),
         feature_names=("target_x", *UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES),
         feature_schema_digest=_digest("c"),
-        context_digest=_digest("d"),
+        context_digest=_digest("d" if symbol == "ETHUSDT" else "e"),
         reference_equity_mode="initial_capital",
         reference_equity=100_000.0,
         decision_indices=decisions,
@@ -319,3 +319,33 @@ def test_v4_train_scope_rejects_validation_or_test_samples() -> None:
             train_symbols=("ETHUSDT",),
             samples={"ETHUSDT": train, "SOLUSDT": validation},
         )
+
+
+def test_v4_feature_schema_is_common_across_symbol_context_identities() -> None:
+    common = dict(
+        dataset=_Dataset(),
+        train_stop=50,
+        signal_delay_decisions=1,
+        decision_bars=1,
+    )
+    eth = build_causal_alpha_v4_symbol_samples(
+        base_samples=_base_samples(symbol="ETHUSDT"),
+        context=_context(symbol="ETHUSDT"),
+        **common,
+    )
+    sol = build_causal_alpha_v4_symbol_samples(
+        base_samples=_base_samples(symbol="SOLUSDT"),
+        context=_context(symbol="SOLUSDT"),
+        **common,
+    )
+
+    validated = validate_causal_alpha_v4_train_sample_scope(
+        train_symbols=("ETHUSDT", "SOLUSDT"),
+        samples={"ETHUSDT": eth, "SOLUSDT": sol},
+    )
+
+    assert eth.source_context_digest != sol.source_context_digest
+    assert eth.target_local_feature_schema_digest == (
+        sol.target_local_feature_schema_digest
+    )
+    assert tuple(validated) == ("ETHUSDT", "SOLUSDT")

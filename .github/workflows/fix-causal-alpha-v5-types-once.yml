@@ -33,35 +33,28 @@ jobs:
 
           path = Path('trade_rl/learning/causal_alpha_v5.py')
           source = path.read_text(encoding='utf-8')
-          source, count = source.replace('from typing import Final', 'from typing import Any, Final'), 1
-          if count != 1:
+          if source.count('from typing import Final') != 1:
               raise SystemExit('V5 typing import preimage mismatch')
+          source = source.replace(
+              'from typing import Final',
+              'from typing import Any, Final',
+              1,
+          )
           if source.count('dtype: object') != 3:
               raise SystemExit('V5 dtype annotation preimage mismatch')
           source = source.replace('dtype: object', 'dtype: Any')
-          old = '''        for field_name in ("actionable_mask", "active_mask"):
-              array = _readonly_vector(
-                  getattr(self, field_name),
-                  dtype=np.bool_,
-                  field=f"V5 selective {field_name}",
-              )
-              if array.shape != (rows,):
-                  raise ValueError("V5 selective masks are not aligned")
-              arrays[field_name] = array
-          '''
-          new = '''        for field_name in ("actionable_mask", "active_mask"):
-              mask = _readonly_vector(
-                  getattr(self, field_name),
-                  dtype=np.bool_,
-                  field=f"V5 selective {field_name}",
-              )
-              if mask.shape != (rows,):
-                  raise ValueError("V5 selective masks are not aligned")
-              arrays[field_name] = mask
-          '''
-          if old not in source:
-              raise SystemExit('V5 mask block preimage mismatch')
-          source = source.replace(old, new, 1)
+
+          marker = '        for field_name in ("actionable_mask", "active_mask"):\n'
+          next_marker = '        for field_name in (\n            "slow_uncertainty_raw",\n'
+          start = source.index(marker)
+          stop = source.index(next_marker, start)
+          block = source[start:stop]
+          if block.count('array = _readonly_vector(') != 1:
+              raise SystemExit('V5 mask assignment preimage mismatch')
+          block = block.replace('array = _readonly_vector(', 'mask = _readonly_vector(', 1)
+          block = block.replace('if array.shape != (rows,):', 'if mask.shape != (rows,):', 1)
+          block = block.replace('arrays[field_name] = array', 'arrays[field_name] = mask', 1)
+          source = source[:start] + block + source[stop:]
           path.write_text(source, encoding='utf-8', newline='\n')
           PY
           uv run ruff format trade_rl/learning/causal_alpha_v5.py

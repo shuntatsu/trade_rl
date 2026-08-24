@@ -59,6 +59,7 @@ export = [
 [project.scripts]
 trade-rl = "trade_rl.cli:main"
 trade-rl-causal-alpha-v5 = "trade_rl.workflows.universal_causal_alpha_v5_runner:cli_main"
+trade-rl-causal-alpha-v6 = "trade_rl.workflows.universal_causal_alpha_v6_runner:cli_main"
 
 [tool.setuptools.dynamic]
 version = {attr = "trade_rl._version.__version__"}
@@ -366,6 +367,24 @@ source_modules = [
     "trade_rl.learning",
 ]
 forbidden_modules = [
+    "stable_baselines3",
+    "sb3_contrib",
+    "torch",
+]
+
+[[tool.importlinter.contracts]]
+id = "causal-alpha-v6-learning-boundary"
+name = "Causal Alpha V6 learning remains below workflows and runtime adapters"
+type = "forbidden"
+source_modules = [
+    "trade_rl.learning.causal_alpha_v6",
+    "trade_rl.learning.causal_alpha_v6_target",
+]
+forbidden_modules = [
+    "trade_rl.workflows",
+    "trade_rl.integrations",
+    "trade_rl.rl",
+    "trade_rl.serving",
     "stable_baselines3",
     "sb3_contrib",
     "torch",

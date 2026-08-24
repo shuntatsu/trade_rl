@@ -746,7 +746,10 @@ def run_causal_alpha_v5_concrete_entry(
         runtime=runtime,
         prepared_v3=prepared_v3,
     )
-    del runtime
+    # ``prepared`` retains only the V4 samples and the small execution replay
+    # subset.  Keeping the superseded runtime context and V3 preparation alive
+    # pins every loaded context/dataset array for the duration of all fits.
+    del context, runtime, prepared_v3
     gc.collect()
     root = Path(output_root)
     with CausalAlphaV5RunLock(root):

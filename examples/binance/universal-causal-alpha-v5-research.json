@@ -1,0 +1,17 @@
+{
+  "schema_version": "universal_causal_alpha_v5_research_config_v1",
+  "calibration": {
+    "calibration_fraction": 0.2,
+    "forward_block_count": 4,
+    "ridge_strength": 1.0,
+    "minimum_pooled_support": 256,
+    "minimum_symbol_support": 16,
+    "minimum_selective_confidence": 1.0,
+    "minimum_active_coverage": 0.25,
+    "minimum_scope_active_fraction": 0.2,
+    "minimum_scope_active_count": 3,
+    "execution_cost_multiplier": 1.5,
+    "edge_margin": 0.001,
+    "epsilon": 1e-12
+  }
+}

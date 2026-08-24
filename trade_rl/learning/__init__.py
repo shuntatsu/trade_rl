@@ -4,6 +4,14 @@ from trade_rl.learning.behavior_cloning import (
     BehaviorCloningConfig,
     BehaviorCloningResult,
 )
+from trade_rl.learning.causal_alpha_v5 import (
+    CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES,
+    CausalAlphaV5CalibrationConfig,
+    CausalAlphaV5CalibrationFit,
+    CausalAlphaV5SelectiveForecast,
+    V5SelectiveState,
+    build_causal_alpha_v5_selective_forecast,
+)
 from trade_rl.learning.evaluation import (
     ActionPathCollapseEvidence,
     BehaviorCloningGateEvaluation,
@@ -40,6 +48,12 @@ from trade_rl.learning.teacher_artifact import (
 )
 
 __all__ = [
+    "CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES",
+    "CausalAlphaV5CalibrationConfig",
+    "CausalAlphaV5CalibrationFit",
+    "CausalAlphaV5SelectiveForecast",
+    "V5SelectiveState",
+    "build_causal_alpha_v5_selective_forecast",
     "ORACLE_TEACHER_SCHEMA",
     "TEACHER_ARRAYS_NAME",
     "TEACHER_ARTIFACT_SCHEMA",

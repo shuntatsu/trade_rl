@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import inspect
+import json
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -24,7 +27,11 @@ def _digest(char: str) -> str:
     return char * 64
 
 
-def _ridge_model(*, intercept: float = 0.0) -> CausalAlphaRidgeModel:
+def _ridge_model(
+    *,
+    intercept: float = 0.0,
+    sample_count: int = 288,
+) -> CausalAlphaRidgeModel:
     width = len(CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES)
     return CausalAlphaRidgeModel(
         feature_names=CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES,
@@ -33,9 +40,9 @@ def _ridge_model(*, intercept: float = 0.0) -> CausalAlphaRidgeModel:
         constant_mask=np.zeros(width, dtype=np.bool_),
         coefficients=np.zeros(width, dtype=np.float64),
         intercept=intercept,
-        sample_count=256,
+        sample_count=sample_count,
         knowledge_cutoff=1_000,
-        eligible_indices=np.arange(256, dtype=np.int64),
+        eligible_indices=np.arange(sample_count, dtype=np.int64),
         config=CausalAlphaRidgeConfig(ridge_strength=1.0),
     )
 
@@ -75,7 +82,12 @@ def _fit(
     )
 
 
-def _forecast(*, rows: int = 3):
+def _forecast(
+    *,
+    rows: int = 3,
+    direction_24h: float = 0.8,
+    direction_72h: float = 0.6,
+):
     market = {
         "4h": np.full(rows, 0.01),
         "24h": np.full(rows, 0.04),
@@ -84,8 +96,8 @@ def _forecast(*, rows: int = 3):
     residual = {horizon: np.zeros(rows) for horizon in market}
     direction = {
         "4h": np.full(rows, 1.0),
-        "24h": np.full(rows, 0.8),
-        "72h": np.full(rows, 0.6),
+        "24h": np.full(rows, direction_24h),
+        "72h": np.full(rows, direction_72h),
     }
     return build_causal_alpha_v4_forecast(
         symbol="ETHUSDT",
@@ -165,6 +177,36 @@ def test_v5_calibration_fit_binds_support_and_model_identity() -> None:
     assert fit.pooled_support == 288
     assert fit.forward_model_digests == (_digest("d"), _digest("e"), _digest("f"))
     assert fit.digest
+
+
+def test_v5_calibration_fit_rejects_model_support_mismatch() -> None:
+    fit = _fit()
+
+    with pytest.raises(ValueError, match="model sample_count"):
+        CausalAlphaV5CalibrationFit(
+            v4_fit_digest=fit.v4_fit_digest,
+            v4_fit_config_digest=fit.v4_fit_config_digest,
+            v4_sample_scope_digest=fit.v4_sample_scope_digest,
+            calibration_start=fit.calibration_start,
+            train_stop=fit.train_stop,
+            model=_ridge_model(sample_count=287),
+            forward_model_digests=fit.forward_model_digests,
+            forward_residual_digests=fit.forward_residual_digests,
+            final_weight_digest=fit.final_weight_digest,
+            forward_weight_digests=fit.forward_weight_digests,
+            per_symbol_support=fit.per_symbol_support,
+            calibration_block_support=fit.calibration_block_support,
+            forward_block_symbol_counts=fit.forward_block_symbol_counts,
+            calibration_residual_rmse=fit.calibration_residual_rmse,
+            direction_score_rmse=fit.direction_score_rmse,
+            config=fit.config,
+        )
+
+
+def test_selective_forecast_has_no_direction_override_escape_hatch() -> None:
+    parameters = inspect.signature(build_causal_alpha_v5_selective_forecast).parameters
+
+    assert "slow_direction_override" not in parameters
 
 
 def test_v5_calibration_fit_rejects_insufficient_symbol_support() -> None:
@@ -276,7 +318,11 @@ def test_selective_forecast_hurdle_equality_abstains() -> None:
 
 
 def test_selective_forecast_blocks_disagreement_and_missing_descriptor() -> None:
-    forecast = _forecast(rows=2)
+    forecast = _forecast(
+        rows=2,
+        direction_24h=-1.0,
+        direction_72h=-1.0,
+    )
     fit = _fit()
     descriptors = np.zeros((2, 9))
     available = np.ones((2, 9), dtype=np.bool_)
@@ -289,9 +335,57 @@ def test_selective_forecast_blocks_disagreement_and_missing_descriptor() -> None
         one_way_cost_rates=np.zeros(2),
         actionable_mask=np.ones(2, dtype=np.bool_),
         calibration_fit=fit,
-        slow_direction_override=np.asarray([-1.0, 1.0]),
     )
 
     assert selective.states[0] is V5SelectiveState.DIRECTION_DISAGREEMENT
     assert selective.states[1] is V5SelectiveState.UNACTIONABLE
     assert not selective.active_mask.any()
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("forward_block_count", "minimum_pooled_support", "minimum_symbol_support"),
+)
+def test_v5_calibration_config_rejects_boolean_integer_fields(field: str) -> None:
+    with pytest.raises(ValueError):
+        CausalAlphaV5CalibrationConfig(**{field: True})
+
+
+def test_v5_example_json_freezes_task1_hypothesis() -> None:
+    payload = json.loads(
+        Path("examples/binance/universal-causal-alpha-v5-research.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert payload == {
+        "schema_version": "universal_causal_alpha_v5_research_config_v1",
+        "calibration": {
+            "calibration_fraction": 0.2,
+            "forward_block_count": 4,
+            "ridge_strength": 1.0,
+            "minimum_pooled_support": 256,
+            "minimum_symbol_support": 16,
+            "minimum_selective_confidence": 1.0,
+            "minimum_active_coverage": 0.25,
+            "minimum_scope_active_fraction": 0.2,
+            "minimum_scope_active_count": 3,
+            "execution_cost_multiplier": 1.5,
+            "edge_margin": 0.001,
+            "epsilon": 1e-12,
+        },
+    }
+
+
+def test_learning_package_exports_v5_contracts() -> None:
+    import trade_rl.learning as learning
+
+    for name in (
+        "CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES",
+        "CausalAlphaV5CalibrationConfig",
+        "CausalAlphaV5CalibrationFit",
+        "CausalAlphaV5SelectiveForecast",
+        "V5SelectiveState",
+        "build_causal_alpha_v5_selective_forecast",
+    ):
+        assert getattr(learning, name) is not None

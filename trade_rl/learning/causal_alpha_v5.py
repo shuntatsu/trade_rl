@@ -259,6 +259,10 @@ class CausalAlphaV5CalibrationFit:
         pooled_support = sum(count for _, count in support)
         if pooled_support < self.config.minimum_pooled_support:
             raise ValueError("V5 calibration pooled support is insufficient")
+        if self.model.sample_count != pooled_support:
+            raise ValueError(
+                "V5 calibration model sample_count must match pooled support"
+            )
 
         block_support = tuple(self.calibration_block_support)
         if (
@@ -479,7 +483,6 @@ def build_causal_alpha_v5_selective_forecast(
     one_way_cost_rates: object,
     actionable_mask: object,
     calibration_fit: CausalAlphaV5CalibrationFit,
-    slow_direction_override: object | None = None,
 ) -> CausalAlphaV5SelectiveForecast:
     """Calibrate the V4 slow return and predeclare active versus abstained rows."""
 
@@ -533,18 +536,10 @@ def build_causal_alpha_v5_selective_forecast(
         np.asarray(final["24h"], dtype=np.float64)
         + np.asarray(final["72h"], dtype=np.float64) / 3.0
     )
-    if slow_direction_override is None:
-        raw_direction = 0.5 * (
-            np.asarray(directions["24h"], dtype=np.float64)
-            + np.asarray(directions["72h"], dtype=np.float64)
-        )
-    else:
-        raw_direction = _aligned_vector(
-            slow_direction_override,
-            rows=rows,
-            dtype=np.float64,
-            field="V5 slow direction override",
-        )
+    raw_direction = 0.5 * (
+        np.asarray(directions["24h"], dtype=np.float64)
+        + np.asarray(directions["72h"], dtype=np.float64)
+    )
     if raw_return.shape != (rows,) or raw_direction.shape != (rows,):
         raise ValueError("V5 V4 forecast arrays are not decision aligned")
     if not np.isfinite(raw_return).all() or not np.isfinite(raw_direction).all():

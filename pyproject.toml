@@ -58,6 +58,7 @@ export = [
 
 [project.scripts]
 trade-rl = "trade_rl.cli:main"
+trade-rl-causal-alpha-v5 = "trade_rl.workflows.universal_causal_alpha_v5_runner:cli_main"
 
 [tool.setuptools.dynamic]
 version = {attr = "trade_rl._version.__version__"}

@@ -166,6 +166,9 @@ def test_v4_stage_preparation_builds_each_symbol_once_and_binds_nested_scope(
         },
         signal_delays={symbol: 1 for symbol in symbols},
         decision_bars={symbol: 1 for symbol in symbols},
+        execution_costs={symbol: f"cost:{symbol}" for symbol in symbols},
+        episode_hours=720.0,
+        max_position_to_market_notional=0.02,
         execution_identity=SimpleNamespace(digest=_digest("d")),
     )
     nested = {
@@ -218,6 +221,10 @@ def test_v4_stage_preparation_builds_each_symbol_once_and_binds_nested_scope(
     assert tuple(prepared.samples) == symbols
     assert prepared.samples == {"BTCUSDT": "v4:BTCUSDT", "ETHUSDT": "v4:ETHUSDT"}
     assert prepared.nested_partitions is nested
+    assert not hasattr(prepared.prepared_v3, "samples")
+    assert prepared.prepared_v3.execution_costs == {
+        symbol: f"cost:{symbol}" for symbol in symbols
+    }
     assert closed == ["BTCUSDT", "ETHUSDT"]
     assert build_calls == [
         ("base:BTCUSDT", contexts["BTCUSDT"], "dataset:BTCUSDT", 500, 1, 1),

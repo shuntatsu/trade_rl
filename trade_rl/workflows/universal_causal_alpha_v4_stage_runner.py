@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Final
 
 import numpy as np
@@ -68,6 +69,43 @@ class CausalAlphaV4PreparedStageData:
         ):
             require_sha256(getattr(self, field_name), field=f"V4 prepared {field_name}")
         object.__setattr__(self, "train_symbols", symbols)
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaV4ReplayInputs:
+    """Small execution-only subset retained after V4 sample preparation."""
+
+    environment_factories: Mapping[str, Any]
+    execution_costs: Mapping[str, Any]
+    signal_delays: Mapping[str, int]
+    decision_bars: Mapping[str, int]
+    episode_hours: float
+    max_position_to_market_notional: float
+
+    def __post_init__(self) -> None:
+        scopes = tuple(
+            dict(getattr(self, field_name))
+            for field_name in (
+                "environment_factories",
+                "execution_costs",
+                "signal_delays",
+                "decision_bars",
+            )
+        )
+        symbols = tuple(scopes[0])
+        if not symbols or any(set(scope) != set(symbols) for scope in scopes[1:]):
+            raise ValueError("V4 replay input scopes must match")
+        for field_name, scope in zip(
+            (
+                "environment_factories",
+                "execution_costs",
+                "signal_delays",
+                "decision_bars",
+            ),
+            scopes,
+            strict=True,
+        ):
+            object.__setattr__(self, field_name, MappingProxyType(scope))
 
 
 def slice_causal_alpha_v4_forecast(
@@ -340,6 +378,16 @@ def prepare_causal_alpha_v4_stage_data(
         nested_partition_digest=nested_digest,
         generator_code_digest=generator_code_digest,
     )
+    replay_inputs = CausalAlphaV4ReplayInputs(
+        environment_factories=environment_factories,
+        execution_costs=getattr(prepared_v3, "execution_costs", {}),
+        signal_delays=signal_delays,
+        decision_bars=decision_bars,
+        episode_hours=float(getattr(prepared_v3, "episode_hours", float("nan"))),
+        max_position_to_market_notional=float(
+            getattr(prepared_v3, "max_position_to_market_notional", float("nan"))
+        ),
+    )
     return CausalAlphaV4PreparedStageData(
         train_symbols=symbols,
         samples=validated_samples,
@@ -351,13 +399,14 @@ def prepare_causal_alpha_v4_stage_data(
         config_digest=config_digest,
         execution_identity_digest=execution_identity_digest,
         generator_code_digest=generator_code_digest,
-        prepared_v3=prepared_v3,
+        prepared_v3=replay_inputs,
     )
 
 
 __all__ = [
     "CAUSAL_ALPHA_V4_STAGE_RUN_IDENTITY_SCHEMA",
     "CausalAlphaV4PreparedStageData",
+    "CausalAlphaV4ReplayInputs",
     "build_causal_alpha_v4_stage_run_identity",
     "prepare_causal_alpha_v4_stage_data",
     "require_causal_alpha_v4_context_scope",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 from pathlib import Path
 from typing import Any, Final
@@ -194,6 +195,9 @@ def run_causal_alpha_v4_stage_entry(
         runtime=runtime,
         prepared_v3=prepared_v3,
     )
+    del prepared_v3
+    del runtime
+    gc.collect()
     return execute_causal_alpha_v4_prepared_entry(
         config=config,
         config_path=config_path,

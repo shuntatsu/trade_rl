@@ -102,7 +102,7 @@ class _CalibrationResolved:
 
 @dataclass(frozen=True, slots=True)
 class CausalAlphaV5CalibrationStageEvidence:
-    fits: Mapping[int, _CalibrationResolved]
+    fits: Mapping[int, str]
     config_digest: str
     passed: bool
     rejection_reasons: tuple[str, ...] = ()
@@ -112,6 +112,10 @@ class CausalAlphaV5CalibrationStageEvidence:
     def __post_init__(self) -> None:
         require_sha256(self.config_digest, field="V5 calibration config_digest")
         fits = dict(self.fits)
+        for cutoff, digest in fits.items():
+            if isinstance(cutoff, bool) or not isinstance(cutoff, int) or cutoff <= 0:
+                raise ValueError("V5 calibration cutoff identity is invalid")
+            require_sha256(digest, field=f"V5 calibration fit digest {cutoff}")
         if self.passed and (not fits or self.rejection_reasons):
             raise ValueError("V5 calibration pass evidence is incomplete")
         if not self.passed and (fits or not self.rejection_reasons):
@@ -125,10 +129,7 @@ class CausalAlphaV5CalibrationStageEvidence:
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
             "config_digest": self.config_digest,
-            "fit_digests": tuple(
-                (cutoff, value.calibration_fit.digest)
-                for cutoff, value in sorted(self.fits.items())
-            ),
+            "fit_digests": tuple(sorted(self.fits.items())),
             "passed": self.passed,
             "promotion_eligible": False,
             "rejection_reasons": self.rejection_reasons,
@@ -199,57 +200,70 @@ def _slow_uncertainty(
     )
 
 
-def _cutoffs(prepared: Any) -> tuple[int, ...]:
-    values: set[int] = set()
+def _contract_column(prepared: Any, field: str, index: int) -> tuple[Any, ...]:
+    contracts = tuple(
+        getattr(prepared.nested_partitions[symbol], field)[index]
+        for symbol in prepared.train_symbols
+    )
+    if len({contract.start for contract in contracts}) != 1:
+        raise ValueError(f"V5 {field} cutoff scope drifted")
+    return contracts
+
+
+def _fit_one_calibration(
+    prepared: Any, config: CausalAlphaV5ResearchConfig, cutoff: int
+) -> _CalibrationResolved:
+    split = CausalAlphaV5CalibrationSplit.from_samples(
+        train_symbols=prepared.train_symbols,
+        samples=prepared.samples,
+        train_stop=cutoff,
+        config=config.calibration,
+    )
+    base_fit = fit_causal_alpha_v4(
+        train_symbols=prepared.train_symbols,
+        samples=prepared.samples,
+        knowledge_cutoff=split.calibration_start,
+        config=CausalAlphaV4FitConfig(),
+    )
+    uncertainty: dict[str, dict[str, np.ndarray]] = {}
+    slow: dict[str, np.ndarray] = {}
     for symbol in prepared.train_symbols:
-        partition = prepared.nested_partitions[symbol]
-        values.update(contract.start for contract in partition.signal_contracts)
-        values.update(contract.start for contract in partition.economic_contracts)
-        values.add(partition.holdout_contract.start)
-    return tuple(sorted(values))
+        sample = prepared.samples[symbol]
+        forecast = base_fit.predict(sample)
+        uncertainty[symbol] = _uncertainties(base_fit, sample, forecast=forecast)
+        slow[symbol] = _slow_uncertainty(forecast, uncertainty[symbol])
+    calibration_fit = fit_causal_alpha_v5_calibration(
+        train_symbols=prepared.train_symbols,
+        samples=prepared.samples,
+        v4_fit=base_fit,
+        slow_uncertainty=slow,
+        train_stop=cutoff,
+        config=config.calibration,
+    )
+    return _CalibrationResolved(base_fit=base_fit, calibration_fit=calibration_fit)
 
 
 def _fit_calibrations(
     prepared: Any, config: CausalAlphaV5ResearchConfig
 ) -> CausalAlphaV5CalibrationStageEvidence:
     try:
-        resolved: dict[int, _CalibrationResolved] = {}
-        fit_config = CausalAlphaV4FitConfig()
-        for cutoff in _cutoffs(prepared):
-            split = CausalAlphaV5CalibrationSplit.from_samples(
-                train_symbols=prepared.train_symbols,
-                samples=prepared.samples,
-                train_stop=cutoff,
-                config=config.calibration,
+        resolved: dict[int, str] = {}
+        count = len(
+            prepared.nested_partitions[prepared.train_symbols[0]].signal_contracts
+        )
+        for index in range(count):
+            contracts = _contract_column(prepared, "signal_contracts", index)
+            cutoff = int(contracts[0].start)
+            fitted = _fit_one_calibration(prepared, config, cutoff)
+            resolved[cutoff] = fitted.calibration_fit.digest
+            print(
+                json.dumps(
+                    {"cutoff": cutoff, "stage": "calibration", "status": "fitted"},
+                    sort_keys=True,
+                ),
+                flush=True,
             )
-            base_fit = fit_causal_alpha_v4(
-                train_symbols=prepared.train_symbols,
-                samples=prepared.samples,
-                knowledge_cutoff=split.calibration_start,
-                config=fit_config,
-            )
-            uncertainty: dict[str, dict[str, np.ndarray]] = {}
-            slow: dict[str, np.ndarray] = {}
-            for symbol in prepared.train_symbols:
-                sample = prepared.samples[symbol]
-                forecast = base_fit.predict(sample)
-                uncertainty[symbol] = _uncertainties(
-                    base_fit, sample, forecast=forecast
-                )
-                slow[symbol] = _slow_uncertainty(forecast, uncertainty[symbol])
-            calibration_fit = fit_causal_alpha_v5_calibration(
-                train_symbols=prepared.train_symbols,
-                samples=prepared.samples,
-                v4_fit=base_fit,
-                slow_uncertainty=slow,
-                train_stop=cutoff,
-                config=config.calibration,
-            )
-            resolved[cutoff] = _CalibrationResolved(
-                base_fit=base_fit,
-                calibration_fit=calibration_fit,
-            )
-            del uncertainty, slow
+            del fitted
             gc.collect()
         return CausalAlphaV5CalibrationStageEvidence(
             fits=resolved, config_digest=config.calibration.digest, passed=True
@@ -349,7 +363,7 @@ def _slice_sample(sample: Any, rows: np.ndarray) -> CausalAlphaV4SymbolSamples:
 
 def _selective_bundle(
     prepared: Any,
-    calibration: CausalAlphaV5CalibrationStageEvidence,
+    fitted: _CalibrationResolved,
     symbol: str,
     contract: Any,
 ) -> tuple[
@@ -361,7 +375,6 @@ def _selective_bundle(
     np.ndarray,
     Mapping[str, np.ndarray],
 ]:
-    fitted = calibration.fits[contract.start]
     sample = prepared.samples[symbol]
     rows = resolve_causal_alpha_v4_contract_rows(
         sample, start=contract.start, stop=contract.stop
@@ -417,16 +430,15 @@ def _initial_weight(environment: Any, contract: Any) -> float:
 
 def _replay(
     prepared: Any,
-    calibration: CausalAlphaV5CalibrationStageEvidence,
+    fitted: _CalibrationResolved,
     config: CausalAlphaV5ResearchConfig,
     symbol: str,
     contract: Any,
 ) -> CausalAlphaV5ReplayMetric:
     rows, forecast, selective, environment, costs, caps, uncertainty = (
-        _selective_bundle(prepared, calibration, symbol, contract)
+        _selective_bundle(prepared, fitted, symbol, contract)
     )
     try:
-        fitted = calibration.fits[contract.start]
         target = causal_alpha_v5_target_path(
             selective,
             forecast.final_predictions["4h"],
@@ -523,11 +535,22 @@ def _signal_stage(
 ) -> CausalAlphaV5SignalEvidence:
     v5_metrics: list[CausalAlphaV5SignalScopeMetric] = []
     v4_metrics: list[CausalAlphaV4SignalScopeMetric] = []
-    full_fit_cache: dict[int, CausalAlphaV4Fit] = {}
     fit_config = CausalAlphaV4FitConfig()
-    for symbol in prepared.train_symbols:
-        sample = prepared.samples[symbol]
-        for contract in prepared.nested_partitions[symbol].signal_contracts:
+    count = len(prepared.nested_partitions[prepared.train_symbols[0]].signal_contracts)
+    for index in range(count):
+        contracts = _contract_column(prepared, "signal_contracts", index)
+        cutoff = int(contracts[0].start)
+        fitted = _fit_one_calibration(prepared, config, cutoff)
+        if calibration.fits.get(cutoff) != fitted.calibration_fit.digest:
+            raise ValueError("V5 Signal calibration replay identity drifted")
+        full_fit = fit_causal_alpha_v4(
+            train_symbols=prepared.train_symbols,
+            samples=prepared.samples,
+            knowledge_cutoff=cutoff,
+            config=fit_config,
+        )
+        for symbol, contract in zip(prepared.train_symbols, contracts, strict=True):
+            sample = prepared.samples[symbol]
             (
                 rows,
                 _forecast,
@@ -536,7 +559,7 @@ def _signal_stage(
                 _costs,
                 _caps,
                 _uncertainty,
-            ) = _selective_bundle(prepared, calibration, symbol, contract)
+            ) = _selective_bundle(prepared, fitted, symbol, contract)
             environment.close()
             v5_metrics.append(
                 build_causal_alpha_v5_signal_scope_metric(
@@ -558,15 +581,6 @@ def _signal_stage(
                     ],
                 )
             )
-            full_fit = full_fit_cache.get(contract.start)
-            if full_fit is None:
-                full_fit = fit_causal_alpha_v4(
-                    train_symbols=prepared.train_symbols,
-                    samples=prepared.samples,
-                    knowledge_cutoff=contract.start,
-                    config=fit_config,
-                )
-                full_fit_cache[contract.start] = full_fit
             v4_forecast = slice_causal_alpha_v4_forecast(full_fit.predict(sample), rows)
             liveness = _v4_liveness_digests(
                 fit=full_fit,
@@ -596,6 +610,15 @@ def _signal_stage(
                 label_end_indices_72h=np.asarray(sample.label_end_indices_72h)[rows],
             )
             v4_metrics.extend(built.values())
+        print(
+            json.dumps(
+                {"cutoff": cutoff, "stage": "signal", "status": "evaluated"},
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        del fitted, full_fit
+        gc.collect()
     expected = len(prepared.train_symbols) * 8
     v4 = evaluate_causal_alpha_v4_signal_gate(
         tuple(v4_metrics),
@@ -619,13 +642,29 @@ def _selection_stage(
 ) -> Any:
     if not signal.passed:
         raise ValueError("V5 Selection cannot bypass Signal")
-    records = tuple(
-        _replay(prepared, calibration, config, symbol, contract)
-        for symbol in prepared.train_symbols
-        for contract in prepared.nested_partitions[symbol].economic_contracts
+    records: list[CausalAlphaV5ReplayMetric] = []
+    count = len(
+        prepared.nested_partitions[prepared.train_symbols[0]].economic_contracts
     )
+    for index in range(count):
+        contracts = _contract_column(prepared, "economic_contracts", index)
+        cutoff = int(contracts[0].start)
+        fitted = _fit_one_calibration(prepared, config, cutoff)
+        records.extend(
+            _replay(prepared, fitted, config, symbol, contract)
+            for symbol, contract in zip(prepared.train_symbols, contracts, strict=True)
+        )
+        print(
+            json.dumps(
+                {"cutoff": cutoff, "stage": "selection", "status": "evaluated"},
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        del fitted
+        gc.collect()
     return evaluate_causal_alpha_v5_selection(
-        records, expected_symbols=prepared.train_symbols
+        tuple(records), expected_symbols=prepared.train_symbols
     )
 
 
@@ -646,8 +685,9 @@ def _admission_stage(
     if len(starts) != 1:
         raise ValueError("V5 holdout starts drifted")
     holdout_start = next(iter(starts))
+    fitted = _fit_one_calibration(prepared, config, holdout_start)
     records = tuple(
-        _replay(prepared, calibration, config, symbol, contract)
+        _replay(prepared, fitted, config, symbol, contract)
         for symbol, contract in zip(prepared.train_symbols, holdouts, strict=True)
     )
     return evaluate_causal_alpha_v5_admission(

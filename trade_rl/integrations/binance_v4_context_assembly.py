@@ -20,6 +20,7 @@ _BINANCE_VISION_ROOT: Final = "https://data.binance.vision/data/"
 _ALIGNED_KLINE_SCHEMA: Final = "binance_v4_aligned_kline_v1"
 _ALIGNED_FUNDING_SCHEMA: Final = "binance_v4_aligned_funding_events_v1"
 _ASSEMBLED_SOURCE_SCHEMA: Final = "binance_v4_cross_market_inputs_source_v1"
+_DECISION_INTERVAL_MS: Final = 15 * 60 * 1_000
 
 
 def _require_sha256(value: str, *, field: str) -> str:
@@ -189,6 +190,8 @@ def align_funding_events_to_decisions(
     for event_time, event_rate in zip(events.event_time_ms, events.rate, strict=True):
         row = int(np.searchsorted(decision_ms, int(event_time), side="left"))
         if row >= len(decision_ms):
+            continue
+        if int(event_time) < int(decision_ms[row]) - _DECISION_INTERVAL_MS:
             continue
         if available[row]:
             raise ValueError("multiple funding events map to one V4 decision")

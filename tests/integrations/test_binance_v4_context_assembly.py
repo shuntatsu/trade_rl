@@ -105,6 +105,26 @@ def test_funding_event_maps_once_to_first_observable_decision() -> None:
     assert len(digest) == 64
 
 
+def test_funding_events_before_reference_clock_do_not_collide_at_first_row() -> None:
+    events = BinanceFundingEventSeries(
+        event_time_ms=np.asarray(
+            [
+                np.datetime64("2025-12-31T08:00", "ms").astype(np.int64),
+                np.datetime64("2025-12-31T16:00", "ms").astype(np.int64),
+                np.datetime64("2026-01-01T00:00", "ms").astype(np.int64),
+            ],
+            dtype=np.int64,
+        ),
+        rate=np.asarray([0.001, 0.002, 0.003], dtype=np.float64),
+        source_digest=_digest("2"),
+    )
+
+    rate, available, _ = align_funding_events_to_decisions(_decisions(), events)
+
+    np.testing.assert_allclose(rate, [0.003, 0.0, 0.0])
+    np.testing.assert_array_equal(available, [True, False, False])
+
+
 def test_funding_event_after_last_decision_is_not_visible() -> None:
     events = BinanceFundingEventSeries(
         event_time_ms=np.asarray([1767229200000], dtype=np.int64),

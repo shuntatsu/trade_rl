@@ -243,6 +243,7 @@ def fit_causal_alpha_ridge(
     config: CausalAlphaRidgeConfig,
     sample_weights: object | None = None,
     normalize_objective: bool = False,
+    working_memory_rows: int | None = None,
 ) -> CausalAlphaRidgeModel:
     """Fit scaler and ridge using only fully realized prefix labels.
 
@@ -268,6 +269,12 @@ def fit_causal_alpha_ridge(
         raise ValueError("knowledge_cutoff must be an integer")
     if not isinstance(normalize_objective, bool):
         raise TypeError("normalize_objective must be a boolean")
+    if working_memory_rows is not None and (
+        isinstance(working_memory_rows, bool)
+        or not isinstance(working_memory_rows, int)
+        or working_memory_rows <= 0
+    ):
+        raise ValueError("working_memory_rows must be a positive integer or None")
 
     raw_weights: np.ndarray | None = None
     if sample_weights is not None:
@@ -329,53 +336,124 @@ def fit_causal_alpha_ridge(
         eligible_indices = np.flatnonzero(eligible_mask).astype(np.int64)
         if eligible_indices.size < 2:
             raise ValueError("causal alpha prefix contains insufficient fitted samples")
-        x = values[eligible_indices]
-        x_available = available[eligible_indices]
-        y = target[eligible_indices]
         weights = weights_all[eligible_indices]
         weight_sum = float(weights.sum(dtype=np.float64))
         if not np.isfinite(weight_sum) or weight_sum <= _EPSILON:
             raise ValueError("sample_weights have no positive eligible weight")
-        weight_column = weights[:, None]
-        positive_available = x_available & (weight_column > 0.0)
-        available_count = positive_available.sum(axis=0, dtype=np.int64)
-        available_weight = np.where(x_available, weight_column, 0.0).sum(
-            axis=0, dtype=np.float64
-        )
-        available_sum = np.where(x_available, x * weight_column, 0.0).sum(
-            axis=0, dtype=np.float64
-        )
-        location = np.zeros(x.shape[1], dtype=np.float64)
-        np.divide(
-            available_sum,
-            available_weight,
-            out=location,
-            where=available_weight > _EPSILON,
-        )
-        centered = np.where(x_available, x - location, 0.0)
-        squared_sum = (np.square(centered) * weight_column).sum(
-            axis=0, dtype=np.float64
-        )
-        variance = np.zeros(x.shape[1], dtype=np.float64)
-        np.divide(
-            squared_sum,
-            available_weight,
-            out=variance,
-            where=available_weight > _EPSILON,
-        )
-        raw_scale = np.sqrt(variance)
-        constant_mask = (available_count < 2) | (raw_scale <= _EPSILON)
-        scale = np.where(constant_mask, 1.0, raw_scale)
-        scaled = np.where(x_available, (x - location) / scale, 0.0)
-        scaled[:, constant_mask] = 0.0
-        design = np.column_stack((np.ones(scaled.shape[0], dtype=np.float64), scaled))
-        gram = design.T @ (design * weight_column)
-        rhs = design.T @ (y * weights)
+        if working_memory_rows is None:
+            x = values[eligible_indices]
+            x_available = available[eligible_indices]
+            y = target[eligible_indices]
+            weight_column = weights[:, None]
+            positive_available = x_available & (weight_column > 0.0)
+            available_count = positive_available.sum(axis=0, dtype=np.int64)
+            available_weight = np.where(x_available, weight_column, 0.0).sum(
+                axis=0, dtype=np.float64
+            )
+            available_sum = np.where(x_available, x * weight_column, 0.0).sum(
+                axis=0, dtype=np.float64
+            )
+            location = np.zeros(x.shape[1], dtype=np.float64)
+            np.divide(
+                available_sum,
+                available_weight,
+                out=location,
+                where=available_weight > _EPSILON,
+            )
+            centered = np.where(x_available, x - location, 0.0)
+            squared_sum = (np.square(centered) * weight_column).sum(
+                axis=0, dtype=np.float64
+            )
+            variance = np.zeros(x.shape[1], dtype=np.float64)
+            np.divide(
+                squared_sum,
+                available_weight,
+                out=variance,
+                where=available_weight > _EPSILON,
+            )
+            raw_scale = np.sqrt(variance)
+            constant_mask = (available_count < 2) | (raw_scale <= _EPSILON)
+            scale = np.where(constant_mask, 1.0, raw_scale)
+            scaled = np.where(x_available, (x - location) / scale, 0.0)
+            scaled[:, constant_mask] = 0.0
+            design = np.column_stack(
+                (np.ones(scaled.shape[0], dtype=np.float64), scaled)
+            )
+            gram = design.T @ (design * weight_column)
+            rhs = design.T @ (y * weights)
+        else:
+            feature_count = values.shape[1]
+            available_count = np.zeros(feature_count, dtype=np.int64)
+            available_weight = np.zeros(feature_count, dtype=np.float64)
+            available_sum = np.zeros(feature_count, dtype=np.float64)
+            for start in range(0, eligible_indices.size, working_memory_rows):
+                indices = eligible_indices[start : start + working_memory_rows]
+                chunk = values[indices]
+                chunk_available = available[indices]
+                weight_column = weights_all[indices, None]
+                available_count += np.sum(chunk_available, axis=0, dtype=np.int64)
+                available_weight += np.sum(
+                    np.where(chunk_available, weight_column, 0.0),
+                    axis=0,
+                    dtype=np.float64,
+                )
+                available_sum += np.sum(
+                    np.where(chunk_available, chunk * weight_column, 0.0),
+                    axis=0,
+                    dtype=np.float64,
+                )
+            location = np.zeros(feature_count, dtype=np.float64)
+            np.divide(
+                available_sum,
+                available_weight,
+                out=location,
+                where=available_weight > _EPSILON,
+            )
+            squared_sum = np.zeros(feature_count, dtype=np.float64)
+            for start in range(0, eligible_indices.size, working_memory_rows):
+                indices = eligible_indices[start : start + working_memory_rows]
+                chunk = values[indices]
+                chunk_available = available[indices]
+                weight_column = weights_all[indices, None]
+                centered = np.where(chunk_available, chunk - location, 0.0)
+                squared_sum += np.sum(
+                    np.square(centered) * weight_column,
+                    axis=0,
+                    dtype=np.float64,
+                )
+            variance = np.zeros(feature_count, dtype=np.float64)
+            np.divide(
+                squared_sum,
+                available_weight,
+                out=variance,
+                where=available_weight > _EPSILON,
+            )
+            raw_scale = np.sqrt(variance)
+            constant_mask = (available_count < 2) | (raw_scale <= _EPSILON)
+            scale = np.where(constant_mask, 1.0, raw_scale)
+            gram = np.zeros((feature_count + 1, feature_count + 1), dtype=np.float64)
+            rhs = np.zeros(feature_count + 1, dtype=np.float64)
+            for start in range(0, eligible_indices.size, working_memory_rows):
+                indices = eligible_indices[start : start + working_memory_rows]
+                chunk = values[indices]
+                chunk_available = available[indices]
+                chunk_weights = weights_all[indices]
+                scaled = np.where(chunk_available, (chunk - location) / scale, 0.0)
+                scaled[:, constant_mask] = 0.0
+                weighted_scaled = scaled * chunk_weights[:, None]
+                weighted_target = target[indices] * chunk_weights
+                cross = np.sum(weighted_scaled, axis=0, dtype=np.float64)
+                gram[0, 0] += float(np.sum(chunk_weights, dtype=np.float64))
+                gram[0, 1:] += cross
+                gram[1:, 0] += cross
+                gram[1:, 1:] += scaled.T @ weighted_scaled
+                rhs[0] += float(np.sum(weighted_target, dtype=np.float64))
+                rhs[1:] += scaled.T @ weighted_target
         if normalize_objective:
             gram = gram / weight_sum
             rhs = rhs / weight_sum
 
-    penalty = np.eye(design.shape[1], dtype=np.float64) * config.ridge_strength
+    penalty = np.eye(values.shape[1] + 1, dtype=np.float64) * config.ridge_strength
     penalty[0, 0] = 0.0
     try:
         solution = np.linalg.solve(gram + penalty, rhs)

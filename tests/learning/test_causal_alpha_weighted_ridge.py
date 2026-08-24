@@ -15,6 +15,7 @@ def _fit(
     *,
     sample_weights: np.ndarray | None = None,
     normalize_objective: bool = False,
+    working_memory_rows: int | None = None,
 ):
     return fit_causal_alpha_ridge(
         features=features,
@@ -26,6 +27,7 @@ def _fit(
         config=CausalAlphaRidgeConfig(ridge_strength=1e-9),
         sample_weights=sample_weights,
         normalize_objective=normalize_objective,
+        working_memory_rows=working_memory_rows,
     )
 
 
@@ -108,3 +110,37 @@ def test_mean_objective_normalization_is_invariant_to_full_row_duplication() -> 
 
     assert second.intercept == pytest.approx(first.intercept, abs=1e-12)
     assert second.coefficients == pytest.approx(first.coefficients, abs=1e-12)
+
+
+def test_chunked_weighted_ridge_matches_dense_weighted_objective() -> None:
+    features = np.asarray(
+        [[0.0, 2.0], [1.0, 0.0], [2.0, 3.0], [4.0, 1.0], [5.0, 6.0]],
+        dtype=np.float64,
+    )
+    labels = np.asarray([1.0, -1.0, 2.0, 3.0, 8.0], dtype=np.float64)
+    weights = np.asarray([0.1, 0.2, 0.3, 0.15, 0.25], dtype=np.float64)
+
+    dense = _fit(
+        features,
+        labels,
+        sample_weights=weights,
+        normalize_objective=True,
+    )
+    chunked = _fit(
+        features,
+        labels,
+        sample_weights=weights,
+        normalize_objective=True,
+        working_memory_rows=2,
+    )
+
+    np.testing.assert_array_equal(chunked.eligible_indices, dense.eligible_indices)
+    np.testing.assert_allclose(chunked.location, dense.location, atol=1e-14, rtol=0.0)
+    np.testing.assert_allclose(chunked.scale, dense.scale, atol=1e-14, rtol=0.0)
+    assert chunked.intercept == pytest.approx(dense.intercept, abs=1e-12)
+    np.testing.assert_allclose(
+        chunked.coefficients, dense.coefficients, atol=1e-12, rtol=0.0
+    )
+    np.testing.assert_allclose(
+        chunked.predict(features), dense.predict(features), atol=1e-12, rtol=0.0
+    )

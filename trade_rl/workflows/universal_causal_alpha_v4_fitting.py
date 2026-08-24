@@ -450,6 +450,7 @@ def fit_causal_alpha_v4(
             config=CausalAlphaRidgeConfig(ridge_strength=config.market_ridge_strength),
             sample_weights=market_weights,
             normalize_objective=True,
+            working_memory_rows=4096,
         )
         market_models[horizon] = market_model
         market_weight_digests[horizon] = _weight_digest(
@@ -533,6 +534,7 @@ def fit_causal_alpha_v4(
             ),
             sample_weights=pooled_residual_weights,
             normalize_objective=True,
+            working_memory_rows=4096,
         )
         residual_models[horizon] = residual_model
         residual_weight_digests[horizon] = _weight_digest(
@@ -571,6 +573,7 @@ def fit_causal_alpha_v4(
             ),
             sample_weights=pooled_direction_weights,
             normalize_objective=True,
+            working_memory_rows=4096,
         )
         direction_models[horizon] = direction_model
         direction_weight_digests[horizon] = _weight_digest(

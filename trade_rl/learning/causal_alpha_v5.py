@@ -32,7 +32,7 @@ CAUSAL_ALPHA_V5_CALIBRATION_FIT_SCHEMA: Final = "causal_alpha_v5_calibration_fit
 CAUSAL_ALPHA_V5_SELECTIVE_FORECAST_SCHEMA: Final = (
     "causal_alpha_v5_selective_forecast_v1"
 )
-CAUSAL_ALPHA_V5_TARGET_SCHEMA: Final = "causal_alpha_v5_target_path_v1"
+CAUSAL_ALPHA_V5_TARGET_SCHEMA: Final = "causal_alpha_v5_target_v1"
 CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES: Final = (
     "slow_return_raw",
     "slow_direction_raw",

@@ -63,9 +63,7 @@ def _input(
     timestamps = np.asarray(decision_timestamps, dtype="datetime64[ns]")
     rows = len(indices)
     multiplier = 1.0 + tuple(MAINTAINED_SYMBOLS).index(symbol) * 0.01
-    close = 100.0 * np.exp(
-        multiplier * np.arange(rows, dtype=np.float64) * 0.0001
-    )
+    close = 100.0 * np.exp(multiplier * np.arange(rows, dtype=np.float64) * 0.0001)
     quote = np.full(rows, 1_000_000.0 * multiplier, dtype=np.float64)
     funding = np.zeros(rows, dtype=np.float64)
     funding_available = np.zeros(rows, dtype=np.bool_)
@@ -114,7 +112,9 @@ def _install_base_fakes(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setattr(
         materialization,
         "resolve_frozen_snapshot",
-        lambda **_kwargs: SimpleNamespace(evidence_digest=runtime.metadata_evidence_digest),
+        lambda **_kwargs: SimpleNamespace(
+            evidence_digest=runtime.metadata_evidence_digest
+        ),
     )
     return runtime
 

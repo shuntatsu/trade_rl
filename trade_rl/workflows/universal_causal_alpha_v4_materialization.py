@@ -98,7 +98,9 @@ def _reference_clock(
     expected_datasets = dict(manifest.dataset_digests)
     expected_btc_digest = expected_datasets.get("BTCUSDT")
     if expected_btc_digest is None:
-        raise ValueError("V4 materialization requires BTCUSDT in train dataset identity")
+        raise ValueError(
+            "V4 materialization requires BTCUSDT in train dataset identity"
+        )
     dataset_root = runtime_manifest_path.parent / manifest.dataset_artifact_relpath
     dataset = load_market_dataset_artifact(dataset_root / "BTCUSDT")
     if getattr(dataset, "dataset_id", None) != expected_btc_digest:

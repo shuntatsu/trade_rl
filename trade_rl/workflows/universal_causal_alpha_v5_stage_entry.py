@@ -86,6 +86,7 @@ from trade_rl.workflows.universal_causal_alpha_v5_signal import (
     CausalAlphaV5SignalEvidence,
     CausalAlphaV5SignalScopeMetric,
     build_causal_alpha_v5_signal_scope_metric,
+    causal_alpha_v5_signal_diagnostic_payload,
     evaluate_causal_alpha_v5_signal_gate,
 )
 
@@ -641,6 +642,20 @@ def _signal_stage(
     )
 
 
+def _signal_stage_with_diagnostics(
+    prepared: Any,
+    calibration: CausalAlphaV5CalibrationStageEvidence,
+    config: CausalAlphaV5ResearchConfig,
+    store: CausalAlphaV5ArtifactStore,
+) -> CausalAlphaV5SignalEvidence:
+    evidence = _signal_stage(prepared, calibration, config)
+    store.write_leaf(
+        Path("signal") / "diagnostics.json",
+        _artifact(causal_alpha_v5_signal_diagnostic_payload(evidence)),
+    )
+    return evidence
+
+
 def _selection_stage(
     prepared: Any,
     calibration: CausalAlphaV5CalibrationStageEvidence,
@@ -781,10 +796,11 @@ def run_causal_alpha_v5_concrete_entry(
             store=store,
             prepare_stage=lambda: prepared,
             calibration_stage=lambda value: _fit_calibrations(value, config),
-            signal_stage=lambda value, calibration: _signal_stage(
+            signal_stage=lambda value, calibration: _signal_stage_with_diagnostics(
                 value,
                 cast(CausalAlphaV5CalibrationStageEvidence, calibration),
                 config,
+                store,
             ),
             selection_stage=lambda value, calibration, signal: _selection_stage(
                 value,

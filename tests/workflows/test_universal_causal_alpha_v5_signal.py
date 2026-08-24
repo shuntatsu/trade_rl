@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 
 import numpy as np
@@ -11,8 +12,10 @@ from trade_rl.learning.causal_alpha_v5 import (
     V5SelectiveState,
 )
 from trade_rl.workflows.universal_causal_alpha_v5_signal import (
+    CausalAlphaV5SignalEvidence,
     CausalAlphaV5SignalScopeMetric,
     build_causal_alpha_v5_signal_scope_metric,
+    causal_alpha_v5_signal_diagnostic_payload,
     evaluate_causal_alpha_v5_signal_gate,
 )
 
@@ -136,7 +139,9 @@ def _metrics() -> tuple[CausalAlphaV5SignalScopeMetric, ...]:
     )
 
 
-def _gate(metrics: tuple[CausalAlphaV5SignalScopeMetric, ...]):
+def _gate(
+    metrics: tuple[CausalAlphaV5SignalScopeMetric, ...],
+) -> CausalAlphaV5SignalEvidence:
     return evaluate_causal_alpha_v5_signal_gate(
         metrics,
         expected_symbols=_SYMBOLS,
@@ -152,6 +157,21 @@ def test_v5_gate_passes_exact_authored_scope_and_binds_fast_lane() -> None:
     assert evidence.slow.raw_scope_count == 72
     assert evidence.slow.independent_episode_count == 8
     assert evidence.v4_fast_lane_digest == "7" * 64
+
+
+def test_v5_signal_diagnostic_payload_preserves_scalar_and_scope_evidence() -> None:
+    evidence = _gate(_metrics())
+
+    payload = causal_alpha_v5_signal_diagnostic_payload(evidence)
+
+    assert payload["signal_evidence_digest"] == evidence.digest
+    assert payload["overall_active_coverage"] == 0.5
+    assert payload["unconditional_rank_ic"] == evidence.slow.unconditional_rank_ic.to_payload()
+    metrics = payload["metrics"]
+    assert isinstance(metrics, tuple)
+    assert len(metrics) == 72
+    assert metrics[0]["symbol"] == "S0"
+    assert metrics[0]["active_coverage"] == 0.5
 
 
 @pytest.mark.parametrize(
@@ -186,7 +206,11 @@ def test_v5_gate_passes_exact_authored_scope_and_binds_fast_lane() -> None:
     ],
 )
 def test_v5_gate_rejects_missing_scope_episode_symbol_or_support(
-    mutation, reason: str
+    mutation: Callable[
+        [tuple[CausalAlphaV5SignalScopeMetric, ...]],
+        tuple[CausalAlphaV5SignalScopeMetric, ...],
+    ],
+    reason: str,
 ) -> None:
     assert reason in _gate(mutation(_metrics())).rejection_reasons
 

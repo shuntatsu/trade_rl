@@ -288,6 +288,42 @@ class CausalAlphaV5SignalEvidence:
         return payload
 
 
+def causal_alpha_v5_signal_diagnostic_payload(
+    evidence: CausalAlphaV5SignalEvidence,
+) -> dict[str, object]:
+    """Expose the scalar and per-scope evidence hidden behind core digests."""
+
+    if not isinstance(evidence, CausalAlphaV5SignalEvidence):
+        raise TypeError("V5 signal diagnostics require V5 signal evidence")
+    slow = evidence.slow
+    return {
+        "schema_version": "causal_alpha_v5_signal_diagnostics_v1",
+        "signal_evidence_digest": evidence.digest,
+        "slow_evidence_digest": slow.digest,
+        "passed": evidence.passed,
+        "rejection_reasons": evidence.rejection_reasons,
+        "v4_fast_lane_digest": evidence.v4_fast_lane_digest,
+        "v4_fast_lane_passed": evidence.v4_fast_lane_passed,
+        "run_manifest_digest": slow.run_manifest_digest,
+        "calibration_config_digest": slow.calibration_config_digest,
+        "raw_scope_count": slow.raw_scope_count,
+        "independent_episode_count": slow.independent_episode_count,
+        "symbol_count": slow.symbol_count,
+        "overall_active_coverage": slow.overall_active_coverage,
+        "unconditional_rank_ic": slow.unconditional_rank_ic.to_payload(),
+        "unconditional_top_bottom_spread": (
+            slow.unconditional_top_bottom_spread.to_payload()
+        ),
+        "unconditional_direction_accuracy_excess": (
+            slow.unconditional_direction_accuracy_excess.to_payload()
+        ),
+        "selective_direction_accuracy_excess": (
+            slow.selective_direction_accuracy_excess.to_payload()
+        ),
+        "metrics": tuple(metric.to_payload() for metric in slow.metrics),
+    }
+
+
 def _aligned(value: object, *, rows: int, dtype: Any, field: str) -> np.ndarray:
     array = np.asarray(value, dtype=dtype).reshape(-1)
     if array.shape != (rows,):
@@ -563,5 +599,6 @@ __all__ = [
     "CausalAlphaV5SignalEvidence",
     "CausalAlphaV5SignalScopeMetric",
     "build_causal_alpha_v5_signal_scope_metric",
+    "causal_alpha_v5_signal_diagnostic_payload",
     "evaluate_causal_alpha_v5_signal_gate",
 ]

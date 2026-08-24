@@ -3,6 +3,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from trade_rl.data.v4_context import (
+    CROSS_MARKET_CORE_NAMES,
+    CROSS_MARKET_DERIVATIVE_NAMES,
+    GLOBAL_MARKET_CORE_NAMES,
+    GLOBAL_MARKET_DERIVATIVE_NAMES,
+)
 from trade_rl.evaluation.universal_zero_shot import (
     UniversalZeroShotPair,
     passes_zero_shot_gate,
@@ -38,6 +44,24 @@ def test_universal_binance_contract_has_206_target_local_features() -> None:
     assert len(features) == 206
     assert not any("relative_return_to_btc" in feature.name for feature in features)
     assert not any("rolling_beta_to_btc" in feature.name for feature in features)
+
+
+def test_v4_context_channels_are_auxiliary_to_206_market_features() -> None:
+    features = binance_universal_feature_specs(
+        base_timeframe="15m",
+        feature_timeframes=("1h", "4h", "1d"),
+    )
+    assert len(features) == 206
+    assert len(CROSS_MARKET_CORE_NAMES) == 24
+    assert len(GLOBAL_MARKET_CORE_NAMES) == 38
+    assert len((*CROSS_MARKET_CORE_NAMES, *CROSS_MARKET_DERIVATIVE_NAMES)) == 31
+    assert len((*GLOBAL_MARKET_CORE_NAMES, *GLOBAL_MARKET_DERIVATIVE_NAMES)) == 44
+    assert not {feature.name for feature in features}.intersection(
+        CROSS_MARKET_CORE_NAMES
+    )
+    assert not {feature.name for feature in features}.intersection(
+        GLOBAL_MARKET_CORE_NAMES
+    )
 
 
 def test_symbol_balanced_normalizer_uses_only_fold_and_weights_symbols_equally() -> (

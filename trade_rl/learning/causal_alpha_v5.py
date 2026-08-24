@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Final
+from typing import Any, Final
 
 import numpy as np
 
@@ -47,7 +47,7 @@ def _require_exact_int(value: object, *, expected: int, field: str) -> None:
         raise ValueError(f"{field} must remain {expected}")
 
 
-def _readonly_vector(value: object, *, dtype: object, field: str) -> np.ndarray:
+def _readonly_vector(value: object, *, dtype: Any, field: str) -> np.ndarray:
     array = np.asarray(value, dtype=dtype).reshape(-1).copy(order="C")
     if array.size == 0:
         raise ValueError(f"{field} must be non-empty")
@@ -57,7 +57,7 @@ def _readonly_vector(value: object, *, dtype: object, field: str) -> np.ndarray:
     return array
 
 
-def _readonly_matrix(value: object, *, dtype: object, field: str) -> np.ndarray:
+def _readonly_matrix(value: object, *, dtype: Any, field: str) -> np.ndarray:
     array = np.asarray(value, dtype=dtype).copy(order="C")
     if array.ndim != 2 or array.shape[0] == 0 or array.shape[1] == 0:
         raise ValueError(f"{field} must be a non-empty matrix")
@@ -395,14 +395,14 @@ class CausalAlphaV5SelectiveForecast:
                 raise ValueError("V5 selective forecast arrays are not aligned")
             arrays[field_name] = array
         for field_name in ("actionable_mask", "active_mask"):
-            array = _readonly_vector(
+            mask = _readonly_vector(
                 getattr(self, field_name),
                 dtype=np.bool_,
                 field=f"V5 selective {field_name}",
             )
-            if array.shape != (rows,):
+            if mask.shape != (rows,):
                 raise ValueError("V5 selective masks are not aligned")
-            arrays[field_name] = array
+            arrays[field_name] = mask
         for field_name in (
             "slow_uncertainty_raw",
             "slow_uncertainty_calibrated",
@@ -459,7 +459,7 @@ def _aligned_vector(
     value: object,
     *,
     rows: int,
-    dtype: object,
+    dtype: Any,
     field: str,
 ) -> np.ndarray:
     array = np.asarray(value, dtype=dtype).reshape(-1)

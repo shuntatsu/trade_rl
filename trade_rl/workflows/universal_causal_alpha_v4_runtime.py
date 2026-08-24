@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -139,25 +140,38 @@ def build_causal_alpha_v4_symbol_samples(
     if base_samples.symbol != context.symbol:
         raise ValueError("V4 sample/context symbol identity drifted")
     if not np.array_equal(
-        base_samples.decision_indices, context.local.decision_indices
-    ):
-        raise ValueError("V4 sample/local-context decision indices drifted")
-    if not np.array_equal(
-        base_samples.decision_indices,
+        context.local.decision_indices,
         context.global_market.decision_indices,
     ):
-        raise ValueError("V4 sample/global-context decision indices drifted")
-    if context.beta.shape != base_samples.decision_indices.shape or (
-        context.beta_available.shape != base_samples.decision_indices.shape
+        raise ValueError("V4 local/global context decision indices drifted")
+    sample_indices = np.asarray(base_samples.decision_indices, dtype=np.int64)
+    context_indices = context.local.decision_indices
+    context_rows = np.searchsorted(context_indices, sample_indices)
+    if np.any(context_rows >= len(context_indices)) or not np.array_equal(
+        context_indices[context_rows], sample_indices
     ):
-        raise ValueError("V4 persisted beta is not sample aligned")
-    if np.any(context.beta[context.beta_available] < -3.0) or np.any(
-        context.beta[context.beta_available] > 3.0
-    ):
+        raise ValueError("V4 sample/context decision indices drifted")
+    local_context = replace(
+        context.local,
+        decision_indices=sample_indices,
+        values=context.local.values[context_rows],
+        available=context.local.available[context_rows],
+        staleness_hours=context.local.staleness_hours[context_rows],
+        digest="",
+    )
+    global_context = replace(
+        context.global_market,
+        decision_indices=sample_indices,
+        values=context.global_market.values[context_rows],
+        available=context.global_market.available[context_rows],
+        staleness_hours=context.global_market.staleness_hours[context_rows],
+        digest="",
+    )
+    beta = context.beta[context_rows]
+    beta_available = context.beta_available[context_rows]
+    if np.any(beta[beta_available] < -3.0) or np.any(beta[beta_available] > 3.0):
         raise ValueError("V4 persisted beta exceeds authored bounds")
-    if context.symbol == "BTCUSDT" and np.any(
-        context.beta[context.beta_available] != 1.0
-    ):
+    if context.symbol == "BTCUSDT" and np.any(beta[beta_available] != 1.0):
         raise ValueError("BTCUSDT available persisted beta must be exactly one")
     if signal_delay_decisions not in {0, 1}:
         raise ValueError("V4 signal_delay_decisions must be zero or one")
@@ -204,10 +218,10 @@ def build_causal_alpha_v4_symbol_samples(
         instrument_descriptor_names=UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
         instrument_descriptors=descriptors,
         instrument_descriptor_available=descriptor_available,
-        local_context=context.local,
-        global_context=context.global_market,
-        beta=context.beta,
-        beta_available=context.beta_available,
+        local_context=local_context,
+        global_context=global_context,
+        beta=beta,
+        beta_available=beta_available,
         labels_4h=labels_4h,
         label_end_indices_4h=ends_4h,
         labels_24h=base_samples.labels_24h,

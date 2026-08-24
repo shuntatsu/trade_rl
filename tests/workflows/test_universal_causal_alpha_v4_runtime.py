@@ -68,8 +68,10 @@ def _base_samples(*, symbol: str = "ETHUSDT") -> CausalAlphaSymbolSamples:
     )
 
 
-def _context(*, symbol: str = "ETHUSDT") -> V4TargetContext:
-    decisions = np.arange(10, 41, dtype=np.int64)
+def _context(
+    *, symbol: str = "ETHUSDT", start: int = 10, stop: int = 41
+) -> V4TargetContext:
+    decisions = np.arange(start, stop, dtype=np.int64)
     local_values = decisions.astype(np.float64)[:, None]
     global_values = (decisions.astype(np.float64) + 100.0)[:, None]
     local = V4ContextBlock(
@@ -142,6 +144,31 @@ def test_v4_sample_builder_uses_persisted_context_beta_exactly() -> None:
     )
     np.testing.assert_array_equal(result.beta, context.beta)
     np.testing.assert_array_equal(result.beta_available, context.beta_available)
+    assert result.source_context_digest == context.digest
+
+
+def test_v4_sample_builder_slices_full_clock_context_to_sample_rows() -> None:
+    context = _context(start=0, stop=80)
+
+    result = build_causal_alpha_v4_symbol_samples(
+        base_samples=_base_samples(),
+        context=context,
+        dataset=_Dataset(),
+        train_stop=50,
+        signal_delay_decisions=1,
+        decision_bars=1,
+    )
+
+    np.testing.assert_array_equal(
+        result.local_context.decision_indices, result.decision_indices
+    )
+    np.testing.assert_array_equal(
+        result.global_context.decision_indices, result.decision_indices
+    )
+    np.testing.assert_array_equal(
+        result.local_context.values[:, 0], result.decision_indices
+    )
+    np.testing.assert_array_equal(result.beta, context.beta[result.decision_indices])
     assert result.source_context_digest == context.digest
 
 

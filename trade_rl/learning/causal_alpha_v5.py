@@ -17,12 +17,12 @@ from trade_rl.learning.causal_alpha_teacher import CausalAlphaRidgeModel
 from trade_rl.learning.causal_alpha_v4 import (
     CausalAlphaV4Forecast,
     CausalAlphaV4TargetConfig,
-    _v4_choose_best,
-    _v4_consensus_allows,
-    _v4_fast_candidates,
-    _v4_is_risk_reduction,
-    _v4_slow_candidates,
-    _v4_staged_objective,
+    causal_alpha_v4_consensus_allows,
+    causal_alpha_v4_fast_candidates,
+    causal_alpha_v4_is_risk_reduction,
+    causal_alpha_v4_slow_candidates,
+    choose_causal_alpha_v4_target_candidate,
+    score_causal_alpha_v4_staged_objective,
 )
 
 CAUSAL_ALPHA_V5_CALIBRATION_CONFIG_SCHEMA: Final = (
@@ -878,7 +878,7 @@ def causal_alpha_v5_target_path(
     slow_changes = fast_changes = submitted = liquidity_count = risk_count = flips = 0
 
     def staged(index: int, anchor: float, final: float) -> tuple[float, float, float]:
-        return _v4_staged_objective(
+        return score_causal_alpha_v4_staged_objective(
             previous=previous,
             anchor=anchor,
             final=final,
@@ -913,7 +913,7 @@ def causal_alpha_v5_target_path(
             override = "unactionable_hold"
         else:
             if index % config.slow_rebalance_decisions == 0:
-                candidates = _v4_slow_candidates(
+                candidates = causal_alpha_v4_slow_candidates(
                     previous=previous,
                     current_anchor=current_anchor,
                     cap=cap,
@@ -923,9 +923,9 @@ def causal_alpha_v5_target_path(
                     candidates = tuple(
                         value
                         for value in candidates
-                        if _v4_is_risk_reduction(previous, value)
+                        if causal_alpha_v4_is_risk_reduction(previous, value)
                     )
-                selected_anchor, _ = _v4_choose_best(
+                selected_anchor, _ = choose_causal_alpha_v4_target_candidate(
                     candidates,
                     tuple(staged(index, value, value)[0] for value in candidates),
                     previous=previous,
@@ -935,19 +935,19 @@ def causal_alpha_v5_target_path(
             if index % config.fast_rebalance_decisions != 0:
                 override = "cadence_hold"
             else:
-                candidates = _v4_fast_candidates(
+                candidates = causal_alpha_v4_fast_candidates(
                     previous=previous, anchor=selected_anchor, cap=cap, config=config
                 )
                 if not bool(active[index]):
                     candidates = tuple(
                         value
                         for value in candidates
-                        if _v4_is_risk_reduction(previous, value)
+                        if causal_alpha_v4_is_risk_reduction(previous, value)
                     )
                 allowed = tuple(
                     (value, staged(index, selected_anchor, value))
                     for value in candidates
-                    if _v4_consensus_allows(
+                    if causal_alpha_v4_consensus_allows(
                         previous=previous,
                         target=value,
                         fast_expected_return=float(fast_mu[index]),
@@ -957,7 +957,7 @@ def causal_alpha_v5_target_path(
                 if not allowed:
                     selected_anchor = previous
                 else:
-                    selected, _ = _v4_choose_best(
+                    selected, _ = choose_causal_alpha_v4_target_candidate(
                         tuple(value for value, _ in allowed),
                         tuple(values[2] for _, values in allowed),
                         previous=previous,

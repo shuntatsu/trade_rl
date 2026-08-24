@@ -1,0 +1,80 @@
+name: Fix Causal Alpha V5 Types Once
+
+on:
+  push:
+    branches:
+      - feat/causal-alpha-v5-calibrated-selective-slow
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feat/causal-alpha-v5-calibrated-selective-slow
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Install static dependencies
+        run: uv sync --extra dev
+      - name: Apply exact V5 type correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path('trade_rl/learning/causal_alpha_v5.py')
+          source = path.read_text(encoding='utf-8')
+          source, count = source.replace('from typing import Final', 'from typing import Any, Final'), 1
+          if count != 1:
+              raise SystemExit('V5 typing import preimage mismatch')
+          if source.count('dtype: object') != 3:
+              raise SystemExit('V5 dtype annotation preimage mismatch')
+          source = source.replace('dtype: object', 'dtype: Any')
+          old = '''        for field_name in ("actionable_mask", "active_mask"):
+              array = _readonly_vector(
+                  getattr(self, field_name),
+                  dtype=np.bool_,
+                  field=f"V5 selective {field_name}",
+              )
+              if array.shape != (rows,):
+                  raise ValueError("V5 selective masks are not aligned")
+              arrays[field_name] = array
+          '''
+          new = '''        for field_name in ("actionable_mask", "active_mask"):
+              mask = _readonly_vector(
+                  getattr(self, field_name),
+                  dtype=np.bool_,
+                  field=f"V5 selective {field_name}",
+              )
+              if mask.shape != (rows,):
+                  raise ValueError("V5 selective masks are not aligned")
+              arrays[field_name] = mask
+          '''
+          if old not in source:
+              raise SystemExit('V5 mask block preimage mismatch')
+          source = source.replace(old, new, 1)
+          path.write_text(source, encoding='utf-8', newline='\n')
+          PY
+          uv run ruff format trade_rl/learning/causal_alpha_v5.py
+          uv run mypy trade_rl/learning/causal_alpha_v5.py
+      - name: Commit exact type correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/learning/causal_alpha_v5.py
+          git commit -m 'fix: type causal alpha v5 array boundaries'
+          git push origin HEAD:feat/causal-alpha-v5-calibrated-selective-slow

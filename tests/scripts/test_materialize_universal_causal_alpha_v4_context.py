@@ -183,7 +183,9 @@ def test_v4_context_materializer_rejects_existing_artifact_identity_drift(
             output_root=output_root,
             requested_profile="core",
             capability_resolver=lambda _profile: _capability(),
-            context_builder=lambda *_: pytest.fail("drifted artifact must fail before build"),
+            context_builder=lambda *_: pytest.fail(
+                "drifted artifact must fail before build"
+            ),
         )
 
 

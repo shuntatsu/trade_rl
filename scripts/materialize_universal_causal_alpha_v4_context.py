@@ -23,9 +23,7 @@ from trade_rl.workflows.universal_causal_alpha_v4_manifest import (
 )
 
 _REQUESTED_PROFILES = frozenset({"core", "derivatives-auto"})
-_RESOLVED_PROFILES = frozenset(
-    {"cross_market_core_v1", "cross_market_derivatives_v1"}
-)
+_RESOLVED_PROFILES = frozenset({"cross_market_core_v1", "cross_market_derivatives_v1"})
 _CONTEXT_ARTIFACT_RELPATH = Path("contexts")
 _MANIFEST_NAME = "manifest.json"
 

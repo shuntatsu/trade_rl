@@ -251,19 +251,21 @@ class EpisodeRoutedSingleInstrumentEnv(gym.Env[Any, np.ndarray]):
                 v4_context_schema_digest,
                 field="V4 context schema digest",
             )
-        self._observation_contract_digest = content_digest(
-            {
-                "concrete_observation_contract_digest": (
-                    concrete_observation_digest
-                    if training_contract_digest is None
-                    else None
-                ),
-                "instrument_context_schema_digest": context_schema_digest,
-                "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,
-                "training_contract_digest": training_contract_digest,
-                "v4_context_schema_digest": v4_context_schema_digest,
-            }
-        )
+        observation_contract_payload: dict[str, object] = {
+            "concrete_observation_contract_digest": (
+                concrete_observation_digest
+                if training_contract_digest is None
+                else None
+            ),
+            "instrument_context_schema_digest": context_schema_digest,
+            "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,
+            "training_contract_digest": training_contract_digest,
+        }
+        if v4_context_schema_digest is not None:
+            observation_contract_payload["v4_context_schema_digest"] = (
+                v4_context_schema_digest
+            )
+        self._observation_contract_digest = content_digest(observation_contract_payload)
         self._environment_digest = content_digest(
             {
                 "router_digest": self._router.digest,

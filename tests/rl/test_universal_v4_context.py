@@ -7,6 +7,7 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.v4_context import (
     CROSS_MARKET_CORE_NAMES,
     GLOBAL_MARKET_CORE_NAMES,
@@ -15,7 +16,10 @@ from trade_rl.data.v4_context import (
 )
 from trade_rl.rl.actions import ActionMode, ActionSpec, ActionValidationMode
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
-from trade_rl.rl.universal_single_instrument_env import EpisodeRoutedSingleInstrumentEnv
+from trade_rl.rl.universal_single_instrument_env import (
+    UNIVERSAL_OBSERVATION_SCHEMA,
+    EpisodeRoutedSingleInstrumentEnv,
+)
 from trade_rl.rl.universal_v4_context import V4ContextProvider
 
 
@@ -295,6 +299,16 @@ def test_v4_routed_environment_binds_schema_into_identity_and_layout() -> None:
     v4 = _routed_environment(provider=provider)
     try:
         assert plain.observation_contract_digest != v4.observation_contract_digest
+        expected_v4_digest = content_digest(
+            {
+                "concrete_observation_contract_digest": _digest("a"),
+                "instrument_context_schema_digest": None,
+                "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,
+                "training_contract_digest": None,
+                "v4_context_schema_digest": provider.schema_digest,
+            }
+        )
+        assert v4.observation_contract_digest == expected_v4_digest
         layout = v4.sequence_layout_metadata
         assert layout is not None
         assert layout["v4_local_context_width"] == len(CROSS_MARKET_CORE_NAMES)

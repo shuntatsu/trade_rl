@@ -1,0 +1,106 @@
+name: Fix V5 Confidence Boundary Test Once
+
+on:
+  push:
+    branches:
+      - feat/causal-alpha-v5-calibrated-selective-slow
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feat/causal-alpha-v5-calibrated-selective-slow
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: uv sync --extra dev
+      - name: Correct the boundary oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/learning/test_causal_alpha_v5_calibration.py')
+          source = path.read_text(encoding='utf-8')
+          old_signature = 'def _fit(*, intercept: float = 0.0) -> CausalAlphaV5CalibrationFit:\n'
+          new_signature = '''def _fit(
+              *,
+              intercept: float = 0.0,
+              direction_score_rmse: float = 0.5,
+          ) -> CausalAlphaV5CalibrationFit:
+          '''
+          if source.count(old_signature) != 1:
+              raise SystemExit('V5 _fit signature preimage mismatch')
+          source = source.replace(old_signature, new_signature, 1)
+          old_rmse = '        direction_score_rmse=0.5,\n'
+          new_rmse = '        direction_score_rmse=direction_score_rmse,\n'
+          if source.count(old_rmse) != 1:
+              raise SystemExit('V5 direction RMSE preimage mismatch')
+          source = source.replace(old_rmse, new_rmse, 1)
+          old_test = '''def test_selective_forecast_confidence_equality_is_active() -> None:
+              forecast = _forecast(rows=1)
+              fit = _fit()
+              raw = 0.5 * (0.04 + 0.12 / 3.0)
+              uncertainty = math.sqrt(raw**2 - fit.calibration_residual_rmse**2)
+              selective = build_causal_alpha_v5_selective_forecast(
+                  v4_forecast=forecast,
+                  slow_uncertainty=np.asarray([uncertainty]),
+                  instrument_descriptors=np.zeros((1, 9)),
+                  instrument_descriptor_available=np.ones((1, 9), dtype=np.bool_),
+                  one_way_cost_rates=np.asarray([0.0]),
+                  actionable_mask=np.asarray([True]),
+                  calibration_fit=fit,
+              )
+
+              assert math.isclose(selective.return_confidence[0], 1.0)
+              assert selective.selective_confidence[0] == 1.0
+              assert selective.states[0] is V5SelectiveState.ACTIVE
+          '''
+          new_test = '''def test_selective_forecast_confidence_equality_is_active() -> None:
+              forecast = _forecast(rows=1)
+              fit = _fit(direction_score_rmse=0.7)
+              selective = build_causal_alpha_v5_selective_forecast(
+                  v4_forecast=forecast,
+                  slow_uncertainty=np.asarray([0.005]),
+                  instrument_descriptors=np.zeros((1, 9)),
+                  instrument_descriptor_available=np.ones((1, 9), dtype=np.bool_),
+                  one_way_cost_rates=np.asarray([0.0]),
+                  actionable_mask=np.asarray([True]),
+                  calibration_fit=fit,
+              )
+
+              assert selective.return_confidence[0] > 1.0
+              assert math.isclose(selective.direction_confidence[0], 1.0)
+              assert selective.selective_confidence[0] == 1.0
+              assert selective.states[0] is V5SelectiveState.ACTIVE
+          '''
+          if old_test not in source:
+              raise SystemExit('V5 confidence test preimage mismatch')
+          source = source.replace(old_test, new_test, 1)
+          path.write_text(source, encoding='utf-8', newline='\n')
+          PY
+          uv run ruff format tests/learning/test_causal_alpha_v5_calibration.py
+          uv run pytest -q tests/learning/test_causal_alpha_v5_calibration.py
+      - name: Commit corrected oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/learning/test_causal_alpha_v5_calibration.py
+          git commit -m 'test: separate v5 confidence and edge boundaries'
+          git push origin HEAD:feat/causal-alpha-v5-calibrated-selective-slow

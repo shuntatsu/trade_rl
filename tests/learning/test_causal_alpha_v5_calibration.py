@@ -40,7 +40,11 @@ def _ridge_model(*, intercept: float = 0.0) -> CausalAlphaRidgeModel:
     )
 
 
-def _fit(*, intercept: float = 0.0) -> CausalAlphaV5CalibrationFit:
+def _fit(
+    *,
+    intercept: float = 0.0,
+    direction_score_rmse: float = 0.5,
+) -> CausalAlphaV5CalibrationFit:
     return CausalAlphaV5CalibrationFit(
         v4_fit_digest=_digest("a"),
         v4_fit_config_digest=_digest("b"),
@@ -66,7 +70,7 @@ def _fit(*, intercept: float = 0.0) -> CausalAlphaV5CalibrationFit:
         calibration_block_support=(72, 72, 72, 72),
         forward_block_symbol_counts=(9, 9, 9),
         calibration_residual_rmse=0.01,
-        direction_score_rmse=0.5,
+        direction_score_rmse=direction_score_rmse,
         config=CausalAlphaV5CalibrationConfig(),
     )
 
@@ -222,12 +226,10 @@ def test_selective_forecast_calibrates_slow_return_and_uncertainty() -> None:
 
 def test_selective_forecast_confidence_equality_is_active() -> None:
     forecast = _forecast(rows=1)
-    fit = _fit()
-    raw = 0.5 * (0.04 + 0.12 / 3.0)
-    uncertainty = math.sqrt(raw**2 - fit.calibration_residual_rmse**2)
+    fit = _fit(direction_score_rmse=0.7)
     selective = build_causal_alpha_v5_selective_forecast(
         v4_forecast=forecast,
-        slow_uncertainty=np.asarray([uncertainty]),
+        slow_uncertainty=np.asarray([0.005]),
         instrument_descriptors=np.zeros((1, 9)),
         instrument_descriptor_available=np.ones((1, 9), dtype=np.bool_),
         one_way_cost_rates=np.asarray([0.0]),
@@ -235,7 +237,8 @@ def test_selective_forecast_confidence_equality_is_active() -> None:
         calibration_fit=fit,
     )
 
-    assert math.isclose(selective.return_confidence[0], 1.0)
+    assert selective.return_confidence[0] > 1.0
+    assert math.isclose(selective.direction_confidence[0], 1.0)
     assert selective.selective_confidence[0] == 1.0
     assert selective.states[0] is V5SelectiveState.ACTIVE
 

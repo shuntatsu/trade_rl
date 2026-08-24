@@ -1,0 +1,43 @@
+name: Format Causal Alpha V5 Once
+
+on:
+  push:
+    branches:
+      - feat/causal-alpha-v5-calibrated-selective-slow
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feat/causal-alpha-v5-calibrated-selective-slow
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Install formatter
+        run: uv sync --extra dev
+      - name: Format V5 contract files
+        run: >-
+          uv run ruff format
+          trade_rl/learning/causal_alpha_v5.py
+          tests/learning/test_causal_alpha_v5_calibration.py
+      - name: Commit formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/learning/causal_alpha_v5.py tests/learning/test_causal_alpha_v5_calibration.py
+          git commit -m 'style: format causal alpha v5 contracts'
+          git push origin HEAD:feat/causal-alpha-v5-calibrated-selective-slow

@@ -32,6 +32,21 @@ def test_reference_clock_uses_existing_dataset_timestamps_exactly() -> None:
     assert len(clock.source_digest) == 64
 
 
+def test_reference_clock_uses_validated_dataset_bar_hours_property() -> None:
+    dataset = SimpleNamespace(
+        dataset_id="a" * 64,
+        symbols=("BTCUSDT",),
+        timestamps=_timestamps(),
+        calendar_kind="continuous_24_7",
+        nominal_bar_hours=None,
+        bar_hours=0.25,
+    )
+
+    clock = build_v4_reference_decision_clock(dataset)
+
+    np.testing.assert_array_equal(clock.decision_timestamps, _timestamps())
+
+
 def test_reference_clock_rejects_non_btc_or_non_15m_dataset() -> None:
     wrong_symbol = SimpleNamespace(
         dataset_id="a" * 64,

@@ -141,7 +141,11 @@ def build_v4_reference_decision_clock(dataset: object) -> V4ReferenceDecisionClo
         raise ValueError("V4 reference dataset must contain only BTCUSDT")
     if getattr(dataset, "calendar_kind", None) != "continuous_24_7":
         raise ValueError("V4 reference dataset must use the continuous_24_7 calendar")
-    nominal_bar_hours = getattr(dataset, "nominal_bar_hours", None)
+    nominal_bar_hours = getattr(
+        dataset,
+        "bar_hours",
+        getattr(dataset, "nominal_bar_hours", None),
+    )
     if (
         isinstance(nominal_bar_hours, bool)
         or not isinstance(nominal_bar_hours, (int, float))

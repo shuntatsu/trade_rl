@@ -145,8 +145,14 @@ def test_v5_calibration_feature_contract_contains_no_symbol_identity() -> None:
         "log_slow_uncertainty",
         *UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES,
     )
-    assert all("symbol" not in name.lower() for name in CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES)
-    assert all("usdt" not in name.lower() for name in CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES)
+    assert all(
+        "symbol" not in name.lower()
+        for name in CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES
+    )
+    assert all(
+        "usdt" not in name.lower()
+        for name in CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES
+    )
 
 
 def test_v5_calibration_fit_binds_support_and_model_identity() -> None:
@@ -218,9 +224,11 @@ def test_selective_forecast_calibrates_slow_return_and_uncertainty() -> None:
 def test_selective_forecast_confidence_equality_is_active() -> None:
     forecast = _forecast(rows=1)
     fit = _fit()
+    raw = 0.5 * (0.04 + 0.12 / 3.0)
+    uncertainty = math.sqrt(raw**2 - fit.calibration_residual_rmse**2)
     selective = build_causal_alpha_v5_selective_forecast(
         v4_forecast=forecast,
-        slow_uncertainty=np.asarray([0.04]),
+        slow_uncertainty=np.asarray([uncertainty]),
         instrument_descriptors=np.zeros((1, 9)),
         instrument_descriptor_available=np.ones((1, 9), dtype=np.bool_),
         one_way_cost_rates=np.asarray([0.0]),
@@ -238,8 +246,12 @@ def test_selective_forecast_hurdle_equality_abstains() -> None:
     fit = _fit()
     raw = 0.5 * (0.04 + 0.12 / 3.0)
     uncertainty = 0.01
-    calibrated_uncertainty = math.sqrt(uncertainty**2 + fit.calibration_residual_rmse**2)
-    cost = (raw - calibrated_uncertainty - fit.config.edge_margin) / fit.config.execution_cost_multiplier
+    calibrated_uncertainty = math.sqrt(
+        uncertainty**2 + fit.calibration_residual_rmse**2
+    )
+    cost = (
+        raw - calibrated_uncertainty - fit.config.edge_margin
+    ) / fit.config.execution_cost_multiplier
     selective = build_causal_alpha_v5_selective_forecast(
         v4_forecast=forecast,
         slow_uncertainty=np.asarray([uncertainty]),
@@ -257,11 +269,11 @@ def test_selective_forecast_hurdle_equality_abstains() -> None:
         0.0,
         atol=1e-12,
     )
-    assert selective.active_mask[0] is np.False_
+    assert not bool(selective.active_mask[0])
     assert selective.states[0] is V5SelectiveState.EDGE_BELOW_HURDLE
 
 
-def test_selective_forecast_rejects_direction_disagreement_and_missing_descriptor() -> None:
+def test_selective_forecast_blocks_disagreement_and_missing_descriptor() -> None:
     forecast = _forecast(rows=2)
     fit = _fit()
     descriptors = np.zeros((2, 9))

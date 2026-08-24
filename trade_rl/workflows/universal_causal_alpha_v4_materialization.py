@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import UTC
 from pathlib import Path
 from typing import Protocol
 
@@ -29,6 +29,7 @@ from trade_rl.integrations.binance_v4_context_capability import (
 )
 from trade_rl.integrations.binance_v4_source_plan import (
     BinanceV4SymbolSourcePlan,
+    V4ReferenceDecisionClock,
     build_v4_reference_decision_clock,
     plan_binance_v4_symbol_sources,
 )
@@ -93,7 +94,7 @@ def _reference_clock(
     *,
     manifest: UniversalRuntimeManifest,
     runtime_manifest_path: Path,
-):
+) -> V4ReferenceDecisionClock:
     expected_datasets = dict(manifest.dataset_digests)
     expected_btc_digest = expected_datasets.get("BTCUSDT")
     if expected_btc_digest is None:

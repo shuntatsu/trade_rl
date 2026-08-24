@@ -3,13 +3,16 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pytest
 
 from trade_rl.data.v4_context import V4CrossMarketInputs
 from trade_rl.integrations.postgres_universal_source import MAINTAINED_SYMBOLS
-from trade_rl.workflows import universal_causal_alpha_v4_materialization as materialization
+from trade_rl.workflows import (
+    universal_causal_alpha_v4_materialization as materialization,
+)
 from trade_rl.workflows.universal_causal_alpha_v4_manifest import (
     CausalAlphaV4ContextManifest,
 )
@@ -60,7 +63,9 @@ def _input(
     timestamps = np.asarray(decision_timestamps, dtype="datetime64[ns]")
     rows = len(indices)
     multiplier = 1.0 + tuple(MAINTAINED_SYMBOLS).index(symbol) * 0.01
-    close = 100.0 * np.exp(multiplier * np.arange(rows, dtype=np.float64) * 0.0001)
+    close = 100.0 * np.exp(
+        multiplier * np.arange(rows, dtype=np.float64) * 0.0001
+    )
     quote = np.full(rows, 1_000_000.0 * multiplier, dtype=np.float64)
     funding = np.zeros(rows, dtype=np.float64)
     funding_available = np.zeros(rows, dtype=np.bool_)
@@ -133,7 +138,7 @@ def test_binance_v4_materialization_closes_core_source_and_context_identity(
         ),
     )
 
-    def build_inputs(**kwargs: object) -> V4CrossMarketInputs:
+    def build_inputs(**kwargs: Any) -> V4CrossMarketInputs:
         symbol = str(kwargs["expected_symbol"])
         observed_symbols.append(symbol)
         observed_metric_urls.append(tuple(kwargs["metrics_urls"]))
@@ -149,7 +154,7 @@ def test_binance_v4_materialization_closes_core_source_and_context_identity(
         build_inputs,
     )
 
-    def publish_generation(**kwargs: object) -> CausalAlphaV4ContextManifest:
+    def publish_generation(**kwargs: Any) -> CausalAlphaV4ContextManifest:
         requested = str(kwargs["requested_profile"])
         capability = kwargs["capability_resolver"](requested)
         contexts = tuple(
@@ -157,7 +162,9 @@ def test_binance_v4_materialization_closes_core_source_and_context_identity(
             for symbol in MAINTAINED_SYMBOLS
         )
         assert all(len(context.local.feature_names) == 24 for context in contexts)
-        assert all(len(context.global_market.feature_names) == 38 for context in contexts)
+        assert all(
+            len(context.global_market.feature_names) == 38 for context in contexts
+        )
         return CausalAlphaV4ContextManifest(
             base_runtime_manifest_digest=runtime.manifest_digest,
             profile_name=capability.profile_name,

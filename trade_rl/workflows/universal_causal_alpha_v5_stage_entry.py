@@ -543,12 +543,6 @@ def _signal_stage(
         fitted = _fit_one_calibration(prepared, config, cutoff)
         if calibration.fits.get(cutoff) != fitted.calibration_fit.digest:
             raise ValueError("V5 Signal calibration replay identity drifted")
-        full_fit = fit_causal_alpha_v4(
-            train_symbols=prepared.train_symbols,
-            samples=prepared.samples,
-            knowledge_cutoff=cutoff,
-            config=fit_config,
-        )
         for symbol, contract in zip(prepared.train_symbols, contracts, strict=True):
             sample = prepared.samples[symbol]
             (
@@ -580,6 +574,19 @@ def _signal_stage(
                         rows
                     ],
                 )
+            )
+        del fitted
+        gc.collect()
+        full_fit = fit_causal_alpha_v4(
+            train_symbols=prepared.train_symbols,
+            samples=prepared.samples,
+            knowledge_cutoff=cutoff,
+            config=fit_config,
+        )
+        for symbol, contract in zip(prepared.train_symbols, contracts, strict=True):
+            sample = prepared.samples[symbol]
+            rows = resolve_causal_alpha_v4_contract_rows(
+                sample, start=contract.start, stop=contract.stop
             )
             v4_forecast = slice_causal_alpha_v4_forecast(full_fit.predict(sample), rows)
             liveness = _v4_liveness_digests(
@@ -617,7 +624,7 @@ def _signal_stage(
             ),
             flush=True,
         )
-        del fitted, full_fit
+        del full_fit
         gc.collect()
     expected = len(prepared.train_symbols) * 8
     v4 = evaluate_causal_alpha_v4_signal_gate(

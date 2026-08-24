@@ -899,10 +899,7 @@ def build_causal_alpha_v4_signal_scope_metrics(
         + np.asarray(forecast.final_predictions["72h"], dtype=np.float64) / 3.0
     )
     fast_direction = np.asarray(forecast.direction_scores["4h"], dtype=np.float64)
-    slow_direction = 0.5 * (
-        np.asarray(forecast.direction_scores["24h"], dtype=np.float64)
-        + np.asarray(forecast.direction_scores["72h"], dtype=np.float64)
-    )
+    slow_direction = slow_prediction
     slow_realized = 0.5 * (labels24 + labels72 / 3.0)
 
     fast_eligible = (

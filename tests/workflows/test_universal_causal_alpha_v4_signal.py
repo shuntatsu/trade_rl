@@ -127,7 +127,7 @@ def test_fast_signal_cohort_uses_4h_label_ends_not_slow_label_ends() -> None:
     assert fast.sample_count > slow.sample_count
 
 
-def test_slow_signal_uses_24h_equivalent_return_and_direction_fusion() -> None:
+def test_slow_signal_uses_24h_equivalent_return_fusion() -> None:
     rows = 12
     forecast = _forecast(rows=rows, direction_sign=1.0)
     decisions = forecast.decision_indices
@@ -177,6 +177,14 @@ def test_direction_accuracy_uses_independent_direction_head_not_return_sign() ->
 
     assert fast.rank_correlation > 0.0
     assert fast.direction_accuracy == 0.0
+
+
+def test_slow_direction_accuracy_uses_deployed_fused_return_sign() -> None:
+    metrics = _scope_metrics(rows=12, direction_sign=-1.0)
+    slow = metrics[CausalAlphaV4SignalLane.SLOW_FUSED]
+
+    assert slow.rank_correlation > 0.0
+    assert slow.direction_accuracy == 1.0
 
 
 def test_exact_zero_realized_direction_is_excluded_from_direction_support() -> None:

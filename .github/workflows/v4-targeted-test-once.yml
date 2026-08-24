@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   patch:
-    if: "${{ github.event.head_commit.message != 'fix: preserve non-v4 observation contract identity' }}"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
@@ -19,109 +18,28 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: true
       - name: Apply exact compatibility correction
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          environment_path = Path("trade_rl/rl/universal_single_instrument_env.py")
-          environment = environment_path.read_text(encoding="utf-8")
-          old_environment = '''        self._observation_contract_digest = content_digest(
-              {
-                  "concrete_observation_contract_digest": (
-                      concrete_observation_digest
-                      if training_contract_digest is None
-                      else None
-                  ),
-                  "instrument_context_schema_digest": context_schema_digest,
-                  "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,
-                  "training_contract_digest": training_contract_digest,
-                  "v4_context_schema_digest": v4_context_schema_digest,
-              }
-          )
-          '''
-          new_environment = '''        observation_contract_payload: dict[str, object] = {
-              "concrete_observation_contract_digest": (
-                  concrete_observation_digest
-                  if training_contract_digest is None
-                  else None
-              ),
-              "instrument_context_schema_digest": context_schema_digest,
-              "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,
-              "training_contract_digest": training_contract_digest,
-          }
-          if v4_context_schema_digest is not None:
-              observation_contract_payload["v4_context_schema_digest"] = (
-                  v4_context_schema_digest
-              )
-          self._observation_contract_digest = content_digest(
-              observation_contract_payload
-          )
-          '''
-          if environment.count(old_environment) != 1:
-              raise SystemExit("unexpected universal observation digest source")
-          environment_path.write_text(
-              environment.replace(old_environment, new_environment),
-              encoding="utf-8",
-          )
-
-          test_path = Path("tests/rl/test_universal_v4_context.py")
-          test = test_path.read_text(encoding="utf-8")
-          old_import = '''import pytest
-
-from trade_rl.data.v4_context import (
-          '''
-          new_import = '''import pytest
-
-from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data.v4_context import (
-          '''
-          if test.count(old_import) != 1:
-              raise SystemExit("unexpected V4 test import source")
-          test = test.replace(old_import, new_import)
-          old_env_import = '''from trade_rl.rl.universal_single_instrument_env import EpisodeRoutedSingleInstrumentEnv
-          '''
-          new_env_import = '''from trade_rl.rl.universal_single_instrument_env import (
-              UNIVERSAL_OBSERVATION_SCHEMA,
-              EpisodeRoutedSingleInstrumentEnv,
-          )
-          '''
-          if test.count(old_env_import) != 1:
-              raise SystemExit("unexpected V4 environment test import source")
-          test = test.replace(old_env_import, new_env_import)
-          old_assertion = '''        assert plain.observation_contract_digest != v4.observation_contract_digest
-              layout = v4.sequence_layout_metadata
-          '''
-          new_assertion = '''        assert plain.observation_contract_digest != v4.observation_contract_digest
-              expected_v4_digest = content_digest(
-                  {
-                      "concrete_observation_contract_digest": _digest("a"),
-                      "instrument_context_schema_digest": None,
-                      "schema_version": UNIVERSAL_OBSERVATION_SCHEMA,
-                      "training_contract_digest": None,
-                      "v4_context_schema_digest": provider.schema_digest,
-                  }
-              )
-              assert v4.observation_contract_digest == expected_v4_digest
-              layout = v4.sequence_layout_metadata
-          '''
-          if test.count(old_assertion) != 1:
-              raise SystemExit("unexpected V4 digest assertion source")
-          test_path.write_text(
-              test.replace(old_assertion, new_assertion),
-              encoding="utf-8",
-          )
-          PY
-      - name: Format and run direct regression tests
+        run: python .github/scripts/apply_v4_digest_fix_once.py
+      - name: Format corrected files
         run: |
           uvx --from ruff==0.15.21 ruff format \
             trade_rl/rl/universal_single_instrument_env.py \
-            tests/rl/test_universal_v4_context.py
-          python -m compileall -q trade_rl/rl/universal_single_instrument_env.py tests/rl/test_universal_v4_context.py
+            tests/rl/test_universal_v4_context.py \
+            .github/scripts/apply_v4_digest_fix_once.py
+          python -m compileall -q \
+            trade_rl/rl/universal_single_instrument_env.py \
+            tests/rl/test_universal_v4_context.py \
+            .github/scripts/apply_v4_digest_fix_once.py
       - name: Commit exact correction
         run: |
+          if git diff --quiet; then
+            exit 0
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add trade_rl/rl/universal_single_instrument_env.py tests/rl/test_universal_v4_context.py
+          git add \
+            trade_rl/rl/universal_single_instrument_env.py \
+            tests/rl/test_universal_v4_context.py \
+            .github/scripts/apply_v4_digest_fix_once.py
           git diff --cached --check
           git commit -m 'fix: preserve non-v4 observation contract identity'
           git push origin HEAD:design/causal-alpha-v4-hierarchical-teacher

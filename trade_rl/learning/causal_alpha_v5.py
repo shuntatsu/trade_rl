@@ -264,23 +264,18 @@ class CausalAlphaV5CalibrationFit:
         if (
             len(block_support) != self.config.forward_block_count
             or any(
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or value <= 0
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
                 for value in block_support
             )
             or sum(block_support) != pooled_support
         ):
             raise ValueError("V5 calibration block support is invalid")
         block_symbols = tuple(self.forward_block_symbol_counts)
-        if (
-            len(block_symbols) != self.config.forward_block_count - 1
-            or any(
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or not 2 <= value <= len(support)
-                for value in block_symbols
-            )
+        if len(block_symbols) != self.config.forward_block_count - 1 or any(
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not 2 <= value <= len(support)
+            for value in block_symbols
         ):
             raise ValueError("V5 forward block symbol support is invalid")
         for field_name in ("calibration_residual_rmse", "direction_score_rmse"):
@@ -419,8 +414,7 @@ class CausalAlphaV5SelectiveForecast:
             if np.any(arrays[field_name] < 0.0):
                 raise ValueError(f"V5 selective {field_name} became negative")
         if np.any(
-            arrays["slow_uncertainty_calibrated"]
-            + _V5_EPSILON
+            arrays["slow_uncertainty_calibrated"] + _V5_EPSILON
             < arrays["slow_uncertainty_raw"]
         ):
             raise ValueError("V5 calibrated uncertainty became smaller than V4")
@@ -525,7 +519,10 @@ def build_causal_alpha_v5_selective_forecast(
         dtype=np.bool_,
     )
     descriptor_shape = (rows, len(UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES))
-    if descriptors.shape != descriptor_shape or descriptor_available.shape != descriptor_shape:
+    if (
+        descriptors.shape != descriptor_shape
+        or descriptor_available.shape != descriptor_shape
+    ):
         raise ValueError("V5 instrument descriptors do not match the maintained schema")
     if not np.isfinite(descriptors).all():
         raise ValueError("V5 instrument descriptors must use finite inert storage")

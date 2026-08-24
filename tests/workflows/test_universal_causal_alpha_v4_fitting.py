@@ -10,6 +10,7 @@ from trade_rl.learning.causal_alpha_v4 import (
     CausalAlphaV4FitConfig,
     CausalAlphaV4SymbolSamples,
 )
+from trade_rl.workflows import universal_causal_alpha_v4_fitting as fitting
 from trade_rl.workflows.universal_causal_alpha_v4_fitting import fit_causal_alpha_v4
 
 
@@ -113,6 +114,47 @@ def _config() -> CausalAlphaV4FitConfig:
         residual_ridge_strength=0.1,
         direction_ridge_strength=0.1,
     )
+
+
+def test_v4_pooled_surface_preserves_symbol_row_and_feature_order() -> None:
+    samples = {
+        "BTCUSDT": _sample(symbol="BTCUSDT"),
+        "ETHUSDT": _sample(symbol="ETHUSDT"),
+    }
+
+    names, features, available = fitting._pooled_shared_feature_surface(
+        samples, ("BTCUSDT", "ETHUSDT")
+    )
+
+    expected_blocks = []
+    expected_available = []
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        sample = samples[symbol]
+        expected_blocks.append(
+            np.column_stack(
+                (
+                    sample.target_local_features,
+                    sample.local_context.values,
+                    sample.global_context.values,
+                    sample.instrument_descriptors,
+                    sample.beta[:, None],
+                )
+            )
+        )
+        expected_available.append(
+            np.column_stack(
+                (
+                    sample.target_local_available,
+                    sample.local_context.available,
+                    sample.global_context.available,
+                    sample.instrument_descriptor_available,
+                    sample.beta_available[:, None],
+                )
+            )
+        )
+    assert names[-1] == "causal_beta"
+    np.testing.assert_array_equal(features, np.vstack(expected_blocks))
+    np.testing.assert_array_equal(available, np.vstack(expected_available))
 
 
 def test_v4_fit_uses_global_only_market_and_one_shared_residual_surface() -> None:

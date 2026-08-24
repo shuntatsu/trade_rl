@@ -50,15 +50,7 @@ def _horizon_labels(
 def _shared_feature_surface(
     sample: CausalAlphaV4SymbolSamples,
 ) -> tuple[tuple[str, ...], np.ndarray, np.ndarray]:
-    names = (
-        *sample.target_local_feature_names,
-        *sample.local_context.feature_names,
-        *sample.global_context.feature_names,
-        *sample.instrument_descriptor_names,
-        "causal_beta",
-    )
-    if len(set(names)) != len(names):
-        raise ValueError("V4 shared fit feature names must be unique")
+    names = _shared_feature_names(sample)
     features = np.column_stack(
         (
             sample.target_local_features,
@@ -81,6 +73,64 @@ def _shared_feature_surface(
         raise RuntimeError("V4 shared fit feature surface is misaligned")
     if not np.isfinite(features).all():
         raise ValueError("V4 shared fit features must use finite inert storage")
+    return names, features, available
+
+
+def _shared_feature_names(sample: CausalAlphaV4SymbolSamples) -> tuple[str, ...]:
+    names = (
+        *sample.target_local_feature_names,
+        *sample.local_context.feature_names,
+        *sample.global_context.feature_names,
+        *sample.instrument_descriptor_names,
+        "causal_beta",
+    )
+    if len(set(names)) != len(names):
+        raise ValueError("V4 shared fit feature names must be unique")
+    return names
+
+
+def _pooled_shared_feature_surface(
+    samples: Mapping[str, CausalAlphaV4SymbolSamples],
+    symbols: tuple[str, ...],
+) -> tuple[tuple[str, ...], np.ndarray, np.ndarray]:
+    """Allocate the pooled matrix once and copy each source block directly."""
+
+    names = _shared_feature_names(samples[symbols[0]])
+    total_rows = sum(len(samples[symbol].decision_indices) for symbol in symbols)
+    features = np.empty((total_rows, len(names)), dtype=np.float64)
+    available = np.empty((total_rows, len(names)), dtype=np.bool_)
+    row_start = 0
+    for symbol in symbols:
+        sample = samples[symbol]
+        if _shared_feature_names(sample) != names:
+            raise ValueError("V4 shared feature schema drifted across train symbols")
+        row_stop = row_start + len(sample.decision_indices)
+        column_start = 0
+        feature_blocks = (
+            sample.target_local_features,
+            sample.local_context.values,
+            sample.global_context.values,
+            sample.instrument_descriptors,
+            sample.beta[:, None],
+        )
+        available_blocks = (
+            sample.target_local_available,
+            sample.local_context.available,
+            sample.global_context.available,
+            sample.instrument_descriptor_available,
+            sample.beta_available[:, None],
+        )
+        for feature_block, available_block in zip(
+            feature_blocks, available_blocks, strict=True
+        ):
+            width = feature_block.shape[1]
+            column_stop = column_start + width
+            features[row_start:row_stop, column_start:column_stop] = feature_block
+            available[row_start:row_stop, column_start:column_stop] = available_block
+            column_start = column_stop
+        if column_start != len(names):
+            raise RuntimeError("V4 pooled feature width drifted")
+        row_start = row_stop
     return names, features, available
 
 
@@ -398,9 +448,9 @@ def fit_causal_alpha_v4(
         raise TypeError("V4 fit requires CausalAlphaV4FitConfig")
     btc = ordered["BTCUSDT"]
     market_feature_names = btc.global_context.feature_names
-    shared_feature_names, _, _ = _shared_feature_surface(ordered[symbols[0]])
+    shared_feature_names = _shared_feature_names(ordered[symbols[0]])
     for symbol in symbols[1:]:
-        names, _, _ = _shared_feature_surface(ordered[symbol])
+        names = _shared_feature_names(ordered[symbol])
         if names != shared_feature_names:
             raise ValueError("V4 shared feature schema drifted across train symbols")
 
@@ -411,14 +461,11 @@ def fit_causal_alpha_v4(
         )
         for symbol in symbols
     }
-    shared_features = np.concatenate(
-        tuple(_shared_feature_surface(ordered[symbol])[1] for symbol in symbols),
-        axis=0,
+    pooled_names, shared_features, shared_available = _pooled_shared_feature_surface(
+        ordered, symbols
     )
-    shared_available = np.concatenate(
-        tuple(_shared_feature_surface(ordered[symbol])[2] for symbol in symbols),
-        axis=0,
-    )
+    if pooled_names != shared_feature_names:
+        raise RuntimeError("V4 pooled feature schema drifted")
 
     market_models: dict[str, CausalAlphaRidgeModel] = {}
     residual_models: dict[str, CausalAlphaRidgeModel] = {}

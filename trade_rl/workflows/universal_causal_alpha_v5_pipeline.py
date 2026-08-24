@@ -16,8 +16,11 @@ CAUSAL_ALPHA_V5_RESEARCH_PACKAGE_SCHEMA: Final = "causal_alpha_v5_research_packa
 
 
 class _Evidence(Protocol):
-    passed: bool
-    digest: str
+    @property
+    def passed(self) -> bool: ...
+
+    @property
+    def digest(self) -> str: ...
 
     def to_payload(self) -> dict[str, object]: ...
 
@@ -121,10 +124,10 @@ def run_universal_causal_alpha_v5_research_pipeline(
     *,
     store: CausalAlphaV5ArtifactStore,
     prepare_stage: Callable[[], object],
-    calibration_stage: Callable[[object], _Evidence],
-    signal_stage: Callable[[object, _Evidence], _Evidence],
-    selection_stage: Callable[[object, _Evidence, _Evidence], _Evidence],
-    admission_stage: Callable[[object, _Evidence, _Evidence, _Evidence], _Evidence],
+    calibration_stage: Callable[[object], object],
+    signal_stage: Callable[[object, object], object],
+    selection_stage: Callable[[object, object, object], object],
+    admission_stage: Callable[[object, object, object, object], object],
 ) -> CausalAlphaV5ResearchPackage:
     """Stop on the first rejected stage and publish a package only after Admission."""
 
@@ -133,7 +136,7 @@ def run_universal_causal_alpha_v5_research_pipeline(
     prepared = prepare_stage()
     calibration = _validate(calibration_stage(prepared), stage="calibration")
     _persist(store, "calibration", calibration)
-    stages: tuple[tuple[str, Callable[[], _Evidence]], ...] = (
+    stages: tuple[tuple[str, Callable[[], object]], ...] = (
         ("signal", lambda: signal_stage(prepared, calibration)),
         ("selection", lambda: selection_stage(prepared, calibration, signal)),
         (

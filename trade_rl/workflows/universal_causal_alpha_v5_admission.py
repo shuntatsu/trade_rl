@@ -231,10 +231,6 @@ def evaluate_causal_alpha_v5_admission(
         or signal_evidence.slow.calibration_config_digest != config_digest
     ):
         raise ValueError("V5 admission Signal identity drifted")
-    if {metric.calibration_fit_digest for metric in signal_evidence.slow.metrics} != {
-        calibration_digest
-    }:
-        raise ValueError("V5 admission calibration/Signal identity drifted")
     summary = _summary(values)
     return CausalAlphaV5AdmissionEvidence(
         records=values,

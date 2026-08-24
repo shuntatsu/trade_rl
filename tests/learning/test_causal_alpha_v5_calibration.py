@@ -150,7 +150,8 @@ def test_v5_calibration_feature_contract_contains_no_symbol_identity() -> None:
         for name in CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES
     )
     assert all(
-        "usdt" not in name.lower() for name in CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES
+        "usdt" not in name.lower()
+        for name in CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES
     )
 
 

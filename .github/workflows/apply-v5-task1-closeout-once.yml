@@ -1,0 +1,68 @@
+name: Apply V5 Task1 Closeout Once
+
+on:
+  push:
+    branches:
+      - feat/causal-alpha-v5-calibrated-selective-slow
+
+permissions:
+  contents: write
+
+jobs:
+  closeout:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feat/causal-alpha-v5-calibrated-selective-slow
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: uv sync --extra dev --extra train-sb3
+      - name: Apply contract closeout
+        run: uv run python .github/scripts/apply_v5_task1_closeout.py
+      - name: Format affected Python files
+        run: >-
+          uv run ruff format
+          trade_rl/learning/causal_alpha_v5.py
+          trade_rl/learning/__init__.py
+          tests/learning/test_causal_alpha_v5_calibration.py
+      - name: Run focused tests
+        run: uv run pytest -q tests/learning/test_causal_alpha_v5_calibration.py
+      - name: Run focused static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check \
+            trade_rl/learning/causal_alpha_v5.py \
+            trade_rl/learning/__init__.py \
+            tests/learning/test_causal_alpha_v5_calibration.py
+          uv run ruff format --check \
+            trade_rl/learning/causal_alpha_v5.py \
+            trade_rl/learning/__init__.py \
+            tests/learning/test_causal_alpha_v5_calibration.py
+          uv run mypy \
+            trade_rl/learning/causal_alpha_v5.py \
+            trade_rl/learning/__init__.py
+      - name: Commit final branch state
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm \
+            .github/scripts/apply_v5_task1_closeout.py \
+            .github/workflows/apply-v5-task1-closeout-once.yml
+          git add \
+            examples/binance/universal-causal-alpha-v5-research.json \
+            tests/learning/test_causal_alpha_v5_calibration.py \
+            trade_rl/learning/__init__.py \
+            trade_rl/learning/causal_alpha_v5.py
+          git diff --cached --check
+          git commit -m 'fix: close causal alpha v5 calibration contracts'
+          git push origin HEAD:feat/causal-alpha-v5-calibrated-selective-slow

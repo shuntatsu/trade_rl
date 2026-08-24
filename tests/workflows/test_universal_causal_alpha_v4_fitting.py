@@ -121,15 +121,18 @@ def test_v4_pooled_surface_preserves_symbol_row_and_feature_order() -> None:
         "BTCUSDT": _sample(symbol="BTCUSDT"),
         "ETHUSDT": _sample(symbol="ETHUSDT"),
     }
+    symbols = ("BTCUSDT", "ETHUSDT")
+    row_stops = fitting._causal_prefix_row_stops(samples, symbols, knowledge_cutoff=18)
 
     names, features, available = fitting._pooled_shared_feature_surface(
-        samples, ("BTCUSDT", "ETHUSDT")
+        samples, symbols, row_stops=row_stops
     )
 
     expected_blocks = []
     expected_available = []
-    for symbol in ("BTCUSDT", "ETHUSDT"):
+    for symbol in symbols:
         sample = samples[symbol]
+        stop = row_stops[symbol]
         expected_blocks.append(
             np.column_stack(
                 (
@@ -139,7 +142,7 @@ def test_v4_pooled_surface_preserves_symbol_row_and_feature_order() -> None:
                     sample.instrument_descriptors,
                     sample.beta[:, None],
                 )
-            )
+            )[:stop]
         )
         expected_available.append(
             np.column_stack(
@@ -150,8 +153,9 @@ def test_v4_pooled_surface_preserves_symbol_row_and_feature_order() -> None:
                     sample.instrument_descriptor_available,
                     sample.beta_available[:, None],
                 )
-            )
+            )[:stop]
         )
+    assert row_stops == {"BTCUSDT": 18, "ETHUSDT": 18}
     assert names[-1] == "causal_beta"
     np.testing.assert_array_equal(features, np.vstack(expected_blocks))
     np.testing.assert_array_equal(available, np.vstack(expected_available))

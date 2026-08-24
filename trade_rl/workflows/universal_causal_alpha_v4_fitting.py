@@ -89,14 +89,34 @@ def _shared_feature_names(sample: CausalAlphaV4SymbolSamples) -> tuple[str, ...]
     return names
 
 
+def _causal_prefix_row_stops(
+    samples: Mapping[str, CausalAlphaV4SymbolSamples],
+    symbols: tuple[str, ...],
+    *,
+    knowledge_cutoff: int,
+) -> dict[str, int]:
+    row_stops: dict[str, int] = {}
+    for symbol in symbols:
+        decisions = np.asarray(samples[symbol].decision_indices, dtype=np.int64)
+        stop = int(np.searchsorted(decisions, knowledge_cutoff, side="left"))
+        if stop <= 0 or stop > len(decisions):
+            raise ValueError(f"V4 {symbol} has no causal feature prefix")
+        row_stops[symbol] = stop
+    return row_stops
+
+
 def _pooled_shared_feature_surface(
     samples: Mapping[str, CausalAlphaV4SymbolSamples],
     symbols: tuple[str, ...],
+    *,
+    row_stops: Mapping[str, int],
 ) -> tuple[tuple[str, ...], np.ndarray, np.ndarray]:
-    """Allocate the pooled matrix once and copy each source block directly."""
+    """Allocate one causal-prefix pool and copy each source block directly."""
 
     names = _shared_feature_names(samples[symbols[0]])
-    total_rows = sum(len(samples[symbol].decision_indices) for symbol in symbols)
+    if set(row_stops) != set(symbols):
+        raise ValueError("V4 pooled row-stop scope drifted")
+    total_rows = sum(row_stops[symbol] for symbol in symbols)
     features = np.empty((total_rows, len(names)), dtype=np.float64)
     available = np.empty((total_rows, len(names)), dtype=np.bool_)
     row_start = 0
@@ -104,7 +124,10 @@ def _pooled_shared_feature_surface(
         sample = samples[symbol]
         if _shared_feature_names(sample) != names:
             raise ValueError("V4 shared feature schema drifted across train symbols")
-        row_stop = row_start + len(sample.decision_indices)
+        source_stop = row_stops[symbol]
+        if source_stop <= 0 or source_stop > len(sample.decision_indices):
+            raise ValueError(f"V4 {symbol} pooled row stop is invalid")
+        row_stop = row_start + source_stop
         column_start = 0
         feature_blocks = (
             sample.target_local_features,
@@ -125,8 +148,12 @@ def _pooled_shared_feature_surface(
         ):
             width = feature_block.shape[1]
             column_stop = column_start + width
-            features[row_start:row_stop, column_start:column_stop] = feature_block
-            available[row_start:row_stop, column_start:column_stop] = available_block
+            features[row_start:row_stop, column_start:column_stop] = feature_block[
+                :source_stop
+            ]
+            available[row_start:row_stop, column_start:column_stop] = available_block[
+                :source_stop
+            ]
             column_start = column_stop
         if column_start != len(names):
             raise RuntimeError("V4 pooled feature width drifted")
@@ -447,6 +474,10 @@ def fit_causal_alpha_v4(
     if not isinstance(config, CausalAlphaV4FitConfig):
         raise TypeError("V4 fit requires CausalAlphaV4FitConfig")
     btc = ordered["BTCUSDT"]
+    row_stops = _causal_prefix_row_stops(
+        ordered, symbols, knowledge_cutoff=knowledge_cutoff
+    )
+    btc_stop = row_stops["BTCUSDT"]
     market_feature_names = btc.global_context.feature_names
     shared_feature_names = _shared_feature_names(ordered[symbols[0]])
     for symbol in symbols[1:]:
@@ -462,7 +493,7 @@ def fit_causal_alpha_v4(
         for symbol in symbols
     }
     pooled_names, shared_features, shared_available = _pooled_shared_feature_surface(
-        ordered, symbols
+        ordered, symbols, row_stops=row_stops
     )
     if pooled_names != shared_feature_names:
         raise RuntimeError("V4 pooled feature schema drifted")
@@ -488,14 +519,14 @@ def fit_causal_alpha_v4(
             label=f"market {horizon}",
         )
         market_model = fit_causal_alpha_ridge(
-            features=btc.global_context.values,
-            labels=btc_labels,
-            feature_available=btc.global_context.available,
-            label_end_indices=btc_ends,
+            features=btc.global_context.values[:btc_stop],
+            labels=btc_labels[:btc_stop],
+            feature_available=btc.global_context.available[:btc_stop],
+            label_end_indices=btc_ends[:btc_stop],
             knowledge_cutoff=knowledge_cutoff,
             feature_names=market_feature_names,
             config=CausalAlphaRidgeConfig(ridge_strength=config.market_ridge_strength),
-            sample_weights=market_weights,
+            sample_weights=market_weights[:btc_stop],
             normalize_objective=True,
             working_memory_rows=4096,
         )
@@ -505,14 +536,14 @@ def fit_causal_alpha_v4(
             kind="market",
             knowledge_cutoff=knowledge_cutoff,
             symbols=("BTCUSDT",),
-            weights={"BTCUSDT": market_weights},
+            weights={"BTCUSDT": market_weights[:btc_stop]},
         )
         market_rmse[horizon] = _weighted_rmse(
             market_model,
-            features=btc.global_context.values,
-            feature_available=btc.global_context.available,
-            labels=btc_labels,
-            weights=market_weights,
+            features=btc.global_context.values[:btc_stop],
+            feature_available=btc.global_context.available[:btc_stop],
+            labels=btc_labels[:btc_stop],
+            weights=market_weights[:btc_stop],
         )
 
         residual_labels_by_symbol: dict[str, np.ndarray] = {}
@@ -561,13 +592,22 @@ def fit_causal_alpha_v4(
         zero_counts[horizon] = zero_count
 
         pooled_residual_labels = np.concatenate(
-            tuple(residual_labels_by_symbol[symbol] for symbol in symbols)
+            tuple(
+                residual_labels_by_symbol[symbol][: row_stops[symbol]]
+                for symbol in symbols
+            )
         )
         pooled_residual_ends = np.concatenate(
-            tuple(_horizon_labels(ordered[symbol], horizon)[1] for symbol in symbols)
+            tuple(
+                _horizon_labels(ordered[symbol], horizon)[1][: row_stops[symbol]]
+                for symbol in symbols
+            )
         )
         pooled_residual_weights = np.concatenate(
-            tuple(residual_weights_by_symbol[symbol] for symbol in symbols)
+            tuple(
+                residual_weights_by_symbol[symbol][: row_stops[symbol]]
+                for symbol in symbols
+            )
         )
         residual_model = fit_causal_alpha_ridge(
             features=shared_features,
@@ -589,7 +629,10 @@ def fit_causal_alpha_v4(
             kind="residual",
             knowledge_cutoff=knowledge_cutoff,
             symbols=symbols,
-            weights=residual_weights_by_symbol,
+            weights={
+                symbol: residual_weights_by_symbol[symbol][: row_stops[symbol]]
+                for symbol in symbols
+            },
         )
         residual_rmse[horizon] = _weighted_rmse(
             residual_model,
@@ -600,13 +643,22 @@ def fit_causal_alpha_v4(
         )
 
         pooled_direction_labels = np.concatenate(
-            tuple(direction_labels_by_symbol[symbol] for symbol in symbols)
+            tuple(
+                direction_labels_by_symbol[symbol][: row_stops[symbol]]
+                for symbol in symbols
+            )
         )
         pooled_direction_ends = np.concatenate(
-            tuple(_horizon_labels(ordered[symbol], horizon)[1] for symbol in symbols)
+            tuple(
+                _horizon_labels(ordered[symbol], horizon)[1][: row_stops[symbol]]
+                for symbol in symbols
+            )
         )
         pooled_direction_weights = np.concatenate(
-            tuple(direction_weights_by_symbol[symbol] for symbol in symbols)
+            tuple(
+                direction_weights_by_symbol[symbol][: row_stops[symbol]]
+                for symbol in symbols
+            )
         )
         direction_model = fit_causal_alpha_ridge(
             features=shared_features,
@@ -628,7 +680,10 @@ def fit_causal_alpha_v4(
             kind="direction",
             knowledge_cutoff=knowledge_cutoff,
             symbols=symbols,
-            weights=direction_weights_by_symbol,
+            weights={
+                symbol: direction_weights_by_symbol[symbol][: row_stops[symbol]]
+                for symbol in symbols
+            },
         )
         direction_rmse[horizon] = _weighted_rmse(
             direction_model,

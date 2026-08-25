@@ -9,6 +9,10 @@ from typing import Final
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.learning.causal_alpha_v6 import (
+    CausalAlphaV6Candidate,
+    CausalAlphaV6TargetPath,
+)
 
 CAUSAL_ALPHA_V7_CALIBRATION_CONFIG_SCHEMA: Final = (
     "causal_alpha_v7_calibration_config_v1"
@@ -28,6 +32,7 @@ CAUSAL_ALPHA_V7_CALIBRATION_FEATURE_NAMES: Final = (
     "slow_direction_24h",
     "slow_direction_72h",
 )
+CAUSAL_ALPHA_V7_TARGET_SCHEMA: Final = "causal_alpha_v7_target_v1"
 
 
 def _require_exact_float(value: object, *, expected: float, field: str) -> None:
@@ -171,9 +176,56 @@ class CausalAlphaV7CalibrationRange:
         return payload
 
 
+@dataclass(frozen=True, slots=True)
+class CausalAlphaV7TargetPath:
+    """Bind one fixed V7 candidate to the shared V6 target compiler output."""
+
+    candidate: CausalAlphaV7Candidate
+    v6_target_path: CausalAlphaV6TargetPath
+    source_forecast_digest: str
+    calibration_fit_digest: str
+    schema_version: str = CAUSAL_ALPHA_V7_TARGET_SCHEMA
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        candidate = CausalAlphaV7Candidate(self.candidate)
+        if not isinstance(self.v6_target_path, CausalAlphaV6TargetPath):
+            raise TypeError("V7 target path requires a V6 target path")
+        if self.v6_target_path.candidate is not CausalAlphaV6Candidate.FAST_ONLY:
+            raise ValueError("V7 candidates must share the V6 fast-only compiler")
+        require_sha256(
+            self.source_forecast_digest,
+            field="V7 target source forecast digest",
+        )
+        require_sha256(
+            self.calibration_fit_digest,
+            field="V7 target calibration fit digest",
+        )
+        if self.schema_version != CAUSAL_ALPHA_V7_TARGET_SCHEMA:
+            raise ValueError("unsupported V7 target schema")
+        object.__setattr__(self, "candidate", candidate)
+        expected = content_digest(self.to_payload(include_digest=False))
+        if self.digest and self.digest != expected:
+            raise ValueError("V7 target path digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+    def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "calibration_fit_digest": self.calibration_fit_digest,
+            "candidate": self.candidate.value,
+            "schema_version": self.schema_version,
+            "source_forecast_digest": self.source_forecast_digest,
+            "v6_target_path_digest": self.v6_target_path.digest,
+        }
+        if include_digest:
+            payload["artifact_digest"] = self.digest
+        return payload
+
+
 __all__ = [
     "CAUSAL_ALPHA_V7_CALIBRATION_FEATURE_NAMES",
     "CausalAlphaV7CalibrationConfig",
     "CausalAlphaV7CalibrationRange",
     "CausalAlphaV7Candidate",
+    "CausalAlphaV7TargetPath",
 ]

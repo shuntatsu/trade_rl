@@ -93,6 +93,7 @@ def _evaluation(
     gross_return: float = 0.04,
     net_return: float = 0.03,
     reward_scale: float = 2.0,
+    reward_total: float | None = None,
     executed: int = 2,
     turnover: float = 0.4,
     rejections: tuple[tuple[str, int], ...] = (),
@@ -106,8 +107,17 @@ def _evaluation(
         trade_count=1 if executed else 0,
         gross_return=gross_return,
         net_return=net_return,
-        reward_total=net_return * reward_scale,
-        reward_mean=net_return * reward_scale / rows,
+        reward_total=(
+            math.log1p(net_return) * reward_scale
+            if reward_total is None
+            else reward_total
+        ),
+        reward_mean=(
+            math.log1p(net_return) * reward_scale
+            if reward_total is None
+            else reward_total
+        )
+        / rows,
         trade_win_rate=1.0 if executed else 0.0,
         positive_step_rate=0.5,
         turnover_total=turnover,
@@ -171,6 +181,23 @@ def test_v6_replay_preserves_authoritative_wealth_reward_and_holdings() -> None:
     assert metric.open_holding_duration_hours == 0.0
     assert metric.turnover_per_day == 0.4
     assert metric.total_execution_cost == pytest.approx(0.01)
+
+
+def test_v6_replay_normalizes_compounded_returns_to_net_log_reward_units() -> None:
+    evaluation = _evaluation(
+        2,
+        gross_return=0.04,
+        net_return=0.03,
+        reward_total=2.0 * math.log1p(0.03),
+    )
+
+    metric = _metric(_target((0.2, 0.0)), evaluation)
+
+    assert metric.gross_return == pytest.approx(math.log1p(0.04))
+    assert metric.gross_wealth == pytest.approx(1.04)
+    assert metric.net_return == pytest.approx(math.log1p(0.03))
+    assert metric.net_wealth == pytest.approx(1.03)
+    assert metric.reward_total == pytest.approx(2.0 * math.log1p(0.03))
 
 
 def test_v6_replay_all_flat_and_open_position_semantics() -> None:

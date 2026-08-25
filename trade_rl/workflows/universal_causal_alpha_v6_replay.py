@@ -276,9 +276,11 @@ def build_causal_alpha_v6_replay_metric(
     rows = int(target_path.targets.size)
     if rows != performance.step_count or rows != collapse.decision_count:
         raise ValueError("V6 replay target path does not cover the evaluation")
+    gross_log_return = math.log1p(float(performance.gross_return))
+    net_log_return = math.log1p(float(performance.net_return))
     if not math.isclose(
         performance.reward_total,
-        performance.net_return * reward_scale,
+        net_log_return * reward_scale,
         rel_tol=1e-9,
         abs_tol=1e-12,
     ):
@@ -305,10 +307,10 @@ def build_causal_alpha_v6_replay_metric(
         forecast_digest=forecast_digest,
         target_path_digest=target_path.digest,
         decision_count=rows,
-        gross_return=float(performance.gross_return),
-        gross_wealth=math.exp(float(performance.gross_return)),
-        net_return=float(performance.net_return),
-        net_wealth=math.exp(float(performance.net_return)),
+        gross_return=gross_log_return,
+        gross_wealth=math.exp(gross_log_return),
+        net_return=net_log_return,
+        net_wealth=math.exp(net_log_return),
         reward_total=float(performance.reward_total),
         reward_scale=float(reward_scale),
         turnover_per_day=float(performance.turnover_total) / (episode_hours / 24.0),

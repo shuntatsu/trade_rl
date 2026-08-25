@@ -32,6 +32,7 @@ V6はSignalを通過し、9銘柄 x 8独立episode x 2候補のSelection経済re
 | Branch | `codex/causal-alpha-v5-research` |
 | Run HEAD | `d1abd3a0201da1331e26c8950166cd6ddd9dccc7` |
 | Report creation commit | `5d608b809016e974b723e88f7a4a23b9a2cbef55` |
+| Repository-contract verification commit | `14fb705e` |
 | Source-tree digest | `f65b5aa54002dac4259c2042ccc27908d6905a68fc5ff306ba296ec2d1ccf0a0` |
 | Lockfile digest | `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b` |
 | Runtime manifest digest | `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0` |
@@ -192,6 +193,9 @@ V6主実装コミット:
 
 - V4–V6 targeted suite: `297 passed in 43.84s`。
 - V6全テスト: `83 passed`（reward fix時点）。
+- ホスト全スイート: `4308 passed, 44 skipped, 1 failed in 794.21s`。唯一の失敗は既存の階層BC capability auditで、policyが全holdへ崩壊し `gate_precision support 0` となった。
+- 同BC失敗は作業開始点 `815b5d9d` の独立worktreeでも同一seed・同一診断値で再現したため、V6回帰ではない。ただし全スイートはgreenではなく、将来BCへ進む前に別途修正が必要。
+- repository contract修正後、documentation ownershipとV5/V6 CLI entrypointの対象テストは `2 passed`。
 - Ruff: pass。
 - Mypy: pass。
 - Import Linter: 13 contracts kept、0 broken。

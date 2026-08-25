@@ -31,7 +31,7 @@ V6はSignalを通過し、9銘柄 x 8独立episode x 2候補のSelection経済re
 | Repository worktree | `C:\dev\trade_rl\.worktrees\causal-alpha-v5-research` |
 | Branch | `codex/causal-alpha-v5-research` |
 | Run HEAD | `d1abd3a0201da1331e26c8950166cd6ddd9dccc7` |
-| Report creation commit | `PENDING` |
+| Report creation commit | `5d608b809016e974b723e88f7a4a23b9a2cbef55` |
 | Source-tree digest | `f65b5aa54002dac4259c2042ccc27908d6905a68fc5ff306ba296ec2d1ccf0a0` |
 | Lockfile digest | `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b` |
 | Runtime manifest digest | `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0` |

@@ -28,7 +28,7 @@
 
 ### Causal calibration boundary
 
-For each Selection knowledge cutoff, reserve a fixed calibration tail that ends before the Selection episode and is separated by the maximum 72-hour label horizon. Fit a base V4 model only through the start of that tail, predict the tail, and join predictions to labels whose end indices remain strictly before the Selection cutoff. Fit one shared calibration model across all training symbols without symbol ID.
+For each Selection knowledge cutoff, reuse the V5 chronological split contract with `calibration_fraction=0.50` and `forward_block_count=4`. The split is derived only from decisions whose 72-hour label end remains strictly before the Selection knowledge cutoff. Fit a base V4 model only through the derived calibration start, predict the four forward calibration blocks, and join predictions only to labels whose end indices remain strictly before the Selection cutoff. Fit one shared calibration model across all training symbols without symbol ID.
 
 The calibrator consumes 4-hour expected return, 4-hour direction score, uncertainty, realized volatility, liquidity, basis/positioning stress, and 24-hour/72-hour directional agreement. It produces a calibrated 4-hour expected gross return and a direction reliability score. Every fit records row ranges, purging, feature schema, support by direction, block size, and content digests.
 
@@ -68,7 +68,7 @@ Only a passing Selection opens Admission. Only a passing Admission may package a
 ## Decision log
 
 1. Keep V4 as the base forecaster instead of replacing it. This isolates forecast calibration from representation changes and reuses the proven causal fit boundary.
-2. Use a purged train-only calibration tail instead of in-sample calibration. In-sample predictions would overstate reliability.
+2. Reuse the V5 50% chronological, four-block, 72-hour-purged split instead of inventing a second split or using in-sample calibration. In-sample predictions would overstate reliability.
 3. Include a symmetric contrarian control instead of silently flipping the strategy. It tests the V6 gross-loss hypothesis under identical economics.
 4. Keep fixed universal gates and all symbols. Aggregate profit cannot hide a losing instrument.
 5. Keep 1-minute data out of V7. Execution resolution is not the current bottleneck while aggregate gross wealth is below one.

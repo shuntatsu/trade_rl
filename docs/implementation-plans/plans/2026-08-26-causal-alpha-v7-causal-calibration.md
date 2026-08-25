@@ -14,7 +14,7 @@
 
 - Reward is exactly `100 * net_log_return`; no auxiliary reward terms.
 - No symbol ID, symbol-specific intercept, symbol exclusion, gate relaxation, or Admission tuning.
-- Calibration labels end strictly before the Selection knowledge cutoff and are separated from the base-fit cutoff by at least the maximum label horizon.
+- Reuse the V5 split exactly: `calibration_fraction=0.50`, `forward_block_count=4`, and calibration eligibility requires the 72-hour label end to be strictly before the Selection knowledge cutoff.
 - Candidate execution, costs, caps, risk, cadence, and episode identities are paired and identical.
 - Working prediction/calibration blocks contain at most 4,096 rows.
 - Admission, BC, and RL remain unreachable until all preceding gates pass.
@@ -28,10 +28,10 @@
 - Create: `tests/learning/test_causal_alpha_v7.py`
 
 **Interfaces:**
-- Produces: `CausalAlphaV7Candidate`, `CausalAlphaV7CalibrationConfig`, `CausalAlphaV7CalibrationRange`, and content-addressed payload methods.
+- Produces: `CausalAlphaV7Candidate`, `CausalAlphaV7CalibrationConfig`, a V7 range binding around `CausalAlphaV5CalibrationSplit`, and content-addressed payload methods.
 - Consumes: existing hashing and SHA-256 validation contracts only.
 
-- [ ] **Step 1: Write failing contract tests** for canonical candidate order, fixed tail/purge values, invalid or overlapping ranges, digest tampering, and a feature schema containing `symbol` or `symbol_id`.
+- [ ] **Step 1: Write failing contract tests** for canonical candidate order, exact V5 split values (`0.50`, four blocks, 72-hour end purge), invalid range bindings, digest tampering, and a feature schema containing `symbol` or `symbol_id`.
 - [ ] **Step 2: Run** `uv run pytest -q tests/learning/test_causal_alpha_v7.py` **and verify failures are caused by missing V7 contracts.**
 - [ ] **Step 3: Implement minimal frozen dataclasses** with early validation, exact candidate values `v6_control`, `symmetric_contrarian`, `causal_calibrated`, and content digests.
 - [ ] **Step 4: Run** `uv run pytest -q tests/learning/test_causal_alpha_v7.py`, `uv run ruff check trade_rl/learning/causal_alpha_v7.py tests/learning/test_causal_alpha_v7.py`, and focused Mypy; require pass.

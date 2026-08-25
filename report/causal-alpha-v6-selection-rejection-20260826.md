@@ -150,6 +150,7 @@ V6主実装コミット:
 - `e5863dd3`〜`59d742be`: target、Signal、replay、Selection、Admission、pipeline、artifact-bound stage、runnerを実装。
 - `52a448e6`: replay evaluatorの単純複利returnをlog-return単位へ正規化。報酬関数は変更していない。
 - `d1abd3a0`: V4 fit後RMSE予測を4096-row block化し、数学・fit対象を変えずOOM peakを解消。
+- `fe6a4cd9`: V6の生入力と検証済みvector、およびselected digestの型境界を明示。実行時戦略・報酬・gateは不変。
 
 実run経緯:
 
@@ -196,8 +197,9 @@ V6主実装コミット:
 - ホスト全スイート: `4308 passed, 44 skipped, 1 failed in 794.21s`。唯一の失敗は既存の階層BC capability auditで、policyが全holdへ崩壊し `gate_precision support 0` となった。
 - 同BC失敗は作業開始点 `815b5d9d` の独立worktreeでも同一seed・同一診断値で再現したため、V6回帰ではない。ただし全スイートはgreenではなく、将来BCへ進む前に別途修正が必要。
 - repository contract修正後、documentation ownershipとV5/V6 CLI entrypointの対象テストは `2 passed`。
-- Ruff: pass。
-- Mypy: pass。
+- 最終V6型境界修正後のfocused suite: `41 passed`。
+- Ruff（V6変更ファイル）: pass。repository全体では開始点由来の `tests/data/test_v4_context.py:455` 未使用変数1件が残る。
+- Mypy（Linux Docker）: `536 source files`、no issues。
 - Import Linter: 13 contracts kept、0 broken。
 - Docker build: provenance、frozen lock、source digest、torch compile、non-root probe pass。
 - 問題cutoff 37337の固定fit診断: old image OOM、new image pass。

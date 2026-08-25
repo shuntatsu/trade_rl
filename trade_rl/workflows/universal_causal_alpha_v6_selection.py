@@ -246,12 +246,15 @@ class CausalAlphaV6SelectionEvidence:
         reasons = tuple(self.rejection_reasons)
         if self.passed != (selected is not None and not reasons):
             raise ValueError("V6 Selection pass state is invalid")
+        selected_config_digest = self.selected_config_digest
         if selected is None:
-            if self.selected_config_digest is not None:
+            if selected_config_digest is not None:
                 raise ValueError("failed V6 Selection cannot select a config")
         else:
+            if selected_config_digest is None:
+                raise ValueError("passed V6 Selection must select a config")
             require_sha256(
-                self.selected_config_digest, field="V6 selected config digest"
+                selected_config_digest, field="V6 selected config digest"
             )
             selected_evidence = (
                 self.fast_only
@@ -260,7 +263,7 @@ class CausalAlphaV6SelectionEvidence:
             )
             if (
                 not selected_evidence.eligible
-                or self.selected_config_digest != selected_evidence.config_digest
+                or selected_config_digest != selected_evidence.config_digest
             ):
                 raise ValueError("V6 selected candidate/config is invalid")
         if self.promotion_eligible:

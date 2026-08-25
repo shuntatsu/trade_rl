@@ -269,7 +269,7 @@ def _vectors(
     if set(uncertainty) != set(CAUSAL_ALPHA_V4_HORIZONS):
         raise ValueError("V6 uncertainty horizons are invalid")
     rows = int(forecast.decision_indices.size)
-    vectors = {
+    raw_vectors: dict[str, object] = {
         "expected_returns_4h": np.asarray(forecast.final_predictions["4h"]),
         "expected_returns_24h": np.asarray(forecast.final_predictions["24h"]),
         "expected_returns_72h": np.asarray(forecast.final_predictions["72h"]),
@@ -282,7 +282,8 @@ def _vectors(
         ),
         "actionable_mask": actionable_mask,
     }
-    for name, value in tuple(vectors.items()):
+    vectors: dict[str, np.ndarray] = {}
+    for name, value in raw_vectors.items():
         dtype = np.bool_ if name == "actionable_mask" else np.float64
         vectors[name] = _aligned_vector(value, rows=rows, dtype=dtype, field=name)
     if any(

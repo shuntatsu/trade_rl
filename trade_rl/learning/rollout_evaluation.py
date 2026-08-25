@@ -31,10 +31,40 @@ class EvaluationEnvironment(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class ActionPathStepEconomics:
+    """Simulator-authoritative step economics retained for attribution."""
+
+    gross_returns: np.ndarray
+    net_returns: np.ndarray
+    costs: np.ndarray
+    turnover: np.ndarray
+
+    def __post_init__(self) -> None:
+        arrays: dict[str, np.ndarray] = {}
+        for name in ("gross_returns", "net_returns", "costs", "turnover"):
+            array = np.asarray(getattr(self, name), dtype=np.float64).reshape(-1).copy()
+            if array.size == 0 or not np.isfinite(array).all():
+                raise ValueError("action path step economics must be non-empty and finite")
+            array.setflags(write=False)
+            arrays[name] = array
+        if len({array.size for array in arrays.values()}) != 1:
+            raise ValueError("action path step economics arrays are not aligned")
+        if np.any(arrays["gross_returns"] <= -1.0) or np.any(
+            arrays["net_returns"] <= -1.0
+        ):
+            raise ValueError("action path step returns must be greater than -1")
+        if np.any(arrays["costs"] < 0.0) or np.any(arrays["turnover"] < 0.0):
+            raise ValueError("action path step costs and turnover must be non-negative")
+        for name, array in arrays.items():
+            object.__setattr__(self, name, array)
+
+
+@dataclass(frozen=True, slots=True)
 class ActionPathEvaluation:
     actions: np.ndarray
     performance: PathPerformanceMetrics
     collapse_evidence: ActionPathCollapseEvidence
+    step_economics: ActionPathStepEconomics | None = None
 
     def __post_init__(self) -> None:
         actions = np.asarray(self.actions, dtype=np.float32).copy(order="C")
@@ -53,6 +83,11 @@ class ActionPathEvaluation:
             != self.performance.traded_step_count
         ):
             raise ValueError("collapse evidence execution count mismatch")
+        if self.step_economics is not None:
+            if not isinstance(self.step_economics, ActionPathStepEconomics):
+                raise TypeError("step_economics must be ActionPathStepEconomics")
+            if len(self.step_economics.gross_returns) != self.performance.step_count:
+                raise ValueError("step economics do not cover evaluated path")
         actions.setflags(write=False)
         object.__setattr__(self, "actions", actions)
 
@@ -296,7 +331,18 @@ def evaluate_action_path(
         actions=np.stack(evaluated_actions, axis=0),
         performance=performance,
         collapse_evidence=evidence,
+        step_economics=ActionPathStepEconomics(
+            gross_returns=np.asarray(gross_returns, dtype=np.float64),
+            net_returns=np.asarray(net_returns, dtype=np.float64),
+            costs=np.asarray(costs, dtype=np.float64),
+            turnover=np.asarray(turnover, dtype=np.float64),
+        ),
     )
 
 
-__all__ = ["ActionPathEvaluation", "EvaluationEnvironment", "evaluate_action_path"]
+__all__ = [
+    "ActionPathEvaluation",
+    "ActionPathStepEconomics",
+    "EvaluationEnvironment",
+    "evaluate_action_path",
+]

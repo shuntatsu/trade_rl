@@ -161,6 +161,36 @@ def test_v4_pooled_surface_preserves_symbol_row_and_feature_order() -> None:
     np.testing.assert_array_equal(available, np.vstack(expected_available))
 
 
+def test_v4_weighted_rmse_predicts_in_bounded_row_blocks() -> None:
+    class BoundedPredictor:
+        eligible_indices = np.arange(5, dtype=np.int64)
+
+        @staticmethod
+        def predict(
+            features: np.ndarray,
+            *,
+            feature_available: np.ndarray,
+        ) -> np.ndarray:
+            if features.shape[0] > 2:
+                raise AssertionError("weighted RMSE predicted an unbounded row batch")
+            np.testing.assert_array_equal(
+                feature_available,
+                np.ones(features.shape, dtype=np.bool_),
+            )
+            return features[:, 0]
+
+    value = fitting._weighted_rmse(
+        BoundedPredictor(),
+        features=np.arange(1.0, 6.0, dtype=np.float64)[:, None],
+        feature_available=np.ones((5, 1), dtype=np.bool_),
+        labels=np.asarray((1.0, 3.0, 5.0, 7.0, 9.0)),
+        weights=np.ones(5, dtype=np.float64),
+        working_memory_rows=2,
+    )
+
+    np.testing.assert_allclose(value, np.sqrt(6.0), rtol=0.0, atol=1e-15)
+
+
 def test_v4_fit_uses_global_only_market_and_one_shared_residual_surface() -> None:
     samples = {
         "BTCUSDT": _sample(symbol="BTCUSDT"),

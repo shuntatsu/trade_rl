@@ -764,4 +764,3 @@ git commit -m "docs: report causal alpha v6 research"
 - Scope split: this plan ends at a real Admission terminal. BC/RL integration is
   intentionally a second plan created only from an admitted package, so a failed
   research candidate cannot leak into learner training.
-

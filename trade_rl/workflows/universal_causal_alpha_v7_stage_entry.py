@@ -69,6 +69,10 @@ from trade_rl.workflows.universal_causal_alpha_v6_stage_entry import (
     _reward_scale,
     _uncertainties,
 )
+from trade_rl.workflows.universal_causal_alpha_v7_admission import (
+    CausalAlphaV7AdmissionEvidence,
+    evaluate_causal_alpha_v7_admission,
+)
 from trade_rl.workflows.universal_causal_alpha_v7_attribution import (
     CausalAlphaV7AttributionBoundaries,
     build_causal_alpha_v7_attribution,
@@ -572,6 +576,86 @@ def selection_stage(
     )
 
 
+def admission_stage(
+    prepared: Any,
+    signal: CausalAlphaV7SignalEvidence,
+    selection: CausalAlphaV7SelectionEvidence,
+    *,
+    calibration_config: CausalAlphaV7CalibrationConfig,
+    target_config: CausalAlphaV6TargetConfig,
+    v7_config_digest: str,
+) -> CausalAlphaV7AdmissionEvidence:
+    """Open the untouched holdout only after both upstream gates pass."""
+
+    if (
+        not signal.passed
+        or not selection.passed
+        or selection.selected_candidate is None
+    ):
+        raise ValueError("V7 Admission cannot bypass upstream gates")
+    holdouts = tuple(
+        prepared.nested_partitions[symbol].holdout_contract
+        for symbol in prepared.train_symbols
+    )
+    starts = {contract.start for contract in holdouts}
+    if len(starts) != 1:
+        raise ValueError("V7 holdout starts drifted")
+    holdout_start = int(next(iter(starts)))
+    resolved = _fit_one_calibration(
+        prepared,
+        train_stop=holdout_start,
+        config=calibration_config,
+    )
+    selected_records: list[CausalAlphaV7ReplayMetric] = []
+    control_records: list[CausalAlphaV7ReplayMetric] = []
+    try:
+        for symbol, contract in zip(
+            prepared.train_symbols,
+            holdouts,
+            strict=True,
+        ):
+            rows, forecast, state, _features, targets = _target_bundle(
+                prepared,
+                resolved,
+                symbol,
+                contract,
+                target_config,
+            )
+            replays = {
+                candidate: _replay_target(
+                    prepared=prepared,
+                    resolved=resolved,
+                    symbol=symbol,
+                    contract=contract,
+                    forecast=forecast,
+                    state=state,
+                    rows=rows,
+                    target=targets[candidate],
+                    v7_config_digest=v7_config_digest,
+                )
+                for candidate in CausalAlphaV7Candidate
+                if candidate
+                in {
+                    CausalAlphaV7Candidate.V6_CONTROL,
+                    selection.selected_candidate,
+                }
+            }
+            selected_records.append(replays[selection.selected_candidate])
+            control_records.append(replays[CausalAlphaV7Candidate.V6_CONTROL])
+        _progress(stage="admission", cutoff=holdout_start)
+        return evaluate_causal_alpha_v7_admission(
+            tuple(selected_records),
+            tuple(control_records),
+            signal_evidence=signal,
+            selection_evidence=selection,
+            fit_knowledge_cutoff=holdout_start,
+            holdout_start=holdout_start,
+        )
+    finally:
+        del resolved
+        gc.collect()
+
+
 def progress_payload(*, stage: str, cutoff: int) -> str:
     """Stable helper retained for diagnostic consumers."""
 
@@ -583,6 +667,7 @@ def progress_payload(*, stage: str, cutoff: int) -> str:
 
 __all__ = [
     "CausalAlphaV6TargetConfig",
+    "admission_stage",
     "causal_alpha_v7_stage_config_digest",
     "selection_stage",
     "signal_stage",

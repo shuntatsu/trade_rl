@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import gc
+import importlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 
@@ -45,6 +47,7 @@ from trade_rl.workflows.universal_causal_alpha_v4_signal import (
     evaluate_causal_alpha_v4_signal_gate,
 )
 from trade_rl.workflows.universal_causal_alpha_v4_stage_runner import (
+    prepare_causal_alpha_v4_stage_data,
     slice_causal_alpha_v4_forecast,
 )
 from trade_rl.workflows.universal_causal_alpha_v4_stage_science import (
@@ -73,9 +76,17 @@ from trade_rl.workflows.universal_causal_alpha_v7_admission import (
     CausalAlphaV7AdmissionEvidence,
     evaluate_causal_alpha_v7_admission,
 )
+from trade_rl.workflows.universal_causal_alpha_v7_artifact_store import (
+    CausalAlphaV7ArtifactStore,
+    CausalAlphaV7RunLock,
+)
 from trade_rl.workflows.universal_causal_alpha_v7_attribution import (
     CausalAlphaV7AttributionBoundaries,
     build_causal_alpha_v7_attribution,
+)
+from trade_rl.workflows.universal_causal_alpha_v7_pipeline import (
+    CausalAlphaV7ResearchPackage,
+    run_universal_causal_alpha_v7_research_pipeline,
 )
 from trade_rl.workflows.universal_causal_alpha_v7_replay import (
     CausalAlphaV7ReplayMetric,
@@ -665,10 +676,108 @@ def progress_payload(*, stage: str, cutoff: int) -> str:
     )
 
 
+def _artifact(body: dict[str, object]) -> dict[str, object]:
+    return {**body, "artifact_digest": content_digest(body)}
+
+
+def run_causal_alpha_v7_concrete_entry(
+    *,
+    config_path: Path,
+    run_config_path: Path,
+    runtime_manifest_path: Path,
+    v4_context_manifest_path: Path,
+    frozen_metadata_root: Path,
+    output_root: Path,
+) -> CausalAlphaV7ResearchPackage:
+    """Resolve immutable V4 inputs and run all fixed V7 gates on real data."""
+
+    from trade_rl.workflows.universal_causal_alpha_v4_runtime_adapter import (
+        prepare_causal_alpha_v4_runtime_adapter,
+    )
+
+    config_path = Path(config_path)
+    runner = importlib.import_module(
+        "trade_rl.workflows.universal_causal_alpha_v7_runner"
+    )
+    config = runner.CausalAlphaV7ResearchConfig.from_json(config_path)
+    context, runtime, prepared_v3 = prepare_causal_alpha_v4_runtime_adapter(
+        run_config_path=Path(run_config_path),
+        runtime_manifest_path=Path(runtime_manifest_path),
+        v4_context_manifest_path=Path(v4_context_manifest_path),
+        frozen_metadata_root=Path(frozen_metadata_root),
+    )
+    generator_digest = content_digest(
+        {
+            "schema_version": "causal_alpha_v7_generator_code_v1",
+            "source_tree_digest": prepared_v3.execution_identity.source_tree_digest,
+        }
+    )
+    prepared = prepare_causal_alpha_v4_stage_data(
+        config_digest=config.digest,
+        generator_code_digest=generator_digest,
+        runtime_context=context,
+        runtime=runtime,
+        prepared_v3=prepared_v3,
+    )
+    del context, runtime, prepared_v3
+    gc.collect()
+    root = Path(output_root)
+    with CausalAlphaV7RunLock(root):
+        store = CausalAlphaV7ArtifactStore(
+            root,
+            run_manifest_digest=prepared.run_manifest_digest,
+            v4_context_manifest_digest=prepared.v4_context_manifest_digest,
+            config_digest=config.digest,
+            generator_code_digest=prepared.generator_code_digest,
+        )
+        source = json.loads(config_path.read_text(encoding="utf-8"))
+        store.write_leaf(
+            "authored-config.json",
+            _artifact(
+                {
+                    "schema_version": "causal_alpha_v7_authored_config_record_v1",
+                    "run_manifest_digest": prepared.run_manifest_digest,
+                    "v4_context_manifest_digest": prepared.v4_context_manifest_digest,
+                    "config_digest": config.digest,
+                    "generator_code_digest": prepared.generator_code_digest,
+                    "source_config": source,
+                    "research_only": True,
+                    "promotion_eligible": False,
+                }
+            ),
+        )
+        return run_universal_causal_alpha_v7_research_pipeline(
+            store=store,
+            prepare_stage=lambda: prepared,
+            signal_stage=lambda value: signal_stage(
+                value,
+                calibration_config=config.calibration,
+                target_config=config.target,
+                v7_config_digest=config.digest,
+            ),
+            selection_stage=lambda value, signal: selection_stage(
+                value,
+                cast(CausalAlphaV7SignalEvidence, signal),
+                calibration_config=config.calibration,
+                target_config=config.target,
+                v7_config_digest=config.digest,
+            ),
+            admission_stage=lambda value, signal, selection: admission_stage(
+                value,
+                cast(CausalAlphaV7SignalEvidence, signal),
+                cast(CausalAlphaV7SelectionEvidence, selection),
+                calibration_config=config.calibration,
+                target_config=config.target,
+                v7_config_digest=config.digest,
+            ),
+        )
+
+
 __all__ = [
     "CausalAlphaV6TargetConfig",
     "admission_stage",
     "causal_alpha_v7_stage_config_digest",
+    "run_causal_alpha_v7_concrete_entry",
     "selection_stage",
     "signal_stage",
 ]

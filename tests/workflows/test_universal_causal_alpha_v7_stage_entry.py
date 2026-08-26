@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from tests.workflows.test_universal_causal_alpha_v7_selection import _records
 from trade_rl.learning.causal_alpha_v7 import (
     CAUSAL_ALPHA_V7_CALIBRATION_FEATURE_NAMES,
     CausalAlphaV7CalibrationConfig,
@@ -101,3 +102,22 @@ def test_v7_config_digest_binds_calibration_and_v6_target_contracts() -> None:
 
     assert first == second
     assert len(first) == 64
+
+
+def test_v7_selection_checkpoint_exposes_candidate_and_attribution_economics() -> None:
+    records = tuple(
+        record
+        for candidate in CausalAlphaV7Candidate
+        for record in _records(candidate)[:9]
+    )
+
+    diagnostics = stage_entry._selection_checkpoint_diagnostics(records)
+    candidates = diagnostics["candidates"]
+
+    assert isinstance(candidates, tuple)
+    assert tuple(item["candidate"] for item in candidates) == tuple(
+        candidate.value for candidate in CausalAlphaV7Candidate
+    )
+    assert all(item["net_wealth"] > 1.0 for item in candidates)
+    assert all(item["per_symbol_net_log_return"] for item in candidates)
+    assert all(item["attribution"] for item in candidates)

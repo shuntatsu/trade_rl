@@ -5,7 +5,8 @@ from __future__ import annotations
 import gc
 import importlib
 import json
-from collections.abc import Mapping
+import math
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -83,6 +84,9 @@ from trade_rl.workflows.universal_causal_alpha_v7_artifact_store import (
 from trade_rl.workflows.universal_causal_alpha_v7_attribution import (
     CausalAlphaV7AttributionBoundaries,
     build_causal_alpha_v7_attribution,
+)
+from trade_rl.workflows.universal_causal_alpha_v7_checkpoint import (
+    CausalAlphaV7CheckpointWriter,
 )
 from trade_rl.workflows.universal_causal_alpha_v7_pipeline import (
     CausalAlphaV7ResearchPackage,
@@ -411,6 +415,7 @@ def signal_stage(
     calibration_config: CausalAlphaV7CalibrationConfig,
     target_config: CausalAlphaV6TargetConfig,
     v7_config_digest: str,
+    checkpoint: Callable[..., object] | None = None,
 ) -> CausalAlphaV7SignalEvidence:
     """Fit every Signal cutoff causally and require all three candidate paths."""
 
@@ -418,6 +423,7 @@ def signal_stage(
     v4_metrics: list[CausalAlphaV4SignalScopeMetric] = []
     count = len(prepared.nested_partitions[prepared.train_symbols[0]].signal_contracts)
     for index in range(count):
+        metric_start = len(v7_metrics)
         contracts = _contract_column(prepared, "signal_contracts", index)
         cutoff = int(contracts[0].start)
         resolved = _fit_one_calibration(
@@ -457,6 +463,45 @@ def signal_stage(
                     )
                 )
             _progress(stage="signal", cutoff=cutoff)
+            if checkpoint is not None:
+                current = tuple(v7_metrics[metric_start:])
+                checkpoint(
+                    stage="signal",
+                    cutoff=cutoff,
+                    diagnostics={
+                        "attribution_boundaries_digest": resolved.boundaries.digest,
+                        "calibration_fit_digest": resolved.calibration_fit.digest,
+                        "calibration_range_digest": (
+                            resolved.calibration_fit.calibration_range.digest
+                        ),
+                        "candidates": tuple(
+                            {
+                                "actionable_count": sum(
+                                    metric.actionable_count
+                                    for metric in current
+                                    if metric.candidate is candidate
+                                ),
+                                "candidate": candidate.value,
+                                "non_flat_target_count": sum(
+                                    metric.non_flat_target_count
+                                    for metric in current
+                                    if metric.candidate is candidate
+                                ),
+                                "sign_flip_count": sum(
+                                    metric.sign_flip_count
+                                    for metric in current
+                                    if metric.candidate is candidate
+                                ),
+                                "target_change_count": sum(
+                                    metric.target_change_count
+                                    for metric in current
+                                    if metric.candidate is candidate
+                                ),
+                            }
+                            for candidate in CausalAlphaV7Candidate
+                        ),
+                    },
+                )
         finally:
             del resolved
             gc.collect()
@@ -536,6 +581,7 @@ def selection_stage(
     calibration_config: CausalAlphaV7CalibrationConfig,
     target_config: CausalAlphaV6TargetConfig,
     v7_config_digest: str,
+    checkpoint: Callable[..., object] | None = None,
 ) -> CausalAlphaV7SelectionEvidence:
     """Replay the fixed three candidates and apply unchanged universal gates."""
 
@@ -546,6 +592,7 @@ def selection_stage(
         prepared.nested_partitions[prepared.train_symbols[0]].economic_contracts
     )
     for index in range(count):
+        record_start = len(records)
         contracts = _contract_column(prepared, "economic_contracts", index)
         cutoff = int(contracts[0].start)
         resolved = _fit_one_calibration(
@@ -578,6 +625,14 @@ def selection_stage(
                 )
             for candidate in CausalAlphaV7Candidate:
                 _progress(stage="selection", cutoff=cutoff, candidate=candidate.value)
+            if checkpoint is not None:
+                checkpoint(
+                    stage="selection",
+                    cutoff=cutoff,
+                    diagnostics=_selection_checkpoint_diagnostics(
+                        tuple(records[record_start:]),
+                    ),
+                )
         finally:
             del resolved
             gc.collect()
@@ -585,6 +640,72 @@ def selection_stage(
         tuple(records),
         expected_symbols=prepared.train_symbols,
     )
+
+
+def _selection_checkpoint_diagnostics(
+    records: tuple[CausalAlphaV7ReplayMetric, ...],
+) -> dict[str, object]:
+    candidates: list[dict[str, object]] = []
+    for candidate in CausalAlphaV7Candidate:
+        selected = tuple(record for record in records if record.candidate is candidate)
+        if not selected:
+            raise ValueError("V7 Selection checkpoint omitted a candidate")
+        base = tuple(record.v6_metric for record in selected)
+        gross = float(sum(metric.gross_return for metric in base))
+        net = float(sum(metric.net_return for metric in base))
+        turnovers = np.asarray([metric.turnover_per_day for metric in base])
+        cells: dict[tuple[str, str], dict[str, float | int]] = {}
+        for record in selected:
+            for cell in record.attribution.cells:
+                key = (cell.dimension, cell.key)
+                aggregate = cells.setdefault(
+                    key,
+                    {
+                        "execution_cost": 0.0,
+                        "gross_log_return": 0.0,
+                        "net_log_return": 0.0,
+                        "support": 0,
+                    },
+                )
+                aggregate["execution_cost"] += cell.execution_cost
+                aggregate["gross_log_return"] += cell.gross_log_return
+                aggregate["net_log_return"] += cell.net_log_return
+                aggregate["support"] += cell.support
+        candidates.append(
+            {
+                "attribution": tuple(
+                    {"dimension": dimension, "key": key, **cells[(dimension, key)]}
+                    for dimension, key in sorted(cells)
+                ),
+                "candidate": candidate.value,
+                "gross_log_return": gross,
+                "gross_wealth": math.exp(gross),
+                "meaningful_execution_scope_count": sum(
+                    metric.has_meaningful_execution for metric in base
+                ),
+                "net_log_return": net,
+                "net_wealth": math.exp(net),
+                "per_symbol_net_log_return": tuple(
+                    (
+                        symbol,
+                        float(
+                            sum(
+                                record.v6_metric.net_return
+                                for record in selected
+                                if record.v6_metric.symbol == symbol
+                            )
+                        ),
+                    )
+                    for symbol in sorted({metric.symbol for metric in base})
+                ),
+                "total_execution_cost": float(
+                    sum(metric.total_execution_cost for metric in base)
+                ),
+                "turnover_p50": float(np.quantile(turnovers, 0.50)),
+                "turnover_p95": float(np.quantile(turnovers, 0.95)),
+            }
+        )
+    return {"candidates": tuple(candidates)}
 
 
 def admission_stage(
@@ -595,6 +716,7 @@ def admission_stage(
     calibration_config: CausalAlphaV7CalibrationConfig,
     target_config: CausalAlphaV6TargetConfig,
     v7_config_digest: str,
+    checkpoint: Callable[..., object] | None = None,
 ) -> CausalAlphaV7AdmissionEvidence:
     """Open the untouched holdout only after both upstream gates pass."""
 
@@ -654,7 +776,7 @@ def admission_stage(
             selected_records.append(replays[selection.selected_candidate])
             control_records.append(replays[CausalAlphaV7Candidate.V6_CONTROL])
         _progress(stage="admission", cutoff=holdout_start)
-        return evaluate_causal_alpha_v7_admission(
+        evidence = evaluate_causal_alpha_v7_admission(
             tuple(selected_records),
             tuple(control_records),
             signal_evidence=signal,
@@ -662,6 +784,18 @@ def admission_stage(
             fit_knowledge_cutoff=holdout_start,
             holdout_start=holdout_start,
         )
+        if checkpoint is not None:
+            checkpoint(
+                stage="admission",
+                cutoff=holdout_start,
+                diagnostics={
+                    "control_summary": evidence.control_summary.to_payload(),
+                    "passed": evidence.passed,
+                    "rejection_reasons": evidence.rejection_reasons,
+                    "selected_summary": evidence.selected_summary.to_payload(),
+                },
+            )
+        return evidence
     finally:
         del resolved
         gc.collect()
@@ -746,6 +880,12 @@ def run_causal_alpha_v7_concrete_entry(
                 }
             ),
         )
+        checkpoint = CausalAlphaV7CheckpointWriter(
+            root,
+            run_manifest_digest=prepared.run_manifest_digest,
+            config_digest=config.digest,
+            generator_code_digest=prepared.generator_code_digest,
+        )
         return run_universal_causal_alpha_v7_research_pipeline(
             store=store,
             prepare_stage=lambda: prepared,
@@ -754,6 +894,7 @@ def run_causal_alpha_v7_concrete_entry(
                 calibration_config=config.calibration,
                 target_config=config.target,
                 v7_config_digest=config.digest,
+                checkpoint=checkpoint.append,
             ),
             selection_stage=lambda value, signal: selection_stage(
                 value,
@@ -761,6 +902,7 @@ def run_causal_alpha_v7_concrete_entry(
                 calibration_config=config.calibration,
                 target_config=config.target,
                 v7_config_digest=config.digest,
+                checkpoint=checkpoint.append,
             ),
             admission_stage=lambda value, signal, selection: admission_stage(
                 value,
@@ -769,6 +911,7 @@ def run_causal_alpha_v7_concrete_entry(
                 calibration_config=config.calibration,
                 target_config=config.target,
                 v7_config_digest=config.digest,
+                checkpoint=checkpoint.append,
             ),
         )
 

@@ -372,7 +372,7 @@ def _v4_liveness_digests(
 def _v4_signal_scope_metrics(
     *,
     prepared: Any,
-    resolved: _CalibrationResolved,
+    fit: CausalAlphaV4Fit,
     symbol: str,
     contract: Any,
     rows: np.ndarray,
@@ -381,7 +381,7 @@ def _v4_signal_scope_metrics(
 ) -> tuple[CausalAlphaV4SignalScopeMetric, ...]:
     sample = prepared.samples[symbol]
     liveness = _v4_liveness_digests(
-        fit=resolved.base_fit,
+        fit=fit,
         sample=sample,
         rows=rows,
         forecast=forecast,
@@ -395,7 +395,7 @@ def _v4_signal_scope_metrics(
         contract_start=contract.start,
         contract_stop=contract.stop,
         contract_digest=contract.digest,
-        fit_digest=resolved.base_fit.digest,
+        fit_digest=fit.digest,
         forecast=forecast,
         liveness_digests=liveness,
         actionable_mask=state.actionable[rows],
@@ -409,6 +409,23 @@ def _v4_signal_scope_metrics(
     return tuple(metrics.values())
 
 
+def _v4_fast_lane_fit(prepared: Any, cutoff: int) -> CausalAlphaV4Fit:
+    """Fit the independent upstream V4 lane at the full Signal cutoff."""
+
+    return _fit_one(prepared, cutoff)
+
+
+def _v4_fast_lane_payload(evidence: Any) -> dict[str, object]:
+    fast = evidence.fast_4h
+    return {
+        "direction_accuracy_excess": fast.direction_accuracy_excess.to_payload(),
+        "lane": fast.to_payload(),
+        "rank_ic": fast.rank_ic.to_payload(),
+        "schema_version": "causal_alpha_v7_v4_fast_lane_diagnostics_v1",
+        "top_bottom_spread": fast.top_bottom_spread.to_payload(),
+    }
+
+
 def signal_stage(
     prepared: Any,
     *,
@@ -416,6 +433,7 @@ def signal_stage(
     target_config: CausalAlphaV6TargetConfig,
     v7_config_digest: str,
     checkpoint: Callable[..., object] | None = None,
+    v4_evidence_sink: Callable[[dict[str, object]], object] | None = None,
 ) -> CausalAlphaV7SignalEvidence:
     """Fit every Signal cutoff causally and require all three candidate paths."""
 
@@ -451,18 +469,6 @@ def signal_stage(
                         v7_config_digest=v7_config_digest,
                     )
                 )
-                v4_metrics.extend(
-                    _v4_signal_scope_metrics(
-                        prepared=prepared,
-                        resolved=resolved,
-                        symbol=symbol,
-                        contract=contract,
-                        rows=rows,
-                        forecast=forecast,
-                        state=state,
-                    )
-                )
-            _progress(stage="signal", cutoff=cutoff)
             if checkpoint is not None:
                 current = tuple(v7_metrics[metric_start:])
                 checkpoint(
@@ -505,12 +511,47 @@ def signal_stage(
         finally:
             del resolved
             gc.collect()
+        full_fit = _v4_fast_lane_fit(prepared, cutoff)
+        try:
+            for symbol, contract in zip(
+                prepared.train_symbols,
+                contracts,
+                strict=True,
+            ):
+                sample = prepared.samples[symbol]
+                rows = resolve_causal_alpha_v4_contract_rows(
+                    sample,
+                    start=contract.start,
+                    stop=contract.stop,
+                )
+                forecast = slice_causal_alpha_v4_forecast(
+                    full_fit.predict(sample),
+                    rows,
+                )
+                state = resolve_causal_alpha_v4_stage_state_inputs(sample)
+                v4_metrics.extend(
+                    _v4_signal_scope_metrics(
+                        prepared=prepared,
+                        fit=full_fit,
+                        symbol=symbol,
+                        contract=contract,
+                        rows=rows,
+                        forecast=forecast,
+                        state=state,
+                    )
+                )
+            _progress(stage="signal", cutoff=cutoff)
+        finally:
+            del full_fit
+            gc.collect()
     expected = len(prepared.train_symbols) * 8
     v4_evidence = evaluate_causal_alpha_v4_signal_gate(
         tuple(v4_metrics),
         expected_raw_scope_count_per_lane=expected,
         gate=CausalAlphaV4SignalGateConfig(),
     )
+    if v4_evidence_sink is not None:
+        v4_evidence_sink(_v4_fast_lane_payload(v4_evidence))
     return evaluate_causal_alpha_v7_signal_gate(
         tuple(v7_metrics),
         expected_symbols=prepared.train_symbols,
@@ -895,6 +936,20 @@ def run_causal_alpha_v7_concrete_entry(
                 target_config=config.target,
                 v7_config_digest=config.digest,
                 checkpoint=checkpoint.append,
+                v4_evidence_sink=lambda payload: store.write_leaf(
+                    Path("signal") / "v4-fast-evidence.json",
+                    _artifact(
+                        {
+                            **payload,
+                            "config_digest": config.digest,
+                            "generator_code_digest": prepared.generator_code_digest,
+                            "run_manifest_digest": prepared.run_manifest_digest,
+                            "v4_context_manifest_digest": (
+                                prepared.v4_context_manifest_digest
+                            ),
+                        }
+                    ),
+                ),
             ),
             selection_stage=lambda value, signal: selection_stage(
                 value,

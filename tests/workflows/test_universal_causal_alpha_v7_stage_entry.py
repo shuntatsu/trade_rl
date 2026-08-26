@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from tests.workflows.test_universal_causal_alpha_v7_selection import _records
 from trade_rl.learning.causal_alpha_v7 import (
@@ -36,6 +37,22 @@ def test_v7_range_binds_exact_v5_split() -> None:
     assert resolved.block_boundaries == split.block_boundaries
     assert resolved.split_digest == split.digest
     assert resolved.feature_names == CAUSAL_ALPHA_V7_CALIBRATION_FEATURE_NAMES
+
+
+def test_v7_fast_lane_fit_uses_full_signal_cutoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[int] = []
+    sentinel = object()
+
+    def fit(prepared: object, cutoff: int) -> object:
+        observed.append(cutoff)
+        return sentinel
+
+    monkeypatch.setattr(stage_entry, "_fit_one", fit)
+
+    assert stage_entry._v4_fast_lane_fit(object(), 12_345) is sentinel
+    assert observed == [12_345]
 
 
 def test_v7_signal_metrics_bind_all_three_candidates_to_one_calibration() -> None:

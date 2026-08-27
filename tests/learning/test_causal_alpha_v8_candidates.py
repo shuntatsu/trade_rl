@@ -14,11 +14,15 @@ from trade_rl.learning.causal_alpha_v7_calibration import (
     CausalAlphaV7CalibrationRows,
     fit_causal_alpha_v7_calibration,
 )
+from trade_rl.learning.causal_alpha_v7_target import causal_alpha_v7_target_paths
 from trade_rl.learning.causal_alpha_v8 import (
     CausalAlphaV8Candidate,
     CausalAlphaV8TargetConfig,
 )
-from trade_rl.learning.causal_alpha_v8_target import causal_alpha_v8_target_paths
+from trade_rl.learning.causal_alpha_v8_target import (
+    causal_alpha_v8_target_paths,
+    causal_alpha_v8_target_paths_from_v7,
+)
 
 
 def _digest(char: str) -> str:
@@ -138,7 +142,9 @@ def test_v8_candidates_are_fixed_and_control_is_exact_v7_path() -> None:
     )
 
     assert tuple(paths) == tuple(CausalAlphaV8Candidate)
-    assert paths[CausalAlphaV8Candidate.V7_CONTROL].v6_target_path.digest == direct.digest
+    assert (
+        paths[CausalAlphaV8Candidate.V7_CONTROL].v6_target_path.digest == direct.digest
+    )
 
 
 def test_v8_robust_candidates_bind_expected_fast_transformations() -> None:
@@ -147,10 +153,39 @@ def test_v8_robust_candidates_bind_expected_fast_transformations() -> None:
     contrarian = paths[CausalAlphaV8Candidate.ROBUST_CONTRARIAN].v6_target_path
     calibrated = paths[CausalAlphaV8Candidate.ROBUST_CALIBRATED].v6_target_path
 
-    np.testing.assert_allclose(contrarian.expected_returns_4h, -control.expected_returns_4h)
-    np.testing.assert_allclose(contrarian.direction_scores_4h, -control.direction_scores_4h)
+    np.testing.assert_allclose(
+        contrarian.expected_returns_4h, -control.expected_returns_4h
+    )
+    np.testing.assert_allclose(
+        contrarian.direction_scores_4h, -control.direction_scores_4h
+    )
     assert contrarian.config_digest == CausalAlphaV8TargetConfig().digest
     assert calibrated.config_digest == CausalAlphaV8TargetConfig().digest
     assert contrarian.sign_flip_count == 0
     assert calibrated.sign_flip_count == 0
 
+
+def test_v8_can_recompile_frozen_v7_effective_forecasts() -> None:
+    inputs = _inputs()
+    config = inputs["config"]
+    assert isinstance(config, CausalAlphaV8TargetConfig)
+    v7_inputs = {key: value for key, value in inputs.items() if key != "config"}
+    v7_paths = causal_alpha_v7_target_paths(**v7_inputs, config=config.base)  # type: ignore[arg-type]
+
+    paths = causal_alpha_v8_target_paths_from_v7(
+        forecast=inputs["forecast"],  # type: ignore[arg-type]
+        v7_paths=v7_paths,
+        config=config,
+    )
+
+    assert tuple(paths) == tuple(CausalAlphaV8Candidate)
+    assert (
+        paths[CausalAlphaV8Candidate.V7_CONTROL].v6_target_path.digest
+        == v7_paths[next(iter(v7_paths))].v6_target_path.digest
+    )
+    np.testing.assert_allclose(
+        paths[
+            CausalAlphaV8Candidate.ROBUST_CALIBRATED
+        ].v6_target_path.expected_returns_4h,
+        v7_paths[list(v7_paths)[2]].v6_target_path.expected_returns_4h,
+    )

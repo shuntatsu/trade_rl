@@ -26,6 +26,10 @@ from trade_rl.learning.causal_alpha_v6_target import (
     causal_alpha_v6_slow_state,
     causal_alpha_v6_target_path,
 )
+from trade_rl.learning.causal_alpha_v7 import (
+    CausalAlphaV7Candidate,
+    CausalAlphaV7TargetPath,
+)
 from trade_rl.learning.causal_alpha_v7_calibration import CausalAlphaV7CalibrationFit
 from trade_rl.learning.causal_alpha_v8 import (
     CausalAlphaV8Candidate,
@@ -122,7 +126,9 @@ def causal_alpha_v8_position_utility(
 ) -> float:
     """Return robust utility for carrying one target through the fast horizon."""
 
-    if not all(math.isfinite(value) for value in (target, expected_return, uncertainty)):
+    if not all(
+        math.isfinite(value) for value in (target, expected_return, uncertainty)
+    ):
         raise ValueError("V8 position utility inputs must be finite")
     if uncertainty < 0.0:
         raise ValueError("V8 position utility uncertainty must be non-negative")
@@ -159,9 +165,7 @@ def causal_alpha_v8_transition_score(
             uncertainty=uncertainty,
             config=config,
         )
-        - abs(target - previous)
-        * base.execution_cost_multiplier
-        * one_way_cost_rate
+        - abs(target - previous) * base.execution_cost_multiplier * one_way_cost_rate
     )
 
 
@@ -572,9 +576,81 @@ def causal_alpha_v8_target_paths(
     return MappingProxyType(paths)
 
 
+def causal_alpha_v8_target_paths_from_v7(
+    *,
+    forecast: CausalAlphaV4Forecast,
+    v7_paths: Mapping[CausalAlphaV7Candidate, CausalAlphaV7TargetPath],
+    config: CausalAlphaV8TargetConfig,
+) -> Mapping[CausalAlphaV8Candidate, CausalAlphaV8TargetPath]:
+    """Recompile V7 effective forecasts with the V8 exposure state machine."""
+
+    if tuple(v7_paths) != tuple(CausalAlphaV7Candidate):
+        raise ValueError("V8 source V7 paths are not canonical")
+    control = v7_paths[CausalAlphaV7Candidate.V6_CONTROL]
+    contrarian = v7_paths[CausalAlphaV7Candidate.SYMMETRIC_CONTRARIAN]
+    calibrated = v7_paths[CausalAlphaV7Candidate.CAUSAL_CALIBRATED]
+
+    def robust(
+        source: CausalAlphaV7TargetPath, transformation: str
+    ) -> CausalAlphaV6TargetPath:
+        path = source.v6_target_path
+        effective = _effective_forecast(
+            forecast,
+            expected_return_4h=path.expected_returns_4h,
+            direction_score_4h=path.direction_scores_4h,
+            transformation=transformation,
+            return_model_digest=content_digest(
+                {"source_target_digest": source.digest, "value": "return"}
+            ),
+            direction_model_digest=content_digest(
+                {"source_target_digest": source.digest, "value": "direction"}
+            ),
+        )
+        return causal_alpha_v8_exposure_path(
+            effective,
+            uncertainty={
+                "4h": path.uncertainties_4h,
+                "24h": np.zeros_like(path.uncertainties_4h),
+                "72h": np.zeros_like(path.uncertainties_4h),
+            },
+            one_way_cost_rates=path.one_way_cost_rates,
+            liquidity_weight_caps=path.liquidity_weight_caps,
+            risk_weight_caps=path.risk_weight_caps,
+            actionable_mask=path.actionable_mask,
+            config=config,
+            initial_weight=path.initial_weight,
+        )
+
+    paths = {
+        CausalAlphaV8Candidate.V7_CONTROL: CausalAlphaV8TargetPath(
+            candidate=CausalAlphaV8Candidate.V7_CONTROL,
+            v6_target_path=control.v6_target_path,
+            source_forecast_digest=forecast.digest,
+            calibration_fit_digest=control.calibration_fit_digest,
+            v8_config_digest=config.digest,
+        ),
+        CausalAlphaV8Candidate.ROBUST_CONTRARIAN: CausalAlphaV8TargetPath(
+            candidate=CausalAlphaV8Candidate.ROBUST_CONTRARIAN,
+            v6_target_path=robust(contrarian, "v8_from_v7_contrarian"),
+            source_forecast_digest=forecast.digest,
+            calibration_fit_digest=contrarian.calibration_fit_digest,
+            v8_config_digest=config.digest,
+        ),
+        CausalAlphaV8Candidate.ROBUST_CALIBRATED: CausalAlphaV8TargetPath(
+            candidate=CausalAlphaV8Candidate.ROBUST_CALIBRATED,
+            v6_target_path=robust(calibrated, "v8_from_v7_calibrated"),
+            source_forecast_digest=forecast.digest,
+            calibration_fit_digest=calibrated.calibration_fit_digest,
+            v8_config_digest=config.digest,
+        ),
+    }
+    return MappingProxyType(paths)
+
+
 __all__ = [
     "causal_alpha_v8_exposure_path",
     "causal_alpha_v8_position_utility",
     "causal_alpha_v8_target_paths",
+    "causal_alpha_v8_target_paths_from_v7",
     "causal_alpha_v8_transition_score",
 ]

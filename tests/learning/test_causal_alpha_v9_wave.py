@@ -8,6 +8,10 @@ from trade_rl.learning.causal_alpha_v9_wave import (
     causal_alpha_v9_wave_target_path,
     fit_causal_alpha_v9_wave,
 )
+from trade_rl.simulation.target_exposure_controller import (
+    TargetExposureController,
+    TargetExposureInput,
+)
 
 
 def _rows(symbol: str, phase: float) -> CausalAlphaV9TrainingRows:
@@ -86,12 +90,43 @@ def test_v9_wave_holds_neutral_and_exits_before_reversal() -> None:
         initial_weight=0.0,
     )
 
-    assert path.targets[16] == 0.05
-    assert path.targets[32] == 0.05
+    assert path.targets[16] == 0.1
+    assert path.targets[32] == 0.1
     assert path.targets[64] == 0.0
     assert path.targets[80] == 0.0
-    assert path.targets[96] == -0.05
+    assert path.targets[96] == -0.1
     assert path.sign_flip_count == 0
+
+
+def test_v9_wave_entry_clears_the_runtime_no_trade_band() -> None:
+    rows = 33
+    heads = np.zeros((3, rows), dtype=np.float64)
+    heads[:, 0] = 0.01
+    heads[:, 16] = 0.01
+    path = causal_alpha_v9_wave_target_path(
+        decision_indices=np.arange(rows),
+        head_predictions=heads,
+        one_way_cost_rates=np.full(rows, 0.0001),
+        liquidity_weight_caps=np.full(rows, 0.25),
+        risk_weight_caps=np.full(rows, 0.25),
+        actionable_mask=np.ones(rows, dtype=np.bool_),
+        source_forecast_digest="c" * 64,
+        config=CausalAlphaV9Config(),
+        initial_weight=0.0,
+    )
+
+    plan = TargetExposureController(no_trade_band=0.05).plan(
+        TargetExposureInput(
+            target_exposure=float(path.targets[16]),
+            allocated_equity=1_000.0,
+            reference_price=100.0,
+            contract_multiplier=1.0,
+            realized_quantity=0.0,
+            working_remaining_quantities=(),
+        )
+    )
+
+    assert plan.child_order is not None
 
 
 def test_v9_inherited_position_must_earn_continuation() -> None:
@@ -108,6 +143,6 @@ def test_v9_inherited_position_must_earn_continuation() -> None:
         initial_weight=0.25,
     )
 
-    assert path.targets[0] == 0.05
-    assert path.targets[15] == 0.05
+    assert path.targets[0] == 0.1
+    assert path.targets[15] == 0.1
     assert path.targets[16] == 0.0

@@ -59,10 +59,12 @@ class CausalAlphaV9TrainingRows:
             or labels.shape != (rows,)
         ):
             raise ValueError("V9 training arrays are not aligned")
+        valid_labels = ends >= 0
         if (
             not np.isfinite(features).all()
-            or not np.isfinite(labels).all()
-            or np.any(ends <= decisions)
+            or np.any(valid_labels & ~np.isfinite(labels))
+            or np.any(~valid_labels & np.isfinite(labels))
+            or np.any(valid_labels & (ends <= decisions))
             or np.any(np.diff(decisions) <= 0)
         ):
             raise ValueError("V9 training arrays are invalid")
@@ -183,6 +185,7 @@ def fit_causal_alpha_v9_wave(
     for record in records.values():
         selected = (
             (record.decision_indices >= start)
+            & (record.label_end_indices >= 0)
             & (record.label_end_indices < knowledge_cutoff)
             & ((knowledge_cutoff - record.decision_indices) % config.horizon_decisions == 0)
             & np.all(record.feature_available, axis=1)

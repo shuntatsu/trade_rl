@@ -86,11 +86,11 @@ def test_v9_wave_holds_neutral_and_exits_before_reversal() -> None:
         initial_weight=0.0,
     )
 
-    assert path.targets[16] == 0.025
-    assert path.targets[32] == 0.025
+    assert path.targets[16] == 0.05
+    assert path.targets[32] == 0.05
     assert path.targets[64] == 0.0
     assert path.targets[80] == 0.0
-    assert path.targets[96] == -0.025
+    assert path.targets[96] == -0.05
     assert path.sign_flip_count == 0
 
 
@@ -108,6 +108,6 @@ def test_v9_inherited_position_must_earn_continuation() -> None:
         initial_weight=0.25,
     )
 
-    assert path.targets[0] == 0.025
-    assert path.targets[15] == 0.025
+    assert path.targets[0] == 0.05
+    assert path.targets[15] == 0.05
     assert path.targets[16] == 0.0

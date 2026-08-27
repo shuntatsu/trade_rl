@@ -37,8 +37,10 @@ does not add symbol identity, exclude symbols, relax gates, or use holdout data.
 
 - Evaluate a qualified signal every four hours and hold the target between
   evaluations.
-- Enter the smallest existing non-zero target, `0.025`, only after two
-  consecutive qualified signals in the same direction.
+- Enter target `0.05`, the smallest existing target that reaches the fixed
+  runtime `no_trade_band=0.05`, only after two consecutive qualified signals
+  in the same direction. The initial `0.025` design was rejected by the first
+  simulator episode because every proposed trade was correctly suppressed.
 - Once V9 owns a position, neutral or uncertain observations hold it. This is
   the explicit multi-day wave behavior.
 - Exit to flat only after two consecutive qualified opposite signals.

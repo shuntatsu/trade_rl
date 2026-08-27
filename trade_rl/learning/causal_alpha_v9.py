@@ -34,7 +34,7 @@ class CausalAlphaV9Config:
     ridge_strength: float = 1.0
     edge_margin: float = 0.001
     confirmation_count: int = 2
-    target_magnitude: float = 0.025
+    target_magnitude: float = 0.05
     schema_version: str = CAUSAL_ALPHA_V9_CONFIG_SCHEMA
 
     def __post_init__(self) -> None:
@@ -48,7 +48,7 @@ class CausalAlphaV9Config:
             "ridge_strength": 1.0,
             "edge_margin": 0.001,
             "confirmation_count": 2,
-            "target_magnitude": 0.025,
+            "target_magnitude": 0.05,
         }
         if any(getattr(self, name) != value for name, value in expected.items()):
             raise ValueError("V9 nonlinear wave constants must remain fixed")

@@ -5,13 +5,16 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Final
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.learning.causal_alpha_v4 import (
     CAUSAL_ALPHA_V4_HORIZONS,
     CausalAlphaV4Forecast,
+    build_causal_alpha_v4_forecast,
 )
 from trade_rl.learning.causal_alpha_v6 import (
     CausalAlphaV6Candidate,
@@ -21,8 +24,14 @@ from trade_rl.learning.causal_alpha_v6 import (
 from trade_rl.learning.causal_alpha_v6_target import (
     causal_alpha_v6_fast_candidates,
     causal_alpha_v6_slow_state,
+    causal_alpha_v6_target_path,
 )
-from trade_rl.learning.causal_alpha_v8 import CausalAlphaV8TargetConfig
+from trade_rl.learning.causal_alpha_v7_calibration import CausalAlphaV7CalibrationFit
+from trade_rl.learning.causal_alpha_v8 import (
+    CausalAlphaV8Candidate,
+    CausalAlphaV8TargetConfig,
+    CausalAlphaV8TargetPath,
+)
 
 _EPSILON: Final = 1e-12
 
@@ -383,8 +392,189 @@ def causal_alpha_v8_exposure_path(
     )
 
 
+def _effective_forecast(
+    source: CausalAlphaV4Forecast,
+    *,
+    expected_return_4h: np.ndarray,
+    direction_score_4h: np.ndarray,
+    transformation: str,
+    return_model_digest: str,
+    direction_model_digest: str,
+) -> CausalAlphaV4Forecast:
+    rows = len(source.decision_indices)
+    expected = np.asarray(expected_return_4h, dtype=np.float64).reshape(-1)
+    direction = np.asarray(direction_score_4h, dtype=np.float64).reshape(-1)
+    if (
+        expected.shape != (rows,)
+        or direction.shape != (rows,)
+        or not np.isfinite(expected).all()
+        or not np.isfinite(direction).all()
+    ):
+        raise ValueError("V8 effective fast forecast is invalid")
+    market = {
+        horizon: source.market_predictions[horizon]
+        for horizon in CAUSAL_ALPHA_V4_HORIZONS
+    }
+    residual = {
+        horizon: source.residual_predictions[horizon]
+        for horizon in CAUSAL_ALPHA_V4_HORIZONS
+    }
+    directions = {
+        horizon: source.direction_scores[horizon]
+        for horizon in CAUSAL_ALPHA_V4_HORIZONS
+    }
+    market["4h"] = np.zeros(rows, dtype=np.float64)
+    residual["4h"] = expected
+    directions["4h"] = direction
+    market_digests = dict(source.market_model_digests)
+    residual_digests = dict(source.residual_model_digests)
+    direction_digests = dict(source.direction_model_digests)
+    market_digests["4h"] = content_digest(
+        {
+            "component": "zero_market",
+            "source_forecast_digest": source.digest,
+            "transformation": transformation,
+        }
+    )
+    residual_digests["4h"] = return_model_digest
+    direction_digests["4h"] = direction_model_digest
+    fit_digest = content_digest(
+        {
+            "direction_model_digest": direction_model_digest,
+            "return_model_digest": return_model_digest,
+            "source_fit_digest": source.fit_digest,
+            "transformation": transformation,
+        }
+    )
+    return build_causal_alpha_v4_forecast(
+        symbol=source.symbol,
+        decision_indices=source.decision_indices,
+        beta=source.beta,
+        beta_available=source.beta_available,
+        market_predictions=market,
+        residual_predictions=residual,
+        direction_scores=directions,
+        market_model_digests=market_digests,
+        residual_model_digests=residual_digests,
+        direction_model_digests=direction_digests,
+        fit_digest=fit_digest,
+    )
+
+
+def causal_alpha_v8_target_paths(
+    *,
+    forecast: CausalAlphaV4Forecast,
+    calibration_fit: CausalAlphaV7CalibrationFit,
+    calibration_features: object,
+    calibration_feature_available: object,
+    uncertainty: Mapping[str, np.ndarray],
+    one_way_cost_rates: object,
+    liquidity_weight_caps: object,
+    actionable_mask: object,
+    config: CausalAlphaV8TargetConfig,
+    initial_weight: float,
+    risk_weight_caps: object | None = None,
+) -> Mapping[CausalAlphaV8Candidate, CausalAlphaV8TargetPath]:
+    """Compile the exact V7 control and two robust V8 candidates."""
+
+    if not isinstance(forecast, CausalAlphaV4Forecast):
+        raise TypeError("V8 target paths require a V4 forecast")
+    if not isinstance(calibration_fit, CausalAlphaV7CalibrationFit):
+        raise TypeError("V8 target paths require a causal calibration fit")
+    if not isinstance(config, CausalAlphaV8TargetConfig):
+        raise TypeError("V8 target paths require V8 config")
+    calibrated_return, calibrated_direction = calibration_fit.predict(
+        calibration_features,
+        feature_available=calibration_feature_available,
+    )
+    raw_return = np.asarray(forecast.final_predictions["4h"], dtype=np.float64)
+    raw_direction = np.asarray(forecast.direction_scores["4h"], dtype=np.float64)
+    contrarian = _effective_forecast(
+        forecast,
+        expected_return_4h=-raw_return,
+        direction_score_4h=-raw_direction,
+        transformation="v8_robust_contrarian",
+        return_model_digest=content_digest(
+            {
+                "source_forecast_digest": forecast.digest,
+                "transformation": "negate_return",
+            }
+        ),
+        direction_model_digest=content_digest(
+            {
+                "source_forecast_digest": forecast.digest,
+                "transformation": "negate_direction",
+            }
+        ),
+    )
+    calibrated = _effective_forecast(
+        forecast,
+        expected_return_4h=calibrated_return,
+        direction_score_4h=calibrated_direction,
+        transformation="v8_robust_calibrated",
+        return_model_digest=calibration_fit.return_model.digest,
+        direction_model_digest=calibration_fit.direction_model.digest,
+    )
+    control_path = causal_alpha_v6_target_path(
+        forecast,
+        uncertainty=uncertainty,
+        one_way_cost_rates=one_way_cost_rates,
+        liquidity_weight_caps=liquidity_weight_caps,
+        risk_weight_caps=risk_weight_caps,
+        actionable_mask=actionable_mask,
+        candidate=CausalAlphaV6Candidate.FAST_ONLY,
+        config=config.base,
+        initial_weight=initial_weight,
+    )
+    robust = {
+        CausalAlphaV8Candidate.ROBUST_CONTRARIAN: causal_alpha_v8_exposure_path(
+            contrarian,
+            uncertainty=uncertainty,
+            one_way_cost_rates=one_way_cost_rates,
+            liquidity_weight_caps=liquidity_weight_caps,
+            risk_weight_caps=risk_weight_caps,
+            actionable_mask=actionable_mask,
+            config=config,
+            initial_weight=initial_weight,
+        ),
+        CausalAlphaV8Candidate.ROBUST_CALIBRATED: causal_alpha_v8_exposure_path(
+            calibrated,
+            uncertainty=uncertainty,
+            one_way_cost_rates=one_way_cost_rates,
+            liquidity_weight_caps=liquidity_weight_caps,
+            risk_weight_caps=risk_weight_caps,
+            actionable_mask=actionable_mask,
+            config=config,
+            initial_weight=initial_weight,
+        ),
+    }
+    paths = {
+        CausalAlphaV8Candidate.V7_CONTROL: CausalAlphaV8TargetPath(
+            candidate=CausalAlphaV8Candidate.V7_CONTROL,
+            v6_target_path=control_path,
+            source_forecast_digest=forecast.digest,
+            calibration_fit_digest=calibration_fit.digest,
+            v8_config_digest=config.digest,
+        ),
+        **{
+            candidate: CausalAlphaV8TargetPath(
+                candidate=candidate,
+                v6_target_path=path,
+                source_forecast_digest=forecast.digest,
+                calibration_fit_digest=calibration_fit.digest,
+                v8_config_digest=config.digest,
+            )
+            for candidate, path in robust.items()
+        },
+    }
+    if tuple(paths) != tuple(CausalAlphaV8Candidate):
+        raise RuntimeError("V8 target candidate order drifted")
+    return MappingProxyType(paths)
+
+
 __all__ = [
     "causal_alpha_v8_exposure_path",
     "causal_alpha_v8_position_utility",
+    "causal_alpha_v8_target_paths",
     "causal_alpha_v8_transition_score",
 ]

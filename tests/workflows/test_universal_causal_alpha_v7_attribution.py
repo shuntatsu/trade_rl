@@ -169,6 +169,29 @@ def test_v7_attribution_reconciles_every_fixed_dimension() -> None:
     }
 
 
+def test_v7_attribution_accepts_centered_relative_volume() -> None:
+    evidence = build_causal_alpha_v7_attribution(
+        target_path=_target(),
+        evaluation=_evaluation(),
+        confidence=np.asarray([0.1, 0.3, 0.6, 0.8, 0.9, 0.2]),
+        realized_volatility=np.asarray([0.005, 0.015, 0.025, 0.035, 0.01, 0.02]),
+        liquidity=np.asarray([-0.75, -0.25, 0.25, 0.75, 0.0, 0.5]),
+        boundaries=CausalAlphaV7AttributionBoundaries(
+            confidence=(0.25, 0.50, 0.75),
+            realized_volatility=(0.01, 0.02, 0.03),
+            liquidity=(-0.50, 0.0, 0.50),
+            calibration_range_digest=_digest("d"),
+        ),
+        step_hours=1.0,
+    )
+
+    liquidity_cells = tuple(
+        cell for cell in evidence.cells if cell.dimension == "liquidity_quartile"
+    )
+    assert tuple(cell.key for cell in liquidity_cells) == ("q1", "q2", "q3", "q4")
+    assert sum(cell.support for cell in liquidity_cells) == evidence.decision_count
+
+
 def test_v7_attribution_rejects_noncausal_bins_or_missing_step_economics() -> None:
     with pytest.raises(ValueError, match="strictly increasing"):
         replace(_boundaries(), confidence=(0.5, 0.5, 0.75), digest="")

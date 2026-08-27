@@ -214,10 +214,18 @@ class CausalAlphaV7AttributionEvidence:
         return payload
 
 
-def _vector(value: object, *, rows: int, field: str) -> np.ndarray:
+def _vector(
+    value: object,
+    *,
+    rows: int,
+    field: str,
+    non_negative: bool = True,
+) -> np.ndarray:
     array = np.asarray(value, dtype=np.float64).reshape(-1)
-    if array.shape != (rows,) or not np.isfinite(array).all() or np.any(array < 0.0):
-        raise ValueError(f"V7 attribution {field} must be aligned finite non-negative")
+    invalid_sign = non_negative and np.any(array < 0.0)
+    if array.shape != (rows,) or not np.isfinite(array).all() or invalid_sign:
+        constraint = " finite non-negative" if non_negative else " finite"
+        raise ValueError(f"V7 attribution {field} must be aligned{constraint}")
     return array
 
 
@@ -292,7 +300,12 @@ def build_causal_alpha_v7_attribution(
         rows=rows,
         field="realized volatility",
     )
-    liquidity_values = _vector(liquidity, rows=rows, field="liquidity")
+    liquidity_values = _vector(
+        liquidity,
+        rows=rows,
+        field="liquidity",
+        non_negative=False,
+    )
     gross = np.log1p(economics.gross_returns)
     net = np.log1p(economics.net_returns)
     costs = economics.costs

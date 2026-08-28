@@ -13,7 +13,7 @@ from trade_rl.workflows.universal_causal_alpha_v7_attribution import (
     CausalAlphaV7AttributionBoundaries,
 )
 from trade_rl.workflows.universal_causal_alpha_v10_stage_entry import (
-    _execution_no_trade_band,
+    _execution_rebalance_contract,
 )
 
 
@@ -24,7 +24,7 @@ def _heads(rows: int) -> np.ndarray:
     return result
 
 
-def _target(*, cap: float, band: float) -> float:
+def _target(*, cap: float, entry_threshold: float, band: float) -> float:
     rows = 33
     heads = _heads(rows)
     path = causal_alpha_v10_hierarchical_target_path(
@@ -47,30 +47,50 @@ def _target(*, cap: float, band: float) -> float:
         dual_fit_digest="b" * 64,
         config=CausalAlphaV10Config(),
         initial_weight=0.0,
+        execution_entry_threshold=entry_threshold,
         execution_no_trade_band=band,
     )
     return float(path.targets[16])
 
 
-def _pretrade(*, band: float) -> PreTradeRisk:
+def _pretrade(*, entry_threshold: float, band: float) -> PreTradeRisk:
     return PreTradeRisk(
         PreTradeRiskConfig(
             max_abs_weight=1.0,
             max_turnover=2.0,
+            entry_threshold=entry_threshold,
+            exit_threshold=min(0.03, entry_threshold),
             no_trade_band=band,
         )
     )
 
 
-def test_v10_compiler_and_pretrade_agree_on_execution_band_boundary() -> None:
+def test_v10_compiler_and_pretrade_agree_on_flat_entry_floor() -> None:
+    entry_threshold = 0.10
     band = 0.05
-    below = _target(cap=0.049, band=band)
-    equal = _target(cap=0.05, band=band)
+    below = _target(cap=0.099, entry_threshold=entry_threshold, band=band)
+    equal = _target(cap=0.10, entry_threshold=entry_threshold, band=band)
 
     assert below == 0.0
-    assert equal == 0.05
+    assert equal == 0.10
 
-    result = _pretrade(band=band).constrain(
+    result = _pretrade(entry_threshold=entry_threshold, band=band).constrain(
+        np.array([equal]),
+        current=np.array([0.0]),
+        drawdown=0.0,
+    )
+    np.testing.assert_allclose(result.weights, np.array([0.10]))
+    assert "entry_hysteresis" not in result.reasons
+    assert "no_trade_band" not in result.reasons
+
+
+def test_v10_compiler_matches_no_trade_boundary_when_entry_threshold_is_zero() -> None:
+    entry_threshold = 0.0
+    band = 0.05
+    equal = _target(cap=0.05, entry_threshold=entry_threshold, band=band)
+
+    assert equal == 0.05
+    result = _pretrade(entry_threshold=entry_threshold, band=band).constrain(
         np.array([equal]),
         current=np.array([0.0]),
         drawdown=0.0,
@@ -79,11 +99,11 @@ def test_v10_compiler_and_pretrade_agree_on_execution_band_boundary() -> None:
     assert "no_trade_band" not in result.reasons
 
 
-def test_v10_execution_band_resolver_uses_environment_contract_and_closes() -> None:
+def test_v10_execution_contract_resolver_uses_environment_and_closes() -> None:
     closed: list[bool] = []
 
     class Environment:
-        pre_trade_risk = _pretrade(band=0.05)
+        pre_trade_risk = _pretrade(entry_threshold=0.10, band=0.05)
 
         def close(self) -> None:
             closed.append(True)
@@ -94,5 +114,5 @@ def test_v10_execution_band_resolver_uses_environment_contract_and_closes() -> N
         )
     )
 
-    assert _execution_no_trade_band(prepared, "BTCUSDT") == 0.05
+    assert _execution_rebalance_contract(prepared, "BTCUSDT") == (0.10, 0.05)
     assert closed == [True]

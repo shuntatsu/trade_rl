@@ -56,8 +56,7 @@ class CausalAlphaV10ExecutionContract:
             self.fail_closed_tolerance,
         )
         if any(
-            isinstance(value, bool) or not np.isfinite(value)
-            for value in finite_values
+            isinstance(value, bool) or not np.isfinite(value) for value in finite_values
         ):
             raise ValueError("V10 execution contract values must be finite")
         if not 0.0 < self.max_gross <= 10.0:
@@ -336,9 +335,15 @@ def _policy_input(
         realized_volatility=np.asarray(realized_volatility),
         liquidity=np.asarray(liquidity),
         actionable_mask=np.asarray(actionable_mask),
-        attribution_liquidity=tuple(attribution_boundaries.liquidity),
-        attribution_realized_volatility=tuple(
-            attribution_boundaries.realized_volatility
+        attribution_liquidity=(
+            float(attribution_boundaries.liquidity[0]),
+            float(attribution_boundaries.liquidity[1]),
+            float(attribution_boundaries.liquidity[2]),
+        ),
+        attribution_realized_volatility=(
+            float(attribution_boundaries.realized_volatility[0]),
+            float(attribution_boundaries.realized_volatility[1]),
+            float(attribution_boundaries.realized_volatility[2]),
         ),
         source_forecast_digest=source_forecast_digest,
         dual_fit_digest=dual_fit_digest,
@@ -421,7 +426,9 @@ class CausalAlphaV10HierarchyPolicy:
     def _current_weight(self, observation: object) -> float:
         if not isinstance(observation, Mapping) or "current_weights" not in observation:
             raise ValueError("V10 closed-loop observation is missing current_weights")
-        values = np.asarray(observation["current_weights"], dtype=np.float64).reshape(-1)
+        values = np.asarray(observation["current_weights"], dtype=np.float64).reshape(
+            -1
+        )
         if values.shape != (1,) or not np.isfinite(values).all():
             raise ValueError("V10 closed-loop current_weights must be one finite value")
         return float(values[0])
@@ -432,10 +439,7 @@ class CausalAlphaV10HierarchyPolicy:
             return False
         if abs(target) < contract.entry_threshold:
             return False
-        return (
-            abs(target - current)
-            >= contract.no_trade_band - _OBSERVATION_TOLERANCE
-        )
+        return abs(target - current) >= contract.no_trade_band - _OBSERVATION_TOLERANCE
 
     def _record(
         self,
@@ -543,7 +547,8 @@ class CausalAlphaV10HierarchyPolicy:
             float(self.input.risk_weight_caps[offset]),
         )
         cadence = (
-            int(self.input.decision_indices[offset]) % config.fast_horizon_decisions == 0
+            int(self.input.decision_indices[offset]) % config.fast_horizon_decisions
+            == 0
         )
 
         decision_current = observed_current
@@ -584,9 +589,8 @@ class CausalAlphaV10HierarchyPolicy:
             observed_slow = int(self._slow_direction[offset])
             if self._inherited and decision_sign != 0:
                 self._inherited_checks += 1
-                if (
-                    fast == observed_slow == decision_sign
-                    and bool(self._execution_eligible[offset])
+                if fast == observed_slow == decision_sign and bool(
+                    self._execution_eligible[offset]
                 ):
                     self._inherited_matches += 1
                 if self._inherited_checks >= config.entry_confirmation_count:
@@ -676,7 +680,9 @@ class CausalAlphaV10HierarchyPolicy:
                     self._slow_opposite_count = 0
                     self._neutral_slow_count = 0
                     self._slow_regime = 0
-                elif not risk_projected and hierarchy_reason != "liquidity_capacity_hold":
+                elif (
+                    not risk_projected and hierarchy_reason != "liquidity_capacity_hold"
+                ):
                     reason = hierarchy_reason = (
                         "slow_support_hold"
                         if self._slow_regime == decision_sign
@@ -713,7 +719,9 @@ class CausalAlphaV10HierarchyPolicy:
             ),
         )
         counts = tuple(
-            sorted((reason, self._reasons.count(reason)) for reason in set(self._reasons))
+            sorted(
+                (reason, self._reasons.count(reason)) for reason in set(self._reasons)
+            )
         )
         path = CausalAlphaV6TargetPath(
             candidate=CausalAlphaV6Candidate.FAST_ONLY,
@@ -852,10 +860,10 @@ def causal_alpha_v10_hierarchical_target_path(
     realized = float(initial_weight)
     for _ in range(len(policy.input.decision_indices)):
         action, _state = policy.predict(
-            {"current_weights": np.asarray([realized], dtype=np.float32)},
+            {"current_weights": np.asarray([realized], dtype=np.float64)},
             deterministic=True,
         )
-        realized = float(action[0])
+        realized = float(policy._targets[policy._offset - 1])
     return policy.result().v6_target_path
 
 

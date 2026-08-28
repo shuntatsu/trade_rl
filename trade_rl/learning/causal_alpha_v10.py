@@ -1,4 +1,4 @@
-"""Immutable configuration for Causal Alpha V10 hierarchical waves."""
+"""Immutable configuration and target contracts for Causal Alpha V10."""
 
 from __future__ import annotations
 
@@ -11,7 +11,25 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.learning.causal_alpha_v6 import CausalAlphaV6TargetPath
 
 CAUSAL_ALPHA_V10_CONFIG_SCHEMA: Final = "causal_alpha_v10_config_v1"
-CAUSAL_ALPHA_V10_TARGET_SCHEMA: Final = "causal_alpha_v10_target_v1"
+CAUSAL_ALPHA_V10_TARGET_SCHEMA: Final = "causal_alpha_v10_target_v2"
+CAUSAL_ALPHA_V10_HIERARCHY_REASONS: Final = frozenset(
+    {
+        "cadence_hold",
+        "confirmation_hold",
+        "cost_or_uncertainty_hold",
+        "entry",
+        "entry_floor_hold",
+        "exit",
+        "hold_flat",
+        "hold_position",
+        "liquidity_capacity_hold",
+        "realized_state_reset",
+        "risk_cap_flatten",
+        "risk_cap_projection",
+        "slow_support_hold",
+        "unactionable_hold",
+    }
+)
 
 
 class CausalAlphaV10Candidate(str, Enum):
@@ -94,6 +112,9 @@ class CausalAlphaV10TargetPath:
     fast_fit_digest: str
     slow_fit_digest: str
     v10_config_digest: str
+    hierarchy_input_digest: str | None = None
+    hierarchy_reasons: tuple[str, ...] = ()
+    hierarchy_reason_counts: tuple[tuple[str, int], ...] = ()
     schema_version: str = CAUSAL_ALPHA_V10_TARGET_SCHEMA
     digest: str = ""
 
@@ -110,7 +131,36 @@ class CausalAlphaV10TargetPath:
             require_sha256(getattr(self, name), field=f"V10 target {name}")
         if self.schema_version != CAUSAL_ALPHA_V10_TARGET_SCHEMA:
             raise ValueError("unsupported V10 target schema")
+
+        reasons = tuple(self.hierarchy_reasons)
+        counts = tuple(self.hierarchy_reason_counts)
+        hierarchical = candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE
+        if hierarchical:
+            if self.hierarchy_input_digest is None:
+                raise ValueError(
+                    "V10 hierarchical target requires hierarchy input digest"
+                )
+            require_sha256(
+                self.hierarchy_input_digest,
+                field="V10 target hierarchy input digest",
+            )
+            if len(reasons) != len(self.v6_target_path.decision_indices):
+                raise ValueError("V10 hierarchy reasons must cover every decision")
+            if any(
+                reason not in CAUSAL_ALPHA_V10_HIERARCHY_REASONS for reason in reasons
+            ):
+                raise ValueError("V10 hierarchy reason is unsupported")
+            expected_counts = tuple(
+                sorted((reason, reasons.count(reason)) for reason in set(reasons))
+            )
+            if counts != expected_counts:
+                raise ValueError("V10 hierarchy reason counts are inconsistent")
+        elif self.hierarchy_input_digest is not None or reasons or counts:
+            raise ValueError("V10 control target cannot contain hierarchy trace")
+
         object.__setattr__(self, "candidate", candidate)
+        object.__setattr__(self, "hierarchy_reasons", reasons)
+        object.__setattr__(self, "hierarchy_reason_counts", counts)
         expected = content_digest(self.to_payload(include_digest=False))
         if self.digest and self.digest != expected:
             raise ValueError("V10 target digest mismatch")
@@ -120,6 +170,9 @@ class CausalAlphaV10TargetPath:
         payload: dict[str, object] = {
             "candidate": self.candidate.value,
             "fast_fit_digest": self.fast_fit_digest,
+            "hierarchy_input_digest": self.hierarchy_input_digest,
+            "hierarchy_reason_counts": self.hierarchy_reason_counts,
+            "hierarchy_reasons": self.hierarchy_reasons,
             "schema_version": self.schema_version,
             "slow_fit_digest": self.slow_fit_digest,
             "source_forecast_digest": self.source_forecast_digest,
@@ -133,6 +186,7 @@ class CausalAlphaV10TargetPath:
 
 __all__ = [
     "CAUSAL_ALPHA_V10_CONFIG_SCHEMA",
+    "CAUSAL_ALPHA_V10_HIERARCHY_REASONS",
     "CAUSAL_ALPHA_V10_TARGET_SCHEMA",
     "CausalAlphaV10Candidate",
     "CausalAlphaV10Config",

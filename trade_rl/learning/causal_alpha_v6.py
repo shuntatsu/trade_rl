@@ -13,9 +13,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.identity import content_and_arrays_digest
 from trade_rl.domain.common import require_sha256
 
-CAUSAL_ALPHA_V6_TARGET_CONFIG_SCHEMA: Final = (
-    "causal_alpha_v6_target_config_v1"
-)
+CAUSAL_ALPHA_V6_TARGET_CONFIG_SCHEMA: Final = "causal_alpha_v6_target_config_v1"
 CAUSAL_ALPHA_V6_TARGET_SCHEMA: Final = "causal_alpha_v6_target_v1"
 CAUSAL_ALPHA_V6_TARGET_REASONS: Final = frozenset(
     {
@@ -216,7 +214,9 @@ class CausalAlphaV6TargetPath:
             reason not in CAUSAL_ALPHA_V6_TARGET_REASONS for reason in reasons
         ):
             raise ValueError("V6 target reasons must cover every decision")
-        counts = tuple(sorted((reason, reasons.count(reason)) for reason in set(reasons)))
+        counts = tuple(
+            sorted((reason, reasons.count(reason)) for reason in set(reasons))
+        )
         if tuple(self.reason_counts) != counts:
             raise ValueError("V6 target reason counts do not match reasons")
         self._validate_counts(reasons, arrays["targets"])
@@ -227,7 +227,9 @@ class CausalAlphaV6TargetPath:
         object.__setattr__(self, "reason_counts", counts)
         for name, array in arrays.items():
             object.__setattr__(self, name, array)
-        expected = content_and_arrays_digest(self._digest_metadata(), tuple(arrays.items()))
+        expected = content_and_arrays_digest(
+            self._digest_metadata(), tuple(arrays.items())
+        )
         if self.digest and self.digest != expected:
             raise ValueError("V6 target path digest mismatch")
         object.__setattr__(self, "digest", expected)

@@ -112,7 +112,10 @@ class CausalAlphaV10HorizonFit:
         expected_mode = "raw_plus_relu" if self.horizon == "fast_4h" else "relu_only"
         if self.design_mode != expected_mode:
             raise ValueError("V10 fit design mode is invalid")
-        if self.maximum_label_end_index >= self.knowledge_cutoff or self.training_row_count <= 0:
+        if (
+            self.maximum_label_end_index >= self.knowledge_cutoff
+            or self.training_row_count <= 0
+        ):
             raise ValueError("V10 fit causal range is invalid")
         if mean.shape != (width,) or scale.shape != (width,) or np.any(scale <= 0.0):
             raise ValueError("V10 fit normalization is invalid")
@@ -199,7 +202,10 @@ class CausalAlphaV10DualFit:
             raise ValueError("V10 dual fit horizons are invalid")
         if self.fast.knowledge_cutoff != self.slow.knowledge_cutoff:
             raise ValueError("V10 dual fit cutoffs differ")
-        if self.fast.config_digest != self.config_digest or self.slow.config_digest != self.config_digest:
+        if (
+            self.fast.config_digest != self.config_digest
+            or self.slow.config_digest != self.config_digest
+        ):
             raise ValueError("V10 dual fit config identity drifted")
         if self.schema_version != _DUAL_FIT_SCHEMA:
             raise ValueError("unsupported V10 dual fit schema")
@@ -228,8 +234,12 @@ def _fit_horizon(
     horizon: Literal["fast_4h", "slow_72h"],
 ) -> CausalAlphaV10HorizonFit:
     fast = horizon == "fast_4h"
-    lookback = config.fast_lookback_decisions if fast else config.slow_lookback_decisions
-    horizon_decisions = config.fast_horizon_decisions if fast else config.slow_horizon_decisions
+    lookback = (
+        config.fast_lookback_decisions if fast else config.slow_lookback_decisions
+    )
+    horizon_decisions = (
+        config.fast_horizon_decisions if fast else config.slow_horizon_decisions
+    )
     start = knowledge_cutoff - lookback
     feature_blocks: list[np.ndarray] = []
     label_blocks: list[np.ndarray] = []
@@ -241,7 +251,7 @@ def _fit_horizon(
             (record.decision_indices >= start)
             & (ends >= 0)
             & (ends < knowledge_cutoff)
-            & ((knowledge_cutoff - record.decision_indices) % horizon_decisions == 0)
+            & (record.decision_indices % horizon_decisions == 0)
             & np.all(record.feature_available, axis=1)
         )
         if not np.any(selected):

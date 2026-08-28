@@ -268,7 +268,7 @@ def causal_alpha_v10_hierarchical_target_path(
         sorted((reason, reasons.count(reason)) for reason in set(reasons))
     )
     return CausalAlphaV6TargetPath(
-        candidate=CausalAlphaV6Candidate.FAST_SLOW_RETENTION,
+        candidate=CausalAlphaV6Candidate.FAST_ONLY,
         initial_weight=float(initial_weight),
         decision_indices=decisions,
         targets=targets,
@@ -299,4 +299,3 @@ def causal_alpha_v10_hierarchical_target_path(
 
 
 __all__ = ["causal_alpha_v10_hierarchical_target_path"]
-

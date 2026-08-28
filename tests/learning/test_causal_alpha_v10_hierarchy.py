@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from trade_rl.learning.causal_alpha_v6 import CausalAlphaV6TargetPath
+from trade_rl.learning.causal_alpha_v6 import (
+    CausalAlphaV6Candidate,
+    CausalAlphaV6TargetPath,
+)
 from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Config
 from trade_rl.learning.causal_alpha_v10_hierarchy import (
     causal_alpha_v10_hierarchical_target_path,
@@ -103,6 +106,7 @@ def test_v10_two_fast_opposites_exit_without_direct_flip() -> None:
     assert path.targets[48] == 0.0
     assert path.targets[80] == -0.1
     assert path.sign_flip_count == 0
+    assert path.candidate is CausalAlphaV6Candidate.FAST_ONLY
 
 
 def test_v10_two_slow_opposites_exit() -> None:

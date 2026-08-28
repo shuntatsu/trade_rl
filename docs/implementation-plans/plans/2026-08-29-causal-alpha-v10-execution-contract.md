@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make V10 hierarchical targets executable under the simulator's frozen no-trade-band contract and cost-aware without changing economic gates or timing hypotheses.
+**Goal:** Make V10 hierarchical targets executable under the simulator's frozen `PreTradeRisk` rebalance contract and cost-aware without changing economic gates or timing hypotheses.
 
-**Architecture:** Resolve `PreTradeRisk.no_trade_band` from each DB-backed replay environment, pass it into the V10 hierarchy compiler, and bind it into target identity. The compiler rejects sub-band flat entries, holds soft liquidity sizing between 4-hour evaluations, and reuses the V6 cost hurdle for entry eligibility.
+**Architecture:** Resolve `(entry_threshold, no_trade_band)` from each DB-backed replay environment, pass the pair into the V10 hierarchy compiler, and bind both values into target identity. The compiler rejects flat entries below `max(entry_threshold, no_trade_band)`, treats liquidity cap as soft entry capacity while a position is held, and reuses the V6 cost hurdle for entry eligibility. Replay revalidates the same contract before evaluation.
 
 **Tech Stack:** Python 3.12, NumPy, pytest, Ruff, Mypy, import-linter, GitHub Actions.
 
@@ -17,93 +17,94 @@
 - No change to 72h/4h horizons or confirmation counts.
 - No one-minute data, holdout tuning, BC, or RL changes.
 - V8/V9 controls stay unchanged.
-- The no-trade band comes from the actual environment; it is not a new V10 hyperparameter.
-- `PreTradeRisk` strict boundary semantics are preserved: deltas `< band` are suppressed; equality is executable.
+- Execution thresholds come from the actual environment; they are not new V10 hyperparameters.
+- `PreTradeRisk` strict boundary semantics are preserved: `abs(target) < entry_threshold` blocks flat entry and deltas `< no_trade_band` are suppressed; equality is executable.
 
 ---
 
-### Task 1: Lock the execution-band and after-cost compiler contract
+### Task 1: Lock the execution and after-cost compiler contract
 
 **Files:**
 - Modify: `tests/learning/test_causal_alpha_v10_hierarchy.py`
 - Modify: `tests/risk/test_pretrade.py`
+- Add: `tests/simulation/test_causal_alpha_v10_execution_contract.py`
 - Modify: `trade_rl/learning/causal_alpha_v6.py`
 - Modify: `trade_rl/learning/causal_alpha_v10_hierarchy.py`
 
 **Interfaces:**
-- Consumes: `execution_no_trade_band: float` supplied by V10 workflow wiring.
-- Produces: `causal_alpha_v10_hierarchical_target_path(..., execution_no_trade_band: float, ...) -> CausalAlphaV6TargetPath`.
+- Consumes: `execution_entry_threshold: float` and `execution_no_trade_band: float` supplied by V10 workflow wiring.
+- Produces: `causal_alpha_v10_hierarchical_target_path(...) -> CausalAlphaV6TargetPath` whose identity includes those execution values.
 
-- [ ] **Step 1: Write failing boundary tests**
+- [ ] **Step 1: Write boundary and integration regressions**
 
-Extend the V10 test helper so it can supply `liquidity_caps`, `risk_caps`, `costs`, and `execution_no_trade_band`. Add sub-band and equality boundary tests, plus a `PreTradeRisk` characterization test proving that equality is executable.
+Cover the maintained contract `entry_threshold=0.10`, `no_trade_band=0.05`: cap `0.099` remains flat; cap `0.10` is eligible. Separately pin that with `entry_threshold=0`, a target equal to a `0.05` band is executable. Compare the compiler result directly with `PreTradeRisk` in `tests/simulation`.
 
-- [ ] **Step 2: Verify RED on the PR head**
+- [ ] **Step 2: Record RED evidence where the available CI path permits it**
 
-Run through GitHub Actions after committing only the regression tests. Expected V10 failures are caused by the missing `execution_no_trade_band` compiler contract and/or current sub-band entry behavior. The PreTrade characterization test should already pass.
+The regression tests were authored before the production implementation. GitHub's Rebuilt Core currently has pre-existing formatting failures before its full pytest step, so record any unexecuted RED layer explicitly rather than claiming it ran.
 
-- [ ] **Step 3: Implement minimal execution-band handling**
+- [ ] **Step 3: Implement full flat-entry eligibility**
 
-Add `"execution_band_hold"` to `CAUSAL_ALPHA_V6_TARGET_REASONS`. Add `execution_no_trade_band` to the V10 hierarchy function, validate it as finite and non-negative, and allow a flat entry only when `abs(candidate_target) >= execution_no_trade_band`.
-
-A blocked sub-band observation resets the pending entry confirmation and records `execution_band_hold`.
-
-- [ ] **Step 4: Add and verify cost-aware entry test**
-
-Use the existing V6 `execution_cost_multiplier = 1.5`; do not introduce a V10 tuning parameter. Entry must satisfy:
+Add `"execution_contract_hold"` to `CAUSAL_ALPHA_V6_TARGET_REASONS`. Validate both execution thresholds in the V10 hierarchy compiler and allow a flat entry only when:
 
 ```python
-abs(fast_mean[index]) > (
-    fast_uncertainty[index]
-    + 1.5 * costs[index]
-    + config.edge_margin
-)
+abs(candidate_target) >= max(entry_threshold, no_trade_band)
 ```
 
-Update V10 objective evidence with the same cost term.
+A blocked observation resets pending entry confirmation and records `execution_contract_hold`.
 
-- [ ] **Step 5: Add and verify cadence test**
+- [ ] **Step 4: Keep soft liquidity capacity out of held-position resizing**
 
-Inject a lower liquidity cap between 4-hour decisions and assert the held target does not resize until cadence. Keep risk-cap projection fail-closed; restrict only soft liquidity-cap resizing to the 4-hour cadence.
+A liquidity cap may reduce an entry candidate. Once the position is held, ordinary liquidity-cap reductions do not emit smaller intermediate targets; V10 keeps the previous strategic target. Existing risk-cap projection remains immediate and is not weakened.
+
+- [ ] **Step 5: Add cost-aware entry**
+
+Use the existing V6 `execution_cost_multiplier = 1.5`; do not introduce a V10 tuning parameter. The actual decision oracle is the existing `causal_alpha_v6_fast_objective`, so a coherent entry must have positive objective after uncertainty, execution cost, and edge margin. Update V10 objective evidence with the same function.
 
 - [ ] **Step 6: Bind compiler identity**
 
-Build a V10 target-compiler digest from the V10 config digest, execution band, V6 execution-cost multiplier, and a fixed schema string. Store that digest as the V6-compatible path `config_digest`. Add a test compiling identical forecasts with two bands and assert path digests differ.
+Build a V10 compiler-contract digest from V10 config identity, `entry_threshold`, `no_trade_band`, the fixed V6 economic config digest, and a dedicated schema. Confirm that changing an execution threshold changes target-path identity without changing V8/V9 control identity.
 
-- [ ] **Step 7: Verify GREEN for focused tests**
+- [ ] **Step 7: Verify focused compiler/risk tests**
 
 ```bash
-uv run pytest -q tests/learning/test_causal_alpha_v10_hierarchy.py tests/risk/test_pretrade.py
+uv run pytest -q \
+  tests/learning/test_causal_alpha_v10_hierarchy.py \
+  tests/risk/test_pretrade.py \
+  tests/simulation/test_causal_alpha_v10_execution_contract.py
 ```
 
 ---
 
-### Task 2: Wire the simulator-authoritative band into V10 Selection
+### Task 2: Wire the simulator-authoritative contract into V10 Selection
 
 **Files:**
 - Modify: `trade_rl/workflows/universal_causal_alpha_v10_stage_entry.py`
 - Modify: `tests/workflows/test_universal_causal_alpha_v10_stage_entry.py`
 
 **Interfaces:**
-- Produces: `_execution_no_trade_band(prepared: Any, symbol: str) -> float`.
-- `_target_paths(..., execution_no_trade_band: float, ...)` forwards the value to the hierarchy compiler only; V8/V9 controls are untouched.
+- Produces: `_execution_rebalance_contract(prepared: Any, symbol: str) -> tuple[float, float]` containing `(entry_threshold, no_trade_band)`.
+- `_target_paths(..., execution_rebalance_contract=...)` forwards the pair to the hierarchy compiler only; V8/V9 controls are untouched.
 
-- [ ] **Step 1: Write failing environment-resolution test**
+- [ ] **Step 1: Test environment resolution and resource cleanup**
 
-Create a fake environment whose `pre_trade_risk.config.no_trade_band` is 0.05 and whose `close()` records invocation. Assert the resolver returns 0.05 and closes the environment.
+Create a fake environment with `entry_threshold=0.10` and `no_trade_band=0.05`; assert the resolver returns `(0.10, 0.05)` and closes the temporary environment.
 
-- [ ] **Step 2: Verify RED**
+- [ ] **Step 2: Test runtime drift rejection**
 
-Expected failure: `_execution_no_trade_band` does not exist.
+Create a replay environment whose contract differs from the compiler pair and assert fail-closed rejection before simulator evaluation.
 
-- [ ] **Step 3: Implement minimal resolver and wiring**
+- [ ] **Step 3: Implement resolver, wiring, and drift guard**
 
-Use existing `_environment(prepared, symbol)`, validate the resolved value, always close the environment in `finally`, resolve one band per symbol before replay loops, and pass it into `_target_paths`/the V10 hierarchy compiler.
+Use existing `_environment(prepared, symbol)`, validate both values, always close temporary resolver environments in `finally`, resolve one pair per symbol, pass it into V10 hierarchy compilation, and compare the pair again on every actual replay environment before evaluation.
 
 - [ ] **Step 4: Verify focused workflow tests**
 
 ```bash
-uv run pytest -q tests/workflows/test_universal_causal_alpha_v10_stage_entry.py tests/learning/test_causal_alpha_v10_hierarchy.py
+uv run pytest -q \
+  tests/workflows/test_universal_causal_alpha_v10_stage_entry.py \
+  tests/learning/test_causal_alpha_v10_hierarchy.py \
+  tests/simulation/test_causal_alpha_v10_execution_contract.py
 ```
 
 ---
@@ -113,7 +114,13 @@ uv run pytest -q tests/workflows/test_universal_causal_alpha_v10_stage_entry.py 
 - [ ] **Step 1: Run related V10 suites**
 
 ```bash
-uv run pytest -q tests/learning/test_causal_alpha_v10_fit.py tests/learning/test_causal_alpha_v10_hierarchy.py tests/workflows/test_universal_causal_alpha_v10_gates.py tests/workflows/test_universal_causal_alpha_v10_stage_entry.py
+uv run pytest -q \
+  tests/learning/test_causal_alpha_v10_fit.py \
+  tests/learning/test_causal_alpha_v10_hierarchy.py \
+  tests/workflows/test_universal_causal_alpha_v10_gates.py \
+  tests/workflows/test_universal_causal_alpha_v10_stage_entry.py \
+  tests/risk/test_pretrade.py \
+  tests/simulation/test_causal_alpha_v10_execution_contract.py
 ```
 
 - [ ] **Step 2: Run repository quality gates matching CI**
@@ -132,12 +139,12 @@ GitHub Actions additionally runs frontend verification, Ubuntu/Windows compatibi
 
 - [ ] **Step 3: Falsification review**
 
-Re-read the original report and final diff without assuming the implementation is correct. Check specifically for: `<` versus `<=` band mismatch, confirmation accidentally advancing on non-executable observations, V8/V9 control changes, liquidity resizing outside cadence, hidden hyperparameter introduction, stale replay identity reuse, and cost evidence disagreeing with the actual entry gate.
+Re-read the original report and final diff from the public contracts rather than implementation intent. Check specifically for: entry-threshold versus no-trade-band precedence, strict `<` versus `<=` mismatches, confirmation advancing on non-executable observations, soft liquidity silently producing smaller targets, V8/V9 control changes, hidden hyperparameter introduction, stale replay identity reuse, runtime contract drift, and cost evidence disagreeing with the actual entry gate.
 
 - [ ] **Step 4: Inspect final PR HEAD and CI**
 
-Require all applicable checks on the exact final head to finish successfully before marking the PR ready. Keep the PR draft if any required check fails or remains unverified.
+Require all applicable checks on the exact final head to finish successfully before marking the PR ready. Classify pre-existing main failures separately; do not claim full CI green while they remain.
 
 - [ ] **Step 5: Do not merge**
 
-Report the draft PR, exact final HEAD, verification evidence, unverified DB-backed Selection rerun, and residual risks. Merge to `main` only with explicit user authorization.
+Report the draft PR, exact final HEAD, verification evidence, unverified DB-backed Selection rerun, baseline CI blockers, and residual risks. Merge to `main` only with explicit user authorization.

@@ -114,5 +114,10 @@ def test_v10_execution_contract_resolver_uses_environment_and_closes() -> None:
         )
     )
 
-    assert _execution_rebalance_contract(prepared, "BTCUSDT") == (0.10, 0.05)
+    contract = _execution_rebalance_contract(prepared, "BTCUSDT")
+
+    assert contract.entry_threshold == 0.10
+    assert contract.exit_threshold == 0.03
+    assert contract.no_trade_band == 0.05
+    assert contract.max_turnover == 2.0
     assert closed == [True]

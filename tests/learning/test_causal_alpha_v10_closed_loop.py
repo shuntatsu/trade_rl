@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Config
 import trade_rl.learning.causal_alpha_v10_hierarchy as hierarchy
+from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Config
 
 
 def _boundaries() -> SimpleNamespace:
@@ -56,9 +56,43 @@ def _path(
     )
 
 
-def test_v10_closed_loop_policy_api_exists() -> None:
-    factory = getattr(hierarchy, "prepare_causal_alpha_v10_hierarchy_policy", None)
-    assert callable(factory), "closed-loop V10 hierarchy policy is not implemented"
+def test_v10_closed_loop_policy_uses_realized_weight_on_next_hold() -> None:
+    rows = 18
+    policy = hierarchy.prepare_causal_alpha_v10_hierarchy_policy(
+        decision_indices=np.arange(rows, dtype=np.int64),
+        fast_head_predictions=_heads(rows, (0, 16)),
+        slow_head_predictions=_heads(rows, (0, 16)),
+        one_way_cost_rates=np.full(rows, 0.0001),
+        liquidity_weight_caps=np.full(rows, 0.10),
+        risk_weight_caps=np.full(rows, 0.25),
+        realized_volatility=np.full(rows, 2.5),
+        liquidity=np.full(rows, 25.0),
+        attribution_boundaries=_boundaries(),
+        actionable_mask=np.ones(rows, dtype=np.bool_),
+        source_forecast_digest="a" * 64,
+        dual_fit_digest="b" * 64,
+        config=CausalAlphaV10Config(),
+        initial_weight=0.0,
+        execution_contract=hierarchy.CausalAlphaV10ExecutionContract(
+            entry_threshold=0.10,
+            exit_threshold=0.03,
+            no_trade_band=0.05,
+        ),
+    )
+
+    realized = 0.0
+    for offset in range(17):
+        action, _ = policy.predict(
+            {"current_weights": np.asarray([realized], dtype=np.float32)}
+        )
+        if offset == 16:
+            assert float(action[0]) == np.float32(0.10)
+        realized = float(action[0])
+
+    action, _ = policy.predict(
+        {"current_weights": np.asarray([0.05], dtype=np.float32)}
+    )
+    assert float(action[0]) == np.float32(0.05)
 
 
 def test_v10_fast_cadence_is_bound_to_absolute_decision_index() -> None:
@@ -86,6 +120,24 @@ def test_v10_non_executable_hard_risk_reduction_flattens() -> None:
 
     assert path.targets[16] == 0.10
     assert path.targets[32] == 0.0
+
+
+def test_v10_executable_hard_risk_reduction_projects_partially() -> None:
+    decisions = np.arange(49, dtype=np.int64)
+    risk_caps = np.full(49, 0.25)
+    risk_caps[32] = 0.05
+    path = _path(
+        decision_indices=decisions,
+        fast_offsets=(0, 16, 32),
+        slow_offsets=(0, 16, 32),
+        risk_caps=risk_caps,
+        entry_threshold=0.05,
+        no_trade_band=0.05,
+    )
+
+    assert path.targets[16] == 0.10
+    assert path.targets[32] == 0.05
+    assert path.reasons[32] == "risk_projection"
 
 
 def test_v10_entry_floor_hold_uses_generic_v6_hold_reason() -> None:

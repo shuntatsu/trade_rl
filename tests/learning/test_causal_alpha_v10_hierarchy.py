@@ -45,6 +45,7 @@ def _path(
     liquidity_caps: np.ndarray | None = None,
     risk_caps: np.ndarray | None = None,
     costs: np.ndarray | None = None,
+    execution_entry_threshold: float = 0.10,
     execution_no_trade_band: float = 0.05,
 ) -> CausalAlphaV6TargetPath:
     return causal_alpha_v10_hierarchical_target_path(
@@ -64,6 +65,7 @@ def _path(
         dual_fit_digest="b" * 64,
         config=CausalAlphaV10Config(),
         initial_weight=initial_weight,
+        execution_entry_threshold=execution_entry_threshold,
         execution_no_trade_band=execution_no_trade_band,
     )
 
@@ -93,25 +95,36 @@ def test_v10_requires_coherent_fast_slow_entry_and_execution_regime() -> None:
     assert plan.child_order is not None
 
 
-def test_v10_sub_band_flat_entry_stays_flat() -> None:
-    caps = np.full(145, 0.049)
+def test_v10_flat_entry_below_pretrade_entry_floor_stays_flat() -> None:
+    caps = np.full(145, 0.099)
     path = _path(
         fast={0: 1, 16: 1},
         slow={0: 1, 16: 1},
         liquidity_caps=caps,
-        execution_no_trade_band=0.05,
     )
 
     assert path.targets[16] == 0.0
-    assert "execution_band_hold" in path.reasons
+    assert "execution_contract_hold" in path.reasons
 
 
-def test_v10_equal_band_flat_entry_is_executable() -> None:
+def test_v10_entry_threshold_equality_is_executable() -> None:
+    caps = np.full(145, 0.10)
+    path = _path(
+        fast={0: 1, 16: 1},
+        slow={0: 1, 16: 1},
+        liquidity_caps=caps,
+    )
+
+    assert path.targets[16] == 0.10
+
+
+def test_v10_no_trade_band_equality_is_executable_when_entry_threshold_is_zero() -> None:
     caps = np.full(145, 0.05)
     path = _path(
         fast={0: 1, 16: 1},
         slow={0: 1, 16: 1},
         liquidity_caps=caps,
+        execution_entry_threshold=0.0,
         execution_no_trade_band=0.05,
     )
 
@@ -123,7 +136,6 @@ def test_v10_coherent_entry_must_clear_after_cost_hurdle() -> None:
         fast={0: 1, 16: 1},
         slow={0: 1, 16: 1},
         costs=np.full(145, 0.01),
-        execution_no_trade_band=0.05,
     )
 
     assert path.targets[16] == 0.0
@@ -137,50 +149,36 @@ def test_v10_liquidity_cap_jitter_does_not_resize_between_fast_decisions() -> No
         fast={0: 1, 16: 1},
         slow={0: 1, 16: 1, 32: 1},
         liquidity_caps=caps,
-        execution_no_trade_band=0.05,
     )
 
     assert np.all(path.targets[17:32] == 0.10)
 
 
-def test_v10_sub_band_liquidity_resize_is_held_at_fast_decision() -> None:
-    caps = np.full(145, 0.10)
-    caps[32] = 0.07
-    path = _path(
-        fast={0: 1, 16: 1},
-        slow={0: 1, 16: 1, 32: 1},
-        liquidity_caps=caps,
-        execution_no_trade_band=0.05,
-    )
-
-    assert path.targets[32] == 0.10
-    assert path.reasons[32] == "execution_band_hold"
-
-
-def test_v10_executable_liquidity_resize_applies_at_fast_decision() -> None:
+def test_v10_soft_liquidity_cap_does_not_resize_held_position_at_fast_decision() -> None:
     caps = np.full(145, 0.10)
     caps[32] = 0.04
     path = _path(
         fast={0: 1, 16: 1},
         slow={0: 1, 16: 1, 32: 1},
         liquidity_caps=caps,
-        execution_no_trade_band=0.05,
     )
 
-    assert path.targets[32] == 0.04
-    assert path.reasons[32] == "liquidity_deleverage"
+    assert path.targets[32] == 0.10
+    assert path.reasons[32] == "execution_contract_hold"
 
 
-def test_v10_execution_band_is_bound_into_target_identity() -> None:
+def test_v10_execution_contract_is_bound_into_target_identity() -> None:
     first = _path(
         fast={0: 1, 16: 1},
         slow={0: 1, 16: 1},
+        execution_entry_threshold=0.10,
         execution_no_trade_band=0.05,
     )
     second = _path(
         fast={0: 1, 16: 1},
         slow={0: 1, 16: 1},
-        execution_no_trade_band=0.04,
+        execution_entry_threshold=0.09,
+        execution_no_trade_band=0.05,
     )
 
     np.testing.assert_array_equal(first.targets, second.targets)

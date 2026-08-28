@@ -91,6 +91,25 @@ def test_no_trade_band_suppresses_small_target_rebalances() -> None:
     assert "no_trade_band" in result.reasons
 
 
+def test_no_trade_band_allows_change_equal_to_band() -> None:
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_abs_weight=1.0,
+            max_turnover=2.0,
+            no_trade_band=0.05,
+        )
+    )
+
+    result = risk.constrain(
+        np.array([0.05]),
+        current=np.array([0.0]),
+        drawdown=0.0,
+    )
+
+    np.testing.assert_allclose(result.weights, np.array([0.05]))
+    assert "no_trade_band" not in result.reasons
+
+
 def test_hysteresis_flattens_weak_reversal_until_new_entry_is_confirmed() -> None:
     risk = PreTradeRisk(
         PreTradeRiskConfig(

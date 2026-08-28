@@ -213,16 +213,27 @@ def _weighted_rmse(
     feature_available: np.ndarray,
     labels: np.ndarray,
     weights: np.ndarray,
+    working_memory_rows: int = 4096,
 ) -> float:
+    if (
+        isinstance(working_memory_rows, bool)
+        or not isinstance(working_memory_rows, int)
+        or working_memory_rows <= 0
+    ):
+        raise ValueError("working_memory_rows must be a positive integer")
     indices = model.eligible_indices
     selected = np.asarray(weights[indices], dtype=np.float64)
     total = float(selected.sum(dtype=np.float64))
     if not math.isfinite(total) or total <= 0.0:
         raise ValueError("V4 fitted model has no weighted residual support")
-    prediction = model.predict(
-        features[indices],
-        feature_available=feature_available[indices],
-    )
+    prediction = np.empty(indices.size, dtype=np.float64)
+    for start in range(0, indices.size, working_memory_rows):
+        stop = min(start + working_memory_rows, indices.size)
+        block = indices[start:stop]
+        prediction[start:stop] = model.predict(
+            features[block],
+            feature_available=feature_available[block],
+        )
     residual = labels[indices] - prediction
     value = math.sqrt(
         float(np.sum(selected * np.square(residual), dtype=np.float64) / total)

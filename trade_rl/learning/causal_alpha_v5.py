@@ -14,7 +14,16 @@ from trade_rl.data.identity import content_and_arrays_digest
 from trade_rl.data.universal_features import UNIVERSAL_INSTRUMENT_DESCRIPTOR_NAMES
 from trade_rl.domain.common import require_sha256
 from trade_rl.learning.causal_alpha_teacher import CausalAlphaRidgeModel
-from trade_rl.learning.causal_alpha_v4 import CausalAlphaV4Forecast
+from trade_rl.learning.causal_alpha_v4 import (
+    CausalAlphaV4Forecast,
+    CausalAlphaV4TargetConfig,
+    causal_alpha_v4_consensus_allows,
+    causal_alpha_v4_fast_candidates,
+    causal_alpha_v4_is_risk_reduction,
+    causal_alpha_v4_slow_candidates,
+    choose_causal_alpha_v4_target_candidate,
+    score_causal_alpha_v4_staged_objective,
+)
 
 CAUSAL_ALPHA_V5_CALIBRATION_CONFIG_SCHEMA: Final = (
     "causal_alpha_v5_calibration_config_v1"
@@ -23,6 +32,7 @@ CAUSAL_ALPHA_V5_CALIBRATION_FIT_SCHEMA: Final = "causal_alpha_v5_calibration_fit
 CAUSAL_ALPHA_V5_SELECTIVE_FORECAST_SCHEMA: Final = (
     "causal_alpha_v5_selective_forecast_v1"
 )
+CAUSAL_ALPHA_V5_TARGET_SCHEMA: Final = "causal_alpha_v5_target_v1"
 CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES: Final = (
     "slow_return_raw",
     "slow_direction_raw",
@@ -80,7 +90,7 @@ def _digest_tuple(value: object, *, count: int, field: str) -> tuple[str, ...]:
 class CausalAlphaV5CalibrationConfig:
     """The single predeclared train-only calibration and abstention hypothesis."""
 
-    calibration_fraction: float = 0.20
+    calibration_fraction: float = 0.50
     forward_block_count: int = 4
     ridge_strength: float = 1.0
     minimum_pooled_support: int = 256
@@ -96,7 +106,7 @@ class CausalAlphaV5CalibrationConfig:
     def __post_init__(self) -> None:
         _require_exact_float(
             self.calibration_fraction,
-            expected=0.20,
+            expected=0.50,
             field="V5 calibration fraction",
         )
         _require_exact_int(
@@ -639,14 +649,401 @@ def build_causal_alpha_v5_selective_forecast(
     )
 
 
+_V5_TARGET_REASONS: Final = frozenset(
+    {
+        "hold_flat",
+        "hold_position",
+        "entry",
+        "add",
+        "reduce",
+        "exit",
+        "flip",
+        "unactionable_hold",
+        "confidence_abstain",
+        "direction_disagreement_hold",
+        "edge_below_hurdle_hold",
+        "cadence_hold",
+        "liquidity_deleverage",
+        "risk_projection",
+    }
+)
+
+
+def _v5_transition_reason(previous: float, selected: float) -> str:
+    if abs(selected - previous) <= _V5_EPSILON:
+        return "hold_flat" if abs(previous) <= _V5_EPSILON else "hold_position"
+    if abs(previous) <= _V5_EPSILON:
+        return "entry"
+    if abs(selected) <= _V5_EPSILON:
+        return "exit"
+    if previous * selected < 0.0:
+        return "flip"
+    return "add" if abs(selected) > abs(previous) else "reduce"
+
+
+def _v5_inactive_hold_reason(state: V5SelectiveState) -> str:
+    reasons = {
+        V5SelectiveState.UNACTIONABLE: "unactionable_hold",
+        V5SelectiveState.CONFIDENCE_ABSTAIN: "confidence_abstain",
+        V5SelectiveState.DIRECTION_DISAGREEMENT: "direction_disagreement_hold",
+        V5SelectiveState.EDGE_BELOW_HURDLE: "edge_below_hurdle_hold",
+    }
+    try:
+        return reasons[state]
+    except KeyError as error:
+        raise ValueError("active V5 row has no abstention reason") from error
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaV5TargetPath:
+    """Selective slow anchor plus unchanged bounded V4 fast impulse."""
+
+    initial_weight: float
+    slow_anchors: np.ndarray
+    fast_deviations: np.ndarray
+    targets: np.ndarray
+    slow_expected_returns: np.ndarray
+    fast_expected_returns: np.ndarray
+    slow_uncertainties: np.ndarray
+    fast_uncertainties: np.ndarray
+    liquidity_weight_caps: np.ndarray
+    risk_weight_caps: np.ndarray
+    slow_objectives: np.ndarray
+    fast_objective_improvements: np.ndarray
+    final_objectives: np.ndarray
+    active_mask: np.ndarray
+    reasons: tuple[str, ...]
+    reason_counts: tuple[tuple[str, int], ...]
+    slow_anchor_change_count: int
+    fast_impulse_change_count: int
+    submitted_change_count: int
+    liquidity_deleveraging_count: int
+    risk_projection_count: int
+    sign_flip_count: int
+    selective_forecast_digest: str
+    config_digest: str
+    schema_version: str = CAUSAL_ALPHA_V5_TARGET_SCHEMA
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.initial_weight):
+            raise ValueError("V5 target initial weight must be finite")
+        require_sha256(
+            self.selective_forecast_digest, field="V5 target forecast digest"
+        )
+        require_sha256(self.config_digest, field="V5 target config digest")
+        if self.schema_version != CAUSAL_ALPHA_V5_TARGET_SCHEMA:
+            raise ValueError("unsupported V5 target schema")
+        names = (
+            "slow_anchors",
+            "fast_deviations",
+            "targets",
+            "slow_expected_returns",
+            "fast_expected_returns",
+            "slow_uncertainties",
+            "fast_uncertainties",
+            "liquidity_weight_caps",
+            "risk_weight_caps",
+            "slow_objectives",
+            "fast_objective_improvements",
+            "final_objectives",
+        )
+        arrays: dict[str, np.ndarray] = {}
+        rows: int | None = None
+        for name in names:
+            array = _readonly_vector(getattr(self, name), dtype=np.float64, field=name)
+            rows = int(array.size) if rows is None else rows
+            if array.shape != (rows,):
+                raise ValueError("V5 target arrays must align")
+            arrays[name] = array
+        active = _readonly_vector(self.active_mask, dtype=np.bool_, field="active_mask")
+        if active.shape != (rows,):
+            raise ValueError("V5 target active mask must align")
+        arrays["active_mask"] = active
+        if np.any(arrays["slow_uncertainties"] < 0.0) or np.any(
+            arrays["fast_uncertainties"] < 0.0
+        ):
+            raise ValueError("V5 target uncertainty must be non-negative")
+        if np.any(arrays["liquidity_weight_caps"] < 0.0) or np.any(
+            arrays["risk_weight_caps"] < 0.0
+        ):
+            raise ValueError("V5 target caps must be non-negative")
+        reasons = tuple(self.reasons)
+        if len(reasons) != rows or any(
+            reason not in _V5_TARGET_REASONS for reason in reasons
+        ):
+            raise ValueError("V5 target reasons must cover every decision")
+        counts = tuple(
+            sorted((reason, reasons.count(reason)) for reason in set(reasons))
+        )
+        if tuple(self.reason_counts) != counts:
+            raise ValueError("V5 target reason counts do not match reasons")
+        count_names = (
+            "slow_anchor_change_count",
+            "fast_impulse_change_count",
+            "submitted_change_count",
+            "liquidity_deleveraging_count",
+            "risk_projection_count",
+            "sign_flip_count",
+        )
+        for name in count_names:
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"V5 target {name} is invalid")
+        for name, array in arrays.items():
+            object.__setattr__(self, name, array)
+        object.__setattr__(self, "reasons", reasons)
+        object.__setattr__(self, "reason_counts", counts)
+        expected = content_and_arrays_digest(
+            {
+                "config_digest": self.config_digest,
+                "initial_weight": self.initial_weight,
+                "reason_counts": counts,
+                "reasons": reasons,
+                "schema_version": self.schema_version,
+                "selective_forecast_digest": self.selective_forecast_digest,
+                **{name: getattr(self, name) for name in count_names},
+            },
+            tuple(arrays.items()),
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("V5 target path digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+
+def causal_alpha_v5_target_path(
+    selective_forecast: CausalAlphaV5SelectiveForecast,
+    prediction_4h: object,
+    *,
+    direction_score_4h: object,
+    uncertainty_4h: object,
+    one_way_cost_rates: object,
+    liquidity_weight_caps: object,
+    config: CausalAlphaV4TargetConfig,
+    initial_weight: float,
+    risk_weight_caps: object | None = None,
+) -> CausalAlphaV5TargetPath:
+    """Compile a target without letting abstained rows increase exposure."""
+
+    if not isinstance(selective_forecast, CausalAlphaV5SelectiveForecast):
+        raise TypeError("V5 target compiler requires a selective forecast")
+    if not isinstance(config, CausalAlphaV4TargetConfig):
+        raise TypeError("V5 target compiler requires frozen V4 target config")
+    if not math.isfinite(initial_weight):
+        raise ValueError("V5 target initial weight must be finite")
+    rows = int(selective_forecast.decision_indices.size)
+    fast_mu = _aligned_vector(
+        prediction_4h, rows=rows, dtype=np.float64, field="fast return"
+    )
+    direction = _aligned_vector(
+        direction_score_4h, rows=rows, dtype=np.float64, field="fast direction"
+    )
+    fast_sigma = _aligned_vector(
+        uncertainty_4h, rows=rows, dtype=np.float64, field="fast uncertainty"
+    )
+    costs = _aligned_vector(
+        one_way_cost_rates, rows=rows, dtype=np.float64, field="one-way costs"
+    )
+    liquidity_caps = _aligned_vector(
+        liquidity_weight_caps, rows=rows, dtype=np.float64, field="liquidity caps"
+    )
+    risk_caps = (
+        np.ones(rows)
+        if risk_weight_caps is None
+        else _aligned_vector(
+            risk_weight_caps, rows=rows, dtype=np.float64, field="risk caps"
+        )
+    )
+    if any(
+        np.any(value < 0.0) for value in (fast_sigma, costs, liquidity_caps, risk_caps)
+    ):
+        raise ValueError("V5 target uncertainty, costs, and caps must be non-negative")
+    slow_mu = np.asarray(selective_forecast.slow_return_calibrated)
+    slow_sigma = np.asarray(selective_forecast.slow_uncertainty_calibrated)
+    active = np.asarray(selective_forecast.active_mask)
+    actionable = np.asarray(selective_forecast.actionable_mask)
+    output = {
+        name: np.empty(rows)
+        for name in (
+            "slow_anchors",
+            "fast_deviations",
+            "targets",
+            "slow_objectives",
+            "fast_objective_improvements",
+            "final_objectives",
+        )
+    }
+    reasons: list[str] = []
+    previous = current_anchor = float(initial_weight)
+    slow_changes = fast_changes = submitted = liquidity_count = risk_count = flips = 0
+
+    def staged(index: int, anchor: float, final: float) -> tuple[float, float, float]:
+        return score_causal_alpha_v4_staged_objective(
+            previous=previous,
+            anchor=anchor,
+            final=final,
+            slow_expected_return=float(slow_mu[index]),
+            slow_uncertainty=float(slow_sigma[index]),
+            fast_expected_return=float(fast_mu[index]),
+            fast_uncertainty=float(fast_sigma[index]),
+            one_way_cost_rate=float(costs[index]),
+            config=config,
+        )
+
+    for index in range(rows):
+        liquidity_cap = min(float(liquidity_caps[index]), 1.0)
+        risk_cap = min(float(risk_caps[index]), 1.0)
+        cap = min(liquidity_cap, risk_cap)
+        old_anchor = current_anchor
+        selected_anchor = float(np.clip(current_anchor, -cap, cap))
+        selected = previous
+        override: str | None = None
+        if abs(previous) > liquidity_cap + _V5_EPSILON:
+            selected = selected_anchor = float(
+                np.clip(previous, -liquidity_cap, liquidity_cap)
+            )
+            override = "liquidity_deleverage"
+            liquidity_count += 1
+        elif abs(previous) > risk_cap + _V5_EPSILON:
+            selected = selected_anchor = float(np.clip(previous, -risk_cap, risk_cap))
+            override = "risk_projection"
+            risk_count += 1
+        elif not bool(actionable[index]):
+            selected_anchor = current_anchor
+            override = "unactionable_hold"
+        else:
+            if index % config.slow_rebalance_decisions == 0:
+                candidates = causal_alpha_v4_slow_candidates(
+                    previous=previous,
+                    current_anchor=current_anchor,
+                    cap=cap,
+                    config=config,
+                )
+                if not bool(active[index]):
+                    candidates = tuple(
+                        value
+                        for value in candidates
+                        if causal_alpha_v4_is_risk_reduction(previous, value)
+                    )
+                selected_anchor, _ = choose_causal_alpha_v4_target_candidate(
+                    candidates,
+                    tuple(staged(index, value, value)[0] for value in candidates),
+                    previous=previous,
+                )
+            else:
+                selected_anchor = float(np.clip(current_anchor, -cap, cap))
+            if index % config.fast_rebalance_decisions != 0:
+                override = "cadence_hold"
+            else:
+                candidates = causal_alpha_v4_fast_candidates(
+                    previous=previous, anchor=selected_anchor, cap=cap, config=config
+                )
+                if not bool(active[index]):
+                    candidates = tuple(
+                        value
+                        for value in candidates
+                        if causal_alpha_v4_is_risk_reduction(previous, value)
+                    )
+                allowed = tuple(
+                    (value, staged(index, selected_anchor, value))
+                    for value in candidates
+                    if causal_alpha_v4_consensus_allows(
+                        previous=previous,
+                        target=value,
+                        fast_expected_return=float(fast_mu[index]),
+                        direction_score=float(direction[index]),
+                    )
+                )
+                if not allowed:
+                    selected_anchor = previous
+                else:
+                    selected, _ = choose_causal_alpha_v4_target_candidate(
+                        tuple(value for value, _ in allowed),
+                        tuple(values[2] for _, values in allowed),
+                        previous=previous,
+                    )
+        slow_score, fast_improvement, final_score = staged(
+            index, selected_anchor, selected
+        )
+        transition = _v5_transition_reason(previous, selected)
+        reason = override or (
+            _v5_inactive_hold_reason(selective_forecast.states[index])
+            if transition in {"hold_flat", "hold_position"} and not bool(active[index])
+            else transition
+        )
+        if abs(selected_anchor - old_anchor) > _V5_EPSILON:
+            slow_changes += 1
+        current_anchor = float(selected_anchor)
+        deviation = selected - selected_anchor
+        bounded_exceptions = {
+            "cadence_hold",
+            "unactionable_hold",
+            "liquidity_deleverage",
+            "risk_projection",
+        }
+        if (
+            abs(deviation) > config.maximum_fast_absolute_deviation + _V5_EPSILON
+            and reason not in bounded_exceptions
+        ):
+            raise RuntimeError("V5 fast deviation exceeded authored bound")
+        if abs(deviation) > _V5_EPSILON:
+            fast_changes += 1
+        if abs(selected - previous) > _V5_EPSILON:
+            submitted += 1
+        if previous * selected < 0.0:
+            flips += 1
+        for name, value in (
+            ("slow_anchors", selected_anchor),
+            ("fast_deviations", deviation),
+            ("targets", selected),
+            ("slow_objectives", slow_score),
+            ("fast_objective_improvements", fast_improvement),
+            ("final_objectives", final_score),
+        ):
+            output[name][index] = value
+        reasons.append(reason)
+        previous = float(selected)
+
+    counts = tuple(sorted((reason, reasons.count(reason)) for reason in set(reasons)))
+    return CausalAlphaV5TargetPath(
+        initial_weight=float(initial_weight),
+        slow_anchors=output["slow_anchors"],
+        fast_deviations=output["fast_deviations"],
+        targets=output["targets"],
+        slow_expected_returns=slow_mu,
+        fast_expected_returns=fast_mu,
+        slow_uncertainties=slow_sigma,
+        fast_uncertainties=fast_sigma,
+        liquidity_weight_caps=liquidity_caps,
+        risk_weight_caps=risk_caps,
+        slow_objectives=output["slow_objectives"],
+        fast_objective_improvements=output["fast_objective_improvements"],
+        final_objectives=output["final_objectives"],
+        active_mask=active,
+        reasons=tuple(reasons),
+        reason_counts=counts,
+        slow_anchor_change_count=slow_changes,
+        fast_impulse_change_count=fast_changes,
+        submitted_change_count=submitted,
+        liquidity_deleveraging_count=liquidity_count,
+        risk_projection_count=risk_count,
+        sign_flip_count=flips,
+        selective_forecast_digest=selective_forecast.digest,
+        config_digest=config.digest,
+    )
+
+
 __all__ = [
     "CAUSAL_ALPHA_V5_CALIBRATION_CONFIG_SCHEMA",
     "CAUSAL_ALPHA_V5_CALIBRATION_FEATURE_NAMES",
     "CAUSAL_ALPHA_V5_CALIBRATION_FIT_SCHEMA",
     "CAUSAL_ALPHA_V5_SELECTIVE_FORECAST_SCHEMA",
+    "CAUSAL_ALPHA_V5_TARGET_SCHEMA",
     "CausalAlphaV5CalibrationConfig",
     "CausalAlphaV5CalibrationFit",
     "CausalAlphaV5SelectiveForecast",
+    "CausalAlphaV5TargetPath",
     "V5SelectiveState",
     "build_causal_alpha_v5_selective_forecast",
+    "causal_alpha_v5_target_path",
 ]

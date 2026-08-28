@@ -117,7 +117,7 @@ def _forecast(
 def test_v5_calibration_config_is_frozen() -> None:
     config = CausalAlphaV5CalibrationConfig()
 
-    assert config.calibration_fraction == 0.20
+    assert config.calibration_fraction == 0.50
     assert config.forward_block_count == 4
     assert config.ridge_strength == 1.0
     assert config.minimum_pooled_support == 256
@@ -361,7 +361,7 @@ def test_v5_example_json_freezes_task1_hypothesis() -> None:
     assert payload == {
         "schema_version": "universal_causal_alpha_v5_research_config_v1",
         "calibration": {
-            "calibration_fraction": 0.2,
+            "calibration_fraction": 0.5,
             "forward_block_count": 4,
             "ridge_strength": 1.0,
             "minimum_pooled_support": 256,

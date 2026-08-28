@@ -36,12 +36,18 @@ class _Environment:
         *,
         omit_rejected_event: bool = False,
         executed_turnover: float = 0.2,
+        gross_returns: tuple[float, ...] = (0.0, 0.0, 0.0),
+        net_returns: tuple[float, ...] = (0.0, 0.0, 0.0),
+        costs: tuple[float, ...] = (0.0, 0.0, 0.0),
     ) -> None:
         self.current_index = 0
         self._offset = 0
         self._weights = np.zeros(2, dtype=np.float32)
         self._omit_rejected_event = omit_rejected_event
         self._executed_turnover = executed_turnover
+        self._gross_returns = gross_returns
+        self._net_returns = net_returns
+        self._costs = costs
 
     def _observation(self) -> dict[str, np.ndarray]:
         return {
@@ -52,7 +58,9 @@ class _Environment:
     def reset(
         self, *, options: dict[str, object]
     ) -> tuple[dict[str, np.ndarray], dict[str, object]]:
-        self.current_index = int(options["start_idx"])
+        start_index = options["start_idx"]
+        assert isinstance(start_index, int)
+        self.current_index = start_index
         self._offset = 0
         self._weights[:] = 0.0
         return self._observation(), {}
@@ -77,15 +85,15 @@ class _Environment:
                 )
             ),
         )
-        info = {
+        info: dict[str, object] = {
             "hybrid_execution": execution,
             "hybrid_risk": SimpleNamespace(
                 reasons=("no_trade_band",) if self._offset == 0 else ()
             ),
             "hybrid_liquidation": None,
-            "interval_gross_return": 0.0,
-            "interval_net_return": 0.0,
-            "interval_cost": 0.0,
+            "interval_gross_return": self._gross_returns[self._offset],
+            "interval_net_return": self._net_returns[self._offset],
+            "interval_cost": self._costs[self._offset],
         }
         self._offset += 1
         self.current_index += 1
@@ -143,6 +151,32 @@ def test_action_path_uses_one_tolerance_for_execution_and_traded_steps(
 
     assert result.collapse_evidence.executed_change_count == 0
     assert result.performance.traded_step_count == 0
+
+
+def test_action_path_preserves_immutable_step_economics_for_attribution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(rollout_evaluation, "ClosedTradeTracker", _Trades)
+    environment = _Environment(
+        gross_returns=(0.01, -0.02, 0.03),
+        net_returns=(0.009, -0.021, 0.029),
+        costs=(0.001, 0.001, 0.001),
+    )
+
+    result = rollout_evaluation.evaluate_action_path(
+        environment,
+        evaluation_range=(0, 4),
+        actions=np.array([[0.2, 0.0], [0.2, 0.0], [0.0, 0.0]], dtype=np.float32),
+    )
+
+    economics = result.step_economics
+    assert economics is not None
+    np.testing.assert_allclose(economics.gross_returns, (0.01, -0.02, 0.03))
+    np.testing.assert_allclose(economics.net_returns, (0.009, -0.021, 0.029))
+    np.testing.assert_allclose(economics.costs, (0.001, 0.001, 0.001))
+    assert economics.gross_returns.flags.writeable is False
+    assert economics.net_returns.flags.writeable is False
+    assert economics.costs.flags.writeable is False
 
 
 def test_action_path_rejects_unreconciled_execution_rejection_events(

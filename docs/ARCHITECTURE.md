@@ -259,3 +259,51 @@ StageBSpotFuturesGeneralization: NOT_IMPLEMENTED
 ```
 
 本PhaseのMaintained productはBinance USDS-M perpetual `BTCUSDT`の1 Runだけであり、Stage Bは実装しません。
+
+## Causal Alpha V5 research boundary
+
+Causal Alpha V5はV4を変更せずに追加するresearch-only laneです。依存方向は
+`V5 -> V4`だけで、V4からV5をimportしません。V5 calibratorは銘柄IDを特徴量に
+含めず、V4 slow return、slow direction、slow uncertainty、公開済み9 descriptor
+だけを、train末尾20%の時系列forward blockでpool fitします。
+
+stage順は次に固定します。
+
+```text
+prepare immutable V4 samples and forecasts
+  -> fit V5 calibration on train-only suffix
+  -> compile per-symbol selective long/short target weights
+  -> V4 fast plus V5 selective-slow Signal gates
+  -> simulator-authoritative replay and symbol-balanced Selection
+  -> untouched holdout Admission
+  -> research-only, non-promotable package
+```
+
+Signal rejection前にSelectionを、Selection rejection前にAdmissionを実行しません。
+Admission結果、BC結果、RL結果、sealed holdout結果からcalibration、confidence、
+coverage、target magnitude、cost、risk thresholdを調整しません。rewardは既存の
+実コスト控除後net log growthであり、V5は報酬shapingを追加しません。
+
+## Causal Alpha V6 fast-first research boundary
+
+Causal Alpha V6はV4の共有三時間軸forecastを変更せず、4h laneをentryと
+position変更の主因にするresearch-only laneです。各銘柄のlong/short state、
+execution、PnL、rewardは独立で、銘柄ID lookupや同時点の全銘柄rankingを使いません。
+依存方向は`V6 -> V4`だけで、V4/V5からV6をimportしません。
+
+V6は固定した二候補だけを同一入力で比較します。
+
+```text
+fast_only
+fast_slow_retention (24h/72hは既存positionのhold/reduceだけに使用)
+  -> unchanged V4 fast-4h Signal plus paired target liveness
+  -> paired per-symbol after-cost Selection
+  -> paired untouched nine-symbol Admission
+  -> research-only, non-promotable package
+```
+
+slow contextはflatからentryを開始せず、固定clockでpositionを終了もしません。
+Signal前にSelectionを、Selection前にAdmissionを実行しません。Admission失敗時は
+BC/RL updateをゼロに保ちます。1分足は本仮説の入力ではなく、gross edgeをcostが
+50%以上消費する、またはbar-path sensitivityでdecisionが10%以上変わる実行証拠が
+Selectionに出た場合だけ、別の固定実験として検討します。

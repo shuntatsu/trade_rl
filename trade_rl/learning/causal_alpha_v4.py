@@ -1609,6 +1609,16 @@ def causal_alpha_v4_target_path(
     )
 
 
+# Public additive aliases let later research lanes reuse the frozen V4 target
+# numerics without depending on private implementation names.
+score_causal_alpha_v4_staged_objective = _v4_staged_objective
+causal_alpha_v4_is_risk_reduction = _v4_is_risk_reduction
+causal_alpha_v4_consensus_allows = _v4_consensus_allows
+causal_alpha_v4_slow_candidates = _v4_slow_candidates
+causal_alpha_v4_fast_candidates = _v4_fast_candidates
+choose_causal_alpha_v4_target_candidate = _v4_choose_best
+
+
 __all__ = [
     "CAUSAL_ALPHA_V4_FIT_CONFIG_SCHEMA",
     "CAUSAL_ALPHA_V4_FORECAST_SCHEMA",
@@ -1628,6 +1638,12 @@ __all__ = [
     "V4ForecastState",
     "build_causal_alpha_v4_forecast",
     "build_causal_alpha_v4_residual_labels",
+    "causal_alpha_v4_consensus_allows",
+    "causal_alpha_v4_fast_candidates",
+    "causal_alpha_v4_is_risk_reduction",
+    "causal_alpha_v4_slow_candidates",
     "causal_alpha_v4_target_path",
+    "choose_causal_alpha_v4_target_candidate",
     "fit_causal_alpha_v4_uncertainty",
+    "score_causal_alpha_v4_staged_objective",
 ]

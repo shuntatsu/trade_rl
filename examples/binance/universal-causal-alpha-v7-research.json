@@ -1,0 +1,26 @@
+{
+  "schema_version": "universal_causal_alpha_v7_research_config_v1",
+  "calibration": {
+    "calibration_fraction": 0.5,
+    "forward_block_count": 4,
+    "ridge_strength": 1.0,
+    "minimum_pooled_support": 256,
+    "minimum_symbol_support": 16,
+    "working_memory_rows": 4096
+  },
+  "target": {
+    "target_magnitudes": [0.0, 0.025, 0.05, 0.1, 0.25],
+    "maximum_absolute_target": 0.25,
+    "maximum_target_delta": 0.125,
+    "fast_rebalance_decisions": 4,
+    "slow_context_decisions": 16,
+    "uncertainty_multiplier": 1.0,
+    "execution_cost_multiplier": 1.5,
+    "edge_margin": 0.001,
+    "confirmation_count": 2,
+    "strong_reversal_threshold": 0.02,
+    "liquidity_lookback_decisions": 96,
+    "liquidity_lower_quantile": 0.1,
+    "liquidity_safety_multiplier": 0.8
+  }
+}

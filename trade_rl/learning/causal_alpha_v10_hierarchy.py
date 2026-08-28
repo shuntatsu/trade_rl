@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 import numpy as np
 
@@ -45,7 +45,7 @@ class CausalAlphaV10ExecutionContract:
     fail_closed_tolerance: float = 1e-10
 
     def __post_init__(self) -> None:
-        values = (
+        finite_values = (
             self.max_gross,
             self.max_abs_weight,
             self.entry_threshold,
@@ -55,19 +55,21 @@ class CausalAlphaV10ExecutionContract:
             self.drawdown_stop,
             self.fail_closed_tolerance,
         )
-        if any(isinstance(value, bool) or not np.isfinite(value) for value in values):
+        if any(
+            isinstance(value, bool) or not np.isfinite(value)
+            for value in finite_values
+        ):
             raise ValueError("V10 execution contract values must be finite")
         if not 0.0 < self.max_gross <= 10.0:
             raise ValueError("V10 execution max_gross is invalid")
         if not 0.0 < self.max_abs_weight <= self.max_gross:
             raise ValueError("V10 execution max_abs_weight is invalid")
-        if self.max_turnover is not None:
-            if (
-                isinstance(self.max_turnover, bool)
-                or not np.isfinite(self.max_turnover)
-                or not 0.0 <= self.max_turnover <= 2.0 * self.max_gross
-            ):
-                raise ValueError("V10 execution max_turnover is invalid")
+        if self.max_turnover is not None and (
+            isinstance(self.max_turnover, bool)
+            or not np.isfinite(self.max_turnover)
+            or not 0.0 <= self.max_turnover <= 2.0 * self.max_gross
+        ):
+            raise ValueError("V10 execution max_turnover is invalid")
         if not 0.0 <= self.entry_threshold <= self.max_abs_weight:
             raise ValueError("V10 execution entry_threshold is invalid")
         if not 0.0 <= self.exit_threshold <= self.entry_threshold:
@@ -255,7 +257,6 @@ class CausalAlphaV10HierarchyResult:
         object.__setattr__(self, "hierarchy_reason_counts", counts)
 
 
-
 def _qualified(
     heads: np.ndarray,
     *,
@@ -273,9 +274,14 @@ def _qualified(
     return mean, uncertainty, direction
 
 
+def _position_sign(value: float) -> int:
+    if abs(value) <= _OBSERVATION_TOLERANCE:
+        return 0
+    return int(np.sign(value))
+
 
 def _slow_state(direction: int, current: float) -> CausalAlphaV6SlowState:
-    current_sign = int(np.sign(current))
+    current_sign = _position_sign(current)
     if current_sign == 0:
         return CausalAlphaV6SlowState.FLAT
     if direction == current_sign:
@@ -283,7 +289,6 @@ def _slow_state(direction: int, current: float) -> CausalAlphaV6SlowState:
     if direction == -current_sign:
         return CausalAlphaV6SlowState.OPPOSED
     return CausalAlphaV6SlowState.MIXED
-
 
 
 def _compiler_config_digest(
@@ -300,7 +305,6 @@ def _compiler_config_digest(
             "v10_config_digest": config.digest,
         }
     )
-
 
 
 def _policy_input(
@@ -387,7 +391,7 @@ class CausalAlphaV10HierarchyPolicy:
         self._last_observed: float | None = None
         self._last_requested: float | None = None
         self._risk_flatten_latched = False
-        self._inherited = abs(policy_input.initial_weight) > _EPSILON
+        self._inherited = abs(policy_input.initial_weight) > _OBSERVATION_TOLERANCE
         self._inherited_checks = 0
         self._inherited_matches = 0
         self._entry_intent = 0
@@ -428,7 +432,10 @@ class CausalAlphaV10HierarchyPolicy:
             return False
         if abs(target) < contract.entry_threshold:
             return False
-        return abs(target - current) >= contract.no_trade_band
+        return (
+            abs(target - current)
+            >= contract.no_trade_band - _OBSERVATION_TOLERANCE
+        )
 
     def _record(
         self,
@@ -473,48 +480,58 @@ class CausalAlphaV10HierarchyPolicy:
         if self._offset >= len(self.input.decision_indices):
             raise RuntimeError("V10 hierarchy policy exhausted its decision rows")
         offset = self._offset
-        current = self._current_weight(observation)
+        observed_current = self._current_weight(observation)
         if offset == 0 and not np.isclose(
-            current,
+            observed_current,
             self.input.initial_weight,
             atol=_OBSERVATION_TOLERANCE,
             rtol=0.0,
         ):
             raise ValueError("V10 initial realized weight drifted from frozen contract")
 
-        current_sign = int(np.sign(current))
-        last_sign = 0 if self._last_observed is None else int(np.sign(self._last_observed))
+        current_sign = _position_sign(observed_current)
+        last_sign = (
+            0 if self._last_observed is None else _position_sign(self._last_observed)
+        )
         if last_sign != 0 and current_sign == -last_sign:
-            raise RuntimeError("V10 realized position flipped without an intervening flat state")
+            raise RuntimeError(
+                "V10 realized position flipped without an intervening flat state"
+            )
         external_flatten = (
             last_sign != 0
             and current_sign == 0
             and self._last_requested is not None
-            and abs(self._last_requested) > _EPSILON
+            and abs(self._last_requested) > _OBSERVATION_TOLERANCE
         )
         if external_flatten:
             self._risk_flatten_latched = False
             self._reset_flat_state()
             return self._record(
                 offset=offset,
-                observed_current=current,
+                observed_current=observed_current,
                 requested=0.0,
                 reason="hold_flat",
                 hierarchy_reason="realized_state_reset",
             )
 
         if self._risk_flatten_latched:
-            if abs(current) <= _EPSILON:
+            if current_sign == 0:
                 self._risk_flatten_latched = False
                 self._reset_flat_state()
-            else:
                 return self._record(
                     offset=offset,
-                    observed_current=current,
+                    observed_current=observed_current,
                     requested=0.0,
-                    reason="risk_projection",
-                    hierarchy_reason="risk_cap_flatten",
+                    reason="hold_flat",
+                    hierarchy_reason="realized_state_reset",
                 )
+            return self._record(
+                offset=offset,
+                observed_current=observed_current,
+                requested=0.0,
+                reason="risk_projection",
+                hierarchy_reason="risk_cap_flatten",
+            )
 
         config = self.input.config
         liquidity_cap = min(
@@ -529,39 +546,46 @@ class CausalAlphaV10HierarchyPolicy:
             int(self.input.decision_indices[offset]) % config.fast_horizon_decisions == 0
         )
 
-        if abs(current) > risk_cap + _EPSILON:
-            partial = float(np.sign(current) * risk_cap)
-            if self._partial_risk_reduction_executable(current, partial):
+        decision_current = observed_current
+        requested = observed_current
+        reason = "hold_position" if current_sign != 0 else "hold_flat"
+        hierarchy_reason = reason
+        risk_projected = False
+
+        if abs(observed_current) > risk_cap + _OBSERVATION_TOLERANCE:
+            partial = float(np.sign(observed_current) * risk_cap)
+            if not self._partial_risk_reduction_executable(
+                observed_current,
+                partial,
+            ):
+                self._risk_flatten_latched = True
                 return self._record(
                     offset=offset,
-                    observed_current=current,
-                    requested=partial,
+                    observed_current=observed_current,
+                    requested=0.0,
                     reason="risk_projection",
-                    hierarchy_reason="risk_cap_projection",
+                    hierarchy_reason="risk_cap_flatten",
                 )
-            self._risk_flatten_latched = True
-            return self._record(
-                offset=offset,
-                observed_current=current,
-                requested=0.0,
-                reason="risk_projection",
-                hierarchy_reason="risk_cap_flatten",
-            )
+            decision_current = partial
+            requested = partial
+            reason = "risk_projection"
+            hierarchy_reason = "risk_cap_projection"
+            risk_projected = True
 
-        requested = current
-        reason = "hold_position" if abs(current) > _EPSILON else "hold_flat"
-        hierarchy_reason = reason
-        if abs(current) > liquidity_cap + _EPSILON:
+        decision_sign = _position_sign(decision_current)
+        if (
+            not risk_projected
+            and abs(decision_current) > liquidity_cap + _OBSERVATION_TOLERANCE
+        ):
             hierarchy_reason = "liquidity_capacity_hold"
 
         if cadence and bool(self.input.actionable_mask[offset]):
             fast = int(self._fast_direction[offset])
             observed_slow = int(self._slow_direction[offset])
-            current_sign = int(np.sign(current))
-            if self._inherited and current_sign != 0:
+            if self._inherited and decision_sign != 0:
                 self._inherited_checks += 1
                 if (
-                    fast == observed_slow == current_sign
+                    fast == observed_slow == decision_sign
                     and bool(self._execution_eligible[offset])
                 ):
                     self._inherited_matches += 1
@@ -569,14 +593,14 @@ class CausalAlphaV10HierarchyPolicy:
                     if self._inherited_matches < config.entry_confirmation_count:
                         requested = 0.0
                         reason = hierarchy_reason = "exit"
-                    else:
+                    elif not risk_projected:
                         reason = hierarchy_reason = "slow_support_hold"
                     self._inherited = False
                     self._inherited_checks = 0
                     self._inherited_matches = 0
-                else:
+                elif not risk_projected:
                     reason = hierarchy_reason = "confirmation_hold"
-            elif current_sign == 0:
+            elif decision_sign == 0:
                 if observed_slow != 0:
                     self._slow_regime = observed_slow
                 coherent = (
@@ -625,18 +649,18 @@ class CausalAlphaV10HierarchyPolicy:
                     else:
                         reason = hierarchy_reason = "confirmation_hold"
             else:
-                if observed_slow == current_sign:
+                if observed_slow == decision_sign:
                     self._slow_regime = observed_slow
                     self._slow_opposite_count = 0
                     self._neutral_slow_count = 0
-                elif observed_slow == -current_sign:
+                elif observed_slow == -decision_sign:
                     self._slow_opposite_count += 1
                     self._neutral_slow_count = 0
                 else:
                     self._slow_opposite_count = 0
                     self._neutral_slow_count += 1
                 self._fast_exit_count = (
-                    self._fast_exit_count + 1 if fast == -current_sign else 0
+                    self._fast_exit_count + 1 if fast == -decision_sign else 0
                 )
                 self._slow_exit_count = self._slow_opposite_count
                 should_exit = (
@@ -652,21 +676,21 @@ class CausalAlphaV10HierarchyPolicy:
                     self._slow_opposite_count = 0
                     self._neutral_slow_count = 0
                     self._slow_regime = 0
-                elif hierarchy_reason != "liquidity_capacity_hold":
+                elif not risk_projected and hierarchy_reason != "liquidity_capacity_hold":
                     reason = hierarchy_reason = (
                         "slow_support_hold"
-                        if self._slow_regime == current_sign
+                        if self._slow_regime == decision_sign
                         else "confirmation_hold"
                     )
         elif cadence:
-            if hierarchy_reason != "liquidity_capacity_hold":
+            if not risk_projected and hierarchy_reason != "liquidity_capacity_hold":
                 reason = hierarchy_reason = "unactionable_hold"
-        elif hierarchy_reason != "liquidity_capacity_hold":
+        elif not risk_projected and hierarchy_reason != "liquidity_capacity_hold":
             reason = hierarchy_reason = "cadence_hold"
 
         return self._record(
             offset=offset,
-            observed_current=current,
+            observed_current=observed_current,
             requested=requested,
             reason=reason,
             hierarchy_reason=hierarchy_reason,
@@ -696,8 +720,10 @@ class CausalAlphaV10HierarchyPolicy:
             initial_weight=float(self.input.initial_weight),
             decision_indices=self.input.decision_indices,
             targets=targets,
-            fast_proposals=self._fast_direction.astype(np.float64)
-            * self.input.config.target_magnitude,
+            fast_proposals=(
+                self._fast_direction.astype(np.float64)
+                * self.input.config.target_magnitude
+            ),
             expected_returns_4h=self._fast_mean,
             expected_returns_24h=np.zeros(len(targets)),
             expected_returns_72h=self._slow_mean,
@@ -733,7 +759,6 @@ class CausalAlphaV10HierarchyPolicy:
             hierarchy_reasons=tuple(self._hierarchy_reasons),
             hierarchy_reason_counts=hierarchy_counts,
         )
-
 
 
 def prepare_causal_alpha_v10_hierarchy_policy(
@@ -775,7 +800,6 @@ def prepare_causal_alpha_v10_hierarchy_policy(
             execution_contract=execution_contract,
         )
     )
-
 
 
 def causal_alpha_v10_hierarchical_target_path(

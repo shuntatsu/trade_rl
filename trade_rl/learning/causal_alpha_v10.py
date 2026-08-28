@@ -28,6 +28,7 @@ class CausalAlphaV10Config:
     fast_horizon_hours: int = 4
     slow_horizon_hours: int = 72
     hidden_feature_count: int = 128
+    slow_hidden_feature_count: int = 32
     head_seeds: tuple[int, ...] = (0, 1, 2)
     bias_seeds: tuple[int, ...] = (10, 11, 12)
     ridge_strength: float = 1.0
@@ -46,6 +47,7 @@ class CausalAlphaV10Config:
             "fast_horizon_hours": 4,
             "slow_horizon_hours": 72,
             "hidden_feature_count": 128,
+            "slow_hidden_feature_count": 32,
             "head_seeds": (0, 1, 2),
             "bias_seeds": (10, 11, 12),
             "ridge_strength": 1.0,

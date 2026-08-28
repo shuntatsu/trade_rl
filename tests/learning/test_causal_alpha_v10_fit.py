@@ -36,7 +36,11 @@ def _rows(symbol: str, phase: float) -> CausalAlphaV10TrainingRows:
 
 
 def test_v10_dual_fit_is_deterministic_causal_and_non_overlapping() -> None:
-    rows = {"A": _rows("A", 0.1), "B": _rows("B", 0.7)}
+    rows = {
+        "A": _rows("A", 0.1),
+        "B": _rows("B", 0.7),
+        "C": _rows("C", 1.1),
+    }
     config = CausalAlphaV10Config()
     cutoff = 8_992
 
@@ -69,6 +73,12 @@ def test_v10_dual_fit_is_deterministic_causal_and_non_overlapping() -> None:
     )
     assert first.fast.training_row_count == expected_fast
     assert first.slow.training_row_count == expected_slow
+    assert first.slow.training_row_count >= 2 * config.slow_hidden_feature_count
+    assert first.fast.coefficients.shape == (
+        3,
+        len(first.fast.feature_names) + config.hidden_feature_count,
+    )
+    assert first.slow.coefficients.shape == (3, config.slow_hidden_feature_count)
     assert first.fast.predict_heads(rows["A"].features[-5:]).shape == (3, 5)
     assert first.slow.predict_heads(rows["A"].features[-5:]).shape == (3, 5)
 

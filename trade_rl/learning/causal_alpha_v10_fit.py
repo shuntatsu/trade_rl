@@ -86,6 +86,7 @@ class CausalAlphaV10TrainingRows:
 @dataclass(frozen=True, slots=True)
 class CausalAlphaV10HorizonFit:
     horizon: Literal["fast_4h", "slow_72h"]
+    design_mode: Literal["raw_plus_relu", "relu_only"]
     knowledge_cutoff: int
     maximum_label_end_index: int
     feature_names: tuple[str, ...]
@@ -108,6 +109,9 @@ class CausalAlphaV10HorizonFit:
         width = len(self.feature_names)
         if self.horizon not in ("fast_4h", "slow_72h"):
             raise ValueError("V10 fit horizon is invalid")
+        expected_mode = "raw_plus_relu" if self.horizon == "fast_4h" else "relu_only"
+        if self.design_mode != expected_mode:
+            raise ValueError("V10 fit design mode is invalid")
         if self.maximum_label_end_index >= self.knowledge_cutoff or self.training_row_count <= 0:
             raise ValueError("V10 fit causal range is invalid")
         if mean.shape != (width,) or scale.shape != (width,) or np.any(scale <= 0.0):
@@ -116,7 +120,12 @@ class CausalAlphaV10HorizonFit:
             raise ValueError("V10 fit hidden weights are invalid")
         if bias.shape != (3, weights.shape[2]):
             raise ValueError("V10 fit hidden bias is invalid")
-        if coefficients.shape != (3, width + weights.shape[2]):
+        design_width = (
+            width + weights.shape[2]
+            if self.design_mode == "raw_plus_relu"
+            else weights.shape[2]
+        )
+        if coefficients.shape != (3, design_width):
             raise ValueError("V10 fit coefficients are invalid")
         if self.schema_version != _HORIZON_FIT_SCHEMA:
             raise ValueError("unsupported V10 horizon fit schema")
@@ -152,13 +161,19 @@ class CausalAlphaV10HorizonFit:
                 0.0,
                 normalized @ self.hidden_weights[head] + self.hidden_bias[head],
             )
-            result[head] = np.column_stack((normalized, hidden)) @ self.coefficients[head]
+            design = (
+                np.column_stack((normalized, hidden))
+                if self.design_mode == "raw_plus_relu"
+                else hidden
+            )
+            result[head] = design @ self.coefficients[head]
         result.setflags(write=False)
         return result
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
             "config_digest": self.config_digest,
+            "design_mode": self.design_mode,
             "feature_names": self.feature_names,
             "horizon": self.horizon,
             "knowledge_cutoff": self.knowledge_cutoff,
@@ -241,10 +256,15 @@ def _fit_horizon(
     scale = np.std(features, axis=0, dtype=np.float64)
     scale = np.where(scale < 1e-8, 1.0, scale)
     normalized = (features - mean) / scale
+    hidden_feature_count = (
+        config.hidden_feature_count if fast else config.slow_hidden_feature_count
+    )
+    if not fast and len(features) < 2 * hidden_feature_count:
+        raise ValueError("V10 slow fit requires two rows per hidden coefficient")
     weights = np.stack(
         tuple(
             np.random.default_rng(seed).normal(
-                size=(features.shape[1], config.hidden_feature_count)
+                size=(features.shape[1], hidden_feature_count)
             )
             / np.sqrt(features.shape[1])
             for seed in config.head_seeds
@@ -252,14 +272,14 @@ def _fit_horizon(
     )
     bias = np.stack(
         tuple(
-            np.random.default_rng(seed).normal(size=config.hidden_feature_count)
+            np.random.default_rng(seed).normal(size=hidden_feature_count)
             for seed in config.bias_seeds
         )
     )
     coefficients: list[np.ndarray] = []
     for head in range(3):
         hidden = np.maximum(0.0, normalized @ weights[head] + bias[head])
-        design = np.column_stack((normalized, hidden))
+        design = np.column_stack((normalized, hidden)) if fast else hidden
         gram = design.T @ design
         coefficients.append(
             np.linalg.solve(
@@ -269,6 +289,7 @@ def _fit_horizon(
         )
     return CausalAlphaV10HorizonFit(
         horizon=horizon,
+        design_mode="raw_plus_relu" if fast else "relu_only",
         knowledge_cutoff=knowledge_cutoff,
         maximum_label_end_index=int(np.max(ends)),
         feature_names=next(iter(records.values())).feature_names,
@@ -319,4 +340,3 @@ __all__ = [
     "CausalAlphaV10TrainingRows",
     "fit_causal_alpha_v10",
 ]
-

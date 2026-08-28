@@ -1,0 +1,73 @@
+name: Cleanup V10 Temporary Branches
+
+on:
+  push:
+    branches:
+      - codex/v10-execution-contract
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Audit and delete temporary branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          KEEP_BRANCH: codex/v10-execution-contract
+          MAIN_BRANCH: main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          keep_sha="$(gh api "repos/$REPO/branches/$KEEP_BRANCH" --jq '.commit.sha')"
+          pr_head="$(gh api "repos/$REPO/pulls/423" --jq '.head.ref')"
+          pr_state="$(gh api "repos/$REPO/pulls/423" --jq '.state')"
+
+          test "$pr_head" = "$KEEP_BRANCH"
+          test "$pr_state" = "open"
+
+          mapfile -t branches < <(gh api --paginate "repos/$REPO/branches?per_page=100" --jq '.[].name')
+
+          delete_branches=()
+          for branch in "${branches[@]}"; do
+            case "$branch" in
+              "$MAIN_BRANCH"|"$KEEP_BRANCH")
+                continue
+                ;;
+              temp-not-needed|verify/*)
+                ;;
+              *)
+                echo "Refusing cleanup: unexpected non-temporary branch: $branch" >&2
+                exit 1
+                ;;
+            esac
+
+            branch_sha="$(gh api "repos/$REPO/branches/${branch//\//%2F}" --jq '.commit.sha')"
+            compare="$(gh api "repos/$REPO/compare/$branch_sha...$keep_sha" --jq '"status=" + .status + " ahead=" + (.ahead_by|tostring) + " behind=" + (.behind_by|tostring)')"
+            echo "AUDIT $branch $branch_sha $compare"
+
+            owner="${REPO%%/*}"
+            open_pr_count="$(gh api -X GET "repos/$REPO/pulls" -f state=open -f head="$owner:$branch" --jq 'length')"
+            if [ "$open_pr_count" != "0" ]; then
+              echo "Refusing cleanup: temporary branch has an open PR: $branch" >&2
+              exit 1
+            fi
+            delete_branches+=("$branch")
+          done
+
+          echo "Deleting ${#delete_branches[@]} temporary branches"
+          for branch in "${delete_branches[@]}"; do
+            encoded="${branch//\//%2F}"
+            gh api -X DELETE "repos/$REPO/git/refs/heads/$encoded"
+            echo "DELETED $branch"
+          done
+
+          mapfile -t remaining < <(gh api --paginate "repos/$REPO/branches?per_page=100" --jq '.[].name')
+          printf 'REMAINING %s\n' "${remaining[@]}"
+          test "${#remaining[@]}" -eq 2
+          printf '%s\n' "${remaining[@]}" | grep -qx "$MAIN_BRANCH"
+          printf '%s\n' "${remaining[@]}" | grep -qx "$KEEP_BRANCH"

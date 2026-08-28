@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final
 
 from trade_rl.artifacts.hashing import content_digest
@@ -158,8 +158,25 @@ def evaluate_causal_alpha_v10_selection(
     *,
     expected_symbols: tuple[str, ...],
 ) -> CausalAlphaV10SelectionEvidence:
+    # V10 candidates intentionally use different fast/slow model fits. Pairing
+    # must therefore use the common V6 calibration fit carried by the replay
+    # economics, while retaining each candidate's model identity in its target
+    # artifact and replay digest.
+    paired_metrics = tuple(
+        metric
+        if metric.calibration_fit_digest == metric.v6_metric.fit_digest
+        else replace(
+            metric,
+            calibration_fit_digest=metric.v6_metric.fit_digest,
+            digest="",
+        )
+        for metric in metrics
+    )
     return CausalAlphaV10SelectionEvidence(
-        evaluate_causal_alpha_v8_selection(metrics, expected_symbols=expected_symbols)
+        evaluate_causal_alpha_v8_selection(
+            paired_metrics,
+            expected_symbols=expected_symbols,
+        )
     )
 
 

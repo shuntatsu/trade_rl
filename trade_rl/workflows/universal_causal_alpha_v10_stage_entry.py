@@ -213,22 +213,32 @@ def _signal_evidence(
     )
 
 
+def _environment_no_trade_band(environment: Any) -> float:
+    risk = getattr(environment, "pre_trade_risk", None)
+    risk_config = getattr(risk, "config", None)
+    value = getattr(risk_config, "no_trade_band", None)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not np.isfinite(value)
+        or value < 0.0
+    ):
+        raise ValueError("V10 environment no-trade band is invalid")
+    return float(value)
+
+
 def _execution_no_trade_band(prepared: Any, symbol: str) -> float:
     environment = _environment(prepared, symbol)
     try:
-        risk = getattr(environment, "pre_trade_risk", None)
-        risk_config = getattr(risk, "config", None)
-        value = getattr(risk_config, "no_trade_band", None)
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not np.isfinite(value)
-            or value < 0.0
-        ):
-            raise ValueError("V10 environment no-trade band is invalid")
-        return float(value)
+        return _environment_no_trade_band(environment)
     finally:
         environment.close()
+
+
+def _require_execution_no_trade_band(environment: Any, expected: float) -> None:
+    observed = _environment_no_trade_band(environment)
+    if observed != float(expected):
+        raise ValueError("V10 replay execution no-trade band drifted")
 
 
 def _target_paths(
@@ -314,9 +324,11 @@ def _build_replay(
     target: CausalAlphaV10TargetPath,
     config_digest: str,
     boundaries: Any,
+    execution_no_trade_band: float,
 ) -> CausalAlphaV8ReplayMetric:
     environment = _environment(prepared, symbol)
     try:
+        _require_execution_no_trade_band(environment, execution_no_trade_band)
         evaluation = evaluate_action_path(
             _InitialStateEnvironment(environment, contract.initial_state_mode),
             evaluation_range=(contract.start, contract.stop),
@@ -521,6 +533,7 @@ def selection_stage(
                             target=target,
                             config_digest=config_digest,
                             boundaries=resolved.boundaries,
+                            execution_no_trade_band=execution_bands[symbol],
                         )
                         store.write_leaf(relative, _leaf(store, candidate, metric))
                     records.append(metric)

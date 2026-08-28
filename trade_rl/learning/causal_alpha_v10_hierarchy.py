@@ -1,7 +1,9 @@
-"""Pure two-stage exposure compiler for Causal Alpha V10."""
+"""Closed-loop hierarchical exposure policy for Causal Alpha V10."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 import numpy as np
@@ -18,19 +20,240 @@ from trade_rl.learning.causal_alpha_v6 import (
 from trade_rl.learning.causal_alpha_v6_target import causal_alpha_v6_fast_objective
 from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Config
 
+_EPSILON = 1e-12
+_OBSERVATION_TOLERANCE = 1e-6
+
 
 class _AttributionBoundaries(Protocol):
     liquidity: tuple[float, float, float]
     realized_volatility: tuple[float, float, float]
 
 
-def _aligned(value: object, *, rows: int, dtype: Any, field: str) -> np.ndarray:
-    array = np.asarray(value, dtype=dtype).reshape(-1)
-    if array.shape != (rows,):
-        raise ValueError(f"V10 {field} must be decision aligned")
-    if np.issubdtype(array.dtype, np.floating) and not np.isfinite(array).all():
-        raise ValueError(f"V10 {field} must be finite")
-    return array
+@dataclass(frozen=True, slots=True)
+class CausalAlphaV10ExecutionContract:
+    """PreTrade fields that can change one V10 replay's realized exposure."""
+
+    max_gross: float = 1.0
+    max_abs_weight: float = 1.0
+    max_turnover: float | None = 2.0
+    entry_threshold: float = 0.0
+    exit_threshold: float = 0.0
+    no_trade_band: float = 0.0
+    drawdown_start: float = 0.10
+    drawdown_stop: float = 0.20
+    emergency_turnover_override: bool = True
+    fail_closed_tolerance: float = 1e-10
+
+    def __post_init__(self) -> None:
+        values = (
+            self.max_gross,
+            self.max_abs_weight,
+            self.entry_threshold,
+            self.exit_threshold,
+            self.no_trade_band,
+            self.drawdown_start,
+            self.drawdown_stop,
+            self.fail_closed_tolerance,
+        )
+        if any(isinstance(value, bool) or not np.isfinite(value) for value in values):
+            raise ValueError("V10 execution contract values must be finite")
+        if not 0.0 < self.max_gross <= 10.0:
+            raise ValueError("V10 execution max_gross is invalid")
+        if not 0.0 < self.max_abs_weight <= self.max_gross:
+            raise ValueError("V10 execution max_abs_weight is invalid")
+        if self.max_turnover is not None:
+            if (
+                isinstance(self.max_turnover, bool)
+                or not np.isfinite(self.max_turnover)
+                or not 0.0 <= self.max_turnover <= 2.0 * self.max_gross
+            ):
+                raise ValueError("V10 execution max_turnover is invalid")
+        if not 0.0 <= self.entry_threshold <= self.max_abs_weight:
+            raise ValueError("V10 execution entry_threshold is invalid")
+        if not 0.0 <= self.exit_threshold <= self.entry_threshold:
+            raise ValueError("V10 execution exit_threshold is invalid")
+        if not 0.0 <= self.no_trade_band <= 2.0 * self.max_abs_weight:
+            raise ValueError("V10 execution no_trade_band is invalid")
+        if not 0.0 <= self.drawdown_start <= self.drawdown_stop <= 1.0:
+            raise ValueError("V10 execution drawdown thresholds are invalid")
+        if self.fail_closed_tolerance < 0.0:
+            raise ValueError("V10 execution fail_closed_tolerance is invalid")
+        if not isinstance(self.emergency_turnover_override, bool):
+            raise TypeError("V10 execution emergency_turnover_override must be bool")
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "drawdown_start": self.drawdown_start,
+            "drawdown_stop": self.drawdown_stop,
+            "emergency_turnover_override": self.emergency_turnover_override,
+            "entry_threshold": self.entry_threshold,
+            "exit_threshold": self.exit_threshold,
+            "fail_closed_tolerance": self.fail_closed_tolerance,
+            "max_abs_weight": self.max_abs_weight,
+            "max_gross": self.max_gross,
+            "max_turnover": self.max_turnover,
+            "no_trade_band": self.no_trade_band,
+            "schema_version": "causal_alpha_v10_execution_contract_v1",
+        }
+
+    @property
+    def digest(self) -> str:
+        return content_digest(self.to_payload())
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaV10HierarchyPolicyInput:
+    """Immutable pre-replay causal input and execution identity for V10."""
+
+    decision_indices: np.ndarray
+    fast_head_predictions: np.ndarray
+    slow_head_predictions: np.ndarray
+    one_way_cost_rates: np.ndarray
+    liquidity_weight_caps: np.ndarray
+    risk_weight_caps: np.ndarray
+    realized_volatility: np.ndarray
+    liquidity: np.ndarray
+    actionable_mask: np.ndarray
+    attribution_liquidity: tuple[float, float, float]
+    attribution_realized_volatility: tuple[float, float, float]
+    source_forecast_digest: str
+    dual_fit_digest: str
+    config: CausalAlphaV10Config
+    initial_weight: float
+    execution_contract: CausalAlphaV10ExecutionContract
+    compiler_config_digest: str
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        require_sha256(self.source_forecast_digest, field="V10 source forecast digest")
+        require_sha256(self.dual_fit_digest, field="V10 dual fit digest")
+        require_sha256(self.compiler_config_digest, field="V10 compiler config digest")
+        if not isinstance(self.config, CausalAlphaV10Config):
+            raise TypeError("V10 hierarchy input config is invalid")
+        if not isinstance(self.execution_contract, CausalAlphaV10ExecutionContract):
+            raise TypeError("V10 hierarchy execution contract is invalid")
+        if not np.isfinite(self.initial_weight):
+            raise ValueError("V10 hierarchy initial weight must be finite")
+
+        decisions = np.asarray(self.decision_indices, dtype=np.int64).reshape(-1).copy()
+        rows = len(decisions)
+        if rows == 0 or np.any(decisions < 0) or np.any(np.diff(decisions) <= 0):
+            raise ValueError("V10 decision indices must be non-empty and increasing")
+        fast_heads = np.asarray(self.fast_head_predictions, dtype=np.float64).copy()
+        slow_heads = np.asarray(self.slow_head_predictions, dtype=np.float64).copy()
+        if (
+            fast_heads.shape != (3, rows)
+            or slow_heads.shape != (3, rows)
+            or not np.isfinite(fast_heads).all()
+            or not np.isfinite(slow_heads).all()
+        ):
+            raise ValueError("V10 head predictions are invalid")
+
+        vectors: dict[str, np.ndarray] = {}
+        for name, value, dtype in (
+            ("one_way_cost_rates", self.one_way_cost_rates, np.float64),
+            ("liquidity_weight_caps", self.liquidity_weight_caps, np.float64),
+            ("risk_weight_caps", self.risk_weight_caps, np.float64),
+            ("realized_volatility", self.realized_volatility, np.float64),
+            ("liquidity", self.liquidity, np.float64),
+            ("actionable_mask", self.actionable_mask, np.bool_),
+        ):
+            array = np.asarray(value, dtype=dtype).reshape(-1).copy()
+            if array.shape != (rows,):
+                raise ValueError(f"V10 {name} must be decision aligned")
+            if np.issubdtype(array.dtype, np.floating) and not np.isfinite(array).all():
+                raise ValueError(f"V10 {name} must be finite")
+            vectors[name] = array
+        if any(
+            np.any(vectors[name] < 0.0)
+            for name in (
+                "one_way_cost_rates",
+                "liquidity_weight_caps",
+                "risk_weight_caps",
+            )
+        ):
+            raise ValueError("V10 costs and caps must be non-negative")
+
+        liquidity_bounds = tuple(float(value) for value in self.attribution_liquidity)
+        volatility_bounds = tuple(
+            float(value) for value in self.attribution_realized_volatility
+        )
+        for values, field in (
+            (liquidity_bounds, "liquidity boundaries"),
+            (volatility_bounds, "realized-volatility boundaries"),
+        ):
+            if (
+                len(values) != 3
+                or not np.isfinite(values).all()
+                or not values[0] <= values[1] <= values[2]
+            ):
+                raise ValueError(f"V10 {field} are invalid")
+
+        for array in (decisions, fast_heads, slow_heads, *vectors.values()):
+            array.setflags(write=False)
+        object.__setattr__(self, "decision_indices", decisions)
+        object.__setattr__(self, "fast_head_predictions", fast_heads)
+        object.__setattr__(self, "slow_head_predictions", slow_heads)
+        for name, array in vectors.items():
+            object.__setattr__(self, name, array)
+        object.__setattr__(self, "attribution_liquidity", liquidity_bounds)
+        object.__setattr__(
+            self,
+            "attribution_realized_volatility",
+            volatility_bounds,
+        )
+
+        expected = content_and_arrays_digest(
+            {
+                "attribution_liquidity": liquidity_bounds,
+                "attribution_realized_volatility": volatility_bounds,
+                "compiler_config_digest": self.compiler_config_digest,
+                "dual_fit_digest": self.dual_fit_digest,
+                "execution_contract_digest": self.execution_contract.digest,
+                "initial_weight": float(self.initial_weight),
+                "schema_version": "causal_alpha_v10_hierarchy_policy_input_v1",
+                "source_forecast_digest": self.source_forecast_digest,
+                "v10_config_digest": self.config.digest,
+            },
+            (
+                ("decision_indices", decisions),
+                ("fast_head_predictions", fast_heads),
+                ("slow_head_predictions", slow_heads),
+                ("one_way_cost_rates", vectors["one_way_cost_rates"]),
+                ("liquidity_weight_caps", vectors["liquidity_weight_caps"]),
+                ("risk_weight_caps", vectors["risk_weight_caps"]),
+                ("realized_volatility", vectors["realized_volatility"]),
+                ("liquidity", vectors["liquidity"]),
+                ("actionable_mask", vectors["actionable_mask"]),
+            ),
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("V10 hierarchy policy input digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+
+@dataclass(frozen=True, slots=True)
+class CausalAlphaV10HierarchyResult:
+    v6_target_path: CausalAlphaV6TargetPath
+    input_digest: str
+    hierarchy_reasons: tuple[str, ...]
+    hierarchy_reason_counts: tuple[tuple[str, int], ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.v6_target_path, CausalAlphaV6TargetPath):
+            raise TypeError("V10 hierarchy result target path is invalid")
+        require_sha256(self.input_digest, field="V10 hierarchy input digest")
+        reasons = tuple(self.hierarchy_reasons)
+        counts = tuple(
+            sorted((reason, reasons.count(reason)) for reason in set(reasons))
+        )
+        if len(reasons) != len(self.v6_target_path.decision_indices):
+            raise ValueError("V10 hierarchy reasons must cover every decision")
+        if tuple(self.hierarchy_reason_counts) != counts:
+            raise ValueError("V10 hierarchy reason counts are inconsistent")
+        object.__setattr__(self, "hierarchy_reasons", reasons)
+        object.__setattr__(self, "hierarchy_reason_counts", counts)
+
 
 
 def _qualified(
@@ -50,6 +273,7 @@ def _qualified(
     return mean, uncertainty, direction
 
 
+
 def _slow_state(direction: int, current: float) -> CausalAlphaV6SlowState:
     current_sign = int(np.sign(current))
     if current_sign == 0:
@@ -61,22 +285,497 @@ def _slow_state(direction: int, current: float) -> CausalAlphaV6SlowState:
     return CausalAlphaV6SlowState.MIXED
 
 
+
 def _compiler_config_digest(
     *,
     config: CausalAlphaV10Config,
-    execution_entry_threshold: float,
-    execution_no_trade_band: float,
+    execution_contract: CausalAlphaV10ExecutionContract,
     economic_config: CausalAlphaV6TargetConfig,
 ) -> str:
     return content_digest(
         {
-            "execution_entry_threshold": execution_entry_threshold,
-            "execution_no_trade_band": execution_no_trade_band,
-            "schema_version": "causal_alpha_v10_target_compiler_contract_v2",
+            "execution_contract_digest": execution_contract.digest,
+            "schema_version": "causal_alpha_v10_target_compiler_contract_v3",
             "v6_economic_config_digest": economic_config.digest,
             "v10_config_digest": config.digest,
         }
     )
+
+
+
+def _policy_input(
+    *,
+    decision_indices: object,
+    fast_head_predictions: object,
+    slow_head_predictions: object,
+    one_way_cost_rates: object,
+    liquidity_weight_caps: object,
+    risk_weight_caps: object,
+    realized_volatility: object,
+    liquidity: object,
+    attribution_boundaries: _AttributionBoundaries,
+    actionable_mask: object,
+    source_forecast_digest: str,
+    dual_fit_digest: str,
+    config: CausalAlphaV10Config,
+    initial_weight: float,
+    execution_contract: CausalAlphaV10ExecutionContract,
+) -> CausalAlphaV10HierarchyPolicyInput:
+    economic_config = CausalAlphaV6TargetConfig()
+    return CausalAlphaV10HierarchyPolicyInput(
+        decision_indices=np.asarray(decision_indices),
+        fast_head_predictions=np.asarray(fast_head_predictions),
+        slow_head_predictions=np.asarray(slow_head_predictions),
+        one_way_cost_rates=np.asarray(one_way_cost_rates),
+        liquidity_weight_caps=np.asarray(liquidity_weight_caps),
+        risk_weight_caps=np.asarray(risk_weight_caps),
+        realized_volatility=np.asarray(realized_volatility),
+        liquidity=np.asarray(liquidity),
+        actionable_mask=np.asarray(actionable_mask),
+        attribution_liquidity=tuple(attribution_boundaries.liquidity),
+        attribution_realized_volatility=tuple(
+            attribution_boundaries.realized_volatility
+        ),
+        source_forecast_digest=source_forecast_digest,
+        dual_fit_digest=dual_fit_digest,
+        config=config,
+        initial_weight=float(initial_weight),
+        execution_contract=execution_contract,
+        compiler_config_digest=_compiler_config_digest(
+            config=config,
+            execution_contract=execution_contract,
+            economic_config=economic_config,
+        ),
+    )
+
+
+class CausalAlphaV10HierarchyPolicy:
+    """Sequential V10 policy that reasons from simulator-realized exposure."""
+
+    def __init__(self, policy_input: CausalAlphaV10HierarchyPolicyInput) -> None:
+        if not isinstance(policy_input, CausalAlphaV10HierarchyPolicyInput):
+            raise TypeError("V10 hierarchy policy input is invalid")
+        self.input = policy_input
+        self._economic_config = CausalAlphaV6TargetConfig()
+        self._fast_mean, self._fast_uncertainty, self._fast_direction = _qualified(
+            policy_input.fast_head_predictions,
+            edge_margin=policy_input.config.edge_margin,
+        )
+        self._slow_mean, _slow_uncertainty, self._slow_direction = _qualified(
+            policy_input.slow_head_predictions,
+            edge_margin=policy_input.config.edge_margin,
+        )
+        self._execution_eligible = (
+            (policy_input.liquidity >= policy_input.attribution_liquidity[1])
+            & (
+                policy_input.realized_volatility
+                >= policy_input.attribution_realized_volatility[0]
+            )
+            & (
+                policy_input.realized_volatility
+                < policy_input.attribution_realized_volatility[2]
+            )
+        )
+        rows = len(policy_input.decision_indices)
+        self._targets = np.empty(rows, dtype=np.float64)
+        self._objectives = np.zeros(rows, dtype=np.float64)
+        self._confirmation_counts = np.zeros(rows, dtype=np.int64)
+        self._reasons: list[str] = []
+        self._hierarchy_reasons: list[str] = []
+        self._slow_states: list[CausalAlphaV6SlowState] = []
+        self._offset = 0
+        self._last_observed: float | None = None
+        self._last_requested: float | None = None
+        self._risk_flatten_latched = False
+        self._inherited = abs(policy_input.initial_weight) > _EPSILON
+        self._inherited_checks = 0
+        self._inherited_matches = 0
+        self._entry_intent = 0
+        self._entry_count = 0
+        self._fast_exit_count = 0
+        self._slow_exit_count = 0
+        self._slow_opposite_count = 0
+        self._neutral_slow_count = 0
+        self._slow_regime = 0
+
+    @property
+    def input_digest(self) -> str:
+        return self.input.digest
+
+    def _reset_flat_state(self) -> None:
+        self._inherited = False
+        self._inherited_checks = 0
+        self._inherited_matches = 0
+        self._entry_intent = 0
+        self._entry_count = 0
+        self._fast_exit_count = 0
+        self._slow_exit_count = 0
+        self._slow_opposite_count = 0
+        self._neutral_slow_count = 0
+        self._slow_regime = 0
+
+    def _current_weight(self, observation: object) -> float:
+        if not isinstance(observation, Mapping) or "current_weights" not in observation:
+            raise ValueError("V10 closed-loop observation is missing current_weights")
+        values = np.asarray(observation["current_weights"], dtype=np.float64).reshape(-1)
+        if values.shape != (1,) or not np.isfinite(values).all():
+            raise ValueError("V10 closed-loop current_weights must be one finite value")
+        return float(values[0])
+
+    def _partial_risk_reduction_executable(self, current: float, target: float) -> bool:
+        contract = self.input.execution_contract
+        if abs(target) <= contract.exit_threshold:
+            return False
+        if abs(target) < contract.entry_threshold:
+            return False
+        return abs(target - current) >= contract.no_trade_band
+
+    def _record(
+        self,
+        *,
+        offset: int,
+        observed_current: float,
+        requested: float,
+        reason: str,
+        hierarchy_reason: str,
+    ) -> tuple[np.ndarray, None]:
+        self._targets[offset] = requested
+        self._objectives[offset] = causal_alpha_v6_fast_objective(
+            observed_current,
+            requested,
+            float(self._fast_mean[offset]),
+            float(self._fast_uncertainty[offset]),
+            float(self.input.one_way_cost_rates[offset]),
+            self._economic_config,
+        )
+        self._confirmation_counts[offset] = max(
+            self._inherited_matches,
+            self._entry_count,
+            self._fast_exit_count,
+            self._slow_exit_count,
+            self._neutral_slow_count,
+        )
+        self._reasons.append(reason)
+        self._hierarchy_reasons.append(hierarchy_reason)
+        self._slow_states.append(_slow_state(self._slow_regime, requested))
+        self._last_observed = observed_current
+        self._last_requested = requested
+        self._offset += 1
+        return np.asarray([requested], dtype=np.float32), None
+
+    def predict(
+        self,
+        observation: object,
+        deterministic: bool = True,
+    ) -> tuple[np.ndarray, None]:
+        if not isinstance(deterministic, bool):
+            raise TypeError("V10 deterministic flag must be boolean")
+        if self._offset >= len(self.input.decision_indices):
+            raise RuntimeError("V10 hierarchy policy exhausted its decision rows")
+        offset = self._offset
+        current = self._current_weight(observation)
+        if offset == 0 and not np.isclose(
+            current,
+            self.input.initial_weight,
+            atol=_OBSERVATION_TOLERANCE,
+            rtol=0.0,
+        ):
+            raise ValueError("V10 initial realized weight drifted from frozen contract")
+
+        current_sign = int(np.sign(current))
+        last_sign = 0 if self._last_observed is None else int(np.sign(self._last_observed))
+        if last_sign != 0 and current_sign == -last_sign:
+            raise RuntimeError("V10 realized position flipped without an intervening flat state")
+        external_flatten = (
+            last_sign != 0
+            and current_sign == 0
+            and self._last_requested is not None
+            and abs(self._last_requested) > _EPSILON
+        )
+        if external_flatten:
+            self._risk_flatten_latched = False
+            self._reset_flat_state()
+            return self._record(
+                offset=offset,
+                observed_current=current,
+                requested=0.0,
+                reason="hold_flat",
+                hierarchy_reason="realized_state_reset",
+            )
+
+        if self._risk_flatten_latched:
+            if abs(current) <= _EPSILON:
+                self._risk_flatten_latched = False
+                self._reset_flat_state()
+            else:
+                return self._record(
+                    offset=offset,
+                    observed_current=current,
+                    requested=0.0,
+                    reason="risk_projection",
+                    hierarchy_reason="risk_cap_flatten",
+                )
+
+        config = self.input.config
+        liquidity_cap = min(
+            config.target_magnitude,
+            float(self.input.liquidity_weight_caps[offset]),
+        )
+        risk_cap = min(
+            config.target_magnitude,
+            float(self.input.risk_weight_caps[offset]),
+        )
+        cadence = (
+            int(self.input.decision_indices[offset]) % config.fast_horizon_decisions == 0
+        )
+
+        if abs(current) > risk_cap + _EPSILON:
+            partial = float(np.sign(current) * risk_cap)
+            if self._partial_risk_reduction_executable(current, partial):
+                return self._record(
+                    offset=offset,
+                    observed_current=current,
+                    requested=partial,
+                    reason="risk_projection",
+                    hierarchy_reason="risk_cap_projection",
+                )
+            self._risk_flatten_latched = True
+            return self._record(
+                offset=offset,
+                observed_current=current,
+                requested=0.0,
+                reason="risk_projection",
+                hierarchy_reason="risk_cap_flatten",
+            )
+
+        requested = current
+        reason = "hold_position" if abs(current) > _EPSILON else "hold_flat"
+        hierarchy_reason = reason
+        if abs(current) > liquidity_cap + _EPSILON:
+            hierarchy_reason = "liquidity_capacity_hold"
+
+        if cadence and bool(self.input.actionable_mask[offset]):
+            fast = int(self._fast_direction[offset])
+            observed_slow = int(self._slow_direction[offset])
+            current_sign = int(np.sign(current))
+            if self._inherited and current_sign != 0:
+                self._inherited_checks += 1
+                if (
+                    fast == observed_slow == current_sign
+                    and bool(self._execution_eligible[offset])
+                ):
+                    self._inherited_matches += 1
+                if self._inherited_checks >= config.entry_confirmation_count:
+                    if self._inherited_matches < config.entry_confirmation_count:
+                        requested = 0.0
+                        reason = hierarchy_reason = "exit"
+                    else:
+                        reason = hierarchy_reason = "slow_support_hold"
+                    self._inherited = False
+                    self._inherited_checks = 0
+                    self._inherited_matches = 0
+                else:
+                    reason = hierarchy_reason = "confirmation_hold"
+            elif current_sign == 0:
+                if observed_slow != 0:
+                    self._slow_regime = observed_slow
+                coherent = (
+                    fast
+                    if fast != 0
+                    and fast == self._slow_regime
+                    and bool(self._execution_eligible[offset])
+                    else 0
+                )
+                cap = min(liquidity_cap, risk_cap)
+                entry_target = float(coherent * cap)
+                entry_objective = causal_alpha_v6_fast_objective(
+                    0.0,
+                    entry_target,
+                    float(self._fast_mean[offset]),
+                    float(self._fast_uncertainty[offset]),
+                    float(self.input.one_way_cost_rates[offset]),
+                    self._economic_config,
+                )
+                if coherent == 0 or entry_objective <= _EPSILON:
+                    self._entry_intent = 0
+                    self._entry_count = 0
+                    reason = hierarchy_reason = "cost_or_uncertainty_hold"
+                elif abs(entry_target) < max(
+                    self.input.execution_contract.entry_threshold,
+                    self.input.execution_contract.no_trade_band,
+                ):
+                    self._entry_intent = 0
+                    self._entry_count = 0
+                    reason = "hold_flat"
+                    hierarchy_reason = "entry_floor_hold"
+                else:
+                    if coherent == self._entry_intent:
+                        self._entry_count += 1
+                    else:
+                        self._entry_intent = coherent
+                        self._entry_count = 1
+                    if self._entry_count >= config.entry_confirmation_count:
+                        requested = entry_target
+                        reason = hierarchy_reason = "entry"
+                        self._entry_intent = 0
+                        self._entry_count = 0
+                        self._fast_exit_count = 0
+                        self._slow_exit_count = 0
+                        self._neutral_slow_count = 0
+                    else:
+                        reason = hierarchy_reason = "confirmation_hold"
+            else:
+                if observed_slow == current_sign:
+                    self._slow_regime = observed_slow
+                    self._slow_opposite_count = 0
+                    self._neutral_slow_count = 0
+                elif observed_slow == -current_sign:
+                    self._slow_opposite_count += 1
+                    self._neutral_slow_count = 0
+                else:
+                    self._slow_opposite_count = 0
+                    self._neutral_slow_count += 1
+                self._fast_exit_count = (
+                    self._fast_exit_count + 1 if fast == -current_sign else 0
+                )
+                self._slow_exit_count = self._slow_opposite_count
+                should_exit = (
+                    self._fast_exit_count >= config.exit_confirmation_count
+                    or self._slow_exit_count >= config.exit_confirmation_count
+                    or self._neutral_slow_count >= config.slow_neutral_expiry_count
+                )
+                if should_exit:
+                    requested = 0.0
+                    reason = hierarchy_reason = "exit"
+                    self._fast_exit_count = 0
+                    self._slow_exit_count = 0
+                    self._slow_opposite_count = 0
+                    self._neutral_slow_count = 0
+                    self._slow_regime = 0
+                elif hierarchy_reason != "liquidity_capacity_hold":
+                    reason = hierarchy_reason = (
+                        "slow_support_hold"
+                        if self._slow_regime == current_sign
+                        else "confirmation_hold"
+                    )
+        elif cadence:
+            if hierarchy_reason != "liquidity_capacity_hold":
+                reason = hierarchy_reason = "unactionable_hold"
+        elif hierarchy_reason != "liquidity_capacity_hold":
+            reason = hierarchy_reason = "cadence_hold"
+
+        return self._record(
+            offset=offset,
+            observed_current=current,
+            requested=requested,
+            reason=reason,
+            hierarchy_reason=hierarchy_reason,
+        )
+
+    def result(self) -> CausalAlphaV10HierarchyResult:
+        if self._offset != len(self.input.decision_indices):
+            raise RuntimeError("V10 hierarchy result requested before replay completed")
+        targets = self._targets.copy()
+        previous = np.concatenate(([self.input.initial_weight], targets[:-1]))
+        forecast_digest = content_and_arrays_digest(
+            {
+                "dual_fit_digest": self.input.dual_fit_digest,
+                "schema_version": "causal_alpha_v10_hierarchical_forecast_v2",
+                "source_forecast_digest": self.input.source_forecast_digest,
+            },
+            (
+                ("fast_head_predictions", self.input.fast_head_predictions),
+                ("slow_head_predictions", self.input.slow_head_predictions),
+            ),
+        )
+        counts = tuple(
+            sorted((reason, self._reasons.count(reason)) for reason in set(self._reasons))
+        )
+        path = CausalAlphaV6TargetPath(
+            candidate=CausalAlphaV6Candidate.FAST_ONLY,
+            initial_weight=float(self.input.initial_weight),
+            decision_indices=self.input.decision_indices,
+            targets=targets,
+            fast_proposals=self._fast_direction.astype(np.float64)
+            * self.input.config.target_magnitude,
+            expected_returns_4h=self._fast_mean,
+            expected_returns_24h=np.zeros(len(targets)),
+            expected_returns_72h=self._slow_mean,
+            direction_scores_4h=self._fast_direction.astype(np.float64),
+            uncertainties_4h=self._fast_uncertainty,
+            one_way_cost_rates=self.input.one_way_cost_rates,
+            liquidity_weight_caps=self.input.liquidity_weight_caps,
+            risk_weight_caps=self.input.risk_weight_caps,
+            objectives=self._objectives,
+            confirmation_counts=self._confirmation_counts,
+            actionable_mask=self.input.actionable_mask,
+            slow_states=tuple(self._slow_states),
+            reasons=tuple(self._reasons),
+            reason_counts=counts,
+            submitted_change_count=int(
+                np.count_nonzero(np.abs(targets - previous) > _EPSILON)
+            ),
+            sign_flip_count=int(np.count_nonzero(targets * previous < 0.0)),
+            liquidity_deleveraging_count=self._reasons.count("liquidity_deleverage"),
+            risk_projection_count=self._reasons.count("risk_projection"),
+            forecast_digest=forecast_digest,
+            config_digest=self.input.compiler_config_digest,
+        )
+        hierarchy_counts = tuple(
+            sorted(
+                (reason, self._hierarchy_reasons.count(reason))
+                for reason in set(self._hierarchy_reasons)
+            )
+        )
+        return CausalAlphaV10HierarchyResult(
+            v6_target_path=path,
+            input_digest=self.input.digest,
+            hierarchy_reasons=tuple(self._hierarchy_reasons),
+            hierarchy_reason_counts=hierarchy_counts,
+        )
+
+
+
+def prepare_causal_alpha_v10_hierarchy_policy(
+    *,
+    decision_indices: object,
+    fast_head_predictions: object,
+    slow_head_predictions: object,
+    one_way_cost_rates: object,
+    liquidity_weight_caps: object,
+    risk_weight_caps: object,
+    realized_volatility: object,
+    liquidity: object,
+    attribution_boundaries: _AttributionBoundaries,
+    actionable_mask: object,
+    source_forecast_digest: str,
+    dual_fit_digest: str,
+    config: CausalAlphaV10Config,
+    initial_weight: float,
+    execution_contract: CausalAlphaV10ExecutionContract,
+) -> CausalAlphaV10HierarchyPolicy:
+    """Prepare one immutable-input V10 policy for simulator-driven replay."""
+
+    return CausalAlphaV10HierarchyPolicy(
+        _policy_input(
+            decision_indices=decision_indices,
+            fast_head_predictions=fast_head_predictions,
+            slow_head_predictions=slow_head_predictions,
+            one_way_cost_rates=one_way_cost_rates,
+            liquidity_weight_caps=liquidity_weight_caps,
+            risk_weight_caps=risk_weight_caps,
+            realized_volatility=realized_volatility,
+            liquidity=liquidity,
+            attribution_boundaries=attribution_boundaries,
+            actionable_mask=actionable_mask,
+            source_forecast_digest=source_forecast_digest,
+            dual_fit_digest=dual_fit_digest,
+            config=config,
+            initial_weight=initial_weight,
+            execution_contract=execution_contract,
+        )
+    )
+
 
 
 def causal_alpha_v10_hierarchical_target_path(
@@ -97,308 +796,50 @@ def causal_alpha_v10_hierarchical_target_path(
     initial_weight: float,
     execution_entry_threshold: float,
     execution_no_trade_band: float,
+    execution_exit_threshold: float = 0.0,
 ) -> CausalAlphaV6TargetPath:
-    """Combine slow wave ownership with fast entry and early reversal signals."""
+    """Compatibility harness that drives the closed-loop policy open-loop."""
 
-    require_sha256(source_forecast_digest, field="V10 source forecast digest")
-    require_sha256(dual_fit_digest, field="V10 dual fit digest")
-    for value, field in (
-        (execution_entry_threshold, "entry threshold"),
-        (execution_no_trade_band, "no-trade band"),
-    ):
-        if (
-            isinstance(value, bool)
-            or not np.isfinite(value)
-            or float(value) < 0.0
-        ):
-            raise ValueError(f"V10 execution {field} must be finite and non-negative")
-    entry_threshold = float(execution_entry_threshold)
-    no_trade_band = float(execution_no_trade_band)
-    entry_floor = max(entry_threshold, no_trade_band)
-    economic_config = CausalAlphaV6TargetConfig()
-    compiler_config_digest = _compiler_config_digest(
+    contract = CausalAlphaV10ExecutionContract(
+        max_gross=1.0,
+        max_abs_weight=1.0,
+        max_turnover=2.0,
+        entry_threshold=float(execution_entry_threshold),
+        exit_threshold=float(execution_exit_threshold),
+        no_trade_band=float(execution_no_trade_band),
+    )
+    policy = prepare_causal_alpha_v10_hierarchy_policy(
+        decision_indices=decision_indices,
+        fast_head_predictions=fast_head_predictions,
+        slow_head_predictions=slow_head_predictions,
+        one_way_cost_rates=one_way_cost_rates,
+        liquidity_weight_caps=liquidity_weight_caps,
+        risk_weight_caps=risk_weight_caps,
+        realized_volatility=realized_volatility,
+        liquidity=liquidity,
+        attribution_boundaries=attribution_boundaries,
+        actionable_mask=actionable_mask,
+        source_forecast_digest=source_forecast_digest,
+        dual_fit_digest=dual_fit_digest,
         config=config,
-        execution_entry_threshold=entry_threshold,
-        execution_no_trade_band=no_trade_band,
-        economic_config=economic_config,
+        initial_weight=initial_weight,
+        execution_contract=contract,
     )
-
-    decisions = np.asarray(decision_indices, dtype=np.int64).reshape(-1)
-    rows = len(decisions)
-    fast_heads = np.asarray(fast_head_predictions, dtype=np.float64)
-    slow_heads = np.asarray(slow_head_predictions, dtype=np.float64)
-    if (
-        fast_heads.shape != (3, rows)
-        or slow_heads.shape != (3, rows)
-        or not np.isfinite(fast_heads).all()
-        or not np.isfinite(slow_heads).all()
-    ):
-        raise ValueError("V10 head predictions are invalid")
-    costs = _aligned(one_way_cost_rates, rows=rows, dtype=np.float64, field="costs")
-    liquidity_caps = _aligned(
-        liquidity_weight_caps,
-        rows=rows,
-        dtype=np.float64,
-        field="liquidity caps",
-    )
-    risk_caps = _aligned(
-        risk_weight_caps,
-        rows=rows,
-        dtype=np.float64,
-        field="risk caps",
-    )
-    volatility = _aligned(
-        realized_volatility,
-        rows=rows,
-        dtype=np.float64,
-        field="realized volatility",
-    )
-    liquidity_values = _aligned(
-        liquidity,
-        rows=rows,
-        dtype=np.float64,
-        field="liquidity",
-    )
-    actionable = _aligned(
-        actionable_mask,
-        rows=rows,
-        dtype=np.bool_,
-        field="actionable mask",
-    )
-    if (
-        np.any(costs < 0.0)
-        or np.any(liquidity_caps < 0.0)
-        or np.any(risk_caps < 0.0)
-    ):
-        raise ValueError("V10 costs and caps must be non-negative")
-    fast_mean, fast_uncertainty, fast_direction = _qualified(
-        fast_heads,
-        edge_margin=config.edge_margin,
-    )
-    slow_mean, _slow_uncertainty, slow_direction = _qualified(
-        slow_heads,
-        edge_margin=config.edge_margin,
-    )
-    execution_eligible = (
-        (liquidity_values >= attribution_boundaries.liquidity[1])
-        & (volatility >= attribution_boundaries.realized_volatility[0])
-        & (volatility < attribution_boundaries.realized_volatility[2])
-    )
-
-    targets = np.empty(rows, dtype=np.float64)
-    objectives = np.zeros(rows, dtype=np.float64)
-    confirmation_counts = np.zeros(rows, dtype=np.int64)
-    reasons: list[str] = []
-    slow_states: list[CausalAlphaV6SlowState] = []
-    current = float(
-        np.clip(initial_weight, -config.target_magnitude, config.target_magnitude)
-    )
-    inherited = abs(initial_weight) > 1e-12
-    inherited_checks = 0
-    inherited_matches = 0
-    entry_intent = 0
-    entry_count = 0
-    fast_exit_count = 0
-    slow_exit_count = 0
-    slow_opposite_count = 0
-    neutral_slow_count = 0
-    slow_regime = 0
-
-    for index in range(rows):
-        previous_current = current
-        liquidity_cap = min(
-            config.target_magnitude,
-            float(liquidity_caps[index]),
+    realized = float(initial_weight)
+    for _ in range(len(policy.input.decision_indices)):
+        action, _state = policy.predict(
+            {"current_weights": np.asarray([realized], dtype=np.float32)},
+            deterministic=True,
         )
-        risk_cap = min(
-            config.target_magnitude,
-            float(risk_caps[index]),
-        )
-        cap = min(liquidity_cap, risk_cap)
-        cadence = index % config.fast_horizon_decisions == 0
-        resize_reason: str | None = None
-        reason = "hold_position" if abs(current) > 1e-12 else "hold_flat"
-
-        hard_target = float(np.clip(current, -risk_cap, risk_cap))
-        if abs(hard_target - current) > 1e-12:
-            current = hard_target
-            resize_reason = "risk_projection"
-            reason = resize_reason
-
-        if (
-            cadence
-            and resize_reason is None
-            and abs(current) > liquidity_cap + 1e-12
-        ):
-            resize_reason = "execution_contract_hold"
-            reason = resize_reason
-
-        if cadence and bool(actionable[index]):
-            fast = int(fast_direction[index])
-            observed_slow = int(slow_direction[index])
-            current_sign = int(np.sign(current))
-            if inherited and current_sign != 0:
-                inherited_checks += 1
-                if (
-                    fast == observed_slow == current_sign
-                    and bool(execution_eligible[index])
-                ):
-                    inherited_matches += 1
-                if inherited_checks >= config.entry_confirmation_count:
-                    if inherited_matches < config.entry_confirmation_count:
-                        current = 0.0
-                        reason = "exit"
-                    elif resize_reason is None:
-                        reason = "slow_support_hold"
-                    inherited = False
-                    inherited_checks = 0
-                    inherited_matches = 0
-                elif resize_reason is None:
-                    reason = "confirmation_hold"
-            elif current_sign == 0:
-                if observed_slow != 0:
-                    slow_regime = observed_slow
-                coherent = (
-                    fast
-                    if fast != 0
-                    and fast == slow_regime
-                    and bool(execution_eligible[index])
-                    else 0
-                )
-                entry_target = float(coherent * cap)
-                entry_objective = causal_alpha_v6_fast_objective(
-                    0.0,
-                    entry_target,
-                    float(fast_mean[index]),
-                    float(fast_uncertainty[index]),
-                    float(costs[index]),
-                    economic_config,
-                )
-                if coherent == 0 or entry_objective <= 1e-12:
-                    entry_intent = 0
-                    entry_count = 0
-                    reason = "cost_or_uncertainty_hold"
-                elif abs(entry_target) < entry_floor:
-                    entry_intent = 0
-                    entry_count = 0
-                    reason = "execution_contract_hold"
-                else:
-                    if coherent == entry_intent:
-                        entry_count += 1
-                    else:
-                        entry_intent = coherent
-                        entry_count = 1
-                    if entry_count >= config.entry_confirmation_count:
-                        current = entry_target
-                        reason = "entry"
-                        entry_intent = 0
-                        entry_count = 0
-                        fast_exit_count = 0
-                        slow_exit_count = 0
-                        neutral_slow_count = 0
-                    else:
-                        reason = "confirmation_hold"
-            else:
-                if observed_slow == current_sign:
-                    slow_regime = observed_slow
-                    slow_opposite_count = 0
-                    neutral_slow_count = 0
-                elif observed_slow == -current_sign:
-                    slow_opposite_count += 1
-                    neutral_slow_count = 0
-                else:
-                    slow_opposite_count = 0
-                    neutral_slow_count += 1
-                fast_exit_count = fast_exit_count + 1 if fast == -current_sign else 0
-                slow_exit_count = slow_opposite_count
-                should_exit = (
-                    fast_exit_count >= config.exit_confirmation_count
-                    or slow_exit_count >= config.exit_confirmation_count
-                    or neutral_slow_count >= config.slow_neutral_expiry_count
-                )
-                if should_exit:
-                    current = 0.0
-                    reason = "exit"
-                    fast_exit_count = 0
-                    slow_exit_count = 0
-                    slow_opposite_count = 0
-                    neutral_slow_count = 0
-                    slow_regime = 0
-                elif resize_reason is None:
-                    reason = (
-                        "slow_support_hold"
-                        if slow_regime == current_sign
-                        else "confirmation_hold"
-                    )
-        elif cadence:
-            if resize_reason is None:
-                reason = "unactionable_hold"
-        elif resize_reason is None:
-            reason = "cadence_hold"
-
-        targets[index] = current
-        objectives[index] = causal_alpha_v6_fast_objective(
-            previous_current,
-            current,
-            float(fast_mean[index]),
-            float(fast_uncertainty[index]),
-            float(costs[index]),
-            economic_config,
-        )
-        confirmation_counts[index] = max(
-            inherited_matches,
-            entry_count,
-            fast_exit_count,
-            slow_exit_count,
-            neutral_slow_count,
-        )
-        reasons.append(reason)
-        slow_states.append(_slow_state(slow_regime, current))
-
-    previous = np.concatenate(([initial_weight], targets[:-1]))
-    forecast_digest = content_and_arrays_digest(
-        {
-            "dual_fit_digest": dual_fit_digest,
-            "schema_version": "causal_alpha_v10_hierarchical_forecast_v1",
-            "source_forecast_digest": source_forecast_digest,
-        },
-        (
-            ("fast_head_predictions", fast_heads),
-            ("slow_head_predictions", slow_heads),
-        ),
-    )
-    reason_counts = tuple(
-        sorted((reason, reasons.count(reason)) for reason in set(reasons))
-    )
-    return CausalAlphaV6TargetPath(
-        candidate=CausalAlphaV6Candidate.FAST_ONLY,
-        initial_weight=float(initial_weight),
-        decision_indices=decisions,
-        targets=targets,
-        fast_proposals=fast_direction.astype(np.float64) * config.target_magnitude,
-        expected_returns_4h=fast_mean,
-        expected_returns_24h=np.zeros(rows),
-        expected_returns_72h=slow_mean,
-        direction_scores_4h=fast_direction.astype(np.float64),
-        uncertainties_4h=fast_uncertainty,
-        one_way_cost_rates=costs,
-        liquidity_weight_caps=liquidity_caps,
-        risk_weight_caps=risk_caps,
-        objectives=objectives,
-        confirmation_counts=confirmation_counts,
-        actionable_mask=actionable,
-        slow_states=tuple(slow_states),
-        reasons=tuple(reasons),
-        reason_counts=reason_counts,
-        submitted_change_count=int(
-            np.count_nonzero(np.abs(targets - previous) > 1e-12)
-        ),
-        sign_flip_count=int(np.count_nonzero(targets * previous < 0.0)),
-        liquidity_deleveraging_count=reasons.count("liquidity_deleverage"),
-        risk_projection_count=reasons.count("risk_projection"),
-        forecast_digest=forecast_digest,
-        config_digest=compiler_config_digest,
-    )
+        realized = float(action[0])
+    return policy.result().v6_target_path
 
 
-__all__ = ["causal_alpha_v10_hierarchical_target_path"]
+__all__ = [
+    "CausalAlphaV10ExecutionContract",
+    "CausalAlphaV10HierarchyPolicy",
+    "CausalAlphaV10HierarchyPolicyInput",
+    "CausalAlphaV10HierarchyResult",
+    "causal_alpha_v10_hierarchical_target_path",
+    "prepare_causal_alpha_v10_hierarchy_policy",
+]

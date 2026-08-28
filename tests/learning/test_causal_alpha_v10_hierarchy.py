@@ -51,9 +51,7 @@ def _path(
         decision_indices=np.arange(rows),
         fast_head_predictions=_heads(rows, fast),
         slow_head_predictions=_heads(rows, slow),
-        one_way_cost_rates=(
-            np.full(rows, 0.0001) if costs is None else costs
-        ),
+        one_way_cost_rates=(np.full(rows, 0.0001) if costs is None else costs),
         liquidity_weight_caps=(
             np.full(rows, 0.25) if liquidity_caps is None else liquidity_caps
         ),
@@ -143,6 +141,51 @@ def test_v10_liquidity_cap_jitter_does_not_resize_between_fast_decisions() -> No
     )
 
     assert np.all(path.targets[17:32] == 0.10)
+
+
+def test_v10_sub_band_liquidity_resize_is_held_at_fast_decision() -> None:
+    caps = np.full(145, 0.10)
+    caps[32] = 0.07
+    path = _path(
+        fast={0: 1, 16: 1},
+        slow={0: 1, 16: 1, 32: 1},
+        liquidity_caps=caps,
+        execution_no_trade_band=0.05,
+    )
+
+    assert path.targets[32] == 0.10
+    assert path.reasons[32] == "execution_band_hold"
+
+
+def test_v10_executable_liquidity_resize_applies_at_fast_decision() -> None:
+    caps = np.full(145, 0.10)
+    caps[32] = 0.04
+    path = _path(
+        fast={0: 1, 16: 1},
+        slow={0: 1, 16: 1, 32: 1},
+        liquidity_caps=caps,
+        execution_no_trade_band=0.05,
+    )
+
+    assert path.targets[32] == 0.04
+    assert path.reasons[32] == "liquidity_deleverage"
+
+
+def test_v10_execution_band_is_bound_into_target_identity() -> None:
+    first = _path(
+        fast={0: 1, 16: 1},
+        slow={0: 1, 16: 1},
+        execution_no_trade_band=0.05,
+    )
+    second = _path(
+        fast={0: 1, 16: 1},
+        slow={0: 1, 16: 1},
+        execution_no_trade_band=0.04,
+    )
+
+    np.testing.assert_array_equal(first.targets, second.targets)
+    assert first.config_digest != second.config_digest
+    assert first.digest != second.digest
 
 
 def test_v10_slow_regime_holds_through_neutral_fast_signal() -> None:

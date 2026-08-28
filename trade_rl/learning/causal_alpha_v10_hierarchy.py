@@ -152,7 +152,9 @@ def causal_alpha_v10_hierarchical_target_path(
     entry_count = 0
     fast_exit_count = 0
     slow_exit_count = 0
+    slow_opposite_count = 0
     neutral_slow_count = 0
+    slow_regime = 0
 
     for index in range(rows):
         cap = min(
@@ -171,11 +173,14 @@ def causal_alpha_v10_hierarchical_target_path(
         cadence = index % config.fast_horizon_decisions == 0
         if cadence and bool(actionable[index]):
             fast = int(fast_direction[index])
-            slow = int(slow_direction[index])
+            observed_slow = int(slow_direction[index])
             current_sign = int(np.sign(current))
             if inherited and current_sign != 0:
                 inherited_checks += 1
-                if fast == slow == current_sign and bool(execution_eligible[index]):
+                if (
+                    fast == observed_slow == current_sign
+                    and bool(execution_eligible[index])
+                ):
                     inherited_matches += 1
                 if inherited_checks >= config.entry_confirmation_count:
                     if inherited_matches < config.entry_confirmation_count:
@@ -189,8 +194,14 @@ def causal_alpha_v10_hierarchical_target_path(
                 else:
                     reason = "confirmation_hold"
             elif current_sign == 0:
+                if observed_slow != 0:
+                    slow_regime = observed_slow
                 coherent = (
-                    fast if fast != 0 and fast == slow and bool(execution_eligible[index]) else 0
+                    fast
+                    if fast != 0
+                    and fast == slow_regime
+                    and bool(execution_eligible[index])
+                    else 0
                 )
                 if coherent == 0:
                     entry_intent = 0
@@ -213,9 +224,16 @@ def causal_alpha_v10_hierarchical_target_path(
                     else:
                         reason = "confirmation_hold"
             else:
+                if observed_slow == current_sign:
+                    slow_regime = observed_slow
+                    neutral_slow_count = 0
+                elif observed_slow == -current_sign:
+                    slow_opposite_count = slow_opposite_count + 1
+                    neutral_slow_count = 0
+                else:
+                    neutral_slow_count += 1
                 fast_exit_count = fast_exit_count + 1 if fast == -current_sign else 0
-                slow_exit_count = slow_exit_count + 1 if slow == -current_sign else 0
-                neutral_slow_count = neutral_slow_count + 1 if slow == 0 else 0
+                slow_exit_count = slow_opposite_count
                 should_exit = (
                     fast_exit_count >= config.exit_confirmation_count
                     or slow_exit_count >= config.exit_confirmation_count
@@ -226,11 +244,13 @@ def causal_alpha_v10_hierarchical_target_path(
                     reason = "exit"
                     fast_exit_count = 0
                     slow_exit_count = 0
+                    slow_opposite_count = 0
                     neutral_slow_count = 0
+                    slow_regime = 0
                 else:
                     reason = (
                         "slow_support_hold"
-                        if slow == current_sign
+                        if slow_regime == current_sign
                         else "confirmation_hold"
                     )
         elif cadence:
@@ -250,7 +270,7 @@ def causal_alpha_v10_hierarchical_target_path(
             neutral_slow_count,
         )
         reasons.append(reason)
-        slow_states.append(_slow_state(int(slow_direction[index]), current))
+        slow_states.append(_slow_state(slow_regime, current))
 
     previous = np.concatenate(([initial_weight], targets[:-1]))
     forecast_digest = content_and_arrays_digest(

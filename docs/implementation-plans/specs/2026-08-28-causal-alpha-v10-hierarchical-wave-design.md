@@ -85,8 +85,10 @@ those decisions and makes entry execution-regime aware.
   and 75th percentiles. These boundaries are frozen before each Selection
   episode from calibration data only.
 - Enter signed target `0.10`; risk and liquidity caps may reduce it immediately.
-- A slow signal in the owned direction authorizes continuation through neutral
-  fast observations, allowing multi-day waves.
+- The last qualified slow direction is latched as the regime. A slow signal in
+  the owned direction refreshes that latch and authorizes continuation through
+  neutral fast observations, allowing multi-day waves; an unqualified slow
+  observation does not erase a valid regime.
 - Two consecutive qualified fast signals against the position exit to flat,
   supporting waves that last only eight hours.
 - Two consecutive qualified slow signals against the position also exit.

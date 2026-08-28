@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Final
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.domain.common import require_sha256
+from trade_rl.learning.causal_alpha_v6 import CausalAlphaV6TargetPath
 
 CAUSAL_ALPHA_V10_CONFIG_SCHEMA: Final = "causal_alpha_v10_config_v1"
+CAUSAL_ALPHA_V10_TARGET_SCHEMA: Final = "causal_alpha_v10_target_v1"
+
+
+class CausalAlphaV10Candidate(str, Enum):
+    V8_ROBUST_CONTROL = "v8_robust_control"
+    V9_NONLINEAR_CONTROL = "v9_nonlinear_control"
+    HIERARCHICAL_WAVE = "hierarchical_wave"
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,5 +84,55 @@ class CausalAlphaV10Config:
         return content_digest(self.to_payload())
 
 
-__all__ = ["CAUSAL_ALPHA_V10_CONFIG_SCHEMA", "CausalAlphaV10Config"]
+@dataclass(frozen=True, slots=True)
+class CausalAlphaV10TargetPath:
+    candidate: CausalAlphaV10Candidate
+    v6_target_path: CausalAlphaV6TargetPath
+    source_forecast_digest: str
+    fast_fit_digest: str
+    slow_fit_digest: str
+    v10_config_digest: str
+    schema_version: str = CAUSAL_ALPHA_V10_TARGET_SCHEMA
+    digest: str = ""
 
+    def __post_init__(self) -> None:
+        candidate = CausalAlphaV10Candidate(self.candidate)
+        if not isinstance(self.v6_target_path, CausalAlphaV6TargetPath):
+            raise TypeError("V10 target must contain a V6 target path")
+        for name in (
+            "source_forecast_digest",
+            "fast_fit_digest",
+            "slow_fit_digest",
+            "v10_config_digest",
+        ):
+            require_sha256(getattr(self, name), field=f"V10 target {name}")
+        if self.schema_version != CAUSAL_ALPHA_V10_TARGET_SCHEMA:
+            raise ValueError("unsupported V10 target schema")
+        object.__setattr__(self, "candidate", candidate)
+        expected = content_digest(self.to_payload(include_digest=False))
+        if self.digest and self.digest != expected:
+            raise ValueError("V10 target digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+    def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "candidate": self.candidate.value,
+            "fast_fit_digest": self.fast_fit_digest,
+            "schema_version": self.schema_version,
+            "slow_fit_digest": self.slow_fit_digest,
+            "source_forecast_digest": self.source_forecast_digest,
+            "v10_config_digest": self.v10_config_digest,
+            "v6_target_path_digest": self.v6_target_path.digest,
+        }
+        if include_digest:
+            payload["artifact_digest"] = self.digest
+        return payload
+
+
+__all__ = [
+    "CAUSAL_ALPHA_V10_CONFIG_SCHEMA",
+    "CAUSAL_ALPHA_V10_TARGET_SCHEMA",
+    "CausalAlphaV10Candidate",
+    "CausalAlphaV10Config",
+    "CausalAlphaV10TargetPath",
+]

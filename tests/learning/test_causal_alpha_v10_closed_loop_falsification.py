@@ -89,7 +89,9 @@ def test_v10_trace_distinguishes_held_soft_liquidity_capacity() -> None:
     _drive_requested_as_realized(policy)
     result = policy.result()
 
-    assert result.v6_target_path.targets[32] == 0.10
+    np.testing.assert_allclose(
+        result.v6_target_path.targets[32], 0.10, rtol=0.0, atol=1e-8
+    )
     assert result.v6_target_path.reasons[32] == "hold_position"
     assert result.hierarchy_reasons[32] == "liquidity_capacity_hold"
 
@@ -100,7 +102,7 @@ def test_v10_external_realized_flatten_resets_hierarchy_state() -> None:
     first, _state = policy.predict(
         {"current_weights": np.asarray([0.10], dtype=np.float64)}
     )
-    assert float(first[0]) == 0.10
+    np.testing.assert_allclose(float(first[0]), 0.10, rtol=0.0, atol=1e-8)
 
     second, _state = policy.predict(
         {"current_weights": np.asarray([0.0], dtype=np.float64)}

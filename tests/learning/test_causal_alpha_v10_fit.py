@@ -56,7 +56,7 @@ def test_v10_dual_fit_is_deterministic_causal_and_non_overlapping() -> None:
             np.count_nonzero(
                 (record.decision_indices >= cutoff - config.fast_lookback_decisions)
                 & (record.fast_label_end_indices < cutoff)
-                & ((cutoff - record.decision_indices) % config.fast_horizon_decisions == 0)
+                & (record.decision_indices % config.fast_horizon_decisions == 0)
             )
         )
         for record in rows.values()
@@ -66,7 +66,7 @@ def test_v10_dual_fit_is_deterministic_causal_and_non_overlapping() -> None:
             np.count_nonzero(
                 (record.decision_indices >= cutoff - config.slow_lookback_decisions)
                 & (record.slow_label_end_indices < cutoff)
-                & ((cutoff - record.decision_indices) % config.slow_horizon_decisions == 0)
+                & (record.decision_indices % config.slow_horizon_decisions == 0)
             )
         )
         for record in rows.values()

@@ -439,7 +439,7 @@ class CausalAlphaV10HierarchyPolicy:
             return False
         if abs(target) < contract.entry_threshold:
             return False
-        return abs(target - current) >= contract.no_trade_band - _OBSERVATION_TOLERANCE
+        return abs(target - current) >= contract.no_trade_band
 
     def _record(
         self,

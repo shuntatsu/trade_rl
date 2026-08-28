@@ -3,11 +3,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Candidate
 from trade_rl.workflows.universal_causal_alpha_v10_stage_entry import (
     _execution_no_trade_band,
     _path,
+    _require_execution_no_trade_band,
     _training_rows,
 )
 
@@ -71,6 +73,17 @@ def test_v10_resolves_execution_band_from_replay_environment_and_closes_it() -> 
 
     assert _execution_no_trade_band(prepared, "BTCUSDT") == 0.05
     assert closed == [True]
+
+
+def test_v10_replay_rejects_execution_band_drift() -> None:
+    environment = SimpleNamespace(
+        pre_trade_risk=SimpleNamespace(
+            config=SimpleNamespace(no_trade_band=0.04)
+        )
+    )
+
+    with pytest.raises(ValueError, match="execution no-trade band drifted"):
+        _require_execution_no_trade_band(environment, 0.05)
 
 
 def test_v10_leaf_paths_are_candidate_symbol_episode_scoped() -> None:

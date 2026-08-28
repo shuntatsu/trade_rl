@@ -6,13 +6,16 @@ from typing import Any
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.identity import content_and_arrays_digest
 from trade_rl.domain.common import require_sha256
 from trade_rl.learning.causal_alpha_v6 import (
     CausalAlphaV6Candidate,
     CausalAlphaV6SlowState,
+    CausalAlphaV6TargetConfig,
     CausalAlphaV6TargetPath,
 )
+from trade_rl.learning.causal_alpha_v6_target import causal_alpha_v6_fast_objective
 from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Config
 from trade_rl.workflows.universal_causal_alpha_v7_attribution import (
     CausalAlphaV7AttributionBoundaries,
@@ -28,7 +31,11 @@ def _aligned(value: object, *, rows: int, dtype: Any, field: str) -> np.ndarray:
     return array
 
 
-def _qualified(heads: np.ndarray, *, edge_margin: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _qualified(
+    heads: np.ndarray,
+    *,
+    edge_margin: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     mean = np.mean(heads, axis=0, dtype=np.float64)
     uncertainty = np.std(heads, axis=0, dtype=np.float64)
     signs = np.sign(heads)
@@ -52,6 +59,22 @@ def _slow_state(direction: int, current: float) -> CausalAlphaV6SlowState:
     return CausalAlphaV6SlowState.MIXED
 
 
+def _compiler_config_digest(
+    *,
+    config: CausalAlphaV10Config,
+    execution_no_trade_band: float,
+    economic_config: CausalAlphaV6TargetConfig,
+) -> str:
+    return content_digest(
+        {
+            "execution_no_trade_band": execution_no_trade_band,
+            "schema_version": "causal_alpha_v10_target_compiler_contract_v1",
+            "v6_economic_config_digest": economic_config.digest,
+            "v10_config_digest": config.digest,
+        }
+    )
+
+
 def causal_alpha_v10_hierarchical_target_path(
     *,
     decision_indices: object,
@@ -68,6 +91,7 @@ def causal_alpha_v10_hierarchical_target_path(
     dual_fit_digest: str,
     config: CausalAlphaV10Config,
     initial_weight: float,
+    execution_no_trade_band: float,
 ) -> CausalAlphaV6TargetPath:
     """Combine slow wave ownership with fast entry and early reversal signals."""
 
@@ -75,6 +99,20 @@ def causal_alpha_v10_hierarchical_target_path(
     require_sha256(dual_fit_digest, field="V10 dual fit digest")
     if not isinstance(attribution_boundaries, CausalAlphaV7AttributionBoundaries):
         raise TypeError("V10 attribution boundaries are invalid")
+    if (
+        isinstance(execution_no_trade_band, bool)
+        or not np.isfinite(execution_no_trade_band)
+        or execution_no_trade_band < 0.0
+    ):
+        raise ValueError("V10 execution no-trade band must be finite and non-negative")
+    no_trade_band = float(execution_no_trade_band)
+    economic_config = CausalAlphaV6TargetConfig()
+    compiler_config_digest = _compiler_config_digest(
+        config=config,
+        execution_no_trade_band=no_trade_band,
+        economic_config=economic_config,
+    )
+
     decisions = np.asarray(decision_indices, dtype=np.int64).reshape(-1)
     rows = len(decisions)
     fast_heads = np.asarray(fast_head_predictions, dtype=np.float64)
@@ -157,20 +195,38 @@ def causal_alpha_v10_hierarchical_target_path(
     slow_regime = 0
 
     for index in range(rows):
-        cap = min(
+        previous_current = current
+        liquidity_cap = min(
             config.target_magnitude,
             float(liquidity_caps[index]),
+        )
+        risk_cap = min(
+            config.target_magnitude,
             float(risk_caps[index]),
         )
-        reason = "hold_position" if abs(current) > 1e-12 else "hold_flat"
-        if abs(current) > cap:
-            current = float(np.sign(current) * cap)
-            reason = (
-                "liquidity_deleverage"
-                if liquidity_caps[index] <= risk_caps[index]
-                else "risk_projection"
-            )
+        cap = min(liquidity_cap, risk_cap)
         cadence = index % config.fast_horizon_decisions == 0
+        resize_reason: str | None = None
+        reason = "hold_position" if abs(current) > 1e-12 else "hold_flat"
+
+        hard_target = float(np.clip(current, -risk_cap, risk_cap))
+        if abs(hard_target - current) > 1e-12:
+            current = hard_target
+            resize_reason = "risk_projection"
+            reason = resize_reason
+
+        if cadence:
+            liquidity_target = float(np.clip(current, -liquidity_cap, liquidity_cap))
+            if abs(liquidity_target - current) > 1e-12:
+                if abs(liquidity_target - previous_current) < no_trade_band:
+                    if resize_reason is None:
+                        resize_reason = "execution_band_hold"
+                        reason = resize_reason
+                else:
+                    current = liquidity_target
+                    resize_reason = "liquidity_deleverage"
+                    reason = resize_reason
+
         if cadence and bool(actionable[index]):
             fast = int(fast_direction[index])
             observed_slow = int(slow_direction[index])
@@ -186,12 +242,12 @@ def causal_alpha_v10_hierarchical_target_path(
                     if inherited_matches < config.entry_confirmation_count:
                         current = 0.0
                         reason = "exit"
-                    else:
+                    elif resize_reason is None:
                         reason = "slow_support_hold"
                     inherited = False
                     inherited_checks = 0
                     inherited_matches = 0
-                else:
+                elif resize_reason is None:
                     reason = "confirmation_hold"
             elif current_sign == 0:
                 if observed_slow != 0:
@@ -203,10 +259,26 @@ def causal_alpha_v10_hierarchical_target_path(
                     and bool(execution_eligible[index])
                     else 0
                 )
-                if coherent == 0:
+                entry_target = float(coherent * cap)
+                entry_objective = causal_alpha_v6_fast_objective(
+                    0.0,
+                    entry_target,
+                    float(fast_mean[index]),
+                    float(fast_uncertainty[index]),
+                    float(costs[index]),
+                    economic_config,
+                )
+                if coherent == 0 or entry_objective <= 1e-12:
                     entry_intent = 0
                     entry_count = 0
                     reason = "cost_or_uncertainty_hold"
+                elif (
+                    abs(entry_target) <= 1e-12
+                    or abs(entry_target - current) < no_trade_band
+                ):
+                    entry_intent = 0
+                    entry_count = 0
+                    reason = "execution_band_hold"
                 else:
                     if coherent == entry_intent:
                         entry_count += 1
@@ -214,7 +286,7 @@ def causal_alpha_v10_hierarchical_target_path(
                         entry_intent = coherent
                         entry_count = 1
                     if entry_count >= config.entry_confirmation_count:
-                        current = float(coherent * cap)
+                        current = entry_target
                         reason = "entry"
                         entry_intent = 0
                         entry_count = 0
@@ -229,7 +301,7 @@ def causal_alpha_v10_hierarchical_target_path(
                     slow_opposite_count = 0
                     neutral_slow_count = 0
                 elif observed_slow == -current_sign:
-                    slow_opposite_count = slow_opposite_count + 1
+                    slow_opposite_count += 1
                     neutral_slow_count = 0
                 else:
                     slow_opposite_count = 0
@@ -249,20 +321,26 @@ def causal_alpha_v10_hierarchical_target_path(
                     slow_opposite_count = 0
                     neutral_slow_count = 0
                     slow_regime = 0
-                else:
+                elif resize_reason is None:
                     reason = (
                         "slow_support_hold"
                         if slow_regime == current_sign
                         else "confirmation_hold"
                     )
         elif cadence:
-            reason = "unactionable_hold"
-        elif reason not in ("liquidity_deleverage", "risk_projection"):
+            if resize_reason is None:
+                reason = "unactionable_hold"
+        elif resize_reason is None:
             reason = "cadence_hold"
 
         targets[index] = current
-        objectives[index] = current * fast_mean[index] - abs(current) * (
-            fast_uncertainty[index] + config.edge_margin
+        objectives[index] = causal_alpha_v6_fast_objective(
+            previous_current,
+            current,
+            float(fast_mean[index]),
+            float(fast_uncertainty[index]),
+            float(costs[index]),
+            economic_config,
         )
         confirmation_counts[index] = max(
             inherited_matches,
@@ -316,7 +394,7 @@ def causal_alpha_v10_hierarchical_target_path(
         liquidity_deleveraging_count=reasons.count("liquidity_deleverage"),
         risk_projection_count=reasons.count("risk_projection"),
         forecast_digest=forecast_digest,
-        config_digest=config.digest,
+        config_digest=compiler_config_digest,
     )
 
 

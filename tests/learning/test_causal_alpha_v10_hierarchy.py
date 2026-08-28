@@ -104,7 +104,7 @@ def test_v10_flat_entry_below_pretrade_entry_floor_stays_flat() -> None:
     )
 
     assert path.targets[16] == 0.0
-    assert "execution_contract_hold" in path.reasons
+    assert path.reasons[16] == "hold_flat"
 
 
 def test_v10_entry_threshold_equality_is_executable() -> None:
@@ -168,7 +168,7 @@ def test_v10_soft_liquidity_cap_does_not_resize_held_position_at_fast_decision()
     )
 
     assert path.targets[32] == 0.10
-    assert path.reasons[32] == "execution_contract_hold"
+    assert path.reasons[32] == "hold_position"
 
 
 def test_v10_execution_contract_is_bound_into_target_identity() -> None:

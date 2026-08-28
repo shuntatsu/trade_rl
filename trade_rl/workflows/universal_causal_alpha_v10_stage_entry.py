@@ -213,6 +213,24 @@ def _signal_evidence(
     )
 
 
+def _execution_no_trade_band(prepared: Any, symbol: str) -> float:
+    environment = _environment(prepared, symbol)
+    try:
+        risk = getattr(environment, "pre_trade_risk", None)
+        risk_config = getattr(risk, "config", None)
+        value = getattr(risk_config, "no_trade_band", None)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not np.isfinite(value)
+            or value < 0.0
+        ):
+            raise ValueError("V10 environment no-trade band is invalid")
+        return float(value)
+    finally:
+        environment.close()
+
+
 def _target_paths(
     *,
     sample: Any,
@@ -226,6 +244,7 @@ def _target_paths(
     v8_config: CausalAlphaV8TargetConfig,
     v9_config: CausalAlphaV9Config,
     v10_config: CausalAlphaV10Config,
+    execution_no_trade_band: float,
 ) -> dict[CausalAlphaV10Candidate, CausalAlphaV10TargetPath]:
     v8_targets = causal_alpha_v8_target_paths_from_v7(
         forecast=forecast,
@@ -262,6 +281,7 @@ def _target_paths(
         dual_fit_digest=dual_fit.digest,
         config=v10_config,
         initial_weight=control.initial_weight,
+        execution_no_trade_band=execution_no_trade_band,
     )
     base = {
         CausalAlphaV10Candidate.V8_ROBUST_CONTROL: robust,
@@ -435,6 +455,10 @@ def selection_stage(
     records: list[CausalAlphaV8ReplayMetric] = []
     v9_rows = _v9_wave_rows(prepared)
     training = _training_rows(prepared)
+    execution_bands = {
+        symbol: _execution_no_trade_band(prepared, symbol)
+        for symbol in prepared.train_symbols
+    }
     count = len(prepared.nested_partitions[prepared.train_symbols[0]].economic_contracts)
     for index in range(count):
         contracts = _contract_column(prepared, "economic_contracts", index)
@@ -471,6 +495,7 @@ def selection_stage(
                     v8_config=v8_config,
                     v9_config=v9_config,
                     v10_config=v10_config,
+                    execution_no_trade_band=execution_bands[symbol],
                 )
                 for candidate in CausalAlphaV10Candidate:
                     target = targets[candidate]
@@ -602,4 +627,3 @@ __all__ = [
     "run_causal_alpha_v10_selection",
     "selection_stage",
 ]
-

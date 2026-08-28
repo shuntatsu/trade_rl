@@ -62,13 +62,15 @@ def _slow_state(direction: int, current: float) -> CausalAlphaV6SlowState:
 def _compiler_config_digest(
     *,
     config: CausalAlphaV10Config,
+    execution_entry_threshold: float,
     execution_no_trade_band: float,
     economic_config: CausalAlphaV6TargetConfig,
 ) -> str:
     return content_digest(
         {
+            "execution_entry_threshold": execution_entry_threshold,
             "execution_no_trade_band": execution_no_trade_band,
-            "schema_version": "causal_alpha_v10_target_compiler_contract_v1",
+            "schema_version": "causal_alpha_v10_target_compiler_contract_v2",
             "v6_economic_config_digest": economic_config.digest,
             "v10_config_digest": config.digest,
         }
@@ -91,6 +93,7 @@ def causal_alpha_v10_hierarchical_target_path(
     dual_fit_digest: str,
     config: CausalAlphaV10Config,
     initial_weight: float,
+    execution_entry_threshold: float,
     execution_no_trade_band: float,
 ) -> CausalAlphaV6TargetPath:
     """Combine slow wave ownership with fast entry and early reversal signals."""
@@ -99,16 +102,23 @@ def causal_alpha_v10_hierarchical_target_path(
     require_sha256(dual_fit_digest, field="V10 dual fit digest")
     if not isinstance(attribution_boundaries, CausalAlphaV7AttributionBoundaries):
         raise TypeError("V10 attribution boundaries are invalid")
-    if (
-        isinstance(execution_no_trade_band, bool)
-        or not np.isfinite(execution_no_trade_band)
-        or execution_no_trade_band < 0.0
+    for value, field in (
+        (execution_entry_threshold, "entry threshold"),
+        (execution_no_trade_band, "no-trade band"),
     ):
-        raise ValueError("V10 execution no-trade band must be finite and non-negative")
+        if (
+            isinstance(value, bool)
+            or not np.isfinite(value)
+            or float(value) < 0.0
+        ):
+            raise ValueError(f"V10 execution {field} must be finite and non-negative")
+    entry_threshold = float(execution_entry_threshold)
     no_trade_band = float(execution_no_trade_band)
+    entry_floor = max(entry_threshold, no_trade_band)
     economic_config = CausalAlphaV6TargetConfig()
     compiler_config_digest = _compiler_config_digest(
         config=config,
+        execution_entry_threshold=entry_threshold,
         execution_no_trade_band=no_trade_band,
         economic_config=economic_config,
     )
@@ -215,17 +225,13 @@ def causal_alpha_v10_hierarchical_target_path(
             resize_reason = "risk_projection"
             reason = resize_reason
 
-        if cadence:
-            liquidity_target = float(np.clip(current, -liquidity_cap, liquidity_cap))
-            if abs(liquidity_target - current) > 1e-12:
-                if abs(liquidity_target - previous_current) < no_trade_band:
-                    if resize_reason is None:
-                        resize_reason = "execution_band_hold"
-                        reason = resize_reason
-                else:
-                    current = liquidity_target
-                    resize_reason = "liquidity_deleverage"
-                    reason = resize_reason
+        if (
+            cadence
+            and resize_reason is None
+            and abs(current) > liquidity_cap + 1e-12
+        ):
+            resize_reason = "execution_contract_hold"
+            reason = resize_reason
 
         if cadence and bool(actionable[index]):
             fast = int(fast_direction[index])
@@ -272,13 +278,10 @@ def causal_alpha_v10_hierarchical_target_path(
                     entry_intent = 0
                     entry_count = 0
                     reason = "cost_or_uncertainty_hold"
-                elif (
-                    abs(entry_target) <= 1e-12
-                    or abs(entry_target - current) < no_trade_band
-                ):
+                elif abs(entry_target) < entry_floor:
                     entry_intent = 0
                     entry_count = 0
-                    reason = "execution_band_hold"
+                    reason = "execution_contract_hold"
                 else:
                     if coherent == entry_intent:
                         entry_count += 1

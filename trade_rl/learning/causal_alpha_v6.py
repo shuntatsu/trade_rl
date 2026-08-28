@@ -21,7 +21,7 @@ CAUSAL_ALPHA_V6_TARGET_REASONS: Final = frozenset(
     {
         "liquidity_deleverage",
         "risk_projection",
-        "execution_band_hold",
+        "execution_contract_hold",
         "unactionable_hold",
         "cadence_hold",
         "direction_disagreement_hold",

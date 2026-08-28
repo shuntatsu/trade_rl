@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -17,9 +17,11 @@ from trade_rl.learning.causal_alpha_v6 import (
 )
 from trade_rl.learning.causal_alpha_v6_target import causal_alpha_v6_fast_objective
 from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Config
-from trade_rl.workflows.universal_causal_alpha_v7_attribution import (
-    CausalAlphaV7AttributionBoundaries,
-)
+
+
+class _AttributionBoundaries(Protocol):
+    liquidity: tuple[float, float, float]
+    realized_volatility: tuple[float, float, float]
 
 
 def _aligned(value: object, *, rows: int, dtype: Any, field: str) -> np.ndarray:
@@ -87,7 +89,7 @@ def causal_alpha_v10_hierarchical_target_path(
     risk_weight_caps: object,
     realized_volatility: object,
     liquidity: object,
-    attribution_boundaries: CausalAlphaV7AttributionBoundaries,
+    attribution_boundaries: _AttributionBoundaries,
     actionable_mask: object,
     source_forecast_digest: str,
     dual_fit_digest: str,
@@ -100,8 +102,6 @@ def causal_alpha_v10_hierarchical_target_path(
 
     require_sha256(source_forecast_digest, field="V10 source forecast digest")
     require_sha256(dual_fit_digest, field="V10 dual fit digest")
-    if not isinstance(attribution_boundaries, CausalAlphaV7AttributionBoundaries):
-        raise TypeError("V10 attribution boundaries are invalid")
     for value, field in (
         (execution_entry_threshold, "entry threshold"),
         (execution_no_trade_band, "no-trade band"),

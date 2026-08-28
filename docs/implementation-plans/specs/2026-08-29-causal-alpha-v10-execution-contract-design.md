@@ -55,10 +55,14 @@ The V6-compatible target path's `config_digest` is changed from the bare V10 con
 
 Therefore a replay resume with a different execution contract produces a different target-path digest and fails existing immutable-leaf identity checks rather than reusing stale hierarchical results. V8/V9 control target generation remains unchanged.
 
+## Dependency boundary
+
+`trade_rl.learning.causal_alpha_v10_hierarchy` must remain below the workflow layer. The compiler therefore accepts the attribution-boundary values through a structural protocol (`liquidity` and `realized_volatility`) and does not import the workflow-owned `CausalAlphaV7AttributionBoundaries` class. This preserves the existing runtime object contract while satisfying the repository responsibility-layer dependency rule.
+
 ## Files
 
 - `trade_rl/learning/causal_alpha_v6.py`: allow one explicit V10 diagnostic reason for execution-contract holds.
-- `trade_rl/learning/causal_alpha_v10_hierarchy.py`: enforce the flat-entry floor, soft-liquidity holding semantics, after-cost entry, and compiler identity.
+- `trade_rl/learning/causal_alpha_v10_hierarchy.py`: enforce the flat-entry floor, soft-liquidity holding semantics, after-cost entry, compiler identity, and the learning/workflow dependency boundary.
 - `trade_rl/workflows/universal_causal_alpha_v10_stage_entry.py`: resolve the actual environment rebalance contract, pass it into the compiler, and fail closed on replay drift.
 - `tests/learning/test_causal_alpha_v10_hierarchy.py`: entry-floor, liquidity, cost, state-machine, and identity regressions.
 - `tests/workflows/test_universal_causal_alpha_v10_stage_entry.py`: environment contract resolution, close, and drift behavior.
@@ -78,6 +82,7 @@ Therefore a replay resume with a different execution contract produces a differe
 - Changing either execution threshold changes the V10 target-path digest/config identity.
 - Existing V10 state-machine tests remain green.
 - Existing Selection/Admission gate code is unchanged.
+- Import architecture remains valid: `trade_rl.learning` does not import `trade_rl.workflows`.
 
 ## Invariants
 
@@ -96,6 +101,7 @@ Therefore a replay resume with a different execution contract produces a differe
 - Execution identity drift: compile the same forecasts with two execution contracts and assert different target identities.
 - Runtime contract drift: instantiate a replay environment with a different rebalance contract and require fail-closed rejection.
 - Resource leak: resolve the contract from a fake environment and assert `close()` is called.
+- Layer inversion: run `lint-imports` and require all import contracts to be kept.
 
 ## Required verification
 

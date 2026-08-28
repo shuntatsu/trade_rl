@@ -1,6 +1,7 @@
 # GPT向け：Causal Alpha V10 現在の問題点と判断依頼
 
 作成日: 2026-08-28 (JST)
+最終更新: 2026-08-29 (JST, V10 r5 完走結果を追記)
 
 ## 1. 目的と固定条件
 
@@ -17,17 +18,17 @@
 
 ## 2. 実装と実行 identity
 
-- 作業ブランチ: codex/causal-alpha-v5-research
-- worktree: C:\dev\trade_rl\.worktrees\causal-alpha-v5-research
-- 最新コードコミット: 0abf1a059cd8b366f94b629667aa9bf1b2d94ad2
-- 変更: V10 slow opposite confirmation を同方向/中立観測でリセットし、非連続な逆方向観測を連続確認として数えない。回帰テストを追加。
-- ソースツリーダイジェスト: 2df04c99dba8f252ed375254fe8441754ced9fb8a112698d1e19fbe5c9c15de0
+- 作業ブランチ: main
+- worktree: C:\dev\trade_rl
+- 最新コードコミット: d1355cdf59ae1d523305f873134fdf2b30c4d4fd
+- 今回の修正: V10 の3候補は候補ごとに fast/slow fit identity が異なるため、scope pairing の共通キーを各 replay の V6 calibration fit に正規化した。候補固有の target/replay digest は保持し、回帰テストを追加。
+- ソースツリーダイジェスト: 1bdd4bc340a605c9a7dc377243af1efdc56af7f4b087f6e8e6d778867051104e
 - lockfile digest: 95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b
 - runtime manifest digest: 6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0
-- 実行イメージ: trade-rl-causal-alpha-v10:0abf1a059cd8-6726b3737df9
-- 実行イメージ manifest: sha256:52d312d8143541768bbdd38b7f0ead61c45c440438542d414599e2d73fbc4512
-- run generation: causal-alpha-v10-prod-20260828-r3
-- output root: /workspace/var/runs/causal-alpha-v10-prod-20260828-r3
+- 実行イメージ: trade-rl-causal-alpha-v10:d1355cdf59ae-6726b3737df9
+- 実行イメージ manifest: sha256:3714800412faed63aa4529328f345e91550c05029ea2881286d947ecfe73dd1b
+- run generation: causal-alpha-v10-prod-20260829-r5
+- output root: /workspace/var/runs/causal-alpha-v10-prod-20260829-r5
 - runtime DB volume: trade-rl-training-data:/workspace/var
 
 ### V10 設計
@@ -140,18 +141,54 @@ V9 は short が利益源で long が損失源だった。V10 も方向別、銘
 
 ## 7. 再現用の重要パス
 
-- V10 Signal: /workspace/var/runs/causal-alpha-v10-prod-20260828-r3/signal/evidence.json
-- V10 Selection leaf: /workspace/var/runs/causal-alpha-v10-prod-20260828-r3/selection/replays/
+- V10 Signal (r5): /workspace/var/runs/causal-alpha-v10-prod-20260829-r5/signal/evidence.json
+- V10 Selection evidence (r5): /workspace/var/runs/causal-alpha-v10-prod-20260829-r5/selection/evidence.json
+- V10 Selection leaf (r5): /workspace/var/runs/causal-alpha-v10-prod-20260829-r5/selection/replays/
 - V9 formal run: /workspace/var/runs/causal-alpha-v9-prod-20260828-r3
 - V10 spec: docs/implementation-plans/specs/2026-08-28-causal-alpha-v10-hierarchical-wave-design.md
 - V10 plan: docs/superpowers/plans/2026-08-28-causal-alpha-v10-hierarchical-wave.md
 
 確認コマンド:
 
-    docker logs --tail 20 trade-rl-causal-alpha-v10-prod-20260828-r3
-    docker exec trade-rl-causal-alpha-v10-prod-20260828-r3 sh -lc "find /workspace/var/runs/causal-alpha-v10-prod-20260828-r3/selection/replays -type f -name '*.json' | wc -l"
+    docker logs --tail 20 trade-rl-causal-alpha-v10-prod-20260829-r5
+    docker run --rm --mount type=volume,source=trade-rl-training-data,target=/workspace/var trade-rl-causal-alpha-v10:d1355cdf59ae-6726b3737df9 python -c "from pathlib import Path; print(len(list(Path('/workspace/var/runs/causal-alpha-v10-prod-20260829-r5/selection/replays').rglob('*.json'))))"
 
 ## 8. 現時点の結論
 
-V10 は Signal 層まで通過し、V9より少ないながら一部銘柄で実行・利益を確認できている。しかし全銘柄の after-cost wealth を最大化する戦略としては未確定。全216 Selection leaf、候補別 gate、Admission、BC/RL は未完了であり、現時点で「学習成功」「1分足が必要」とは結論しない。
+V10 r3 の中間値からは結論しない。修正後 r5 の正式 Selection は Signal を通過したが、3候補すべて数値ゲート不通過で rejected となった。Admission、BC/RL、holdout は未実施であり、「学習成功」「1分足が必要」とは結論しない。
+
+## 9. V10 r5 修正後の正式結果
+
+### 実行 identity と stage
+
+- Signal evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r5/signal/evidence.json`
+- Selection evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r5/selection/evidence.json`
+- Terminal result: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r5/result.json`
+- run manifest digest: `41105fbe3df38c196768bbdb85a2af366239609a5f92de3e710af8bd20957ed9`
+- V4 context manifest digest: `bc91783061182e41415d45a714049737ae16564a47d0e1ca14d004cc4c5c7357`
+- config digest: `e838186df1cd268f650a539c2b6412f0331ee59784c73747ff615e1871461a46`
+- Signal artifact digest: `02e4bc43bb474cff607e133cf1a7c076bc695f5ce46ba69da5d68ad82546cc4b`
+- Selection evidence digest: `b67d4f96e08af41624d2ca89ac63d58480f0b270e499ac6d940d5a4d2e24fecb`
+- Terminal result artifact digest: `92ce1022a3f9ad6e476e9a86b0e6aece569cdd1d2472cb6a3f0506aee1efafba`
+
+Signal は `72/72` qualified slow scope で passed。Selection は `216` replay leaf、`paired_scope_count=72` まで生成され、候補 fit identity 差による従来の `scope_pairing` 誤判定は解消した。最終 rejection reason は `no_eligible_candidate` のみであり、ゲート閾値を緩和していない。
+
+### 候補別 after-cost economics
+
+| candidate | balanced gross | balanced net | minimum symbol net | median symbol net | positive scope | CVaR10 | meaningful scopes | executed | target changes | submitted | cost | closed trades | rejection |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| v8 robust control | 0.996468 | 0.995010 | 0.986459 | 0.995424 | 0.152778 | -0.004985 | 36 | 133 | 77 | 54,831 | 1,308.37 | 0 | symbol gross/net, min, median, positive |
+| v9 nonlinear control | 1.012909 | 1.006463 | 0.958693 | 0.998146 | 0.430556 | -0.022163 | 62 | 840 | 2,656 | 176,235 | 5,299.14 | 198 | min, median, positive |
+| hierarchical wave | 0.996954 | 0.994428 | 0.984927 | 0.996621 | 0.194444 | -0.005604 | 51 | 283 | 101,565 | 585 | 2,245.31 | 53 | symbol gross/net, min, median, positive |
+
+各候補とも `hard_risk_violation_count=0`、`unexplained_execution_rejection_count=0`。V9 の利益は銘柄普遍ではなく、long net log return `-0.103633` に対して short `+0.174549` と強く非対称で、BNBUSDT の net wealth は `0.958693`。hierarchical wave も APTUSDT `0.985259`、ARBUSDT `0.984927` が弱く、全銘柄の資産最大化条件を満たさない。
+
+hierarchical wave の attribution では、long `-0.028970`、short `-0.016585` と両方向が負。slow state `mixed` は net `-0.038908`、`risk_projection` transition は net `-0.044106`、volatility q4 は `-0.025047`。一方、V9 は confidence q4 `+0.108271` に対し q1 `-0.050294` で、confidence と方向の calibration/損失制御が根本課題である。
+
+### 次に見るべき根本課題
+
+1. `risk_projection` と mixed slow-state での target ownership を事前登録した別候補として修正し、同じ Signal→Selection gate を再実行する。
+2. V9 の long/short 非対称、低流動性、high-volatility losses を calibration と position sizing の問題として切り分ける。銘柄IDの追加や symbol exclusion はしない。
+3. 1分足はまだ導入しない。15分足で execution/risk projection の損失が残っているため、まず target compiler と loss containment を検証する。
+4. Selection pass が得られるまで Admission/BC/RL を開始しない。
 

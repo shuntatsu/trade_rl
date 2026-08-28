@@ -6,6 +6,7 @@ import numpy as np
 
 from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Candidate
 from trade_rl.workflows.universal_causal_alpha_v10_stage_entry import (
+    _execution_no_trade_band,
     _path,
     _training_rows,
 )
@@ -51,8 +52,28 @@ def test_v10_training_rows_bind_fast_and_slow_labels_without_symbol_features() -
     assert all("symbol" not in name for name in rows.feature_names)
 
 
+def test_v10_resolves_execution_band_from_replay_environment_and_closes_it() -> None:
+    closed: list[bool] = []
+
+    class Environment:
+        pre_trade_risk = SimpleNamespace(
+            config=SimpleNamespace(no_trade_band=0.05)
+        )
+
+        def close(self) -> None:
+            closed.append(True)
+
+    prepared = SimpleNamespace(
+        prepared_v3=SimpleNamespace(
+            environment_factories={"BTCUSDT": Environment},
+        )
+    )
+
+    assert _execution_no_trade_band(prepared, "BTCUSDT") == 0.05
+    assert closed == [True]
+
+
 def test_v10_leaf_paths_are_candidate_symbol_episode_scoped() -> None:
     assert _path(CausalAlphaV10Candidate.HIERARCHICAL_WAVE, "BTCUSDT", 8).as_posix() == (
         "selection/replays/08/BTCUSDT/hierarchical_wave.json"
     )
-

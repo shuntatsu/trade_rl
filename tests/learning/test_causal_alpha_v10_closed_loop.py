@@ -122,6 +122,41 @@ def test_v10_non_executable_hard_risk_reduction_flattens() -> None:
     assert path.targets[32] == 0.0
 
 
+def test_v10_risk_flatten_latch_releases_once_realized_exposure_is_within_cap() -> None:
+    rows = 2
+    policy = hierarchy.prepare_causal_alpha_v10_hierarchy_policy(
+        decision_indices=np.asarray([0, 1], dtype=np.int64),
+        fast_head_predictions=np.zeros((3, rows), dtype=np.float64),
+        slow_head_predictions=np.zeros((3, rows), dtype=np.float64),
+        one_way_cost_rates=np.full(rows, 0.0001),
+        liquidity_weight_caps=np.full(rows, 0.10),
+        risk_weight_caps=np.full(rows, 0.04),
+        realized_volatility=np.full(rows, 2.5),
+        liquidity=np.full(rows, 25.0),
+        attribution_boundaries=_boundaries(),
+        actionable_mask=np.ones(rows, dtype=np.bool_),
+        source_forecast_digest="a" * 64,
+        dual_fit_digest="b" * 64,
+        config=CausalAlphaV10Config(),
+        initial_weight=0.10,
+        execution_contract=hierarchy.CausalAlphaV10ExecutionContract(
+            entry_threshold=0.10,
+            exit_threshold=0.03,
+            no_trade_band=0.05,
+        ),
+    )
+
+    first, _ = policy.predict(
+        {"current_weights": np.asarray([0.10], dtype=np.float32)}
+    )
+    assert float(first[0]) == 0.0
+
+    second, _ = policy.predict(
+        {"current_weights": np.asarray([0.04], dtype=np.float32)}
+    )
+    assert float(second[0]) == np.float32(0.04)
+
+
 def test_v10_executable_hard_risk_reduction_projects_partially() -> None:
     decisions = np.arange(49, dtype=np.int64)
     risk_caps = np.full(49, 0.25)

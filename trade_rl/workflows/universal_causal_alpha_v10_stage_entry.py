@@ -213,32 +213,42 @@ def _signal_evidence(
     )
 
 
-def _environment_no_trade_band(environment: Any) -> float:
+def _environment_rebalance_contract(environment: Any) -> tuple[float, float]:
     risk = getattr(environment, "pre_trade_risk", None)
     risk_config = getattr(risk, "config", None)
-    value = getattr(risk_config, "no_trade_band", None)
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not np.isfinite(value)
-        or value < 0.0
-    ):
-        raise ValueError("V10 environment no-trade band is invalid")
-    return float(value)
+    values = (
+        getattr(risk_config, "entry_threshold", None),
+        getattr(risk_config, "no_trade_band", None),
+    )
+    names = ("entry threshold", "no-trade band")
+    resolved: list[float] = []
+    for value, name in zip(values, names, strict=True):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not np.isfinite(value)
+            or value < 0.0
+        ):
+            raise ValueError(f"V10 environment {name} is invalid")
+        resolved.append(float(value))
+    return resolved[0], resolved[1]
 
 
-def _execution_no_trade_band(prepared: Any, symbol: str) -> float:
+def _execution_rebalance_contract(prepared: Any, symbol: str) -> tuple[float, float]:
     environment = _environment(prepared, symbol)
     try:
-        return _environment_no_trade_band(environment)
+        return _environment_rebalance_contract(environment)
     finally:
         environment.close()
 
 
-def _require_execution_no_trade_band(environment: Any, expected: float) -> None:
-    observed = _environment_no_trade_band(environment)
-    if observed != float(expected):
-        raise ValueError("V10 replay execution no-trade band drifted")
+def _require_execution_rebalance_contract(
+    environment: Any,
+    expected: tuple[float, float],
+) -> None:
+    observed = _environment_rebalance_contract(environment)
+    if observed != tuple(float(value) for value in expected):
+        raise ValueError("V10 replay execution rebalance contract drifted")
 
 
 def _target_paths(
@@ -254,7 +264,7 @@ def _target_paths(
     v8_config: CausalAlphaV8TargetConfig,
     v9_config: CausalAlphaV9Config,
     v10_config: CausalAlphaV10Config,
-    execution_no_trade_band: float,
+    execution_rebalance_contract: tuple[float, float],
 ) -> dict[CausalAlphaV10Candidate, CausalAlphaV10TargetPath]:
     v8_targets = causal_alpha_v8_target_paths_from_v7(
         forecast=forecast,
@@ -276,6 +286,7 @@ def _target_paths(
         config=v9_config,
         initial_weight=control.initial_weight,
     )
+    entry_threshold, no_trade_band = execution_rebalance_contract
     hierarchy = causal_alpha_v10_hierarchical_target_path(
         decision_indices=forecast.decision_indices,
         fast_head_predictions=dual_fit.fast.predict_heads(scoped_features),
@@ -291,7 +302,8 @@ def _target_paths(
         dual_fit_digest=dual_fit.digest,
         config=v10_config,
         initial_weight=control.initial_weight,
-        execution_no_trade_band=execution_no_trade_band,
+        execution_entry_threshold=entry_threshold,
+        execution_no_trade_band=no_trade_band,
     )
     base = {
         CausalAlphaV10Candidate.V8_ROBUST_CONTROL: robust,
@@ -324,11 +336,11 @@ def _build_replay(
     target: CausalAlphaV10TargetPath,
     config_digest: str,
     boundaries: Any,
-    execution_no_trade_band: float,
+    execution_rebalance_contract: tuple[float, float],
 ) -> CausalAlphaV8ReplayMetric:
     environment = _environment(prepared, symbol)
     try:
-        _require_execution_no_trade_band(environment, execution_no_trade_band)
+        _require_execution_rebalance_contract(environment, execution_rebalance_contract)
         evaluation = evaluate_action_path(
             _InitialStateEnvironment(environment, contract.initial_state_mode),
             evaluation_range=(contract.start, contract.stop),
@@ -467,8 +479,8 @@ def selection_stage(
     records: list[CausalAlphaV8ReplayMetric] = []
     v9_rows = _v9_wave_rows(prepared)
     training = _training_rows(prepared)
-    execution_bands = {
-        symbol: _execution_no_trade_band(prepared, symbol)
+    execution_contracts = {
+        symbol: _execution_rebalance_contract(prepared, symbol)
         for symbol in prepared.train_symbols
     }
     count = len(prepared.nested_partitions[prepared.train_symbols[0]].economic_contracts)
@@ -507,7 +519,7 @@ def selection_stage(
                     v8_config=v8_config,
                     v9_config=v9_config,
                     v10_config=v10_config,
-                    execution_no_trade_band=execution_bands[symbol],
+                    execution_rebalance_contract=execution_contracts[symbol],
                 )
                 for candidate in CausalAlphaV10Candidate:
                     target = targets[candidate]
@@ -533,7 +545,7 @@ def selection_stage(
                             target=target,
                             config_digest=config_digest,
                             boundaries=resolved.boundaries,
-                            execution_no_trade_band=execution_bands[symbol],
+                            execution_rebalance_contract=execution_contracts[symbol],
                         )
                         store.write_leaf(relative, _leaf(store, candidate, metric))
                     records.append(metric)

@@ -33,7 +33,7 @@
 
 - [ ] Write failing tests proving deterministic fits, `max_label_end < cutoff`, non-overlapping horizon rows, unique fast/slow digests, and rejection of symbol identity features.
 - [ ] Run `.venv\\Scripts\\python.exe -m pytest tests/learning/test_causal_alpha_v10_fit.py -q` and confirm failures are caused by missing V10 contracts.
-- [ ] Implement frozen V10 config validation and a shared private ridge-head fitter that returns separate fast and slow fits.
+- [ ] Implement frozen V10 config validation and a shared private ridge-head fitter that returns a raw-plus-128-hidden fast fit and a 32-hidden-only slow fit.
 - [ ] Run the focused test and confirm all cases pass.
 - [ ] Run Ruff and Mypy on both modules and the test, then commit `feat: add causal alpha v10 dual horizon fit`.
 
@@ -106,4 +106,3 @@
 - [ ] If BC/RL opens, train to the configured terminal budget and verify learned-policy uplift rather than baseline fallback.
 - [ ] Write the final report with branch, commit, image manifest digest, commands, artifact paths/digests, gate outcomes, and explicit distinction between aggregate wealth and universal admission.
 - [ ] Run final tests, Ruff, Mypy, `git diff --check`, and artifact digest verification before any completion claim.
-

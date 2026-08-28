@@ -65,8 +65,12 @@ those decisions and makes entry execution-regime aware.
 - Use labels whose end index is strictly before the fit cutoff.
 - Subsample non-overlapping labels at 16 decisions for fast and 288 decisions
   for slow.
-- Each model uses three deterministic random-ReLU ridge heads, fixed seeds,
-  128 hidden features per head, ridge strength `1.0`, and edge margin `0.001`.
+- The fast model uses three deterministic random-ReLU ridge heads over the raw
+  62 features plus 128 hidden features. The slow model uses three 32-feature
+  random-ReLU-only ridge heads and excludes the raw features from its design.
+  This preserves non-overlapping 72-hour labels while keeping the earliest
+  72-row pooled fit above two observations per slow coefficient.
+- Both horizons use fixed seeds, ridge strength `1.0`, and edge margin `0.001`.
 - A horizon is qualified only when all heads agree in direction and
   `abs(mean) > ensemble_std + 0.001`.
 
@@ -111,11 +115,12 @@ unopened unless Admission passes.
 - Use 72 hours rather than 24 hours for the slow stage to represent the stated
   multi-day wave objective.
 - Use twelve weeks for slow fitting so non-overlapping 72-hour labels provide
-  enough pooled rows for the fixed ridge design.
+  every causally available pooled row. The frozen V4 context exposes only 72
+  such rows at the earliest cutoff, so the slow design is capped at 32 hidden
+  coefficients instead of weakening non-overlap.
 - Use the calibration-derived liquidity/volatility boundaries instead of hard
   numeric market thresholds, preserving causal scale invariance across symbols.
 - Reject direction-wide short-only filtering despite current short profits;
   it would not be universal across changing market regimes.
 - Preserve all V9 rejection artifacts as audit evidence and create a new V10
   output root, image identity, and result chain.
-

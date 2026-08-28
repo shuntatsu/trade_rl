@@ -137,14 +137,18 @@ class CausalAlphaV10TargetPath:
         hierarchical = candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE
         if hierarchical:
             if self.hierarchy_input_digest is None:
-                raise ValueError("V10 hierarchical target requires hierarchy input digest")
+                raise ValueError(
+                    "V10 hierarchical target requires hierarchy input digest"
+                )
             require_sha256(
                 self.hierarchy_input_digest,
                 field="V10 target hierarchy input digest",
             )
             if len(reasons) != len(self.v6_target_path.decision_indices):
                 raise ValueError("V10 hierarchy reasons must cover every decision")
-            if any(reason not in CAUSAL_ALPHA_V10_HIERARCHY_REASONS for reason in reasons):
+            if any(
+                reason not in CAUSAL_ALPHA_V10_HIERARCHY_REASONS for reason in reasons
+            ):
                 raise ValueError("V10 hierarchy reason is unsupported")
             expected_counts = tuple(
                 sorted((reason, reasons.count(reason)) for reason in set(reasons))

@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Candidate
 import trade_rl.workflows.universal_causal_alpha_v10_stage_entry as stage_entry
+from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Candidate
 
 
 def test_v10_resume_rejects_stale_hierarchy_policy_input_digest(monkeypatch) -> None:

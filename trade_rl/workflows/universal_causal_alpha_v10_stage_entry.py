@@ -31,9 +31,12 @@ from trade_rl.learning.causal_alpha_v10_fit import (
     fit_causal_alpha_v10,
 )
 from trade_rl.learning.causal_alpha_v10_hierarchy import (
-    causal_alpha_v10_hierarchical_target_path,
+    CausalAlphaV10ExecutionContract,
+    CausalAlphaV10HierarchyPolicy,
+    prepare_causal_alpha_v10_hierarchy_policy,
 )
 from trade_rl.learning.rollout_evaluation import evaluate_action_path
+from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.workflows.universal_causal_alpha_v4_artifact_store import (
     CausalAlphaV4ArtifactStore,
     CausalAlphaV4RunLock,
@@ -84,7 +87,7 @@ from trade_rl.workflows.universal_causal_alpha_v10_gates import (
     evaluate_causal_alpha_v10_selection,
 )
 
-_REPLAY_LEAF_SCHEMA: Final = "causal_alpha_v10_replay_leaf_v1"
+_REPLAY_LEAF_SCHEMA: Final = "causal_alpha_v10_replay_leaf_v2"
 _RESULT_SCHEMA: Final = "causal_alpha_v10_terminal_result_v1"
 
 
@@ -120,7 +123,9 @@ def _feature_surface(sample: Any) -> tuple[tuple[str, ...], np.ndarray, np.ndarr
         *(f"local:{name}" for name in sample.local_context.feature_names),
         *(f"global:{name}" for name in sample.global_context.feature_names),
     )
-    features = np.column_stack((sample.local_context.values, sample.global_context.values))
+    features = np.column_stack(
+        (sample.local_context.values, sample.global_context.values)
+    )
     available = np.column_stack(
         (sample.local_context.available, sample.global_context.available)
     )
@@ -213,28 +218,35 @@ def _signal_evidence(
     )
 
 
-def _environment_rebalance_contract(environment: Any) -> tuple[float, float]:
+def _environment_rebalance_contract(
+    environment: Any,
+) -> CausalAlphaV10ExecutionContract:
     risk = getattr(environment, "pre_trade_risk", None)
     risk_config = getattr(risk, "config", None)
-    values = (
-        getattr(risk_config, "entry_threshold", None),
-        getattr(risk_config, "no_trade_band", None),
+    if not isinstance(risk_config, PreTradeRiskConfig):
+        raise TypeError("V10 environment PreTradeRiskConfig is invalid")
+    return CausalAlphaV10ExecutionContract(
+        max_gross=float(risk_config.max_gross),
+        max_abs_weight=float(risk_config.max_abs_weight),
+        max_turnover=(
+            None
+            if risk_config.max_turnover is None
+            else float(risk_config.max_turnover)
+        ),
+        entry_threshold=float(risk_config.entry_threshold),
+        exit_threshold=float(risk_config.exit_threshold),
+        no_trade_band=float(risk_config.no_trade_band),
+        drawdown_start=float(risk_config.drawdown_start),
+        drawdown_stop=float(risk_config.drawdown_stop),
+        emergency_turnover_override=risk_config.emergency_turnover_override,
+        fail_closed_tolerance=float(risk_config.fail_closed_tolerance),
     )
-    names = ("entry threshold", "no-trade band")
-    resolved: list[float] = []
-    for value, name in zip(values, names, strict=True):
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not np.isfinite(value)
-            or value < 0.0
-        ):
-            raise ValueError(f"V10 environment {name} is invalid")
-        resolved.append(float(value))
-    return resolved[0], resolved[1]
 
 
-def _execution_rebalance_contract(prepared: Any, symbol: str) -> tuple[float, float]:
+def _execution_rebalance_contract(
+    prepared: Any,
+    symbol: str,
+) -> CausalAlphaV10ExecutionContract:
     environment = _environment(prepared, symbol)
     try:
         return _environment_rebalance_contract(environment)
@@ -244,10 +256,10 @@ def _execution_rebalance_contract(prepared: Any, symbol: str) -> tuple[float, fl
 
 def _require_execution_rebalance_contract(
     environment: Any,
-    expected: tuple[float, float],
+    expected: CausalAlphaV10ExecutionContract,
 ) -> None:
     observed = _environment_rebalance_contract(environment)
-    if observed != tuple(float(value) for value in expected):
+    if observed.digest != expected.digest:
         raise ValueError("V10 replay execution rebalance contract drifted")
 
 
@@ -264,8 +276,11 @@ def _target_paths(
     v8_config: CausalAlphaV8TargetConfig,
     v9_config: CausalAlphaV9Config,
     v10_config: CausalAlphaV10Config,
-    execution_rebalance_contract: tuple[float, float],
-) -> dict[CausalAlphaV10Candidate, CausalAlphaV10TargetPath]:
+    execution_rebalance_contract: CausalAlphaV10ExecutionContract,
+) -> tuple[
+    dict[CausalAlphaV10Candidate, CausalAlphaV10TargetPath],
+    CausalAlphaV10HierarchyPolicy,
+]:
     v8_targets = causal_alpha_v8_target_paths_from_v7(
         forecast=forecast,
         v7_paths=v7_targets,
@@ -286,8 +301,25 @@ def _target_paths(
         config=v9_config,
         initial_weight=control.initial_weight,
     )
-    entry_threshold, no_trade_band = execution_rebalance_contract
-    hierarchy = causal_alpha_v10_hierarchical_target_path(
+    controls = {
+        CausalAlphaV10Candidate.V8_ROBUST_CONTROL: CausalAlphaV10TargetPath(
+            candidate=CausalAlphaV10Candidate.V8_ROBUST_CONTROL,
+            v6_target_path=robust,
+            source_forecast_digest=forecast.digest,
+            fast_fit_digest=v9_fit.digest,
+            slow_fit_digest=v9_fit.digest,
+            v10_config_digest=v10_config.digest,
+        ),
+        CausalAlphaV10Candidate.V9_NONLINEAR_CONTROL: CausalAlphaV10TargetPath(
+            candidate=CausalAlphaV10Candidate.V9_NONLINEAR_CONTROL,
+            v6_target_path=v9,
+            source_forecast_digest=forecast.digest,
+            fast_fit_digest=v9_fit.digest,
+            slow_fit_digest=v9_fit.digest,
+            v10_config_digest=v10_config.digest,
+        ),
+    }
+    hierarchy_policy = prepare_causal_alpha_v10_hierarchy_policy(
         decision_indices=forecast.decision_indices,
         fast_head_predictions=dual_fit.fast.predict_heads(scoped_features),
         slow_head_predictions=dual_fit.slow.predict_heads(scoped_features),
@@ -302,26 +334,77 @@ def _target_paths(
         dual_fit_digest=dual_fit.digest,
         config=v10_config,
         initial_weight=control.initial_weight,
-        execution_entry_threshold=entry_threshold,
-        execution_no_trade_band=no_trade_band,
+        execution_contract=execution_rebalance_contract,
     )
-    base = {
-        CausalAlphaV10Candidate.V8_ROBUST_CONTROL: robust,
-        CausalAlphaV10Candidate.V9_NONLINEAR_CONTROL: v9,
-        CausalAlphaV10Candidate.HIERARCHICAL_WAVE: hierarchy,
-    }
-    result: dict[CausalAlphaV10Candidate, CausalAlphaV10TargetPath] = {}
-    for candidate, path in base.items():
-        hierarchical = candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE
-        result[candidate] = CausalAlphaV10TargetPath(
-            candidate=candidate,
-            v6_target_path=path,
-            source_forecast_digest=forecast.digest,
-            fast_fit_digest=dual_fit.fast.digest if hierarchical else v9_fit.digest,
-            slow_fit_digest=dual_fit.slow.digest if hierarchical else v9_fit.digest,
-            v10_config_digest=v10_config.digest,
-        )
-    return result
+    return controls, hierarchy_policy
+
+
+def _metric_from_evaluation(
+    *,
+    prepared: Any,
+    resolved: Any,
+    symbol: str,
+    contract: Any,
+    forecast: Any,
+    state: Any,
+    rows: np.ndarray,
+    target: CausalAlphaV10TargetPath,
+    evaluation: Any,
+    config_digest: str,
+    boundaries: Any,
+    environment: Any,
+) -> CausalAlphaV8ReplayMetric:
+    base = build_causal_alpha_v6_replay_metric(
+        run_manifest_digest=prepared.run_manifest_digest,
+        v4_context_manifest_digest=prepared.v4_context_manifest_digest,
+        symbol=symbol,
+        episode_index=contract.episode_index,
+        contract_digest=contract.digest,
+        fit_digest=resolved.base_fit.digest,
+        forecast_digest=target.v6_target_path.forecast_digest,
+        target_path=target.v6_target_path,
+        evaluation=evaluation,
+        episode_hours=float(prepared.prepared_v3.episode_hours),
+        reward_scale=_reward_scale(environment),
+    )
+    mapped = V8_CANDIDATE_BY_V10[target.candidate]
+    compatibility = CausalAlphaV8TargetPath(
+        candidate=mapped,
+        v6_target_path=target.v6_target_path,
+        source_forecast_digest=forecast.digest,
+        calibration_fit_digest=target.fast_fit_digest,
+        v8_config_digest=target.v10_config_digest,
+    )
+    source = build_causal_alpha_v8_attribution(
+        target_path=compatibility,
+        evaluation=evaluation,
+        confidence=np.abs(target.v6_target_path.direction_scores_4h),
+        realized_volatility=np.asarray(state.realized_volatility)[rows],
+        liquidity=np.asarray(state.liquidity)[rows],
+        boundaries=boundaries,
+        step_hours=float(prepared.prepared_v3.episode_hours) / len(rows),
+    )
+    attribution = CausalAlphaV8AttributionEvidence(
+        candidate=mapped,
+        target_path_digest=target.digest,
+        boundaries_digest=source.boundaries_digest,
+        step_economics_digest=source.step_economics_digest,
+        decision_count=source.decision_count,
+        gross_log_return=source.gross_log_return,
+        net_log_return=source.net_log_return,
+        total_execution_cost=source.total_execution_cost,
+        total_exposure_hours=source.total_exposure_hours,
+        cells=source.cells,
+    )
+    return CausalAlphaV8ReplayMetric(
+        candidate=mapped,
+        v6_metric=base,
+        attribution=attribution,
+        v8_target_path_digest=target.digest,
+        source_forecast_digest=forecast.digest,
+        calibration_fit_digest=target.fast_fit_digest,
+        v8_config_digest=config_digest,
+    )
 
 
 def _build_replay(
@@ -336,67 +419,92 @@ def _build_replay(
     target: CausalAlphaV10TargetPath,
     config_digest: str,
     boundaries: Any,
-    execution_rebalance_contract: tuple[float, float],
+    execution_rebalance_contract: CausalAlphaV10ExecutionContract,
 ) -> CausalAlphaV8ReplayMetric:
     environment = _environment(prepared, symbol)
     try:
-        _require_execution_rebalance_contract(environment, execution_rebalance_contract)
+        _require_execution_rebalance_contract(
+            environment,
+            execution_rebalance_contract,
+        )
         evaluation = evaluate_action_path(
             _InitialStateEnvironment(environment, contract.initial_state_mode),
             evaluation_range=(contract.start, contract.stop),
             actions=target.v6_target_path.targets[:, None].astype(np.float32),
         )
-        base = build_causal_alpha_v6_replay_metric(
-            run_manifest_digest=prepared.run_manifest_digest,
-            v4_context_manifest_digest=prepared.v4_context_manifest_digest,
+        return _metric_from_evaluation(
+            prepared=prepared,
+            resolved=resolved,
             symbol=symbol,
-            episode_index=contract.episode_index,
-            contract_digest=contract.digest,
-            fit_digest=resolved.base_fit.digest,
-            forecast_digest=target.v6_target_path.forecast_digest,
-            target_path=target.v6_target_path,
+            contract=contract,
+            forecast=forecast,
+            state=state,
+            rows=rows,
+            target=target,
             evaluation=evaluation,
-            episode_hours=float(prepared.prepared_v3.episode_hours),
-            reward_scale=_reward_scale(environment),
-        )
-        mapped = V8_CANDIDATE_BY_V10[target.candidate]
-        compatibility = CausalAlphaV8TargetPath(
-            candidate=mapped,
-            v6_target_path=target.v6_target_path,
-            source_forecast_digest=forecast.digest,
-            calibration_fit_digest=target.fast_fit_digest,
-            v8_config_digest=target.v10_config_digest,
-        )
-        source = build_causal_alpha_v8_attribution(
-            target_path=compatibility,
-            evaluation=evaluation,
-            confidence=np.abs(target.v6_target_path.direction_scores_4h),
-            realized_volatility=np.asarray(state.realized_volatility)[rows],
-            liquidity=np.asarray(state.liquidity)[rows],
+            config_digest=config_digest,
             boundaries=boundaries,
-            step_hours=float(prepared.prepared_v3.episode_hours) / len(rows),
+            environment=environment,
         )
-        attribution = CausalAlphaV8AttributionEvidence(
-            candidate=mapped,
-            target_path_digest=target.digest,
-            boundaries_digest=source.boundaries_digest,
-            step_economics_digest=source.step_economics_digest,
-            decision_count=source.decision_count,
-            gross_log_return=source.gross_log_return,
-            net_log_return=source.net_log_return,
-            total_execution_cost=source.total_execution_cost,
-            total_exposure_hours=source.total_exposure_hours,
-            cells=source.cells,
+    finally:
+        environment.close()
+
+
+def _build_hierarchical_replay(
+    *,
+    prepared: Any,
+    resolved: Any,
+    symbol: str,
+    contract: Any,
+    forecast: Any,
+    state: Any,
+    rows: np.ndarray,
+    policy: CausalAlphaV10HierarchyPolicy,
+    dual_fit: CausalAlphaV10DualFit,
+    v10_config: CausalAlphaV10Config,
+    config_digest: str,
+    boundaries: Any,
+    execution_rebalance_contract: CausalAlphaV10ExecutionContract,
+) -> tuple[CausalAlphaV10TargetPath, CausalAlphaV8ReplayMetric]:
+    environment = _environment(prepared, symbol)
+    try:
+        _require_execution_rebalance_contract(
+            environment,
+            execution_rebalance_contract,
         )
-        return CausalAlphaV8ReplayMetric(
-            candidate=mapped,
-            v6_metric=base,
-            attribution=attribution,
-            v8_target_path_digest=target.digest,
+        evaluation = evaluate_action_path(
+            _InitialStateEnvironment(environment, contract.initial_state_mode),
+            evaluation_range=(contract.start, contract.stop),
+            model=policy,
+            deterministic=True,
+        )
+        result = policy.result()
+        target = CausalAlphaV10TargetPath(
+            candidate=CausalAlphaV10Candidate.HIERARCHICAL_WAVE,
+            v6_target_path=result.v6_target_path,
             source_forecast_digest=forecast.digest,
-            calibration_fit_digest=target.fast_fit_digest,
-            v8_config_digest=config_digest,
+            fast_fit_digest=dual_fit.fast.digest,
+            slow_fit_digest=dual_fit.slow.digest,
+            v10_config_digest=v10_config.digest,
+            hierarchy_input_digest=result.input_digest,
+            hierarchy_reasons=result.hierarchy_reasons,
+            hierarchy_reason_counts=result.hierarchy_reason_counts,
         )
+        metric = _metric_from_evaluation(
+            prepared=prepared,
+            resolved=resolved,
+            symbol=symbol,
+            contract=contract,
+            forecast=forecast,
+            state=state,
+            rows=rows,
+            target=target,
+            evaluation=evaluation,
+            config_digest=config_digest,
+            boundaries=boundaries,
+            environment=environment,
+        )
+        return target, metric
     finally:
         environment.close()
 
@@ -405,10 +513,14 @@ def _leaf(
     store: CausalAlphaV4ArtifactStore,
     candidate: CausalAlphaV10Candidate,
     metric: CausalAlphaV8ReplayMetric,
+    *,
+    target: CausalAlphaV10TargetPath,
+    candidate_input_digest: str,
 ) -> dict[str, object]:
     base = metric.v6_metric
     body: dict[str, object] = {
         "candidate": candidate.value,
+        "candidate_input_digest": candidate_input_digest,
         "config_digest": store.config_digest,
         "contract_digest": base.contract_digest,
         "episode_index": base.episode_index,
@@ -418,6 +530,7 @@ def _leaf(
         "run_manifest_digest": store.run_manifest_digest,
         "schema_version": _REPLAY_LEAF_SCHEMA,
         "symbol": base.symbol,
+        "target": target.to_payload(),
         "target_path_digest": metric.v8_target_path_digest,
         "v4_context_manifest_digest": store.v4_context_manifest_digest,
     }
@@ -439,7 +552,9 @@ def _load(
     *,
     path: Path,
     candidate: CausalAlphaV10Candidate,
-    target: CausalAlphaV10TargetPath,
+    candidate_input_digest: str,
+    expected_fast_fit_digest: str,
+    expected_target_digest: str | None,
     symbol: str,
     episode: int,
     contract_digest: str,
@@ -448,16 +563,30 @@ def _load(
     if leaf is None:
         return None
     metric = CausalAlphaV8ReplayMetric.from_payload(leaf["replay"])
+    target_payload = leaf.get("target")
+    if not isinstance(target_payload, dict):
+        raise ValueError("V10 resumed replay target evidence is invalid")
+    hierarchy_input_digest = target_payload.get("hierarchy_input_digest")
+    hierarchical = candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE
     if (
         leaf["candidate"] != candidate.value
+        or leaf.get("candidate_input_digest") != candidate_input_digest
         or metric.candidate is not V8_CANDIDATE_BY_V10[candidate]
-        or metric.v8_target_path_digest != target.digest
         or metric.v8_config_digest != store.config_digest
         or metric.v6_metric.symbol != symbol
         or metric.v6_metric.episode_index != episode
         or metric.v6_metric.contract_digest != contract_digest
-        or metric.calibration_fit_digest != target.fast_fit_digest
+        or metric.calibration_fit_digest != expected_fast_fit_digest
         or leaf["replay_digest"] != metric.digest
+        or leaf.get("target_path_digest") != metric.v8_target_path_digest
+        or target_payload.get("artifact_digest") != metric.v8_target_path_digest
+        or target_payload.get("candidate") != candidate.value
+        or (
+            expected_target_digest is not None
+            and metric.v8_target_path_digest != expected_target_digest
+        )
+        or (hierarchical and hierarchy_input_digest != candidate_input_digest)
+        or (not hierarchical and hierarchy_input_digest is not None)
     ):
         raise ValueError("V10 resumed replay identity drifted")
     return metric
@@ -483,7 +612,9 @@ def selection_stage(
         symbol: _execution_rebalance_contract(prepared, symbol)
         for symbol in prepared.train_symbols
     }
-    count = len(prepared.nested_partitions[prepared.train_symbols[0]].economic_contracts)
+    count = len(
+        prepared.nested_partitions[prepared.train_symbols[0]].economic_contracts
+    )
     for index in range(count):
         contracts = _contract_column(prepared, "economic_contracts", index)
         cutoff = int(contracts[0].start)
@@ -507,7 +638,7 @@ def selection_stage(
                     contract,
                     source_config.target,
                 )
-                targets = _target_paths(
+                controls, hierarchy_policy = _target_paths(
                     sample=prepared.samples[symbol],
                     rows=rows,
                     forecast=forecast,
@@ -522,32 +653,76 @@ def selection_stage(
                     execution_rebalance_contract=execution_contracts[symbol],
                 )
                 for candidate in CausalAlphaV10Candidate:
-                    target = targets[candidate]
                     relative = _path(candidate, symbol, contract.episode_index)
+                    target: CausalAlphaV10TargetPath | None
+                    if candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE:
+                        target = None
+                        candidate_input_digest = hierarchy_policy.input_digest
+                        expected_fast_fit_digest = dual_fit.fast.digest
+                        expected_target_digest = None
+                    else:
+                        target = controls[candidate]
+                        candidate_input_digest = target.digest
+                        expected_fast_fit_digest = target.fast_fit_digest
+                        expected_target_digest = target.digest
                     metric = _load(
                         store,
                         path=relative,
                         candidate=candidate,
-                        target=target,
+                        candidate_input_digest=candidate_input_digest,
+                        expected_fast_fit_digest=expected_fast_fit_digest,
+                        expected_target_digest=expected_target_digest,
                         symbol=symbol,
                         episode=contract.episode_index,
                         contract_digest=contract.digest,
                     )
                     if metric is None:
-                        metric = _build_replay(
-                            prepared=prepared,
-                            resolved=resolved,
-                            symbol=symbol,
-                            contract=contract,
-                            forecast=forecast,
-                            state=state,
-                            rows=rows,
-                            target=target,
-                            config_digest=config_digest,
-                            boundaries=resolved.boundaries,
-                            execution_rebalance_contract=execution_contracts[symbol],
+                        if candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE:
+                            target, metric = _build_hierarchical_replay(
+                                prepared=prepared,
+                                resolved=resolved,
+                                symbol=symbol,
+                                contract=contract,
+                                forecast=forecast,
+                                state=state,
+                                rows=rows,
+                                policy=hierarchy_policy,
+                                dual_fit=dual_fit,
+                                v10_config=v10_config,
+                                config_digest=config_digest,
+                                boundaries=resolved.boundaries,
+                                execution_rebalance_contract=(
+                                    execution_contracts[symbol]
+                                ),
+                            )
+                        else:
+                            assert target is not None
+                            metric = _build_replay(
+                                prepared=prepared,
+                                resolved=resolved,
+                                symbol=symbol,
+                                contract=contract,
+                                forecast=forecast,
+                                state=state,
+                                rows=rows,
+                                target=target,
+                                config_digest=config_digest,
+                                boundaries=resolved.boundaries,
+                                execution_rebalance_contract=(
+                                    execution_contracts[symbol]
+                                ),
+                            )
+                        assert target is not None
+                        store.write_leaf(
+                            relative,
+                            _leaf(
+                                store,
+                                candidate,
+                                metric,
+                                target=target,
+                                candidate_input_digest=candidate_input_digest,
+                            ),
                         )
-                        store.write_leaf(relative, _leaf(store, candidate, metric))
                     records.append(metric)
             for candidate in CausalAlphaV10Candidate:
                 _progress(stage="selection", cutoff=cutoff, candidate=candidate.value)

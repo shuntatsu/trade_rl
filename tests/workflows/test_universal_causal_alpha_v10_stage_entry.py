@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+import trade_rl.workflows.universal_causal_alpha_v10_stage_entry as stage_entry
 from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Candidate
 from trade_rl.risk.pretrade import PreTradeRiskConfig
-import trade_rl.workflows.universal_causal_alpha_v10_stage_entry as stage_entry
 from trade_rl.workflows.universal_causal_alpha_v10_stage_entry import (
     _execution_rebalance_contract,
     _path,
@@ -56,7 +56,9 @@ def test_v10_training_rows_bind_fast_and_slow_labels_without_symbol_features() -
     assert all("symbol" not in name for name in rows.feature_names)
 
 
-def _risk_config(*, exit_threshold: float = 0.03, drawdown_start: float = 0.12) -> PreTradeRiskConfig:
+def _risk_config(
+    *, exit_threshold: float = 0.03, drawdown_start: float = 0.12
+) -> PreTradeRiskConfig:
     return PreTradeRiskConfig(
         max_gross=1.0,
         max_abs_weight=0.40,
@@ -150,6 +152,6 @@ def test_v10_hierarchical_replay_has_dedicated_closed_loop_path() -> None:
 
 
 def test_v10_leaf_paths_are_candidate_symbol_episode_scoped() -> None:
-    assert _path(CausalAlphaV10Candidate.HIERARCHICAL_WAVE, "BTCUSDT", 8).as_posix() == (
-        "selection/replays/08/BTCUSDT/hierarchical_wave.json"
-    )
+    assert _path(
+        CausalAlphaV10Candidate.HIERARCHICAL_WAVE, "BTCUSDT", 8
+    ).as_posix() == ("selection/replays/08/BTCUSDT/hierarchical_wave.json")

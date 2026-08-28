@@ -146,9 +146,7 @@ def test_v10_risk_flatten_latch_releases_once_realized_exposure_is_within_cap() 
         ),
     )
 
-    first, _ = policy.predict(
-        {"current_weights": np.asarray([0.10], dtype=np.float32)}
-    )
+    first, _ = policy.predict({"current_weights": np.asarray([0.10], dtype=np.float32)})
     assert float(first[0]) == 0.0
 
     second, _ = policy.predict(

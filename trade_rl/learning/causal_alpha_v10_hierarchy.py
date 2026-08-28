@@ -518,25 +518,6 @@ class CausalAlphaV10HierarchyPolicy:
                 hierarchy_reason="realized_state_reset",
             )
 
-        if self._risk_flatten_latched:
-            if current_sign == 0:
-                self._risk_flatten_latched = False
-                self._reset_flat_state()
-                return self._record(
-                    offset=offset,
-                    observed_current=observed_current,
-                    requested=0.0,
-                    reason="hold_flat",
-                    hierarchy_reason="realized_state_reset",
-                )
-            return self._record(
-                offset=offset,
-                observed_current=observed_current,
-                requested=0.0,
-                reason="risk_projection",
-                hierarchy_reason="risk_cap_flatten",
-            )
-
         config = self.input.config
         liquidity_cap = min(
             config.target_magnitude,
@@ -550,6 +531,27 @@ class CausalAlphaV10HierarchyPolicy:
             int(self.input.decision_indices[offset]) % config.fast_horizon_decisions
             == 0
         )
+
+        if self._risk_flatten_latched:
+            if current_sign == 0:
+                self._risk_flatten_latched = False
+                self._reset_flat_state()
+                return self._record(
+                    offset=offset,
+                    observed_current=observed_current,
+                    requested=0.0,
+                    reason="hold_flat",
+                    hierarchy_reason="realized_state_reset",
+                )
+            if abs(observed_current) > risk_cap + _OBSERVATION_TOLERANCE:
+                return self._record(
+                    offset=offset,
+                    observed_current=observed_current,
+                    requested=0.0,
+                    reason="risk_projection",
+                    hierarchy_reason="risk_cap_flatten",
+                )
+            self._risk_flatten_latched = False
 
         decision_current = observed_current
         requested = observed_current

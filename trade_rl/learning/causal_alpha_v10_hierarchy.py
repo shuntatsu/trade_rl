@@ -226,11 +226,13 @@ def causal_alpha_v10_hierarchical_target_path(
             else:
                 if observed_slow == current_sign:
                     slow_regime = observed_slow
+                    slow_opposite_count = 0
                     neutral_slow_count = 0
                 elif observed_slow == -current_sign:
                     slow_opposite_count = slow_opposite_count + 1
                     neutral_slow_count = 0
                 else:
+                    slow_opposite_count = 0
                     neutral_slow_count += 1
                 fast_exit_count = fast_exit_count + 1 if fast == -current_sign else 0
                 slow_exit_count = slow_opposite_count

@@ -128,6 +128,26 @@ def test_v10_two_slow_opposites_exit() -> None:
     assert path.targets[48] == 0.0
 
 
+def test_v10_slow_opposite_confirmation_requires_consecutive_observations() -> None:
+    path = _path(
+        fast={0: 1, 16: 1},
+        slow={0: 1, 16: 1, 32: -1, 48: 1, 64: -1},
+    )
+
+    assert path.targets[48] == 0.1
+    assert path.targets[64] == 0.1
+
+
+def test_v10_slow_neutral_breaks_opposite_confirmation() -> None:
+    path = _path(
+        fast={0: 1, 16: 1},
+        slow={0: 1, 16: 1, 32: -1, 48: 0, 64: -1},
+    )
+
+    assert path.targets[48] == 0.1
+    assert path.targets[64] == 0.1
+
+
 def test_v10_six_slow_neutral_observations_expire_wave() -> None:
     path = _path(
         fast={0: 1, 16: 1},

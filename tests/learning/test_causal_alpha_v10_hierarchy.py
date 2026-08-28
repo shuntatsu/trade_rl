@@ -118,7 +118,9 @@ def test_v10_entry_threshold_equality_is_executable() -> None:
     assert path.targets[16] == 0.10
 
 
-def test_v10_no_trade_band_equality_is_executable_when_entry_threshold_is_zero() -> None:
+def test_v10_no_trade_band_equality_is_executable_when_entry_threshold_is_zero() -> (
+    None
+):
     caps = np.full(145, 0.05)
     path = _path(
         fast={0: 1, 16: 1},
@@ -154,7 +156,9 @@ def test_v10_liquidity_cap_jitter_does_not_resize_between_fast_decisions() -> No
     assert np.all(path.targets[17:32] == 0.10)
 
 
-def test_v10_soft_liquidity_cap_does_not_resize_held_position_at_fast_decision() -> None:
+def test_v10_soft_liquidity_cap_does_not_resize_held_position_at_fast_decision() -> (
+    None
+):
     caps = np.full(145, 0.10)
     caps[32] = 0.04
     path = _path(

@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply-and-verify:
-    if: ${{ github.event.head_commit.message == 'ci: retry lifecycle phase1 green' }}
+    if: contains(github.event.head_commit.message, 'phase1-green-trigger')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

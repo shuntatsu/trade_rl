@@ -113,7 +113,9 @@ class _Environment:
             ),
             "effective_filled_weights": np.array([self._current], dtype=np.float64),
             "liquidation_terminal": self._liquidation_terminal[offset],
-            "termination_reason": "liquidation" if self._liquidation_terminal[offset] else None,
+            "termination_reason": (
+                "liquidation" if self._liquidation_terminal[offset] else None
+            ),
         }
         self._offset += 1
         self.current_index += 1
@@ -146,19 +148,21 @@ def test_hard_risk_violation_uses_final_risk_projection_not_post_step_weight(
     assert valid_with_market_drift.collapse_evidence.hard_risk_violation is False
 
 
-def test_step_trace_preserves_submitted_and_delayed_execution_targets(
+def test_lifecycle_trace_preserves_submitted_and_delayed_execution_targets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     result = _evaluate(monkeypatch, _Environment())
-    trace = result.step_trace
+    trace = result.lifecycle_trace
     assert trace is not None
 
     np.testing.assert_allclose(trace.submitted_targets[:, 0], (0.10, 0.10, 0.10))
-    np.testing.assert_allclose(trace.execution_intent_targets[:, 0], (0.0, 0.10, 0.10))
+    np.testing.assert_allclose(
+        trace.execution_intent_targets[:, 0], (0.0, 0.10, 0.10)
+    )
     assert not np.array_equal(trace.submitted_targets, trace.execution_intent_targets)
 
 
-def test_step_trace_explains_nonflat_to_flat_transition(
+def test_lifecycle_trace_explains_nonflat_to_flat_transition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     result = _evaluate(
@@ -168,7 +172,7 @@ def test_step_trace_explains_nonflat_to_flat_transition(
             risk_reasons=((), (), ("emergency_flatten",)),
         ),
     )
-    trace = result.step_trace
+    trace = result.lifecycle_trace
     assert trace is not None
 
     assert trace.transition_classes[-1] == "exit"
@@ -185,6 +189,6 @@ def test_liquidation_has_explicit_flatten_initiator(
             liquidation_terminal=(False, False, True),
         ),
     )
-    trace = result.step_trace
+    trace = result.lifecycle_trace
     assert trace is not None
     assert trace.flatten_initiators[-1] == "liquidation"

@@ -638,7 +638,12 @@ def evaluate_action_path(
             fallback=projected,
         )
         provider = getattr(model, "last_step_trace_metadata", None)
-        metadata = provider() if callable(provider) else {}
+        if isinstance(provider, Mapping):
+            metadata = provider
+        elif callable(provider):
+            metadata = provider()
+        else:
+            metadata = {}
         if not isinstance(metadata, Mapping):
             raise ValueError("evaluation model trace metadata must be a mapping")
         risk_caps = _metadata_vector(

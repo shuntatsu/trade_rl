@@ -211,6 +211,23 @@ def test_action_path_can_request_stochastic_model_actions(
     class _Model:
         modes: list[bool] = []
 
+        @property
+        def last_step_trace_metadata(self) -> dict[str, object]:
+            return {
+                "active_liquidity_caps": 0.25,
+                "active_risk_caps": 0.20,
+                "after_cost_entry_objective": 0.01,
+                "fast_edge_margin": 0.02,
+                "fast_mean": 0.03,
+                "fast_qualified_direction": 1,
+                "fast_std": 0.01,
+                "hierarchy_reason": "entry",
+                "position_origin": "native_entry",
+                "slow_direction": 1,
+                "slow_mean": 0.04,
+                "slow_std": 0.02,
+            }
+
         def predict(
             self, observation: object, *, deterministic: bool
         ) -> tuple[np.ndarray, None]:
@@ -219,7 +236,7 @@ def test_action_path_can_request_stochastic_model_actions(
             return np.asarray([0.2, 0.0], dtype=np.float32), None
 
     model = _Model()
-    rollout_evaluation.evaluate_action_path(
+    result = rollout_evaluation.evaluate_action_path(
         environment,
         evaluation_range=(0, 4),
         model=model,
@@ -227,3 +244,10 @@ def test_action_path_can_request_stochastic_model_actions(
     )
 
     assert model.modes == [False, False, False]
+    trace = result.step_trace
+    assert trace is not None
+    np.testing.assert_allclose(trace.active_risk_caps, 0.20)
+    np.testing.assert_allclose(trace.active_liquidity_caps, 0.25)
+    np.testing.assert_allclose(trace.fast_edge_margins, 0.02)
+    assert trace.position_origins == ("native_entry",) * 3
+    assert trace.hierarchy_reasons == ("entry",) * 3

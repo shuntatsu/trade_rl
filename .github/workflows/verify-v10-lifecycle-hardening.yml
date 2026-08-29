@@ -26,5 +26,7 @@ jobs:
           uv run pytest -q \
             tests/risk/test_pretrade_reduce_only.py \
             tests/rl/test_environment_decision_reduce_only.py \
+            tests/rl/test_environment_reduce_only_integration.py \
             tests/learning/test_rollout_execution_lifecycle.py \
-            tests/learning/test_causal_alpha_v10_reduce_only.py
+            tests/learning/test_causal_alpha_v10_reduce_only.py \
+            tests/workflows/test_universal_causal_alpha_v10_reduce_only_environment.py

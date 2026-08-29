@@ -194,6 +194,7 @@ class PreTradeRisk:
         hold_changed = False
         exit_changed = False
         reversal_changed = False
+        reduce_only_satisfied = False
         for index, (target, current) in enumerate(
             zip(requested, existing, strict=True)
         ):
@@ -201,6 +202,15 @@ class PreTradeRisk:
                 controlled[index] = 0.0
                 continue
             if reduce_only_mask[index]:
+                if abs(current) <= _TOLERANCE:
+                    controlled[index] = 0.0
+                    reduce_only_satisfied = True
+                    continue
+                if target * current < -_TOLERANCE:
+                    raise ValueError("reduce-only target cannot change sign")
+                if abs(target) >= abs(current) - _TOLERANCE:
+                    controlled[index] = current
+                    reduce_only_satisfied = True
                 continue
             if abs(current) <= _TOLERANCE:
                 if abs(target) < self.config.entry_threshold:
@@ -226,6 +236,8 @@ class PreTradeRisk:
             reasons.append("exit_hysteresis")
         if reversal_changed:
             reasons.append("reversal_hysteresis")
+        if reduce_only_satisfied:
+            reasons.append("reduce_only_satisfied")
 
         small_changes = (
             (np.abs(controlled - existing) < self.config.no_trade_band)
@@ -268,15 +280,6 @@ class PreTradeRisk:
             reduce_mask = raw_reduce_mask.reshape(-1).copy()
             if reduce_mask.shape != requested.shape:
                 raise ValueError("reduce_only_mask must match target weights")
-        for index in np.flatnonzero(reduce_mask):
-            target = float(requested[index])
-            current = float(existing[index])
-            if abs(current) <= _TOLERANCE:
-                raise ValueError("reduce-only target cannot start from flat exposure")
-            if target * current < -_TOLERANCE:
-                raise ValueError("reduce-only target cannot change sign")
-            if abs(target) > abs(current) + _TOLERANCE:
-                raise ValueError("reduce-only target cannot increase exposure")
         emergency_mask = (
             np.zeros(requested.shape, dtype=np.bool_)
             if emergency_flatten_mask is None

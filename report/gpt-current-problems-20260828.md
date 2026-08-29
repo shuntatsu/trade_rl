@@ -496,3 +496,76 @@ hierarchical trace の reason は `cadence_hold=144,710`、`risk_cap_flatten=52,
 
 hierarchical の submitted/suppressed/executed は `52,980/52,854/243`。`risk_cap_flatten` 自体が hierarchical net loss の `-4.753%` を占め、inherited origin と slow neutral も損失を継続している。したがって、1分足導入や注文数増加へ進む前に、実現 exposure の継続損失、inherited state の扱い、neutral 時の no-trade/flat 方針を根本から再設計する必要がある。Selection pass なしに Admission/BC/RL は開始しない。
 
+## 14. V10 r12 fast-only-ownership candidate（slow ownership 仮説の反証）
+
+### 実行 identity と gate 結果
+
+r12 は、r11 `flatten_on_risk_breach` の Selection reject 後に事前登録した `fast_only_ownership` 候補を、commit `247c6707230d43991be4e4398809d197b1b48ed8` の Docker image で Signal→Selection から実行した正式 run である。hierarchical candidate だけが変更対象で、flat entry/inherited confirmation/owned-position exit の ownership 判定から slow direction を外し、fast direction と execution eligibility を使った。risk/liquidity cap、cost、execution、action trace、Selection 閾値は変更していない。
+
+- output root: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r12`
+- Signal evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r12/signal/evidence.json`
+- Selection evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r12/selection/evidence.json`
+- Terminal result: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r12/result.json`
+- replay leaves: `216`（8 cutoff × 9銘柄 × 3候補）、paired scopes `72`
+- boundary mode: `fast_only_ownership`
+- image: `trade-rl-causal-alpha-v10:247c6707-6726b3737df9`
+- image id: `sha256:633af84be003a41ddf337d3db74e19357cf2b3c3bd674f0bf578632a444ba845`
+- source tree digest: `3942733324cabcee7547ed55cbad9c429c43ce6aacf5192c2306b6201fe77b21`
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`
+- runtime manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`
+- run manifest digest: `e1e8dc96e3e7683762fd8b56f434bf79808570abe66c14f5a961869c84da426b`
+- config digest: `2ddc42ce2ad60cbf1a6ab75019ea4e11cbe229fbee861167d6b278bcaae03451`
+- v4 context manifest digest: `bc91783061182e41415d45a714049737ae16564a47d0e1ca14d004cc4c5c7357`
+- Signal envelope/payload digest: `0551a08043f52e29313f2df239fc93424663481f3c30fd6913c8feaaf71b88f4` / `6b0ab8454c2f87975305735031d66789af8e560cd751b2bf4685f4df8a6158d6`
+- Selection envelope/payload digest: `06f2b46b07d3fd409341b7ff6aaee4c507d7e79f615ddee3038ed24384ca1498` / `e7ffc0bb4ef16992866e35af28c1dd813c60edab10efd5e3c54ee812cc8d8331`
+- Terminal result artifact digest: `3b719fe1146ec98271a38bfecf07218f199ec3d7dd52c63bb16b782ea3191496`
+
+Signal は `passed=true`、`72/72` qualified slow scope。Selection は全 216 leaf 完走後も `passed=false`、`selected_candidate=null`、`promotion_eligible=false`、terminal status は `selection_rejected`（container exit code `3`）だった。Admission/BC/RL/holdout は開始していない。
+
+### 候補別 after-cost economics
+
+| candidate | balanced gross | balanced net | minimum net wealth | median net wealth | positive scope | CVaR10 | meaningful scopes | executed | target changes | submitted | cost | closed trades | sign flips | rejection |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| v8_robust_control | 0.996468 | 0.995010 | 0.986459 | 0.995424 | 0.152778 | -0.004985 | 36 | 133 | 77 | 54,831 | 1,308.37 | 0 | 0 | gross/net, min, median, positive |
+| v9_nonlinear_control | 1.012909 | 1.006463 | 0.958693 | 0.998146 | 0.430556 | -0.022163 | 62 | 840 | 2,656 | 176,235 | 5,299.14 | 198 | 0 | min, median, positive |
+| hierarchical wave | 0.996121 | 0.992970 | 0.984927 | 0.995791 | 0.138889 | -0.005942 | 57 | 364 | 101,645 | 512 | 2,810.86 | 85 | 15 | gross/net, min, median, positive |
+
+全候補で `hard_risk_violation_count=0`、`unexplained_execution_rejection_count=0`。r12 の fast-only hierarchy は r11 より balanced net を `0.994475→0.992970`、median net を `0.996702→0.995791`、positive scope を `0.194444→0.138889` と悪化させた。minimum net は `0.984710→0.984927` と僅かに改善しただけで、銘柄横断 gate は不通過。slow direction を ownership から外すことは資産増加につながらず、仮説を反証した。
+
+### trace・fast-only ownership の検証
+
+全 216 leaf を `CausalAlphaV8ReplayMetric.from_payload` で再読込し、trace と economics を再計算した。
+
+- leaf parser / trace present / decision count `2,880`: `216/216`
+- `action_path_step_trace_v1` digest 再計算一致: `216/216`
+- `causal_alpha_v7_step_economics_v2` digest 再計算一致: `216/216`
+- trace gross/net log と attribution / V6 wealth の return reconciliation: `216/216`
+- 総 decision 数: `622,080`（216 leaf × 2,880 step）
+- hierarchical の `fast_support_hold`: `3,190` steps
+- hierarchical の `risk_cap_projection` / `risk_cap_flatten`: `86` / `97` steps
+- hierarchical の `neutral_fast_expiry`: `27` events
+- realized sign の直接反転（観測 tolerance `1e-6` 超）: `0` events
+- target path の sign flip count: `15`（Selection metric。主に flat tolerance 近傍の微小残留からの再 entry）
+
+hierarchical trace の reason は `cadence_hold=193,930`、`cost_or_uncertainty_hold=8,049`、`fast_support_hold=3,190`、`entry_floor_hold=810`、`confirmation_hold=566`、`exit=196`、`liquidity_capacity_hold=167`、`realized_state_reset=136`、`entry=106`、`risk_cap_flatten=97`、`risk_cap_projection=86`、`neutral_fast_expiry=27`。origin は `flat=154,479`、`inherited=52,669`、`native_entry=212`。slow ownership を除いても inherited steps は `52,669`、risk projection は `86` と残り、損失源が slow 判定だけではないことを示す。
+
+### hierarchical wave の realized exposure 診断（72 leaf 合算）
+
+以下は原因切り分け用の step 集計で、Selection の symbol-balanced wealth そのものではない。return は step の `log1p` を合算してから `expm1` した。
+
+| 分類 | steps | gross return | net return | cost |
+|---|---:|---:|---:|---:|
+| realized long | 69,859 | -2.197% | -3.426% | 1,247.05 |
+| realized short | 33,900 | -1.270% | -2.280% | 1,005.60 |
+| realized flat | 103,601 | +0.002% | -0.555% | 558.21 |
+| fast_support_hold | 3,190 | -0.075% | -0.078% | 3.07 |
+| risk_cap_projection | 86 | -2.665% | -3.687% | 1,049.34 |
+| risk_cap_flatten | 97 | -0.316% | -0.799% | 485.57 |
+| inherited origin | 52,669 | -3.314% | -4.608% | 1,310.32 |
+| native_entry origin | 212 | +0.021% | -0.727% | 749.76 |
+| slow qualified long | 29,967 | -0.520% | -0.805% | 285.84 |
+| slow neutral | 140,289 | -2.733% | -4.753% | 2,087.66 |
+| slow qualified short | 37,104 | -0.206% | -0.669% | 437.36 |
+
+hierarchical の submitted/suppressed/executed は `512/367/364`。fast-only ownership は slow neutral の損失を解消せず、native entry も after-cost で負、target sign flip も増加した。次の修正は signal の時間足を細かくすることではなく、実現 exposure の約定遅延・risk projection・episode boundary の損失を同時に混ぜない形で再設計する。Selection pass なしに Admission/BC/RL は開始しない。
+

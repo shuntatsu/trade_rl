@@ -7,6 +7,7 @@ import pytest
 
 import trade_rl.workflows.universal_causal_alpha_v10_stage_entry as stage_entry
 from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Candidate
+from trade_rl.learning.rollout_evaluation import ActionPathExecutionTrace
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.workflows.universal_causal_alpha_v10_stage_entry import (
     _execution_rebalance_contract,
@@ -144,7 +145,64 @@ def test_v10_replay_rejects_execution_contract_drift_in_exit_threshold() -> None
 
 
 def test_v10_closed_loop_replay_uses_new_leaf_schema() -> None:
-    assert stage_entry._REPLAY_LEAF_SCHEMA == "causal_alpha_v10_replay_leaf_v2"
+    assert stage_entry._REPLAY_LEAF_SCHEMA == "causal_alpha_v10_replay_leaf_v3"
+
+
+def test_v10_execution_diagnostics_persist_reconciled_boundary_trace() -> None:
+    trace = ActionPathExecutionTrace(
+        pre_action_weights=np.asarray([[0.0], [0.09], [0.08]]),
+        risk_constrained_weights=np.asarray([[0.10], [0.09], [0.0]]),
+        post_step_weights=np.asarray([[0.09], [0.08], [0.0]]),
+        applied_risk_scales=np.asarray([1.0, 0.8, 0.5]),
+        strategy_intent_changes=np.asarray([True, False, True]),
+        realized_state_follows=np.asarray([False, True, False]),
+        rebalance_reassertions=np.asarray([False, False, False]),
+        hard_risk_violations=np.asarray([False, True, False]),
+    )
+    evaluation = SimpleNamespace(
+        execution_trace=trace,
+        collapse_evidence=SimpleNamespace(hard_risk_violation=True),
+    )
+
+    trace_payload = stage_entry._execution_trace_payload(evaluation)
+    diagnostics = stage_entry._execution_diagnostics(evaluation, trace_payload)
+
+    assert trace_payload["schema_version"] == "causal_alpha_v10_execution_trace_v1"
+    assert trace_payload["pre_action_weights"] == [[0.0], [0.09], [0.08]]
+    assert trace_payload["applied_risk_scales"] == [1.0, 0.8, 0.5]
+    assert trace_payload["hard_risk_violations"] == [False, True, False]
+    assert diagnostics["schema_version"] == "causal_alpha_v10_execution_diagnostics_v1"
+    assert diagnostics["trace_digest"] == trace_payload["artifact_digest"]
+    assert diagnostics["strategy_intent_change_count"] == 2
+    assert diagnostics["realized_state_follow_count"] == 1
+    assert diagnostics["rebalance_reassertion_count"] == 0
+    assert diagnostics["hard_risk_violation"] is True
+    assert diagnostics["minimum_applied_risk_scale"] == pytest.approx(0.5)
+    assert diagnostics["pre_action_mean_abs_weight"] == pytest.approx(0.17 / 3.0)
+    assert diagnostics["risk_constrained_mean_abs_weight"] == pytest.approx(0.19 / 3.0)
+    assert diagnostics["post_step_mean_abs_weight"] == pytest.approx(0.17 / 3.0)
+
+
+def test_v10_execution_trace_rejects_string_boolean_tampering() -> None:
+    trace = ActionPathExecutionTrace(
+        pre_action_weights=np.asarray([[0.0], [0.09], [0.08]]),
+        risk_constrained_weights=np.asarray([[0.10], [0.09], [0.0]]),
+        post_step_weights=np.asarray([[0.09], [0.08], [0.0]]),
+        applied_risk_scales=np.asarray([1.0, 0.8, 0.5]),
+        strategy_intent_changes=np.asarray([True, False, True]),
+        realized_state_follows=np.asarray([False, True, False]),
+        rebalance_reassertions=np.asarray([False, False, False]),
+        hard_risk_violations=np.asarray([False, True, False]),
+    )
+    evaluation = SimpleNamespace(
+        execution_trace=trace,
+        collapse_evidence=SimpleNamespace(hard_risk_violation=True),
+    )
+    payload = stage_entry._execution_trace_payload(evaluation)
+    payload["hard_risk_violations"] = [False, "false", False]
+
+    with pytest.raises(ValueError, match="boolean"):
+        stage_entry._validate_execution_trace_payload(payload)
 
 
 def test_v10_hierarchical_replay_has_dedicated_closed_loop_path() -> None:

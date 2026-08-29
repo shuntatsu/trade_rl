@@ -44,7 +44,9 @@ class ActionPathStepEconomics:
         for name in ("gross_returns", "net_returns", "costs", "turnover"):
             array = np.asarray(getattr(self, name), dtype=np.float64).reshape(-1).copy()
             if array.size == 0 or not np.isfinite(array).all():
-                raise ValueError("action path step economics must be non-empty and finite")
+                raise ValueError(
+                    "action path step economics must be non-empty and finite"
+                )
             array.setflags(write=False)
             arrays[name] = array
         if len({array.size for array in arrays.values()}) != 1:
@@ -60,11 +62,72 @@ class ActionPathStepEconomics:
 
 
 @dataclass(frozen=True, slots=True)
+class ActionPathExecutionTrace:
+    """Decision-boundary execution state retained without reassigning interval PnL."""
+
+    pre_action_weights: np.ndarray
+    risk_constrained_weights: np.ndarray
+    post_step_weights: np.ndarray
+    applied_risk_scales: np.ndarray
+    strategy_intent_changes: np.ndarray
+    realized_state_follows: np.ndarray
+    rebalance_reassertions: np.ndarray
+    hard_risk_violations: np.ndarray
+
+    def __post_init__(self) -> None:
+        weight_arrays: dict[str, np.ndarray] = {}
+        for name in (
+            "pre_action_weights",
+            "risk_constrained_weights",
+            "post_step_weights",
+        ):
+            array = np.asarray(getattr(self, name), dtype=np.float64).copy(order="C")
+            if array.ndim != 2 or array.shape[0] == 0 or array.shape[1] == 0:
+                raise ValueError("action path execution weights must be rank-two")
+            if not np.isfinite(array).all():
+                raise ValueError("action path execution weights must be finite")
+            weight_arrays[name] = array
+        shapes = {array.shape for array in weight_arrays.values()}
+        if len(shapes) != 1:
+            raise ValueError("action path execution weight traces are not aligned")
+        steps = next(iter(weight_arrays.values())).shape[0]
+        risk_scales = (
+            np.asarray(self.applied_risk_scales, dtype=np.float64).reshape(-1).copy()
+        )
+        if (
+            risk_scales.shape != (steps,)
+            or not np.isfinite(risk_scales).all()
+            or np.any((risk_scales < 0.0) | (risk_scales > 1.0))
+        ):
+            raise ValueError("action path applied risk scales are invalid")
+        boolean_arrays: dict[str, np.ndarray] = {}
+        for name in (
+            "strategy_intent_changes",
+            "realized_state_follows",
+            "rebalance_reassertions",
+            "hard_risk_violations",
+        ):
+            raw_boolean = np.asarray(getattr(self, name))
+            if raw_boolean.dtype.kind != "b":
+                raise ValueError("action path execution event traces must be boolean")
+            boolean_array = raw_boolean.reshape(-1).astype(np.bool_, copy=True)
+            if boolean_array.shape != (steps,):
+                raise ValueError("action path execution event traces are not aligned")
+            boolean_arrays[name] = boolean_array
+        risk_scales.setflags(write=False)
+        object.__setattr__(self, "applied_risk_scales", risk_scales)
+        for name, array in {**weight_arrays, **boolean_arrays}.items():
+            array.setflags(write=False)
+            object.__setattr__(self, name, array)
+
+
+@dataclass(frozen=True, slots=True)
 class ActionPathEvaluation:
     actions: np.ndarray
     performance: PathPerformanceMetrics
     collapse_evidence: ActionPathCollapseEvidence
     step_economics: ActionPathStepEconomics | None = None
+    execution_trace: ActionPathExecutionTrace | None = None
 
     def __post_init__(self) -> None:
         actions = np.asarray(self.actions, dtype=np.float32).copy(order="C")
@@ -88,6 +151,12 @@ class ActionPathEvaluation:
                 raise TypeError("step_economics must be ActionPathStepEconomics")
             if len(self.step_economics.gross_returns) != self.performance.step_count:
                 raise ValueError("step economics do not cover evaluated path")
+        trace = self.execution_trace
+        if trace is not None:
+            if not isinstance(trace, ActionPathExecutionTrace):
+                raise TypeError("execution_trace must be ActionPathExecutionTrace")
+            if trace.pre_action_weights.shape != actions.shape:
+                raise ValueError("execution trace does not match evaluated actions")
         actions.setflags(write=False)
         object.__setattr__(self, "actions", actions)
 
@@ -110,6 +179,88 @@ def _liquidation_metric(info: Mapping[str, object], name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"liquidation is missing numeric {name}")
     return float(value)
+
+
+def _observation_weights(
+    observation: object,
+    *,
+    shape: tuple[int, ...],
+    field: str,
+) -> np.ndarray:
+    if not isinstance(observation, Mapping) or "current_weights" not in observation:
+        raise ValueError(f"{field} is missing current_weights")
+    weights = np.asarray(observation["current_weights"], dtype=np.float64).reshape(-1)
+    if weights.shape != shape or not np.isfinite(weights).all():
+        raise ValueError(f"{field} current_weights do not match evaluation action")
+    return weights
+
+
+def _risk_constrained_weights(
+    info: Mapping[str, object], *, shape: tuple[int, ...]
+) -> np.ndarray:
+    risk = info.get("hybrid_risk")
+    if risk is None:
+        raise ValueError("evaluation info is missing hybrid risk")
+    weights = np.asarray(getattr(risk, "weights", None), dtype=np.float64).reshape(-1)
+    if weights.shape != shape or not np.isfinite(weights).all():
+        raise ValueError("hybrid risk weights do not match evaluation action")
+    return weights
+
+
+def _applied_risk_scale(info: Mapping[str, object]) -> float:
+    risk = info.get("hybrid_risk")
+    if risk is None:
+        raise ValueError("evaluation info is missing hybrid risk")
+    value = getattr(risk, "risk_scale", None)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not np.isfinite(float(value))
+        or not 0.0 <= float(value) <= 1.0
+    ):
+        raise ValueError("hybrid risk is missing a valid applied risk scale")
+    return float(value)
+
+
+def _hard_risk_projection_violation(
+    environment: EvaluationEnvironment,
+    projected_weights: np.ndarray,
+    *,
+    applied_risk_scale: float,
+) -> bool:
+    risk_engine = getattr(environment, "pre_trade_risk", None)
+    config = getattr(risk_engine, "config", None)
+    if config is None:
+        raise ValueError(
+            "evaluation environment is missing authoritative pre-trade risk"
+        )
+    max_abs_weight = getattr(config, "max_abs_weight", None)
+    max_gross = getattr(config, "max_gross", None)
+    tolerance = getattr(config, "fail_closed_tolerance", None)
+    for value in (max_abs_weight, max_gross, tolerance):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not np.isfinite(float(value))
+        ):
+            raise ValueError("evaluation pre-trade risk limits are invalid")
+    assert isinstance(max_abs_weight, int | float) and not isinstance(
+        max_abs_weight, bool
+    )
+    assert isinstance(max_gross, int | float) and not isinstance(max_gross, bool)
+    assert isinstance(tolerance, int | float) and not isinstance(tolerance, bool)
+    scale_value = float(applied_risk_scale)
+    max_abs_value = float(max_abs_weight)
+    max_gross_value = float(max_gross)
+    tolerance_value = float(tolerance)
+    if not 0.0 <= scale_value <= 1.0 or tolerance_value < 0.0:
+        raise ValueError("evaluation pre-trade risk limits are invalid")
+    absolute = np.abs(projected_weights)
+    return bool(
+        np.max(absolute) > max_abs_value * scale_value + tolerance_value
+        or np.sum(absolute) > max_gross_value * scale_value + tolerance_value
+        or (scale_value == 0.0 and np.any(absolute > tolerance_value))
+    )
 
 
 def evaluate_action_path(
@@ -178,6 +329,14 @@ def evaluate_action_path(
     rewards: list[float] = []
     turnover: list[float] = []
     costs: list[float] = []
+    pre_action_weights: list[np.ndarray] = []
+    risk_constrained_weights: list[np.ndarray] = []
+    post_step_weights: list[np.ndarray] = []
+    applied_risk_scales: list[float] = []
+    strategy_intent_changes: list[bool] = []
+    realized_state_follows: list[bool] = []
+    rebalance_reassertions: list[bool] = []
+    hard_risk_violations: list[bool] = []
     active_dimension_count = 0
     inactive_dimension_count = 0
     proposal_distance_count = 0
@@ -188,6 +347,7 @@ def evaluate_action_path(
     risk_projection_reasons: Counter[str] = Counter()
     executed_change_count = 0
     previous_submitted: np.ndarray | None = None
+    previous_active: np.ndarray | None = None
     action_dimension_count: int | None = None
     for offset in range(expected_count):
         if environment.current_index != start + offset:
@@ -205,30 +365,55 @@ def evaluate_action_path(
             raise ValueError("evaluation action dimensions changed within path")
         if not np.isfinite(action).all():
             raise ValueError("evaluation action contains non-finite values")
-        reference = (
-            np.zeros_like(action) if previous_submitted is None else previous_submitted
+        reference = _observation_weights(
+            observation,
+            shape=action.shape,
+            field="pre-action observation",
         )
         active = np.ones(action.shape, dtype=np.bool_)
-        if isinstance(observation, Mapping):
-            if "current_weights" in observation:
-                reference = np.asarray(
-                    observation["current_weights"], dtype=np.float32
-                ).reshape(-1)
-                if reference.shape != action.shape or not np.isfinite(reference).all():
-                    raise ValueError("current weights do not match evaluation action")
-            if "active" in observation:
-                active_values = np.asarray(observation["active"]).reshape(-1)
-                if active_values.shape != action.shape:
-                    raise ValueError("active mask does not match evaluation action")
-                active = active_values > 0.5
+        if isinstance(observation, Mapping) and "active" in observation:
+            active_values = np.asarray(observation["active"]).reshape(-1)
+            if active_values.shape != action.shape:
+                raise ValueError("active mask does not match evaluation action")
+            active = active_values > 0.5
         proposed = active & (np.abs(action - reference) > action_change_tolerance)
+        if previous_submitted is None or previous_active is None:
+            strategy_intent_change = bool(np.any(proposed))
+            realized_state_follow = False
+            rebalance_reassertion = False
+        else:
+            continuously_active = active & previous_active
+            newly_active = active & ~previous_active
+            drifted = continuously_active & (
+                np.abs(reference - previous_submitted) > action_change_tolerance
+            )
+            matches_current = np.abs(action - reference) <= action_change_tolerance
+            matches_previous = (
+                np.abs(action - previous_submitted) <= action_change_tolerance
+            )
+            changed_from_previous = (
+                np.abs(action - previous_submitted) > action_change_tolerance
+            )
+            realized_state_follow = bool(np.any(drifted & matches_current))
+            rebalance_reassertion = bool(np.any(drifted & matches_previous & proposed))
+            strategy_intent_change = bool(
+                np.any(
+                    (continuously_active & changed_from_previous & ~matches_current)
+                    | (newly_active & proposed)
+                )
+            )
         active_dimension_count += int(np.count_nonzero(active))
         inactive_dimension_count += int(np.count_nonzero(~active))
         proposal_distance_count += int(np.count_nonzero(proposed))
         submitted_change = bool(np.any(proposed))
         submitted_change_count += int(submitted_change)
         evaluated_actions.append(action.copy())
+        pre_action_weights.append(reference.copy())
+        strategy_intent_changes.append(strategy_intent_change)
+        realized_state_follows.append(realized_state_follow)
+        rebalance_reassertions.append(rebalance_reassertion)
         previous_submitted = action.copy()
+        previous_active = active.copy()
         observation, reward, terminated, truncated, raw_info = environment.step(action)
         if not isinstance(raw_info, Mapping):
             raise ValueError("evaluation environment info must be a mapping")
@@ -240,6 +425,23 @@ def evaluate_action_path(
         liquidation = info.get("hybrid_liquidation")
         if liquidation is not None:
             trades.ingest_liquidation(liquidation)
+        constrained = _risk_constrained_weights(info, shape=action.shape)
+        post_weights = _observation_weights(
+            observation,
+            shape=action.shape,
+            field="post-step observation",
+        )
+        applied_risk_scale = _applied_risk_scale(info)
+        risk_constrained_weights.append(constrained.copy())
+        post_step_weights.append(post_weights.copy())
+        applied_risk_scales.append(applied_risk_scale)
+        hard_risk_violations.append(
+            _hard_risk_projection_violation(
+                environment,
+                constrained,
+                applied_risk_scale=applied_risk_scale,
+            )
+        )
         gross = _metric(info, "interval_gross_return")
         net = _metric(info, "interval_net_return")
         liquidation_gross = _liquidation_metric(info, "interval_gross_return")
@@ -309,6 +511,16 @@ def evaluate_action_path(
     )
     if action_dimension_count is None:
         raise RuntimeError("evaluation produced no action dimensions")
+    trace = ActionPathExecutionTrace(
+        pre_action_weights=np.stack(pre_action_weights, axis=0),
+        risk_constrained_weights=np.stack(risk_constrained_weights, axis=0),
+        post_step_weights=np.stack(post_step_weights, axis=0),
+        applied_risk_scales=np.asarray(applied_risk_scales, dtype=np.float64),
+        strategy_intent_changes=np.asarray(strategy_intent_changes, dtype=np.bool_),
+        realized_state_follows=np.asarray(realized_state_follows, dtype=np.bool_),
+        rebalance_reassertions=np.asarray(rebalance_reassertions, dtype=np.bool_),
+        hard_risk_violations=np.asarray(hard_risk_violations, dtype=np.bool_),
+    )
     evidence = ActionPathCollapseEvidence(
         decision_count=expected_count,
         action_dimension_count=action_dimension_count,
@@ -325,7 +537,7 @@ def evaluate_action_path(
             sorted(execution_rejection_reasons.items())
         ),
         risk_projection_reason_counts=tuple(sorted(risk_projection_reasons.items())),
-        hard_risk_violation=False,
+        hard_risk_violation=bool(np.any(trace.hard_risk_violations)),
     )
     return ActionPathEvaluation(
         actions=np.stack(evaluated_actions, axis=0),
@@ -337,11 +549,13 @@ def evaluate_action_path(
             costs=np.asarray(costs, dtype=np.float64),
             turnover=np.asarray(turnover, dtype=np.float64),
         ),
+        execution_trace=trace,
     )
 
 
 __all__ = [
     "ActionPathEvaluation",
+    "ActionPathExecutionTrace",
     "ActionPathStepEconomics",
     "EvaluationEnvironment",
     "evaluate_action_path",

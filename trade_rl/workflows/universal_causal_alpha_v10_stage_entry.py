@@ -80,6 +80,18 @@ from trade_rl.workflows.universal_causal_alpha_v9_stage_entry import (
 from trade_rl.workflows.universal_causal_alpha_v9_stage_entry import (
     _wave_rows as _v9_wave_rows,
 )
+from trade_rl.workflows.universal_causal_alpha_v10_diagnostics import (
+    execution_diagnostics as _execution_diagnostics,
+)
+from trade_rl.workflows.universal_causal_alpha_v10_diagnostics import (
+    execution_trace_payload as _execution_trace_payload,
+)
+from trade_rl.workflows.universal_causal_alpha_v10_diagnostics import (
+    validate_execution_diagnostics as _validate_execution_diagnostics,
+)
+from trade_rl.workflows.universal_causal_alpha_v10_diagnostics import (
+    validate_execution_trace_payload as _validate_execution_trace_payload,
+)
 from trade_rl.workflows.universal_causal_alpha_v10_gates import (
     V8_CANDIDATE_BY_V10,
     CausalAlphaV10SelectionEvidence,
@@ -87,7 +99,7 @@ from trade_rl.workflows.universal_causal_alpha_v10_gates import (
     evaluate_causal_alpha_v10_selection,
 )
 
-_REPLAY_LEAF_SCHEMA: Final = "causal_alpha_v10_replay_leaf_v2"
+_REPLAY_LEAF_SCHEMA: Final = "causal_alpha_v10_replay_leaf_v3"
 _RESULT_SCHEMA: Final = "causal_alpha_v10_terminal_result_v1"
 
 
@@ -420,7 +432,7 @@ def _build_replay(
     config_digest: str,
     boundaries: Any,
     execution_rebalance_contract: CausalAlphaV10ExecutionContract,
-) -> CausalAlphaV8ReplayMetric:
+) -> tuple[CausalAlphaV8ReplayMetric, dict[str, object], dict[str, object]]:
     environment = _environment(prepared, symbol)
     try:
         _require_execution_rebalance_contract(
@@ -432,7 +444,7 @@ def _build_replay(
             evaluation_range=(contract.start, contract.stop),
             actions=target.v6_target_path.targets[:, None].astype(np.float32),
         )
-        return _metric_from_evaluation(
+        metric = _metric_from_evaluation(
             prepared=prepared,
             resolved=resolved,
             symbol=symbol,
@@ -446,6 +458,9 @@ def _build_replay(
             boundaries=boundaries,
             environment=environment,
         )
+        execution_trace = _execution_trace_payload(evaluation)
+        execution_diagnostics = _execution_diagnostics(evaluation, execution_trace)
+        return metric, execution_trace, execution_diagnostics
     finally:
         environment.close()
 
@@ -465,7 +480,12 @@ def _build_hierarchical_replay(
     config_digest: str,
     boundaries: Any,
     execution_rebalance_contract: CausalAlphaV10ExecutionContract,
-) -> tuple[CausalAlphaV10TargetPath, CausalAlphaV8ReplayMetric]:
+) -> tuple[
+    CausalAlphaV10TargetPath,
+    CausalAlphaV8ReplayMetric,
+    dict[str, object],
+    dict[str, object],
+]:
     environment = _environment(prepared, symbol)
     try:
         _require_execution_rebalance_contract(
@@ -504,7 +524,9 @@ def _build_hierarchical_replay(
             boundaries=boundaries,
             environment=environment,
         )
-        return target, metric
+        execution_trace = _execution_trace_payload(evaluation)
+        execution_diagnostics = _execution_diagnostics(evaluation, execution_trace)
+        return target, metric, execution_trace, execution_diagnostics
     finally:
         environment.close()
 
@@ -516,6 +538,8 @@ def _leaf(
     *,
     target: CausalAlphaV10TargetPath,
     candidate_input_digest: str,
+    execution_trace: dict[str, object],
+    execution_diagnostics: dict[str, object],
 ) -> dict[str, object]:
     base = metric.v6_metric
     body: dict[str, object] = {
@@ -524,6 +548,8 @@ def _leaf(
         "config_digest": store.config_digest,
         "contract_digest": base.contract_digest,
         "episode_index": base.episode_index,
+        "execution_diagnostics": execution_diagnostics,
+        "execution_trace": execution_trace,
         "generator_code_digest": store.generator_code_digest,
         "replay": metric.to_payload(),
         "replay_digest": metric.digest,
@@ -566,6 +592,10 @@ def _load(
     target_payload = leaf.get("target")
     if not isinstance(target_payload, dict):
         raise ValueError("V10 resumed replay target evidence is invalid")
+    execution_trace = _validate_execution_trace_payload(leaf.get("execution_trace"))
+    execution_diagnostics = _validate_execution_diagnostics(
+        leaf.get("execution_diagnostics"), execution_trace
+    )
     hierarchy_input_digest = target_payload.get("hierarchy_input_digest")
     hierarchical = candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE
     if (
@@ -581,6 +611,8 @@ def _load(
         or leaf.get("target_path_digest") != metric.v8_target_path_digest
         or target_payload.get("artifact_digest") != metric.v8_target_path_digest
         or target_payload.get("candidate") != candidate.value
+        or metric.v6_metric.hard_risk_violation
+        != execution_diagnostics["hard_risk_violation"]
         or (
             expected_target_digest is not None
             and metric.v8_target_path_digest != expected_target_digest
@@ -678,7 +710,12 @@ def selection_stage(
                     )
                     if metric is None:
                         if candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE:
-                            target, metric = _build_hierarchical_replay(
+                            (
+                                target,
+                                metric,
+                                execution_trace,
+                                execution_diagnostics,
+                            ) = _build_hierarchical_replay(
                                 prepared=prepared,
                                 resolved=resolved,
                                 symbol=symbol,
@@ -691,13 +728,17 @@ def selection_stage(
                                 v10_config=v10_config,
                                 config_digest=config_digest,
                                 boundaries=resolved.boundaries,
-                                execution_rebalance_contract=(
-                                    execution_contracts[symbol]
-                                ),
+                                execution_rebalance_contract=execution_contracts[
+                                    symbol
+                                ],
                             )
                         else:
                             assert target is not None
-                            metric = _build_replay(
+                            (
+                                metric,
+                                execution_trace,
+                                execution_diagnostics,
+                            ) = _build_replay(
                                 prepared=prepared,
                                 resolved=resolved,
                                 symbol=symbol,
@@ -708,9 +749,9 @@ def selection_stage(
                                 target=target,
                                 config_digest=config_digest,
                                 boundaries=resolved.boundaries,
-                                execution_rebalance_contract=(
-                                    execution_contracts[symbol]
-                                ),
+                                execution_rebalance_contract=execution_contracts[
+                                    symbol
+                                ],
                             )
                         assert target is not None
                         store.write_leaf(
@@ -721,6 +762,8 @@ def selection_stage(
                                 metric,
                                 target=target,
                                 candidate_input_digest=candidate_input_digest,
+                                execution_trace=execution_trace,
+                                execution_diagnostics=execution_diagnostics,
                             ),
                         )
                     records.append(metric)

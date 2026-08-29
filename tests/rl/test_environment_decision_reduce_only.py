@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -105,12 +107,9 @@ def test_zero_delay_uses_current_submission_reduce_only_mask() -> None:
 
 
 def test_reduce_only_mask_must_be_boolean_and_symbol_aligned() -> None:
-    request = _request(submitted_reduce_only=True)
-    request = EnvironmentDecisionRequest(
-        **{
-            **request.__dict__,
-            "submitted_hybrid_reduce_only_mask": np.asarray([1], dtype=np.int64),
-        }
+    request = replace(
+        _request(submitted_reduce_only=True),
+        submitted_hybrid_reduce_only_mask=np.asarray([1], dtype=np.int64),
     )
 
     with pytest.raises((TypeError, ValueError), match="reduce.only"):

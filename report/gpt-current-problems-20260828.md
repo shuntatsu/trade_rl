@@ -351,3 +351,76 @@ trace reason は `realized_state_reset=54,409`、`cadence_hold=143,365`、`cost_
 3. 15分足から1分足へ移行する根拠はまだない。まず realized exposure、no-trade suppression、neutral hold、risk cap の損失を解消し、取引数ではなく銘柄別 net wealth と lower-tail が改善することを確認する。
 4. Selection pass なしに Admission/BC/RL を開始しない。r8 の run lock は消去済みで、成果物は volume 上に保存されている。
 
+## 12. V10 r10 neutral-fast-expiry candidate（更新コード後の正式結果）
+
+### 実行 identity と gate 結果
+
+r10 は、r8 `flatten_then_reset` 後に事前登録した `neutral_fast_expiry` 候補を、commit `4534415d355561595ecc93c273158e08b54b89d2` の Docker image で Signal→Selection から最初に実行した正式 run である。既存の V10 default、Signal、72h slow、entry/exit confirmation、risk/liquidity cap、execution、cost、Selection 閾値は変更していない。neutral fast が cadence 上で6回連続して中立になった場合だけ、flat target を要求して hierarchy reason を `neutral_fast_expiry` とする。
+
+- output root: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r10`
+- Signal evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r10/signal/evidence.json`
+- Selection evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r10/selection/evidence.json`
+- Terminal result: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r10/result.json`
+- replay leaves: `216`（8 cutoff × 9銘柄 × 3候補）、paired scopes `72`
+- boundary mode: `neutral_fast_expiry`
+- image: `trade-rl-causal-alpha-v10:4534415d-6726b3737df9`
+- image id: `sha256:d547308db6f50ac2a39d0defd2bb0ecfff24dc9c698928db398343b161f508e5`
+- source tree digest: `5563afef5398b2485523b36bd0d02ac83669fdf0f4e89e05341ba96463a57c43`
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`
+- runtime manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`
+- run manifest digest: `63a5e3a7723cb582f0b32107b305105340f2f68c37cec8ec745b3d9daa0dcd78`
+- config digest: `d35f6558fa2cbbe155ff0522ac29f1ecde4e11b5b594c6720bd2caa251c50056`
+- Signal envelope/payload digest: `6bcbe78fe45f5d33af818440cec3b4992f34cd27ee34e8648a0768ee6fe3d653` / `441ab46445070afddbfeac07731598391e1c6509acbf41eba3be9f1f50245318`
+- Selection envelope/payload digest: `e8a06a575fcf53a21be453f599ced165fd72296f2142d7d09f44cd1c16335474` / `5e52a1bfaa6dc8875c35a802f65ccdd0853996e6d98f28a7a7b4f8159d7fa727`
+- Terminal result artifact digest: `beb02ac45b86087381618882107062705a2e0d75a0c45b0e70ca453cc0cf3681`
+
+Signal は `passed=true`、`72/72` qualified slow scope。Selection は全 leaf 完走後も `passed=false`、`selected_candidate=null`、`promotion_eligible=false`、terminal status は `selection_rejected`（container exit code `3`）だった。従って Admission/BC/RL/holdout は開始していない。
+
+### 候補別 after-cost economics
+
+| candidate | balanced gross | balanced net | minimum net wealth | median net wealth | positive scope | CVaR10 | meaningful scopes | executed | target changes | submitted | cost | closed trades | rejection |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| v8_robust_control | 0.996468 | 0.995010 | 0.986459 | 0.995424 | 0.152778 | -0.004985 | 36 | 133 | 77 | 54,831 | 1,308.37 | 0 | gross/net, min, median, positive |
+| v9_nonlinear_control | 1.012909 | 1.006463 | 0.958693 | 0.998146 | 0.430556 | -0.022163 | 62 | 840 | 2,656 | 176,235 | 5,299.14 | 198 | min, median, positive |
+| hierarchical wave | 0.996954 | 0.994428 | 0.984927 | 0.996621 | 0.194444 | -0.005604 | 51 | 283 | 101,566 | 601 | 2,245.31 | 53 | gross/net, min, median, positive |
+
+全候補で `hard_risk_violation_count=0`、`unexplained_execution_rejection_count=0`。r10 の hierarchy 候補は r7/r8 と同じ銘柄横断ゲートを不通過であり、neutral expiry だけでは資産増加条件を改善しなかった。v9 は balanced net が正でも、minimum net `0.958693`、positive scope `0.430556` のため銘柄普遍の戦略ではない。
+
+### trace・neutral expiry の検証
+
+全 216 leaf を `CausalAlphaV8ReplayMetric.from_payload` で再読込し、以下を再計算した。
+
+- leaf parser / trace present: `216/216`
+- `action_path_step_trace_v1` digest 再計算一致: `216/216`
+- `causal_alpha_v7_step_economics_v2` digest 再計算一致: `216/216`
+- trace gross/net log と attribution / V6 wealth の return reconciliation: `216/216`
+- 総 decision 数: `207,360`（72 leaf × 2,880 step）
+- `neutral_fast_expiry` 発火: `20` events（hierarchical 72 leaf中）
+- 発火時の invariant（cadence 中立6回、requested flat、realized は非flat）: `20/20`
+
+hierarchical trace の reason は `cadence_hold=193,989`、`cost_or_uncertainty_hold=8,762`、`slow_support_hold=1,898`、`confirmation_hold=1,381`、`exit=353`、`realized_state_reset=98`、`risk_cap_projection=86`、`risk_cap_flatten=76`、`entry=66`、`neutral_fast_expiry=20`。origin は `flat=154,559`、`inherited=52,669`、`native_entry=132`。neutral expiry は実装契約どおり記録されたが、flat target の全てが約定するわけではないため、保有損失を消す結果にはならなかった。
+
+### hierarchical wave の realized exposure 診断（72 leaf 合算）
+
+以下は原因切り分け用の step 集計で、Selection の symbol-balanced wealth そのものではない。return は step の `log1p` を合算してから `expm1` した。
+
+| 分類 | steps | gross return | net return | cost |
+|---|---:|---:|---:|---:|
+| realized long | 67,018 | -2.006% | -2.994% | 998.40 |
+| realized short | 36,713 | -0.720% | -1.617% | 885.81 |
+| realized flat | 103,629 | +0.003% | -0.358% | 361.10 |
+| neutral signal hold | 47,372 | -1.758% | -2.436% | 682.23 |
+| projected target != requested | 23,482 | -1.910% | -2.983% | 1,068.55 |
+| risk_cap_projection | 86 | -2.665% | -3.687% | 1,049.34 |
+| risk_cap_flatten | 76 | -0.317% | -0.652% | 337.82 |
+| inherited origin | 52,669 | -3.314% | -4.608% | 1,310.32 |
+| native_entry origin | 132 | +0.631% | +0.162% | 467.20 |
+| slow qualified long | 15,073 | +0.070% | -0.091% | 159.46 |
+| slow qualified short | 6,777 | +0.236% | +0.102% | 107.96 |
+
+hierarchical の submitted/suppressed/executed は `601/477/283`。既存の `inherited`、neutral signal hold、risk projection の損失が残っており、neutral expiry を足すだけでは全体資産を増加に転じられなかった。1分足導入や取引数増加を次の手段にはせず、次は事前登録した flat-on-risk-breach を独立候補として同じ Selection gate で比較する。pass しない限り Admission/BC/RL は開始しない。
+
+### r9 の失敗と修正
+
+r9 は `neutral_fast_expiry` を target path で生成できたが、`CAUSAL_ALPHA_V10_HIERARCHY_REASONS` allowlist への登録漏れで Selection 初期に `ValueError: V10 hierarchy reason is unsupported` となった。原因を再現して allowlist と回帰テストを commit `4534415d` に追加し、r10 では同じ cutoff を超えて全216 leafを完走した。r9 の途中成果物は正式な性能結果には使わず、失敗の監査証跡として保持する。
+

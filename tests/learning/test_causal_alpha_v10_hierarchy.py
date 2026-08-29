@@ -288,3 +288,16 @@ def test_v11_boundary_flatten_does_not_reenter_until_realized_flat() -> None:
     assert path.targets[0] == 0.0
     assert path.targets[16] == 0.0
     assert path.targets[32] == 0.1
+
+
+def test_v11_neutral_fast_expiry_exits_owned_wave() -> None:
+    path = _path(
+        fast={0: 1, 16: 1},
+        slow={0: 1, 16: 1, 32: 1, 48: 1, 64: 1, 80: 1, 96: 1, 112: 1},
+        boundary_mode=CausalAlphaV10BoundaryMode.NEUTRAL_FAST_EXPIRY,
+    )
+
+    assert path.targets[16] == 0.1
+    assert path.targets[96] == 0.1
+    assert path.targets[112] == 0.0
+    assert path.reasons[112] == "exit"

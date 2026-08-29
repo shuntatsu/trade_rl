@@ -30,6 +30,7 @@ class CausalAlphaV10BoundaryMode(str, Enum):
 
     INHERIT_CONFIRM = "inherit_confirm"
     FLATTEN_THEN_RESET = "flatten_then_reset"
+    NEUTRAL_FAST_EXPIRY = "neutral_fast_expiry"
 
 
 class _AttributionBoundaries(Protocol):
@@ -428,6 +429,7 @@ class CausalAlphaV10HierarchyPolicy:
         self._entry_intent = 0
         self._entry_count = 0
         self._fast_exit_count = 0
+        self._fast_neutral_count = 0
         self._slow_exit_count = 0
         self._slow_opposite_count = 0
         self._neutral_slow_count = 0
@@ -453,6 +455,7 @@ class CausalAlphaV10HierarchyPolicy:
         self._entry_intent = 0
         self._entry_count = 0
         self._fast_exit_count = 0
+        self._fast_neutral_count = 0
         self._slow_exit_count = 0
         self._slow_opposite_count = 0
         self._neutral_slow_count = 0
@@ -753,6 +756,18 @@ class CausalAlphaV10HierarchyPolicy:
                     else:
                         reason = hierarchy_reason = "confirmation_hold"
             else:
+                neutral_fast_expired = False
+                if self._boundary_mode is CausalAlphaV10BoundaryMode.NEUTRAL_FAST_EXPIRY:
+                    if risk_projected:
+                        self._fast_neutral_count = 0
+                    elif fast == 0:
+                        self._fast_neutral_count += 1
+                    else:
+                        self._fast_neutral_count = 0
+                    neutral_fast_expired = (
+                        self._fast_neutral_count
+                        >= config.slow_neutral_expiry_count
+                    )
                 if observed_slow == decision_sign:
                     self._slow_regime = observed_slow
                     self._slow_opposite_count = 0
@@ -768,14 +783,19 @@ class CausalAlphaV10HierarchyPolicy:
                 )
                 self._slow_exit_count = self._slow_opposite_count
                 should_exit = (
-                    self._fast_exit_count >= config.exit_confirmation_count
+                    neutral_fast_expired
+                    or self._fast_exit_count >= config.exit_confirmation_count
                     or self._slow_exit_count >= config.exit_confirmation_count
                     or self._neutral_slow_count >= config.slow_neutral_expiry_count
                 )
                 if should_exit:
                     requested = 0.0
-                    reason = hierarchy_reason = "exit"
+                    reason = "exit"
+                    hierarchy_reason = (
+                        "neutral_fast_expiry" if neutral_fast_expired else "exit"
+                    )
                     self._fast_exit_count = 0
+                    self._fast_neutral_count = 0
                     self._slow_exit_count = 0
                     self._slow_opposite_count = 0
                     self._neutral_slow_count = 0

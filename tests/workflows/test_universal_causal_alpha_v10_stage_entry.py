@@ -185,5 +185,14 @@ def test_v11_boundary_mode_is_bound_into_stage_identity() -> None:
         v10,
         boundary_mode=CausalAlphaV10BoundaryMode.FLATTEN_THEN_RESET,
     )
+    neutral_expiry = causal_alpha_v10_stage_config_digest(
+        source,
+        v8,
+        v9,
+        v10,
+        boundary_mode=CausalAlphaV10BoundaryMode.NEUTRAL_FAST_EXPIRY,
+    )
 
     assert inherited != boundary_flat
+    assert inherited != neutral_expiry
+    assert boundary_flat != neutral_expiry

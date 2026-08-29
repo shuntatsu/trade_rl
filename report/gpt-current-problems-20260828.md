@@ -277,3 +277,77 @@ docker run --rm --mount type=volume,source=trade-rl-training-data,target=/worksp
 
 期待値は `216`。実行コードは commit `dd190deb255e56d8917e9ac312dc1d446302b4e`、image manifest `sha256:1c18ddb03d2683b1177353d19d72a8e7e14dcc5d2b46eb99627fdf4adc1cb3ba` に固定されている。
 
+## 11. V10 r8 boundary-flat candidate（更新コード後の正式結果）
+
+### 実行 identity と gate 結果
+
+r8 は更新後 commit `192f02ce14b366bbed0729713d29ded42ae8fb7c` の Docker image で、`--boundary-mode flatten_then_reset` を明示して Signal→Selection を最初から実行した。既存 V10 の既定動作は変更せず、episode 境界で inherited position をまず flat にし、realized flat を観測するまで再 entry しない事前登録候補である。
+
+- output root: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r8`
+- Signal evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r8/signal/evidence.json`
+- Selection evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r8/selection/evidence.json`
+- Terminal result: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r8/result.json`
+- replay leaves: `216`（8 cutoff × 9銘柄 × 3候補）、paired scopes `72`
+- boundary mode: `flatten_then_reset`
+- image: `trade-rl-causal-alpha-v10:192f02ce14b3-6726b3737df9`
+- image id: `sha256:0d1d619e0d84f7d9a4055d935f22bbec3fb70ecae69647fa0073ff2c0a3b04f7`
+- source tree digest: `faf3cb8e957ad7114932de8916287c98cc81df2a63d2f3cc19cacb2db5616b86`
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`
+- runtime manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`
+- run manifest digest: `16645dc95d710cb48de79d49f0fed10c3d11601044b284ff6b36c00a2c97e96b`
+- config digest: `edee3efaeeaef97d76a5ea532e8143904b1330ddf699b7b6f7f658e4fe9d05d9`
+- Signal artifact/evidence digest: `c7201a354b974e954c5c1b82c2a567ea6b08f2bd5ecd21d0bcf404ddfb4edaec` / `67a3e03fca3a07c1304570be02f631f46c23f2ab987a48872d504eb0fa1194c1`
+- Selection artifact/evidence digest: `e40bfae62c2f3cf63bdaded3f8a89c2623fb432323fdfc34d8d6bb51018d2ab5` / `a3077bff19add71d82d2c4d931304f7288e15178d8d8c9d195b80f4b42ddf70c`
+- Terminal result artifact digest: `8022d89ad50c98e65291e153d6166077cf6426f0def1d613fc7e792a101e3548`
+
+Signal は `passed=true`、`72/72` qualified slow scope。Selection は全 leaf 完走後も `passed=false`、`selected_candidate=null`、`promotion_eligible=false`、terminal status は `selection_rejected`。従って Admission/BC/RL/holdout は開始していない。資産が増えていない候補を学習成功として扱わず、段階 gate を維持した結果である。
+
+### 候補別 after-cost economics
+
+| candidate | balanced gross | balanced net | minimum net wealth | median net wealth | positive scope | CVaR10 | meaningful scopes | executed | submitted | cost | rejection |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| v8_robust_control | 0.996468 | 0.995010 | 0.986459 | 0.995424 | 0.152778 | -0.004985 | 36 | 133 | 54,831 | 1,308.37 | gross/net, min, median, positive |
+| v9_nonlinear_control | 1.012909 | 1.006463 | 0.958693 | 0.998146 | 0.430556 | -0.022163 | 62 | 840 | 176,235 | 5,299.14 | min, median, positive |
+| hierarchical_wave | 0.997036 | 0.994555 | 0.984710 | 0.996702 | 0.194444 | -0.005138 | 51 | 238 | 54,408 | 2,232.41 | gross/net, min, median, positive |
+
+全候補で `hard_risk_violation_count=0`、`unexplained_execution_rejection_count=0`。つまり reject の主因は hard risk breach ではなく、銘柄横断の資産増加条件と positive scope の不足である。r8 の hierarchical wave は r7 の boundary 前提と比べて median は僅かに改善したが、minimum/positive scope は依然不合格で、全銘柄で勝てる状態には到達していない。v9 は全体 balanced net が正でも BNBUSDT などの下振れが大きく、普遍戦略とは言えない。
+
+### boundary-flat trace の検証
+
+全 216 leaf を `CausalAlphaV8ReplayMetric.from_payload` で再読込し、trace digest と attribution を検証した。
+
+- trace present/schema/decision alignment: `216/216`
+- `causal_alpha_v7_step_economics_v2` の digest 再計算一致: `216/216`
+- trace の gross/net log と attribution の一致: `216/216`
+- trace の gross/net log と V6 wealth の一致: `216/216`
+- 全 leaf の decision 数: `622,080`（216 × 2,880）
+- hierarchical wave の診断対象: `72` leaf、`207,360` step
+
+hierarchical wave の境界 invariant は次の通り。初期 realized weight が非ゼロの `36` leaf 全てで、最初の requested target は `0`、reason は `realized_state_reset`、origin は `inherited` だった。`19` leaf は horizon 内に realized flat を観測し、その後の inherited origin は `0` leaf。`17` leaf は simulator の realized weight が観測 tolerance 以下まで到達せず、終了まで reset request を継続した。realized sign の直接反転は `0` leaf。従って候補の境界動作自体は実装契約どおりだが、実行層の漸近的な残留ポジションを flat と認識できない leaf が残る。
+
+### hierarchical wave の realized exposure 診断（72 leaf 合算）
+
+return は各 step の log return を合算した原因切り分け値であり、Selection の symbol-balanced wealth そのものではない。
+
+| 分類 | steps | gross return | net return | cost | 単純な当該 step flat proxy |
+|---|---:|---:|---:|---:|---:|
+| realized long | 36,796 | -2.336% | -3.165% | 820.49 | +0.03165 net-log |
+| realized short | 18,588 | -0.318% | -1.073% | 755.65 | +0.01073 net-log |
+| realized flat | 151,976 | -0.009% | -0.666% | 656.28 | +0.00666 net-log |
+| neutral signal hold | 25,588 | -1.831% | -2.361% | 523.49 | +0.02361 net-log |
+| projected target != requested | 54,027 | -1.752% | -2.683% | 925.45 | +0.02683 net-log |
+| risk_cap_flatten | 28 | -0.001% | -0.201% | 199.65 | +0.00201 net-log |
+| inherited origin | 54,332 | -3.363% | -4.684% | 1,311.56 | +0.04684 net-log |
+| native_entry origin | 130 | +0.703% | +0.243% | 460.10 | -0.00243 net-log |
+| slow qualified long | 7,919 | -0.152% | -0.275% | 123.00 | +0.00275 net-log |
+| slow qualified short | 3,392 | +0.318% | +0.221% | 97.43 | -0.00221 net-log |
+
+trace reason は `realized_state_reset=54,409`、`cadence_hold=143,365`、`cost_or_uncertainty_hold=8,662`、`entry_floor_hold=461`、`slow_support_hold=23`、`risk_cap_flatten=28`、`entry=65`、`exit=2`。submitted/suppressed/executed は `54,408/54,272/238`。r7 の inherited net `-4.608%` に対し r8 は `-4.684%` で、boundary reset を導入しただけでは損失源を改善した証拠にならない。flat proxy は将来の状態遷移を再計算しないため、採用根拠には使わない。
+
+### r8 後の判断
+
+1. boundary ownership の候補は実装契約を満たしたが、Selection は不合格。既定 V10 に上書きせず、採用しない。
+2. 次は `neutral signal expiry/flat` と `flat-on-risk-breach` を別々の事前登録候補として、同じ Signal→Selection gate で完全再 replay する。risk/entry execution の損失と状態遷移を混ぜない。
+3. 15分足から1分足へ移行する根拠はまだない。まず realized exposure、no-trade suppression、neutral hold、risk cap の損失を解消し、取引数ではなく銘柄別 net wealth と lower-tail が改善することを確認する。
+4. Selection pass なしに Admission/BC/RL を開始しない。r8 の run lock は消去済みで、成果物は volume 上に保存されている。
+

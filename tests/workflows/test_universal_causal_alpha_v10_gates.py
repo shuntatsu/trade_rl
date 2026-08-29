@@ -23,6 +23,7 @@ from trade_rl.workflows.universal_causal_alpha_v8_replay import (
 from trade_rl.workflows.universal_causal_alpha_v10_gates import (
     V8_CANDIDATE_BY_V10,
     V10_CANDIDATE_BY_V8,
+    _science_scope_digest,
     build_causal_alpha_v10_dual_run_binding,
     evaluate_causal_alpha_v10_selection,
 )
@@ -212,4 +213,30 @@ def test_v10_dual_run_binding_rejects_non_initial_config_drift() -> None:
             signal_prepared=_dual_prepared(run="2"),
             selection_prepared=_dual_prepared(run="3"),
         )
+
+
+def test_v10_dual_run_binding_accepts_lightweight_signal_scope_identity() -> None:
+    signal_full = _dual_prepared(run="2")
+    signal_scope = _science_scope_digest(signal_full)
+    signal_lightweight = SimpleNamespace(
+        train_symbols=signal_full.train_symbols,
+        nested_partition_digest=signal_full.nested_partition_digest,
+        base_runtime_manifest_digest=signal_full.base_runtime_manifest_digest,
+        v4_context_manifest_digest=signal_full.v4_context_manifest_digest,
+        config_digest=signal_full.config_digest,
+        execution_identity_digest=signal_full.execution_identity_digest,
+        generator_code_digest=signal_full.generator_code_digest,
+        run_manifest_digest=signal_full.run_manifest_digest,
+        science_scope_digest=signal_scope,
+    )
+
+    binding = build_causal_alpha_v10_dual_run_binding(
+        signal_config=_dual_config(modes=("cash", "baseline")),
+        selection_config=_dual_config(modes=("cash",)),
+        signal_prepared=signal_lightweight,
+        selection_prepared=_dual_prepared(run="3"),
+        allow_initial_state_split=True,
+    )
+
+    assert binding.shared_science_identity_digest
 

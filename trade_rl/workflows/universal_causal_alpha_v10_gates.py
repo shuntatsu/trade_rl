@@ -71,6 +71,9 @@ def _run_config_science_identity(config: object) -> tuple[str, tuple[str, ...]]:
 def _science_scope_digest(prepared: object) -> str:
     """Hash dataset and chronological bounds while excluding initial state."""
 
+    cached = getattr(prepared, "science_scope_digest", None)
+    if isinstance(cached, str):
+        return require_sha256(cached, field="V10 dual-run science_scope_digest")
     symbols = tuple(getattr(prepared, "train_symbols", ()))
     nested = getattr(prepared, "nested_partitions", None)
     if not symbols or not isinstance(nested, Mapping) or set(nested) != set(symbols):

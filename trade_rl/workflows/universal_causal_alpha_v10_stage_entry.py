@@ -88,6 +88,7 @@ from trade_rl.workflows.universal_causal_alpha_v10_gates import (
     V8_CANDIDATE_BY_V10,
     CausalAlphaV10SelectionEvidence,
     CausalAlphaV10SignalEvidence,
+    _science_scope_digest,
     build_causal_alpha_v10_dual_run_binding,
     evaluate_causal_alpha_v10_selection,
 )
@@ -864,6 +865,7 @@ def run_causal_alpha_v10_selection(
             config_digest=config_digest,
         )
         signal_run_manifest_digest = signal_prepared.run_manifest_digest
+        signal_scope_digest = _science_scope_digest(signal_prepared)
         signal_prepared_identity = SimpleNamespace(
             train_symbols=signal_prepared.train_symbols,
             nested_partition_digest=signal_prepared.nested_partition_digest,
@@ -873,6 +875,7 @@ def run_causal_alpha_v10_selection(
             execution_identity_digest=signal_prepared.execution_identity_digest,
             generator_code_digest=signal_prepared.generator_code_digest,
             run_manifest_digest=signal_run_manifest_digest,
+            science_scope_digest=signal_scope_digest,
         )
         del signal_prepared
         gc.collect()

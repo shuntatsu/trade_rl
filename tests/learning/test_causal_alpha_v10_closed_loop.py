@@ -107,7 +107,7 @@ def test_v10_fast_cadence_is_bound_to_absolute_decision_index() -> None:
     assert path.targets[31] == 0.10
 
 
-def test_v10_non_executable_hard_risk_reduction_flattens() -> None:
+def test_v10_micro_hard_risk_reduction_projects_to_cap() -> None:
     decisions = np.arange(49, dtype=np.int64)
     risk_caps = np.full(49, 0.25)
     risk_caps[32] = 0.04
@@ -119,10 +119,11 @@ def test_v10_non_executable_hard_risk_reduction_flattens() -> None:
     )
 
     assert path.targets[16] == 0.10
-    assert path.targets[32] == 0.0
+    assert path.targets[32] == 0.04
+    assert path.reasons[32] == "risk_projection"
 
 
-def test_v10_risk_flatten_latch_releases_once_realized_exposure_is_within_cap() -> None:
+def test_v10_risk_projection_releases_once_realized_exposure_is_within_cap() -> None:
     rows = 2
     policy = hierarchy.prepare_causal_alpha_v10_hierarchy_policy(
         decision_indices=np.asarray([0, 1], dtype=np.int64),
@@ -147,12 +148,16 @@ def test_v10_risk_flatten_latch_releases_once_realized_exposure_is_within_cap() 
     )
 
     first, _ = policy.predict({"current_weights": np.asarray([0.10], dtype=np.float32)})
-    assert float(first[0]) == 0.0
+    assert float(first[0]) == np.float32(0.04)
+    assert policy.last_step_trace_metadata["hierarchy_reason"] == "risk_cap_projection"
+    assert policy.last_step_trace_metadata["reduce_only"] is True
 
     second, _ = policy.predict(
         {"current_weights": np.asarray([0.04], dtype=np.float32)}
     )
     assert float(second[0]) == np.float32(0.04)
+    assert policy.last_step_trace_metadata["hierarchy_reason"] == "cadence_hold"
+    assert policy.last_step_trace_metadata["reduce_only"] is False
 
 
 def test_v10_executable_hard_risk_reduction_projects_partially() -> None:

@@ -103,6 +103,7 @@ def _diagnostics_body(trace: ActionPathExecutionTrace) -> dict[str, object]:
     return {
         "schema_version": EXECUTION_DIAGNOSTICS_SCHEMA,
         "trace_digest": _trace_digest(trace),
+        "decision_count": int(trace.pre_action_weights.shape[0]),
         "strategy_intent_change_count": int(
             np.count_nonzero(trace.strategy_intent_changes)
         ),
@@ -164,6 +165,7 @@ def validate_execution_diagnostics(
     if payload.get("trace_digest") != trace_payload.get("artifact_digest"):
         raise ValueError("V10 replay execution diagnostics trace identity drifted")
     for field in (
+        "decision_count",
         "strategy_intent_change_count",
         "realized_state_follow_count",
         "rebalance_reassertion_count",

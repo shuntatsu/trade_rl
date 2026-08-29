@@ -611,6 +611,7 @@ def _load(
         or leaf.get("target_path_digest") != metric.v8_target_path_digest
         or target_payload.get("artifact_digest") != metric.v8_target_path_digest
         or target_payload.get("candidate") != candidate.value
+        or execution_diagnostics["decision_count"] != metric.v6_metric.decision_count
         or metric.v6_metric.hard_risk_violation
         != execution_diagnostics["hard_risk_violation"]
         or (

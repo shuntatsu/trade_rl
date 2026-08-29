@@ -149,7 +149,7 @@ def test_v10_replay_rejects_execution_contract_drift_in_exit_threshold() -> None
 
 
 def test_v10_closed_loop_replay_uses_new_leaf_schema() -> None:
-    assert stage_entry._REPLAY_LEAF_SCHEMA == "causal_alpha_v10_replay_leaf_v2"
+    assert stage_entry._REPLAY_LEAF_SCHEMA == "causal_alpha_v10_replay_leaf_v3"
 
 
 def test_v10_hierarchical_replay_has_dedicated_closed_loop_path() -> None:

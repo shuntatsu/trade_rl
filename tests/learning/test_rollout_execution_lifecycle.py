@@ -71,7 +71,7 @@ class _Environment:
         self, action: np.ndarray
     ) -> tuple[dict[str, np.ndarray], float, bool, bool, dict[str, object]]:
         offset = self._offset
-        risk_weight = self._risk_weights if offset == 0 else float(action[0])
+        risk_weight = self._risk_weights
         risk = SimpleNamespace(
             reasons=self._risk_reasons[offset],
             pretrade_weights=np.array([risk_weight], dtype=np.float64),
@@ -156,9 +156,7 @@ def test_lifecycle_trace_preserves_submitted_and_delayed_execution_targets(
     assert trace is not None
 
     np.testing.assert_allclose(trace.submitted_targets[:, 0], (0.10, 0.10, 0.10))
-    np.testing.assert_allclose(
-        trace.execution_intent_targets[:, 0], (0.0, 0.10, 0.10)
-    )
+    np.testing.assert_allclose(trace.execution_intent_targets[:, 0], (0.0, 0.10, 0.10))
     assert not np.array_equal(trace.submitted_targets, trace.execution_intent_targets)
 
 

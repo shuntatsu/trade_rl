@@ -32,6 +32,7 @@ class EvaluationEnvironment(Protocol):
 
 
 _STEP_TRACE_SCHEMA = "action_path_step_trace_v1"
+_LIFECYCLE_TRACE_SCHEMA = "action_path_lifecycle_trace_v1"
 _STEP_TRACE_TOLERANCE = 1e-12
 
 
@@ -103,7 +104,9 @@ class ActionPathStepTrace:
         if rows == 0 or np.any(decisions < 0) or np.any(np.diff(decisions) <= 0):
             raise ValueError("step trace decision indices must be increasing")
         matrices = {
-            name: _trace_matrix(getattr(self, name), rows=rows, field=f"step trace {name}")
+            name: _trace_matrix(
+                getattr(self, name), rows=rows, field=f"step trace {name}"
+            )
             for name in (
                 "current_weights",
                 "requested_targets",
@@ -126,7 +129,9 @@ class ActionPathStepTrace:
         ):
             raise ValueError("step trace action matrices are not aligned")
         vectors = {
-            name: _trace_vector(getattr(self, name), rows=rows, field=f"step trace {name}")
+            name: _trace_vector(
+                getattr(self, name), rows=rows, field=f"step trace {name}"
+            )
             for name in (
                 "fast_means",
                 "fast_stds",
@@ -175,12 +180,20 @@ class ActionPathStepTrace:
         reasons = tuple(self.hierarchy_reasons)
         if len(origins) != rows or len(reasons) != rows:
             raise ValueError("step trace string fields are not aligned")
-        if any(not isinstance(value, str) or not value for value in (*origins, *reasons)):
+        if any(
+            not isinstance(value, str) or not value for value in (*origins, *reasons)
+        ):
             raise ValueError("step trace string fields must be non-empty")
         if self.schema_version != _STEP_TRACE_SCHEMA:
             raise ValueError("unsupported step trace schema")
         object.__setattr__(self, "decision_indices", decisions)
-        for name, array in {**matrices, **vectors, **bools, "fast_qualified_directions": fast_directions, "slow_directions": slow_directions}.items():
+        for name, array in {
+            **matrices,
+            **vectors,
+            **bools,
+            "fast_qualified_directions": fast_directions,
+            "slow_directions": slow_directions,
+        }.items():
             object.__setattr__(self, name, array)
         object.__setattr__(self, "position_origins", origins)
         object.__setattr__(self, "hierarchy_reasons", reasons)
@@ -272,6 +285,145 @@ class ActionPathStepTrace:
 
 
 @dataclass(frozen=True, slots=True)
+class ActionPathLifecycleTrace:
+    """Immutable execution lifecycle evidence separate from legacy step attribution."""
+
+    submitted_targets: np.ndarray
+    execution_intent_targets: np.ndarray
+    final_risk_targets: np.ndarray
+    applied_risk_scales: np.ndarray
+    hard_risk_evidence_available: np.ndarray
+    hard_risk_violations: np.ndarray
+    risk_reasons: tuple[tuple[str, ...], ...]
+    transition_classes: tuple[str, ...]
+    flatten_initiators: tuple[str, ...]
+    schema_version: str = _LIFECYCLE_TRACE_SCHEMA
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        submitted = np.asarray(self.submitted_targets, dtype=np.float64).copy()
+        rows = submitted.shape[0] if submitted.ndim == 2 else 0
+        matrices = {
+            "submitted_targets": _trace_matrix(
+                submitted, rows=rows, field="lifecycle submitted_targets"
+            ),
+            "execution_intent_targets": _trace_matrix(
+                self.execution_intent_targets,
+                rows=rows,
+                field="lifecycle execution_intent_targets",
+            ),
+            "final_risk_targets": _trace_matrix(
+                self.final_risk_targets, rows=rows, field="lifecycle final_risk_targets"
+            ),
+        }
+        shape = matrices["submitted_targets"].shape
+        if any(array.shape != shape for array in matrices.values()):
+            raise ValueError("lifecycle target matrices are not aligned")
+        risk_scales = _trace_vector(
+            self.applied_risk_scales, rows=rows, field="lifecycle applied_risk_scales"
+        )
+        if np.any((risk_scales < 0.0) | (risk_scales > 1.0)):
+            raise ValueError("lifecycle applied risk scales are invalid")
+        bools: dict[str, np.ndarray] = {}
+        for name in ("hard_risk_evidence_available", "hard_risk_violations"):
+            raw = np.asarray(getattr(self, name))
+            if raw.dtype.kind != "b":
+                raise ValueError(f"lifecycle {name} must be boolean")
+            value = raw.reshape(-1).astype(np.bool_, copy=True)
+            if value.shape != (rows,):
+                raise ValueError(f"lifecycle {name} is not step-aligned")
+            value.setflags(write=False)
+            bools[name] = value
+        reasons = tuple(tuple(item) for item in self.risk_reasons)
+        transitions = tuple(self.transition_classes)
+        initiators = tuple(self.flatten_initiators)
+        if not (len(reasons) == len(transitions) == len(initiators) == rows):
+            raise ValueError("lifecycle string evidence is not step-aligned")
+        if any(
+            not isinstance(reason, str) or not reason.strip()
+            for row in reasons
+            for reason in row
+        ):
+            raise ValueError("lifecycle risk reasons are invalid")
+        allowed_transitions = {
+            "flat",
+            "entry",
+            "hold",
+            "rebalance",
+            "exit",
+            "flip",
+            "mixed",
+        }
+        if any(value not in allowed_transitions for value in transitions):
+            raise ValueError("lifecycle transition class is invalid")
+        if any(not isinstance(value, str) or not value for value in initiators):
+            raise ValueError("lifecycle flatten initiator is invalid")
+        if self.schema_version != _LIFECYCLE_TRACE_SCHEMA:
+            raise ValueError("unsupported lifecycle trace schema")
+        for name, value in matrices.items():
+            object.__setattr__(self, name, value)
+        object.__setattr__(self, "applied_risk_scales", risk_scales)
+        for name, value in bools.items():
+            object.__setattr__(self, name, value)
+        object.__setattr__(self, "risk_reasons", reasons)
+        object.__setattr__(self, "transition_classes", transitions)
+        object.__setattr__(self, "flatten_initiators", initiators)
+        expected = content_and_arrays_digest(
+            {
+                "flatten_initiators": initiators,
+                "risk_reasons": reasons,
+                "schema_version": self.schema_version,
+                "transition_classes": transitions,
+            },
+            (
+                ("submitted_targets", matrices["submitted_targets"]),
+                ("execution_intent_targets", matrices["execution_intent_targets"]),
+                ("final_risk_targets", matrices["final_risk_targets"]),
+                ("applied_risk_scales", risk_scales),
+                ("hard_risk_evidence_available", bools["hard_risk_evidence_available"]),
+                ("hard_risk_violations", bools["hard_risk_violations"]),
+            ),
+        )
+        if self.digest and self.digest != expected:
+            raise ValueError("lifecycle trace digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+    @property
+    def decision_count(self) -> int:
+        return int(self.submitted_targets.shape[0])
+
+    def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "applied_risk_scales": self.applied_risk_scales.tolist(),
+            "execution_intent_targets": self.execution_intent_targets.tolist(),
+            "final_risk_targets": self.final_risk_targets.tolist(),
+            "flatten_initiators": self.flatten_initiators,
+            "hard_risk_evidence_available": self.hard_risk_evidence_available.tolist(),
+            "hard_risk_violations": self.hard_risk_violations.tolist(),
+            "risk_reasons": self.risk_reasons,
+            "schema_version": self.schema_version,
+            "submitted_targets": self.submitted_targets.tolist(),
+            "transition_classes": self.transition_classes,
+        }
+        if include_digest:
+            payload["artifact_digest"] = self.digest
+        return payload
+
+    @classmethod
+    def from_payload(cls, value: object) -> ActionPathLifecycleTrace:
+        if not isinstance(value, Mapping):
+            raise ValueError("lifecycle trace payload is invalid")
+        payload = dict(value)
+        digest = str(payload.pop("artifact_digest", ""))
+        payload["risk_reasons"] = tuple(
+            tuple(str(reason) for reason in row) for row in payload["risk_reasons"]
+        )
+        payload["transition_classes"] = tuple(payload["transition_classes"])
+        payload["flatten_initiators"] = tuple(payload["flatten_initiators"])
+        return cls(**payload, digest=digest)
+
+
+@dataclass(frozen=True, slots=True)
 class ActionPathStepEconomics:
     """Simulator-authoritative step economics retained for attribution."""
 
@@ -286,7 +438,9 @@ class ActionPathStepEconomics:
         for name in ("gross_returns", "net_returns", "costs", "turnover"):
             array = np.asarray(getattr(self, name), dtype=np.float64).reshape(-1).copy()
             if array.size == 0 or not np.isfinite(array).all():
-                raise ValueError("action path step economics must be non-empty and finite")
+                raise ValueError(
+                    "action path step economics must be non-empty and finite"
+                )
             array.setflags(write=False)
             arrays[name] = array
         if len({array.size for array in arrays.values()}) != 1:
@@ -316,6 +470,7 @@ class ActionPathEvaluation:
     collapse_evidence: ActionPathCollapseEvidence
     step_economics: ActionPathStepEconomics | None = None
     step_trace: ActionPathStepTrace | None = None
+    lifecycle_trace: ActionPathLifecycleTrace | None = None
 
     def __post_init__(self) -> None:
         actions = np.asarray(self.actions, dtype=np.float32).copy(order="C")
@@ -361,9 +516,16 @@ class ActionPathEvaluation:
                 for name in ("gross_returns", "net_returns", "costs", "turnover"):
                     if not np.array_equal(
                         getattr(self.step_economics, name),
-                        getattr(self.step_trace, "turnovers" if name == "turnover" else name),
+                        getattr(
+                            self.step_trace, "turnovers" if name == "turnover" else name
+                        ),
                     ):
                         raise ValueError(f"step trace {name} does not reconcile")
+        if self.lifecycle_trace is not None:
+            if not isinstance(self.lifecycle_trace, ActionPathLifecycleTrace):
+                raise TypeError("lifecycle_trace must be ActionPathLifecycleTrace")
+            if self.lifecycle_trace.decision_count != self.performance.step_count:
+                raise ValueError("lifecycle trace does not cover evaluated path")
         actions.setflags(write=False)
         object.__setattr__(self, "actions", actions)
 
@@ -424,7 +586,9 @@ def _metadata_vector(
     return array.copy()
 
 
-def _metadata_scalar(metadata: Mapping[str, object], name: str, default: float = 0.0) -> float:
+def _metadata_scalar(
+    metadata: Mapping[str, object], name: str, default: float = 0.0
+) -> float:
     value = metadata.get(name, default)
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"evaluation trace metadata {name} is invalid")
@@ -432,6 +596,105 @@ def _metadata_scalar(metadata: Mapping[str, object], name: str, default: float =
     if not np.isfinite(result):
         raise ValueError(f"evaluation trace metadata {name} is non-finite")
     return result
+
+
+def _optional_numeric_attr(value: object, name: str) -> float | None:
+    raw = getattr(value, name, None)
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int | float):
+        raise ValueError(f"hybrid risk {name} is invalid")
+    result = float(raw)
+    if not np.isfinite(result):
+        raise ValueError(f"hybrid risk {name} is non-finite")
+    return result
+
+
+def _hard_risk_observation(
+    risk: object | None,
+    *,
+    shape: tuple[int, ...],
+    fallback: np.ndarray,
+) -> tuple[np.ndarray, float, bool, bool, tuple[str, ...]]:
+    if risk is None:
+        return fallback.copy(), 1.0, False, False, ()
+    final_weights = _step_vector(
+        getattr(risk, "weights", None),
+        shape=shape,
+        field="final risk target",
+        fallback=fallback,
+    )
+    scale = _optional_numeric_attr(risk, "risk_scale")
+    max_abs = _optional_numeric_attr(risk, "max_abs_weight")
+    max_gross = _optional_numeric_attr(risk, "max_gross")
+    tolerance = _optional_numeric_attr(risk, "fail_closed_tolerance")
+    reasons = tuple(getattr(risk, "reasons", ()))
+    if any(not isinstance(reason, str) or not reason.strip() for reason in reasons):
+        raise ValueError("hybrid risk projection reason is invalid")
+    available = None not in (scale, max_abs, max_gross, tolerance)
+    if not available:
+        return final_weights, 1.0 if scale is None else scale, False, False, reasons
+    assert scale is not None and max_abs is not None and max_gross is not None
+    assert tolerance is not None
+    if not 0.0 <= scale <= 1.0 or max_abs <= 0.0 or max_gross <= 0.0 or tolerance < 0.0:
+        raise ValueError("hybrid risk hard-limit evidence is invalid")
+    absolute = np.abs(final_weights)
+    violation = bool(
+        np.max(absolute, initial=0.0) > max_abs * scale + tolerance
+        or float(np.sum(absolute)) > max_gross * scale + tolerance
+        or (scale == 0.0 and np.any(absolute > tolerance))
+    )
+    return final_weights, scale, True, violation, reasons
+
+
+def _transition_class(
+    before: np.ndarray, after: np.ndarray, *, tolerance: float
+) -> str:
+    before_nonflat = np.abs(before) > tolerance
+    after_nonflat = np.abs(after) > tolerance
+    entry = (~before_nonflat) & after_nonflat
+    exit_ = before_nonflat & (~after_nonflat)
+    flip = before_nonflat & after_nonflat & (before * after < 0.0)
+    if np.any(flip):
+        return "flip"
+    if np.any(entry) and np.any(exit_):
+        return "mixed"
+    if np.any(exit_):
+        return "exit"
+    if np.any(entry):
+        return "entry"
+    if np.any(after_nonflat):
+        if np.any(np.abs(after - before) > tolerance):
+            return "rebalance"
+        return "hold"
+    return "flat"
+
+
+def _flatten_initiator(
+    *,
+    transition: str,
+    before: np.ndarray,
+    after: np.ndarray,
+    execution_intent: np.ndarray,
+    risk_reasons: tuple[str, ...],
+    hierarchy_reason: str,
+    liquidation: object | None,
+    liquidation_terminal: object,
+    tolerance: float,
+) -> str:
+    if transition != "exit":
+        return "not_applicable"
+    if liquidation is not None or liquidation_terminal is True:
+        return "liquidation"
+    for reason in ("emergency_flatten", "drawdown_deleveraging"):
+        if reason in risk_reasons:
+            return f"risk:{reason}"
+    if hierarchy_reason in {"exit", "neutral_fast_expiry", "risk_cap_flatten"}:
+        return f"policy:{hierarchy_reason}"
+    exited = (np.abs(before) > tolerance) & (np.abs(after) <= tolerance)
+    if np.any(exited) and np.all(np.abs(execution_intent[exited]) <= tolerance):
+        return "execution_intent_flatten"
+    return "unexplained"
 
 
 def evaluate_action_path(
@@ -530,6 +793,15 @@ def evaluate_action_path(
     trace_submitted: list[bool] = []
     trace_suppressed: list[bool] = []
     trace_executed: list[bool] = []
+    lifecycle_submitted_targets: list[np.ndarray] = []
+    lifecycle_execution_targets: list[np.ndarray] = []
+    lifecycle_final_risk_targets: list[np.ndarray] = []
+    lifecycle_risk_scales: list[float] = []
+    lifecycle_hard_risk_available: list[bool] = []
+    lifecycle_hard_risk_violations: list[bool] = []
+    lifecycle_risk_reasons: list[tuple[str, ...]] = []
+    lifecycle_transitions: list[str] = []
+    lifecycle_flatten_initiators: list[str] = []
     for offset in range(expected_count):
         if environment.current_index != start + offset:
             raise ValueError("evaluation environment advanced outside the range")
@@ -616,7 +888,21 @@ def evaluate_action_path(
                 "hybrid execution rejected_count does not match rejected order events"
             )
         risk = info.get("hybrid_risk")
-        risk_pretrade = None if risk is None else getattr(risk, "pretrade_weights", None)
+        submitted_target = _step_vector(
+            info.get("submitted_target"),
+            shape=action.shape,
+            field="submitted target",
+            fallback=np.asarray(action, dtype=np.float64),
+        )
+        execution_intent_target = _step_vector(
+            info.get("executed_target"),
+            shape=action.shape,
+            field="execution intent target",
+            fallback=submitted_target,
+        )
+        risk_pretrade = (
+            None if risk is None else getattr(risk, "pretrade_weights", None)
+        )
         if risk_pretrade is None and risk is not None:
             risk_pretrade = getattr(risk, "weights", None)
         projected = _step_vector(
@@ -635,6 +921,17 @@ def evaluate_action_path(
             effective,
             shape=action.shape,
             field="realized weight",
+            fallback=projected,
+        )
+        (
+            final_risk_target,
+            applied_risk_scale,
+            hard_risk_available,
+            hard_risk_violation,
+            step_risk_reasons,
+        ) = _hard_risk_observation(
+            risk,
+            shape=action.shape,
             fallback=projected,
         )
         provider = getattr(model, "last_step_trace_metadata", None)
@@ -681,11 +978,8 @@ def evaluate_action_path(
             raise ValueError("evaluation trace hierarchy reason is invalid")
         if fast_direction not in (-1, 0, 1) or slow_direction not in (-1, 0, 1):
             raise ValueError("evaluation trace directions must be -1, 0, or 1")
-        if risk is not None:
-            for reason in tuple(getattr(risk, "reasons", ())):
-                if not isinstance(reason, str) or not reason.strip():
-                    raise ValueError("hybrid risk projection reason is invalid")
-                risk_projection_reasons[reason] += 1
+        for reason in step_risk_reasons:
+            risk_projection_reasons[reason] += 1
         if submitted_change and float(requested_turnover) <= action_change_tolerance:
             downstream_no_trade_suppression_count += 1
         filled_turnover = getattr(execution, "filled_turnover", None)
@@ -723,6 +1017,29 @@ def evaluate_action_path(
         trace_submitted.append(submitted_change)
         trace_suppressed.append(submitted_change and not executed)
         trace_executed.append(executed)
+        transition = _transition_class(
+            current_before, realized, tolerance=action_change_tolerance
+        )
+        flatten_initiator = _flatten_initiator(
+            transition=transition,
+            before=current_before,
+            after=realized,
+            execution_intent=execution_intent_target,
+            risk_reasons=step_risk_reasons,
+            hierarchy_reason=hierarchy_reason,
+            liquidation=liquidation,
+            liquidation_terminal=info.get("liquidation_terminal"),
+            tolerance=action_change_tolerance,
+        )
+        lifecycle_submitted_targets.append(submitted_target)
+        lifecycle_execution_targets.append(execution_intent_target)
+        lifecycle_final_risk_targets.append(final_risk_target)
+        lifecycle_risk_scales.append(applied_risk_scale)
+        lifecycle_hard_risk_available.append(hard_risk_available)
+        lifecycle_hard_risk_violations.append(hard_risk_violation)
+        lifecycle_risk_reasons.append(step_risk_reasons)
+        lifecycle_transitions.append(transition)
+        lifecycle_flatten_initiators.append(flatten_initiator)
     diagnostics = trades.diagnostics()
     performance = evaluate_path_performance(
         gross_step_returns=gross_returns,
@@ -765,6 +1082,19 @@ def evaluate_action_path(
         suppressed=np.asarray(trace_suppressed, dtype=np.bool_),
         executed=np.asarray(trace_executed, dtype=np.bool_),
     )
+    lifecycle_trace = ActionPathLifecycleTrace(
+        submitted_targets=np.stack(lifecycle_submitted_targets, axis=0),
+        execution_intent_targets=np.stack(lifecycle_execution_targets, axis=0),
+        final_risk_targets=np.stack(lifecycle_final_risk_targets, axis=0),
+        applied_risk_scales=np.asarray(lifecycle_risk_scales, dtype=np.float64),
+        hard_risk_evidence_available=np.asarray(
+            lifecycle_hard_risk_available, dtype=np.bool_
+        ),
+        hard_risk_violations=np.asarray(lifecycle_hard_risk_violations, dtype=np.bool_),
+        risk_reasons=tuple(lifecycle_risk_reasons),
+        transition_classes=tuple(lifecycle_transitions),
+        flatten_initiators=tuple(lifecycle_flatten_initiators),
+    )
     evidence = ActionPathCollapseEvidence(
         decision_count=expected_count,
         action_dimension_count=action_dimension_count,
@@ -781,7 +1111,7 @@ def evaluate_action_path(
             sorted(execution_rejection_reasons.items())
         ),
         risk_projection_reason_counts=tuple(sorted(risk_projection_reasons.items())),
-        hard_risk_violation=False,
+        hard_risk_violation=bool(np.any(lifecycle_trace.hard_risk_violations)),
     )
     return ActionPathEvaluation(
         actions=np.stack(evaluated_actions, axis=0),
@@ -795,11 +1125,13 @@ def evaluate_action_path(
             realized_weights=np.stack(trace_realized_weights, axis=0),
         ),
         step_trace=step_trace,
+        lifecycle_trace=lifecycle_trace,
     )
 
 
 __all__ = [
     "ActionPathEvaluation",
+    "ActionPathLifecycleTrace",
     "ActionPathStepTrace",
     "ActionPathStepEconomics",
     "EvaluationEnvironment",

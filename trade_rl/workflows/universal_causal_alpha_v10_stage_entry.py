@@ -93,7 +93,7 @@ from trade_rl.workflows.universal_causal_alpha_v10_gates import (
     evaluate_causal_alpha_v10_selection,
 )
 
-_REPLAY_LEAF_SCHEMA: Final = "causal_alpha_v10_replay_leaf_v2"
+_REPLAY_LEAF_SCHEMA: Final = "causal_alpha_v10_replay_leaf_v3"
 _RESULT_SCHEMA: Final = "causal_alpha_v10_terminal_result_v2"
 
 
@@ -367,6 +367,26 @@ def _metric_from_evaluation(
 ) -> CausalAlphaV8ReplayMetric:
     if evaluation.step_trace is None:
         raise ValueError("V10 replay requires per-step action trace")
+    if evaluation.lifecycle_trace is None:
+        raise ValueError("V10 replay requires execution lifecycle trace")
+    if not np.all(evaluation.lifecycle_trace.hard_risk_evidence_available):
+        raise ValueError("V10 replay requires authoritative hard-risk evidence")
+    if target.candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE:
+        unexplained = tuple(
+            index
+            for index, (transition, initiator) in enumerate(
+                zip(
+                    evaluation.lifecycle_trace.transition_classes,
+                    evaluation.lifecycle_trace.flatten_initiators,
+                    strict=True,
+                )
+            )
+            if transition == "exit" and initiator == "unexplained"
+        )
+        if unexplained:
+            raise ValueError(
+                "V10 hierarchical replay has unexplained flatten transition"
+            )
     base = build_causal_alpha_v6_replay_metric(
         run_manifest_digest=prepared.run_manifest_digest,
         v4_context_manifest_digest=prepared.v4_context_manifest_digest,
@@ -418,6 +438,7 @@ def _metric_from_evaluation(
         calibration_fit_digest=target.fast_fit_digest,
         v8_config_digest=config_digest,
         step_trace=evaluation.step_trace,
+        lifecycle_trace=evaluation.lifecycle_trace,
     )
 
 
@@ -670,6 +691,8 @@ def _load(
             and leaf.get("dual_run_binding_digest") != expected_dual_run_binding_digest
         )
         or getattr(metric, "step_trace", None) is None
+        or getattr(metric, "lifecycle_trace", None) is None
+        or not np.all(metric.lifecycle_trace.hard_risk_evidence_available)
         or target_payload.get("artifact_digest") != metric.v8_target_path_digest
         or target_payload.get("candidate") != candidate.value
         or (

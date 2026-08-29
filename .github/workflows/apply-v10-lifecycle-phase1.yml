@@ -23,7 +23,7 @@ jobs:
           enable-cache: true
       - run: uv sync --extra dev --extra train-sb3
       - name: Apply phase 1 implementation
-        run: python .github/patch_v10_lifecycle_phase1.py
+        run: python .github/patch_v10_lifecycle_phase1_wrapper.py
       - name: Format affected files
         run: |
           uv run ruff format \

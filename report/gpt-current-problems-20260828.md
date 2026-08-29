@@ -1,7 +1,7 @@
 # GPT向け：Causal Alpha V10 現在の問題点と判断依頼
 
 作成日: 2026-08-28 (JST)
-最終更新: 2026-08-29 (JST, V10 r5 完走結果を追記)
+最終更新: 2026-08-29 (JST, V10 r7 完走結果・実現weight traceを追記)
 
 ## 1. 目的と固定条件
 
@@ -20,15 +20,15 @@
 
 - 作業ブランチ: main
 - worktree: C:\dev\trade_rl
-- 最新コードコミット: d1355cdf59ae1d523305f873134fdf2b30c4d4fd
-- 今回の修正: V10 の3候補は候補ごとに fast/slow fit identity が異なるため、scope pairing の共通キーを各 replay の V6 calibration fit に正規化した。候補固有の target/replay digest は保持し、回帰テストを追加。
-- ソースツリーダイジェスト: 1bdd4bc340a605c9a7dc377243af1efdc56af7f4b087f6e8e6d778867051104e
+- 最新コードコミット: dd190deb255e56d8917e9ac312dc1d446302b4e
+- 今回の修正: V10 の3候補は候補ごとに fast/slow fit identity が異なるため、scope pairing の共通キーを各 replay の V6 calibration fit に正規化した。さらに ActionPathStepEconomics に realized weight を保存し、policy trace metadata の property/callable 両形式を読み取るようにした。候補固有の target/replay digest は保持し、回帰テストを追加。
+- ソースツリーダイジェスト: 00c166e28b29410088de950caa46976a656aee7ab6a3285dad3fef9fd5a0fe84
 - lockfile digest: 95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b
 - runtime manifest digest: 6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0
-- 実行イメージ: trade-rl-causal-alpha-v10:d1355cdf59ae-6726b3737df9
-- 実行イメージ manifest: sha256:3714800412faed63aa4529328f345e91550c05029ea2881286d947ecfe73dd1b
-- run generation: causal-alpha-v10-prod-20260829-r5
-- output root: /workspace/var/runs/causal-alpha-v10-prod-20260829-r5
+- 実行イメージ: trade-rl-causal-alpha-v10:dd190deb255e-6726b3737df9
+- 実行イメージ manifest: sha256:1c18ddb03d2683b1177353d19d72a8e7e14dcc5d2b46eb99627fdf4adc1cb3ba
+- run generation: causal-alpha-v10-prod-20260829-r7
+- output root: /workspace/var/runs/causal-alpha-v10-prod-20260829-r7
 - runtime DB volume: trade-rl-training-data:/workspace/var
 
 ### V10 設計
@@ -191,4 +191,89 @@ hierarchical wave の attribution では、long `-0.028970`、short `-0.016585` 
 2. V9 の long/short 非対称、低流動性、high-volatility losses を calibration と position sizing の問題として切り分ける。銘柄IDの追加や symbol exclusion はしない。
 3. 1分足はまだ導入しない。15分足で execution/risk projection の損失が残っているため、まず target compiler と loss containment を検証する。
 4. Selection pass が得られるまで Admission/BC/RL を開始しない。
+
+## 10. V10 r7（最新コードでの正式再開結果）
+
+### 実行結果
+
+r6 は、`last_step_trace_metadata` が property であるケースを evaluator が callable と誤認したため、診断用の途中実行として破棄した。property/callable の両方を読む修正を入れ、同じコード・同じ DB-backed runtime で r7 を最初から再実行した。以下を正式な最新結果とする。
+
+- Signal evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r7/signal/evidence.json`
+- Selection evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r7/selection/evidence.json`
+- Terminal result: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r7/result.json`
+- replay leaves: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r7/selection/replays/`（216件）
+- Signal artifact digest: `04f1038ee5c566f3b1f45dbab10deafcb6f10aa248381a842ce186eb4dbe9a2a`
+- Signal evidence digest: `2f8334385ddd335265956b0490417424602c8318b0af268eb2e38e6d776f2474`
+- Selection artifact digest: `4e6532cf2d5afbeb4f31fb7aeaaa78bb7235dd506b8b5477026208c18f695871`
+- Selection evidence/final digest: `ab22b091c4b7bb9acadcc9d0d96b1051f5ee9c7ab3b450e7e8b01ef8512e128c`
+- Terminal result artifact digest: `7e9c048507eb6e103748e99dfb87551f3c2c4aa581602060dfa1f3f8accfc109`
+- run manifest digest: `f3837b2c3e818deb76bcf9289cc0173c2155c6da13fb05021c54e7f557c55983`
+- V4 context manifest digest: `bc91783061182e41415d45a714049737ae16564a47d0e1ca14d004cc4c5c7357`
+
+Signal は `72/72` qualified slow scope。Selection は `paired_scope_count=72`、216 replay leaf を完走したが、`passed=false`、`selected_candidate=null`、`promotion_eligible=false`、terminal status は `selection_rejected`。したがって Admission/BC/RL は開始していない。
+
+| candidate | eligible | meaningful scopes | minimum net wealth | median net wealth | positive scope | retention | rejection reasons |
+|---|---:|---:|---:|---:|---:|---:|---|
+| v8_robust_control | no | 36 | 0.986459 | 0.995424 | 0.152778 | 0.998537 | symbol gross/net, minimum, median, positive |
+| v9_nonlinear_control | no | 62 | 0.958693 | 0.998146 | 0.430556 | 0.993636 | minimum, median, positive |
+| hierarchical_wave | no | 51 | 0.984927 | 0.996621 | 0.194444 | 0.997467 | symbol gross/net, minimum, median, positive |
+
+### 必須 action trace と attribution の検証
+
+action は変更していない。全216 leafで `action_path_step_trace_v1` を保存し、各 step に次を保持する。
+
+`decision index`, `current weight before action`, `requested target`, `PreTrade後のprojected target`, `execution後のrealized weight`, `active risk cap`, `active liquidity cap`, `fast head mean/std/qualified direction`, `abs(mean)-std-edge_margin`, `after-cost entry objective`, `slow head mean/std/direction`, `position origin (inherited/native entry/flat)`, `hierarchy reason`, `gross return`, `net return`, `cost`, `turnover`, `submitted`, `suppressed`, `executed`。
+
+`ActionPathStepEconomics` は `causal_alpha_v7_step_economics_v2` として `realized_weights` を保存し、V7/V8 attribution の exposure 分類は requested target ではなく、その interval の simulator-authoritative な realized exposure を使う。再検証結果は次の通り。
+
+- trace present/schema/decision alignment/realized weight shape: `216/216`
+- step economics digest 再計算一致: `216/216`
+- trace gross/net log と attribution 一致: `216/216`
+- trace gross/net log と v6 gross/net wealth 一致: `216/216`
+- trace の総 decision 数: `207,360`（72 leaf × 2,880 step、candidateごと）
+
+### hierarchical_wave の実現エクスポージャ診断
+
+以下は72 leafを合算した trace 分類で、return は各 step の `log1p` を合算してから `expm1` した値。従って Selection の symbol-balanced wealth そのものではなく、原因切り分け用の累積値である。
+
+| 分類（realized exposure/reason） | steps | gross return | net return | cost | 判断 |
+|---|---:|---:|---:|---:|---|
+| realized long | 67,018 | -2.006% | -2.994% | 998.40 | long側は保有区間を含めて負 |
+| realized short | 36,713 | -0.720% | -1.617% | 885.81 | short側も after-cost で負 |
+| realized flat | 103,629 | +0.003% | -0.358% | 361.10 | flat区間にも execution cost が残る |
+| neutral signal hold（realized non-flat かつ fast qualified=0） | 47,372 | -1.758% | -2.436% | 682.23 | signal=0後の hold が明確に負 |
+| any projected target != requested target | 23,474 | -1.910% | -2.983% | 1,068.55 | projection区間は負だが、保護効果の反実仮想ではない |
+| risk_cap_projection | 86 | -2.665% | -3.687% | 1,049.34 | projection前後の因果比較は未実施 |
+| risk_cap_flatten | 76 | -0.317% | -0.652% | 337.82 | 即flatの方が良いかは未確定 |
+| inherited origin | 52,669 | -3.314% | -4.608% | 1,310.32 | 最も強い ownership/episode boundary 問題の証拠 |
+| native_entry origin | 132 | +0.631% | +0.162% | 467.20 | entry直後の小標本は僅かに正、結論には不足 |
+
+hierarchical の `entry` reason は66回だが、realized exposure が long になったのは11 step、short は4 step、flat のままが51 step。entry試行の大半が実約定ポジションになっておらず、entry校正だけでなく execution eligibility/no-trade band との不整合がある。
+
+slow qualified direction は long 29,967 step（gross -0.396%、net -0.605%）、short 37,104 step（gross +0.161%、net -0.185%）。72h slow の方向自体も after-cost で一貫して正ではない。
+
+trace reason の大半は `cadence_hold=193,989`。submitted/suppressed/executed は `585/461/283`。無駄な注文を減らす必要はあるが、取引数を増やすだけでは Selection gate を満たさない。
+
+### 根本原因の判定
+
+| 観測 | r7で確認できたこと | 暫定判断 |
+|---|---|---|
+| longの新規entry直後から負 | realized long entry は11 step、netはほぼゼロ。long全保有はnet -2.994% | entry直後校正の単独結論は保留。long保有/exitを分離する候補が必要 |
+| entry直後は正、signal=0後のholdが負 | neutral signal hold net -2.436% | neutral expiry/exit不足が有力 |
+| risk projection前に損失、projection後に改善 | projection区間は net -2.983%、risk_cap_projection は -3.687% | 現runだけでは保護機構の改善とは言えない |
+| projection後も即flatより悪い | flat-on-breach反実仮想を同時には計算していない | 事前登録した flat-on-breach candidate が必要 |
+| inheritedだけ大幅に負 | inherited net -4.608% | episode boundary ownership が第一候補 |
+| slow qualified方向の成績 | long net -0.605%、short net -0.185% | 72h slowを単独のownership sourceにしない比較候補が必要 |
+
+次の比較は、同じ Signal→Selection gate を維持したまま、事前登録した別候補として行う。優先順位は (1) inherited を flat/reset として扱う boundary ownership、(2) neutral signal の expiry/flat化、(3) risk breach の flat-on-breach counterfactual、(4) slow 72h を regime filter に限定した短い ownership。1分足導入は、この比較で15分足の execution/risk 問題を解消した後に、約定遅延・intrabar順序・volume participation の実証がある場合だけ検討する。
+
+### r7再現確認
+
+```text
+docker run --rm --mount type=volume,source=trade-rl-training-data,target=/workspace/var \
+  trade-rl-causal-alpha-v10:dd190deb255e-6726b3737df9 \
+  python -c "from pathlib import Path; print(len(list(Path('/workspace/var/runs/causal-alpha-v10-prod-20260829-r7/selection/replays').rglob('*.json'))))"
+```
+
+期待値は `216`。実行コードは commit `dd190deb255e56d8917e9ac312dc1d446302b4e`、image manifest `sha256:1c18ddb03d2683b1177353d19d72a8e7e14dcc5d2b46eb99627fdf4adc1cb3ba` に固定されている。
 

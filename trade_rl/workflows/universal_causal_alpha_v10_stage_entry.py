@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Final
 
@@ -38,6 +39,7 @@ from trade_rl.learning.causal_alpha_v10_hierarchy import (
 )
 from trade_rl.learning.rollout_evaluation import evaluate_action_path
 from trade_rl.risk.pretrade import PreTradeRiskConfig
+from trade_rl.rl.training_run_config import TrainingRunConfig
 from trade_rl.workflows.universal_causal_alpha_v4_artifact_store import (
     CausalAlphaV4ArtifactStore,
     CausalAlphaV4RunLock,
@@ -85,11 +87,12 @@ from trade_rl.workflows.universal_causal_alpha_v10_gates import (
     V8_CANDIDATE_BY_V10,
     CausalAlphaV10SelectionEvidence,
     CausalAlphaV10SignalEvidence,
+    build_causal_alpha_v10_dual_run_binding,
     evaluate_causal_alpha_v10_selection,
 )
 
 _REPLAY_LEAF_SCHEMA: Final = "causal_alpha_v10_replay_leaf_v2"
-_RESULT_SCHEMA: Final = "causal_alpha_v10_terminal_result_v1"
+_RESULT_SCHEMA: Final = "causal_alpha_v10_terminal_result_v2"
 
 
 class CausalAlphaV10RunLock(CausalAlphaV4RunLock):
@@ -163,7 +166,7 @@ def _write_evidence(
     store.write_leaf(
         Path(stage) / "evidence.json",
         store.envelope(
-            schema_version=f"causal_alpha_v10_{stage}_envelope_v1",
+            schema_version=f"causal_alpha_v10_{stage}_envelope_v2",
             evidence_digest=getattr(evidence, "digest"),
             payload=getattr(evidence, "to_payload")(),
         ),
@@ -563,6 +566,7 @@ def _leaf(
     *,
     target: CausalAlphaV10TargetPath,
     candidate_input_digest: str,
+    dual_run_binding_digest: str | None,
 ) -> dict[str, object]:
     base = metric.v6_metric
     body: dict[str, object] = {
@@ -581,6 +585,8 @@ def _leaf(
         "target_path_digest": metric.v8_target_path_digest,
         "v4_context_manifest_digest": store.v4_context_manifest_digest,
     }
+    if dual_run_binding_digest is not None:
+        body["dual_run_binding_digest"] = dual_run_binding_digest
     return _artifact(body)
 
 
@@ -605,6 +611,7 @@ def _load(
     symbol: str,
     episode: int,
     contract_digest: str,
+    expected_dual_run_binding_digest: str | None,
 ) -> CausalAlphaV8ReplayMetric | None:
     leaf = store.load_leaf(path, expected_schema=_REPLAY_LEAF_SCHEMA)
     if leaf is None:
@@ -626,6 +633,11 @@ def _load(
         or metric.calibration_fit_digest != expected_fast_fit_digest
         or leaf["replay_digest"] != metric.digest
         or leaf.get("target_path_digest") != metric.v8_target_path_digest
+        or (
+            expected_dual_run_binding_digest is not None
+            and leaf.get("dual_run_binding_digest")
+            != expected_dual_run_binding_digest
+        )
         or getattr(metric, "step_trace", None) is None
         or target_payload.get("artifact_digest") != metric.v8_target_path_digest
         or target_payload.get("candidate") != candidate.value
@@ -650,6 +662,7 @@ def selection_stage(
     v10_config: CausalAlphaV10Config,
     config_digest: str,
     store: CausalAlphaV4ArtifactStore,
+    dual_run_binding_digest: str | None = None,
     boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> CausalAlphaV10SelectionEvidence:
     if not signal.passed:
@@ -725,6 +738,7 @@ def selection_stage(
                         symbol=symbol,
                         episode=contract.episode_index,
                         contract_digest=contract.digest,
+                        expected_dual_run_binding_digest=dual_run_binding_digest,
                     )
                     if metric is None:
                         if candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE:
@@ -771,6 +785,7 @@ def selection_stage(
                                 metric,
                                 target=target,
                                 candidate_input_digest=candidate_input_digest,
+                                dual_run_binding_digest=dual_run_binding_digest,
                             ),
                         )
                     records.append(metric)
@@ -797,6 +812,7 @@ def run_causal_alpha_v10_selection(
     boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> CausalAlphaV10SelectionEvidence:
     source_config = CausalAlphaV7ResearchConfig.from_json(config_path)
+    selection_run_config = TrainingRunConfig.from_json(Path(run_config_path))
     boundary_mode = CausalAlphaV10BoundaryMode(boundary_mode)
     v8_config = CausalAlphaV8TargetConfig(base=source_config.target)
     v9_config = CausalAlphaV9Config()
@@ -827,8 +843,11 @@ def run_causal_alpha_v10_selection(
             v10_config=v10_config,
             config_digest=config_digest,
         )
+        signal_config = selection_run_config
         signal_run_manifest_digest = prepared.run_manifest_digest
+        signal_prepared = prepared
     else:
+        signal_config = TrainingRunConfig.from_json(signal_path)
         signal_prepared = _prepare_causal_alpha_v10_stage_data(
             run_config_path=signal_path,
             runtime_manifest_path=runtime_manifest_path,
@@ -853,6 +872,27 @@ def run_causal_alpha_v10_selection(
             frozen_metadata_root=frozen_metadata_root,
             config_digest=config_digest,
         )
+    dual_run_binding = build_causal_alpha_v10_dual_run_binding(
+        signal_config=signal_config,
+        selection_config=selection_run_config,
+        signal_prepared=signal_prepared,
+        selection_prepared=prepared,
+        allow_initial_state_split=(
+            boundary_mode is CausalAlphaV10BoundaryMode.FLAT_START_ACTIVATION
+        ),
+    )
+    if (
+        boundary_mode is CausalAlphaV10BoundaryMode.FLAT_START_ACTIVATION
+        and tuple(selection_run_config.environment.initial_state_modes) != ("cash",)
+    ):
+        raise ValueError(
+            "V10 flat-start activation requires selection initial_state_modes=(cash,)"
+        )
+    signal = replace(
+        signal,
+        signal_run_manifest_digest=dual_run_binding.signal_run_manifest_digest,
+        dual_run_binding_digest=dual_run_binding.digest,
+    )
     root = Path(output_root)
     with CausalAlphaV10RunLock(root):
         store = CausalAlphaV4ArtifactStore(
@@ -862,7 +902,20 @@ def run_causal_alpha_v10_selection(
             config_digest=config_digest,
             generator_code_digest=prepared.generator_code_digest,
         )
-        _write_evidence(store, "signal", signal)
+        signal_store = store
+        if signal_prepared is not prepared:
+            signal_store = CausalAlphaV4ArtifactStore(
+                root,
+                run_manifest_digest=signal_prepared.run_manifest_digest,
+                v4_context_manifest_digest=signal_prepared.v4_context_manifest_digest,
+                config_digest=config_digest,
+                generator_code_digest=signal_prepared.generator_code_digest,
+            )
+        _write_evidence(signal_store, "signal", signal)
+        store.write_leaf(
+            "dual-run-binding.json",
+            _artifact(dual_run_binding.to_payload()),
+        )
         selection = selection_stage(
             prepared,
             signal,
@@ -873,6 +926,12 @@ def run_causal_alpha_v10_selection(
             config_digest=config_digest,
             store=store,
             boundary_mode=boundary_mode,
+            dual_run_binding_digest=dual_run_binding.digest,
+        )
+        selection = replace(
+            selection,
+            source_signal_evidence_digest=signal.digest,
+            dual_run_binding_digest=dual_run_binding.digest,
         )
         _write_evidence(store, "selection", selection)
         status = "selection_passed" if selection.passed else "selection_rejected"
@@ -882,7 +941,9 @@ def run_causal_alpha_v10_selection(
                 {
                     "boundary_mode": boundary_mode.value,
                     "evidence_digest": selection.digest,
+                    "dual_run_binding_digest": dual_run_binding.digest,
                     "promotion_eligible": False,
+                    "signal_evidence_digest": signal.digest,
                     "selection_run_manifest_digest": prepared.run_manifest_digest,
                     "signal_run_manifest_digest": signal_run_manifest_digest,
                     "schema_version": _RESULT_SCHEMA,

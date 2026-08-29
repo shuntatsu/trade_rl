@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
+
+import pytest
 
 from trade_rl.learning.causal_alpha_v6 import CausalAlphaV6Candidate
 from trade_rl.learning.causal_alpha_v8 import CausalAlphaV8Candidate
@@ -20,6 +23,7 @@ from trade_rl.workflows.universal_causal_alpha_v8_replay import (
 from trade_rl.workflows.universal_causal_alpha_v10_gates import (
     V8_CANDIDATE_BY_V10,
     V10_CANDIDATE_BY_V8,
+    build_causal_alpha_v10_dual_run_binding,
     evaluate_causal_alpha_v10_selection,
 )
 
@@ -132,4 +136,56 @@ def test_v10_pairs_scopes_when_candidate_model_fit_identities_differ() -> None:
     assert evidence.passed
     assert evidence.to_payload()["paired_scope_count"] == 9
     assert evidence.rejection_reasons == ()
+
+
+def _dual_config(*, modes: tuple[str, ...], marker: str = "shared") -> object:
+    return SimpleNamespace(
+        environment=SimpleNamespace(initial_state_modes=modes),
+        candidate_digest_payload=lambda: {
+            "environment": {"initial_state_modes": list(modes), "marker": marker},
+            "recipe": marker,
+        },
+    )
+
+
+def _dual_prepared(*, run: str = "a") -> object:
+    return SimpleNamespace(
+        train_symbols=("BTCUSDT",),
+        nested_partition_digest=_digest("b"),
+        base_runtime_manifest_digest=_digest("c"),
+        v4_context_manifest_digest=_digest("d"),
+        config_digest=_digest("e"),
+        execution_identity_digest=_digest("f"),
+        generator_code_digest=_digest("1"),
+        run_manifest_digest=_digest(run),
+    )
+
+
+def test_v10_dual_run_binding_allows_only_initial_state_mode_delta() -> None:
+    binding = build_causal_alpha_v10_dual_run_binding(
+        signal_config=_dual_config(modes=("cash", "baseline")),
+        selection_config=_dual_config(modes=("cash",)),
+        signal_prepared=_dual_prepared(run="2"),
+        selection_prepared=_dual_prepared(run="3"),
+        allow_initial_state_split=True,
+    )
+
+    assert binding.signal_initial_state_modes == ("cash", "baseline")
+    assert binding.selection_initial_state_modes == ("cash",)
+    assert binding.signal_run_manifest_digest == _digest("2")
+    assert binding.selection_run_manifest_digest == _digest("3")
+    assert len(binding.digest) == 64
+
+
+def test_v10_dual_run_binding_rejects_non_initial_config_drift() -> None:
+    with pytest.raises(ValueError, match="outside initial_state_modes"):
+        build_causal_alpha_v10_dual_run_binding(
+            signal_config=_dual_config(modes=("cash", "baseline")),
+            selection_config=_dual_config(
+                modes=("cash",),
+                marker="different",
+            ),
+            signal_prepared=_dual_prepared(run="2"),
+            selection_prepared=_dual_prepared(run="3"),
+        )
 

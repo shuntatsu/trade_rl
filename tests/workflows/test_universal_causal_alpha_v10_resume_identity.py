@@ -64,4 +64,5 @@ def test_v10_resume_rejects_stale_hierarchy_policy_input_digest(monkeypatch) -> 
             symbol="BTCUSDT",
             episode=8,
             contract_digest="d" * 64,
+            expected_dual_run_binding_digest=None,
         )

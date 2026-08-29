@@ -23,6 +23,7 @@ CAUSAL_ALPHA_V10_HIERARCHY_REASONS: Final = frozenset(
         "hold_flat",
         "hold_position",
         "liquidity_capacity_hold",
+        "neutral_fast_expiry",
         "realized_state_reset",
         "risk_cap_flatten",
         "risk_cap_projection",

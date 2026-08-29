@@ -5,8 +5,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Config
+from trade_rl.learning.causal_alpha_v10 import (
+    CAUSAL_ALPHA_V10_HIERARCHY_REASONS,
+    CausalAlphaV10Config,
+)
 from trade_rl.learning.causal_alpha_v10_hierarchy import (
+    CausalAlphaV10BoundaryMode,
     CausalAlphaV10ExecutionContract,
     CausalAlphaV10HierarchyPolicy,
     prepare_causal_alpha_v10_hierarchy_policy,
@@ -34,6 +38,7 @@ def _policy(
     signal_offsets: tuple[int, ...] = (),
     liquidity_caps: np.ndarray | None = None,
     risk_caps: np.ndarray | None = None,
+    boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> CausalAlphaV10HierarchyPolicy:
     return prepare_causal_alpha_v10_hierarchy_policy(
         decision_indices=np.arange(rows, dtype=np.int64),
@@ -57,6 +62,7 @@ def _policy(
             exit_threshold=0.03,
             no_trade_band=0.05,
         ),
+        boundary_mode=boundary_mode,
     )
 
 
@@ -94,6 +100,20 @@ def test_v10_trace_distinguishes_held_soft_liquidity_capacity() -> None:
     )
     assert result.v6_target_path.reasons[32] == "hold_position"
     assert result.hierarchy_reasons[32] == "liquidity_capacity_hold"
+
+
+def test_v11_neutral_fast_expiry_reason_is_supported_by_target_contract() -> None:
+    policy = _policy(
+        rows=113,
+        signal_offsets=(0, 16),
+        boundary_mode=CausalAlphaV10BoundaryMode.NEUTRAL_FAST_EXPIRY,
+    )
+
+    _drive_requested_as_realized(policy)
+    result = policy.result()
+
+    assert result.hierarchy_reasons[112] == "neutral_fast_expiry"
+    assert "neutral_fast_expiry" in CAUSAL_ALPHA_V10_HIERARCHY_REASONS
 
 
 def test_v10_external_realized_flatten_resets_hierarchy_state() -> None:

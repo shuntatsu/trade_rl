@@ -93,8 +93,11 @@ The authoritative oracle is the final risk target returned as `hybrid_risk.weigh
 - [x] Validate diagnostics content digest and trace identity.
 - [x] RED: changing a derived diagnostics counter and recomputing the diagnostics self-digest was still accepted.
 - [x] GREEN: derive compact diagnostics through one canonical trace function and require resume payload equality with recomputed values.
+- [x] Falsification RED: a self-consistent one-step trace could be resumed against a two-decision replay metric because trace length was not bound to replay identity (`1 failed / 3 passed`).
+- [x] GREEN: include canonical diagnostics `decision_count` and require equality with `metric.v6_metric.decision_count` on resume.
 
 **Compact diagnostics include:**
+- decision count;
 - strategy-intent-change count;
 - realized-state-follow count;
 - rebalance-reassertion count;
@@ -104,7 +107,7 @@ The authoritative oracle is the final risk target returned as `hybrid_risk.weigh
 - maximum absolute post-step weight;
 - trace digest.
 
-**Resume rule:** old V10 v2 leaves are not silently reused as v3 evidence. Because artifact leaves are immutable and schema-strict, a fresh v3 replay uses a new output/artifact root rather than overwriting a v2 leaf in place.
+**Resume rule:** old V10 v2 leaves are not silently reused as v3 evidence. Because artifact leaves are immutable and schema-strict, a fresh v3 replay uses a new output/artifact root rather than overwriting a v2 leaf in place. A v3 trace must also cover exactly the replay metric's decision count.
 
 ---
 
@@ -149,10 +152,12 @@ uv run lint-imports
 - [x] Mypy narrowing issues found and corrected.
 - [x] Import-layer contract verified after the implementation.
 - [x] Complete targeted/static matrix passed after the active-mask correction: 67 targeted tests plus Ruff, format, affected Mypy, import-linter, and scope invariants.
+- [x] Targeted resume/stage tests plus Ruff/format/Mypy passed after the decision-count identity correction.
 - [x] Delete temporary `.github/patch_*` helpers used before the final active-mask patch; delete the final active-mask helper before final diff verification.
 - [ ] Delete temporary verification workflow after final full comparator.
 - [ ] Verify final diff contains no `trade_rl/learning/evaluation.py` change and no temporary helper.
-- [ ] Run full-suite/build comparator against current main and classify any baseline failures symmetrically on the final source-equivalent HEAD.
+- [ ] Re-run the complete targeted/static matrix on the exact final PR HEAD including the new decision-count test.
+- [ ] Run full-suite/build comparator against current main and classify any baseline failures symmetrically on the final PR HEAD.
 - [ ] Run normal GitHub CI on final Draft PR HEAD.
 
 ---
@@ -168,6 +173,7 @@ Review from the original requirements rather than implementation assumptions:
 - [ ] Can compact diagnostics be changed and self-rehashed without changing the trace?
 - [ ] Can V10-specific counters leak into generic V5/V6/BC artifacts?
 - [ ] Can an inactive output be mistaken for prior active intent after reactivation?
+- [ ] Can a self-consistent trace with a different decision count be resumed for this replay?
 - [ ] Can a v2 leaf be mistaken for v3 evidence?
 - [ ] Did any strategy/gate constant or economic output change?
 - [ ] Are attribution limitations explicit rather than disguised as realized-PnL attribution?

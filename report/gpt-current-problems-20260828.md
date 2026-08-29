@@ -260,8 +260,8 @@ trace reason の大半は `cadence_hold=193,989`。submitted/suppressed/executed
 |---|---|---|
 | longの新規entry直後から負 | realized long entry は11 step、netはほぼゼロ。long全保有はnet -2.994% | entry直後校正の単独結論は保留。long保有/exitを分離する候補が必要 |
 | entry直後は正、signal=0後のholdが負 | neutral signal hold net -2.436% | neutral expiry/exit不足が有力 |
-| risk projection前に損失、projection後に改善 | projection区間は net -2.983%、risk_cap_projection は -3.687% | 現runだけでは保護機構の改善とは言えない |
-| projection後も即flatより悪い | flat-on-breach反実仮想を同時には計算していない | 事前登録した flat-on-breach candidate が必要 |
+| risk projection前に損失、projection後に改善 | projection区間は net -2.983%、risk_cap_projection は -3.687%。局所flat基準では +0.03756 net-log 改善余地 | 現runだけでは将来状態を含む保護機構の改善とは言えない |
+| projection後も即flatより悪い | 影響stepを即flatに置く局所反実仮想では実測netが負 | 事前登録した flat-on-breach 完全再play candidate が必要 |
 | inheritedだけ大幅に負 | inherited net -4.608% | episode boundary ownership が第一候補 |
 | slow qualified方向の成績 | long net -0.605%、short net -0.185% | 72h slowを単独のownership sourceにしない比較候補が必要 |
 

@@ -43,7 +43,7 @@ This change does not:
 
 The trace is observational. It does not alter action generation or execution. The three V10-oriented change classifications remain in the trace/V10 diagnostics only; they are deliberately not added to generic `ActionPathCollapseEvidence`, preventing V5/V6/BC artifact schema drift.
 
-V10 replay leaf schema is bumped from `causal_alpha_v10_replay_leaf_v2` to `causal_alpha_v10_replay_leaf_v3`. Each leaf persists the full execution trace plus compact V10 diagnostics. Resume validates the trace digest, strict boolean types, compact-diagnostics digest, and exact semantic reconciliation of every derived compact diagnostic with the persisted trace. Because the artifact store is immutable and schema-strict, an existing v2 leaf in the same output root is rejected rather than overwritten; producing v3 evidence requires a fresh output/artifact root.
+V10 replay leaf schema is bumped from `causal_alpha_v10_replay_leaf_v2` to `causal_alpha_v10_replay_leaf_v3`. Each leaf persists the full execution trace plus compact V10 diagnostics. Resume validates the trace digest, strict boolean types, compact-diagnostics digest, exact semantic reconciliation of every derived compact diagnostic with the persisted trace, and equality between trace `decision_count` and replay metric `decision_count`. Because the artifact store is immutable and schema-strict, an existing v2 leaf in the same output root is rejected rather than overwritten; producing v3 evidence requires a fresh output/artifact root.
 
 Canonical V7/V8 PnL attribution remains unchanged until exact bar-level exposure attribution is available.
 
@@ -86,6 +86,7 @@ If the maintained replay environment does not expose authoritative risk configur
 
 Compact diagnostics are a deterministic function of `ActionPathExecutionTrace` and include:
 
+- decision count;
 - strategy-intent-change count;
 - realized-state-follow count;
 - rebalance-reassertion count;
@@ -95,7 +96,7 @@ Compact diagnostics are a deterministic function of `ActionPathExecutionTrace` a
 - maximum absolute post-step weight;
 - trace digest.
 
-Resume validation does not trust a self-consistent diagnostics JSON digest alone. It reconstructs the trace, recomputes the canonical diagnostics, and requires exact equality. Therefore changing a derived counter/metric and recomputing only the diagnostics digest is rejected.
+Resume validation does not trust a self-consistent diagnostics JSON digest alone. It reconstructs the trace, recomputes the canonical diagnostics, and requires exact equality. It also requires the reconstructed trace decision count to equal the replay metric decision count. Therefore changing a derived counter/metric and recomputing only the diagnostics digest, or substituting a self-consistent trace from a different-length replay, is rejected.
 
 ## Invariants
 
@@ -106,6 +107,7 @@ Resume validation does not trust a self-consistent diagnostics JSON digest alone
 - Generic `ActionPathCollapseEvidence` does not gain V10-specific change counters.
 - Historical V5-V8 artifacts are not silently reinterpreted under a changed schema.
 - Existing V10 v2 replay leaves are not silently accepted as v3 evidence; a fresh artifact root/replay is required to populate the new trace.
+- A V10 trace cannot be resumed against a replay with a different decision count.
 
 ## Failure modes
 
@@ -121,6 +123,7 @@ Resume validation does not trust a self-consistent diagnostics JSON digest alone
 - Normal post-step price drift misclassified as a hard-risk projection violation: regression test.
 - Invalid final risk projection hidden by later post-step movement: regression test.
 - Diagnostics payload changed with a recomputed self-digest but unchanged trace: resume rejection test.
+- Self-consistent execution trace from a different decision count accepted for a replay: resume rejection test.
 - Diagnostics changing PnL/reward/cost: regression test.
 
 ## Test Oracle
@@ -132,14 +135,14 @@ Correctness is observed through:
 - hard-risk true/false from explicit `PreTradeRiskConfig`, authoritative projected weights, and applied risk scale;
 - normal post-step drift not affecting hard-risk projection status;
 - equality of performance/economics with the pre-change action path;
-- V10 leaf trace and compact diagnostics identity validation, including semantic tamper rejection;
+- V10 leaf trace and compact diagnostics identity validation, including semantic tamper rejection and replay/trace decision-count equality;
 - unchanged V5/V6/V7/V8 replay/attribution behavior and V10 target/gate behavior.
 
 ## Required Test Layers
 
 1. Unit: execution-trace validation, strict boolean validation, change classification including active-mask transitions, hard-risk projection oracle.
 2. Integration: `evaluate_action_path` with an explicit maintained-style environment exposing risk and boundary weights.
-3. Workflow: V10 leaf write/load/resume identity and semantic-tamper rejection.
+3. Workflow: V10 leaf write/load/resume identity, semantic-tamper rejection, and decision-count mismatch rejection.
 4. Regression: V5-V10 replay/attribution/closed-loop/gate tests.
 5. Static: Ruff, Ruff format, affected Mypy, import-linter.
 6. Repository comparison: full suite against current main with independently reproduced baseline failures handled symmetrically.
@@ -152,7 +155,7 @@ Do not mark complete unless:
 - RED tests fail for intended missing/wrong behavior before the corresponding production change;
 - all targeted and required regression tests pass after implementation;
 - explicit invariance tests show no economic output change;
-- V10 diagnostics are persisted, strictly typed, digest-bound, and semantically resume-safe;
+- V10 diagnostics are persisted, strictly typed, digest-bound, semantically resume-safe, and decision-count bound to the replay metric;
 - affected static/architecture checks pass;
 - final diff contains no strategy/gate constant changes and no temporary verification helpers;
 - generic evidence schema remains unchanged;

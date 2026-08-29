@@ -31,6 +31,7 @@ class CausalAlphaV10BoundaryMode(str, Enum):
     INHERIT_CONFIRM = "inherit_confirm"
     FLATTEN_THEN_RESET = "flatten_then_reset"
     NEUTRAL_FAST_EXPIRY = "neutral_fast_expiry"
+    FLATTEN_ON_RISK_BREACH = "flatten_on_risk_breach"
 
 
 class _AttributionBoundaries(Protocol):
@@ -643,6 +644,17 @@ class CausalAlphaV10HierarchyPolicy:
                     reason="hold_flat",
                     hierarchy_reason="realized_state_reset",
                 )
+            if (
+                self._boundary_mode
+                is CausalAlphaV10BoundaryMode.FLATTEN_ON_RISK_BREACH
+            ):
+                return self._record(
+                    offset=offset,
+                    observed_current=observed_current,
+                    requested=0.0,
+                    reason="risk_projection",
+                    hierarchy_reason="risk_cap_flatten",
+                )
             if abs(observed_current) > risk_cap + _OBSERVATION_TOLERANCE:
                 return self._record(
                     offset=offset,
@@ -660,6 +672,18 @@ class CausalAlphaV10HierarchyPolicy:
         risk_projected = False
 
         if abs(observed_current) > risk_cap + _OBSERVATION_TOLERANCE:
+            if (
+                self._boundary_mode
+                is CausalAlphaV10BoundaryMode.FLATTEN_ON_RISK_BREACH
+            ):
+                self._risk_flatten_latched = True
+                return self._record(
+                    offset=offset,
+                    observed_current=observed_current,
+                    requested=0.0,
+                    reason="risk_projection",
+                    hierarchy_reason="risk_cap_flatten",
+                )
             partial = float(np.sign(observed_current) * risk_cap)
             if not self._partial_risk_reduction_executable(
                 observed_current,

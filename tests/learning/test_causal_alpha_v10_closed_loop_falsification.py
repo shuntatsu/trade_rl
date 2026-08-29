@@ -116,6 +116,36 @@ def test_v11_neutral_fast_expiry_reason_is_supported_by_target_contract() -> Non
     assert "neutral_fast_expiry" in CAUSAL_ALPHA_V10_HIERARCHY_REASONS
 
 
+def test_v12_flat_on_risk_breach_holds_flat_until_realized_flat() -> None:
+    policy = _policy(
+        rows=3,
+        initial_weight=0.10,
+        risk_caps=np.full(3, 0.05),
+        boundary_mode=CausalAlphaV10BoundaryMode.FLATTEN_ON_RISK_BREACH,
+    )
+
+    first, _state = policy.predict(
+        {"current_weights": np.asarray([0.10], dtype=np.float64)}
+    )
+    second, _state = policy.predict(
+        {"current_weights": np.asarray([0.04], dtype=np.float64)}
+    )
+    third, _state = policy.predict(
+        {"current_weights": np.asarray([0.0], dtype=np.float64)}
+    )
+
+    assert float(first[0]) == 0.0
+    assert float(second[0]) == 0.0
+    assert float(third[0]) == 0.0
+    result = policy.result()
+    assert result.hierarchy_reasons[:2] == (
+        "risk_cap_flatten",
+        "risk_cap_flatten",
+    )
+    assert result.hierarchy_reasons[2] == "realized_state_reset"
+    assert "risk_cap_flatten" in CAUSAL_ALPHA_V10_HIERARCHY_REASONS
+
+
 def test_v10_external_realized_flatten_resets_hierarchy_state() -> None:
     policy = _policy(rows=2, initial_weight=0.10)
 

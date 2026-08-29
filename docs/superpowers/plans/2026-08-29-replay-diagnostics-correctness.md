@@ -1,10 +1,10 @@
 # Replay Diagnostics Correctness Implementation Plan
 
-> **Execution status:** implementation complete on the working branch; final cleanup, full verification, and PR verification remain.
+> **Execution status:** implementation and source-bearing verification are complete. Exact PR-head CI and repository cleanup evidence are tracked in PR #424 rather than encoded as transient status in this plan.
 
 **Goal:** Persist simulator-observed execution-boundary evidence and trustworthy V10 diagnostics without changing trading economics, generic replay artifact semantics, or fixed research gates.
 
-**Architecture:** Add an immutable execution trace to `ActionPathEvaluation`. Keep V10-oriented change classes in that trace/V10 leaf diagnostics only. Persist V10 replay leaf v3 evidence and validate compact diagnostics by recomputing them from the persisted trace. Preserve canonical V7/V8 PnL attribution because a single decision-boundary weight is not exact whole-interval exposure.
+**Architecture:** Add an immutable execution trace to `ActionPathEvaluation`. Keep V10-oriented change classes in that trace/V10 leaf diagnostics only. Persist V10 replay leaf v3 evidence and validate compact diagnostics by recomputing them from the persisted trace. Preserve canonical V7/V8 PnL attribution because a single decision-boundary weight is not exact whole-interval exposure. Separate generic proposal-reference compatibility from forensic book-state tracing so flat observations remain supported without fabricating realized state.
 
 **Tech Stack:** Python 3.12, NumPy, pytest, GitHub Actions, Ruff, Mypy, import-linter.
 
@@ -16,18 +16,21 @@
 - Do not change generic `ActionPathCollapseEvidence` or historical V5/V6/V7/V8 replay artifact schemas.
 - Do not interpret post-step weights as exact whole-interval PnL exposure.
 - Hard-risk gate evidence is about the authoritative final risk projection, not ordinary market drift after projection.
+- Missing optional observation `current_weights` must not break historical flat-observation generic collapse behavior; forensic trace must use authoritative book state instead.
+- Present-but-malformed observation weights, malformed risk evidence, or malformed authoritative book state fail closed.
 - RED -> GREEN -> Refactor applies to each contract change.
 - Final PR remains Draft/unmerged unless explicitly authorized.
 
 ---
 
-### Task 1: Execution-boundary trace and change classification
+### Task 1: Execution-boundary trace, change classification, and reference separation
 
 **Files:**
 - `trade_rl/learning/rollout_evaluation.py`
 - `tests/learning/test_rollout_evaluation.py`
 - `tests/learning/test_rollout_risk_timing.py`
 - `tests/learning/test_rollout_active_mask_classification.py`
+- `tests/learning/test_rollout_flat_observation_trace.py`
 
 **Implemented trace:**
 
@@ -53,8 +56,11 @@ ActionPathExecutionTrace(
 - [x] RED/GREEN: reject non-boolean event arrays rather than coercing strings such as `"false"`.
 - [x] RED: a target emitted while a dimension was inactive was incorrectly reused as prior active intent when the dimension became active.
 - [x] GREEN: track `previous_active`; only continuously active dimensions compare with prior requested intent, while newly active proposed targets are fresh strategy intent.
+- [x] Falsification RED: requiring observation `current_weights` broke the maintained flat-observation behavior-cloning audit.
+- [x] GREEN: split references. Generic proposal collapse uses valid observation weights when present, otherwise first-decision zero / later previous action. Forensic trace uses valid observation weights when present, otherwise `environment.hybrid.weights`.
+- [x] Regression: post-step forensic trace also falls back to authoritative book weights when flat observations omit `current_weights`.
 
-**Oracle:** evaluated actions and gross/net return, reward, cost, turnover, and execution events remain unchanged; only additional observational trace is produced.
+**Oracle:** evaluated actions and gross/net return, reward, cost, turnover, and execution events remain unchanged; generic flat-observation collapse semantics remain compatible; forensic trace records actual book state rather than generic fallback values.
 
 ---
 
@@ -93,30 +99,22 @@ The authoritative oracle is the final risk target returned as `hybrid_risk.weigh
 - [x] Validate diagnostics content digest and trace identity.
 - [x] RED: changing a derived diagnostics counter and recomputing the diagnostics self-digest was still accepted.
 - [x] GREEN: derive compact diagnostics through one canonical trace function and require resume payload equality with recomputed values.
-- [x] Falsification RED: a self-consistent one-step trace could be resumed against a two-decision replay metric because trace length was not bound to replay identity (`1 failed / 3 passed`).
+- [x] Falsification RED: a self-consistent one-step trace could be resumed against a two-decision replay metric because trace length was not bound to replay identity.
 - [x] GREEN: include canonical diagnostics `decision_count` and require equality with `metric.v6_metric.decision_count` on resume.
 
-**Compact diagnostics include:**
-- decision count;
-- strategy-intent-change count;
-- realized-state-follow count;
-- rebalance-reassertion count;
-- hard-risk-violation boolean;
-- minimum applied risk scale;
-- mean absolute pre-action/risk-constrained/post-step weights;
-- maximum absolute post-step weight;
-- trace digest.
+**Compact diagnostics include:** decision count; strategy-intent-change count; realized-state-follow count; rebalance-reassertion count; hard-risk-violation boolean; minimum applied risk scale; mean absolute pre-action/risk-constrained/post-step weights; maximum absolute post-step weight; trace digest.
 
 **Resume rule:** old V10 v2 leaves are not silently reused as v3 evidence. Because artifact leaves are immutable and schema-strict, a fresh v3 replay uses a new output/artifact root rather than overwriting a v2 leaf in place. A v3 trace must also cover exactly the replay metric's decision count.
 
 ---
 
-### Task 4: Regression and static verification
+### Task 4: Regression, capability, static, and repository verification
 
 **Required targeted regression surface:**
 
 ```bash
 uv run pytest -q \
+  tests/learning/test_rollout_flat_observation_trace.py \
   tests/learning/test_rollout_evaluation.py \
   tests/learning/test_rollout_risk_timing.py \
   tests/learning/test_rollout_active_mask_classification.py \
@@ -135,30 +133,33 @@ uv run pytest -q \
   tests/simulation/test_causal_alpha_v10_execution_contract.py
 ```
 
-Static checks:
+Static/capability checks:
 
 ```bash
-uv run ruff check <changed Python files>
-uv run ruff format --check <changed Python files>
+uv run ruff check <changed Python files and affected tests>
+uv run ruff format --check <changed Python files and affected tests>
 uv run mypy \
   trade_rl/learning/rollout_evaluation.py \
   trade_rl/workflows/universal_causal_alpha_v10_diagnostics.py \
   trade_rl/workflows/universal_causal_alpha_v10_stage_entry.py
 uv run lint-imports
+uv run python scripts/run_training_capability_audit.py --output <fresh-output>
+uv build
 ```
 
-- [x] Related V5-V10 regression coverage established.
-- [x] Ruff issues found and corrected.
-- [x] Mypy narrowing issues found and corrected.
-- [x] Import-layer contract verified after the implementation.
-- [x] Complete targeted/static matrix passed after the active-mask correction: 67 targeted tests plus Ruff, format, affected Mypy, import-linter, and scope invariants.
-- [x] Targeted resume/stage tests plus Ruff/format/Mypy passed after the decision-count identity correction.
-- [x] Delete temporary `.github/patch_*` helpers used before the final active-mask patch; delete the final active-mask helper before final diff verification.
-- [ ] Delete temporary verification workflow after final full comparator.
-- [ ] Verify final diff contains no `trade_rl/learning/evaluation.py` change and no temporary helper.
-- [ ] Re-run the complete targeted/static matrix on the exact final PR HEAD including the new decision-count test.
-- [ ] Run full-suite/build comparator against current main and classify any baseline failures symmetrically on the final PR HEAD.
-- [ ] Run normal GitHub CI on final Draft PR HEAD.
+Verified source-bearing head `f03c6b9e60d5452af341c3eca32302bb8c7c98a1`:
+
+- [x] 69 targeted/compatibility tests passed.
+- [x] Ruff affected surface passed.
+- [x] Ruff format affected surface passed.
+- [x] Affected Mypy passed.
+- [x] Import architecture passed: 13 kept, 0 broken.
+- [x] Full training capability audit passed, including behavior cloning.
+- [x] Package build passed.
+- [x] PR diff contained no `trade_rl/learning/evaluation.py` change and no temporary `.github` verification helper.
+- [x] Full-suite comparator used the same environment for PR and base main. PR: 4457 passed, 26 skipped, 3 failed. Main: 4444 passed, 26 skipped, 3 failed. The same three pre-existing architecture/documentation failures occurred on both sides; no PR-only full-suite failure was observed.
+
+Exact CI status for subsequent documentation-only cleanup commits is recorded in PR #424. Do not reuse an older successful run as evidence for a newer HEAD.
 
 ---
 
@@ -166,16 +167,17 @@ uv run lint-imports
 
 Review from the original requirements rather than implementation assumptions:
 
-- [ ] Can requested, risk-constrained, and post-step weights still be confused?
-- [ ] Can ordinary price movement falsely trip the hard-risk Selection gate?
-- [ ] Can an invalid final risk projection be hidden by later movement?
-- [ ] Can non-boolean trace payloads be coerced and accepted?
-- [ ] Can compact diagnostics be changed and self-rehashed without changing the trace?
-- [ ] Can V10-specific counters leak into generic V5/V6/BC artifacts?
-- [ ] Can an inactive output be mistaken for prior active intent after reactivation?
-- [ ] Can a self-consistent trace with a different decision count be resumed for this replay?
-- [ ] Can a v2 leaf be mistaken for v3 evidence?
-- [ ] Did any strategy/gate constant or economic output change?
-- [ ] Are attribution limitations explicit rather than disguised as realized-PnL attribution?
+- [x] Requested, generic proposal-reference, forensic pre-action, risk-constrained, and post-step states have distinct semantics.
+- [x] Ordinary price movement does not falsely trip the hard-risk Selection gate.
+- [x] An invalid final risk projection cannot be hidden by later movement.
+- [x] Non-boolean trace payloads are rejected rather than coerced.
+- [x] Compact diagnostics cannot be changed and self-rehashed without matching the persisted trace.
+- [x] V10-specific counters do not leak into generic V5/V6/BC collapse evidence.
+- [x] Inactive output is not treated as prior active intent after reactivation.
+- [x] A self-consistent trace with a different decision count cannot be resumed for this replay.
+- [x] A v2 leaf cannot be mistaken for v3 evidence.
+- [x] Strategy/gate constants and economic output are outside this change and no such production file appears in the final diff.
+- [x] Attribution limitations are explicit rather than disguised as realized-PnL attribution.
+- [x] Flat-observation compatibility was independently falsified by the Full training capability failure before the reference split and is covered by a dedicated regression after the fix.
 
-Final evidence must record final HEAD, final diff, targeted/full tests, static checks, build, normal CI, PR status, remaining limitations, and the fact that a fresh DB-backed V10 Selection run is still required before the new diagnostics can explain real economic outcomes.
+Final handoff evidence must record the current PR HEAD, final diff, targeted/full tests, static checks, build, normal CI, PR state, remaining limitations, and the fact that a fresh DB-backed V10 Selection run is still required before the new diagnostics can explain real economic outcomes.

@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented on a diagnostics-only follow-up branch; final repository/CI verification remains required before completion.
+Implemented. This document describes the stable diagnostic contract; exact-HEAD verification and CI evidence are recorded in PR #424 so the contract does not become stale when the branch HEAD changes.
 
 ## Objective
 
@@ -27,6 +27,7 @@ This change does not:
 2. Closed-loop V10 can receive a simulator-observed current weight that differs from its preceding requested target because of execution, risk projection, or market movement. Existing target/submission counters cannot distinguish a genuine new strategy intent from a policy following realized state or reasserting its prior requested target.
 3. Existing V7/V8 attribution uses simulator-authoritative step economics but classifies exposure using requested target paths. Stateful execution can include existing-position gap PnL, fills, and post-fill intrabar PnL inside one decision interval, so no single post-step weight can be treated as exact whole-interval exposure.
 4. V10 replay leaves did not persist enough execution-boundary evidence to audit requested/risk-constrained/realized divergence or to prove that compact diagnostics were derived from the persisted trace.
+5. The first diagnostics implementation required `current_weights` in every observation. That broke maintained flat-observation users such as the behavior-cloning capability audit even though those users previously relied on generic previous-action collapse semantics. Diagnostic truth and generic compatibility therefore need separate references.
 
 ## Architecture
 
@@ -43,13 +44,33 @@ This change does not:
 
 The trace is observational. It does not alter action generation or execution. The three V10-oriented change classifications remain in the trace/V10 diagnostics only; they are deliberately not added to generic `ActionPathCollapseEvidence`, preventing V5/V6/BC artifact schema drift.
 
+### Proposal reference versus forensic trace reference
+
+`evaluate_action_path` deliberately keeps two references because they serve different contracts.
+
+For generic proposal/submission collapse evidence:
+
+1. use observation `current_weights` when the field is present and valid;
+2. otherwise use zero on the first decision and the previously submitted action on later decisions.
+
+This preserves historical flat-observation behavior for generic evaluators and behavior-cloning audits.
+
+For forensic execution trace and V10 change classification:
+
+1. use observation `current_weights` when the field is present and valid;
+2. otherwise read the authoritative current book weight from `environment.hybrid.weights`.
+
+Post-step forensic weights follow the same rule: valid observation `current_weights` first, otherwise authoritative book weights.
+
+Absence of the optional observation field is therefore supported. A present-but-malformed `current_weights` field still fails closed. If forensic trace construction cannot obtain a valid book weight after the observation field is absent, evaluation also fails closed. This separation prevents a compatibility fallback from being mistaken for realized execution state.
+
 V10 replay leaf schema is bumped from `causal_alpha_v10_replay_leaf_v2` to `causal_alpha_v10_replay_leaf_v3`. Each leaf persists the full execution trace plus compact V10 diagnostics. Resume validates the trace digest, strict boolean types, compact-diagnostics digest, exact semantic reconciliation of every derived compact diagnostic with the persisted trace, and equality between trace `decision_count` and replay metric `decision_count`. Because the artifact store is immutable and schema-strict, an existing v2 leaf in the same output root is rejected rather than overwritten; producing v3 evidence requires a fresh output/artifact root.
 
 Canonical V7/V8 PnL attribution remains unchanged until exact bar-level exposure attribution is available.
 
 ## Change-class semantics
 
-For tolerance `tol`, let `current` be the pre-action simulator weight, `action` the current requested action, `previous_action` the preceding requested action, and `active`/`previous_active` the current/preceding active masks. Classification is decision-level over active dimensions.
+For tolerance `tol`, let `current` be the forensic pre-action simulator/book weight, `action` the current requested action, `previous_action` the preceding requested action, and `active`/`previous_active` the current/preceding active masks. Classification is decision-level over active dimensions.
 
 - First decision: if an active `action != current`, mark a strategy intent change.
 - A dimension that is active now but was inactive on the preceding decision has no valid preceding active intent. If its `action != current`, it is a fresh strategy intent change.
@@ -104,6 +125,8 @@ Resume validation does not trust a self-consistent diagnostics JSON digest alone
 - Gross returns, net returns, rewards, costs, turnover, trade count, and execution events are unchanged.
 - V8/V9/V10 strategy constants and candidate mappings are unchanged.
 - Existing generic `submitted_change_count`, `executed_change_count`, and economic gates retain their meanings.
+- Flat-observation generic proposal/submission classification retains the pre-diagnostics zero/previous-action fallback semantics.
+- Forensic trace weights never use the generic zero/previous-action fallback as if it were realized book state.
 - Generic `ActionPathCollapseEvidence` does not gain V10-specific change counters.
 - Historical V5-V8 artifacts are not silently reinterpreted under a changed schema.
 - Existing V10 v2 replay leaves are not silently accepted as v3 evidence; a fresh artifact root/replay is required to populate the new trace.
@@ -111,7 +134,9 @@ Resume validation does not trust a self-consistent diagnostics JSON digest alone
 
 ## Failure modes
 
-- Missing or malformed current-weight observation: fail closed.
+- Observation `current_weights` absent while authoritative book weights are valid: preserve generic fallback semantics and use book weights for forensic trace.
+- Observation `current_weights` present but malformed/non-finite/wrong shape: fail closed.
+- Observation `current_weights` absent and authoritative book weights missing/malformed: fail closed for forensic trace.
 - Missing/malformed `hybrid_risk.weights`: fail closed.
 - Missing/invalid applied `risk_scale`: fail closed.
 - Missing authoritative `PreTradeRisk` config: fail closed.
@@ -120,6 +145,7 @@ Resume validation does not trust a self-consistent diagnostics JSON digest alone
 - Realized-state follow miscounted as strategy change: regression test.
 - Reasserting an unchanged strategic target miscounted as new intent: regression test.
 - Newly active target misclassified using an output from a preceding inactive decision: regression test.
+- Flat-observation compatibility broken by requiring `current_weights`: regression plus full training capability audit.
 - Normal post-step price drift misclassified as a hard-risk projection violation: regression test.
 - Invalid final risk projection hidden by later post-step movement: regression test.
 - Diagnostics payload changed with a recomputed self-digest but unchanged trace: resume rejection test.
@@ -131,22 +157,25 @@ Resume validation does not trust a self-consistent diagnostics JSON digest alone
 Correctness is observed through:
 
 - exact recorded pre-action/risk-constrained/post-step weight arrays and applied risk scales;
+- flat observations retaining generic zero/previous-action proposal classification while trace weights come from the actual book;
 - hand-computable strategy-intent/realized-state-follow/reassertion event vectors, including inactive-to-active transitions;
 - hard-risk true/false from explicit `PreTradeRiskConfig`, authoritative projected weights, and applied risk scale;
 - normal post-step drift not affecting hard-risk projection status;
 - equality of performance/economics with the pre-change action path;
 - V10 leaf trace and compact diagnostics identity validation, including semantic tamper rejection and replay/trace decision-count equality;
-- unchanged V5/V6/V7/V8 replay/attribution behavior and V10 target/gate behavior.
+- unchanged V5/V6/V7/V8 replay/attribution behavior and V10 target/gate behavior;
+- full training capability audit remaining functional for maintained flat-observation consumers.
 
 ## Required Test Layers
 
-1. Unit: execution-trace validation, strict boolean validation, change classification including active-mask transitions, hard-risk projection oracle.
-2. Integration: `evaluate_action_path` with an explicit maintained-style environment exposing risk and boundary weights.
+1. Unit: execution-trace validation, strict boolean validation, change classification including active-mask transitions, flat-observation reference separation, hard-risk projection oracle.
+2. Integration: `evaluate_action_path` with both maintained-style structured observations and flat observations backed by authoritative book state.
 3. Workflow: V10 leaf write/load/resume identity, semantic-tamper rejection, and decision-count mismatch rejection.
-4. Regression: V5-V10 replay/attribution/closed-loop/gate tests.
-5. Static: Ruff, Ruff format, affected Mypy, import-linter.
-6. Repository comparison: full suite against current main with independently reproduced baseline failures handled symmetrically.
-7. Normal GitHub CI on the final PR HEAD.
+4. Regression: V5-V10 replay/attribution/closed-loop/gate tests plus flat-observation rollout compatibility.
+5. Capability: full training capability audit, including behavior cloning.
+6. Static: Ruff, Ruff format, affected Mypy, import-linter.
+7. Repository comparison: full suite against current main with independently reproduced baseline failures handled symmetrically.
+8. Normal GitHub CI on the final PR HEAD.
 
 ## Quality Gate
 
@@ -155,6 +184,7 @@ Do not mark complete unless:
 - RED tests fail for intended missing/wrong behavior before the corresponding production change;
 - all targeted and required regression tests pass after implementation;
 - explicit invariance tests show no economic output change;
+- flat-observation compatibility is covered by a regression test and the full training capability audit;
 - V10 diagnostics are persisted, strictly typed, digest-bound, semantically resume-safe, and decision-count bound to the replay metric;
 - affected static/architecture checks pass;
 - final diff contains no strategy/gate constant changes and no temporary verification helpers;

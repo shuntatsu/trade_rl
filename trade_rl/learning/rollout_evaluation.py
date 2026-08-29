@@ -186,12 +186,25 @@ def _observation_weights(
     *,
     shape: tuple[int, ...],
     field: str,
-) -> np.ndarray:
+) -> np.ndarray | None:
     if not isinstance(observation, Mapping) or "current_weights" not in observation:
-        raise ValueError(f"{field} is missing current_weights")
+        return None
     weights = np.asarray(observation["current_weights"], dtype=np.float64).reshape(-1)
     if weights.shape != shape or not np.isfinite(weights).all():
         raise ValueError(f"{field} current_weights do not match evaluation action")
+    return weights
+
+
+def _book_weights(
+    environment: EvaluationEnvironment,
+    *,
+    shape: tuple[int, ...],
+    field: str,
+) -> np.ndarray:
+    book = getattr(environment, "hybrid", None)
+    weights = np.asarray(getattr(book, "weights", None), dtype=np.float64).reshape(-1)
+    if weights.shape != shape or not np.isfinite(weights).all():
+        raise ValueError(f"{field} book weights do not match evaluation action")
     return weights
 
 
@@ -365,10 +378,26 @@ def evaluate_action_path(
             raise ValueError("evaluation action dimensions changed within path")
         if not np.isfinite(action).all():
             raise ValueError("evaluation action contains non-finite values")
-        reference = _observation_weights(
+        observed_reference = _observation_weights(
             observation,
             shape=action.shape,
             field="pre-action observation",
+        )
+        proposal_reference = observed_reference
+        if proposal_reference is None:
+            proposal_reference = (
+                np.zeros(action.shape, dtype=np.float64)
+                if previous_submitted is None
+                else previous_submitted.astype(np.float64, copy=False)
+            )
+        trace_reference = (
+            observed_reference
+            if observed_reference is not None
+            else _book_weights(
+                environment,
+                shape=action.shape,
+                field="pre-action",
+            )
         )
         active = np.ones(action.shape, dtype=np.bool_)
         if isinstance(observation, Mapping) and "active" in observation:
@@ -376,18 +405,25 @@ def evaluate_action_path(
             if active_values.shape != action.shape:
                 raise ValueError("active mask does not match evaluation action")
             active = active_values > 0.5
-        proposed = active & (np.abs(action - reference) > action_change_tolerance)
+        proposed = active & (
+            np.abs(action - proposal_reference) > action_change_tolerance
+        )
+        trace_proposed = active & (
+            np.abs(action - trace_reference) > action_change_tolerance
+        )
         if previous_submitted is None or previous_active is None:
-            strategy_intent_change = bool(np.any(proposed))
+            strategy_intent_change = bool(np.any(trace_proposed))
             realized_state_follow = False
             rebalance_reassertion = False
         else:
             continuously_active = active & previous_active
             newly_active = active & ~previous_active
             drifted = continuously_active & (
-                np.abs(reference - previous_submitted) > action_change_tolerance
+                np.abs(trace_reference - previous_submitted) > action_change_tolerance
             )
-            matches_current = np.abs(action - reference) <= action_change_tolerance
+            matches_current = (
+                np.abs(action - trace_reference) <= action_change_tolerance
+            )
             matches_previous = (
                 np.abs(action - previous_submitted) <= action_change_tolerance
             )
@@ -395,7 +431,9 @@ def evaluate_action_path(
                 np.abs(action - previous_submitted) > action_change_tolerance
             )
             realized_state_follow = bool(np.any(drifted & matches_current))
-            rebalance_reassertion = bool(np.any(drifted & matches_previous & proposed))
+            rebalance_reassertion = bool(
+                np.any(drifted & matches_previous & trace_proposed)
+            )
             strategy_intent_change = bool(
                 np.any(
                     (continuously_active & changed_from_previous & ~matches_current)
@@ -408,7 +446,7 @@ def evaluate_action_path(
         submitted_change = bool(np.any(proposed))
         submitted_change_count += int(submitted_change)
         evaluated_actions.append(action.copy())
-        pre_action_weights.append(reference.copy())
+        pre_action_weights.append(trace_reference.copy())
         strategy_intent_changes.append(strategy_intent_change)
         realized_state_follows.append(realized_state_follow)
         rebalance_reassertions.append(rebalance_reassertion)
@@ -426,10 +464,19 @@ def evaluate_action_path(
         if liquidation is not None:
             trades.ingest_liquidation(liquidation)
         constrained = _risk_constrained_weights(info, shape=action.shape)
-        post_weights = _observation_weights(
+        observed_post_weights = _observation_weights(
             observation,
             shape=action.shape,
             field="post-step observation",
+        )
+        post_weights = (
+            observed_post_weights
+            if observed_post_weights is not None
+            else _book_weights(
+                environment,
+                shape=action.shape,
+                field="post-step",
+            )
         )
         applied_risk_scale = _applied_risk_scale(info)
         risk_constrained_weights.append(constrained.copy())

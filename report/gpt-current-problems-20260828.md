@@ -424,3 +424,75 @@ hierarchical の submitted/suppressed/executed は `601/477/283`。既存の `in
 
 r9 は `neutral_fast_expiry` を target path で生成できたが、`CAUSAL_ALPHA_V10_HIERARCHY_REASONS` allowlist への登録漏れで Selection 初期に `ValueError: V10 hierarchy reason is unsupported` となった。原因を再現して allowlist と回帰テストを commit `4534415d` に追加し、r10 では同じ cutoff を超えて全216 leafを完走した。r9 の途中成果物は正式な性能結果には使わず、失敗の監査証跡として保持する。
 
+## 13. V10 r11 flat-on-risk-breach candidate（コード更新後の正式結果）
+
+### 実行 identity と gate 結果
+
+r11 は、r10 `neutral_fast_expiry` の Selection reject 後に事前登録した `flatten_on_risk_breach` 候補を、commit `c4d58bdb2d54bac22e5f7c33036c6c11dd705e15` の Docker image で Signal→Selection から実行した正式 run である。既存の V10 default、Signal、72h slow、entry/exit confirmation、risk/liquidity cap、execution、cost、Selection 閾値は変更していない。risk cap 超過を観測した hierarchy は flat target を要求し、実現 weight が flat になるまで `risk_cap_flatten` を維持してから `realized_state_reset` に戻す設計である。
+
+- output root: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r11`
+- Signal evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r11/signal/evidence.json`
+- Selection evidence: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r11/selection/evidence.json`
+- Terminal result: `/workspace/var/runs/causal-alpha-v10-prod-20260829-r11/result.json`
+- replay leaves: `216`（8 cutoff × 9銘柄 × 3候補）、paired scopes `72`
+- boundary mode: `flatten_on_risk_breach`
+- image: `trade-rl-causal-alpha-v10:c4d58bdb-6726b3737df9`
+- image id: `sha256:cf6dc96ef2a307aeeab125ccc41169b581c0b67f2acd8c4947e4ddf7d18bf157`
+- source tree digest: `d81dba70342869113e4d2fae11b148c29d0ff5808285c3d2dc4f137efd42cc0f`
+- lockfile digest: `95dddd1ed146c4738004a0f3c97458737184cb5c03c730167af46f345e9c213b`
+- runtime manifest digest: `6726b3737df9fbacf6787f3d02894e846c512a840bec4dd037538a02af1480b0`
+- run manifest digest: `1323071088d87501017fdb0eefcfa0eb95b9a536c8db8c00abf9c0c48d75c5a5`
+- config digest: `bb69e4382879be931c82f30b91ed48a7d01f3284049b2edebb276b38bbcdea67`
+- v4 context manifest digest: `bc91783061182e41415d45a714049737ae16564a47d0e1ca14d004cc4c5c7357`
+- Signal envelope/payload digest: `6806926184023315b359fd28649c4d8987b7617e800dbaa36e1da0a610f76a34` / `67fed237be4c640c324736ef6eb13eb62334e978081f026124ec87454e25bf37`
+- Selection envelope/payload digest: `807409293ffd1f7ceec82983a294409912a3336eaf89799c94ec6327e5472b6b` / `58077be8fdee6807982caa6b55c717d978c13075fa85ed5cfab52aecb2be2dae`
+- Terminal result artifact digest: `2066b29f95cd681d435c3bcd9620c87f2b6341dad2b2b29acc1be21786955d5d`
+
+Signal は `passed=true`、`72/72` qualified slow scope。Selection は全 216 leaf 完走後も `passed=false`、`selected_candidate=null`、`promotion_eligible=false`、terminal status は `selection_rejected`（container exit code `3`）だった。従って Admission/BC/RL/holdout は開始していない。
+
+### 候補別 after-cost economics
+
+| candidate | balanced gross | balanced net | minimum net wealth | median net wealth | positive scope | CVaR10 | meaningful scopes | executed | target changes | submitted | cost | closed trades | rejection |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| v8_robust_control | 0.996468 | 0.995010 | 0.986459 | 0.995424 | 0.152778 | -0.004985 | 36 | 133 | 77 | 54,831 | 1,308.37 | 0 | gross/net, min, median, positive |
+| v9_nonlinear_control | 1.012909 | 1.006463 | 0.958693 | 0.998146 | 0.430556 | -0.022163 | 62 | 840 | 2,656 | 176,235 | 5,299.14 | 198 | min, median, positive |
+| hierarchical wave | 0.996954 | 0.994475 | 0.984710 | 0.996702 | 0.194444 | -0.005138 | 51 | 243 | 49,194 | 52,980 | 2,232.37 | 53 | gross/net, min, median, positive |
+
+全候補で `hard_risk_violation_count=0`、`unexplained_execution_rejection_count=0`。r11 の hierarchy は r10 より executed changes を `283→243`、hierarchical の balanced net を `0.994428→0.994475` と僅かに改善したが、minimum net は `0.984927→0.984710` と悪化し、positive scope は `0.194444` のまま。銘柄横断 gate を通過できず、flat-on-risk-breach だけでは普遍的な資産増加戦略にならなかった。v9 は balanced net が正でも、minimum net `0.958693`、positive scope `0.430556` のため採用不可である。
+
+### trace・flat-on-risk-breach の検証
+
+全 216 leaf を `CausalAlphaV8ReplayMetric.from_payload` で再読込し、trace と economics を再計算した。
+
+- leaf parser / trace present / decision count `2,880`: `216/216`
+- `action_path_step_trace_v1` digest 再計算一致: `216/216`
+- `causal_alpha_v7_step_economics_v2` digest 再計算一致: `216/216`
+- trace gross/net log と attribution / V6 wealth の return reconciliation: `216/216`
+- 総 decision 数: `622,080`（216 leaf × 2,880 step）
+- hierarchical の `risk_cap_flatten`: `52,895` steps、`risk_cap_projection`: `0`
+- breach 開始: `62/62` は開始時点で `abs(current_weight) > active_risk_cap`
+- risk flatten rows の requested target=flat: `52,895/52,895`
+- realized が非 flat の flatten rowで次 rowも flatten: `52,833/52,833`
+- realized flat 後の reset: `45` rows が次 row `realized_state_reset`
+
+hierarchical trace の reason は `cadence_hold=144,710`、`risk_cap_flatten=52,895`、`cost_or_uncertainty_hold=8,568`、`entry_floor_hold=456`、`confirmation_hold=425`、`slow_support_hold=114`、`realized_state_reset=96`、`entry=65`、`exit=20`、`liquidity_capacity_hold=11`。origin は `flat=151,315`、`inherited=55,915`、`native_entry=130`。新モードは risk breach 後の flat 要求と実現 flat 待ちを満たしたが、非 flat の継続期間が長く、約定抑制だけでは損失源を除去できなかった。
+
+### hierarchical wave の realized exposure 診断（72 leaf 合算）
+
+以下は原因切り分け用の step 集計で、Selection の symbol-balanced wealth そのものではない。return は step の `log1p` を合算してから `expm1` した。
+
+| 分類 | steps | gross return | net return | cost |
+|---|---:|---:|---:|---:|
+| realized long | 67,018 | -2.321% | -3.289% | 985.72 |
+| realized short | 36,713 | -0.399% | -1.276% | 885.55 |
+| realized flat | 103,629 | +0.003% | -0.358% | 361.10 |
+| risk_cap_flatten | 52,895 | -3.301% | -4.753% | 1,505.20 |
+| projected target != requested | 55,889 | -1.813% | -2.727% | 929.59 |
+| inherited origin | 55,915 | -3.387% | -4.654% | 1,311.52 |
+| native_entry origin | 130 | +0.705% | +0.243% | 460.10 |
+| slow qualified long | 29,967 | -0.475% | -0.677% | 201.93 |
+| slow neutral | 140,289 | -2.497% | -4.164% | 1,716.69 |
+| slow qualified short | 37,104 | +0.260% | -0.054% | 313.75 |
+
+hierarchical の submitted/suppressed/executed は `52,980/52,854/243`。`risk_cap_flatten` 自体が hierarchical net loss の `-4.753%` を占め、inherited origin と slow neutral も損失を継続している。したがって、1分足導入や注文数増加へ進む前に、実現 exposure の継続損失、inherited state の扱い、neutral 時の no-trade/flat 方針を根本から再設計する必要がある。Selection pass なしに Admission/BC/RL は開始しない。
+

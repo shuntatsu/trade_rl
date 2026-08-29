@@ -24,6 +24,14 @@ def main() -> int:
     ):
         parser.add_argument(f"--{name}", required=True, type=Path)
     parser.add_argument(
+        "--signal-run-config",
+        type=Path,
+        help=(
+            "optional run config used only for the Signal gate; Selection uses "
+            "--run-config"
+        ),
+    )
+    parser.add_argument(
         "--boundary-mode",
         choices=tuple(mode.value for mode in CausalAlphaV10BoundaryMode),
         default=CausalAlphaV10BoundaryMode.INHERIT_CONFIRM.value,
@@ -33,6 +41,7 @@ def main() -> int:
         evidence = run_causal_alpha_v10_selection(
             config_path=args.config,
             run_config_path=args.run_config,
+            signal_run_config_path=args.signal_run_config,
             runtime_manifest_path=args.runtime_manifest,
             v4_context_manifest_path=args.v4_context_manifest,
             frozen_metadata_root=args.frozen_metadata_root,

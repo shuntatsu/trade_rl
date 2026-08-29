@@ -416,6 +416,44 @@ def _metric_from_evaluation(
     )
 
 
+def _prepare_causal_alpha_v10_stage_data(
+    *,
+    run_config_path: Path,
+    runtime_manifest_path: Path,
+    v4_context_manifest_path: Path,
+    frozen_metadata_root: Path,
+    config_digest: str,
+) -> Any:
+    """Prepare one runtime identity for Signal or Selection execution."""
+
+    from trade_rl.workflows.universal_causal_alpha_v4_runtime_adapter import (
+        prepare_causal_alpha_v4_runtime_adapter,
+    )
+
+    context, runtime, prepared_v3 = prepare_causal_alpha_v4_runtime_adapter(
+        run_config_path=run_config_path,
+        runtime_manifest_path=runtime_manifest_path,
+        v4_context_manifest_path=v4_context_manifest_path,
+        frozen_metadata_root=frozen_metadata_root,
+    )
+    generator_digest = content_digest(
+        {
+            "schema_version": "causal_alpha_v10_generator_code_v1",
+            "source_tree_digest": prepared_v3.execution_identity.source_tree_digest,
+        }
+    )
+    prepared = prepare_causal_alpha_v4_stage_data(
+        config_digest=config_digest,
+        generator_code_digest=generator_digest,
+        runtime_context=context,
+        runtime=runtime,
+        prepared_v3=prepared_v3,
+    )
+    del context, runtime, prepared_v3
+    gc.collect()
+    return prepared
+
+
 def _build_replay(
     *,
     prepared: Any,
@@ -751,16 +789,13 @@ def run_causal_alpha_v10_selection(
     *,
     config_path: Path,
     run_config_path: Path,
+    signal_run_config_path: Path | None = None,
     runtime_manifest_path: Path,
     v4_context_manifest_path: Path,
     frozen_metadata_root: Path,
     output_root: Path,
     boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> CausalAlphaV10SelectionEvidence:
-    from trade_rl.workflows.universal_causal_alpha_v4_runtime_adapter import (
-        prepare_causal_alpha_v4_runtime_adapter,
-    )
-
     source_config = CausalAlphaV7ResearchConfig.from_json(config_path)
     boundary_mode = CausalAlphaV10BoundaryMode(boundary_mode)
     v8_config = CausalAlphaV8TargetConfig(base=source_config.target)
@@ -773,27 +808,51 @@ def run_causal_alpha_v10_selection(
         v10_config,
         boundary_mode=boundary_mode,
     )
-    context, runtime, prepared_v3 = prepare_causal_alpha_v4_runtime_adapter(
-        run_config_path=run_config_path,
-        runtime_manifest_path=runtime_manifest_path,
-        v4_context_manifest_path=v4_context_manifest_path,
-        frozen_metadata_root=frozen_metadata_root,
-    )
-    generator_digest = content_digest(
-        {
-            "schema_version": "causal_alpha_v10_generator_code_v1",
-            "source_tree_digest": prepared_v3.execution_identity.source_tree_digest,
-        }
-    )
-    prepared = prepare_causal_alpha_v4_stage_data(
-        config_digest=config_digest,
-        generator_code_digest=generator_digest,
-        runtime_context=context,
-        runtime=runtime,
-        prepared_v3=prepared_v3,
-    )
-    del context, runtime, prepared_v3
-    gc.collect()
+    selection_run_config_path = Path(run_config_path)
+    signal_path = selection_run_config_path
+    if signal_run_config_path is not None:
+        signal_path = Path(signal_run_config_path)
+    if signal_path.resolve() == selection_run_config_path.resolve():
+        prepared = _prepare_causal_alpha_v10_stage_data(
+            run_config_path=selection_run_config_path,
+            runtime_manifest_path=runtime_manifest_path,
+            v4_context_manifest_path=v4_context_manifest_path,
+            frozen_metadata_root=frozen_metadata_root,
+            config_digest=config_digest,
+        )
+        signal = _signal_evidence(
+            prepared,
+            source_config=source_config,
+            v9_config=v9_config,
+            v10_config=v10_config,
+            config_digest=config_digest,
+        )
+        signal_run_manifest_digest = prepared.run_manifest_digest
+    else:
+        signal_prepared = _prepare_causal_alpha_v10_stage_data(
+            run_config_path=signal_path,
+            runtime_manifest_path=runtime_manifest_path,
+            v4_context_manifest_path=v4_context_manifest_path,
+            frozen_metadata_root=frozen_metadata_root,
+            config_digest=config_digest,
+        )
+        signal = _signal_evidence(
+            signal_prepared,
+            source_config=source_config,
+            v9_config=v9_config,
+            v10_config=v10_config,
+            config_digest=config_digest,
+        )
+        signal_run_manifest_digest = signal_prepared.run_manifest_digest
+        del signal_prepared
+        gc.collect()
+        prepared = _prepare_causal_alpha_v10_stage_data(
+            run_config_path=selection_run_config_path,
+            runtime_manifest_path=runtime_manifest_path,
+            v4_context_manifest_path=v4_context_manifest_path,
+            frozen_metadata_root=frozen_metadata_root,
+            config_digest=config_digest,
+        )
     root = Path(output_root)
     with CausalAlphaV10RunLock(root):
         store = CausalAlphaV4ArtifactStore(
@@ -802,13 +861,6 @@ def run_causal_alpha_v10_selection(
             v4_context_manifest_digest=prepared.v4_context_manifest_digest,
             config_digest=config_digest,
             generator_code_digest=prepared.generator_code_digest,
-        )
-        signal = _signal_evidence(
-            prepared,
-            source_config=source_config,
-            v9_config=v9_config,
-            v10_config=v10_config,
-            config_digest=config_digest,
         )
         _write_evidence(store, "signal", signal)
         selection = selection_stage(
@@ -831,6 +883,8 @@ def run_causal_alpha_v10_selection(
                     "boundary_mode": boundary_mode.value,
                     "evidence_digest": selection.digest,
                     "promotion_eligible": False,
+                    "selection_run_manifest_digest": prepared.run_manifest_digest,
+                    "signal_run_manifest_digest": signal_run_manifest_digest,
                     "schema_version": _RESULT_SCHEMA,
                     "status": status,
                 }

@@ -83,6 +83,8 @@ class RiskConstrainedTarget:
     pretrade_weights: np.ndarray | None = None
     max_gross: float | None = None
     drawdown_budget: float | None = None
+    max_abs_weight: float | None = None
+    fail_closed_tolerance: float | None = None
 
     def __post_init__(self) -> None:
         weights = _copied_weight_vector(self.weights, field_name="weights")
@@ -105,6 +107,15 @@ class RiskConstrainedTarget:
             or not 0.0 <= self.drawdown_budget <= 1.0
         ):
             raise ValueError("drawdown_budget must be within [0, 1] when provided")
+        if self.max_abs_weight is not None and (
+            not math.isfinite(self.max_abs_weight) or self.max_abs_weight <= 0.0
+        ):
+            raise ValueError("max_abs_weight must be finite and positive when provided")
+        if self.fail_closed_tolerance is not None and (
+            not math.isfinite(self.fail_closed_tolerance)
+            or self.fail_closed_tolerance < 0.0
+        ):
+            raise ValueError("fail_closed_tolerance must be non-negative when provided")
         object.__setattr__(self, "weights", weights)
         object.__setattr__(self, "proposal_weights", proposal)
         object.__setattr__(self, "pretrade_weights", pretrade)
@@ -174,6 +185,7 @@ class PreTradeRisk:
         *,
         reasons: list[str],
         emergency_mask: np.ndarray,
+        reduce_only_mask: np.ndarray,
     ) -> np.ndarray:
         """Suppress low-confidence entries and uneconomic target adjustments."""
 
@@ -187,6 +199,8 @@ class PreTradeRisk:
         ):
             if emergency_mask[index]:
                 controlled[index] = 0.0
+                continue
+            if reduce_only_mask[index]:
                 continue
             if abs(current) <= _TOLERANCE:
                 if abs(target) < self.config.entry_threshold:
@@ -214,8 +228,10 @@ class PreTradeRisk:
             reasons.append("reversal_hysteresis")
 
         small_changes = (
-            np.abs(controlled - existing) < self.config.no_trade_band
-        ) & ~emergency_mask
+            (np.abs(controlled - existing) < self.config.no_trade_band)
+            & ~emergency_mask
+            & ~reduce_only_mask
+        )
         changed_by_band = small_changes & ~np.isclose(
             controlled,
             existing,
@@ -234,6 +250,7 @@ class PreTradeRisk:
         current: np.ndarray,
         drawdown: float,
         emergency_flatten_mask: np.ndarray | None = None,
+        reduce_only_mask: np.ndarray | None = None,
     ) -> RiskConstrainedTarget:
         requested = np.asarray(target, dtype=np.float64).reshape(-1)
         existing = np.asarray(current, dtype=np.float64).reshape(-1)
@@ -242,6 +259,24 @@ class PreTradeRisk:
         if not np.isfinite(requested).all() or not np.isfinite(existing).all():
             raise ValueError("target and current weights must be finite")
         proposal_weights = requested.copy()
+        if reduce_only_mask is None:
+            reduce_mask = np.zeros(requested.shape, dtype=np.bool_)
+        else:
+            raw_reduce_mask = np.asarray(reduce_only_mask)
+            if raw_reduce_mask.dtype != np.dtype(np.bool_):
+                raise TypeError("reduce_only_mask must contain booleans")
+            reduce_mask = raw_reduce_mask.reshape(-1).copy()
+            if reduce_mask.shape != requested.shape:
+                raise ValueError("reduce_only_mask must match target weights")
+        for index in np.flatnonzero(reduce_mask):
+            target = float(requested[index])
+            current = float(existing[index])
+            if abs(current) <= _TOLERANCE:
+                raise ValueError("reduce-only target cannot start from flat exposure")
+            if target * current < -_TOLERANCE:
+                raise ValueError("reduce-only target cannot change sign")
+            if abs(target) > abs(current) + _TOLERANCE:
+                raise ValueError("reduce-only target cannot increase exposure")
         emergency_mask = (
             np.zeros(requested.shape, dtype=np.bool_)
             if emergency_flatten_mask is None
@@ -251,6 +286,8 @@ class PreTradeRisk:
             raise ValueError("emergency flatten mask must match target weights")
         scale = self.risk_scale(drawdown)
         reasons: list[str] = []
+        if np.any(reduce_mask):
+            reasons.append("reduce_only")
         requested_turnover = float(np.abs(requested - existing).sum())
         if np.any(emergency_mask):
             requested = requested.copy()
@@ -261,6 +298,7 @@ class PreTradeRisk:
             existing,
             reasons=reasons,
             emergency_mask=emergency_mask,
+            reduce_only_mask=reduce_mask,
         )
         ordinary_mask = ~emergency_mask
         ordinary_turnover = float(
@@ -330,4 +368,6 @@ class PreTradeRisk:
             pretrade_weights=weights,
             max_gross=self.config.max_gross,
             drawdown_budget=self.config.drawdown_start,
+            max_abs_weight=self.config.max_abs_weight,
+            fail_closed_tolerance=self.config.fail_closed_tolerance,
         )

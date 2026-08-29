@@ -294,6 +294,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._previous_action = state.previous_action
         self._pending_hybrid_target = state.pending_hybrid_target
         self._pending_shadow_target = state.pending_shadow_target
+        self._pending_hybrid_reduce_only_mask: np.ndarray | None = None
+        self._next_hybrid_reduce_only_mask: np.ndarray | None = None
         self._hybrid_order_book = state.hybrid_order_book
         self._shadow_order_book = state.shadow_order_book
         self._position_age = state.position_age
@@ -456,6 +458,17 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 ).value,
             }
         )
+
+    def set_next_hybrid_reduce_only_mask(self, mask: np.ndarray) -> None:
+        """Bind explicit reduce-only intent to the next submitted hybrid target."""
+
+        raw = np.asarray(mask)
+        if raw.dtype != np.dtype(np.bool_):
+            raise TypeError("hybrid reduce-only mask must contain booleans")
+        resolved = raw.reshape(-1).copy()
+        if resolved.shape != (self.dataset.n_symbols,):
+            raise ValueError("hybrid reduce-only mask must match dataset symbols")
+        self._next_hybrid_reduce_only_mask = resolved
 
     def baseline_action(self) -> np.ndarray:
         """Encode the exact shadow baseline in the maintained action schema."""
@@ -852,6 +865,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         self._previous_action = np.zeros(self.action_spec.size, dtype=np.float32)
         self._pending_hybrid_target = None
         self._pending_shadow_target = None
+        self._pending_hybrid_reduce_only_mask = None
+        self._next_hybrid_reduce_only_mask = None
         self._hybrid_order_book = OrderBookState.empty()
         self._shadow_order_book = OrderBookState.empty()
         self._position_age = np.zeros(self.dataset.n_symbols, dtype=np.float64)
@@ -1002,6 +1017,12 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         if self.current_index >= self.end_index:
             raise RuntimeError("step called after the episode ended")
         trends, alpha, factor_basis = self._market_inputs()
+        submitted_reduce_only_mask = (
+            np.zeros(self.dataset.n_symbols, dtype=np.bool_)
+            if self._next_hybrid_reduce_only_mask is None
+            else self._next_hybrid_reduce_only_mask.copy()
+        )
+        self._next_hybrid_reduce_only_mask = None
         decision = self._decision_planner.plan(
             EnvironmentDecisionRequest(
                 action=action,
@@ -1013,16 +1034,22 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
                 pending_hybrid_target=self._pending_hybrid_target,
                 pending_shadow_target=self._pending_shadow_target,
                 current_index=self.current_index,
+                submitted_hybrid_reduce_only_mask=submitted_reduce_only_mask,
+                pending_hybrid_reduce_only_mask=self._pending_hybrid_reduce_only_mask,
                 end_index=self.end_index,
             )
         )
         self._pending_hybrid_target = decision.next_pending_hybrid_target
         self._pending_shadow_target = decision.next_pending_shadow_target
+        self._pending_hybrid_reduce_only_mask = (
+            decision.next_pending_hybrid_reduce_only_mask
+        )
         hybrid_risk = self._risk_projector.project(
             EnvironmentRiskRequest(
                 proposal=decision.executed_hybrid_target,
                 book=self.hybrid,
                 current_index=self.current_index,
+                reduce_only_mask=decision.executed_hybrid_reduce_only_mask,
             )
         )
         shadow_risk = self._risk_projector.project(
@@ -1073,6 +1100,8 @@ class ResidualMarketEnv(gym.Env[np.ndarray | dict[str, np.ndarray], np.ndarray])
         if time_limit_reached:
             self._pending_hybrid_target = None
             self._pending_shadow_target = None
+            self._pending_hybrid_reduce_only_mask = None
+            self._next_hybrid_reduce_only_mask = None
         transition = self._termination_coordinator.resolve(
             hybrid=self.hybrid,
             shadow=self.shadow,

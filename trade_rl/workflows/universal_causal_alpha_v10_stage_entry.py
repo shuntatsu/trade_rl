@@ -502,6 +502,32 @@ def _build_replay(
         environment.close()
 
 
+class _V10ReduceOnlyEnvironment:
+    """Attach V10 hierarchy risk-reduction intent to the matching submission."""
+
+    def __init__(self, environment: Any, policy: CausalAlphaV10HierarchyPolicy) -> None:
+        self._environment = environment
+        self._policy = policy
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._environment, name)
+
+    def reset(self, *, options: dict[str, object]) -> tuple[object, dict[str, object]]:
+        return self._environment.reset(options=options)
+
+    def step(self, action: np.ndarray):
+        metadata = self._policy.last_step_trace_metadata
+        raw_reduce_only = metadata.get("reduce_only", False)
+        if not isinstance(raw_reduce_only, bool):
+            raise TypeError("V10 reduce-only metadata must be boolean")
+        setter = getattr(self._environment, "set_next_hybrid_reduce_only_mask", None)
+        if not callable(setter):
+            raise TypeError("V10 replay environment cannot bind reduce-only intent")
+        action_vector = np.asarray(action).reshape(-1)
+        setter(np.full(action_vector.shape, raw_reduce_only, dtype=np.bool_))
+        return self._environment.step(action)
+
+
 def _build_hierarchical_replay(
     *,
     prepared: Any,
@@ -524,8 +550,12 @@ def _build_hierarchical_replay(
             environment,
             execution_rebalance_contract,
         )
-        evaluation = evaluate_action_path(
+        replay_environment = _V10ReduceOnlyEnvironment(
             _InitialStateEnvironment(environment, contract.initial_state_mode),
+            policy,
+        )
+        evaluation = evaluate_action_path(
+            replay_environment,
             evaluation_range=(contract.start, contract.stop),
             model=policy,
             deterministic=True,
@@ -637,8 +667,7 @@ def _load(
         or leaf.get("target_path_digest") != metric.v8_target_path_digest
         or (
             expected_dual_run_binding_digest is not None
-            and leaf.get("dual_run_binding_digest")
-            != expected_dual_run_binding_digest
+            and leaf.get("dual_run_binding_digest") != expected_dual_run_binding_digest
         )
         or getattr(metric, "step_trace", None) is None
         or target_payload.get("artifact_digest") != metric.v8_target_path_digest
@@ -895,10 +924,9 @@ def run_causal_alpha_v10_selection(
             boundary_mode is CausalAlphaV10BoundaryMode.FLAT_START_ACTIVATION
         ),
     )
-    if (
-        boundary_mode is CausalAlphaV10BoundaryMode.FLAT_START_ACTIVATION
-        and tuple(selection_run_config.environment.initial_state_modes) != ("cash",)
-    ):
+    if boundary_mode is CausalAlphaV10BoundaryMode.FLAT_START_ACTIVATION and tuple(
+        selection_run_config.environment.initial_state_modes
+    ) != ("cash",):
         raise ValueError(
             "V10 flat-start activation requires selection initial_state_modes=(cash,)"
         )

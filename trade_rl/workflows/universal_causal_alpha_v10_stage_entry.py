@@ -5,6 +5,7 @@ from __future__ import annotations
 import gc
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Final
 
 import numpy as np
@@ -845,7 +846,7 @@ def run_causal_alpha_v10_selection(
         )
         signal_config = selection_run_config
         signal_run_manifest_digest = prepared.run_manifest_digest
-        signal_prepared = prepared
+        signal_prepared_identity = prepared
     else:
         signal_config = TrainingRunConfig.from_json(signal_path)
         signal_prepared = _prepare_causal_alpha_v10_stage_data(
@@ -863,6 +864,16 @@ def run_causal_alpha_v10_selection(
             config_digest=config_digest,
         )
         signal_run_manifest_digest = signal_prepared.run_manifest_digest
+        signal_prepared_identity = SimpleNamespace(
+            train_symbols=signal_prepared.train_symbols,
+            nested_partition_digest=signal_prepared.nested_partition_digest,
+            base_runtime_manifest_digest=signal_prepared.base_runtime_manifest_digest,
+            v4_context_manifest_digest=signal_prepared.v4_context_manifest_digest,
+            config_digest=signal_prepared.config_digest,
+            execution_identity_digest=signal_prepared.execution_identity_digest,
+            generator_code_digest=signal_prepared.generator_code_digest,
+            run_manifest_digest=signal_run_manifest_digest,
+        )
         del signal_prepared
         gc.collect()
         prepared = _prepare_causal_alpha_v10_stage_data(
@@ -875,7 +886,7 @@ def run_causal_alpha_v10_selection(
     dual_run_binding = build_causal_alpha_v10_dual_run_binding(
         signal_config=signal_config,
         selection_config=selection_run_config,
-        signal_prepared=signal_prepared,
+        signal_prepared=signal_prepared_identity,
         selection_prepared=prepared,
         allow_initial_state_split=(
             boundary_mode is CausalAlphaV10BoundaryMode.FLAT_START_ACTIVATION
@@ -903,13 +914,15 @@ def run_causal_alpha_v10_selection(
             generator_code_digest=prepared.generator_code_digest,
         )
         signal_store = store
-        if signal_prepared is not prepared:
+        if signal_prepared_identity is not prepared:
             signal_store = CausalAlphaV4ArtifactStore(
                 root,
-                run_manifest_digest=signal_prepared.run_manifest_digest,
-                v4_context_manifest_digest=signal_prepared.v4_context_manifest_digest,
+                run_manifest_digest=signal_prepared_identity.run_manifest_digest,
+                v4_context_manifest_digest=(
+                    signal_prepared_identity.v4_context_manifest_digest
+                ),
                 config_digest=config_digest,
-                generator_code_digest=signal_prepared.generator_code_digest,
+                generator_code_digest=signal_prepared_identity.generator_code_digest,
             )
         _write_evidence(signal_store, "signal", signal)
         store.write_leaf(

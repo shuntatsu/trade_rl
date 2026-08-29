@@ -12,16 +12,20 @@ from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Candidate
 from trade_rl.learning.rollout_evaluation import ActionPathExecutionTrace
 
 
-def _execution_evidence() -> tuple[dict[str, object], dict[str, object]]:
+def _execution_evidence(
+    *, steps: int = 2
+) -> tuple[dict[str, object], dict[str, object]]:
+    if steps not in (1, 2):
+        raise ValueError("test execution evidence supports one or two steps")
     trace = ActionPathExecutionTrace(
-        pre_action_weights=np.asarray([[0.0], [0.1]]),
-        risk_constrained_weights=np.asarray([[0.1], [0.0]]),
-        post_step_weights=np.asarray([[0.1], [0.0]]),
-        applied_risk_scales=np.asarray([1.0, 1.0]),
-        strategy_intent_changes=np.asarray([True, True]),
-        realized_state_follows=np.asarray([False, False]),
-        rebalance_reassertions=np.asarray([False, False]),
-        hard_risk_violations=np.asarray([False, False]),
+        pre_action_weights=np.asarray([[0.0], [0.1]])[:steps],
+        risk_constrained_weights=np.asarray([[0.1], [0.0]])[:steps],
+        post_step_weights=np.asarray([[0.1], [0.0]])[:steps],
+        applied_risk_scales=np.asarray([1.0, 1.0])[:steps],
+        strategy_intent_changes=np.asarray([True, True])[:steps],
+        realized_state_follows=np.asarray([False, False])[:steps],
+        rebalance_reassertions=np.asarray([False, False])[:steps],
+        hard_risk_violations=np.asarray([False, False])[:steps],
     )
     evaluation = SimpleNamespace(
         execution_trace=trace,
@@ -32,7 +36,12 @@ def _execution_evidence() -> tuple[dict[str, object], dict[str, object]]:
     return trace_payload, diagnostics
 
 
-def _metric(candidate: CausalAlphaV10Candidate, final_target_digest: str) -> object:
+def _metric(
+    candidate: CausalAlphaV10Candidate,
+    final_target_digest: str,
+    *,
+    decision_count: int = 2,
+) -> object:
     return SimpleNamespace(
         candidate=stage_entry.V8_CANDIDATE_BY_V10[candidate],
         v8_target_path_digest=final_target_digest,
@@ -41,6 +50,7 @@ def _metric(candidate: CausalAlphaV10Candidate, final_target_digest: str) -> obj
             symbol="BTCUSDT",
             episode_index=8,
             contract_digest="d" * 64,
+            decision_count=decision_count,
             hard_risk_violation=False,
         ),
         calibration_fit_digest="f" * 64,
@@ -53,10 +63,11 @@ def _load_leaf(
     *,
     execution_trace: dict[str, object],
     execution_diagnostics: dict[str, object],
+    decision_count: int = 2,
 ) -> None:
     candidate = CausalAlphaV10Candidate.HIERARCHICAL_WAVE
     final_target_digest = "t" * 64
-    metric = _metric(candidate, final_target_digest)
+    metric = _metric(candidate, final_target_digest, decision_count=decision_count)
 
     class MetricFactory:
         @staticmethod
@@ -177,4 +188,18 @@ def test_v10_resume_rejects_semantically_tampered_execution_diagnostics(
             monkeypatch,
             execution_trace=execution_trace,
             execution_diagnostics=tampered,
+        )
+
+
+def test_v10_resume_rejects_execution_trace_with_wrong_decision_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execution_trace, execution_diagnostics = _execution_evidence(steps=1)
+
+    with pytest.raises(ValueError, match="resumed replay identity drifted"):
+        _load_leaf(
+            monkeypatch,
+            execution_trace=execution_trace,
+            execution_diagnostics=execution_diagnostics,
+            decision_count=2,
         )

@@ -931,7 +931,7 @@ def run_causal_alpha_v10_selection(
         _write_evidence(signal_store, "signal", signal)
         store.write_leaf(
             "dual-run-binding.json",
-            _artifact(dual_run_binding.to_payload()),
+            _artifact(dual_run_binding.to_payload(include_digest=False)),
         )
         selection = selection_stage(
             prepared,

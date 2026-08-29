@@ -243,8 +243,8 @@ action は変更していない。全216 leafで `action_path_step_trace_v1` を
 | realized flat | 103,629 | +0.003% | -0.358% | 361.10 | flat区間にも execution cost が残る |
 | neutral signal hold（realized non-flat かつ fast qualified=0） | 47,372 | -1.758% | -2.436% | 682.23 | signal=0後の hold が明確に負 |
 | any projected target != requested target | 23,474 | -1.910% | -2.983% | 1,068.55 | projection区間は負だが、保護効果の反実仮想ではない |
-| risk_cap_projection | 86 | -2.665% | -3.687% | 1,049.34 | projection前後の因果比較は未実施 |
-| risk_cap_flatten | 76 | -0.317% | -0.652% | 337.82 | 即flatの方が良いかは未確定 |
+| risk_cap_projection | 86 | -2.665% | -3.687% | 1,049.34 | 局所flatならnet logを0にできる区間 |
+| risk_cap_flatten | 76 | -0.317% | -0.652% | 337.82 | 局所flat候補を登録すべき区間 |
 | inherited origin | 52,669 | -3.314% | -4.608% | 1,310.32 | 最も強い ownership/episode boundary 問題の証拠 |
 | native_entry origin | 132 | +0.631% | +0.162% | 467.20 | entry直後の小標本は僅かに正、結論には不足 |
 
@@ -265,7 +265,7 @@ trace reason の大半は `cadence_hold=193,989`。submitted/suppressed/executed
 | inheritedだけ大幅に負 | inherited net -4.608% | episode boundary ownership が第一候補 |
 | slow qualified方向の成績 | long net -0.605%、short net -0.185% | 72h slowを単独のownership sourceにしない比較候補が必要 |
 
-次の比較は、同じ Signal→Selection gate を維持したまま、事前登録した別候補として行う。優先順位は (1) inherited を flat/reset として扱う boundary ownership、(2) neutral signal の expiry/flat化、(3) risk breach の flat-on-breach counterfactual、(4) slow 72h を regime filter に限定した短い ownership。1分足導入は、この比較で15分足の execution/risk 問題を解消した後に、約定遅延・intrabar順序・volume participation の実証がある場合だけ検討する。
+次の比較は、同じ Signal→Selection gate を維持したまま、事前登録した別候補として行う。局所flat（そのstepのrealized exposureとcostを0に置く）では、risk_cap_projection の net-log 改善余地は `+0.03756`、risk_cap_flatten は `+0.00654`、inherited は `+0.04718`、neutral signal hold は `+0.02467` だった。ただしこれは将来の状態遷移を再計算しない局所反実仮想であり、採用判定には flat-on-breach の完全再 replay が必要である。優先順位は (1) inherited を flat/reset として扱う boundary ownership、(2) neutral signal の expiry/flat化、(3) risk breach の flat-on-breach counterfactual、(4) slow 72h を regime filter に限定した短い ownership。1分足導入は、この比較で15分足の execution/risk 問題を解消した後に、約定遅延・intrabar順序・volume participation の実証がある場合だけ検討する。
 
 ### r7再現確認
 

@@ -33,6 +33,7 @@ class CausalAlphaV10BoundaryMode(str, Enum):
     NEUTRAL_FAST_EXPIRY = "neutral_fast_expiry"
     FLATTEN_ON_RISK_BREACH = "flatten_on_risk_breach"
     FAST_ONLY_OWNERSHIP = "fast_only_ownership"
+    FLAT_START_ACTIVATION = "flat_start_activation"
 
 
 class _AttributionBoundaries(Protocol):
@@ -386,6 +387,11 @@ class CausalAlphaV10HierarchyPolicy:
             raise TypeError("V10 hierarchy policy input is invalid")
         self.input = policy_input
         self._boundary_mode = policy_input.boundary_mode
+        if (
+            self._boundary_mode is CausalAlphaV10BoundaryMode.FLAT_START_ACTIVATION
+            and abs(policy_input.initial_weight) > _OBSERVATION_TOLERANCE
+        ):
+            raise ValueError("flat-start activation requires flat initial weight")
         self._economic_config = CausalAlphaV6TargetConfig()
         self._fast_mean, self._fast_uncertainty, self._fast_direction = _qualified(
             policy_input.fast_head_predictions,

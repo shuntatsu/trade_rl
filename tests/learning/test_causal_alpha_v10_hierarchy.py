@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from trade_rl.learning.causal_alpha_v6 import (
     CausalAlphaV6Candidate,
@@ -96,6 +97,16 @@ def test_v10_requires_coherent_fast_slow_entry_and_execution_regime() -> None:
         )
     )
     assert plan.child_order is not None
+
+
+def test_v10_flat_start_activation_rejects_inherited_initial_exposure() -> None:
+    with pytest.raises(ValueError, match="flat-start activation requires flat initial weight"):
+        _path(
+            fast={0: 1, 16: 1},
+            slow={0: 1, 16: 1},
+            initial_weight=0.2,
+            boundary_mode=CausalAlphaV10BoundaryMode.FLAT_START_ACTIVATION,
+        )
 
 
 def test_v10_flat_entry_below_pretrade_entry_floor_stays_flat() -> None:

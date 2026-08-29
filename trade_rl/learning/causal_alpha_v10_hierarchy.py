@@ -370,7 +370,7 @@ class CausalAlphaV10HierarchyPolicy:
             policy_input.fast_head_predictions,
             edge_margin=policy_input.config.edge_margin,
         )
-        self._slow_mean, _slow_uncertainty, self._slow_direction = _qualified(
+        self._slow_mean, self._slow_uncertainty, self._slow_direction = _qualified(
             policy_input.slow_head_predictions,
             edge_margin=policy_input.config.edge_margin,
         )
@@ -388,6 +388,7 @@ class CausalAlphaV10HierarchyPolicy:
         rows = len(policy_input.decision_indices)
         self._targets = np.empty(rows, dtype=np.float64)
         self._objectives = np.zeros(rows, dtype=np.float64)
+        self._entry_objectives = np.zeros(rows, dtype=np.float64)
         self._confirmation_counts = np.zeros(rows, dtype=np.int64)
         self._reasons: list[str] = []
         self._hierarchy_reasons: list[str] = []
@@ -397,6 +398,9 @@ class CausalAlphaV10HierarchyPolicy:
         self._last_requested: float | None = None
         self._risk_flatten_latched = False
         self._inherited = abs(policy_input.initial_weight) > _OBSERVATION_TOLERANCE
+        self._position_origin: str | None = (
+            "inherited" if self._inherited else None
+        )
         self._inherited_checks = 0
         self._inherited_matches = 0
         self._entry_intent = 0
@@ -406,10 +410,19 @@ class CausalAlphaV10HierarchyPolicy:
         self._slow_opposite_count = 0
         self._neutral_slow_count = 0
         self._slow_regime = 0
+        self._last_trace_metadata: dict[str, object] | None = None
 
     @property
     def input_digest(self) -> str:
         return self.input.digest
+
+    @property
+    def last_step_trace_metadata(self) -> dict[str, object]:
+        """Diagnostics for the most recently emitted action, without changing it."""
+
+        if self._last_trace_metadata is None:
+            raise RuntimeError("V10 step trace metadata is unavailable before predict")
+        return dict(self._last_trace_metadata)
 
     def _reset_flat_state(self) -> None:
         self._inherited = False
@@ -459,6 +472,44 @@ class CausalAlphaV10HierarchyPolicy:
             float(self.input.one_way_cost_rates[offset]),
             self._economic_config,
         )
+        trace_origin = self._position_origin
+        if hierarchy_reason == "entry" and abs(requested) > _OBSERVATION_TOLERANCE:
+            trace_origin = "native_entry"
+            self._position_origin = trace_origin
+        elif trace_origin is None:
+            trace_origin = (
+                "inherited"
+                if abs(observed_current) > _OBSERVATION_TOLERANCE and self._inherited
+                else "flat"
+            )
+        self._last_trace_metadata = {
+            "active_liquidity_caps": float(
+                min(
+                    self.input.config.target_magnitude,
+                    self.input.liquidity_weight_caps[offset],
+                )
+            ),
+            "active_risk_caps": float(
+                min(
+                    self.input.config.target_magnitude,
+                    self.input.risk_weight_caps[offset],
+                )
+            ),
+            "after_cost_entry_objective": float(self._entry_objectives[offset]),
+            "fast_edge_margin": float(
+                abs(self._fast_mean[offset])
+                - self._fast_uncertainty[offset]
+                - self.input.config.edge_margin
+            ),
+            "fast_mean": float(self._fast_mean[offset]),
+            "fast_qualified_direction": int(self._fast_direction[offset]),
+            "fast_std": float(self._fast_uncertainty[offset]),
+            "hierarchy_reason": hierarchy_reason,
+            "position_origin": trace_origin,
+            "slow_direction": int(self._slow_direction[offset]),
+            "slow_mean": float(self._slow_mean[offset]),
+            "slow_std": float(self._slow_uncertainty[offset]),
+        }
         self._confirmation_counts[offset] = max(
             self._inherited_matches,
             self._entry_count,
@@ -472,6 +523,11 @@ class CausalAlphaV10HierarchyPolicy:
         self._last_observed = observed_current
         self._last_requested = requested
         self._offset += 1
+        if (
+            abs(observed_current) <= _OBSERVATION_TOLERANCE
+            and abs(requested) <= _OBSERVATION_TOLERANCE
+        ):
+            self._position_origin = None
         return np.asarray([requested], dtype=np.float32), None
 
     def predict(
@@ -626,6 +682,7 @@ class CausalAlphaV10HierarchyPolicy:
                     float(self.input.one_way_cost_rates[offset]),
                     self._economic_config,
                 )
+                self._entry_objectives[offset] = entry_objective
                 if coherent == 0 or entry_objective <= _EPSILON:
                     self._entry_intent = 0
                     self._entry_count = 0

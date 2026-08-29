@@ -130,6 +130,14 @@ def test_action_path_reports_where_submitted_changes_disappear(
     assert evidence.executed_change_count == 2
     assert evidence.constant_submitted_actions is False
     assert evidence.inactive_mask_rate == 0.5
+    trace = result.step_trace
+    assert trace is not None
+    assert trace.decision_indices.tolist() == [0, 1, 2]
+    np.testing.assert_allclose(trace.requested_targets[:, 0], (0.4, 0.4, 0.0))
+    np.testing.assert_allclose(trace.realized_weights[:, 0], (0.0, 0.4, 0.0))
+    assert trace.submitted.tolist() == [True, True, True]
+    assert trace.suppressed.tolist() == [True, False, False]
+    assert trace.executed.tolist() == [False, True, True]
 
 
 def test_action_path_uses_one_tolerance_for_execution_and_traded_steps(
@@ -177,6 +185,8 @@ def test_action_path_preserves_immutable_step_economics_for_attribution(
     assert economics.gross_returns.flags.writeable is False
     assert economics.net_returns.flags.writeable is False
     assert economics.costs.flags.writeable is False
+    assert economics.realized_weights is not None
+    assert economics.realized_weights.flags.writeable is False
 
 
 def test_action_path_rejects_unreconciled_execution_rejection_events(

@@ -12,6 +12,7 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.learning.causal_alpha_v6 import CausalAlphaV6Candidate
 from trade_rl.learning.causal_alpha_v7 import CausalAlphaV7Candidate
 from trade_rl.learning.causal_alpha_v8 import CausalAlphaV8Candidate
+from trade_rl.learning.rollout_evaluation import ActionPathStepTrace
 from trade_rl.workflows.universal_causal_alpha_v6_replay import (
     CausalAlphaV6ReplayMetric,
 )
@@ -55,6 +56,7 @@ class CausalAlphaV8ReplayMetric:
     v8_config_digest: str
     schema_version: str = CAUSAL_ALPHA_V8_REPLAY_SCHEMA
     digest: str = ""
+    step_trace: ActionPathStepTrace | None = None
 
     def __post_init__(self) -> None:
         candidate = CausalAlphaV8Candidate(self.candidate)
@@ -75,6 +77,11 @@ class CausalAlphaV8ReplayMetric:
             require_sha256(getattr(self, name), field=f"V8 replay {name}")
         if self.attribution.target_path_digest != self.v8_target_path_digest:
             raise ValueError("V8 replay target/attribution identity drifted")
+        if self.step_trace is not None:
+            if not isinstance(self.step_trace, ActionPathStepTrace):
+                raise TypeError("V8 replay step trace is invalid")
+            if self.step_trace.decision_count != self.v6_metric.decision_count:
+                raise ValueError("V8 replay step trace count drifted")
         for observed, expected in (
             (self.attribution.gross_log_return, self.v6_metric.gross_return),
             (self.attribution.net_log_return, self.v6_metric.net_return),
@@ -130,6 +137,8 @@ class CausalAlphaV8ReplayMetric:
             "v8_config_digest": self.v8_config_digest,
             "v8_target_path_digest": self.v8_target_path_digest,
         }
+        if self.step_trace is not None:
+            payload["step_trace"] = self.step_trace.to_payload()
         if include_digest:
             payload["artifact_digest"] = self.digest
         return payload
@@ -167,6 +176,12 @@ class CausalAlphaV8ReplayMetric:
             cells=cells,
             digest=attribution_digest,
         )
+        trace_payload = payload.pop("step_trace", None)
+        trace = (
+            None
+            if trace_payload is None
+            else ActionPathStepTrace.from_payload(trace_payload)
+        )
         root_digest = str(payload.pop("artifact_digest"))
         payload.pop("v6_metric")
         payload.pop("attribution")
@@ -177,6 +192,7 @@ class CausalAlphaV8ReplayMetric:
             v6_metric=v6,
             attribution=attribution,
             digest=root_digest,
+            step_trace=trace,
         )
 
 

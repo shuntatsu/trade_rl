@@ -118,6 +118,7 @@ def _evaluation() -> ActionPathEvaluation:
             net_returns=net,
             costs=costs,
             turnover=turnover,
+            realized_weights=_target().v6_target_path.targets[:, None],
         ),
     )
 
@@ -190,6 +191,30 @@ def test_v7_attribution_accepts_centered_relative_volume() -> None:
     )
     assert tuple(cell.key for cell in liquidity_cells) == ("q1", "q2", "q3", "q4")
     assert sum(cell.support for cell in liquidity_cells) == evidence.decision_count
+
+
+def test_v7_attribution_classifies_realized_exposure_not_requested_target() -> None:
+    evaluation = _evaluation()
+    economics = evaluation.step_economics
+    assert economics is not None
+    realized = economics.realized_weights.copy()
+    realized[0, 0] = 0.0
+    observed = replace(
+        evaluation,
+        step_economics=replace(economics, realized_weights=realized),
+    )
+    evidence = build_causal_alpha_v7_attribution(
+        target_path=_target(),
+        evaluation=observed,
+        confidence=np.asarray([0.1, 0.3, 0.6, 0.8, 0.9, 0.2]),
+        realized_volatility=np.asarray([0.005, 0.015, 0.025, 0.035, 0.01, 0.02]),
+        liquidity=np.asarray([0.25, 0.75, 1.25, 1.75, 1.0, 1.5]),
+        boundaries=_boundaries(),
+        step_hours=1.0,
+    )
+    exposure = {cell.key: cell for cell in evidence.cells if cell.dimension == "exposure"}
+    assert exposure["flat"].support == 3
+    assert exposure["short"].support == 1
 
 
 def test_v7_attribution_rejects_noncausal_bins_or_missing_step_economics() -> None:

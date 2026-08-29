@@ -354,6 +354,8 @@ def _metric_from_evaluation(
     boundaries: Any,
     environment: Any,
 ) -> CausalAlphaV8ReplayMetric:
+    if evaluation.step_trace is None:
+        raise ValueError("V10 replay requires per-step action trace")
     base = build_causal_alpha_v6_replay_metric(
         run_manifest_digest=prepared.run_manifest_digest,
         v4_context_manifest_digest=prepared.v4_context_manifest_digest,
@@ -404,6 +406,7 @@ def _metric_from_evaluation(
         source_forecast_digest=forecast.digest,
         calibration_fit_digest=target.fast_fit_digest,
         v8_config_digest=config_digest,
+        step_trace=evaluation.step_trace,
     )
 
 
@@ -579,6 +582,7 @@ def _load(
         or metric.calibration_fit_digest != expected_fast_fit_digest
         or leaf["replay_digest"] != metric.digest
         or leaf.get("target_path_digest") != metric.v8_target_path_digest
+        or getattr(metric, "step_trace", None) is None
         or target_payload.get("artifact_digest") != metric.v8_target_path_digest
         or target_payload.get("candidate") != candidate.value
         or (

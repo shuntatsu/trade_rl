@@ -211,6 +211,7 @@ def _build_replay(
             source_forecast_digest=forecast.digest,
             calibration_fit_digest=resolved.calibration_fit.digest,
             v8_config_digest=config_digest,
+            step_trace=evaluation.step_trace,
         )
     finally:
         environment.close()

@@ -283,10 +283,15 @@ def build_causal_alpha_v7_attribution(
     economics = evaluation.step_economics
     if economics is None:
         raise ValueError("V7 attribution requires simulator step economics")
+    realized_weights = economics.realized_weights
+    if realized_weights is None:
+        raise ValueError("V7 attribution requires realized weight trace")
     v6 = target_path.v6_target_path
     rows = int(v6.targets.size)
     if rows != evaluation.performance.step_count or evaluation.actions.shape != (rows, 1):
         raise ValueError("V7 attribution path and evaluation are not aligned")
+    if realized_weights.shape != (rows, 1):
+        raise ValueError("V7 attribution realized weights are not aligned")
     if not np.allclose(
         evaluation.actions[:, 0],
         v6.targets,
@@ -309,8 +314,13 @@ def build_causal_alpha_v7_attribution(
     gross = np.log1p(economics.gross_returns)
     net = np.log1p(economics.net_returns)
     costs = economics.costs
-    exposure = np.abs(v6.targets) * step_hours
-    exposure_keys = np.where(v6.targets > 1e-12, "long", np.where(v6.targets < -1e-12, "short", "flat"))
+    realized_exposure = realized_weights[:, 0]
+    exposure = np.abs(realized_exposure) * step_hours
+    exposure_keys = np.where(
+        realized_exposure > 1e-12,
+        "long",
+        np.where(realized_exposure < -1e-12, "short", "flat"),
+    )
     dimensions = {
         "confidence_quartile": _quartile_keys(confidence_values, boundaries.confidence),
         "exposure": exposure_keys,
@@ -335,12 +345,13 @@ def build_causal_alpha_v7_attribution(
         )
     )
     step_digest = content_and_arrays_digest(
-        {"schema_version": "causal_alpha_v7_step_economics_v1"},
+        {"schema_version": "causal_alpha_v7_step_economics_v2"},
         (
             ("gross_returns", economics.gross_returns),
             ("net_returns", economics.net_returns),
             ("costs", economics.costs),
             ("turnover", economics.turnover),
+            ("realized_weights", realized_weights),
         ),
     )
     gross_total = float(np.sum(gross, dtype=np.float64))

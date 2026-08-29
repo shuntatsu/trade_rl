@@ -115,6 +115,7 @@ def _evaluation() -> ActionPathEvaluation:
             net_returns=net,
             costs=costs,
             turnover=turnover,
+            realized_weights=_target().v6_target_path.targets[:, None],
         ),
     )
 

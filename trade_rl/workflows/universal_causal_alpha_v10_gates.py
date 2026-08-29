@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Final
 
@@ -24,6 +25,7 @@ _SIGNAL_SCHEMA: Final = "causal_alpha_v10_signal_evidence_v2"
 _SELECTION_SCHEMA: Final = "causal_alpha_v10_selection_evidence_v2"
 _DUAL_RUN_BINDING_SCHEMA: Final = "causal_alpha_v10_dual_run_binding_v1"
 _RUN_CONFIG_SCIENCE_SCHEMA: Final = "causal_alpha_v10_run_config_science_v1"
+_SCIENCE_SCOPE_SCHEMA: Final = "causal_alpha_v10_science_scope_v1"
 V8_CANDIDATE_BY_V10: Final = {
     CausalAlphaV10Candidate.V8_ROBUST_CONTROL: CausalAlphaV8Candidate.V7_CONTROL,
     CausalAlphaV10Candidate.V9_NONLINEAR_CONTROL: (
@@ -66,6 +68,44 @@ def _run_config_science_identity(config: object) -> tuple[str, tuple[str, ...]]:
     )
 
 
+def _science_scope_digest(prepared: object) -> str:
+    """Hash dataset and chronological bounds while excluding initial state."""
+
+    symbols = tuple(getattr(prepared, "train_symbols", ()))
+    nested = getattr(prepared, "nested_partitions", None)
+    if not symbols or not isinstance(nested, Mapping) or set(nested) != set(symbols):
+        raise ValueError("V10 dual-run science scope is unavailable")
+    scopes: list[dict[str, object]] = []
+    for symbol in symbols:
+        partition = nested[symbol]
+        for lane, field in (
+            ("signal", "signal_contracts"),
+            ("economic", "economic_contracts"),
+            ("holdout", "holdout_contract"),
+        ):
+            raw_contracts = (
+                (getattr(partition, field),)
+                if lane == "holdout"
+                else tuple(getattr(partition, field, ()))
+            )
+            for contract in raw_contracts:
+                scopes.append(
+                    {
+                        "dataset_id": getattr(contract, "dataset_id", None),
+                        "episode_index": getattr(contract, "episode_index", None),
+                        "lane": lane,
+                        "start": getattr(contract, "start", None),
+                        "stop": getattr(contract, "stop", None),
+                        "symbol": symbol,
+                    }
+                )
+    if not scopes or any(None in scope.values() for scope in scopes):
+        raise ValueError("V10 dual-run science scope is malformed")
+    return content_digest(
+        {"schema_version": _SCIENCE_SCOPE_SCHEMA, "scopes": tuple(scopes)}
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class CausalAlphaV10DualRunBinding:
     """Immutable provenance binding for a split Signal/Selection run."""
@@ -73,6 +113,8 @@ class CausalAlphaV10DualRunBinding:
     signal_run_manifest_digest: str
     selection_run_manifest_digest: str
     shared_science_identity_digest: str
+    signal_nested_partition_digest: str
+    selection_nested_partition_digest: str
     signal_initial_state_modes: tuple[str, ...]
     selection_initial_state_modes: tuple[str, ...]
     allowed_difference: str = "environment.initial_state_modes"
@@ -84,6 +126,8 @@ class CausalAlphaV10DualRunBinding:
             "signal_run_manifest_digest",
             "selection_run_manifest_digest",
             "shared_science_identity_digest",
+            "signal_nested_partition_digest",
+            "selection_nested_partition_digest",
         ):
             require_sha256(getattr(self, name), field=f"V10 dual-run {name}")
         signal_modes = tuple(str(mode) for mode in self.signal_initial_state_modes)
@@ -111,7 +155,9 @@ class CausalAlphaV10DualRunBinding:
             "selection_initial_state_modes": self.selection_initial_state_modes,
             "selection_run_manifest_digest": self.selection_run_manifest_digest,
             "shared_science_identity_digest": self.shared_science_identity_digest,
+            "selection_nested_partition_digest": self.selection_nested_partition_digest,
             "signal_initial_state_modes": self.signal_initial_state_modes,
+            "signal_nested_partition_digest": self.signal_nested_partition_digest,
             "signal_run_manifest_digest": self.signal_run_manifest_digest,
             "allowed_difference": self.allowed_difference,
         }
@@ -143,7 +189,6 @@ def build_causal_alpha_v10_dual_run_binding(
             )
     shared_fields = (
         "train_symbols",
-        "nested_partition_digest",
         "base_runtime_manifest_digest",
         "v4_context_manifest_digest",
         "config_digest",
@@ -157,6 +202,11 @@ def build_causal_alpha_v10_dual_run_binding(
         if signal_value != selection_value:
             raise ValueError(f"V10 dual-run identity drifted in {name}")
         shared_values[name] = signal_value
+    signal_scope = _science_scope_digest(signal_prepared)
+    selection_scope = _science_scope_digest(selection_prepared)
+    if signal_scope != selection_scope:
+        raise ValueError("V10 dual-run science scope drifted")
+    shared_values["science_scope_digest"] = signal_scope
     return CausalAlphaV10DualRunBinding(
         signal_run_manifest_digest=str(getattr(signal_prepared, "run_manifest_digest")),
         selection_run_manifest_digest=str(
@@ -167,6 +217,12 @@ def build_causal_alpha_v10_dual_run_binding(
                 "payload": shared_values,
                 "schema_version": "causal_alpha_v10_shared_science_identity_v1",
             }
+        ),
+        signal_nested_partition_digest=str(
+            getattr(signal_prepared, "nested_partition_digest")
+        ),
+        selection_nested_partition_digest=str(
+            getattr(selection_prepared, "nested_partition_digest")
         ),
         signal_initial_state_modes=signal_modes,
         selection_initial_state_modes=selection_modes,

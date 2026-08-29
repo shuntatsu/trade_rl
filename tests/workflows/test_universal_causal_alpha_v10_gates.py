@@ -149,8 +149,32 @@ def _dual_config(*, modes: tuple[str, ...], marker: str = "shared") -> object:
 
 
 def _dual_prepared(*, run: str = "a") -> object:
+    contract = SimpleNamespace(
+        dataset_id=_digest("8"),
+        episode_index=0,
+        start=10,
+        stop=20,
+    )
+    nested = SimpleNamespace(
+        signal_contracts=(contract,),
+        economic_contracts=(
+            SimpleNamespace(
+                dataset_id=_digest("8"),
+                episode_index=1,
+                start=21,
+                stop=31,
+            ),
+        ),
+        holdout_contract=SimpleNamespace(
+            dataset_id=_digest("8"),
+            episode_index=2,
+            start=32,
+            stop=42,
+        ),
+    )
     return SimpleNamespace(
         train_symbols=("BTCUSDT",),
+        nested_partitions={"BTCUSDT": nested},
         nested_partition_digest=_digest("b"),
         base_runtime_manifest_digest=_digest("c"),
         v4_context_manifest_digest=_digest("d"),

@@ -31,19 +31,36 @@ def _heads(rows: int, offsets: tuple[int, ...]) -> np.ndarray:
     return result
 
 
+def _head_values(rows: int, values: tuple[tuple[int, float], ...]) -> np.ndarray:
+    result = np.zeros((3, rows), dtype=np.float64)
+    for offset, value in values:
+        result[:, offset] = value
+    return result
+
+
 def _policy(
     *,
     rows: int,
     initial_weight: float = 0.0,
     signal_offsets: tuple[int, ...] = (),
+    fast_head_values: tuple[tuple[int, float], ...] | None = None,
+    slow_head_values: tuple[tuple[int, float], ...] | None = None,
     liquidity_caps: np.ndarray | None = None,
     risk_caps: np.ndarray | None = None,
     boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> CausalAlphaV10HierarchyPolicy:
     return prepare_causal_alpha_v10_hierarchy_policy(
         decision_indices=np.arange(rows, dtype=np.int64),
-        fast_head_predictions=_heads(rows, signal_offsets),
-        slow_head_predictions=_heads(rows, signal_offsets),
+        fast_head_predictions=(
+            _heads(rows, signal_offsets)
+            if fast_head_values is None
+            else _head_values(rows, fast_head_values)
+        ),
+        slow_head_predictions=(
+            _heads(rows, signal_offsets)
+            if slow_head_values is None
+            else _head_values(rows, slow_head_values)
+        ),
         one_way_cost_rates=np.full(rows, 0.0001),
         liquidity_weight_caps=(
             np.full(rows, 0.10) if liquidity_caps is None else liquidity_caps
@@ -144,6 +161,55 @@ def test_v12_flat_on_risk_breach_holds_flat_until_realized_flat() -> None:
     )
     assert result.hierarchy_reasons[2] == "realized_state_reset"
     assert "risk_cap_flatten" in CAUSAL_ALPHA_V10_HIERARCHY_REASONS
+
+
+def test_v13_fast_only_ownership_enters_without_slow_support() -> None:
+    policy = _policy(
+        rows=17,
+        fast_head_values=((0, 0.01), (16, 0.01)),
+        slow_head_values=(),
+        boundary_mode=CausalAlphaV10BoundaryMode.FAST_ONLY_OWNERSHIP,
+    )
+
+    actions: list[float] = []
+    realized = 0.0
+    for _ in policy.input.decision_indices:
+        action, _state = policy.predict(
+            {"current_weights": np.asarray([realized], dtype=np.float64)}
+        )
+        actions.append(float(action[0]))
+        realized = float(action[0])
+
+    assert actions[0] == 0.0
+    assert actions[16] == pytest.approx(0.10)
+    result = policy.result()
+    assert result.hierarchy_reasons[0] == "confirmation_hold"
+    assert result.hierarchy_reasons[16] == "entry"
+
+
+def test_v13_fast_only_ownership_ignores_slow_opposite_for_inherited_position() -> None:
+    policy = _policy(
+        rows=17,
+        initial_weight=0.10,
+        fast_head_values=((0, 0.01), (16, 0.01)),
+        slow_head_values=((0, -0.01), (16, -0.01)),
+        boundary_mode=CausalAlphaV10BoundaryMode.FAST_ONLY_OWNERSHIP,
+    )
+
+    actions: list[float] = []
+    realized = 0.10
+    for _ in policy.input.decision_indices:
+        action, _state = policy.predict(
+            {"current_weights": np.asarray([realized], dtype=np.float64)}
+        )
+        actions.append(float(action[0]))
+        realized = float(action[0])
+
+    assert actions[0] == pytest.approx(0.10)
+    assert actions[16] == pytest.approx(0.10)
+    result = policy.result()
+    assert result.hierarchy_reasons[0] == "confirmation_hold"
+    assert result.hierarchy_reasons[16] == "fast_support_hold"
 
 
 def test_v10_external_realized_flatten_resets_hierarchy_state() -> None:

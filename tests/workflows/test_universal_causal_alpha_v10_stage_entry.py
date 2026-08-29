@@ -199,8 +199,16 @@ def test_v11_boundary_mode_is_bound_into_stage_identity() -> None:
         v10,
         boundary_mode=CausalAlphaV10BoundaryMode.FLATTEN_ON_RISK_BREACH,
     )
+    fast_only = causal_alpha_v10_stage_config_digest(
+        source,
+        v8,
+        v9,
+        v10,
+        boundary_mode=CausalAlphaV10BoundaryMode.FAST_ONLY_OWNERSHIP,
+    )
 
     assert inherited != boundary_flat
     assert inherited != neutral_expiry
     assert boundary_flat != neutral_expiry
     assert risk_flatten not in {inherited, boundary_flat, neutral_expiry}
+    assert fast_only not in {inherited, boundary_flat, neutral_expiry, risk_flatten}

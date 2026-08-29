@@ -32,6 +32,7 @@ class CausalAlphaV10BoundaryMode(str, Enum):
     FLATTEN_THEN_RESET = "flatten_then_reset"
     NEUTRAL_FAST_EXPIRY = "neutral_fast_expiry"
     FLATTEN_ON_RISK_BREACH = "flatten_on_risk_breach"
+    FAST_ONLY_OWNERSHIP = "fast_only_ownership"
 
 
 class _AttributionBoundaries(Protocol):
@@ -620,6 +621,9 @@ class CausalAlphaV10HierarchyPolicy:
             )
 
         config = self.input.config
+        fast_only_ownership = (
+            self._boundary_mode is CausalAlphaV10BoundaryMode.FAST_ONLY_OWNERSHIP
+        )
         liquidity_cap = min(
             config.target_magnitude,
             float(self.input.liquidity_weight_caps[offset]),
@@ -715,7 +719,12 @@ class CausalAlphaV10HierarchyPolicy:
             observed_slow = int(self._slow_direction[offset])
             if self._inherited and decision_sign != 0:
                 self._inherited_checks += 1
-                if fast == observed_slow == decision_sign and bool(
+                coherent_inherited = (
+                    fast == decision_sign
+                    if fast_only_ownership
+                    else fast == observed_slow == decision_sign
+                )
+                if coherent_inherited and bool(
                     self._execution_eligible[offset]
                 ):
                     self._inherited_matches += 1
@@ -724,7 +733,11 @@ class CausalAlphaV10HierarchyPolicy:
                         requested = 0.0
                         reason = hierarchy_reason = "exit"
                     elif not risk_projected:
-                        reason = hierarchy_reason = "slow_support_hold"
+                        if fast_only_ownership:
+                            reason = "hold_position"
+                            hierarchy_reason = "fast_support_hold"
+                        else:
+                            reason = hierarchy_reason = "slow_support_hold"
                     self._inherited = False
                     self._inherited_checks = 0
                     self._inherited_matches = 0
@@ -736,7 +749,10 @@ class CausalAlphaV10HierarchyPolicy:
                 coherent = (
                     fast
                     if fast != 0
-                    and fast == self._slow_regime
+                    and (
+                        fast_only_ownership
+                        or fast == self._slow_regime
+                    )
                     and bool(self._execution_eligible[offset])
                     else 0
                 )
@@ -781,7 +797,10 @@ class CausalAlphaV10HierarchyPolicy:
                         reason = hierarchy_reason = "confirmation_hold"
             else:
                 neutral_fast_expired = False
-                if self._boundary_mode is CausalAlphaV10BoundaryMode.NEUTRAL_FAST_EXPIRY:
+                if self._boundary_mode in (
+                    CausalAlphaV10BoundaryMode.NEUTRAL_FAST_EXPIRY,
+                    CausalAlphaV10BoundaryMode.FAST_ONLY_OWNERSHIP,
+                ):
                     if risk_projected:
                         self._fast_neutral_count = 0
                     elif fast == 0:
@@ -809,8 +828,14 @@ class CausalAlphaV10HierarchyPolicy:
                 should_exit = (
                     neutral_fast_expired
                     or self._fast_exit_count >= config.exit_confirmation_count
-                    or self._slow_exit_count >= config.exit_confirmation_count
-                    or self._neutral_slow_count >= config.slow_neutral_expiry_count
+                    or (
+                        not fast_only_ownership
+                        and (
+                            self._slow_exit_count >= config.exit_confirmation_count
+                            or self._neutral_slow_count
+                            >= config.slow_neutral_expiry_count
+                        )
+                    )
                 )
                 if should_exit:
                     requested = 0.0
@@ -827,11 +852,15 @@ class CausalAlphaV10HierarchyPolicy:
                 elif (
                     not risk_projected and hierarchy_reason != "liquidity_capacity_hold"
                 ):
-                    reason = hierarchy_reason = (
-                        "slow_support_hold"
-                        if self._slow_regime == decision_sign
-                        else "confirmation_hold"
-                    )
+                    if fast_only_ownership:
+                        reason = "hold_position"
+                        hierarchy_reason = "fast_support_hold"
+                    else:
+                        reason = hierarchy_reason = (
+                            "slow_support_hold"
+                            if self._slow_regime == decision_sign
+                            else "confirmation_hold"
+                        )
         elif cadence:
             if not risk_projected and hierarchy_reason != "liquidity_capacity_hold":
                 reason = hierarchy_reason = "unactionable_hold"

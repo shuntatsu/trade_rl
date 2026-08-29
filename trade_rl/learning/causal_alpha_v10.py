@@ -20,6 +20,7 @@ CAUSAL_ALPHA_V10_HIERARCHY_REASONS: Final = frozenset(
         "entry",
         "entry_floor_hold",
         "exit",
+        "fast_support_hold",
         "hold_flat",
         "hold_position",
         "liquidity_capacity_hold",

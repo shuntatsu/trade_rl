@@ -23,19 +23,21 @@ jobs:
           enable-cache: true
       - run: uv sync --extra dev --extra train-sb3
       - name: Apply phase 2B implementation
-        run: python .github/patch_v10_lifecycle_phase2b.py
+        run: python .github/patch_v10_lifecycle_phase2b_wrapper.py
       - name: Format and lint
         run: |
           uv run ruff format \
             trade_rl/learning/rollout_evaluation.py \
             trade_rl/workflows/universal_causal_alpha_v8_replay.py \
             trade_rl/workflows/universal_causal_alpha_v10_stage_entry.py \
-            tests/learning/test_rollout_execution_lifecycle.py
+            tests/learning/test_rollout_execution_lifecycle.py \
+            tests/workflows/test_universal_causal_alpha_v10_stage_entry.py
           uv run ruff check \
             trade_rl/learning/rollout_evaluation.py \
             trade_rl/workflows/universal_causal_alpha_v8_replay.py \
             trade_rl/workflows/universal_causal_alpha_v10_stage_entry.py \
-            tests/learning/test_rollout_execution_lifecycle.py
+            tests/learning/test_rollout_execution_lifecycle.py \
+            tests/workflows/test_universal_causal_alpha_v10_stage_entry.py
       - name: Phase 2B targeted tests
         run: |
           uv run pytest -q \
@@ -58,6 +60,8 @@ jobs:
           git add \
             trade_rl/learning/rollout_evaluation.py \
             trade_rl/workflows/universal_causal_alpha_v8_replay.py \
-            trade_rl/workflows/universal_causal_alpha_v10_stage_entry.py
+            trade_rl/workflows/universal_causal_alpha_v10_stage_entry.py \
+            tests/learning/test_rollout_execution_lifecycle.py \
+            tests/workflows/test_universal_causal_alpha_v10_stage_entry.py
           git commit -m 'fix: persist authoritative v10 execution lifecycle evidence'
           git push origin HEAD:codex/v10-execution-lifecycle-hardening

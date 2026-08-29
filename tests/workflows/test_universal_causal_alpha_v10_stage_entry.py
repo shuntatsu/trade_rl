@@ -6,13 +6,18 @@ import numpy as np
 import pytest
 
 import trade_rl.workflows.universal_causal_alpha_v10_stage_entry as stage_entry
-from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Candidate
+from trade_rl.learning.causal_alpha_v10 import (
+    CausalAlphaV10Candidate,
+    CausalAlphaV10Config,
+)
+from trade_rl.learning.causal_alpha_v10_hierarchy import CausalAlphaV10BoundaryMode
 from trade_rl.risk.pretrade import PreTradeRiskConfig
 from trade_rl.workflows.universal_causal_alpha_v10_stage_entry import (
     _execution_rebalance_contract,
     _path,
     _require_execution_rebalance_contract,
     _training_rows,
+    causal_alpha_v10_stage_config_digest,
 )
 
 
@@ -155,3 +160,30 @@ def test_v10_leaf_paths_are_candidate_symbol_episode_scoped() -> None:
     assert _path(
         CausalAlphaV10Candidate.HIERARCHICAL_WAVE, "BTCUSDT", 8
     ).as_posix() == ("selection/replays/08/BTCUSDT/hierarchical_wave.json")
+
+
+def test_v11_boundary_mode_is_bound_into_stage_identity() -> None:
+    source = SimpleNamespace(
+        calibration=SimpleNamespace(digest="a" * 64),
+        target=SimpleNamespace(digest="b" * 64),
+    )
+    v8 = SimpleNamespace(digest="c" * 64)
+    v9 = SimpleNamespace(digest="d" * 64)
+    v10 = CausalAlphaV10Config()
+
+    inherited = causal_alpha_v10_stage_config_digest(
+        source,
+        v8,
+        v9,
+        v10,
+        boundary_mode=CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
+    )
+    boundary_flat = causal_alpha_v10_stage_config_digest(
+        source,
+        v8,
+        v9,
+        v10,
+        boundary_mode=CausalAlphaV10BoundaryMode.FLATTEN_THEN_RESET,
+    )
+
+    assert inherited != boundary_flat

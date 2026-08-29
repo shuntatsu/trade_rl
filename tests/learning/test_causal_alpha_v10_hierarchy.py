@@ -8,6 +8,7 @@ from trade_rl.learning.causal_alpha_v6 import (
 )
 from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Config
 from trade_rl.learning.causal_alpha_v10_hierarchy import (
+    CausalAlphaV10BoundaryMode,
     causal_alpha_v10_hierarchical_target_path,
 )
 from trade_rl.simulation.target_exposure_controller import (
@@ -47,6 +48,7 @@ def _path(
     costs: np.ndarray | None = None,
     execution_entry_threshold: float = 0.10,
     execution_no_trade_band: float = 0.05,
+    boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> CausalAlphaV6TargetPath:
     return causal_alpha_v10_hierarchical_target_path(
         decision_indices=np.arange(rows),
@@ -67,6 +69,7 @@ def _path(
         initial_weight=initial_weight,
         execution_entry_threshold=execution_entry_threshold,
         execution_no_trade_band=execution_no_trade_band,
+        boundary_mode=boundary_mode,
     )
 
 
@@ -272,3 +275,16 @@ def test_v10_inherited_position_must_earn_coherent_confirmation() -> None:
 
     assert retained.targets[16] == 0.1
     assert rejected.targets[16] == 0.0
+
+
+def test_v11_boundary_flatten_does_not_reenter_until_realized_flat() -> None:
+    path = _path(
+        fast={0: 1, 16: 1, 32: 1},
+        slow={0: 1, 16: 1, 32: 1},
+        initial_weight=0.25,
+        boundary_mode=CausalAlphaV10BoundaryMode.FLATTEN_THEN_RESET,
+    )
+
+    assert path.targets[0] == 0.0
+    assert path.targets[16] == 0.0
+    assert path.targets[32] == 0.1

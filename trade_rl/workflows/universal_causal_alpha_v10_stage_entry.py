@@ -31,6 +31,7 @@ from trade_rl.learning.causal_alpha_v10_fit import (
     fit_causal_alpha_v10,
 )
 from trade_rl.learning.causal_alpha_v10_hierarchy import (
+    CausalAlphaV10BoundaryMode,
     CausalAlphaV10ExecutionContract,
     CausalAlphaV10HierarchyPolicy,
     prepare_causal_alpha_v10_hierarchy_policy,
@@ -102,9 +103,12 @@ def causal_alpha_v10_stage_config_digest(
     v8_target: CausalAlphaV8TargetConfig,
     v9_wave: CausalAlphaV9Config,
     v10: CausalAlphaV10Config,
+    boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> str:
+    boundary_mode = CausalAlphaV10BoundaryMode(boundary_mode)
     return content_digest(
         {
+            "boundary_mode": boundary_mode.value,
             "calibration_config_digest": source.calibration.digest,
             "schema_version": "causal_alpha_v10_stage_config_v1",
             "v8_target_config_digest": v8_target.digest,
@@ -277,6 +281,7 @@ def _target_paths(
     v9_config: CausalAlphaV9Config,
     v10_config: CausalAlphaV10Config,
     execution_rebalance_contract: CausalAlphaV10ExecutionContract,
+    boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> tuple[
     dict[CausalAlphaV10Candidate, CausalAlphaV10TargetPath],
     CausalAlphaV10HierarchyPolicy,
@@ -335,6 +340,7 @@ def _target_paths(
         config=v10_config,
         initial_weight=control.initial_weight,
         execution_contract=execution_rebalance_contract,
+        boundary_mode=boundary_mode,
     )
     return controls, hierarchy_policy
 
@@ -606,6 +612,7 @@ def selection_stage(
     v10_config: CausalAlphaV10Config,
     config_digest: str,
     store: CausalAlphaV4ArtifactStore,
+    boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> CausalAlphaV10SelectionEvidence:
     if not signal.passed:
         raise ValueError("V10 Selection cannot bypass Signal")
@@ -655,6 +662,7 @@ def selection_stage(
                     v9_config=v9_config,
                     v10_config=v10_config,
                     execution_rebalance_contract=execution_contracts[symbol],
+                    boundary_mode=boundary_mode,
                 )
                 for candidate in CausalAlphaV10Candidate:
                     relative = _path(candidate, symbol, contract.episode_index)
@@ -747,12 +755,14 @@ def run_causal_alpha_v10_selection(
     v4_context_manifest_path: Path,
     frozen_metadata_root: Path,
     output_root: Path,
+    boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> CausalAlphaV10SelectionEvidence:
     from trade_rl.workflows.universal_causal_alpha_v4_runtime_adapter import (
         prepare_causal_alpha_v4_runtime_adapter,
     )
 
     source_config = CausalAlphaV7ResearchConfig.from_json(config_path)
+    boundary_mode = CausalAlphaV10BoundaryMode(boundary_mode)
     v8_config = CausalAlphaV8TargetConfig(base=source_config.target)
     v9_config = CausalAlphaV9Config()
     v10_config = CausalAlphaV10Config()
@@ -761,6 +771,7 @@ def run_causal_alpha_v10_selection(
         v8_config,
         v9_config,
         v10_config,
+        boundary_mode=boundary_mode,
     )
     context, runtime, prepared_v3 = prepare_causal_alpha_v4_runtime_adapter(
         run_config_path=run_config_path,
@@ -809,6 +820,7 @@ def run_causal_alpha_v10_selection(
             v10_config=v10_config,
             config_digest=config_digest,
             store=store,
+            boundary_mode=boundary_mode,
         )
         _write_evidence(store, "selection", selection)
         status = "selection_passed" if selection.passed else "selection_rejected"
@@ -816,6 +828,7 @@ def run_causal_alpha_v10_selection(
             "result.json",
             _artifact(
                 {
+                    "boundary_mode": boundary_mode.value,
                     "evidence_digest": selection.digest,
                     "promotion_eligible": False,
                     "schema_version": _RESULT_SCHEMA,

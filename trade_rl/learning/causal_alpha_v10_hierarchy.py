@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 from typing import Protocol
 
 import numpy as np
@@ -22,6 +23,13 @@ from trade_rl.learning.causal_alpha_v10 import CausalAlphaV10Config
 
 _EPSILON = 1e-12
 _OBSERVATION_TOLERANCE = 1e-6
+
+
+class CausalAlphaV10BoundaryMode(str, Enum):
+    """Ownership treatment for a non-flat episode-start position."""
+
+    INHERIT_CONFIRM = "inherit_confirm"
+    FLATTEN_THEN_RESET = "flatten_then_reset"
 
 
 class _AttributionBoundaries(Protocol):
@@ -123,6 +131,7 @@ class CausalAlphaV10HierarchyPolicyInput:
     initial_weight: float
     execution_contract: CausalAlphaV10ExecutionContract
     compiler_config_digest: str
+    boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM
     digest: str = ""
 
     def __post_init__(self) -> None:
@@ -133,6 +142,7 @@ class CausalAlphaV10HierarchyPolicyInput:
             raise TypeError("V10 hierarchy input config is invalid")
         if not isinstance(self.execution_contract, CausalAlphaV10ExecutionContract):
             raise TypeError("V10 hierarchy execution contract is invalid")
+        boundary_mode = CausalAlphaV10BoundaryMode(self.boundary_mode)
         if not np.isfinite(self.initial_weight):
             raise ValueError("V10 hierarchy initial weight must be finite")
 
@@ -203,6 +213,7 @@ class CausalAlphaV10HierarchyPolicyInput:
             "attribution_realized_volatility",
             volatility_bounds,
         )
+        object.__setattr__(self, "boundary_mode", boundary_mode)
 
         expected = content_and_arrays_digest(
             {
@@ -212,6 +223,7 @@ class CausalAlphaV10HierarchyPolicyInput:
                 "dual_fit_digest": self.dual_fit_digest,
                 "execution_contract_digest": self.execution_contract.digest,
                 "initial_weight": float(self.initial_weight),
+                "boundary_mode": boundary_mode.value,
                 "schema_version": "causal_alpha_v10_hierarchy_policy_input_v1",
                 "source_forecast_digest": self.source_forecast_digest,
                 "v10_config_digest": self.config.digest,
@@ -295,10 +307,12 @@ def _compiler_config_digest(
     config: CausalAlphaV10Config,
     execution_contract: CausalAlphaV10ExecutionContract,
     economic_config: CausalAlphaV6TargetConfig,
+    boundary_mode: CausalAlphaV10BoundaryMode,
 ) -> str:
     return content_digest(
         {
             "execution_contract_digest": execution_contract.digest,
+            "boundary_mode": boundary_mode.value,
             "schema_version": "causal_alpha_v10_target_compiler_contract_v3",
             "v6_economic_config_digest": economic_config.digest,
             "v10_config_digest": config.digest,
@@ -323,6 +337,7 @@ def _policy_input(
     config: CausalAlphaV10Config,
     initial_weight: float,
     execution_contract: CausalAlphaV10ExecutionContract,
+    boundary_mode: CausalAlphaV10BoundaryMode,
 ) -> CausalAlphaV10HierarchyPolicyInput:
     economic_config = CausalAlphaV6TargetConfig()
     return CausalAlphaV10HierarchyPolicyInput(
@@ -350,10 +365,12 @@ def _policy_input(
         config=config,
         initial_weight=float(initial_weight),
         execution_contract=execution_contract,
+        boundary_mode=boundary_mode,
         compiler_config_digest=_compiler_config_digest(
             config=config,
             execution_contract=execution_contract,
             economic_config=economic_config,
+            boundary_mode=boundary_mode,
         ),
     )
 
@@ -365,6 +382,7 @@ class CausalAlphaV10HierarchyPolicy:
         if not isinstance(policy_input, CausalAlphaV10HierarchyPolicyInput):
             raise TypeError("V10 hierarchy policy input is invalid")
         self.input = policy_input
+        self._boundary_mode = policy_input.boundary_mode
         self._economic_config = CausalAlphaV6TargetConfig()
         self._fast_mean, self._fast_uncertainty, self._fast_direction = _qualified(
             policy_input.fast_head_predictions,
@@ -400,6 +418,10 @@ class CausalAlphaV10HierarchyPolicy:
         self._inherited = abs(policy_input.initial_weight) > _OBSERVATION_TOLERANCE
         self._position_origin: str | None = (
             "inherited" if self._inherited else None
+        )
+        self._boundary_flatten_latched = (
+            self._boundary_mode is CausalAlphaV10BoundaryMode.FLATTEN_THEN_RESET
+            and self._inherited
         )
         self._inherited_checks = 0
         self._inherited_matches = 0
@@ -556,6 +578,25 @@ class CausalAlphaV10HierarchyPolicy:
         if last_sign != 0 and current_sign == -last_sign:
             raise RuntimeError(
                 "V10 realized position flipped without an intervening flat state"
+            )
+        if self._boundary_flatten_latched:
+            if current_sign == 0:
+                self._boundary_flatten_latched = False
+                self._risk_flatten_latched = False
+                self._reset_flat_state()
+                return self._record(
+                    offset=offset,
+                    observed_current=observed_current,
+                    requested=0.0,
+                    reason="hold_flat",
+                    hierarchy_reason="realized_state_reset",
+                )
+            return self._record(
+                offset=offset,
+                observed_current=observed_current,
+                requested=0.0,
+                reason="risk_projection",
+                hierarchy_reason="realized_state_reset",
             )
         external_flatten = (
             last_sign != 0
@@ -845,6 +886,7 @@ def prepare_causal_alpha_v10_hierarchy_policy(
     config: CausalAlphaV10Config,
     initial_weight: float,
     execution_contract: CausalAlphaV10ExecutionContract,
+    boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> CausalAlphaV10HierarchyPolicy:
     """Prepare one immutable-input V10 policy for simulator-driven replay."""
 
@@ -865,6 +907,7 @@ def prepare_causal_alpha_v10_hierarchy_policy(
             config=config,
             initial_weight=initial_weight,
             execution_contract=execution_contract,
+            boundary_mode=boundary_mode,
         )
     )
 
@@ -888,6 +931,7 @@ def causal_alpha_v10_hierarchical_target_path(
     execution_entry_threshold: float,
     execution_no_trade_band: float,
     execution_exit_threshold: float = 0.0,
+    boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM,
 ) -> CausalAlphaV6TargetPath:
     """Compatibility harness that drives the closed-loop policy open-loop."""
 
@@ -915,6 +959,7 @@ def causal_alpha_v10_hierarchical_target_path(
         config=config,
         initial_weight=initial_weight,
         execution_contract=contract,
+        boundary_mode=boundary_mode,
     )
     realized = float(initial_weight)
     for _ in range(len(policy.input.decision_indices)):
@@ -927,6 +972,7 @@ def causal_alpha_v10_hierarchical_target_path(
 
 
 __all__ = [
+    "CausalAlphaV10BoundaryMode",
     "CausalAlphaV10ExecutionContract",
     "CausalAlphaV10HierarchyPolicy",
     "CausalAlphaV10HierarchyPolicyInput",

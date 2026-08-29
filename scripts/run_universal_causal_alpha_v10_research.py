@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from trade_rl.learning.causal_alpha_v10_hierarchy import CausalAlphaV10BoundaryMode
 from trade_rl.workflows.universal_causal_alpha_v10_stage_entry import (
     run_causal_alpha_v10_selection,
 )
@@ -22,6 +23,11 @@ def main() -> int:
         "output-root",
     ):
         parser.add_argument(f"--{name}", required=True, type=Path)
+    parser.add_argument(
+        "--boundary-mode",
+        choices=tuple(mode.value for mode in CausalAlphaV10BoundaryMode),
+        default=CausalAlphaV10BoundaryMode.INHERIT_CONFIRM.value,
+    )
     args = parser.parse_args()
     try:
         evidence = run_causal_alpha_v10_selection(
@@ -31,6 +37,7 @@ def main() -> int:
             v4_context_manifest_path=args.v4_context_manifest,
             frozen_metadata_root=args.frozen_metadata_root,
             output_root=args.output_root,
+            boundary_mode=CausalAlphaV10BoundaryMode(args.boundary_mode),
         )
     except (OSError, RuntimeError, TypeError, ValueError) as error:
         print(

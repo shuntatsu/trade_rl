@@ -35,6 +35,9 @@ class _Environment:
         self,
         *,
         risk_weights: float = 0.10,
+        risk_scale: float = 1.0,
+        risk_max_abs_weight: float = 0.10,
+        risk_max_gross: float = 1.0,
         realized_weights: tuple[float, float, float] = (0.10, 0.10, 0.10),
         submitted_targets: tuple[float, float, float] = (0.10, 0.10, 0.10),
         executed_targets: tuple[float, float, float] = (0.0, 0.10, 0.10),
@@ -45,6 +48,9 @@ class _Environment:
         self._offset = 0
         self._current = 0.0
         self._risk_weights = float(risk_weights)
+        self._risk_scale = float(risk_scale)
+        self._risk_max_abs_weight = float(risk_max_abs_weight)
+        self._risk_max_gross = float(risk_max_gross)
         self._realized_weights = realized_weights
         self._submitted_targets = submitted_targets
         self._executed_targets = executed_targets
@@ -76,9 +82,9 @@ class _Environment:
             reasons=self._risk_reasons[offset],
             pretrade_weights=np.array([risk_weight], dtype=np.float64),
             weights=np.array([risk_weight], dtype=np.float64),
-            risk_scale=1.0,
-            max_abs_weight=0.10,
-            max_gross=1.0,
+            risk_scale=self._risk_scale,
+            max_abs_weight=self._risk_max_abs_weight,
+            max_gross=self._risk_max_gross,
             fail_closed_tolerance=1e-10,
         )
         self._current = float(self._realized_weights[offset])
@@ -146,6 +152,43 @@ def test_hard_risk_violation_uses_final_risk_projection_not_post_step_weight(
         _Environment(risk_weights=0.10, realized_weights=(0.1002, 0.10, 0.0)),
     )
     assert valid_with_market_drift.collapse_evidence.hard_risk_violation is False
+
+
+def test_hard_risk_violation_detects_gross_limit_breach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _evaluate(
+        monkeypatch,
+        _Environment(
+            risk_weights=0.10,
+            risk_max_abs_weight=1.0,
+            risk_max_gross=0.05,
+            realized_weights=(0.05, 0.05, 0.0),
+        ),
+    )
+
+    assert result.collapse_evidence.hard_risk_violation is True
+    assert result.lifecycle_trace is not None
+    assert result.lifecycle_trace.hard_risk_violations[0]
+
+
+def test_hard_risk_violation_detects_nonzero_target_at_zero_risk_scale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _evaluate(
+        monkeypatch,
+        _Environment(
+            risk_weights=0.001,
+            risk_scale=0.0,
+            risk_max_abs_weight=1.0,
+            risk_max_gross=1.0,
+            realized_weights=(0.0, 0.0, 0.0),
+        ),
+    )
+
+    assert result.collapse_evidence.hard_risk_violation is True
+    assert result.lifecycle_trace is not None
+    assert result.lifecycle_trace.hard_risk_violations[0]
 
 
 def test_lifecycle_trace_preserves_submitted_and_delayed_execution_targets(

@@ -906,6 +906,7 @@ def run_causal_alpha_v10_selection(
         signal,
         signal_run_manifest_digest=dual_run_binding.signal_run_manifest_digest,
         dual_run_binding_digest=dual_run_binding.digest,
+        digest="",
     )
     root = Path(output_root)
     with CausalAlphaV10RunLock(root):
@@ -948,6 +949,7 @@ def run_causal_alpha_v10_selection(
             selection,
             source_signal_evidence_digest=signal.digest,
             dual_run_binding_digest=dual_run_binding.digest,
+            digest="",
         )
         _write_evidence(store, "selection", selection)
         status = "selection_passed" if selection.passed else "selection_rejected"

@@ -141,6 +141,8 @@ PostgreSQL `public.rl_klines` にはBinance 1m raw rows（16 symbols、2023-07-0
 - V4 context manifest: `bc91783061182e41415d45a714049737ae16564a47d0e1ca14d004cc4c5c7357`
 - volume/network: `trade-rl-training-data`, `trade_rl_default`
 
+V11実データrunは`329131d7` imageで完了した。その後、既存V10 risk projectionのno-trade band境界に対する回帰修正を`dcf7a877`へ取り込み、49件の対象テストで検証した。この修正はV11 compiler/selection pathの挙動を変更しないため、既存V11 artifactのrun identityを差し替えていない。
+
 V11 output roots:
 
 ```text

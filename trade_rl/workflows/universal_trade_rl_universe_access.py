@@ -38,7 +38,9 @@ class UniversalTradeRLAdmissionAuthorization:
 
     def __post_init__(self) -> None:
         if self.schema_version != UNIVERSAL_TRADE_RL_ADMISSION_AUTHORIZATION_SCHEMA:
-            raise ValueError("unsupported Universal Trade RL Admission authorization schema")
+            raise ValueError(
+                "unsupported Universal Trade RL Admission authorization schema"
+            )
         require_sha256(
             self.universe_manifest_digest,
             field="Admission authorization universe manifest digest",
@@ -53,7 +55,9 @@ class UniversalTradeRLAdmissionAuthorization:
         )
         expected = content_digest(self.to_payload(include_digest=False))
         if self.digest and self.digest != expected:
-            raise ValueError("Universal Trade RL Admission authorization digest mismatch")
+            raise ValueError(
+                "Universal Trade RL Admission authorization digest mismatch"
+            )
         object.__setattr__(self, "digest", expected)
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
@@ -123,7 +127,9 @@ class UniversalTradeRLUniverseAccess:
             if self.fit_symbols != train or self.evaluation_symbols:
                 raise ValueError("Train universe access contract is invalid")
             if self.admission_authorization_digest is not None:
-                raise ValueError("Train universe access must forbid Admission authorization")
+                raise ValueError(
+                    "Train universe access must forbid Admission authorization"
+                )
         elif self.phase is UniversalTradeRLAccessPhase.DEVELOPMENT:
             if self.fit_symbols != train or self.evaluation_symbols != development:
                 raise ValueError("Development universe access contract is invalid")
@@ -180,9 +186,7 @@ class UniversalTradeRLUniverseAccess:
                 admission_symbols=admission,
                 fit_symbols=train,
                 evaluation_symbols=(
-                    ()
-                    if phase is UniversalTradeRLAccessPhase.TRAIN
-                    else development
+                    () if phase is UniversalTradeRLAccessPhase.TRAIN else development
                 ),
             )
 
@@ -205,7 +209,9 @@ class UniversalTradeRLUniverseAccess:
         if authorization.universe_manifest_digest != manifest.digest:
             raise PermissionError("Admission authorization universe identity mismatch")
         if authorization.frozen_generation_digest != frozen_generation_digest:
-            raise PermissionError("Admission authorization generation identity mismatch")
+            raise PermissionError(
+                "Admission authorization generation identity mismatch"
+            )
         if authorization.selection_evidence_digest != selection_evidence_digest:
             raise PermissionError("Admission authorization Selection identity mismatch")
         return cls(

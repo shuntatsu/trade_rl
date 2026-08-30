@@ -16,9 +16,7 @@ from trade_rl.domain.universal_trade_rl_universe import (
     UniversalTradeRLUniverseConfig,
 )
 
-UNIVERSAL_TRADE_RL_SOURCE_CATALOG_SCHEMA: Final = (
-    "universal_trade_rl_source_catalog_v1"
-)
+UNIVERSAL_TRADE_RL_SOURCE_CATALOG_SCHEMA: Final = "universal_trade_rl_source_catalog_v1"
 _UNIVERSE_ROOT_KEYS: Final = (
     "schema_version",
     "train_symbols",

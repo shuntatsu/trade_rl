@@ -697,6 +697,15 @@ class CausalAlphaV10HierarchyPolicy:
                     hierarchy_reason="risk_cap_flatten",
                 )
             partial = float(np.sign(observed_current) * risk_cap)
+            if not self._partial_risk_reduction_executable(observed_current, partial):
+                self._risk_flatten_latched = True
+                return self._record(
+                    offset=offset,
+                    observed_current=observed_current,
+                    requested=0.0,
+                    reason="risk_projection",
+                    hierarchy_reason="risk_cap_flatten",
+                )
             decision_current = partial
             requested = partial
             reason = "risk_projection"

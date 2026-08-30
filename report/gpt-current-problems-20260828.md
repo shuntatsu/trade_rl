@@ -146,7 +146,7 @@ V9 は short が利益源で long が損失源だった。V10 も方向別、銘
 - V10 Selection leaf (r5): /workspace/var/runs/causal-alpha-v10-prod-20260829-r5/selection/replays/
 - V9 formal run: /workspace/var/runs/causal-alpha-v9-prod-20260828-r3
 - V10 spec: docs/implementation-plans/specs/2026-08-28-causal-alpha-v10-hierarchical-wave-design.md
-- V10 plan: docs/superpowers/plans/2026-08-28-causal-alpha-v10-hierarchical-wave.md
+- V10 plan: docs/implementation-plans/plans/2026-08-28-causal-alpha-v10-hierarchical-wave.md
 
 確認コマンド:
 

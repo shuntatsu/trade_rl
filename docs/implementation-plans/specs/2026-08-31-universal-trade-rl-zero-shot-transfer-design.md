@@ -391,3 +391,29 @@ Economic success is a later evidence claim, not implied by implementation comple
 7. Admission is a one-way confirmatory boundary after architecture/config freeze.
 8. Causal Alpha V11 remains policy/teacher research; V10/r21 execution/risk evidence remains frozen infrastructure.
 9. Final optimization target is after-cost wealth under hard safety constraints.
+
+## 19. Implementation decomposition
+
+This document is the program-level architecture and is intentionally too broad for one implementation plan. Implementation must be split into independently reviewable subprojects so that failures can be attributed cleanly.
+
+### U0: Universe roles and isolation contract
+
+First subproject. Define immutable Train / Development / Unseen Admission symbol manifests, time-boundary contracts, provenance, and fail-closed checks preventing Admission-derived statistics from reaching fit/calibration paths. This produces no new trading behavior.
+
+### U1: Universal observation and reward contract
+
+Define the symbol-independent RL observation surface, after-cost wealth reward reconciliation, and policy/execution trace boundary while preserving the existing risk/execution system.
+
+### U2: Universal Base RL training and Development Selection
+
+Train the first universal RL policy on Train symbols only. Use Development symbols for architecture/checkpoint selection with pre-registered economic diagnostics.
+
+### U3: Zero-shot Admission
+
+Freeze the U2 generation and evaluate untouched symbols without retraining. No model changes are allowed after opening that Admission generation.
+
+### U4: Optional transfer adapter
+
+Only after U3 establishes a meaningful zero-shot baseline, create separate adaptation artifacts and compare them against frozen zero-shot on untouched post-adaptation evidence.
+
+The next implementation plan after this architecture is approved must cover **U0 only**. U1-U4 each require their own subsequent spec/plan and approval gate.

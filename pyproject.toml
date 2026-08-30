@@ -61,6 +61,7 @@ trade-rl = "trade_rl.cli:main"
 trade-rl-causal-alpha-v5 = "trade_rl.workflows.universal_causal_alpha_v5_runner:cli_main"
 trade-rl-causal-alpha-v6 = "trade_rl.workflows.universal_causal_alpha_v6_runner:cli_main"
 trade-rl-causal-alpha-v7 = "trade_rl.workflows.universal_causal_alpha_v7_runner:cli_main"
+trade-rl-universe = "trade_rl.workflows.universal_trade_rl_universe_runner:cli_main"
 
 [tool.setuptools.dynamic]
 version = {attr = "trade_rl._version.__version__"}

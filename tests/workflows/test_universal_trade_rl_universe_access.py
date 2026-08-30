@@ -251,7 +251,9 @@ def test_authorization_is_immutable_and_digest_bound() -> None:
     manifest = _manifest()
     authorization = _authorization(manifest)
 
-    assert authorization.schema_version == "universal_trade_rl_admission_authorization_v1"
+    assert (
+        authorization.schema_version == "universal_trade_rl_admission_authorization_v1"
+    )
     assert len(authorization.digest) == 64
     with pytest.raises(FrozenInstanceError):
         authorization.universe_manifest_digest = "a" * 64  # type: ignore[misc]

@@ -3,10 +3,13 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+import numpy as np
+
 from trade_rl.learning.causal_alpha_v6 import (
     CausalAlphaV6Candidate,
 )
 from trade_rl.learning.causal_alpha_v8 import CausalAlphaV8Candidate
+from trade_rl.learning.rollout_evaluation import ActionPathLifecycleTrace
 from trade_rl.workflows.universal_causal_alpha_v6_replay import (
     CausalAlphaV6ReplayMetric,
 )
@@ -101,6 +104,20 @@ def _metric() -> CausalAlphaV8ReplayMetric:
     )
 
 
+def _lifecycle_trace() -> ActionPathLifecycleTrace:
+    return ActionPathLifecycleTrace(
+        submitted_targets=np.asarray([[0.1]], dtype=np.float64),
+        execution_intent_targets=np.asarray([[0.1]], dtype=np.float64),
+        final_risk_targets=np.asarray([[0.1]], dtype=np.float64),
+        applied_risk_scales=np.asarray([1.0], dtype=np.float64),
+        hard_risk_evidence_available=np.asarray([True], dtype=np.bool_),
+        hard_risk_violations=np.asarray([False], dtype=np.bool_),
+        risk_reasons=((),),
+        transition_classes=("entry",),
+        flatten_initiators=("not_applicable",),
+    )
+
+
 def test_v8_replay_round_trip_revalidates_every_nested_digest() -> None:
     metric = _metric()
 
@@ -108,7 +125,22 @@ def test_v8_replay_round_trip_revalidates_every_nested_digest() -> None:
 
     assert restored == metric
     assert restored.digest == metric.digest
+    assert restored.lifecycle_trace is None
     assert restored.as_v7_metric().v7_config_digest == metric.v8_config_digest
+
+
+def test_v8_replay_round_trip_preserves_optional_lifecycle_trace() -> None:
+    trace = _lifecycle_trace()
+    metric = replace(_metric(), lifecycle_trace=trace, digest="")
+
+    restored = CausalAlphaV8ReplayMetric.from_payload(metric.to_payload())
+
+    assert restored.lifecycle_trace is not None
+    assert restored.lifecycle_trace.digest == trace.digest
+    np.testing.assert_array_equal(
+        restored.lifecycle_trace.execution_intent_targets,
+        trace.execution_intent_targets,
+    )
 
 
 def test_v8_selection_preserves_candidate_names_and_unchanged_gates() -> None:

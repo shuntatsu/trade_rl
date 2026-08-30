@@ -135,7 +135,9 @@ class CausalAlphaV10HierarchyPolicyInput:
     initial_weight: float
     execution_contract: CausalAlphaV10ExecutionContract
     compiler_config_digest: str
-    boundary_mode: CausalAlphaV10BoundaryMode = CausalAlphaV10BoundaryMode.INHERIT_CONFIRM
+    boundary_mode: CausalAlphaV10BoundaryMode = (
+        CausalAlphaV10BoundaryMode.INHERIT_CONFIRM
+    )
     digest: str = ""
 
     def __post_init__(self) -> None:
@@ -317,7 +319,8 @@ def _compiler_config_digest(
         {
             "execution_contract_digest": execution_contract.digest,
             "boundary_mode": boundary_mode.value,
-            "schema_version": "causal_alpha_v10_target_compiler_contract_v3",
+            "reduce_only_execution_contract": "explicit_v1",
+            "schema_version": "causal_alpha_v10_target_compiler_contract_v4",
             "v6_economic_config_digest": economic_config.digest,
             "v10_config_digest": config.digest,
         }
@@ -425,9 +428,7 @@ class CausalAlphaV10HierarchyPolicy:
         self._last_requested: float | None = None
         self._risk_flatten_latched = False
         self._inherited = abs(policy_input.initial_weight) > _OBSERVATION_TOLERANCE
-        self._position_origin: str | None = (
-            "inherited" if self._inherited else None
-        )
+        self._position_origin: str | None = "inherited" if self._inherited else None
         self._boundary_flatten_latched = (
             self._boundary_mode is CausalAlphaV10BoundaryMode.FLATTEN_THEN_RESET
             and self._inherited
@@ -539,6 +540,13 @@ class CausalAlphaV10HierarchyPolicy:
             "fast_std": float(self._fast_uncertainty[offset]),
             "hierarchy_reason": hierarchy_reason,
             "position_origin": trace_origin,
+            "reduce_only": hierarchy_reason
+            in {
+                "exit",
+                "neutral_fast_expiry",
+                "risk_cap_flatten",
+                "risk_cap_projection",
+            },
             "slow_direction": int(self._slow_direction[offset]),
             "slow_mean": float(self._slow_mean[offset]),
             "slow_std": float(self._slow_uncertainty[offset]),
@@ -654,10 +662,7 @@ class CausalAlphaV10HierarchyPolicy:
                     reason="hold_flat",
                     hierarchy_reason="realized_state_reset",
                 )
-            if (
-                self._boundary_mode
-                is CausalAlphaV10BoundaryMode.FLATTEN_ON_RISK_BREACH
-            ):
+            if self._boundary_mode is CausalAlphaV10BoundaryMode.FLATTEN_ON_RISK_BREACH:
                 return self._record(
                     offset=offset,
                     observed_current=observed_current,
@@ -682,10 +687,7 @@ class CausalAlphaV10HierarchyPolicy:
         risk_projected = False
 
         if abs(observed_current) > risk_cap + _OBSERVATION_TOLERANCE:
-            if (
-                self._boundary_mode
-                is CausalAlphaV10BoundaryMode.FLATTEN_ON_RISK_BREACH
-            ):
+            if self._boundary_mode is CausalAlphaV10BoundaryMode.FLATTEN_ON_RISK_BREACH:
                 self._risk_flatten_latched = True
                 return self._record(
                     offset=offset,
@@ -695,18 +697,6 @@ class CausalAlphaV10HierarchyPolicy:
                     hierarchy_reason="risk_cap_flatten",
                 )
             partial = float(np.sign(observed_current) * risk_cap)
-            if not self._partial_risk_reduction_executable(
-                observed_current,
-                partial,
-            ):
-                self._risk_flatten_latched = True
-                return self._record(
-                    offset=offset,
-                    observed_current=observed_current,
-                    requested=0.0,
-                    reason="risk_projection",
-                    hierarchy_reason="risk_cap_flatten",
-                )
             decision_current = partial
             requested = partial
             reason = "risk_projection"
@@ -730,9 +720,7 @@ class CausalAlphaV10HierarchyPolicy:
                     if fast_only_ownership
                     else fast == observed_slow == decision_sign
                 )
-                if coherent_inherited and bool(
-                    self._execution_eligible[offset]
-                ):
+                if coherent_inherited and bool(self._execution_eligible[offset]):
                     self._inherited_matches += 1
                 if self._inherited_checks >= config.entry_confirmation_count:
                     if self._inherited_matches < config.entry_confirmation_count:
@@ -755,10 +743,7 @@ class CausalAlphaV10HierarchyPolicy:
                 coherent = (
                     fast
                     if fast != 0
-                    and (
-                        fast_only_ownership
-                        or fast == self._slow_regime
-                    )
+                    and (fast_only_ownership or fast == self._slow_regime)
                     and bool(self._execution_eligible[offset])
                     else 0
                 )
@@ -814,8 +799,7 @@ class CausalAlphaV10HierarchyPolicy:
                     else:
                         self._fast_neutral_count = 0
                     neutral_fast_expired = (
-                        self._fast_neutral_count
-                        >= config.slow_neutral_expiry_count
+                        self._fast_neutral_count >= config.slow_neutral_expiry_count
                     )
                 if observed_slow == decision_sign:
                     self._slow_regime = observed_slow

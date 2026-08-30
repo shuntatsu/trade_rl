@@ -12,7 +12,10 @@ from trade_rl.domain.common import require_sha256
 from trade_rl.learning.causal_alpha_v6 import CausalAlphaV6Candidate
 from trade_rl.learning.causal_alpha_v7 import CausalAlphaV7Candidate
 from trade_rl.learning.causal_alpha_v8 import CausalAlphaV8Candidate
-from trade_rl.learning.rollout_evaluation import ActionPathStepTrace
+from trade_rl.learning.rollout_evaluation import (
+    ActionPathLifecycleTrace,
+    ActionPathStepTrace,
+)
 from trade_rl.workflows.universal_causal_alpha_v6_replay import (
     CausalAlphaV6ReplayMetric,
 )
@@ -57,6 +60,7 @@ class CausalAlphaV8ReplayMetric:
     schema_version: str = CAUSAL_ALPHA_V8_REPLAY_SCHEMA
     digest: str = ""
     step_trace: ActionPathStepTrace | None = None
+    lifecycle_trace: ActionPathLifecycleTrace | None = None
 
     def __post_init__(self) -> None:
         candidate = CausalAlphaV8Candidate(self.candidate)
@@ -82,10 +86,18 @@ class CausalAlphaV8ReplayMetric:
                 raise TypeError("V8 replay step trace is invalid")
             if self.step_trace.decision_count != self.v6_metric.decision_count:
                 raise ValueError("V8 replay step trace count drifted")
+        if self.lifecycle_trace is not None:
+            if not isinstance(self.lifecycle_trace, ActionPathLifecycleTrace):
+                raise TypeError("V8 replay lifecycle trace is invalid")
+            if self.lifecycle_trace.decision_count != self.v6_metric.decision_count:
+                raise ValueError("V8 replay lifecycle trace count drifted")
         for observed, expected in (
             (self.attribution.gross_log_return, self.v6_metric.gross_return),
             (self.attribution.net_log_return, self.v6_metric.net_return),
-            (self.attribution.total_execution_cost, self.v6_metric.total_execution_cost),
+            (
+                self.attribution.total_execution_cost,
+                self.v6_metric.total_execution_cost,
+            ),
         ):
             if not math.isclose(observed, expected, rel_tol=1e-12, abs_tol=1e-12):
                 raise ValueError("V8 replay attribution economics drifted")
@@ -99,7 +111,11 @@ class CausalAlphaV8ReplayMetric:
 
     @property
     def identity(self) -> tuple[str, str, int]:
-        return (self.candidate.value, self.v6_metric.symbol, self.v6_metric.episode_index)
+        return (
+            self.candidate.value,
+            self.v6_metric.symbol,
+            self.v6_metric.episode_index,
+        )
 
     def as_v7_metric(self) -> CausalAlphaV7ReplayMetric:
         candidate = _V7_CANDIDATE_BY_V8[self.candidate]
@@ -139,6 +155,8 @@ class CausalAlphaV8ReplayMetric:
         }
         if self.step_trace is not None:
             payload["step_trace"] = self.step_trace.to_payload()
+        if self.lifecycle_trace is not None:
+            payload["lifecycle_trace"] = self.lifecycle_trace.to_payload()
         if include_digest:
             payload["artifact_digest"] = self.digest
         return payload
@@ -161,9 +179,7 @@ class CausalAlphaV8ReplayMetric:
         attribution_payload = _payload(payload["attribution"], field="attribution")
         attribution_digest = str(attribution_payload.pop("artifact_digest"))
         cells = tuple(
-            CausalAlphaV7AttributionCell(
-                **cast(Any, _payload(cell, field="cell"))
-            )
+            CausalAlphaV7AttributionCell(**cast(Any, _payload(cell, field="cell")))
             for cell in tuple(cast(Any, attribution_payload.pop("cells")))
         )
         attribution_payload.pop("dimensions", None)
@@ -182,6 +198,12 @@ class CausalAlphaV8ReplayMetric:
             if trace_payload is None
             else ActionPathStepTrace.from_payload(trace_payload)
         )
+        lifecycle_payload = payload.pop("lifecycle_trace", None)
+        lifecycle = (
+            None
+            if lifecycle_payload is None
+            else ActionPathLifecycleTrace.from_payload(lifecycle_payload)
+        )
         root_digest = str(payload.pop("artifact_digest"))
         payload.pop("v6_metric")
         payload.pop("attribution")
@@ -193,6 +215,7 @@ class CausalAlphaV8ReplayMetric:
             attribution=attribution,
             digest=root_digest,
             step_trace=trace,
+            lifecycle_trace=lifecycle,
         )
 
 

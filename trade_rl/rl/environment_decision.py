@@ -47,6 +47,8 @@ class EnvironmentDecisionRequest:
     pending_shadow_target: np.ndarray | None
     current_index: int
     end_index: int
+    submitted_hybrid_reduce_only_mask: np.ndarray | None = None
+    pending_hybrid_reduce_only_mask: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +69,8 @@ class EnvironmentDecisionPlan:
     executed_shadow_target: np.ndarray
     next_pending_hybrid_target: np.ndarray | None
     next_pending_shadow_target: np.ndarray | None
+    executed_hybrid_reduce_only_mask: np.ndarray
+    next_pending_hybrid_reduce_only_mask: np.ndarray | None
     execution_delay_warmup: bool
     bars: int
 
@@ -191,12 +195,24 @@ class EnvironmentDecisionPlanner:
         submitted_shadow = (
             np.asarray(shadow_baseline, dtype=np.float64).reshape(-1).copy()
         )
+        raw_reduce_mask = request.submitted_hybrid_reduce_only_mask
+        if raw_reduce_mask is None:
+            submitted_reduce_mask = np.zeros(submitted_hybrid.shape, dtype=np.bool_)
+        else:
+            raw_array = np.asarray(raw_reduce_mask)
+            if raw_array.dtype != np.dtype(np.bool_):
+                raise TypeError("submitted hybrid reduce-only mask must be boolean")
+            submitted_reduce_mask = raw_array.reshape(-1).copy()
+            if submitted_reduce_mask.shape != submitted_hybrid.shape:
+                raise ValueError("submitted hybrid reduce-only mask shape is invalid")
         execution_delay_warmup = False
         next_pending_hybrid: np.ndarray | None = None
         next_pending_shadow: np.ndarray | None = None
+        next_pending_reduce_mask: np.ndarray | None = None
         if self.signal_delay_decisions == 0:
             executed_hybrid = submitted_hybrid.copy()
             executed_shadow = submitted_shadow.copy()
+            executed_reduce_mask = submitted_reduce_mask.copy()
         else:
             execution_delay_warmup = request.pending_hybrid_target is None
             executed_hybrid = (
@@ -213,8 +229,20 @@ class EnvironmentDecisionPlanner:
                 .reshape(-1)
                 .copy()
             )
+            if request.pending_hybrid_target is None:
+                executed_reduce_mask = np.zeros(submitted_hybrid.shape, dtype=np.bool_)
+            elif request.pending_hybrid_reduce_only_mask is None:
+                executed_reduce_mask = np.zeros(submitted_hybrid.shape, dtype=np.bool_)
+            else:
+                raw_pending_reduce = np.asarray(request.pending_hybrid_reduce_only_mask)
+                if raw_pending_reduce.dtype != np.dtype(np.bool_):
+                    raise TypeError("pending hybrid reduce-only mask must be boolean")
+                executed_reduce_mask = raw_pending_reduce.reshape(-1).copy()
+                if executed_reduce_mask.shape != submitted_hybrid.shape:
+                    raise ValueError("pending hybrid reduce-only mask shape is invalid")
             next_pending_hybrid = submitted_hybrid.copy()
             next_pending_shadow = submitted_shadow.copy()
+            next_pending_reduce_mask = submitted_reduce_mask.copy()
         return EnvironmentDecisionPlan(
             parsed_action=parsed,
             maintained_action=np.asarray(maintained, dtype=np.float32).copy(),
@@ -227,6 +255,8 @@ class EnvironmentDecisionPlanner:
             executed_shadow_target=executed_shadow,
             next_pending_hybrid_target=next_pending_hybrid,
             next_pending_shadow_target=next_pending_shadow,
+            executed_hybrid_reduce_only_mask=executed_reduce_mask,
+            next_pending_hybrid_reduce_only_mask=next_pending_reduce_mask,
             execution_delay_warmup=execution_delay_warmup,
             bars=self.decision_bar_count(
                 current_index=request.current_index,

@@ -19,6 +19,7 @@ class EnvironmentRiskRequest:
     proposal: np.ndarray
     book: BookState
     current_index: int
+    reduce_only_mask: np.ndarray | None = None
 
 
 class EnvironmentRiskProjector:
@@ -79,6 +80,7 @@ class EnvironmentRiskProjector:
             current=request.book.weights,
             drawdown=self.drawdown(request.book),
             emergency_flatten_mask=assessment.flatten_mask,
+            reduce_only_mask=request.reduce_only_mask,
         )
         risk_inputs = None
         if self.portfolio_risk.requires_advanced_inputs:
@@ -123,6 +125,8 @@ class EnvironmentRiskProjector:
             pretrade_weights=pretrade.weights,
             max_gross=pretrade.max_gross,
             drawdown_budget=pretrade.drawdown_budget,
+            max_abs_weight=pretrade.max_abs_weight,
+            fail_closed_tolerance=pretrade.fail_closed_tolerance,
         )
 
 

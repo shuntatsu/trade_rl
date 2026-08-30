@@ -1,0 +1,1 @@
+delete only merged feature branches after ancestor verification

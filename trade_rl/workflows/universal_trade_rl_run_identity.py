@@ -35,9 +35,7 @@ def _mapping(value: object, *, field: str) -> dict[str, object]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{field} must be an object with exact keys")
     result = {str(key): item for key, item in value.items()}
-    if set(result) != set(_RUN_IDENTITY_KEYS) or len(result) != len(
-        _RUN_IDENTITY_KEYS
-    ):
+    if set(result) != set(_RUN_IDENTITY_KEYS) or len(result) != len(_RUN_IDENTITY_KEYS):
         raise ValueError(f"{field} must use exact keys")
     return result
 
@@ -89,7 +87,9 @@ class UniversalTradeRLRunIdentity:
                 )
         else:
             if self.model_config_digest is None:
-                raise ValueError("post-materialization run identity requires model config")
+                raise ValueError(
+                    "post-materialization run identity requires model config"
+                )
             require_sha256(
                 self.model_config_digest,
                 field="run identity model config digest",
@@ -100,7 +100,9 @@ class UniversalTradeRLRunIdentity:
                 )
             if self.stage is UniversalTradeRLRunStage.ZERO_SHOT_ADMISSION:
                 if self.admission_authorization_digest is None:
-                    raise ValueError("zero-shot Admission identity requires authorization")
+                    raise ValueError(
+                        "zero-shot Admission identity requires authorization"
+                    )
                 require_sha256(
                     self.admission_authorization_digest,
                     field="run identity Admission authorization digest",

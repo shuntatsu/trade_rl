@@ -16,9 +16,7 @@ from trade_rl.workflows.universal_trade_rl_universe_manifest import (
     UniversalTradeRLUniverseManifest,
 )
 
-UNIVERSAL_TRADE_RL_FIT_PROVENANCE_SCHEMA: Final = (
-    "universal_trade_rl_fit_provenance_v1"
-)
+UNIVERSAL_TRADE_RL_FIT_PROVENANCE_SCHEMA: Final = "universal_trade_rl_fit_provenance_v1"
 
 
 class UniversalTradeRLFitPurpose(str, Enum):
@@ -152,7 +150,9 @@ def build_universal_trade_rl_fit_provenance(
                 f"fit provenance source symbol is absent from manifest: {symbol}"
             ) from error
         if entry.role is not UniversalTradeRLSymbolRole.TRAIN:
-            raise PermissionError("Universal Trade RL fit provenance source is Train-only")
+            raise PermissionError(
+                "Universal Trade RL fit provenance source is Train-only"
+            )
         source_digests.append((symbol, entry.dataset_digest))
 
     return UniversalTradeRLFitProvenance(

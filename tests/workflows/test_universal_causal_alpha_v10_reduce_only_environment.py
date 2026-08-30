@@ -25,7 +25,9 @@ class _Policy:
         self.last_step_trace_metadata = {"reduce_only": reduce_only}
 
 
-def test_v10_hierarchical_environment_forwards_reduce_only_metadata_before_step() -> None:
+def test_v10_hierarchical_environment_forwards_reduce_only_metadata_before_step() -> (
+    None
+):
     environment = _Environment()
     wrapper = _V10ReduceOnlyEnvironment(environment, _Policy(True))
 

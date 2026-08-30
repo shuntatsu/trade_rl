@@ -78,7 +78,9 @@ def _request(
 
 def test_reduce_only_mask_is_delayed_with_the_same_hybrid_target() -> None:
     warmup = _planner().plan(
-        _request(submitted_reduce_only=True, pending_target=None, pending_reduce_only=None)
+        _request(
+            submitted_reduce_only=True, pending_target=None, pending_reduce_only=None
+        )
     )
 
     assert warmup.executed_hybrid_reduce_only_mask.tolist() == [False]
@@ -99,7 +101,9 @@ def test_reduce_only_mask_is_delayed_with_the_same_hybrid_target() -> None:
 
 def test_zero_delay_uses_current_submission_reduce_only_mask() -> None:
     plan = _planner(delay=0).plan(
-        _request(submitted_reduce_only=True, pending_target=None, pending_reduce_only=None)
+        _request(
+            submitted_reduce_only=True, pending_target=None, pending_reduce_only=None
+        )
     )
 
     assert plan.executed_hybrid_reduce_only_mask.tolist() == [True]

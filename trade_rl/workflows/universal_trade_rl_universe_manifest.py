@@ -74,8 +74,12 @@ class UniversalTradeRLUniverseEntry:
             last_timestamp_ns=self.last_timestamp_ns,
             row_count=self.row_count,
         )
-        if self.role is not None and not isinstance(self.role, UniversalTradeRLSymbolRole):
-            raise TypeError("universe entry role must be a Universal Trade RL symbol role")
+        if self.role is not None and not isinstance(
+            self.role, UniversalTradeRLSymbolRole
+        ):
+            raise TypeError(
+                "universe entry role must be a Universal Trade RL symbol role"
+            )
         has_role = self.role is not None
         has_exclusion = self.exclusion_reason is not None
         if has_role == has_exclusion:
@@ -168,7 +172,9 @@ class UniversalTradeRLUniverseManifest:
         )
         if not isinstance(self.entries, tuple) or not self.entries:
             raise ValueError("universe manifest entries must be a non-empty tuple")
-        if any(not isinstance(item, UniversalTradeRLUniverseEntry) for item in self.entries):
+        if any(
+            not isinstance(item, UniversalTradeRLUniverseEntry) for item in self.entries
+        ):
             raise TypeError("universe manifest entries contain invalid contracts")
         symbols = tuple(item.symbol for item in self.entries)
         if len(set(symbols)) != len(symbols):
@@ -184,7 +190,9 @@ class UniversalTradeRLUniverseManifest:
             reconstructed_sources
         )
         if expected_source_digest != self.source_catalog_digest:
-            raise ValueError("universe manifest source catalog digest contract mismatch")
+            raise ValueError(
+                "universe manifest source catalog digest contract mismatch"
+            )
 
         expected = content_digest(self.to_payload(include_digest=False))
         if self.digest and self.digest != expected:
@@ -216,7 +224,9 @@ class UniversalTradeRLUniverseManifest:
         if values["schema_version"] != UNIVERSAL_TRADE_RL_UNIVERSE_MANIFEST_SCHEMA:
             raise ValueError("unsupported Universal Trade RL universe manifest schema")
         entries_raw = values["entries"]
-        if not isinstance(entries_raw, Sequence) or isinstance(entries_raw, (str, bytes)):
+        if not isinstance(entries_raw, Sequence) or isinstance(
+            entries_raw, (str, bytes)
+        ):
             raise ValueError("universe manifest entries contract must be an array")
         config_digest = values["config_digest"]
         source_catalog_digest = values["source_catalog_digest"]
@@ -264,7 +274,9 @@ def _config_from_entries(
             exclusions=tuple(exclusions),
         )
     except (TypeError, ValueError) as error:
-        raise ValueError("universe manifest role/exclusion contract is invalid") from error
+        raise ValueError(
+            "universe manifest role/exclusion contract is invalid"
+        ) from error
 
 
 def build_universal_trade_rl_universe_manifest(

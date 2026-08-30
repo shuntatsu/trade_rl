@@ -12,6 +12,8 @@ from trade_rl.workflows.universal_trade_rl_universe_config import (
     universal_trade_rl_source_catalog_digest,
 )
 
+_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _write(path: Path, payload: object) -> Path:
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -225,4 +227,25 @@ def test_source_catalog_digest_changes_with_source_identity() -> None:
 
     assert universal_trade_rl_source_catalog_digest(base) != (
         universal_trade_rl_source_catalog_digest(changed)
+    )
+
+
+def test_authored_example_inputs_are_strictly_loadable() -> None:
+    config = load_universal_trade_rl_universe_config(
+        _ROOT / "examples/binance/universal-trade-rl-universe.example.json"
+    )
+    sources = load_universal_trade_rl_source_catalog(
+        _ROOT / "examples/binance/universal-trade-rl-source-catalog.example.json"
+    )
+
+    assert config.train_symbols == ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+    assert config.development_symbols == ("LINKUSDT",)
+    assert config.admission_symbols == ("AVAXUSDT",)
+    assert tuple(item.symbol for item in sources) == (
+        "AVAXUSDT",
+        "BTCUSDT",
+        "ETHUSDT",
+        "LINKUSDT",
+        "LUNA2USDT",
+        "SOLUSDT",
     )

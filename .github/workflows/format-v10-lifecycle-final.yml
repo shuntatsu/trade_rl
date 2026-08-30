@@ -1,0 +1,85 @@
+name: Format V10 lifecycle final
+
+on:
+  push:
+    branches:
+      - codex/v10-execution-lifecycle-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.event.head_commit.message == 'chore: trigger V10 lifecycle final format'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: codex/v10-execution-lifecycle-hardening
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Install dev tools
+        run: uv sync --extra dev
+      - name: Format only PR-owned Python changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            tests/learning/test_action_path_lifecycle_trace.py \
+            tests/learning/test_causal_alpha_v10_closed_loop.py \
+            tests/learning/test_causal_alpha_v10_reduce_only.py \
+            tests/learning/test_rollout_execution_lifecycle.py \
+            tests/risk/test_pretrade_reduce_only.py \
+            tests/rl/test_environment_decision_reduce_only.py \
+            tests/rl/test_environment_reduce_only_integration.py \
+            tests/workflows/test_universal_causal_alpha_v10_reduce_only_environment.py \
+            tests/workflows/test_universal_causal_alpha_v10_stage_entry.py \
+            tests/workflows/test_universal_causal_alpha_v8_replay.py \
+            trade_rl/learning/causal_alpha_v10_hierarchy.py \
+            trade_rl/learning/rollout_evaluation.py \
+            trade_rl/risk/pretrade.py \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_decision.py \
+            trade_rl/rl/environment_risk.py \
+            trade_rl/workflows/universal_causal_alpha_v10_stage_entry.py \
+            trade_rl/workflows/universal_causal_alpha_v8_replay.py
+          uv run ruff format --check \
+            tests/learning/test_action_path_lifecycle_trace.py \
+            tests/learning/test_causal_alpha_v10_closed_loop.py \
+            tests/learning/test_causal_alpha_v10_reduce_only.py \
+            tests/learning/test_rollout_execution_lifecycle.py \
+            tests/risk/test_pretrade_reduce_only.py \
+            tests/rl/test_environment_decision_reduce_only.py \
+            tests/rl/test_environment_reduce_only_integration.py \
+            tests/workflows/test_universal_causal_alpha_v10_reduce_only_environment.py \
+            tests/workflows/test_universal_causal_alpha_v10_stage_entry.py \
+            tests/workflows/test_universal_causal_alpha_v8_replay.py \
+            trade_rl/learning/causal_alpha_v10_hierarchy.py \
+            trade_rl/learning/rollout_evaluation.py \
+            trade_rl/risk/pretrade.py \
+            trade_rl/rl/environment.py \
+            trade_rl/rl/environment_decision.py \
+            trade_rl/rl/environment_risk.py \
+            trade_rl/workflows/universal_causal_alpha_v10_stage_entry.py \
+            trade_rl/workflows/universal_causal_alpha_v8_replay.py
+      - name: Remove temporary formatter and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/v10-lifecycle-format-trigger.txt
+          rm -f .github/workflows/format-v10-lifecycle-final.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No formatting changes to commit.'
+            exit 0
+          fi
+          git commit -m 'style: format V10 lifecycle hardening'
+          git push origin HEAD:codex/v10-execution-lifecycle-hardening

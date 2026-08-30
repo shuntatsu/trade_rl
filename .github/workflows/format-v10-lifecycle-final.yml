@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   format:
-    if: github.event.head_commit.message == 'chore: trigger V10 lifecycle final format'
+    if: github.event.head_commit.message == 'v10-lifecycle-format-trigger'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact branch

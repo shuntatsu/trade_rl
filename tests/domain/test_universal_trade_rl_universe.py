@@ -90,6 +90,14 @@ def test_exclusion_reason_must_be_non_empty() -> None:
         UniversalTradeRLSymbolExclusion(symbol="LUNA2USDT", reason="  ")
 
 
+def test_exclusion_reason_must_be_a_string() -> None:
+    with pytest.raises(TypeError, match="reason"):
+        UniversalTradeRLSymbolExclusion(
+            symbol="LUNA2USDT",
+            reason=123,  # type: ignore[arg-type]
+        )
+
+
 def test_symbols_use_canonical_uppercase_market_syntax() -> None:
     with pytest.raises(ValueError, match="canonical"):
         UniversalTradeRLUniverseConfig(

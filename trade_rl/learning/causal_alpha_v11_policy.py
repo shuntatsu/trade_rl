@@ -21,6 +21,9 @@ from trade_rl.learning.causal_alpha_v11 import (
     CausalAlphaV11StudyArm,
     CausalAlphaV11TargetPath,
 )
+from trade_rl.learning.causal_alpha_v11_calibration import (
+    CausalAlphaV11SignCalibration,
+)
 
 _COMPILED_SCHEMA: Final = "causal_alpha_v11_compiled_target_v1"
 _EPSILON: Final = 1e-12
@@ -111,11 +114,10 @@ def _qualified(
     return mean, uncertainty, raw_edge, direction
 
 
-def _calibrated_edge(calibration: object, direction: int, raw_edge: float) -> float:
-    method = getattr(calibration, "calibrated_edge", None)
-    if not callable(method):
-        raise TypeError("V11 sign calibration must expose calibrated_edge")
-    value = float(method(direction=direction, raw_edge=raw_edge))
+def _calibrated_edge(
+    calibration: CausalAlphaV11SignCalibration, direction: int, raw_edge: float
+) -> float:
+    value = calibration.calibrated_edge(direction=direction, raw_edge=raw_edge)
     if not np.isfinite(value):
         raise ValueError("V11 calibrated edge must be finite")
     return value
@@ -137,7 +139,7 @@ def _compile_treatment_path(
     v9_config: CausalAlphaV9Config,
     v11_config: CausalAlphaV11Config,
     initial_weight: float,
-    sign_calibration: object | None,
+    sign_calibration: CausalAlphaV11SignCalibration | None,
 ) -> tuple[CausalAlphaV6TargetPath, tuple[str, ...], tuple[str, ...]]:
     rows = len(decisions)
     if (
@@ -348,7 +350,7 @@ def compile_causal_alpha_v11_target(
     v9_config: CausalAlphaV9Config,
     v11_config: CausalAlphaV11Config,
     initial_weight: float,
-    sign_calibration: object | None = None,
+    sign_calibration: CausalAlphaV11SignCalibration | None = None,
 ) -> CausalAlphaV11CompiledTarget:
     """Compile exact V9 control or one independent V11 treatment."""
 
@@ -416,11 +418,7 @@ def compile_causal_alpha_v11_target(
             sign_calibration=sign_calibration,
         )
         candidate = CausalAlphaV11Candidate.TREATMENT
-    calibration_digest = (
-        None
-        if sign_calibration is None
-        else str(getattr(sign_calibration, "digest", ""))
-    )
+    calibration_digest = None if sign_calibration is None else sign_calibration.digest
     target = CausalAlphaV11TargetPath(
         candidate=candidate,
         study_arm=arm,
@@ -429,7 +427,7 @@ def compile_causal_alpha_v11_target(
         wave_fit_digest=wave_fit_digest,
         v9_config_digest=v9_config.digest,
         v11_config_digest=v11_config.digest,
-        calibration_digest=calibration_digest or None,
+        calibration_digest=calibration_digest,
     )
     return CausalAlphaV11CompiledTarget(
         target=target,

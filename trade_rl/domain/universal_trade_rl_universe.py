@@ -51,6 +51,8 @@ class UniversalTradeRLSymbolExclusion:
             "symbol",
             _canonical_symbol(self.symbol, field="excluded symbol"),
         )
+        if not isinstance(self.reason, str):
+            raise TypeError("exclusion reason must be a string")
         object.__setattr__(
             self,
             "reason",

@@ -50,7 +50,7 @@ def test_v10_resume_rejects_stale_hierarchy_policy_input_digest(monkeypatch) -> 
         config_digest = "c" * 64
 
         def load_leaf(self, _path: Path, *, expected_schema: str) -> dict[str, object]:
-            assert expected_schema == "causal_alpha_v10_replay_leaf_v2"
+            assert expected_schema == "causal_alpha_v10_replay_leaf_v3"
             return leaf
 
     with pytest.raises(ValueError, match="resumed replay identity drifted"):

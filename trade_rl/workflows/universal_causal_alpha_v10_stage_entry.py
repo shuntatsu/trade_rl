@@ -536,7 +536,9 @@ class _V10ReduceOnlyEnvironment:
     def reset(self, *, options: dict[str, object]) -> tuple[object, dict[str, object]]:
         return self._environment.reset(options=options)
 
-    def step(self, action: np.ndarray):
+    def step(
+        self, action: np.ndarray
+    ) -> tuple[object, float, bool, bool, dict[str, object]]:
         metadata = self._policy.last_step_trace_metadata
         raw_reduce_only = metadata.get("reduce_only", False)
         if not isinstance(raw_reduce_only, bool):
@@ -674,6 +676,7 @@ def _load(
     if not isinstance(target_payload, dict):
         raise ValueError("V10 resumed replay target evidence is invalid")
     hierarchy_input_digest = target_payload.get("hierarchy_input_digest")
+    lifecycle_trace = getattr(metric, "lifecycle_trace", None)
     hierarchical = candidate is CausalAlphaV10Candidate.HIERARCHICAL_WAVE
     if (
         leaf["candidate"] != candidate.value
@@ -691,8 +694,8 @@ def _load(
             and leaf.get("dual_run_binding_digest") != expected_dual_run_binding_digest
         )
         or getattr(metric, "step_trace", None) is None
-        or getattr(metric, "lifecycle_trace", None) is None
-        or not np.all(metric.lifecycle_trace.hard_risk_evidence_available)
+        or lifecycle_trace is None
+        or not np.all(lifecycle_trace.hard_risk_evidence_available)
         or target_payload.get("artifact_digest") != metric.v8_target_path_digest
         or target_payload.get("candidate") != candidate.value
         or (

@@ -27,6 +27,7 @@ from trade_rl.learning.causal_alpha_v11_calibration import (
 
 _COMPILED_SCHEMA: Final = "causal_alpha_v11_compiled_target_v1"
 _EPSILON: Final = 1e-12
+_EDGE_MARGIN: Final = 0.001
 
 
 def _readonly(value: object, *, dtype: Any, rows: int, field: str) -> np.ndarray:
@@ -488,6 +489,8 @@ class CausalAlphaV11TracePolicy:
                 self.compiled.after_cost_entry_objectives[offset]
             ),
             "fast_mean": float(self.compiled.fast_means[offset]),
+            "fast_std": float(self.compiled.fast_uncertainties[offset]),
+            "fast_edge_margin": _EDGE_MARGIN,
             "fast_qualified_direction": int(
                 self.compiled.fast_qualified_directions[offset]
             ),

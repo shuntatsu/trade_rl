@@ -72,14 +72,8 @@ def test_manifest_assigns_every_available_symbol_exactly_once() -> None:
         "LUNA2USDT",
     )
     assert manifest.entry_for("BTCUSDT").role is UniversalTradeRLSymbolRole.TRAIN
-    assert (
-        manifest.entry_for("LINKUSDT").role
-        is UniversalTradeRLSymbolRole.DEVELOPMENT
-    )
-    assert (
-        manifest.entry_for("AVAXUSDT").role
-        is UniversalTradeRLSymbolRole.ADMISSION
-    )
+    assert manifest.entry_for("LINKUSDT").role is UniversalTradeRLSymbolRole.DEVELOPMENT
+    assert manifest.entry_for("AVAXUSDT").role is UniversalTradeRLSymbolRole.ADMISSION
     excluded = manifest.entry_for("LUNA2USDT")
     assert excluded.role is None
     assert excluded.exclusion_reason == "insufficient_contiguous_history"

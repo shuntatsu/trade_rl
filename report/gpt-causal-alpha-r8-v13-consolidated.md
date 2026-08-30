@@ -141,7 +141,9 @@ PostgreSQL `public.rl_klines` にはBinance 1m raw rows（16 symbols、2023-07-0
 - V4 context manifest: `bc91783061182e41415d45a714049737ae16564a47d0e1ca14d004cc4c5c7357`
 - volume/network: `trade-rl-training-data`, `trade_rl_default`
 
-V11実データrunは`329131d7` imageで完了した。その後、既存V10 risk projectionのno-trade band境界に対する回帰修正を`dcf7a877`へ取り込み、49件の対象テストで検証した。この修正はV11 compiler/selection pathの挙動を変更しないため、既存V11 artifactのrun identityを差し替えていない。
+V11実データrunは`329131d7` imageで完了した。その後、既存V10 risk projectionのno-trade band境界に対する回帰修正を`dcf7a877`へ取り込み、V10/V11/lifecycleのfocused suiteで検証した。この修正はV11 compiler/selection pathの挙動を変更しないため、既存V11 artifactのrun identityを差し替えていない。
+
+修正後の`main`（commit `1c50ccd3e0b6a9b5292290fd014077a1042a2860`）についても、同じ lock/runtime provenance で training image を再構築し、runtime内source digestを一致確認した。再構築イメージは`trade-rl-causal-alpha-v11:1c50ccd3-e4637de69bd3`、local manifest/image digestは`sha256:a2605347ec1a4a3c4b8b9459ea1a5386be56fdda6ece03dcf46c1da7ecc788eb`である。これはV11を再実行したという意味ではなく、以後の再開に使える現行mainの検証済みruntimeである。
 
 V11 output roots:
 
@@ -163,7 +165,7 @@ L1/E1/C1はそれぞれ216 replay leafを生成済み。C1 containerは2026-08-3
 
 ## 11. 検証と最終判断
 
-V11 focused tests、r21 lifecycle/V10関連 testsは最終修正後 `49 passed`。Ruff check/format、`git diff --check`を通し、変更外の既存mypy warning（`trade_rl/telemetry/_indexed_storage.py:172` unreachable）以外の新規エラーはない。全体suiteの実行では4,494 passed / 44 skippedだったが、既存のpyproject v7 entry-point期待値と、別系統のsequence behavior-cloning gate support=0の2テストが残った。今回のV11コードおよびrisk projection修正の対象テストは合格しており、この2件をV11 Selection成功と混同しない。
+V11 focused tests、r21 lifecycle/V10関連 testsは最終修正後に実行したfocused suiteで `58 passed in 4.45s`。Ruff check/format、`git diff --check`を通し、変更外の既存mypy warning（`trade_rl/telemetry/_indexed_storage.py:172` unreachable）以外の新規エラーはない。全体suiteの実行では4,494 passed / 44 skippedだったが、既存のpyproject v7 entry-point期待値と、別系統のsequence behavior-cloning gate support=0の2テストが残った。今回のV11コードおよびrisk projection修正の対象テストは合格しており、この2件をV11 Selection成功と混同しない。
 
 最終的な判断は次の順序で分離する。
 

@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "pyproject.toml"
+      - ".coveragerc.nautilus"
       - "uv.lock"
       - "trade_rl/integrations/nautilus/**"
       - "trade_rl/workflows/stage_a_historical_interval_evidence.py"
@@ -37,6 +38,7 @@ on:
     branches: [main]
     paths:
       - "pyproject.toml"
+      - ".coveragerc.nautilus"
       - "uv.lock"
       - "trade_rl/integrations/nautilus/**"
       - "trade_rl/workflows/stage_a_historical_interval_evidence.py"
@@ -99,53 +101,53 @@ jobs:
           PY
       - name: Exercise import-safe Nautilus adapters
         run: |
-          uv run pytest -q -m nautilus \
+          uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus \
             tests/integrations/test_nautilus_instrument.py \
             tests/integrations/test_nautilus_quote_projection.py \
             tests/integrations/test_nautilus_derivative_data.py \
             tests/integrations/test_nautilus_order_adapter.py
       - name: Probe BacktestEngine in isolated process
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_capability.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_capability.py
       - name: Replay projected quotes in isolated process
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_quote_replay.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_quote_replay.py
       - name: Exercise order lifecycle in isolated process
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
       - name: Probe streaming execution state across batches
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_streaming_execution.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_streaming_execution.py
       - name: Prove persistent streaming worker parity
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_streaming_worker.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_streaming_worker.py
       - name: Exercise partial-fill stale-working cancellation evidence in isolated process
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_partial_fill_cancel.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_partial_fill_cancel.py
       - name: Lock Binance funding reference to mark-price notional
         run: uv run pytest -q tests/simulation/test_funding_mark_price.py
       - name: Exercise canonical funding evidence and lock native limitation
         run: |
-          uv run pytest -q \
+          uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q \
             tests/integrations/test_nautilus_funding_adapter.py \
             tests/integrations/test_nautilus_funding_settlement.py
       - name: Bind factual Stage A historical replay intervals
         run: |
-          uv run pytest -q \
+          uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q \
             tests/workflows/test_stage_a_nautilus_historical_replay.py \
             tests/workflows/test_stage_a_nautilus_historical_timeline.py \
             tests/workflows/test_stage_a_nautilus_historical_differential.py
       - name: Record execution accounting in isolated process
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_execution_probe.py
       - name: Replay historical targets in isolated process
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_historical_execution.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_historical_execution.py
       - name: Replay representative real BTCUSDT windows in fresh children
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_real_market_windows.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_real_market_windows.py
       - name: Execute factual Stage A historical replay in isolated process
-        run: uv run pytest -q -m nautilus tests/workflows/test_stage_a_nautilus_historical_execution.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/workflows/test_stage_a_nautilus_historical_execution.py
       - name: Exercise RL dual-shadow observer contract
         run: |
-          uv run pytest -q \
+          uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q \
             tests/rl/test_environment_execution_dual_shadow.py \
             tests/rl/test_environment_dual_shadow_wiring.py
       - name: Stream RL dual-shadow through one episode child
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_rl_dual_shadow.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_rl_dual_shadow.py
       - name: Run three-step PPO and Lagrangian smokes on dual-shadow runtime
-        run: uv run pytest -q -m nautilus tests/integrations/test_nautilus_training_smoke.py
+        run: uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_training_smoke.py
       - name: Record isolated legacy versus streaming throughput and memory
         run: |
           uv run python scripts/nautilus_training_throughput_benchmark.py \
@@ -164,17 +166,32 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest -q -m nautilus tests/integrations/test_nautilus_dual_shadow.py 2>&1 | tee nautilus-dual-shadow.log
+          uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_dual_shadow.py 2>&1 | tee nautilus-dual-shadow.log
       - name: Compare safe sign reversal in isolated process
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest -q -m nautilus tests/integrations/test_nautilus_sign_flip_conformance.py 2>&1 | tee -a nautilus-dual-shadow.log
+          uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_sign_flip_conformance.py 2>&1 | tee -a nautilus-dual-shadow.log
       - name: Compare same-side target changes in isolated process
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest -q -m nautilus tests/integrations/test_nautilus_target_change_conformance.py 2>&1 | tee -a nautilus-dual-shadow.log
+          uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus tests/integrations/test_nautilus_target_change_conformance.py 2>&1 | tee -a nautilus-dual-shadow.log
+      - name: Combine and record Nautilus coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run coverage combine --rcfile=.coveragerc.nautilus
+          uv run coverage json --rcfile=.coveragerc.nautilus -o nautilus-coverage.json
+          uv run coverage report --rcfile=.coveragerc.nautilus
+      - name: Upload Nautilus coverage evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nautilus-coverage-evidence
+          path: nautilus-coverage.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Upload dual-shadow diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -193,3 +210,6 @@ jobs:
           test "$second" = "$third"
           test "${#first}" -eq 64
           printf 'execution_digest=%s\n' "$first"
+      - name: Enforce Nautilus coverage ratchet
+        if: always()
+        run: uv run coverage report --rcfile=.coveragerc.nautilus --fail-under=81.21

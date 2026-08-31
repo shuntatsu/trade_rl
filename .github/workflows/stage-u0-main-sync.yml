@@ -1,0 +1,136 @@
+name: Stage U0 Main Sync
+
+on:
+  push:
+    branches:
+      - sync/u0-main-staging-runner
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact U0 head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: codex/universal-trade-rl-zero-shot-transfer-design
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Merge current main with exact conflict contract
+        shell: bash
+        env:
+          EXPECTED_U0: 32831653e6592ffbdf54c25ef299c3dc7f0c50ce
+          EXPECTED_MAIN: 8571b3f5d362bd4e64b3989411668e545f1acd24
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_U0"
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "$EXPECTED_MAIN"
+
+          set +e
+          git merge --no-ff --no-commit refs/remotes/origin/main > merge.log 2>&1
+          merge_rc=$?
+          set -e
+          cat merge.log
+          test "$merge_rc" -eq 1
+
+          conflicts="$(git diff --name-only --diff-filter=U | sort)"
+          printf 'conflicts=%s\n' "$conflicts"
+          test "$conflicts" = "tests/test_architecture_contract.py"
+
+          git checkout --ours tests/test_architecture_contract.py
+          git add tests/test_architecture_contract.py
+
+          # Keep the first-parent Nautilus workflow unchanged for this staging push.
+          # It is restored to current main through the GitHub workflow-capable connector
+          # after this true two-parent merge commit is staged.
+          git checkout HEAD -- .github/workflows/nautilus-capability.yml
+          git add .github/workflows/nautilus-capability.yml
+
+          test -z "$(git diff --name-only --diff-filter=U)"
+
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          assert config["project"]["scripts"] == {
+              "trade-rl": "trade_rl.cli:main",
+              "trade-rl-causal-alpha-v5": "trade_rl.workflows.universal_causal_alpha_v5_runner:cli_main",
+              "trade-rl-causal-alpha-v6": "trade_rl.workflows.universal_causal_alpha_v6_runner:cli_main",
+              "trade-rl-causal-alpha-v7": "trade_rl.workflows.universal_causal_alpha_v7_runner:cli_main",
+              "trade-rl-universe": "trade_rl.workflows.universal_trade_rl_universe_runner:cli_main",
+          }
+          coverage = config["tool"]["coverage"]
+          assert coverage["run"]["omit"] == ["trade_rl/integrations/nautilus/*"]
+          assert coverage["report"]["fail_under"] == 80
+          PY
+
+      - name: Install merged verification dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --frozen
+
+      - name: Verify package and U0 boundary contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/test_architecture_contract.py \
+            tests/domain/test_universal_trade_rl_universe.py \
+            tests/workflows/test_universal_trade_rl_universe_config.py \
+            tests/workflows/test_universal_trade_rl_universe_manifest.py \
+            tests/workflows/test_universal_trade_rl_universe_access.py \
+            tests/workflows/test_universal_trade_rl_data_provenance.py \
+            tests/workflows/test_universal_trade_rl_run_identity.py \
+            tests/workflows/test_universal_trade_rl_universe_runner.py \
+            tests/workflows/test_universal_trade_rl_universe_isolation.py
+
+      - name: Verify merged static and compatibility surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py \
+            tests/workflows/test_universal_causal_alpha_v5_calibration.py \
+            tests/workflows/test_universal_causal_alpha_v6_stage_entry.py \
+            tests/workflows/test_universal_causal_alpha_v7_stage_entry.py \
+            tests/learning/test_causal_alpha_v9_wave.py \
+            tests/workflows/test_universal_causal_alpha_v10_stage_entry.py \
+            tests/workflows/test_universal_causal_alpha_v11_stage_entry.py
+          uv run mypy \
+            trade_rl/domain/universal_trade_rl_universe.py \
+            trade_rl/workflows/universal_trade_rl_universe_config.py \
+            trade_rl/workflows/universal_trade_rl_universe_manifest.py \
+            trade_rl/workflows/universal_trade_rl_universe_access.py \
+            trade_rl/workflows/universal_trade_rl_data_provenance.py \
+            trade_rl/workflows/universal_trade_rl_run_identity.py \
+            trade_rl/workflows/universal_trade_rl_universe_runner.py
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run lint-imports
+          uv build
+          git diff --cached --check
+
+      - name: Commit true two-parent staging merge
+        shell: bash
+        env:
+          EXPECTED_U0: 32831653e6592ffbdf54c25ef299c3dc7f0c50ce
+          EXPECTED_MAIN: 8571b3f5d362bd4e64b3989411668e545f1acd24
+        run: |
+          set -euo pipefail
+          git commit -m "merge: sync U0 with current main"
+          first="$(git rev-parse HEAD^1)"
+          second="$(git rev-parse HEAD^2)"
+          test "$first" = "$EXPECTED_U0"
+          test "$second" = "$EXPECTED_MAIN"
+          git push origin HEAD:refs/heads/sync/u0-main-staged

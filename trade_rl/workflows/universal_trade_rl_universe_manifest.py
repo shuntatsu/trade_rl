@@ -231,9 +231,10 @@ class UniversalTradeRLUniverseManifest:
         config_digest = values["config_digest"]
         source_catalog_digest = values["source_catalog_digest"]
         artifact_digest = values["artifact_digest"]
-        if not all(
-            isinstance(value, str)
-            for value in (config_digest, source_catalog_digest, artifact_digest)
+        if (
+            not isinstance(config_digest, str)
+            or not isinstance(source_catalog_digest, str)
+            or not isinstance(artifact_digest, str)
         ):
             raise ValueError("universe manifest digest contract is invalid")
         return cls(

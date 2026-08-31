@@ -10,6 +10,13 @@
 
 **Spec:** Existing `pyproject.toml` coverage gate, `.github/workflows/ci.yml`, and `.github/workflows/nautilus-capability.yml` contracts plus the 2026-08-31 exact-head coverage diagnostics.
 
+## Baseline Evidence
+
+- Exact core coverage before the split: `79.18290882942891%`.
+- The same artifact excluding only `trade_rl/integrations/nautilus/**`: `80.09797033943163%`.
+- Isolated Nautilus diagnostic run `33359438890`: combined `81.32361189007291%`, statements `87.52751283932501%`, branches `61.19047619047619%`.
+- Dedicated Nautilus combined-coverage ratchet: `81.3%`.
+
 ## Global Constraints
 
 - Keep `[tool.coverage.report].fail_under = 80` unchanged.

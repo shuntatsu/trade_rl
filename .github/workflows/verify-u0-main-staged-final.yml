@@ -1,0 +1,128 @@
+name: Verify U0 Main Staged Final
+
+on:
+  push:
+    branches:
+      - verify/u0-main-staged-final
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact staged head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 9b3233e71296f5d53b9dabf4c9ebde0978bf720a
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require current main ancestry and lock identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          main_sha="$(git rev-parse refs/remotes/origin/main)"
+          feature_sha="$(git rev-parse HEAD)"
+          test "$main_sha" = "8571b3f5d362bd4e64b3989411668e545f1acd24"
+          test "$feature_sha" = "9b3233e71296f5d53b9dabf4c9ebde0978bf720a"
+          git merge-base --is-ancestor "$main_sha" "$feature_sha"
+          test "$(sha256sum uv.lock | cut -d' ' -f1)" = "$(git show "$main_sha:uv.lock" | sha256sum | cut -d' ' -f1)"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3 --frozen
+
+      - name: Verify merged package and coverage contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          assert config["project"]["scripts"] == {
+              "trade-rl": "trade_rl.cli:main",
+              "trade-rl-causal-alpha-v5": "trade_rl.workflows.universal_causal_alpha_v5_runner:cli_main",
+              "trade-rl-causal-alpha-v6": "trade_rl.workflows.universal_causal_alpha_v6_runner:cli_main",
+              "trade-rl-causal-alpha-v7": "trade_rl.workflows.universal_causal_alpha_v7_runner:cli_main",
+              "trade-rl-universe": "trade_rl.workflows.universal_trade_rl_universe_runner:cli_main",
+          }
+          coverage = config["tool"]["coverage"]
+          assert coverage["run"]["omit"] == ["trade_rl/integrations/nautilus/*"]
+          assert coverage["report"]["fail_under"] == 80
+          PY
+          uv run pytest -q \
+            tests/test_architecture_contract.py \
+            tests/architecture/test_coverage_layer_contract.py \
+            tests/architecture/test_universal_trade_rl_u0_targeted_bridge.py
+          uv run python .github/check_workflow_security.py .
+
+      - name: Verify documented U0 materialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="var/runs/universal-trade-rl-u0-example"
+          rm -rf "$output"
+          uv run trade-rl-universe \
+            --config examples/binance/universal-trade-rl-universe.example.json \
+            --source-catalog examples/binance/universal-trade-rl-source-catalog.example.json \
+            --output-root "$output" \
+            | tee example-materialization.json
+          sha256sum "$output/universe.json" "$output/identity.json" > example-before.sha256
+          uv run trade-rl-universe \
+            --config examples/binance/universal-trade-rl-universe.example.json \
+            --source-catalog examples/binance/universal-trade-rl-source-catalog.example.json \
+            --output-root "$output" \
+            > example-materialization-rerun.json
+          sha256sum -c example-before.sha256
+          test -z "$(find var/runs -maxdepth 1 -name '.universal-trade-rl-u0-example.staging-*' -print -quit)"
+          rm -rf "$output"
+
+      - name: U0 boundary and compatibility tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/domain/test_universal_trade_rl_universe.py \
+            tests/workflows/test_universal_trade_rl_universe_config.py \
+            tests/workflows/test_universal_trade_rl_universe_manifest.py \
+            tests/workflows/test_universal_trade_rl_universe_access.py \
+            tests/workflows/test_universal_trade_rl_data_provenance.py \
+            tests/workflows/test_universal_trade_rl_run_identity.py \
+            tests/workflows/test_universal_trade_rl_universe_runner.py \
+            tests/workflows/test_universal_trade_rl_universe_isolation.py \
+            tests/workflows/test_universal_causal_alpha_v4_fitting.py \
+            tests/workflows/test_universal_causal_alpha_v5_calibration.py \
+            tests/workflows/test_universal_causal_alpha_v6_stage_entry.py \
+            tests/workflows/test_universal_causal_alpha_v7_stage_entry.py \
+            tests/learning/test_causal_alpha_v9_wave.py \
+            tests/workflows/test_universal_causal_alpha_v10_stage_entry.py \
+            tests/workflows/test_universal_causal_alpha_v11_stage_entry.py
+
+      - name: Static architecture and package verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run mypy \
+            trade_rl/domain/universal_trade_rl_universe.py \
+            trade_rl/workflows/universal_trade_rl_universe_config.py \
+            trade_rl/workflows/universal_trade_rl_universe_manifest.py \
+            trade_rl/workflows/universal_trade_rl_universe_access.py \
+            trade_rl/workflows/universal_trade_rl_data_provenance.py \
+            trade_rl/workflows/universal_trade_rl_run_identity.py \
+            trade_rl/workflows/universal_trade_rl_universe_runner.py
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run lint-imports
+          uv build
+          git diff --check

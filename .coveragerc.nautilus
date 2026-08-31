@@ -13,3 +13,4 @@ data_file = .coverage.nautilus
 [report]
 show_missing = True
 skip_covered = False
+precision = 2

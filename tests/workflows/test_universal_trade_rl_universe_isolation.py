@@ -232,7 +232,9 @@ def test_role_reassignment_changes_only_role_bound_identity(
 
 @settings(max_examples=100, deadline=None)
 @given(symbol=st.sampled_from(tuple(sorted(_RESERVED))))
-def test_source_identity_mutation_changes_only_source_bound_identity(symbol: str) -> None:
+def test_source_identity_mutation_changes_only_source_bound_identity(
+    symbol: str,
+) -> None:
     config = _config()
     sources = _sources_for(config)
     mutated_sources = tuple(

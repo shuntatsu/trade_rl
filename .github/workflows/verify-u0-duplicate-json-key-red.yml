@@ -1,0 +1,36 @@
+name: Verify U0 Duplicate JSON Key RED
+
+on:
+  push:
+    branches:
+      - verify/u0-duplicate-json-key-falsification
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact test-only head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: verify/u0-duplicate-json-key-falsification
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --frozen
+      - name: Prove duplicate keys are currently accepted
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/workflows/test_universal_trade_rl_duplicate_json_keys.py > red.log 2>&1
+          rc=$?
+          set -e
+          cat red.log
+          test "$rc" -ne 0
+          grep -Eq 'DID NOT RAISE|Failed: DID NOT RAISE' red.log

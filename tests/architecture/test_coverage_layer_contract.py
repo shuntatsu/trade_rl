@@ -33,6 +33,9 @@ def test_core_and_nautilus_coverage_have_separate_fail_closed_scopes() -> None:
     }
     assert set(run["patch"].split()) == {"subprocess", "_exit"}
 
+    report = dedicated["report"]
+    assert report.getint("precision") == 2
+
 
 def test_nautilus_capability_keeps_native_probes_isolated_under_coverage() -> None:
     workflow = (ROOT / ".github" / "workflows" / "nautilus-capability.yml").read_text(

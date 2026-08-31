@@ -212,4 +212,4 @@ jobs:
           printf 'execution_digest=%s\n' "$first"
       - name: Enforce Nautilus coverage ratchet
         if: always()
-        run: uv run coverage report --rcfile=.coveragerc.nautilus --fail-under=81.3
+        run: uv run coverage report --rcfile=.coveragerc.nautilus --fail-under=81.21

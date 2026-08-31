@@ -1,0 +1,94 @@
+name: Verify Coverage Layer Nautilus Final
+
+on:
+  push:
+    branches:
+      - verify/coverage-layer-nautilus-final
+
+permissions:
+  contents: read
+
+jobs:
+  nautilus:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 8571b3f5d362bd4e64b3989411668e545f1acd24
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra nautilus --extra train-sb3 --frozen
+      - name: Runtime coverage identity
+        run: |
+          uv run python - <<'PY'
+          import configparser, importlib.metadata
+          c=configparser.ConfigParser(); c.read('.coveragerc.nautilus')
+          assert importlib.metadata.version('nautilus_trader') == '1.230.0'
+          assert c['report'].getint('precision') == 2
+          PY
+      - name: Maintained capability selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_cov() { uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q "$@"; }
+          run_cov -m nautilus tests/integrations/test_nautilus_instrument.py tests/integrations/test_nautilus_quote_projection.py tests/integrations/test_nautilus_derivative_data.py tests/integrations/test_nautilus_order_adapter.py
+          run_cov -m nautilus tests/integrations/test_nautilus_capability.py
+          run_cov -m nautilus tests/integrations/test_nautilus_quote_replay.py
+          run_cov -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
+          run_cov -m nautilus tests/integrations/test_nautilus_streaming_execution.py
+          run_cov -m nautilus tests/integrations/test_nautilus_streaming_worker.py
+          run_cov -m nautilus tests/integrations/test_nautilus_partial_fill_cancel.py
+          uv run pytest -q tests/simulation/test_funding_mark_price.py
+          run_cov tests/integrations/test_nautilus_funding_adapter.py tests/integrations/test_nautilus_funding_settlement.py
+          run_cov tests/workflows/test_stage_a_nautilus_historical_replay.py tests/workflows/test_stage_a_nautilus_historical_timeline.py tests/workflows/test_stage_a_nautilus_historical_differential.py
+          run_cov -m nautilus tests/integrations/test_nautilus_execution_probe.py
+          run_cov -m nautilus tests/integrations/test_nautilus_historical_execution.py
+          run_cov -m nautilus tests/integrations/test_nautilus_real_market_windows.py
+          run_cov -m nautilus tests/workflows/test_stage_a_nautilus_historical_execution.py
+          run_cov tests/rl/test_environment_execution_dual_shadow.py tests/rl/test_environment_dual_shadow_wiring.py
+          run_cov -m nautilus tests/integrations/test_nautilus_rl_dual_shadow.py
+          run_cov -m nautilus tests/integrations/test_nautilus_training_smoke.py
+          run_cov -m nautilus tests/integrations/test_nautilus_dual_shadow.py
+          run_cov -m nautilus tests/integrations/test_nautilus_sign_flip_conformance.py
+          run_cov -m nautilus tests/integrations/test_nautilus_target_change_conformance.py
+      - name: Throughput and deterministic digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python scripts/nautilus_training_throughput_benchmark.py --timesteps 8 --timesteps 32 --timesteps 128 --output nautilus-training-throughput.json
+          first="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
+          second="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
+          third="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
+          test "$first" = "$second"
+          test "$second" = "$third"
+          test "${#first}" -eq 64
+      - name: Coverage ratchet
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run coverage combine --rcfile=.coveragerc.nautilus
+          uv run coverage json --rcfile=.coveragerc.nautilus -o nautilus-coverage.json
+          uv run coverage report --rcfile=.coveragerc.nautilus --fail-under=81.21
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          t=json.loads(Path('nautilus-coverage.json').read_text())['totals']
+          p=float(t['percent_covered'])
+          print(f'nautilus_combined_coverage={p:.12f}')
+          assert p >= 81.21, p
+          PY
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-layer-nautilus-clean-final
+          path: |
+            nautilus-coverage.json
+            nautilus-training-throughput.json
+          if-no-files-found: warn
+          retention-days: 14

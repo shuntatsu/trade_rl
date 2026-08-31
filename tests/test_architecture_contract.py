@@ -29,6 +29,9 @@ def test_only_trade_rl_is_packaged() -> None:
         "trade-rl-causal-alpha-v7": (
             "trade_rl.workflows.universal_causal_alpha_v7_runner:cli_main"
         ),
+        "trade-rl-universe": (
+            "trade_rl.workflows.universal_trade_rl_universe_runner:cli_main"
+        ),
     }
 
 

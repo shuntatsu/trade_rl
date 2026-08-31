@@ -27,6 +27,8 @@ one maintained run
 
 Universal U3-U6は別の**研究用共有Policy学習経路**です。複数のtrain symbolから1つのPolicyを学習しますが、各episodeと推論対象は常に1つのconcrete instrumentです。BTC・ETH・BNBなどを同時にportfolio配分するPolicyではありません。現行契約は[UNIVERSAL_TRAINING.md](docs/UNIVERSAL_TRAINING.md)を参照してください。
 
+Universal Trade RL U0は、将来のzero-shot-first共有Policy研究に入る前の**Universe isolation契約**です。Train / Development / Admission / Excludedをsource-data identityと一緒に固定し、fitをTrainだけに限定します。U0自体はRLを学習せず、収益性もProduction可否も証明しません。詳細と再現可能なmaterialization commandは[UNIVERSAL_TRADE_RL.md](docs/UNIVERSAL_TRADE_RL.md)を参照してください。
+
 ## 最短で試す
 
 Pythonは`>=3.12,<3.13`です。
@@ -111,6 +113,7 @@ LICENSES/        Third-party notice等のライセンス資料
 - [最初の学習](START.md)
 - [Maintained single-symbol workflow](docs/SINGLE_SYMBOL.md)
 - [Universal U3-U6 training](docs/UNIVERSAL_TRAINING.md)
+- [Universal Trade RL U0 universe isolation](docs/UNIVERSAL_TRADE_RL.md)
 - [アーキテクチャ](docs/ARCHITECTURE.md)
 - [設定リファレンス](docs/CONFIGURATION.md)
 - [研究状態とProduction gate](docs/RESEARCH_STATUS.md)

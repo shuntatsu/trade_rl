@@ -1,0 +1,52 @@
+name: Verify Ruff Format AST
+
+on:
+  push:
+    branches:
+      - verify/ruff-format-ast
+
+permissions:
+  contents: read
+
+jobs:
+  ast-equivalence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify formatted files preserve Python AST
+        env:
+          BASE_SHA: 21546e9001f54fc109dd980513c9c3d1aeb4ed82
+          TARGET_SHA: dc63582d16ef22959d74749dc82c4ce552e4aa67
+        run: |
+          python - <<'PY'
+          import ast
+          import os
+          import subprocess
+
+          base = os.environ["BASE_SHA"]
+          target = os.environ["TARGET_SHA"]
+          paths = subprocess.check_output(
+              ["git", "diff", "--name-only", base, target], text=True
+          ).splitlines()
+          assert len(paths) == 40, paths
+          assert all(path.endswith(".py") for path in paths), paths
+
+          for path in paths:
+              before = subprocess.check_output(
+                  ["git", "show", f"{base}:{path}"], text=True
+              )
+              after = subprocess.check_output(
+                  ["git", "show", f"{target}:{path}"], text=True
+              )
+              before_ast = ast.dump(ast.parse(before, filename=path), include_attributes=False)
+              after_ast = ast.dump(ast.parse(after, filename=path), include_attributes=False)
+              assert before_ast == after_ast, path
+
+          print(f"AST-equivalent Python files: {len(paths)}")
+          PY

@@ -4,182 +4,177 @@
 
 > **Production status: NO-GO**
 >
-> 本specはU1の設計契約を定義する。RL学習、収益性、zero-shot性能、Admission合格、Production投入を証明しない。
+> 本specはU1の研究・実装契約を定義する。RL学習、zero-shot性能、収益性、Admission合格、Production投入は証明しない。
 
-## 1. 背景とU0との関係
+## 1. U0との関係
 
-Universal Trade RL U0は、Train / Development / Admission / ExcludedのUniverse、source-data identity、Train-only fit provenance、Admission access firewallを固定する。
+Universal Trade RL U0は、Train / Development / Admission / Excludedの役割、source-data identity、Train-only fit provenance、Admission access firewallを固定する。
 
-U1はその境界の内側で、**どの銘柄にも同じ意味で適用できるObservation / Action / Reward契約**を定義する。
+U1はその凍結済みUniverseを入力として、**どの銘柄にも同じ意味で適用できるObservation / Action / Reward / normalization / episode contract**を固定する。
 
-PR #426本文では「次のU1」としてproduction-candidate universeの実materializationも言及される一方、U0 implementation planではU1をobservations/rewardとして扱っている。このspecでは役割を次のように固定する。
+U1開始前提は次の2段階に分ける。
 
-1. **U1 prerequisite gate**: illustrative exampleではなく、実研究対象のproduction-candidate source catalogとTrain / Development / Admission / Excluded role configがU0でmaterializeされ、`universe.json` / `identity.json` digestがfreezeされていること。
-2. **U1本体**: frozen U0 Universeを入力として、Observation / Action / Reward / normalization / episode semanticsを定義すること。
-3. U1 implementationはsynthetic fixtureで契約テスト可能だが、実Universe digestが存在しない状態ではU2 Base RL trainingを開始しない。
+1. **U1 contract implementation**はsynthetic fixtureとU0 example manifestで検証可能。
+2. **U2 Base RL training開始前**には、illustrative exampleではなく実production-candidate source catalog / role configをU0でmaterializeし、`universe.json` / `identity.json` digestをfreezeする。
 
-U1は既存Causal Alpha V9/V10/V11の経済ロジックを変更しない。既存Universal U3-U6経路を上書きしない。新しいzero-shot-first経路として追加する。
+U1は既存Causal Alpha V9/V10/V11やUniversal U3-U6を置換しない。zero-shot-firstの新経路として追加する。
 
 ## 2. Objective
 
-複数のTrain銘柄から1つのshared policyを将来学習でき、未学習銘柄でも同じ意味の入力・出力・経済評価を持つように、次を固定する。
-
-- symbol-independentかつcausalなObservation schema
-- one-symbol deploymentに対応する1次元target-exposure Action semantics
-- after-cost wealthと厳密に整合するpure net-log-growth Reward
-- U0 Train symbolsだけでfitするUniversal normalization
-- training horizonを市場終端と混同しないepisode/truncation semantics
-- すべてをU0 Universe digestとcontent-addressed identityにbindする契約
+- symbol-independentかつcausalなPolicy Observationを固定する。
+- one-symbol deployment用の1次元target-exposure Actionを固定する。
+- after-cost realized wealthと厳密に一致するRewardを固定する。
+- U0 Train symbolsだけでfitするUniversal market normalizerを固定する。
+- training horizonを市場終端と混同しないcontinuing/truncation semanticsを固定する。
+- U1 contract / normalizer / runtime identityをcontent-addressed artifactとして再現可能にする。
 
 ## 3. Non-goals
 
-U1では以下を実装・選択・主張しない。
+U1では以下を行わない。
 
-- PPO / SAC / TD3等のRL algorithm比較
-- neural network architectureの選択や大型化
+- PPO / SAC / TD3等のalgorithm比較・学習
+- network architectureの選択・大型化
 - Behavior Cloning / teacher policy
-- Causal Alphaをteacher/anchorとして使うこと
+- Causal Alphaをteacher/anchorとして利用
 - V12 label/horizon研究
 - 1分足execution fidelity研究
-- 複数銘柄へ同時にcapital allocationするportfolio policy
-- Admissionの開封
-- transfer learning / fine-tuning
-- profitability / Sharpe / production readinessの主張
-- Development結果を見てfeature/reward係数を事後調整すること
+- multi-asset portfolio allocation policy
+- Developmentでfeature/reward係数を事後fit
+- Admission開封
+- transfer / fine-tuning
+- profitability / Sharpe / Production readinessの主張
 
-## 4. 設計原則
+## 4. 現行コード監査で確定した既存意味論
 
-### 4.1 One deployment candidate = one concrete symbol
+U1は既存`ResidualMarketEnv`のexecution/accountingを再利用する。コード監査により以下を確定する。
 
-推論単位は常に1 symbol、1 fixed capital budget、1 target-exposure controlとする。
+### 4.1 Risk-projected target
+
+`ResidualMarketEnv.step()`は、
 
 ```text
-one policy application
-  = one concrete symbol
-  = one current account/execution state
-  = one scalar target-exposure action
+decision.executed_hybrid_target
+ -> risk_projector.project(...)
+ -> hybrid_risk.weights
+ -> execute_target(... target=hybrid_risk.weights)
 ```
 
-shared policyは複数Train symbolsから学習可能だが、一つのactionでBTC/ETH/SOLを同時配分しない。
+の順でExecutionへ渡す。
 
-### 4.2 Strategy priorをObservationから外す
+さらにstep後の`ObservationExecutionState.requested_weights`は、
 
-現行`ObservationBuilder`は市場・execution状態に加え、`TrendTargets`、alpha、shadow baseline、hybrid-vs-shadow差分等もPolicy inputへ含められる。
+```text
+requested_weights = hybrid_risk.weights
+```
 
-U1 V1では以下を禁止する。
+として保存される。
 
-- `TrendTargets.fast/base/slow`
-- alpha provider output
-- factor basis / factor tilt prior
-- shadow book weight/state
-- hybrid - shadow relative state
-- baseline underperformance state
+したがってU1では既存`ObservationExecutionState.requested_weights`を**risk_projected_weight**として再利用し、意味を変更しない。
 
-V10まで人間が定義していたentry/exit ownershipやbaseline policyをshared RLへ暗黙に持ち込まず、「市場状態 + 実現した自分の状態 -> target exposure」を学習対象に戻す。
+### 4.2 Signal-delay pending targetとpending orderは別物
 
-### 4.3 Risk / executionは環境のhard contract
+既存`_pending_hybrid_target`は`signal_delay_decisions`用のpending targetであり、partial-fill/order-latency stateではない。
 
-RLは「どれだけlong/short exposureを要求するか」を出す。
+U1 V1は因果的なnext-decision executionを固定するため、
 
-Risk / execution layerは、leverage、margin、position limit、tradability、liquidity、minimum order、latency、partial fill等を現実的な制約として適用する。
+```text
+signal_delay_decisions = 1
+```
 
-**Policy request、Risk projection、realized positionは3つの別状態として扱う。**
+を要求する。
 
-### 4.4 Rewardはwealthだけを最適化する
+したがって次の意味を固定する。
 
-fee、spread、impact、funding、borrow等がwealthへ既に反映される場合、追加のturnover/cost penaltyをRewardへ重ねない。
+- `policy_requested_weight`: 今回Policyが提出したpre-risk target。
+- `pending_target_weight`: signal-delay queueで次decision executionを待つtarget。
+- `pending_target_active`: pending targetが存在するかを表すmask。`0.0` targetと「pendingなし」を区別する。
+- `risk_projected_weight`: 今回実際にExecutionへ渡されたpost-risk target。signal delayがあるため、通常は直前decisionでpendingだったtargetに対応する。
+- `current_weight`: Execution後のrealized `BookState.weights`。
 
-DrawdownもU1 Rewardへ加えず、破産防止・leverage・margin・position制約はRisk / termination layerで扱う。
+partial fill / order latency / order expiry等は既存`PendingOrderObservationState`で別途観測する。
 
-## 5. Reuseする既存契約
+### 4.3 Execution cost observation
 
-U1は以下を再利用する。
+既存`EnvironmentExecutionCoordinator.execution_observation_state()`は、
 
-- `MarketDataset`
-- `FeatureSpec` / `FeatureKind`
-- `SequenceObservationBuilder`
-- feature availability / staleness / missing reason
-- `ObservationExecutionState`
-- `PendingOrderObservationState`
-- `BookState`
-- `ActionMode.TARGET_WEIGHT`の基本概念
-- PreTradeRisk / portfolio risk / execution simulator
-- after-cost accounting
-- `RewardConfig.is_pure_net_log_growth()`が表すpure growth意味論
-- U0 Train-only fit provenance
+```text
+execution_cost = result.cost_by_symbol / initial_capital
+```
 
-ただし既存`baseline_residual_observation_v5`をそのままU1 Policy contractには使わない。U1専用schemaを追加する。
+を保存する。
 
-## 6. Architecture
+U1の`execution_cost_rate`はこの**cost / initial_capital**意味論をそのまま使用する。nominal costへ戻さない。
+
+## 5. Architecture
+
+U1は新しいSimulatorを作らない。
 
 ```text
 U0 Frozen Universe
-       |
-       +-- Train symbols --------------------------+
-       |                                           |
-       |                                  Train-only fit
-       |                                           |
-       |                              Universal Normalizer
-       |                                           |
-       v                                           v
-MarketDataset -> UniversalObservationBuilder -> UniversalObservationV1
-                       ^
-                       |
-          realized Book / Execution / Pending state
-                       |
-                       +-----------------------------+
-                                                     |
-                                                     v
-                                                Shared Policy
-                                                     |
-                                              scalar action [-1, 1]
-                                                     |
-                                                     v
-                                      NormalizedTargetExposureV1
-                                                     |
-                                                     v
-                                         PreTradeRisk / Execution
-                                                     |
-                                                     v
-                                            realized BookState
-                                                     |
-                                                     v
-                                    100 * after-cost net log growth
+        |
+        +---- Train-only market statistics ----+
+        |                                      |
+        v                                      v
+ResidualMarketEnv                         Universal Market Normalizer
+(single symbol, maintained execution)          |
+        |                                      |
+        +---- runtime snapshot ----------------+
+        |                                      |
+        v                                      v
+              UniversalTradeMarketEnv wrapper
+                         |
+                  U1 Observation
+                         |
+                    Shared Policy
+                         |
+                 scalar action [-1,1]
+                         |
+             policy_requested_weight
+                         |
+                signal-delay queue
+                         |
+                 PreTradeRisk
+                         |
+              risk_projected_weight
+                         |
+              maintained Execution
+                         |
+                  current_weight
+                         |
+               realized BookState
+                         |
+             100 * net log growth
 ```
 
-責務境界:
+責務:
 
-- `UniversalObservationBuilder`: causalでsymbol-independentなPolicy inputだけを生成する。
-- `UniversalObservationNormalizer`: U0 Train-only pooled statisticsをfreezeする。
-- `NormalizedTargetExposureV1`: scalar actionを固定semanticの**pre-risk policy request**へ変換する。
-- Risk layer: pre-risk requestを**post-risk projected target**へ変換する。
-- Execution/accounting: projected targetからfill/cost/wealthを計算する。
-- Reward: accounting結果を再解釈せずnet log growthへ写像する。
+- `ResidualMarketEnv`: risk / execution / accountingの唯一のauthority。
+- U1 runtime snapshot: named read-only stateだけを公開する。
+- U1 observation builder: manual strategy priorを受け取らない。
+- U1 normalizer: market sequence continuous channelsだけをTrain-only equal-symbol fitする。
+- endogenous policy state: dimensionless valueまたはversioned deterministic transform。policy-dependent state distributionからfitしない。
+- U1 wrapper: action/observation/reward semanticを固定し、base environmentの経済ロジックを変更しない。
 
-## 7. Observation Contract
+## 6. Observation Contract
 
-### 7.1 Schema
-
-新schema名:
+Schema:
 
 ```text
 universal_trade_observation_v1
 ```
 
-U1 environmentは`dataset.n_symbols == 1`を必須とする。shared trainingは複数のsingle-symbol environmentを使用する。
+U1 environmentは`dataset.n_symbols == 1`を必須とする。
 
-Observationはstructured Dictとし、次の2 planeに分ける。
+Observationは次の2 planeから構成する。
 
 1. Market sequence plane
 2. Endogenous policy-state plane
 
-symbol name / symbol index / exchange-specific IDをtensorへ入れない。
+symbol name / symbol index / dataset ID / artifact digestをtensorへ入れない。
 
-### 7.2 Market sequence plane
+### 6.1 Market sequence windows
 
-既存`SequenceObservationBuilder`のcausal source-index semanticsを再利用する。
-
-初期windowは既存Universal U6と同じ時間範囲を採用する。
+固定window:
 
 | timeframe | length | history |
 | --- | ---: | ---: |
@@ -188,7 +183,7 @@ symbol name / symbol index / exchange-specific IDをtensorへ入れない。
 | 4h | 120 | 20d |
 | 1d | 60 | 60d |
 
-各timeframeについて以下を公開する。
+各timeframeで公開:
 
 ```text
 sequence_<tf>_values
@@ -196,11 +191,15 @@ sequence_<tf>_available
 sequence_<tf>_staleness
 ```
 
-`source_index <= decision_index`を全要素で保証する。future row backfillは禁止する。
+既存`SequenceObservationBuilder`のcausal source-index semanticsを再利用し、全source rowで
 
-### 7.3 U1 V1 Feature semantics
+```text
+source_index <= decision_index
+```
 
-U1 V1は`FeatureKind`全種を自動許可しない。次のsemantic groupに限定する。
+を保証する。future backfillは禁止する。
+
+### 6.2 U1 V1 allowed FeatureKinds
 
 **Return / candle geometry**
 
@@ -237,9 +236,7 @@ U1 V1は`FeatureKind`全種を自動許可しない。次のsemantic groupに限
 - `FUNDING_CHANGE`
 - `FUNDING_ZSCORE`
 
-具体的な`FeatureSpec`順序、lookback、normalization window、timeframe割当はU1 model configの一部として事前登録し、feature contract digestへbindする。Development / Admission結果を見て変更した場合は新generationとする。
-
-U1 V1で明示的に禁止するFeatureKind:
+U1 V1では明示的に禁止:
 
 - `RELATIVE_RETURN_TO_BTC`
 - `ROLLING_CORRELATION_TO_BTC`
@@ -247,13 +244,11 @@ U1 V1で明示的に禁止するFeatureKind:
 - `CROSS_SECTIONAL_MOMENTUM_RANK`
 - `CROSS_ASSET_DISPERSION`
 
-理由は、target symbolによってreference relationshipが非対称になり、one-symbol zero-shot契約の初期検証を不必要に複雑化するためである。
+FeatureSpecの順序、lookback、native timeframe、rolling normalization設定はprecommitted policy contractへbindする。
 
-raw absolute OHLC price、raw nominal volume、raw position quantity、contract multiplier、symbol IDをPolicy tensorへ直接入れない。
+raw absolute OHLC、raw nominal volume、raw nominal cash、raw quantity、contract multiplier、symbol IDはPolicy tensorへ直接入れない。
 
-### 7.4 Missingness
-
-missing featureを単純な0として意味付けしない。
+### 6.3 Missingness
 
 ```text
 value = 0, available = 1
@@ -265,20 +260,19 @@ value = 0, available = 1
 value = 0, available = 0
 ```
 
-は別状態である。
+は別状態である。stalenessも別channelとして維持する。
 
-stalenessも維持し、Funding等のevent-sparse featureを「0 funding」と「未更新/未取得」で区別する。
+### 6.4 Endogenous policy state
 
-### 7.5 Endogenous policy-state plane
-
-既存`ObservationExecutionState`、`PendingOrderObservationState`、`BookState`およびdecision/execution traceから、次のscale-freeまたは共通単位の状態だけを生成する。
+固定順序で最低限次を公開する。
 
 ```text
-current_weight
 policy_requested_weight
-risk_projected_weight
-previous_action
 pending_target_weight
+pending_target_active
+risk_projected_weight
+current_weight
+previous_action
 fill_ratio
 unfilled_turnover_ratio
 participation_ratio
@@ -304,488 +298,398 @@ risk_scale
 margin_utilization
 ```
 
-意味を固定する。
+`PendingOrderObservationState`はorder lifecycleを表し、signal-delay `pending_target_*`とは別責務である。
 
-- `policy_requested_weight`: `a_t * policy_weight_scale`で得た**PreTradeRisk適用前**のPolicy request。
-- `risk_projected_weight`: Risk layer適用後、Executionへ渡されたtarget。reject/flatten/project結果を反映する。
-- `pending_target_weight`: order latency / partial-fill carry等によりExecution lifecycle内で未完了のtarget。
-- `current_weight`: **実現したeffective `BookState.weights`**。
+### 6.5 Deterministic state transforms
 
-同一fieldへpre-risk/post-risk値を混在させない。既存`ObservationExecutionState.requested_weights`の現在の意味が上記どちらに対応するかを実装前に監査し、曖昧ならU1専用trace fieldを追加する。名前を合わせるためだけに意味を変更しない。
+Endogenous stateはTrain rollout分布へfitしない。理由は、normalization state自体が探索policy/action distributionへ依存するとU1 contractがpolicy依存になるためである。
 
-その他:
+例:
 
-- `execution_cost_rate`はnominal currency costではなく、直前stepのcost / reference equityとして表す。既存fieldがrateでない場合はU1 builderでrateへ変換する。
-- position/order ageはhoursという共通物理単位で表し、その後Train-only normalizerへ渡す。
-- `borrow_rate`、`mark_index_basis`のtransform式はschema identityへ固定する。
-- current portfolio value、cash nominal amount、peak nominal value、quantity、mark price absolute valueは公開しない。
+```text
+position_age_days = log1p(position_age_hours / 24)
+pending_order_age_days = log1p(pending_order_age_hours / 24)
+mark_index_basis_scaled = tanh(100 * mark_index_basis)
+borrow_rate_scaled = tanh(borrow_rate)
+```
 
-### 7.6 Forbidden endogenous inputs
+weights / ratios / masksは元のdimensionless semanticを維持する。transform式とfield順序はstate-layout digestへbindする。
 
-以下はU1 V1 Policy inputへ入れない。
+### 6.6 Forbidden policy inputs
 
+- `TrendTargets.fast/base/slow`
+- alpha provider output
+- factor basis / factor tilt prior
 - shadow book state
-- baseline strategy target
-- hybrid-vs-shadow wealth gap
-- baseline underperformance penalty state
-- Causal Alpha score / confidence / target
-- manually latched slow/fast ownership state
+- hybrid-shadow差分
+- baseline underperformance state
+- manually latched ownership state
 - remaining episode fraction
-- Admission role/name
-- dataset ID / artifact digestそのもの
+- role/name/ID文字列
 
-## 8. Action Contract
+## 7. Action Contract
 
-新semantic identity:
+Semantic identity:
 
 ```text
 normalized_target_exposure_v1
 ```
 
-Action shape:
+Action shape `(1,)`、値域`[-1,+1]`。
 
 ```text
-(1,)
+policy_requested_weight = action * policy_weight_scale
 ```
 
-Policy output:
+`policy_weight_scale`はstatic precommitted config。U1 V1 default `1.0`。dynamic risk capをAction semanticへ混ぜない。
 
-```text
-a_t in [-1, +1]
-```
+U1 action parserはout-of-range / NaN / infをfail closedし、hidden clipしない。Gym/policy側がaction spaceを守る責務を持つ。
 
-Pre-risk Policy request:
+signal delay 1のため、action_tは`pending_target_weight`としてqueueされ、今回Executionされるtargetは原則として直前pending targetである。
 
-```text
-policy_requested_weight = a_t * policy_weight_scale
-```
+## 8. Reward Contract
 
-`policy_weight_scale`はstaticかつprecommittedなmodel configであり、U0 Train/Development/Admissionで共通とする。Development結果からfitしない。U1 V1 defaultは`1.0`とし、変更時は別config digestとする。
-
-重要: `policy_weight_scale`は現在のdynamic risk capではない。Actionの意味を状態依存にしない。
-
-Risk layerは`policy_requested_weight`を`risk_projected_weight`へproject/reject/flattenできる。Executionはその後realized `current_weight`を更新する。
-
-例:
-
-```text
-policy action          = +0.80
-policy_requested_weight= +0.80
-risk_projected_weight  = +0.35
-realized current_weight= +0.22
-```
-
-次Observationでは4段階を区別して返す。
-
-U1 V1ではbuy/sell/hold gate、manual confirmation、slow ownership、neutral expiry等をAction semanticへ入れない。
-
-## 9. Reward Contract
-
-新semantic identity:
+Semantic identity:
 
 ```text
 universal_net_log_growth_reward_v1
 ```
 
-各decision transitionについて:
+各transition:
 
 ```text
 reward_t = 100 * log(W_after / W_before)
 ```
 
-ここで`W_before` / `W_after`は同一realized accounting pathのportfolio valueである。
+`W_before` / `W_after`は同じrealized hybrid accounting pathの`BookState.portfolio_value`。
 
-`W_after`には実行モデルが計上する以下を含む。
+wealthには既存accountingが計上するtrading PnL、fee、spread、impact/slippage、funding、borrow cost等を含む。
 
-- trading PnL
-- fee
-- spread
-- market impact / slippage
-- funding PnL
-- borrow cost
-- その他既存accounting contractでnet wealthへ入るcost
+U1 V1追加shapingは全て0:
 
-追加Reward shapingはU1 V1で0固定とする。
+- baseline/excess component
+- drawdown reward penalty
+- turnover penalty
+- projection penalty
+- terminal equity bonus/penalty
+- margin reward penalty
 
-- excess/baseline component = 0
-- drawdown reward penalty = 0
-- turnover penalty = 0
-- projection penalty = 0
-- terminal equity bonus/penalty = 0
-- margin penalty = 0 in Reward
-
-margin/insolvency safetyはRisk / termination contractで扱う。
-
-### 9.1 Reward reconciliation oracle
-
-正しいepisodeでは:
+valid episodeでは:
 
 ```text
-sum(reward_t) / 100
-  == log(final_wealth / initial_wealth)
+sum(reward_t) / 100 == log(final_wealth / initial_wealth)
 ```
 
-がfloating-point tolerance内で成立しなければならない。
+がfloating tolerance内で成立する。
 
-forced cost、funding、partial fillを含む場合も同一oracleを使う。
+`W_before <= 0`、`W_after <= 0`、NaN、infはfail closed。U1 reward層でepsilon clipしない。
 
-### 9.2 Non-positive wealth
+## 9. Universal Market Normalization
 
-`W_before <= 0`または`W_after <= 0`はlog rewardとして定義しない。
-
-小さい正値へsilent clipしてrewardを続行することは禁止する。Risk / accounting / termination contract違反としてfail closedし、そのepisodeを有効な学習evidenceに含めない。
-
-## 10. Universal Normalization
-
-### 10.1 Principle
-
-既存`ObservationNormalizer`はexplicit training rangeとdataset identityを持つが、U1では複数Train symbolsを1つのshared policyへ入れるため、Universal pooled normalizerを定義する。
-
-新artifact semantic:
+Artifact semantic:
 
 ```text
-universal_observation_normalizer_v1
+universal_trade_sequence_normalizer_v1
 ```
 
-### 10.2 Fit scope
+U1でfitするのは**Market sequence continuous valuesだけ**。Endogenous stateはSection 6.5のdeterministic transformを使用する。
 
-fit sourceはU0 `Train` symbolsだけ。
+### 9.1 Fit firewall
 
-Development / Admission / Excludedはfitに使用しない。
+source lookupより先に:
 
-normalizer build前にU0 Train-only provenanceを検証し、その後source datasetへアクセスする。
+```text
+UniversalTradeRLUniverseAccess.require_normalization_scope(train_symbols)
+```
 
-### 10.3 Equal-symbol weighting
+を通し、その後
 
-単純な全row連結では、historyが長いsymbolが統計を支配するため禁止する。
+```text
+UniversalTradeRLFitPurpose.FEATURE_NORMALIZATION
+```
 
-各continuous feature channelについて:
+のTrain-only provenanceを作る。
 
-1. 各Train symbol内でavailableなeligible sampleからfirst/second momentを計算する。
-2. symbolごとのmomentをequal weightで集約する。
-3. global mean/scaleを全symbolへ共通適用する。
+Development / Admission / Excludedを数値fitに使わない。
 
-したがってhistoryが長いsymbolほどnormalizerへ大きなvoteを持つことを避ける。
+### 9.2 Equal-symbol weighting
 
-### 10.4 Availability-aware fit
+row数の多いsymbolがnormalizerを支配しないよう、各channelでsymbol単位momentsをequal weight集約する。
 
-`available == false`のplaceholder valueをmean/std fitへ入れない。
+symbol `s` のavailable sampleについて:
 
-availability / missing reason / categorical code / boolean maskはpassthroughとし、continuous featureと同じstandardizationをしない。
+```text
+mu_s = mean(x_s)
+q_s  = mean(x_s^2)
+```
 
-### 10.5 Identity binding
+Train symbols数を`S`として:
 
-Normalizer artifactは最低限以下をbindする。
+```text
+mu = (1/S) * sum(mu_s)
+q  = (1/S) * sum(q_s)
+var = max(q - mu^2, 0)
+scale = sqrt(var)
+```
+
+`scale <= epsilon`は`1.0`。
+
+各symbolが同じ1 voteを持ち、row countそのものはsymbol間weightにならない。
+
+### 9.3 Native unique source sampling
+
+高timeframe値がbase clockで繰り返されることによる過剰weightを避けるため、normalizer fit sampleは各timeframeの**unique native source rows**を使う。
+
+sampling semantic:
+
+```text
+native_unique_source_rows_v1
+```
+
+同一native source rowをoverlapping sequence window回数だけ重複countしない。
+
+`available == false` sampleはmomentへ入れない。必要channelでavailable sampleが0ならfail closed。
+
+### 9.4 Identity
+
+Normalizerは最低限以下をbindする。
 
 - U0 universe manifest digest
-- U0 Train fit provenance digest
-- ordered Train symbols
-- symbolごとのTrain source dataset digest
-- U1 observation contract digest
-- ordered feature contract digest
-- sequence window contract
-- endogenous state layout digest
-- equal-symbol weighting mode
-- mean / scale / clip
+- Train normalization provenance digest
+- ordered Train symbols / source digests
+- U1 policy contract digest
+- ordered feature/layout digest
+- sequence windows
+- sampling semantic `native_unique_source_rows_v1`
+- equal-symbol weighting semantic
+- mean / scale / clip / epsilon
 - knowledge cutoff
 
-ここでU0 universe digestはDevelopment / Admission source identityも含むため、**Development / Admission sourceが変われば同一generationのnormalizer artifactを再利用しない**。source driftはU0 validationで先にfail closedする。
+別Universe generationでTrain source numeric samplesが完全同一、Development / Admissionだけが異なる場合:
 
-一方、normalizerの数値統計そのものはTrain-onlyである。別Universe generationをsyntheticに作り、Train sourceを完全に同一、Development / Admissionだけを変更した場合、`mean` / `scale`は一致しなければならない。ただしU0 universe digestが異なるためnormalizer artifact digest全体は異なってよい。
+- `statistics_digest`は同一
+- artifact `digest`はU0 universe identity差により異なる
 
-## 11. Episode / Truncation Semantics
+ことを要求する。
 
-U1をcontinuing control problemとして扱う。
+## 10. Episode / Reset Contract
 
-training上のfinite sampled trajectoryは「市場の終端」ではない。
+U1はcontinuing control problemとして扱う。
 
-U1 V1では:
-
-- remaining episode fractionをObservationへ入れない
-- sampled horizon到達はGymnasium `truncated=True` semanticとする
-- market/risk failure等だけを`terminated=True` semanticとする
-- training truncation時に無料でpositionをliquidateしない
-- `liquidate_on_end=False`
-- U1 V1 initial stateは`cash`のみ
-
-U2 algorithmはtruncationをterminal-zero-valueとして扱ってはならず、final observationからbootstrap可能でなければならない。この点はU2実装時の必須Integration Testとする。
-
-U1 V1のtrajectory horizonは既存30日/720hを初期contractとして再利用してよいが、horizonはmodel configへbindし、Developmentを見て同一generation内で変更しない。
-
-## 12. Shared Training Symbol Sampling Contract
-
-U2で利用するsymbol samplerはU1 handoffとして次を前提にする。
-
-1. U0 Train symbolsからsymbolをuniformに選ぶ。
-2. 選ばれた1 symbol内でeligible causal startを選ぶ。
-3. 1 environmentはepisode中そのsymbolだけを扱う。
-4. row数が多いsymbolが単純にsampling probabilityを増やさない。
-
-これはportfolio allocationではない。複数parallel envが別symbolを同時に担当することは許可する。
-
-## 13. Identity / Artifact Contract
-
-U1は次をcanonical artifactとしてmaterializeできる設計とする。
+固定条件:
 
 ```text
-u1_contract.json
-normalizer.json
+episode_hours = 720h initial contract
+episode_boundary_mode = external_truncation
+finite_horizon_observation = false
+liquidate_on_end = false
+signal_delay_decisions = 1
+initial_state_modes = ("cash",)
 ```
 
-`u1_contract.json`は最低限以下を含む。
+cash-onlyの理由は、existing `baseline` / `stress` / `partial_fill` resetが`TrendStrategy` targetを利用し、`current_weight`経由でmanual priorを注入するためである。
+
+sample horizon到達は`truncated=True`、market/risk failureのみ`terminated=True`。sample endで無料liquidationやterminal bonusを発生させない。
+
+U1 V1 training wrapperはsampled resetとしてcash以外を受け入れない。explicit restore/serving stateはU2以降で別contractとして扱う。
+
+## 11. Runtime Wrapper Contract
+
+`UniversalTradeMarketEnv`は既存`ResidualMarketEnv`をwrapする。
+
+constructorは以下をfail closed検証する。
+
+- exactly one symbol
+- `ActionMode.TARGET_WEIGHT`
+- target count 1
+- structured sequence observation enabled
+- sequence windowsがU1 contractと一致
+- pure net-log-growth reward config
+- `signal_delay_decisions == 1`
+- external truncation
+- finite-horizon observation false
+- `liquidate_on_end == false`
+- sampled initial state exactly cash-only
+
+step:
+
+```text
+parse scalar action
+ -> policy_requested_weight
+ -> W_before
+ -> base_env.step([policy_requested_weight])
+ -> W_after
+ -> recompute U1 reward
+ -> require base pure reward == U1 reward
+ -> read named runtime snapshot
+ -> build U1 observation
+```
+
+wrapperはRisk / Execution / Accountingを再実装しない。
+
+## 12. Artifact / Identity Contract
+
+U1はcanonical artifactとして:
+
+```text
+output-root/
+  u1_contract.json
+  normalizer.json
+```
+
+をmaterializeする。
+
+`u1_contract.json`は最低限:
 
 - schema version
-- U0 universe digest
-- U0 identity digest
-- feature contract digest
-- observation contract digest
-- action contract digest
-- reward contract digest
-- episode/truncation contract
-- policy_weight_scale
-- source schema compatibility evidence
-- production_status = NO-GO
+- U0 universe manifest digest
+- U0 materialization identity digest
+- policy contract digest
+- observation/action/reward schema/digest
+- state-layout digest
+- normalizer digest / provenance digest
+- episode/reset/signal-delay contract
+- canonical runtime config digest
+- execution policy digest
+- risk config digests
+- production_status = `NO-GO`
 
-U1 contract digestはU2 Base RL model config / checkpoint identityへ必須bindする。
+をbindする。
 
-## 14. Invariants
+materializationはU0と同じくcanonical JSON、atomic publish、byte-identical rerunのみidempotent successとする。partial artifact、自動修復、drift overwriteは禁止する。
 
-1. Policy tensorにsymbol IDが存在しない。
-2. U1 environmentはexactly one concrete symbolを扱う。
-3. Action semanticは全symbolで同一である。
-4. Reward semanticは全symbolで同一である。
-5. Observationはdecision time以下の情報だけから生成される。
-6. Development / Admissionはnormalizationを含むfitへ入らない。
-7. `policy_requested_weight` / `risk_projected_weight` / `pending_target_weight` / `current_weight`を混同しない。
-8. trading costをRewardで二重計上しない。
-9. training trajectory endを市場終端としてPolicyへ知らせない。
-10. baseline/shadow/Causal Alpha manual priorをU1 V1 Policy inputへ入れない。
-11. missingnessはvalueとavailabilityを分離する。
-12. 同一feature contractなら全source symbolで同一input shapeになる。
-13. U1 contract変更は新digest/new generationになる。
+U1 contract digestはU2 `BASE_TRAINING` model config/checkpoint identityへ必須bindする。
 
-## 15. Failure Modes
+## 13. Invariants
+
+1. Policy tensorにsymbol/dataset IDがない。
+2. environmentはexactly one concrete symbol。
+3. Action semanticは全symbolで同一。
+4. Reward semanticは全symbolで同一。
+5. Observationはdecision time以下だけ。
+6. Development / Admissionはnormalizer fitへ入らない。
+7. policy request / signal-delay pending / risk projection / realized weightを混同しない。
+8. pending order lifecycleとsignal-delay pending targetを混同しない。
+9. costをRewardで二重計上しない。
+10. training horizonをPolicyへ知らせない。
+11. manual strategy priorをPolicy input/reset stateへ入れない。
+12. missing value / availability / stalenessを分離。
+13. 同一feature contractなら全sourceで同一input shape。
+14. U1 contract変更はnew digest/new generation。
+
+## 14. Critical / High Failure Modes
 
 ### Critical
 
-- future mutationが現在Observationを変える
-- Admission dataでnormalizerをfitする
-- symbol name/IDがPolicy tensorへ入る
-- Reward sumとwealth変化が一致しない
-- fee/spread/impact等のcost二重計上
-- pre-risk request / post-risk target / realized positionを同一fieldへ混在させる
-- training truncationで無料liquidationまたはreward bonusが発生する
-- non-positive wealthをsilent clipして学習継続する
+- future mutationがObservation(t)を変える
+- Admission dataでnormalizer fit
+- Reward sumとwealth変化が不一致
+- request/projection/pending/currentの意味混同
+- signal-delay pendingとpending orderの意味混同
+- truncation時のforced free liquidation/bonus
+- non-positive wealth silent clip
 
 ### High
 
-- per-symbol normalizerを使いzero-shot時だけre-fitする
-- row-count weighted poolingで特定symbolがnormalizerを支配する
-- funding unavailableをfunding=0と同一視する
-- baseline/shadow stateがU1 inputへ混入する
-- cross-asset BTC reference featureによるtarget-dependent representation asymmetry
-- raw nominal price/quantity/cashをPolicy tensorへ入れる
-- episode remaining-time依存policyを学習可能にする
+- row-count weighted pooling
+- repeated high-timeframe base rowsの過剰weight
+- per-symbol normalizer / zero-shot時refit
+- raw nominal price/quantity/cashのtensor混入
+- baseline/shadow/Causal Alpha prior混入
+- baseline/stress/partial-fill sampled resetによるTrend prior注入
+- unavailable fundingとtrue zeroの混同
+- cross-asset BTC-reference representation asymmetry
 
-### Medium
+## 15. Required Test Oracles
 
-- stale featureをavailabilityなしで利用する
-- action saturationを診断できない
-- order latency/partial fill stateをPolicyから隠してPOMDPを悪化させる
-- source symbols間でfeature order/schemaがずれる
+- exact observation values / shape / dtype
+- source index causality
+- policy request -> pending -> risk projection -> execution -> current state transition
+- pending order state transition
+- realized `BookState.portfolio_value`
+- exact execution/funding/borrow side effects
+- reward-to-wealth reconciliation
+- normalizer per-symbol moments / aggregate mean/scale / statistics digest / artifact digest
+- U0 source drift and access rejection
+- forbidden prior field absence
+- exact artifact canonicalization/idempotency
 
-## 16. Test Oracle
+## 16. Falsification Tests
 
-U1の正しさは単なる`env.step()`成功では判定しない。
+### 16.1 Future mutation
 
-必須Oracle:
+`t+1`以降を任意変更してObservation(t) / normalized Observation(t)が不変。
 
-- exact observation component values
-- source indices <= decision index
-- policy request -> risk projection -> pending target -> realized weightのstate transition
-- order state transition
-- `BookState.portfolio_value`
-- execution cost/funding/borrow side effects
-- Reward-to-wealth reconciliation
-- normalizer provenance / mean / scale / digest
-- U0 source drift rejection
-- exact schema/shape/dtype
-- forbidden manual prior field absence
+### 16.2 Symbol rename
 
-## 17. Required Test Layers
+同一numeric dataでsymbol textだけ変更しPolicy tensorが一致。Artifact identityは変化してよい。
 
-### Unit
+### 16.3 Price/unit scaling
 
-- observation schema/layout
-- feature allowlist/prohibited kinds
-- action scaling/parsing
-- pre-risk/post-risk/realized state capture
-- policy-state ratio conversion
-- Reward formula
-- universal moment aggregation
-- artifact digest/canonicalization
+OHLC等を一律scaleし経済的に等価なcontract unitsへ変換して、dimensionless market/policy stateがtolerance内一致。
 
-### Property / Falsification
+### 16.4 Admission poisoning
 
-- future mutation invariance
-- symbol rename invariance
-- price-unit scale invariance
-- quantity/contract scaling invariance where economic path is equivalent
-- Train-only statistics invariance across synthetic Universe generations with identical Train sources
-- Development/Admission source drift fail-closed behavior
-- missing-value vs true-zero distinction
-- reward telescoping identity
+Train numeric samplesを同一に保ちDevelopment / Admission identityだけ変えるsynthetic generationsで、`statistics_digest`一致、artifact digest不一致。
 
-### Integration
+### 16.5 Cost reconciliation
 
-- Policy action -> Risk projection -> partial fill -> next Observation
-- flat market round trip -> exact after-cost loss
-- funding/borrow path -> exact net wealth/reward
-- pending order lifecycle -> Observation state
-- truncation without forced liquidation/free reward
-- U0 phase/provenance -> U1 normalizer materialization
+flat-price `flat -> long -> flat`でlossが既存accounting costだけに由来し、reward telescopingが一致。
 
-### Compatibility
+### 16.6 Four-stage exposure trace
 
-- existing Causal Alpha V9/V10/V11 behavior unchanged
-- existing Universal U3-U6 config behavior unchanged unless explicitly routed to U1 schema
-- existing `baseline_residual_observation_v5` remains readable
-
-### Static / Architecture
-
-- Ruff
-- format check
-- MyPy for affected modules
-- import-linter / architecture contract
-- package build
-- full test suite
-
-## 18. Falsification Tests
-
-### 18.1 Symbol rename
-
-同じnumeric datasetを`BTCUSDT`から`FOOUSDT`へrenameする。
-
-U1 Policy tensorは数値一致しなければならない。Artifact identity自体はsource identity差分により変化してよい。
-
-### 18.2 Price-scale transformation
-
-OHLC priceを一律`x1000`し、contract/quantity側を経済的に等価に変換したsynthetic marketを作る。
-
-return/range/volatilityベースMarket planeとportfolio-weight policy stateは同一または定義されたtolerance内で一致しなければならない。
-
-### 18.3 Future mutation
-
-index `t+1`以降のprice/volume/fundingを任意値へ変更する。
-
-`Observation(t)`とU1 normalizer transform結果はbitwiseまたは指定float tolerance内で不変でなければならない。
-
-### 18.4 Development / Admission poisoning
-
-同一U0 generationのDevelopment / Admission sourceを改変した場合、U0 source identity validationがnormalizer fitより先にfail closedしなければならない。
-
-さらに、2つのsynthetic Universe generationでTrain sourcesを完全に同一、Development / Admissionだけを変更した場合:
-
-- Universal normalizer `mean` / `scale`は一致する。
-- U0 universe digestは異なる。
-- したがってnormalizer artifact digest全体は異なってよい。
-
-これにより「fit統計はTrain-only」と「artifactは完全Universe identityへbind」の両方を検証する。
-
-### 18.5 Cost reconciliation
-
-価格不変marketで`flat -> long -> flat`を実行する。
-
-final wealth lossはexecution/accountingが定義するfee/spread/impact/funding/borrowだけと一致し、追加Reward penaltyによる差分がないこと。
-
-### 18.6 Request / projection / fill mismatch
+signal delay + risk projection + partial fillを同時に作り:
 
 ```text
-policy action           = +0.80
-policy_requested_weight = +0.80
-risk_projected_weight   = +0.40
-pending_target_weight   = +0.40
-realized current_weight = +0.25
+policy_requested_weight != risk_projected_weight
+risk_projected_weight != current_weight
+pending_target_active == 1
 ```
 
-を作り、次Observationが各値を別fieldで保持することを検証する。
+を確認する。`pending_target_weight`はcurrent submitted signal-delay targetであり、pending order quantityではない。
 
-## 19. Acceptance Criteria
+### 16.7 Reset prior leakage
 
-1. U1 contractはfrozen U0 universe digestなしではresearch generationとしてmaterializeできない。
-2. U1 Policy tensorにsymbol ID、dataset ID文字列表現、manual Causal Alpha/baseline targetが存在しない。
-3. U1 environmentは1 symbol以外をfail closedする。
-4. Market sequenceは15m/1h/4h/1dのcausal windowsを提供する。
-5. 全sequence source indexがdecision index以下である。
-6. prohibited cross-asset feature kindsをU1 V1が拒否する。
-7. raw nominal price/quantity/cashをPolicy tensorへ公開しない。
-8. missing value / availability / stalenessを分離する。
-9. `policy_requested_weight`、`risk_projected_weight`、`pending_target_weight`、`current_weight`の意味がschemaで分離される。
-10. `current_weight`が実際のRisk/Execution結果と一致する。
-11. scalar action `[-1,1]`がstatic `policy_weight_scale`を介して同一意味のpre-risk exposure requestへ変換される。
-12. dynamic risk capによってAction semanticそのものを変更しない。
-13. Rewardが`100 * net_log_return`のみで構成される。
-14. `sum(reward)/100 == log(final/initial wealth)`が全valid integration episodeで成立する。
-15. fee/spread/impact/funding/borrowがRewardで二重計上されない。
-16. Universal normalizerはU0 Train symbolsだけからfitする。
-17. Universal normalizerはequal-symbol weightingを使う。
-18. unavailable placeholderをcontinuous statisticsへfitしない。
-19. Development / Admission source driftはnormalizer fitより先にfail closedする。
-20. Train sourceが同じsynthetic generationsではDevelopment / Admissionが異なってもnormalizer `mean` / `scale`が一致する。
-21. episode remaining fractionをPolicyへ公開しない。
-22. sampled horizonはtruncationであり、無料liquidationやterminal rewardを作らない。
-23. existing Causal Alpha / Universal legacy pathのcompatibility regressionがない。
-24. U1 implementationのtargeted tests、property tests、integration tests、static checks、full suite、buildが必要なQuality Gateを満たす。
+U1 wrapperがbaseline/stress/partial-fill sampled resetを拒否し、cash reset後に前episode action/order/position stateが残らない。
 
-## 20. Quality Gate
+## 17. Acceptance Criteria
 
-U1を「完了」と呼ぶためには以下をすべて満たす。
+1. frozen U0 universe/identityなしではU1 artifactsをmaterializeできない。
+2. U1 tensorにsymbol/dataset ID、manual prior、raw nominal OHLC/volume/quantity/cashがない。
+3. one-symbol以外fail closed。
+4. fixed 15m/1h/4h/1d causal windows。
+5. prohibited cross-asset FeatureKinds拒否。
+6. missing value / availability / staleness分離。
+7. `policy_requested_weight` / `pending_target_weight`+active / `risk_projected_weight` / `current_weight`の意味が分離。
+8. pending order lifecycleは別fieldsで観測。
+9. scalar actionはstatic policy scaleを使う。
+10. `signal_delay_decisions == 1`をcontractとして固定。
+11. Rewardはpure `100 * log(W_after/W_before)`。
+12. valid episodeでreward telescoping成立。
+13. cost二重計上なし。
+14. normalizer fitはU0 Trainのみ。
+15. normalizerはequal-symbol moment aggregation。
+16. native unique source rowsを使いhigh-timeframe repeated valuesを重複countしない。
+17. unavailable placeholderをfitしない。
+18. Admission-only generation driftでstatisticsは不変、artifact identityは変化。
+19. sample horizonはexternal truncation、forced liquidationなし。
+20. sampled initial stateはcash-only。
+21. existing Causal Alpha / U3-U6経路に意図しないbehavior changeなし。
+22. `u1_contract.json` / `normalizer.json`がatomic/canonical/idempotentにmaterialize可能。
+23. Unit / Property / Integration / Compatibility / Static / full-suite / build / final-HEAD CIのQuality Gateを満たす。
 
-- 全Acceptance Criteriaの観測可能な証拠がある。
-- Critical / High Failure Modesに対応するnegative/falsification testがある。
-- Reward reconciliationを複数execution pathで確認している。
-- U0 Train-only provenanceとのintegration testがある。
-- Feature/action/reward/normalizer identityがcontent-addressedである。
-- Targeted Unit / Property / Integration testsがgreen。
-- Ruff / format / MyPy / import architecture checksがgreen。
-- Full test suiteにfeature-only unexplained failureがない。
-- package buildが成功する。
-- final HEADに対するCI Required Checksを確認する。
-- diff self-reviewとindependent/falsification reviewを行う。
-- Admissionは未開封のままである。
-- Production statusはNO-GOのままである。
+## 18. Quality Gate / U2 Handoff
 
-## 21. Implementation Boundary
+U1完了にはAcceptance CriteriaとCritical/High failure falsification、targeted tests、full suite、Ruff、format、MyPy、import architecture、build、diff self-review、independent/falsification review、exact final HEAD CIが必要。
 
-実装時は既存`ResidualMarketEnv`を全面置換しない。
+全てgreenでも、保証するのは**U1 contractの実装整合性と研究汚染防止**までであり、RL learnability、zero-shot economic value、profitability、real execution fidelity、Admission、Productionは保証しない。
 
-推奨境界:
+U2開始には:
 
-- 新規U1専用Observation contract/builderを追加する。
-- 既存`SequenceObservationBuilder`、execution/accounting/risk state dataclassをreuseする。
-- legacy `ObservationBuilder`からmanual prior fieldを削除しない。既存path互換性のため残す。
-- U1 pathだけが新schemaへroutingされる。
-- Universal normalizerは既存single-dataset normalizerを無理に多目的化せず、U1用の明確なTrain-only pooled artifactとして分離する。
-- target exposureは既存Action/PreTradeRisk/Execution契約へadapterで接続し、既存action semanticsを黙って変更しない。
-- `environment.py`へ多数のU1責務を直接追加せず、builder / contract / adapterへ分離する。
+1. real production-candidate U0 Universeがfreeze済み。
+2. U1 artifactsがfreeze済み。
+3. U1 Quality Gate完了。
+4. U0 Train-only `RL_TRAINING` provenanceを作成。
+5. frozen U1 contract digestを`UniversalTradeRLRunStage.BASE_TRAINING`のmodel config/checkpoint identityへbind。
 
-具体的なファイル名はimplementation plan作成時に、U0がmainへ入った最終HEADとimport architectureを再確認して確定する。
-
-## 22. U2 Handoff
-
-U2 Base RL trainingへ進める条件:
-
-1. production-candidate U0 Universeがfreeze済み。
-2. U1 contract artifactがfreeze済み。
-3. U1 Universal normalizerがTrain-only provenance付きでfreeze済み。
-4. U1 falsification / integration Quality Gateが通過。
-5. Admissionは未開封。
-
-U2では初めてRL algorithm / architecture / seed robustness / checkpoint selectionを扱う。U2の結果が良くても、AdmissionはU0 authorization contractを満たすまで開かない。
-
-## 23. Spec Self-Review Record
-
-- **Placeholder scan:** TBD/TODOはない。具体的ファイル名だけはU0最終HEAD確認後にimplementation planで決めるとscope上明示している。
-- **Internal consistency:** one-symbol deployment、Train-only statistics、complete Universe identity binding、pure net-log reward、risk/execution separationは全sectionで一致する。
-- **Scope check:** Observation / Action / Reward / normalization / episode semanticsに限定し、RL algorithm/transfer/Admission/productionを除外した。
-- **Ambiguity check:** pre-risk request / post-risk projection / pending target / realized weightを別fieldへ固定した。Development/Admission変更時のnormalizer数値統計とartifact digestの違いも明文化した。
+Developmentはevaluation-only、Admissionは未開封のまま開始する。

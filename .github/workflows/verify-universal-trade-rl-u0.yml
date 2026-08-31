@@ -107,8 +107,6 @@ jobs:
   exact-base-comparator:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      BASE_SHA: 329131d7a9b26b2e96f8e03879e7aa49fafceb3c
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -116,6 +114,22 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Resolve current main and require synchronized ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          base_sha="$(git rev-parse refs/remotes/origin/main)"
+          feature_sha="$(git rev-parse HEAD)"
+          printf 'base_sha=%s\nfeature_sha=%s\n' "$base_sha" "$feature_sha"
+          if ! git merge-base --is-ancestor "$base_sha" "$feature_sha"; then
+            echo "U0 feature branch is not synchronized with current origin/main" >&2
+            echo "Sync current main into the Draft PR branch before comparing regressions." >&2
+            exit 1
+          fi
+          echo "BASE_SHA=$base_sha" >> "$GITHUB_ENV"
+          echo "FEATURE_SHA=$feature_sha" >> "$GITHUB_ENV"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -127,6 +141,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${BASE_SHA:-}"
           git worktree add --detach ../trade_rl-base "$BASE_SHA"
           feature_lock="$(sha256sum uv.lock | cut -d' ' -f1)"
           base_lock="$(sha256sum ../trade_rl-base/uv.lock | cut -d' ' -f1)"
@@ -150,6 +165,7 @@ jobs:
           uv run pytest -q \
             --cov=trade_rl \
             --cov-branch \
+            --cov-fail-under=0 \
             --cov-report=json:feature-coverage.json \
             > feature-full.log 2>&1
           rc=$?
@@ -166,6 +182,7 @@ jobs:
             uv run pytest -q \
               --cov=trade_rl \
               --cov-branch \
+              --cov-fail-under=0 \
               --cov-report=json:base-coverage.json \
               > base-full.log 2>&1
           )
@@ -182,6 +199,7 @@ jobs:
           set -euo pipefail
           uv run python - <<'PY'
           import json
+          import os
           import re
           from pathlib import Path
 
@@ -208,29 +226,51 @@ jobs:
 
           feature = failures("feature-full.log")
           base = failures("base-full.log")
+          feature_rc = int(Path("feature-rc.txt").read_text(encoding="utf-8").strip())
+          base_rc = int(Path("base-rc.txt").read_text(encoding="utf-8").strip())
+          feature_coverage = coverage("feature-coverage.json")
+          base_coverage = coverage("base-coverage.json")
+          feature_only = feature - base
           payload = {
-              "base_sha": "329131d7a9b26b2e96f8e03879e7aa49fafceb3c",
+              "base_sha": os.environ["BASE_SHA"],
+              "feature_sha": os.environ["FEATURE_SHA"],
+              "feature_rc": feature_rc,
+              "base_rc": base_rc,
               "feature_counts": counts("feature-full.log"),
               "base_counts": counts("base-full.log"),
               "feature_failures": sorted(feature),
               "base_failures": sorted(base),
-              "feature_only_failures": sorted(feature - base),
+              "feature_only_failures": sorted(feature_only),
               "base_only_failures": sorted(base - feature),
-              "feature_coverage": coverage("feature-coverage.json"),
-              "base_coverage": coverage("base-coverage.json"),
+              "feature_coverage": feature_coverage,
+              "base_coverage": base_coverage,
+              "coverage_delta": feature_coverage - base_coverage,
           }
           Path("full-suite-comparator.json").write_text(
               json.dumps(payload, indent=2, sort_keys=True) + "\n",
               encoding="utf-8",
           )
           print(json.dumps(payload, indent=2, sort_keys=True))
-          if feature - base:
-              raise SystemExit("feature introduced full-suite failures")
+          errors: list[str] = []
+          if feature_only:
+              errors.append("feature introduced full-suite failures")
+          if base_rc == 0 and feature_rc != 0:
+              errors.append("feature full suite failed while current main passed")
+          if feature_coverage + 1e-9 < base_coverage:
+              errors.append("feature coverage regressed below current main")
+          if errors:
+              raise SystemExit("; ".join(errors))
           PY
 
       - name: Compare critical coverage gates
+        if: always()
         shell: bash
         run: |
+          set -euo pipefail
+          if test ! -f feature-coverage.json || test ! -f base-coverage.json; then
+            echo "coverage reports unavailable; earlier comparator setup failed" >&2
+            exit 1
+          fi
           set +e
           uv run python .github/check_critical_coverage.py \
             feature-coverage.json pyproject.toml \
@@ -244,9 +284,28 @@ jobs:
           )
           base_rc=$?
           set -e
+          cp ../trade_rl-base/base-critical.log base-critical.log
           printf 'feature_critical_rc=%s\nbase_critical_rc=%s\n' "$feature_rc" "$base_rc"
           cat feature-critical.log
-          cat ../trade_rl-base/base-critical.log
+          cat base-critical.log
           if test "$base_rc" -eq 0; then
             test "$feature_rc" -eq 0
           fi
+
+      - name: Upload comparator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: universal-trade-rl-u0-exact-base-comparator
+          path: |
+            feature-full.log
+            base-full.log
+            feature-rc.txt
+            base-rc.txt
+            feature-coverage.json
+            base-coverage.json
+            full-suite-comparator.json
+            feature-critical.log
+            base-critical.log
+          if-no-files-found: warn
+          retention-days: 14

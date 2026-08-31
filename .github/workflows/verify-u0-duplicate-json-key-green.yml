@@ -1,0 +1,36 @@
+name: Verify U0 Duplicate JSON Key GREEN
+
+on:
+  push:
+    branches:
+      - verify/u0-duplicate-json-key-green
+
+permissions:
+  contents: read
+
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact proposed head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: verify/u0-duplicate-json-key-green
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --frozen
+      - name: Verify duplicate fail-closed and key-order non-semantic behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/workflows/test_universal_trade_rl_duplicate_json_keys.py \
+            tests/workflows/test_universal_trade_rl_universe_config.py
+          uv run mypy trade_rl/workflows/universal_trade_rl_universe_config.py
+          uv run ruff check trade_rl/workflows/universal_trade_rl_universe_config.py tests/workflows/test_universal_trade_rl_duplicate_json_keys.py
+          uv run ruff format --check trade_rl/workflows/universal_trade_rl_universe_config.py tests/workflows/test_universal_trade_rl_duplicate_json_keys.py

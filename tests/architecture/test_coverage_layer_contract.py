@@ -59,3 +59,7 @@ def test_nautilus_capability_keeps_native_probes_isolated_under_coverage() -> No
             + path
         )
         assert command in workflow
+
+    deterministic_gate = "      - name: Verify deterministic execution digest\n"
+    coverage_gate = "      - name: Enforce Nautilus coverage ratchet\n"
+    assert workflow.index(deterministic_gate) < workflow.index(coverage_gate)

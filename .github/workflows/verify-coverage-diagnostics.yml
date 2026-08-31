@@ -1,0 +1,82 @@
+name: Verify Coverage Diagnostics
+
+on:
+  push:
+    branches:
+      - verify/coverage-diagnostics
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: dc63582d16ef22959d74749dc82c4ce552e4aa67
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3
+      - name: Full suite with non-blocking coverage threshold
+        run: >-
+          uv run pytest -q
+          --cov=trade_rl
+          --cov-branch
+          --cov-fail-under=0
+          --cov-report=json:coverage.json
+      - name: Rank coverage opportunities
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("coverage.json").read_text(encoding="utf-8"))
+          rows = []
+          for path, record in payload["files"].items():
+              if not path.startswith("trade_rl/"):
+                  continue
+              summary = record["summary"]
+              missing_lines = int(summary.get("missing_lines", 0))
+              missing_branches = int(summary.get("missing_branches", 0))
+              executable = int(summary.get("num_statements", 0)) + int(summary.get("num_branches", 0))
+              missing = missing_lines + missing_branches
+              rows.append(
+                  {
+                      "path": path,
+                      "percent_covered": float(summary["percent_covered"]),
+                      "missing_lines": missing_lines,
+                      "missing_branches": missing_branches,
+                      "missing_total": missing,
+                      "executable_total": executable,
+                  }
+              )
+          rows.sort(key=lambda row: (-row["missing_total"], row["percent_covered"], row["path"]))
+          result = {
+              "totals": payload["totals"],
+              "top_missing": rows[:40],
+          }
+          Path("coverage-opportunities.json").write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(result, indent=2, sort_keys=True))
+          PY
+      - name: Upload coverage diagnostics
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-diagnostics
+          path: |
+            coverage.json
+            coverage-opportunities.json
+          if-no-files-found: error

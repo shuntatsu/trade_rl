@@ -105,7 +105,9 @@ class UniversalTradeRLUniverseAccess:
     admission_authorization_digest: str | None = None
 
     def __init__(self, *args: object, **kwargs: object) -> None:
-        raise TypeError("Universal Trade RL universe access must be issued by for_phase()")
+        raise TypeError(
+            "Universal Trade RL universe access must be issued by for_phase()"
+        )
 
     @classmethod
     def _validated(

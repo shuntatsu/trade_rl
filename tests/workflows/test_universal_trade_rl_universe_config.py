@@ -89,6 +89,25 @@ def test_config_accepts_reordered_json_object_keys(tmp_path: Path) -> None:
     ).digest
 
 
+def test_config_rejects_duplicate_json_object_keys(tmp_path: Path) -> None:
+    path = tmp_path / "duplicate-universe.json"
+    path.write_text(
+        """{
+  "schema_version": "universal_trade_rl_universe_config_v1",
+  "train_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+  "train_symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+  "development_symbols": ["LINKUSDT"],
+  "admission_symbols": ["AVAXUSDT"],
+  "excluded_symbols": [{"symbol": "LUNA2USDT", "reason": "insufficient_contiguous_history"}]
+}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate"):
+        load_universal_trade_rl_universe_config(path)
+
+
 def test_config_rejects_unknown_root_keys(tmp_path: Path) -> None:
     payload = _config_payload()
     payload["unexpected"] = True

@@ -1,0 +1,53 @@
+name: One-shot Base Lint Hygiene
+
+on:
+  push:
+    branches:
+      - fix/base-lint-hygiene
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout lint branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/base-lint-hygiene
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev
+
+      - name: Apply targeted lint fix and verify repository lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix tests/data/test_v4_context.py
+          changed="$(git diff --name-only)"
+          printf '%s\n' "$changed"
+          test "$changed" = "tests/data/test_v4_context.py"
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest -q tests/data/test_v4_context.py
+
+      - name: Remove one-shot workflow and commit lint-only change
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/one-shot-base-lint-hygiene.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "test: remove unused V4 context local"
+          git push origin HEAD:fix/base-lint-hygiene

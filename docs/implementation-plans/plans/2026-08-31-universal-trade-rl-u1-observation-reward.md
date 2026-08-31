@@ -10,6 +10,8 @@
 
 **Spec:** `docs/implementation-plans/specs/2026-08-31-universal-trade-rl-u1-observation-reward-design.md`
 
+**Pinned design base:** `b3a4cf0fd98f459ceb2262a4a759af83f9b1df3c` (U0 PR #426 head used to create this branch). Before implementation begins, verify PR #426 has not advanced. If its intended U0 head has changed, synchronize this design branch first and amend this pinned comparator before writing production code; do not verify against a stale base.
+
 ## Global Constraints
 
 - Production status remains `NO-GO`.
@@ -853,10 +855,12 @@ Record exact pass/skip/fail counts and build outputs.
 - [ ] **Step 11: Self-review final diff and status**
 
 ```bash
-git diff <U0_BASE_SHA>...HEAD
+git diff b3a4cf0fd98f459ceb2262a4a759af83f9b1df3c...HEAD
 git status --short
 git log --oneline --decorate -n 30
 ```
+
+If the pinned U0 base has changed before implementation, this step is invalid until the branch and plan are synchronized to the new U0 base.
 
 Inspect for manual-prior leakage, ID/raw nominal leakage, duplicated accounting, reward double counting, row-weighted normalizer, Development/Admission fit leakage, signal-delay/pending-order semantic confusion, truncation leakage, reset prior leakage, debug code, secrets, generated files, and unrelated refactors.
 

@@ -173,7 +173,9 @@ def fit_causal_alpha_v9_wave(
     """Fit three deterministic random-ReLU ridge heads on one causal window."""
 
     records = dict(rows)
-    if not records or tuple(sorted(records)) != tuple(sorted(record.symbol for record in records.values())):
+    if not records or tuple(sorted(records)) != tuple(
+        sorted(record.symbol for record in records.values())
+    ):
         raise ValueError("V9 training row symbols are invalid")
     names = next(iter(records.values())).feature_names
     if any(record.feature_names != names for record in records.values()):
@@ -187,7 +189,10 @@ def fit_causal_alpha_v9_wave(
             (record.decision_indices >= start)
             & (record.label_end_indices >= 0)
             & (record.label_end_indices < knowledge_cutoff)
-            & ((knowledge_cutoff - record.decision_indices) % config.horizon_decisions == 0)
+            & (
+                (knowledge_cutoff - record.decision_indices) % config.horizon_decisions
+                == 0
+            )
             & np.all(record.feature_available, axis=1)
         )
         if not np.any(selected):
@@ -402,7 +407,9 @@ def causal_alpha_v9_wave_target_path(
         slow_states=tuple(CausalAlphaV6SlowState.MIXED for _ in range(rows)),
         reasons=tuple(reasons),
         reason_counts=reason_counts,
-        submitted_change_count=int(np.count_nonzero(np.abs(targets - previous) > 1e-12)),
+        submitted_change_count=int(
+            np.count_nonzero(np.abs(targets - previous) > 1e-12)
+        ),
         sign_flip_count=int(np.count_nonzero(targets * previous < 0.0)),
         liquidity_deleveraging_count=0,
         risk_projection_count=0,

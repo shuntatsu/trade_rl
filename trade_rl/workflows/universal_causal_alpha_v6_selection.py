@@ -58,15 +58,18 @@ class CausalAlphaV6SymbolSelectionSummary:
             raise ValueError("V6 symbol Selection identity is invalid")
         if not 0 <= self.meaningful_execution_scope_count <= self.scope_count:
             raise ValueError("V6 symbol Selection execution support is invalid")
-        if not all(
-            math.isfinite(value)
-            for value in (
-                self.gross_log_return,
-                self.net_log_return,
-                self.gross_wealth,
-                self.net_wealth,
+        if (
+            not all(
+                math.isfinite(value)
+                for value in (
+                    self.gross_log_return,
+                    self.net_log_return,
+                    self.gross_wealth,
+                    self.net_wealth,
+                )
             )
-        ) or min(self.gross_wealth, self.net_wealth) <= 0.0:
+            or min(self.gross_wealth, self.net_wealth) <= 0.0
+        ):
             raise ValueError("V6 symbol Selection economics are invalid")
         if not math.isclose(
             math.log(self.gross_wealth), self.gross_log_return, abs_tol=1e-12
@@ -143,11 +146,13 @@ class CausalAlphaV6CandidateSelectionEvidence:
             "config_digest",
         ):
             require_sha256(getattr(self, name), field=f"V6 Selection {name}")
-        if {metric.run_manifest_digest for metric in metrics} != {
-            self.run_manifest_digest
-        } or {metric.v4_context_manifest_digest for metric in metrics} != {
-            self.v4_context_manifest_digest
-        } or {metric.config_digest for metric in metrics} != {self.config_digest}:
+        if (
+            {metric.run_manifest_digest for metric in metrics}
+            != {self.run_manifest_digest}
+            or {metric.v4_context_manifest_digest for metric in metrics}
+            != {self.v4_context_manifest_digest}
+            or {metric.config_digest for metric in metrics} != {self.config_digest}
+        ):
             raise ValueError("V6 candidate Selection identity drifted")
         numeric = (
             self.symbol_balanced_gross_wealth,
@@ -166,12 +171,15 @@ class CausalAlphaV6CandidateSelectionEvidence:
             raise ValueError("V6 candidate Selection contains non-finite values")
         if not 0.0 <= self.positive_net_scope_fraction <= 1.0:
             raise ValueError("V6 candidate Selection positive fraction is invalid")
-        if min(
-            self.turnover_p50,
-            self.turnover_p95,
-            self.total_execution_cost,
-            self.net_to_gross_retention,
-        ) < 0.0:
+        if (
+            min(
+                self.turnover_p50,
+                self.turnover_p95,
+                self.total_execution_cost,
+                self.net_to_gross_retention,
+            )
+            < 0.0
+        ):
             raise ValueError("V6 candidate Selection costs are invalid")
         for name in (
             "meaningful_execution_scope_count",
@@ -208,7 +216,9 @@ class CausalAlphaV6CandidateSelectionEvidence:
             if name not in {"candidate", "metrics", "symbol_summaries", "digest"}
         }
         payload["candidate"] = self.candidate.value
-        payload["replay_metric_digests"] = tuple(metric.digest for metric in self.metrics)
+        payload["replay_metric_digests"] = tuple(
+            metric.digest for metric in self.metrics
+        )
         payload["symbol_summaries"] = tuple(
             summary.to_payload() for summary in self.symbol_summaries
         )
@@ -253,9 +263,7 @@ class CausalAlphaV6SelectionEvidence:
         else:
             if selected_config_digest is None:
                 raise ValueError("passed V6 Selection must select a config")
-            require_sha256(
-                selected_config_digest, field="V6 selected config digest"
-            )
+            require_sha256(selected_config_digest, field="V6 selected config digest")
             selected_evidence = (
                 self.fast_only
                 if selected is CausalAlphaV6Candidate.FAST_ONLY
@@ -287,7 +295,9 @@ class CausalAlphaV6SelectionEvidence:
             "rejection_reasons": self.rejection_reasons,
             "schema_version": self.schema_version,
             "selected_candidate": (
-                None if self.selected_candidate is None else self.selected_candidate.value
+                None
+                if self.selected_candidate is None
+                else self.selected_candidate.value
             ),
             "selected_config_digest": self.selected_config_digest,
         }
@@ -435,8 +445,7 @@ def _retention_dominates(
         and retention.minimum_symbol_net_wealth
         >= fast.minimum_symbol_net_wealth - _EPSILON
         and retention.turnover_p95 <= fast.turnover_p95 + _EPSILON
-        and retention.total_execution_cost
-        <= fast.total_execution_cost + _EPSILON
+        and retention.total_execution_cost <= fast.total_execution_cost + _EPSILON
         and retention.total_sign_flip_count <= fast.total_sign_flip_count
     )
 
@@ -500,7 +509,9 @@ def evaluate_causal_alpha_v6_selection(
     return CausalAlphaV6SelectionEvidence(
         fast_only=fast,
         fast_slow_retention=retention,
-        paired_scope_count=(len(grouped[CausalAlphaV6Candidate.FAST_ONLY]) if paired else 0),
+        paired_scope_count=(
+            len(grouped[CausalAlphaV6Candidate.FAST_ONLY]) if paired else 0
+        ),
         selected_candidate=selected,
         selected_config_digest=(None if selected is None else fast.config_digest),
         passed=selected is not None and not reasons,

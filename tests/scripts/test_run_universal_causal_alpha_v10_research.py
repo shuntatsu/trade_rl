@@ -40,7 +40,12 @@ def test_cli_forwards_optional_signal_run_config(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["run_universal_causal_alpha_v10_research", *_argv(tmp_path), "--signal-run-config", str(signal_config)],
+        [
+            "run_universal_causal_alpha_v10_research",
+            *_argv(tmp_path),
+            "--signal-run-config",
+            str(signal_config),
+        ],
     )
     status = module.main()
 

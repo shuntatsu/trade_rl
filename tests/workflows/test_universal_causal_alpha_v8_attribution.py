@@ -59,7 +59,9 @@ def _target() -> CausalAlphaV8TargetPath:
             CausalAlphaV6SlowState.MIXED,
         ),
         reasons=reasons,
-        reason_counts=tuple(sorted((reason, reasons.count(reason)) for reason in set(reasons))),
+        reason_counts=tuple(
+            sorted((reason, reasons.count(reason)) for reason in set(reasons))
+        ),
         submitted_change_count=2,
         sign_flip_count=0,
         liquidity_deleveraging_count=0,

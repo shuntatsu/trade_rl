@@ -64,10 +64,7 @@ class CausalAlphaV9Config:
         return self.wave_weeks * 7 * 24 * self.decisions_per_hour
 
     def to_payload(self) -> dict[str, object]:
-        return {
-            name: getattr(self, name)
-            for name in self.__dataclass_fields__
-        }
+        return {name: getattr(self, name) for name in self.__dataclass_fields__}
 
     @property
     def digest(self) -> str:

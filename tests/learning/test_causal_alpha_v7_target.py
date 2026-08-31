@@ -106,9 +106,15 @@ def _forecast(rows: int = 12) -> CausalAlphaV4Forecast:
             "24h": np.ones(rows),
             "72h": np.ones(rows),
         },
-        market_model_digests={horizon: _digest("b") for horizon in ("4h", "24h", "72h")},
-        residual_model_digests={horizon: _digest("c") for horizon in ("4h", "24h", "72h")},
-        direction_model_digests={horizon: _digest("d") for horizon in ("4h", "24h", "72h")},
+        market_model_digests={
+            horizon: _digest("b") for horizon in ("4h", "24h", "72h")
+        },
+        residual_model_digests={
+            horizon: _digest("c") for horizon in ("4h", "24h", "72h")
+        },
+        direction_model_digests={
+            horizon: _digest("d") for horizon in ("4h", "24h", "72h")
+        },
         fit_digest=_digest("e"),
     )
 
@@ -146,7 +152,9 @@ def test_v7_control_is_exactly_the_v6_fast_only_target_path() -> None:
     )
 
     assert tuple(paths) == tuple(CausalAlphaV7Candidate)
-    assert paths[CausalAlphaV7Candidate.V6_CONTROL].v6_target_path.digest == direct.digest
+    assert (
+        paths[CausalAlphaV7Candidate.V6_CONTROL].v6_target_path.digest == direct.digest
+    )
 
 
 def test_v7_candidates_change_only_fast_forecast_inputs() -> None:

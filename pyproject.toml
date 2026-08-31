@@ -132,6 +132,7 @@ markers = [
 [tool.coverage.run]
 source = ["trade_rl"]
 branch = true
+omit = ["trade_rl/integrations/nautilus/*"]
 
 [tool.coverage.report]
 show_missing = true

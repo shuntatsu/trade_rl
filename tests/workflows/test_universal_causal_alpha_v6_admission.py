@@ -281,7 +281,10 @@ def test_v6_admission_blocks_upstream_cutoff_candidate_and_pairing_bypass() -> N
             fit_knowledge_cutoff=99,
             holdout_start=100,
         )
-    drifted = (replace(baseline[0], forecast_digest=_digest("drift"), digest=""), *baseline[1:])
+    drifted = (
+        replace(baseline[0], forecast_digest=_digest("drift"), digest=""),
+        *baseline[1:],
+    )
     with pytest.raises(ValueError, match="paired"):
         evaluate_causal_alpha_v6_admission(
             baseline,

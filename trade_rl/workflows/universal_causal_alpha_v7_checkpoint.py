@@ -84,7 +84,9 @@ class CausalAlphaV7CheckpointWriter:
             encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         except (TypeError, ValueError) as error:
             self._sequence -= 1
-            raise ValueError("V7 checkpoint diagnostics are not JSON-serializable") from error
+            raise ValueError(
+                "V7 checkpoint diagnostics are not JSON-serializable"
+            ) from error
         with self.path.open("a", encoding="utf-8", newline="\n") as stream:
             stream.write(encoded)
             stream.write("\n")

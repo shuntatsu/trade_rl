@@ -46,16 +46,16 @@ def _policy(
     )
 
 
-def test_v10_micro_risk_reduction_requests_cap_with_reduce_only_intent() -> None:
+def test_v10_micro_risk_reduction_below_no_trade_band_flattens_reduce_only() -> None:
     policy = _policy(initial_weight=0.1004, risk_cap=0.10)
 
     action, _ = policy.predict(
         {"current_weights": np.asarray([0.1004], dtype=np.float64)}
     )
 
-    assert float(action[0]) == np.float32(0.10)
+    assert float(action[0]) == 0.0
     metadata = policy.last_step_trace_metadata
-    assert metadata["hierarchy_reason"] == "risk_cap_projection"
+    assert metadata["hierarchy_reason"] == "risk_cap_flatten"
     assert metadata["reduce_only"] is True
 
 

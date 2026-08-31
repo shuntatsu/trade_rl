@@ -46,16 +46,12 @@ def test_v6_learning_remains_framework_and_workflow_independent() -> None:
     )
     for path in paths:
         assert not any(
-            module.startswith(prefix)
-            for module in _imports(path)
-            for prefix in banned
+            module.startswith(prefix) for module in _imports(path) for prefix in banned
         ), path
 
 
 def test_v6_runner_surface_imports_no_bc_rl_serving_or_v5() -> None:
-    paths = tuple(
-        (_ROOT / "trade_rl/workflows").glob("universal_causal_alpha_v6*.py")
-    )
+    paths = tuple((_ROOT / "trade_rl/workflows").glob("universal_causal_alpha_v6*.py"))
     banned = (
         "episode_oracle_bc",
         "stable_baselines3",

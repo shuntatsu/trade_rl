@@ -97,7 +97,9 @@ def _metrics() -> tuple[CausalAlphaV6SignalScopeMetric, ...]:
     return tuple(values)
 
 
-def _evaluate(metrics: tuple[CausalAlphaV6SignalScopeMetric, ...], *, fast_pass: bool = True):
+def _evaluate(
+    metrics: tuple[CausalAlphaV6SignalScopeMetric, ...], *, fast_pass: bool = True
+):
     return evaluate_causal_alpha_v6_signal_gate(
         metrics,
         expected_symbols=tuple(f"S{index}" for index in range(9)),

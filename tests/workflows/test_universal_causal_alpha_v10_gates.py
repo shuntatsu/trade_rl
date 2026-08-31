@@ -239,4 +239,3 @@ def test_v10_dual_run_binding_accepts_lightweight_signal_scope_identity() -> Non
     )
 
     assert binding.shared_science_identity_digest
-

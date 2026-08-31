@@ -94,10 +94,12 @@ def test_v4_schema_constants_and_authored_example_are_unchanged() -> None:
         "causal_alpha_v4_target_v1",
     ):
         assert value in source
+    # Text mode normalizes CRLF/LF so the contract tracks authored content,
+    # not the checkout platform's line-ending policy.
     payload = (
         _ROOT / "examples/binance/universal-causal-alpha-v4-research.json"
-    ).read_bytes()
+    ).read_text(encoding="utf-8")
     assert (
-        hashlib.sha256(payload).hexdigest()
-        == "560e08e00b44b6cf559c5451eb7dd368f6006ed118979f80b44d2fe982c495dc"
+        hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        == "a5369a00d3862fec96ba2ffb74d2b745c3829a0801464fac5052536c34be2c51"
     )

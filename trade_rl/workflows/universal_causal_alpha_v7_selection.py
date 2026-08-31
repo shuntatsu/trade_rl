@@ -53,9 +53,13 @@ class CausalAlphaV7SymbolSelectionSummary:
             raise ValueError("V7 symbol Selection identity is invalid")
         if not 0 <= self.meaningful_execution_scope_count <= self.scope_count:
             raise ValueError("V7 symbol Selection execution support is invalid")
-        if not math.isclose(math.log(self.gross_wealth), self.gross_log_return, abs_tol=1e-12):
+        if not math.isclose(
+            math.log(self.gross_wealth), self.gross_log_return, abs_tol=1e-12
+        ):
             raise ValueError("V7 symbol gross wealth is inconsistent")
-        if not math.isclose(math.log(self.net_wealth), self.net_log_return, abs_tol=1e-12):
+        if not math.isclose(
+            math.log(self.net_wealth), self.net_log_return, abs_tol=1e-12
+        ):
             raise ValueError("V7 symbol net wealth is inconsistent")
         if self.schema_version != _SYMBOL_SCHEMA:
             raise ValueError("unsupported V7 symbol Selection schema")
@@ -119,7 +123,11 @@ class CausalAlphaV7CandidateSelectionEvidence:
         summaries = tuple(self.symbol_summaries)
         if not metrics or any(metric.candidate is not candidate for metric in metrics):
             raise ValueError("V7 candidate Selection metrics are invalid")
-        for name in ("run_manifest_digest", "v4_context_manifest_digest", "config_digest"):
+        for name in (
+            "run_manifest_digest",
+            "v4_context_manifest_digest",
+            "config_digest",
+        ):
             require_sha256(getattr(self, name), field=f"V7 Selection {name}")
         if any(metric.v7_config_digest != self.config_digest for metric in metrics):
             raise ValueError("V7 candidate Selection config identity drifted")
@@ -148,7 +156,9 @@ class CausalAlphaV7CandidateSelectionEvidence:
             if name not in {"candidate", "metrics", "symbol_summaries", "digest"}
         }
         payload["candidate"] = self.candidate.value
-        payload["replay_metric_digests"] = tuple(metric.digest for metric in self.metrics)
+        payload["replay_metric_digests"] = tuple(
+            metric.digest for metric in self.metrics
+        )
         payload["attribution_digests"] = tuple(
             metric.attribution.digest for metric in self.metrics
         )
@@ -174,9 +184,15 @@ class CausalAlphaV7SelectionEvidence:
 
     def __post_init__(self) -> None:
         candidates = tuple(self.candidates)
-        if tuple(item.candidate for item in candidates) != tuple(CausalAlphaV7Candidate):
+        if tuple(item.candidate for item in candidates) != tuple(
+            CausalAlphaV7Candidate
+        ):
             raise ValueError("V7 Selection candidate evidence is not canonical")
-        selected = None if self.selected_candidate is None else CausalAlphaV7Candidate(self.selected_candidate)
+        selected = (
+            None
+            if self.selected_candidate is None
+            else CausalAlphaV7Candidate(self.selected_candidate)
+        )
         reasons = tuple(self.rejection_reasons)
         if self.passed != (selected is not None and not reasons):
             raise ValueError("V7 Selection pass state is invalid")
@@ -186,9 +202,16 @@ class CausalAlphaV7SelectionEvidence:
         else:
             if self.selected_config_digest is None:
                 raise ValueError("passed V7 Selection must select a config")
-            require_sha256(self.selected_config_digest, field="V7 selected config digest")
-            selected_evidence = candidates[tuple(CausalAlphaV7Candidate).index(selected)]
-            if not selected_evidence.eligible or selected_evidence.config_digest != self.selected_config_digest:
+            require_sha256(
+                self.selected_config_digest, field="V7 selected config digest"
+            )
+            selected_evidence = candidates[
+                tuple(CausalAlphaV7Candidate).index(selected)
+            ]
+            if (
+                not selected_evidence.eligible
+                or selected_evidence.config_digest != self.selected_config_digest
+            ):
                 raise ValueError("V7 selected candidate/config is invalid")
         if self.promotion_eligible:
             raise ValueError("V7 Selection cannot be promotion eligible")
@@ -204,13 +227,17 @@ class CausalAlphaV7SelectionEvidence:
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
-            "candidates": tuple(candidate.to_payload() for candidate in self.candidates),
+            "candidates": tuple(
+                candidate.to_payload() for candidate in self.candidates
+            ),
             "paired_scope_count": self.paired_scope_count,
             "passed": self.passed,
             "promotion_eligible": self.promotion_eligible,
             "rejection_reasons": self.rejection_reasons,
             "schema_version": self.schema_version,
-            "selected_candidate": None if self.selected_candidate is None else self.selected_candidate.value,
+            "selected_candidate": None
+            if self.selected_candidate is None
+            else self.selected_candidate.value,
             "selected_config_digest": self.selected_config_digest,
         }
         if include_digest:
@@ -229,8 +256,12 @@ def _summaries(
         CausalAlphaV7SymbolSelectionSummary(
             symbol=symbol,
             scope_count=len(grouped[symbol]),
-            gross_log_return=float(sum(item.v6_metric.gross_return for item in grouped[symbol])),
-            net_log_return=float(sum(item.v6_metric.net_return for item in grouped[symbol])),
+            gross_log_return=float(
+                sum(item.v6_metric.gross_return for item in grouped[symbol])
+            ),
+            net_log_return=float(
+                sum(item.v6_metric.net_return for item in grouped[symbol])
+            ),
             gross_wealth=_wealth(
                 float(sum(item.v6_metric.gross_return for item in grouped[symbol])),
                 field="symbol gross wealth",
@@ -331,7 +362,9 @@ def _candidate_evidence(
     )
 
 
-def _paired(grouped: dict[CausalAlphaV7Candidate, tuple[CausalAlphaV7ReplayMetric, ...]]) -> bool:
+def _paired(
+    grouped: dict[CausalAlphaV7Candidate, tuple[CausalAlphaV7ReplayMetric, ...]],
+) -> bool:
     maps: list[dict[tuple[object, ...], int]] = []
     for candidate in CausalAlphaV7Candidate:
         counts: dict[tuple[object, ...], int] = defaultdict(int)
@@ -373,7 +406,9 @@ def evaluate_causal_alpha_v7_selection(
     eligible = tuple(item for item in candidate_evidence if item.eligible)
     selected: CausalAlphaV7CandidateSelectionEvidence | None = None
     if paired and eligible:
-        candidate_order = {candidate: index for index, candidate in enumerate(CausalAlphaV7Candidate)}
+        candidate_order = {
+            candidate: index for index, candidate in enumerate(CausalAlphaV7Candidate)
+        }
         selected = max(
             eligible,
             key=lambda item: (

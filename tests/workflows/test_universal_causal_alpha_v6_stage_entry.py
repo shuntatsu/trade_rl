@@ -165,9 +165,7 @@ def test_concrete_entry_releases_superseded_preparation_inputs_before_signal(
         sys.modules,
         "trade_rl.workflows.universal_causal_alpha_v6_runner",
         SimpleNamespace(
-            CausalAlphaV6ResearchConfig=SimpleNamespace(
-                from_json=lambda _path: config
-            )
+            CausalAlphaV6ResearchConfig=SimpleNamespace(from_json=lambda _path: config)
         ),
     )
     monkeypatch.setattr(

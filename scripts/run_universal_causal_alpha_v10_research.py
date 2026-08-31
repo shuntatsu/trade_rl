@@ -61,7 +61,9 @@ def main() -> int:
             {
                 "artifact_digest": evidence.digest,
                 "promotion_eligible": False,
-                "status": "selection_passed" if evidence.passed else "selection_rejected",
+                "status": "selection_passed"
+                if evidence.passed
+                else "selection_rejected",
             },
             sort_keys=True,
         )
@@ -71,4 +73,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

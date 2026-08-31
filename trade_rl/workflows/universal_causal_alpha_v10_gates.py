@@ -134,7 +134,9 @@ class CausalAlphaV10DualRunBinding:
         ):
             require_sha256(getattr(self, name), field=f"V10 dual-run {name}")
         signal_modes = tuple(str(mode) for mode in self.signal_initial_state_modes)
-        selection_modes = tuple(str(mode) for mode in self.selection_initial_state_modes)
+        selection_modes = tuple(
+            str(mode) for mode in self.selection_initial_state_modes
+        )
         if (
             not signal_modes
             or not selection_modes
@@ -358,13 +360,17 @@ class CausalAlphaV10SelectionEvidence:
             "rejection_reasons": self.rejection_reasons,
             "schema_version": self.schema_version,
             "selected_candidate": (
-                None if self.selected_candidate is None else self.selected_candidate.value
+                None
+                if self.selected_candidate is None
+                else self.selected_candidate.value
             ),
             "selected_config_digest": self.selected_config_digest,
             "source_v8_selection_digest": self.source_v8.digest,
         }
         if self.source_signal_evidence_digest is not None:
-            payload["source_signal_evidence_digest"] = self.source_signal_evidence_digest
+            payload["source_signal_evidence_digest"] = (
+                self.source_signal_evidence_digest
+            )
         if self.dual_run_binding_digest is not None:
             payload["dual_run_binding_digest"] = self.dual_run_binding_digest
         if include_digest:

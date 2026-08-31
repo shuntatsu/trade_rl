@@ -45,7 +45,10 @@ def _forecast(
         "24h": np.sign(predictions["24h"]),
         "72h": np.sign(predictions["72h"]),
     }
-    digests = {horizon: str(index + 1) * 64 for index, horizon in enumerate(CAUSAL_ALPHA_V4_HORIZONS)}
+    digests = {
+        horizon: str(index + 1) * 64
+        for index, horizon in enumerate(CAUSAL_ALPHA_V4_HORIZONS)
+    }
     return CausalAlphaV4Forecast(
         symbol="BTCUSDT",
         decision_indices=np.arange(rows),
@@ -79,7 +82,9 @@ def _path(
     rows = forecast.decision_indices.size
     return causal_alpha_v6_target_path(
         forecast,
-        uncertainty={horizon: np.full(rows, uncertainty) for horizon in CAUSAL_ALPHA_V4_HORIZONS},
+        uncertainty={
+            horizon: np.full(rows, uncertainty) for horizon in CAUSAL_ALPHA_V4_HORIZONS
+        },
         one_way_cost_rates=np.full(rows, cost),
         liquidity_weight_caps=np.full(rows, liquidity_cap),
         risk_weight_caps=np.full(rows, risk_cap),

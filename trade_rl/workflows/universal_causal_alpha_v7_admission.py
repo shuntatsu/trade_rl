@@ -142,10 +142,16 @@ def _summary(
         turnover_p50=float(np.quantile(turnovers, 0.50)),
         turnover_p95=float(np.quantile(turnovers, 0.95)),
         total_execution_cost=float(sum(record.total_execution_cost for record in base)),
-        meaningful_execution_scope_count=sum(record.has_meaningful_execution for record in base),
+        meaningful_execution_scope_count=sum(
+            record.has_meaningful_execution for record in base
+        ),
         total_target_change_count=sum(record.target_change_count for record in base),
-        total_submitted_change_count=sum(record.submitted_change_count for record in base),
-        total_executed_change_count=sum(record.executed_change_count for record in base),
+        total_submitted_change_count=sum(
+            record.submitted_change_count for record in base
+        ),
+        total_executed_change_count=sum(
+            record.executed_change_count for record in base
+        ),
         total_closed_trade_count=sum(record.closed_trade_count for record in base),
         total_sign_flip_count=sum(record.sign_flip_count for record in base),
         hard_risk_violation_count=sum(record.hard_risk_violation for record in base),
@@ -222,7 +228,9 @@ class CausalAlphaV7AdmissionEvidence:
             raise ValueError("V7 Admission fit cutoff must equal holdout start")
         if self.paired_holdout_count != _EXPECTED_SYMBOL_COUNT:
             raise ValueError("V7 Admission paired holdout count is invalid")
-        if self.selected_summary != _summary(selected) or self.control_summary != _summary(control):
+        if self.selected_summary != _summary(
+            selected
+        ) or self.control_summary != _summary(control):
             raise ValueError("V7 Admission summaries are inconsistent")
         if self.selected_summary.candidate is not candidate:
             raise ValueError("V7 Admission selected candidate drifted")
@@ -260,7 +268,9 @@ class CausalAlphaV7AdmissionEvidence:
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
-            "control_record_digests": tuple(record.digest for record in self.control_records),
+            "control_record_digests": tuple(
+                record.digest for record in self.control_records
+            ),
             "control_summary": self.control_summary.to_payload(),
             "fit_digest": self.fit_digest,
             "fit_knowledge_cutoff": self.fit_knowledge_cutoff,
@@ -273,7 +283,9 @@ class CausalAlphaV7AdmissionEvidence:
             "schema_version": self.schema_version,
             "selected_candidate": self.selected_candidate.value,
             "selected_config_digest": self.selected_config_digest,
-            "selected_record_digests": tuple(record.digest for record in self.selected_records),
+            "selected_record_digests": tuple(
+                record.digest for record in self.selected_records
+            ),
             "selected_summary": self.selected_summary.to_payload(),
             "selection_digest": self.selection_digest,
             "signal_evidence_digest": self.signal_evidence_digest,
@@ -290,9 +302,11 @@ def _validate_records(
     candidate: CausalAlphaV7Candidate,
     field: str,
 ) -> None:
-    if len(records) != _EXPECTED_SYMBOL_COUNT or len(
-        {record.v6_metric.symbol for record in records}
-    ) != _EXPECTED_SYMBOL_COUNT:
+    if (
+        len(records) != _EXPECTED_SYMBOL_COUNT
+        or len({record.v6_metric.symbol for record in records})
+        != _EXPECTED_SYMBOL_COUNT
+    ):
         raise ValueError(f"V7 Admission {field} requires nine unique symbols")
     if any(record.candidate is not candidate for record in records):
         raise ValueError(f"V7 Admission {field} candidate drifted")
@@ -317,7 +331,10 @@ def evaluate_causal_alpha_v7_admission(
 
     if fit_knowledge_cutoff != holdout_start or isinstance(fit_knowledge_cutoff, bool):
         raise ValueError("V7 Admission fit cutoff must equal holdout start")
-    if not isinstance(signal_evidence, CausalAlphaV7SignalEvidence) or not signal_evidence.passed:
+    if (
+        not isinstance(signal_evidence, CausalAlphaV7SignalEvidence)
+        or not signal_evidence.passed
+    ):
         raise ValueError("V7 Admission cannot bypass failed Signal")
     if (
         not isinstance(selection_evidence, CausalAlphaV7SelectionEvidence)

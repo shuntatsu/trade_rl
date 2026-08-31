@@ -1,0 +1,129 @@
+name: Verify Nautilus Coverage Layer
+
+on:
+  push:
+    branches:
+      - verify/nautilus-coverage-layer
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 6ead24cf08369e0c8f8790b517d93f595d5e3651
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact Nautilus and training runtimes
+        run: uv sync --extra dev --extra nautilus --extra train-sb3 --frozen
+
+      - name: Configure isolated-process coverage
+        shell: bash
+        run: |
+          cat > .coveragerc.nautilus <<'EOF'
+          [run]
+          source =
+              trade_rl/integrations/nautilus
+          branch = True
+          parallel = True
+          concurrency = multiprocessing,thread
+          sigterm = True
+          patch =
+              subprocess
+              _exit
+          data_file = .coverage.nautilus
+
+          [report]
+          show_missing = True
+          skip_covered = False
+          EOF
+
+      - name: Run maintained Nautilus capability tests under isolated coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_cov() {
+            uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q "$@"
+          }
+
+          run_cov \
+            tests/integrations/test_nautilus_instrument.py \
+            tests/integrations/test_nautilus_quote_projection.py \
+            tests/integrations/test_nautilus_derivative_data.py \
+            tests/integrations/test_nautilus_order_adapter.py
+          run_cov tests/integrations/test_nautilus_capability.py
+          run_cov tests/integrations/test_nautilus_quote_replay.py
+          run_cov tests/integrations/test_nautilus_order_lifecycle.py
+          run_cov tests/integrations/test_nautilus_streaming_execution.py
+          run_cov tests/integrations/test_nautilus_streaming_worker.py
+          run_cov tests/integrations/test_nautilus_partial_fill_cancel.py
+          run_cov \
+            tests/integrations/test_nautilus_funding_adapter.py \
+            tests/integrations/test_nautilus_funding_settlement.py
+          run_cov \
+            tests/workflows/test_stage_a_nautilus_historical_replay.py \
+            tests/workflows/test_stage_a_nautilus_historical_timeline.py \
+            tests/workflows/test_stage_a_nautilus_historical_differential.py
+          run_cov tests/integrations/test_nautilus_execution_probe.py
+          run_cov tests/integrations/test_nautilus_historical_execution.py
+          run_cov tests/integrations/test_nautilus_real_market_windows.py
+          run_cov tests/workflows/test_stage_a_nautilus_historical_execution.py
+          run_cov \
+            tests/rl/test_environment_execution_dual_shadow.py \
+            tests/rl/test_environment_dual_shadow_wiring.py
+          run_cov tests/integrations/test_nautilus_rl_dual_shadow.py
+          run_cov tests/integrations/test_nautilus_training_smoke.py
+          run_cov tests/integrations/test_nautilus_dual_shadow.py
+          run_cov tests/integrations/test_nautilus_sign_flip_conformance.py
+          run_cov tests/integrations/test_nautilus_target_change_conformance.py
+
+      - name: Combine and report Nautilus coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run coverage combine --rcfile=.coveragerc.nautilus
+          uv run coverage json --rcfile=.coveragerc.nautilus -o nautilus-coverage.json
+          uv run coverage report --rcfile=.coveragerc.nautilus
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("nautilus-coverage.json").read_text(encoding="utf-8"))
+          totals = payload["totals"]
+          result = {
+              "percent_covered": float(totals["percent_covered"]),
+              "percent_statements_covered": float(totals["percent_statements_covered"]),
+              "percent_branches_covered": float(totals["percent_branches_covered"]),
+              "covered_lines": int(totals["covered_lines"]),
+              "num_statements": int(totals["num_statements"]),
+              "covered_branches": int(totals["covered_branches"]),
+              "num_branches": int(totals["num_branches"]),
+          }
+          Path("nautilus-coverage-summary.json").write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(result, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nautilus-coverage-layer-diagnostics
+          path: |
+            nautilus-coverage.json
+            nautilus-coverage-summary.json
+          if-no-files-found: warn
+          retention-days: 14

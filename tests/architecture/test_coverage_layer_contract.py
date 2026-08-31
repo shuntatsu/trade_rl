@@ -46,7 +46,9 @@ def test_nautilus_capability_keeps_native_probes_isolated_under_coverage() -> No
     assert workflow.count(coverage_prefix) >= 10
     assert "coverage combine --rcfile=.coveragerc.nautilus" in workflow
     assert "coverage json --rcfile=.coveragerc.nautilus" in workflow
-    assert "coverage report --rcfile=.coveragerc.nautilus --fail-under=81.21" in workflow
+    assert (
+        "coverage report --rcfile=.coveragerc.nautilus --fail-under=81.21" in workflow
+    )
     assert "nautilus-coverage.json" in workflow
 
     for path in (

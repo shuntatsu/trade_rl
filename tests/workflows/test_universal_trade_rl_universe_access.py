@@ -129,6 +129,22 @@ def test_admission_requires_matching_authorization() -> None:
         )
 
 
+def test_admission_access_cannot_be_forged_via_public_constructor() -> None:
+    manifest = _manifest()
+
+    with pytest.raises(TypeError):
+        UniversalTradeRLUniverseAccess(
+            universe_manifest_digest=manifest.digest,
+            phase=UniversalTradeRLAccessPhase.ADMISSION,
+            train_symbols=("BTCUSDT", "ETHUSDT"),
+            development_symbols=("LINKUSDT",),
+            admission_symbols=("AVAXUSDT",),
+            fit_symbols=(),
+            evaluation_symbols=("AVAXUSDT",),
+            admission_authorization_digest="a" * 64,
+        )
+
+
 def test_authorized_admission_exposes_only_admission_evaluation_scope() -> None:
     access = _admission_access()
 

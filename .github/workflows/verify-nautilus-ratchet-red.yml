@@ -1,0 +1,36 @@
+name: Verify Nautilus Ratchet RED
+
+on:
+  push:
+    branches:
+      - verify/nautilus-ratchet-red
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact RED target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 62169789e0880a1f8e9d3eedbb8ddf177ca4477f
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --frozen
+      - name: Prove workflow ratchet is still stale
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/architecture/test_coverage_layer_contract.py > red.log 2>&1
+          rc=$?
+          set -e
+          cat red.log
+          test "$rc" -ne 0
+          grep -q 'fail-under=81.21' red.log

@@ -192,8 +192,6 @@ jobs:
           path: nautilus-coverage.json
           if-no-files-found: warn
           retention-days: 14
-      - name: Enforce Nautilus coverage ratchet
-        run: uv run coverage report --rcfile=.coveragerc.nautilus --fail-under=81.3
       - name: Upload dual-shadow diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -212,3 +210,6 @@ jobs:
           test "$second" = "$third"
           test "${#first}" -eq 64
           printf 'execution_digest=%s\n' "$first"
+      - name: Enforce Nautilus coverage ratchet
+        if: always()
+        run: uv run coverage report --rcfile=.coveragerc.nautilus --fail-under=81.3

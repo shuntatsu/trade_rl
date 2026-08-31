@@ -23,11 +23,11 @@ BTC・ETH・SOLなどへ1つのActionで同時に資金配分するPortfolio pol
 
 U0では利用可能な全source symbolを、次のいずれか1つへ完全に割り当てます。
 
-| Role | 用途 | Fitへの利用 | Evaluationでの利用 |
+| Role | 用途 | Fitへの利用 | Phase evaluation |
 | --- | --- | --- | --- |
-| Train | Base RL、normalization、calibration、threshold/reward estimationなどのfit source | **可** | 可 |
-| Development | 設計判断、失敗分析、candidate selectionの開発用外部確認 | **不可** | 可 |
-| Admission | frozen generationを最後に1回だけzero-shot確認するholdout | **不可** | authorization後のみ可 |
+| Train | Base RL、normalization、calibration、threshold/reward estimationなどのfit source | **可** | Train phaseではevaluation scopeへ公開しない |
+| Development | 設計判断、失敗分析、candidate selectionの開発用外部確認 | **不可** | Development phaseでDevelopmentのみ |
+| Admission | frozen generationを最後に1回だけzero-shot確認するholdout | **不可** | authorization後、Admission phaseでAdmissionのみ |
 | Excluded | データ不足など、事前に理由を明記した非対象symbol | 不可 | 不可 |
 
 Train、Development、Admissionは非空・sorted・unique・pairwise disjointです。Excluded symbolも理由付きで明示し、他のroleと重複できません。
@@ -48,20 +48,20 @@ Manifestは、entriesからrole configとsource catalogを再構築し、両方�
 
 ## 4. Phase firewall
 
-U0 access contractはphaseごとに利用可能な集合を固定します。
+U0 access contractはphaseごとに利用可能な集合を固定します。evaluation scopeは累積公開しません。
 
 ```text
 TRAIN
-  evaluate = Train
+  evaluate = none
   fit      = Train
 
 DEVELOPMENT
-  evaluate = Train + Development
+  evaluate = Development
   fit      = Train
 
 ADMISSION
-  evaluate = Train + Development + Admission
-  fit      = Train
+  evaluate = Admission
+  fit      = none
 ```
 
 Admissionへ入るには、次の3つを一致させたauthorizationが必要です。
@@ -70,7 +70,9 @@ Admissionへ入るには、次の3つを一致させたauthorizationが必要で
 2. frozen generation digest
 3. Selection evidence digest
 
-DevelopmentやTrainの時点でAdmission authorizationを持ち込むことも拒否します。Admissionを開いた後でも`fit_symbols`はTrainだけです。
+DevelopmentやTrainの時点でAdmission authorizationを持ち込むことも拒否します。Admissionを開いた後でも`fit_symbols`は空で、新しいfit、normalization、calibration、threshold estimation、reward coefficient estimation、RL trainingはすべて禁止です。
+
+Admission phaseで許されるのは、Admission銘柄を**frozen evaluation targetとして評価すること**と、Admission開封前にTrainだけから作成・固定されたmodel、normalization、calibration、fit provenanceなどを参照することです。Admission銘柄自身から新しい学習済み状態や統計量を作ることはできません。
 
 Admission metadataは、dataset digestやtimestampなどの**integrity verification**には利用できます。しかし、その値をnormalization、calibration、threshold estimation、reward coefficient estimation、RL trainingその他のfitへ使うことはできません。
 

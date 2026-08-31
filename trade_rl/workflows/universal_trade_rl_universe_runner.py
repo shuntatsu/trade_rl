@@ -135,11 +135,17 @@ def materialize_universal_trade_rl_universe(
     )
     published = False
     try:
-        _write_canonical_json(staging / _UNIVERSE_FILENAME, payloads[_UNIVERSE_FILENAME])
-        _write_canonical_json(staging / _IDENTITY_FILENAME, payloads[_IDENTITY_FILENAME])
+        _write_canonical_json(
+            staging / _UNIVERSE_FILENAME, payloads[_UNIVERSE_FILENAME]
+        )
+        _write_canonical_json(
+            staging / _IDENTITY_FILENAME, payloads[_IDENTITY_FILENAME]
+        )
         _fsync_directory(staging)
         if output_root.exists():
-            raise ValueError("existing Universal Trade RL output root appeared during publish")
+            raise ValueError(
+                "existing Universal Trade RL output root appeared during publish"
+            )
         os.replace(staging, output_root)
         published = True
         _fsync_directory(parent)

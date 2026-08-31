@@ -238,7 +238,9 @@ def test_role_config_drift_is_rejected_against_existing_output(tmp_path: Path) -
         )
 
 
-def test_source_digest_drift_is_rejected_against_existing_output(tmp_path: Path) -> None:
+def test_source_digest_drift_is_rejected_against_existing_output(
+    tmp_path: Path,
+) -> None:
     config, catalog = _write_valid_inputs(tmp_path)
     output = tmp_path / "output"
     runner.materialize_universal_trade_rl_universe(

@@ -72,7 +72,9 @@ def _range() -> CausalAlphaV7CalibrationRange:
     )
 
 
-def test_v7_feature_matrix_has_fixed_symbol_free_schema_and_masks_missing_state() -> None:
+def test_v7_feature_matrix_has_fixed_symbol_free_schema_and_masks_missing_state() -> (
+    None
+):
     forecast = _forecast()
     state = _state()
     state.realized_volatility[3] = np.nan
@@ -89,7 +91,9 @@ def test_v7_feature_matrix_has_fixed_symbol_free_schema_and_masks_missing_state(
     assert np.isfinite(features).all()
     assert not available[3].any()
     assert features[3, 3] == 0.0
-    assert all("symbol" not in name for name in CAUSAL_ALPHA_V7_CALIBRATION_FEATURE_NAMES)
+    assert all(
+        "symbol" not in name for name in CAUSAL_ALPHA_V7_CALIBRATION_FEATURE_NAMES
+    )
 
 
 def test_v7_calibration_rows_are_purged_on_4h_label_end() -> None:
@@ -160,7 +164,12 @@ def test_v7_attribution_boundaries_use_only_calibration_rows() -> None:
     )
 
     assert boundaries.calibration_range_digest == calibration_range.digest
-    assert boundaries.confidence[0] < boundaries.confidence[1] < boundaries.confidence[2]
+    assert (
+        boundaries.confidence[0] < boundaries.confidence[1] < boundaries.confidence[2]
+    )
     assert boundaries.realized_volatility == tuple(
-        np.quantile(np.concatenate([r.features[:, 3] for r in records.values()]), (0.25, 0.5, 0.75))
+        np.quantile(
+            np.concatenate([r.features[:, 3] for r in records.values()]),
+            (0.25, 0.5, 0.75),
+        )
     )

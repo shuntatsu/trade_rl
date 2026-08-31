@@ -177,14 +177,14 @@ def test_v7_selection_keeps_every_universal_gate(
     evidence = evaluate_causal_alpha_v7_selection(metrics, expected_symbols=_SYMBOLS)
 
     assert not evidence.passed
-    assert all(reason in candidate.rejection_reasons for candidate in evidence.candidates)
+    assert all(
+        reason in candidate.rejection_reasons for candidate in evidence.candidates
+    )
 
 
 def test_v7_selection_rejects_unpaired_source_forecast_identity() -> None:
     metrics = [
-        metric
-        for candidate in CausalAlphaV7Candidate
-        for metric in _records(candidate)
+        metric for candidate in CausalAlphaV7Candidate for metric in _records(candidate)
     ]
     metrics[-1] = _metric(
         CausalAlphaV7Candidate.CAUSAL_CALIBRATED,

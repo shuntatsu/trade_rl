@@ -24,9 +24,7 @@ from trade_rl.workflows.universal_causal_alpha_v6_signal import (
     CausalAlphaV6SignalEvidence,
 )
 
-CAUSAL_ALPHA_V6_ADMISSION_SUMMARY_SCHEMA: Final = (
-    "causal_alpha_v6_admission_summary_v1"
-)
+CAUSAL_ALPHA_V6_ADMISSION_SUMMARY_SCHEMA: Final = "causal_alpha_v6_admission_summary_v1"
 CAUSAL_ALPHA_V6_ADMISSION_SCHEMA: Final = "causal_alpha_v6_admission_evidence_v1"
 _EXPECTED_SYMBOL_COUNT: Final = 9
 _MINIMUM_POSITIVE_SYMBOL_COUNT: Final = 6
@@ -87,14 +85,19 @@ class CausalAlphaV6AdmissionSummary:
         )
         if not all(math.isfinite(value) for value in numeric):
             raise ValueError("V6 Admission summary must be finite")
-        if min(
-            self.aggregate_gross_wealth,
-            self.aggregate_net_wealth,
-        ) <= 0.0 or min(
-            self.turnover_p50,
-            self.turnover_p95,
-            self.total_execution_cost,
-        ) < 0.0:
+        if (
+            min(
+                self.aggregate_gross_wealth,
+                self.aggregate_net_wealth,
+            )
+            <= 0.0
+            or min(
+                self.turnover_p50,
+                self.turnover_p95,
+                self.total_execution_cost,
+            )
+            < 0.0
+        ):
             raise ValueError("V6 Admission wealth/cost evidence is invalid")
         if not math.isclose(
             self.aggregate_gross_wealth,
@@ -160,9 +163,7 @@ def _summary(
         ),
         total_closed_trade_count=sum(record.closed_trade_count for record in records),
         total_sign_flip_count=sum(record.sign_flip_count for record in records),
-        hard_risk_violation_count=sum(
-            record.hard_risk_violation for record in records
-        ),
+        hard_risk_violation_count=sum(record.hard_risk_violation for record in records),
         unexplained_execution_rejection_count=sum(
             causal_alpha_unexplained_execution_rejection_count(
                 record.execution_rejection_reason_counts
@@ -211,7 +212,9 @@ class CausalAlphaV6AdmissionEvidence:
             raise ValueError("V6 Admission fit cutoff must equal holdout start")
         if self.paired_holdout_count != _EXPECTED_SYMBOL_COUNT:
             raise ValueError("V6 Admission paired holdout count is invalid")
-        if self.selected_summary != _summary(selected_records) or self.fast_only_summary != _summary(fast_records):
+        if self.selected_summary != _summary(
+            selected_records
+        ) or self.fast_only_summary != _summary(fast_records):
             raise ValueError("V6 Admission summaries are inconsistent")
         if self.selected_summary.candidate is not selected:
             raise ValueError("V6 Admission selected summary candidate drifted")
@@ -308,8 +311,7 @@ def _gate_reasons(
         reasons.append("unexplained_execution_rejection")
     if (
         selected.candidate is CausalAlphaV6Candidate.FAST_SLOW_RETENTION
-        and selected.aggregate_net_wealth
-        < baseline.aggregate_net_wealth - _EPSILON
+        and selected.aggregate_net_wealth < baseline.aggregate_net_wealth - _EPSILON
     ):
         reasons.append("retention_underperformed_fast_only")
     return tuple(reasons)
@@ -321,9 +323,10 @@ def _validate_records(
     candidate: CausalAlphaV6Candidate,
     field: str,
 ) -> None:
-    if len(records) != _EXPECTED_SYMBOL_COUNT or len(
-        {record.symbol for record in records}
-    ) != _EXPECTED_SYMBOL_COUNT:
+    if (
+        len(records) != _EXPECTED_SYMBOL_COUNT
+        or len({record.symbol for record in records}) != _EXPECTED_SYMBOL_COUNT
+    ):
         raise ValueError(f"V6 Admission {field} requires nine unique symbols")
     if any(record.candidate is not candidate for record in records):
         raise ValueError(f"V6 Admission {field} candidate drifted")

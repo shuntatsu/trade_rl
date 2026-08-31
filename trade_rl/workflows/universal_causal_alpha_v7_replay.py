@@ -56,7 +56,10 @@ class CausalAlphaV7ReplayMetric:
         for observed, expected in (
             (self.attribution.gross_log_return, self.v6_metric.gross_return),
             (self.attribution.net_log_return, self.v6_metric.net_return),
-            (self.attribution.total_execution_cost, self.v6_metric.total_execution_cost),
+            (
+                self.attribution.total_execution_cost,
+                self.v6_metric.total_execution_cost,
+            ),
         ):
             if not math.isclose(observed, expected, rel_tol=1e-12, abs_tol=1e-12):
                 raise ValueError("V7 replay attribution economics drifted")
@@ -70,7 +73,11 @@ class CausalAlphaV7ReplayMetric:
 
     @property
     def identity(self) -> tuple[str, str, int]:
-        return (self.candidate.value, self.v6_metric.symbol, self.v6_metric.episode_index)
+        return (
+            self.candidate.value,
+            self.v6_metric.symbol,
+            self.v6_metric.episode_index,
+        )
 
     @property
     def paired_identity(self) -> tuple[object, ...]:

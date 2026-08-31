@@ -97,12 +97,16 @@ def test_v7_signal_fails_closed_on_direction_support_or_liveness() -> None:
         v4_fast_lane_passed=True,
     )
     assert not no_targets.passed
-    assert all("non_flat_target" in item.rejection_reasons for item in no_targets.candidates)
+    assert all(
+        "non_flat_target" in item.rejection_reasons for item in no_targets.candidates
+    )
 
 
 def test_v7_signal_rejects_pairing_drift_and_failed_v4_lane() -> None:
     metrics = list(_metrics())
-    metrics[-1] = replace(metrics[-1], source_forecast_digest=_digest("drift"), digest="")
+    metrics[-1] = replace(
+        metrics[-1], source_forecast_digest=_digest("drift"), digest=""
+    )
     pairing = evaluate_causal_alpha_v7_signal_gate(
         tuple(metrics),
         expected_symbols=_SYMBOLS,

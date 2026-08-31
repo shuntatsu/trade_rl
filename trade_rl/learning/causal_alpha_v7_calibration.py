@@ -163,13 +163,17 @@ class CausalAlphaV7CalibrationFit:
         pooled = sum(count for _, count in support)
         if pooled < self.config.minimum_pooled_support:
             raise ValueError("V7 calibration pooled support is insufficient")
-        if self.return_model.sample_count != pooled or self.direction_model.sample_count != pooled:
+        if (
+            self.return_model.sample_count != pooled
+            or self.direction_model.sample_count != pooled
+        ):
             raise ValueError("V7 calibration model support drifted")
         minimum_direction = self.config.minimum_symbol_support
         if (
             self.positive_direction_support < minimum_direction
             or self.negative_direction_support < minimum_direction
-            or self.positive_direction_support + self.negative_direction_support > pooled
+            or self.positive_direction_support + self.negative_direction_support
+            > pooled
         ):
             raise ValueError("V7 calibration requires both realized directions")
         for _symbol, digest in digests:
@@ -253,17 +257,21 @@ def fit_causal_alpha_v7_calibration(
     weights: list[np.ndarray] = []
     for symbol in ordered:
         record = rows[symbol]
-        if not isinstance(record, CausalAlphaV7CalibrationRows) or record.symbol != symbol:
+        if (
+            not isinstance(record, CausalAlphaV7CalibrationRows)
+            or record.symbol != symbol
+        ):
             raise ValueError("V7 calibration row identity drifted")
         if record.range_digest != calibration_range.digest:
             raise ValueError("V7 calibration range digest drifted")
-        if (
-            np.any(record.decision_indices < calibration_range.calibration_start)
-            or np.any(record.decision_indices >= calibration_range.train_stop)
-        ):
+        if np.any(
+            record.decision_indices < calibration_range.calibration_start
+        ) or np.any(record.decision_indices >= calibration_range.train_stop):
             raise ValueError("V7 calibration decisions are outside the causal range")
         if np.any(record.label_end_indices >= calibration_range.train_stop):
-            raise ValueError("V7 calibration labels must end strictly before train stop")
+            raise ValueError(
+                "V7 calibration labels must end strictly before train stop"
+            )
         record_weights = causal_alpha_overlap_uniqueness_weights(
             record.decision_indices,
             record.label_end_indices,
@@ -274,15 +282,23 @@ def fit_causal_alpha_v7_calibration(
         records.append(record)
         weights.append(record_weights)
     pooled_features = np.concatenate(tuple(record.features for record in records))
-    pooled_available = np.concatenate(tuple(record.feature_available for record in records))
-    pooled_realized = np.concatenate(tuple(record.realized_returns for record in records))
+    pooled_available = np.concatenate(
+        tuple(record.feature_available for record in records)
+    )
+    pooled_realized = np.concatenate(
+        tuple(record.realized_returns for record in records)
+    )
     pooled_ends = np.concatenate(tuple(record.label_end_indices for record in records))
     pooled_weights = np.concatenate(tuple(weights))
     positive = int(np.count_nonzero((pooled_realized > 0.0) & (pooled_weights > 0.0)))
     negative = int(np.count_nonzero((pooled_realized < 0.0) & (pooled_weights > 0.0)))
-    if positive < config.minimum_symbol_support or negative < config.minimum_symbol_support:
+    if (
+        positive < config.minimum_symbol_support
+        or negative < config.minimum_symbol_support
+    ):
         raise ValueError("V7 calibration requires both realized directions")
     ridge = CausalAlphaRidgeConfig(ridge_strength=config.ridge_strength)
+
     def fit_head(labels: np.ndarray) -> CausalAlphaRidgeModel:
         return fit_causal_alpha_ridge(
             features=pooled_features,

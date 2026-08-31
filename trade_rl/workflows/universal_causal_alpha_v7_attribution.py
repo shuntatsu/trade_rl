@@ -34,7 +34,9 @@ def _boundaries(value: object, *, field: str) -> tuple[float, float, float]:
         or not all(math.isfinite(item) for item in resolved)
         or any(left >= right for left, right in zip(resolved, resolved[1:]))
     ):
-        raise ValueError(f"V7 {field} boundaries must be finite and strictly increasing")
+        raise ValueError(
+            f"V7 {field} boundaries must be finite and strictly increasing"
+        )
     return resolved
 
 
@@ -96,7 +98,11 @@ class CausalAlphaV7AttributionCell:
     def __post_init__(self) -> None:
         if not self.dimension or not self.key:
             raise ValueError("V7 attribution cell identity is invalid")
-        if isinstance(self.support, bool) or not isinstance(self.support, int) or self.support <= 0:
+        if (
+            isinstance(self.support, bool)
+            or not isinstance(self.support, int)
+            or self.support <= 0
+        ):
             raise ValueError("V7 attribution cell support must be positive")
         values = (
             self.gross_log_return,
@@ -161,7 +167,9 @@ class CausalAlphaV7AttributionEvidence:
         if self.total_execution_cost < 0.0 or self.total_exposure_hours < 0.0:
             raise ValueError("V7 attribution total cost/exposure must be non-negative")
         cells = tuple(self.cells)
-        if not cells or cells != tuple(sorted(cells, key=lambda cell: (cell.dimension, cell.key))):
+        if not cells or cells != tuple(
+            sorted(cells, key=lambda cell: (cell.dimension, cell.key))
+        ):
             raise ValueError("V7 attribution cells are not canonical")
         dimensions = tuple(sorted({cell.dimension for cell in cells}))
         for dimension in dimensions:
@@ -169,10 +177,19 @@ class CausalAlphaV7AttributionEvidence:
             if sum(cell.support for cell in selected) != self.decision_count:
                 raise ValueError("V7 attribution support does not reconcile")
             for observed, expected in (
-                (sum(cell.gross_log_return for cell in selected), self.gross_log_return),
+                (
+                    sum(cell.gross_log_return for cell in selected),
+                    self.gross_log_return,
+                ),
                 (sum(cell.net_log_return for cell in selected), self.net_log_return),
-                (sum(cell.execution_cost for cell in selected), self.total_execution_cost),
-                (sum(cell.exposure_hours for cell in selected), self.total_exposure_hours),
+                (
+                    sum(cell.execution_cost for cell in selected),
+                    self.total_execution_cost,
+                ),
+                (
+                    sum(cell.exposure_hours for cell in selected),
+                    self.total_exposure_hours,
+                ),
             ):
                 if not math.isclose(
                     observed,
@@ -229,7 +246,9 @@ def _vector(
     return array
 
 
-def _quartile_keys(values: np.ndarray, boundaries: tuple[float, float, float]) -> np.ndarray:
+def _quartile_keys(
+    values: np.ndarray, boundaries: tuple[float, float, float]
+) -> np.ndarray:
     indices = np.searchsorted(np.asarray(boundaries), values, side="right")
     return np.asarray([_QUARTILE_KEYS[index] for index in indices], dtype=object)
 
@@ -288,7 +307,10 @@ def build_causal_alpha_v7_attribution(
         raise ValueError("V7 attribution requires realized weight trace")
     v6 = target_path.v6_target_path
     rows = int(v6.targets.size)
-    if rows != evaluation.performance.step_count or evaluation.actions.shape != (rows, 1):
+    if rows != evaluation.performance.step_count or evaluation.actions.shape != (
+        rows,
+        1,
+    ):
         raise ValueError("V7 attribution path and evaluation are not aligned")
     if realized_weights.shape != (rows, 1):
         raise ValueError("V7 attribution realized weights are not aligned")
@@ -325,7 +347,9 @@ def build_causal_alpha_v7_attribution(
         "confidence_quartile": _quartile_keys(confidence_values, boundaries.confidence),
         "exposure": exposure_keys,
         "liquidity_quartile": _quartile_keys(liquidity_values, boundaries.liquidity),
-        "slow_state": np.asarray([state.value for state in v6.slow_states], dtype=object),
+        "slow_state": np.asarray(
+            [state.value for state in v6.slow_states], dtype=object
+        ),
         "transition": np.asarray(v6.reasons, dtype=object),
         "volatility_quartile": _quartile_keys(
             volatility_values,

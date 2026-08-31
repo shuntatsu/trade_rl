@@ -50,7 +50,9 @@ def _holding_attribution(
                 completed.append(duration)
             duration = 0.0
         if next_sign != 0:
-            duration = step_hours if next_sign != current_sign else duration + step_hours
+            duration = (
+                step_hours if next_sign != current_sign else duration + step_hours
+            )
         current_sign = next_sign
     return tuple(completed), duration if current_sign != 0 else 0.0
 
@@ -115,7 +117,11 @@ class CausalAlphaV6ReplayMetric:
         ):
             require_sha256(getattr(self, name), field=f"V6 replay {name}")
         candidate = CausalAlphaV6Candidate(self.candidate)
-        if not self.symbol or isinstance(self.episode_index, bool) or self.episode_index < 0:
+        if (
+            not self.symbol
+            or isinstance(self.episode_index, bool)
+            or self.episode_index < 0
+        ):
             raise ValueError("V6 replay scope identity is invalid")
         for name in (
             "decision_count",
@@ -174,9 +180,14 @@ class CausalAlphaV6ReplayMetric:
             )
         ):
             raise ValueError("V6 replay cost/risk/holding evidence became negative")
-        if not 0.0 <= self.actionable_coverage <= 1.0 or not 0.0 <= self.flat_time_fraction <= 1.0:
+        if (
+            not 0.0 <= self.actionable_coverage <= 1.0
+            or not 0.0 <= self.flat_time_fraction <= 1.0
+        ):
             raise ValueError("V6 replay fractions are invalid")
-        durations = tuple(float(value) for value in self.completed_holding_durations_hours)
+        durations = tuple(
+            float(value) for value in self.completed_holding_durations_hours
+        )
         if any(not math.isfinite(value) or value <= 0.0 for value in durations):
             raise ValueError("V6 replay completed holding durations are invalid")
         execution = _reason_counts(

@@ -62,7 +62,9 @@ def _target() -> CausalAlphaV7TargetPath:
             CausalAlphaV6SlowState.MIXED,
         ),
         reasons=reasons,
-        reason_counts=tuple(sorted((reason, reasons.count(reason)) for reason in set(reasons))),
+        reason_counts=tuple(
+            sorted((reason, reasons.count(reason)) for reason in set(reasons))
+        ),
         submitted_change_count=4,
         sign_flip_count=0,
         liquidity_deleveraging_count=0,
@@ -212,7 +214,9 @@ def test_v7_attribution_classifies_realized_exposure_not_requested_target() -> N
         boundaries=_boundaries(),
         step_hours=1.0,
     )
-    exposure = {cell.key: cell for cell in evidence.cells if cell.dimension == "exposure"}
+    exposure = {
+        cell.key: cell for cell in evidence.cells if cell.dimension == "exposure"
+    }
     assert exposure["flat"].support == 3
     assert exposure["short"].support == 1
 

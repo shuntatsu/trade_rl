@@ -73,13 +73,9 @@ def _run(path: Path, rejected: str | None, calls: list[str]):
                     name,
                     rejected != name,
                     selected_candidate=(
-                        CausalAlphaV6Candidate.FAST_ONLY
-                        if rejected != name
-                        else None
+                        CausalAlphaV6Candidate.FAST_ONLY if rejected != name else None
                     ),
-                    selected_config_digest=(
-                        "3" * 64 if rejected != name else None
-                    ),
+                    selected_config_digest=("3" * 64 if rejected != name else None),
                 )
             return _Evidence(name, rejected != name)
 
@@ -120,9 +116,9 @@ def test_v6_pipeline_stops_at_rejection_and_never_publishes_package(
     order = ["prepare", "signal", "selection", "admission"]
     assert calls == order[: order.index(rejected) + 1]
     assert error.value.stage == rejected
-    assert error.value.exit_code == {"signal": 2, "selection": 3, "admission": 4}[
-        rejected
-    ]
+    assert (
+        error.value.exit_code == {"signal": 2, "selection": 3, "admission": 4}[rejected]
+    )
     assert (tmp_path / rejected / "evidence.json").is_file()
     assert (tmp_path / "result.json").is_file()
     assert not (tmp_path / "package.json").exists()

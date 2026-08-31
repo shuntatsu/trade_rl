@@ -87,10 +87,19 @@ class CausalAlphaV8AttributionEvidence:
             if sum(cell.support for cell in selected) != self.decision_count:
                 raise ValueError("V8 attribution support does not reconcile")
             for observed, expected in (
-                (sum(cell.gross_log_return for cell in selected), self.gross_log_return),
+                (
+                    sum(cell.gross_log_return for cell in selected),
+                    self.gross_log_return,
+                ),
                 (sum(cell.net_log_return for cell in selected), self.net_log_return),
-                (sum(cell.execution_cost for cell in selected), self.total_execution_cost),
-                (sum(cell.exposure_hours for cell in selected), self.total_exposure_hours),
+                (
+                    sum(cell.execution_cost for cell in selected),
+                    self.total_execution_cost,
+                ),
+                (
+                    sum(cell.exposure_hours for cell in selected),
+                    self.total_exposure_hours,
+                ),
             ):
                 if not math.isclose(
                     observed,

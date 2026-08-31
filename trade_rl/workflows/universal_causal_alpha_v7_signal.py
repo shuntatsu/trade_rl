@@ -200,7 +200,9 @@ class CausalAlphaV7SignalEvidence:
 
     def __post_init__(self) -> None:
         candidates = tuple(self.candidates)
-        if tuple(item.candidate for item in candidates) != tuple(CausalAlphaV7Candidate):
+        if tuple(item.candidate for item in candidates) != tuple(
+            CausalAlphaV7Candidate
+        ):
             raise ValueError("V7 Signal candidate evidence is not canonical")
         require_sha256(self.v4_fast_lane_digest, field="V7 fast lane digest")
         reasons = tuple(self.rejection_reasons)
@@ -219,7 +221,9 @@ class CausalAlphaV7SignalEvidence:
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
-            "candidates": tuple(candidate.to_payload() for candidate in self.candidates),
+            "candidates": tuple(
+                candidate.to_payload() for candidate in self.candidates
+            ),
             "independent_episode_count": self.independent_episode_count,
             "passed": self.passed,
             "promotion_eligible": self.promotion_eligible,
@@ -295,7 +299,9 @@ def _paired(metrics: tuple[CausalAlphaV7SignalScopeMetric, ...]) -> bool:
         pairs = [grouped[candidate][identity] for candidate in CausalAlphaV7Candidate]
         if any(len(pair) != 1 for pair in pairs):
             return False
-        if any(pair[0].pairing_payload != pairs[0][0].pairing_payload for pair in pairs[1:]):
+        if any(
+            pair[0].pairing_payload != pairs[0][0].pairing_payload for pair in pairs[1:]
+        ):
             return False
     return True
 

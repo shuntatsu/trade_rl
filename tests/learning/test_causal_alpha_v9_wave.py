@@ -48,7 +48,9 @@ def test_v9_fit_is_deterministic_causal_and_symbol_free() -> None:
     assert all("symbol" not in name.lower() for name in first.feature_names)
     predictions = first.predict_heads(rows["A"].features[-3:])
     assert predictions.shape == (3, 3)
-    np.testing.assert_allclose(predictions, second.predict_heads(rows["A"].features[-3:]))
+    np.testing.assert_allclose(
+        predictions, second.predict_heads(rows["A"].features[-3:])
+    )
 
 
 def test_v9_fit_rejects_symbol_identity_features() -> None:

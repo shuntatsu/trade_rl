@@ -166,7 +166,10 @@ def test_v5_signal_diagnostic_payload_preserves_scalar_and_scope_evidence() -> N
 
     assert payload["signal_evidence_digest"] == evidence.digest
     assert payload["overall_active_coverage"] == 0.5
-    assert payload["unconditional_rank_ic"] == evidence.slow.unconditional_rank_ic.to_payload()
+    assert (
+        payload["unconditional_rank_ic"]
+        == evidence.slow.unconditional_rank_ic.to_payload()
+    )
     metrics = payload["metrics"]
     assert isinstance(metrics, tuple)
     assert len(metrics) == 72

@@ -353,7 +353,9 @@ def build_causal_alpha_v6_signal_scope_metric(
     accuracy = (
         0.0
         if support == 0
-        else float(np.mean(np.sign(slow_prediction[eligible]) == np.sign(realized[eligible])))
+        else float(
+            np.mean(np.sign(slow_prediction[eligible]) == np.sign(realized[eligible]))
+        )
     )
     previous = np.concatenate(([target_path.initial_weight], target_path.targets[:-1]))
     return CausalAlphaV6SignalScopeMetric(
@@ -427,9 +429,10 @@ def _candidate_evidence(
 
 
 def _paired(metrics: tuple[CausalAlphaV6SignalScopeMetric, ...]) -> bool:
-    grouped: dict[CausalAlphaV6Candidate, dict[tuple[str, int], list[CausalAlphaV6SignalScopeMetric]]] = {
-        candidate: {} for candidate in CausalAlphaV6Candidate
-    }
+    grouped: dict[
+        CausalAlphaV6Candidate,
+        dict[tuple[str, int], list[CausalAlphaV6SignalScopeMetric]],
+    ] = {candidate: {} for candidate in CausalAlphaV6Candidate}
     for metric in metrics:
         grouped[metric.candidate].setdefault(metric.paired_identity, []).append(metric)
     keys = [set(grouped[candidate]) for candidate in CausalAlphaV6Candidate]

@@ -68,10 +68,7 @@ def _is_risk_reduction(previous: float, target: float) -> bool:
 
 
 def _is_add(previous: float, proposed: float) -> bool:
-    return (
-        previous * proposed > _EPSILON
-        and abs(proposed) > abs(previous) + _EPSILON
-    )
+    return previous * proposed > _EPSILON and abs(proposed) > abs(previous) + _EPSILON
 
 
 def _is_flip(previous: float, proposed: float) -> bool:
@@ -362,7 +359,9 @@ def causal_alpha_v6_target_path(
         reason: str
 
         if abs(previous) > liquidity_cap + _EPSILON:
-            selected = proposal = float(np.clip(previous, -liquidity_cap, liquidity_cap))
+            selected = proposal = float(
+                np.clip(previous, -liquidity_cap, liquidity_cap)
+            )
             reason = "liquidity_deleverage"
         elif abs(previous) > risk_cap + _EPSILON:
             selected = proposal = float(np.clip(previous, -risk_cap, risk_cap))

@@ -58,8 +58,12 @@ def build_causal_alpha_v7_feature_matrix(
         ),
         _aligned(forecast.final_predictions["24h"], rows=rows, field="slow return 24h"),
         _aligned(forecast.final_predictions["72h"], rows=rows, field="slow return 72h"),
-        _aligned(forecast.direction_scores["24h"], rows=rows, field="slow direction 24h"),
-        _aligned(forecast.direction_scores["72h"], rows=rows, field="slow direction 72h"),
+        _aligned(
+            forecast.direction_scores["24h"], rows=rows, field="slow direction 24h"
+        ),
+        _aligned(
+            forecast.direction_scores["72h"], rows=rows, field="slow direction 72h"
+        ),
     )
     features = np.column_stack(columns)
     row_available = (
@@ -125,9 +129,7 @@ def build_causal_alpha_v7_calibration_rows(
 
 
 def _quartiles(values: np.ndarray, *, field: str) -> tuple[float, float, float]:
-    result = tuple(
-        float(value) for value in np.quantile(values, (0.25, 0.50, 0.75))
-    )
+    result = tuple(float(value) for value in np.quantile(values, (0.25, 0.50, 0.75)))
     if any(left >= right for left, right in zip(result, result[1:])):
         raise ValueError(f"V7 calibration {field} quartiles are not distinct")
     return result  # type: ignore[return-value]
@@ -143,7 +145,10 @@ def build_causal_alpha_v7_attribution_boundaries(
     if not isinstance(fit, CausalAlphaV7CalibrationFit):
         raise TypeError("V7 attribution boundaries require a calibration fit")
     ordered = tuple(rows[symbol] for symbol in sorted(rows))
-    if not ordered or tuple((item.symbol, item.digest) for item in ordered) != fit.rows_digests:
+    if (
+        not ordered
+        or tuple((item.symbol, item.digest) for item in ordered) != fit.rows_digests
+    ):
         raise ValueError("V7 attribution calibration row identity drifted")
     features = np.concatenate(tuple(item.features for item in ordered))
     available = np.concatenate(tuple(item.feature_available for item in ordered))

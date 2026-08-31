@@ -170,7 +170,9 @@ def _costs_and_caps(
     if not isinstance(execution, ExecutionCostConfig):
         raise TypeError("V6 environment execution cost config is invalid")
     prepared_costs = getattr(prepared.prepared_v3, "execution_costs", None)
-    if not isinstance(prepared_costs, Mapping) or execution != prepared_costs.get(symbol):
+    if not isinstance(prepared_costs, Mapping) or execution != prepared_costs.get(
+        symbol
+    ):
         raise ValueError("V6 execution cost identity drifted")
     delay = getattr(prepared.prepared_v3, "signal_delays")[symbol]
     decision_bars = getattr(prepared.prepared_v3, "decision_bars")[symbol]
@@ -272,8 +274,7 @@ def _target_bundle(
     forecast = slice_causal_alpha_v4_forecast(full_forecast, rows)
     uncertainty_full = _uncertainties(fit, sample, forecast=full_forecast)
     uncertainty = {
-        horizon: uncertainty_full[horizon][rows]
-        for horizon in CAUSAL_ALPHA_V4_HORIZONS
+        horizon: uncertainty_full[horizon][rows] for horizon in CAUSAL_ALPHA_V4_HORIZONS
     }
     state = resolve_causal_alpha_v4_stage_state_inputs(sample)
     environment = _environment(prepared, symbol)
@@ -458,8 +459,7 @@ def _signal_scope_metrics(
         config,
     )
     slow_realized = 0.5 * (
-        np.asarray(sample.labels_24h)[rows]
-        + np.asarray(sample.labels_72h)[rows] / 3.0
+        np.asarray(sample.labels_24h)[rows] + np.asarray(sample.labels_72h)[rows] / 3.0
     )
     v6_metrics = tuple(
         build_causal_alpha_v6_signal_scope_metric(
@@ -677,6 +677,7 @@ def run_causal_alpha_v6_concrete_entry(
     from trade_rl.workflows.universal_causal_alpha_v4_runtime_adapter import (
         prepare_causal_alpha_v4_runtime_adapter,
     )
+
     config_path = Path(config_path)
     runner = importlib.import_module(
         "trade_rl.workflows.universal_causal_alpha_v6_runner"

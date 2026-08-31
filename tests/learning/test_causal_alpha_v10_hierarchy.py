@@ -100,7 +100,9 @@ def test_v10_requires_coherent_fast_slow_entry_and_execution_regime() -> None:
 
 
 def test_v10_flat_start_activation_rejects_inherited_initial_exposure() -> None:
-    with pytest.raises(ValueError, match="flat-start activation requires flat initial weight"):
+    with pytest.raises(
+        ValueError, match="flat-start activation requires flat initial weight"
+    ):
         _path(
             fast={0: 1, 16: 1},
             slow={0: 1, 16: 1},

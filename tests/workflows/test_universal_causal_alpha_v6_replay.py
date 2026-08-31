@@ -71,7 +71,9 @@ def _target(
         confirmation_counts=np.zeros(rows, dtype=np.int64),
         actionable_mask=np.ones(rows, dtype=np.bool_),
         slow_states=tuple(
-            CausalAlphaV6SlowState.FLAT if target == 0.0 else CausalAlphaV6SlowState.MIXED
+            CausalAlphaV6SlowState.FLAT
+            if target == 0.0
+            else CausalAlphaV6SlowState.MIXED
             for target in previous_targets
         ),
         reasons=tuple(reasons),

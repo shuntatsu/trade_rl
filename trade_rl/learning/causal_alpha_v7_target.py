@@ -44,7 +44,10 @@ def _effective_forecast(
         or not np.isfinite(direction).all()
     ):
         raise ValueError("V7 effective fast forecast is invalid")
-    market = {horizon: source.market_predictions[horizon] for horizon in CAUSAL_ALPHA_V4_HORIZONS}
+    market = {
+        horizon: source.market_predictions[horizon]
+        for horizon in CAUSAL_ALPHA_V4_HORIZONS
+    }
     residual = {
         horizon: source.residual_predictions[horizon]
         for horizon in CAUSAL_ALPHA_V4_HORIZONS
@@ -121,7 +124,10 @@ def causal_alpha_v7_target_paths(
         {"source_forecast_digest": forecast.digest, "transformation": "negate_return"}
     )
     contrarian_direction_digest = content_digest(
-        {"source_forecast_digest": forecast.digest, "transformation": "negate_direction"}
+        {
+            "source_forecast_digest": forecast.digest,
+            "transformation": "negate_direction",
+        }
     )
     effective = {
         CausalAlphaV7Candidate.V6_CONTROL: forecast,

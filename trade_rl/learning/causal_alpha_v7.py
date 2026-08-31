@@ -17,9 +17,7 @@ from trade_rl.learning.causal_alpha_v6 import (
 CAUSAL_ALPHA_V7_CALIBRATION_CONFIG_SCHEMA: Final = (
     "causal_alpha_v7_calibration_config_v1"
 )
-CAUSAL_ALPHA_V7_CALIBRATION_RANGE_SCHEMA: Final = (
-    "causal_alpha_v7_calibration_range_v1"
-)
+CAUSAL_ALPHA_V7_CALIBRATION_RANGE_SCHEMA: Final = "causal_alpha_v7_calibration_range_v1"
 CAUSAL_ALPHA_V7_CALIBRATION_FEATURE_NAMES: Final = (
     "fast_return_raw",
     "fast_direction_raw",

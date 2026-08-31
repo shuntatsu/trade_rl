@@ -110,9 +110,7 @@ def test_v6_selection_computes_paired_balanced_symbol_economics() -> None:
     assert evidence.fast_only.symbol_balanced_net_wealth == pytest.approx(
         math.exp(0.02)
     )
-    assert evidence.fast_only.minimum_symbol_net_wealth == pytest.approx(
-        math.exp(0.02)
-    )
+    assert evidence.fast_only.minimum_symbol_net_wealth == pytest.approx(math.exp(0.02))
     assert evidence.fast_only.positive_net_scope_fraction == 1.0
 
 
@@ -182,7 +180,9 @@ def test_v6_selection_computes_paired_balanced_symbol_economics() -> None:
         ),
     ],
 )
-def test_v6_selection_applies_every_common_eligibility_gate(mutate, reason: str) -> None:
+def test_v6_selection_applies_every_common_eligibility_gate(
+    mutate, reason: str
+) -> None:
     fast = mutate(_records(CausalAlphaV6Candidate.FAST_ONLY))
     retention = mutate(_records(CausalAlphaV6Candidate.FAST_SLOW_RETENTION))
     evidence = _evaluate(fast, retention)
@@ -222,9 +222,7 @@ def test_v6_selection_selects_only_eligible_candidate() -> None:
         )
         for item in _records(CausalAlphaV6Candidate.FAST_SLOW_RETENTION)
     )
-    evidence = _evaluate(
-        _records(CausalAlphaV6Candidate.FAST_ONLY), failed_retention
-    )
+    evidence = _evaluate(_records(CausalAlphaV6Candidate.FAST_ONLY), failed_retention)
     assert evidence.selected_candidate is CausalAlphaV6Candidate.FAST_ONLY
 
 
@@ -237,20 +235,27 @@ def test_v6_selection_requires_strict_non_dominated_retention() -> None:
     more_turnover = tuple(
         replace(item, turnover_per_day=0.2, digest="") for item in better
     )
-    assert _evaluate(fast, more_turnover).selected_candidate is CausalAlphaV6Candidate.FAST_ONLY
+    assert (
+        _evaluate(fast, more_turnover).selected_candidate
+        is CausalAlphaV6Candidate.FAST_ONLY
+    )
     more_cost = tuple(
         replace(item, total_execution_cost=0.002, digest="") for item in better
     )
-    assert _evaluate(fast, more_cost).selected_candidate is CausalAlphaV6Candidate.FAST_ONLY
+    assert (
+        _evaluate(fast, more_cost).selected_candidate
+        is CausalAlphaV6Candidate.FAST_ONLY
+    )
     more_flips = tuple(replace(item, sign_flip_count=1, digest="") for item in better)
-    assert _evaluate(fast, more_flips).selected_candidate is CausalAlphaV6Candidate.FAST_ONLY
+    assert (
+        _evaluate(fast, more_flips).selected_candidate
+        is CausalAlphaV6Candidate.FAST_ONLY
+    )
 
 
 def test_v6_selection_rejects_unpaired_scope_identity() -> None:
     retention = list(_records(CausalAlphaV6Candidate.FAST_SLOW_RETENTION))
     retention[0] = replace(retention[0], forecast_digest=_digest("drift"), digest="")
-    evidence = _evaluate(
-        _records(CausalAlphaV6Candidate.FAST_ONLY), tuple(retention)
-    )
+    evidence = _evaluate(_records(CausalAlphaV6Candidate.FAST_ONLY), tuple(retention))
     assert not evidence.passed
     assert evidence.rejection_reasons == ("scope_pairing",)

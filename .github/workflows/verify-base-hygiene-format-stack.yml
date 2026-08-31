@@ -1,0 +1,207 @@
+name: Verify Base Hygiene Format Stack
+
+on:
+  push:
+    branches:
+      - verify/base-hygiene-format-stack
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: dc63582d16ef22959d74749dc82c4ce552e4aa67
+
+jobs:
+  quality:
+    name: Exact Rebuilt Core
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Studio frontend
+        run: npm ci --prefix frontend --no-audit --no-fund
+      - name: Verify Studio frontend
+        run: |
+          npm test --prefix frontend -- --run
+          npm run typecheck --prefix frontend
+          npm run build --prefix frontend
+          npm run check:bundle --prefix frontend
+      - name: Verify Studio fixed viewport layout
+        env:
+          STUDIO_QA_OUTPUT_DIR: frontend/qa-screenshots
+        run: npm run check:layout --prefix frontend
+      - name: Multiprocessing warning regressions
+        run: >-
+          uv run pytest -q
+          tests/workflows/test_market_walk_forward_normalizer_multiprocessing.py
+          tests/rl/test_lagrangian_probe.py::test_parallel_probe_does_not_fork_a_multithreaded_parent
+          tests/learning/test_episode_teacher_parallel_chunking.py::test_parallel_teacher_rollout_does_not_fork_a_multithreaded_parent
+      - name: Workflow security
+        run: uv run python .github/check_workflow_security.py .
+      - name: Ruff
+        run: uv run ruff check --diff .
+      - name: Format
+        run: uv run ruff format --check --diff .
+      - name: Mypy
+        run: uv run mypy .
+      - name: Import architecture
+        run: uv run lint-imports
+      - name: Dead-code report
+        run: uv run vulture trade_rl tests --min-confidence 100
+      - name: Recovery and structured serving smoke
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
+          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
+      - name: Tests and coverage
+        run: uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
+      - name: Critical branch coverage
+        run: uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+      - name: Package and uv identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          cli="$(uv run trade-rl --version)"
+          uv_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["uv"]["required-version"].removeprefix("=="))')"
+          test "$module" = "$expected"
+          test "$cli" = "trade-rl $expected"
+          test "$(uv --version)" = "uv $uv_version"
+
+  compatibility:
+    name: Exact Compatibility (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Compatibility tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/architecture \
+            tests/data \
+            tests/simulation \
+            tests/evaluation \
+            tests/serving \
+            tests/examples/test_docker_training_assets.py::test_provenance_validation_target_fails_fast_without_valid_arguments \
+            tests/operations/test_training_capability_audit.py::test_run_training_capability_audit_preserves_report_contract \
+            tests/operations/test_training_capability_audit.py::test_sequence_training_exercises_real_hierarchical_behavior_cloning
+
+  training-image:
+    name: Exact Training Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Build complete training image
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(PYTHONPATH=. python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$source_digest" \
+            --build-arg TRADE_RL_LOCKFILE_DIGEST="$lock_digest" \
+            --file docker/Dockerfile.training \
+            --tag trade-rl-training:verify \
+            .
+      - name: Probe packaged non-root runtime
+        shell: bash
+        run: |
+          docker run --rm --entrypoint sh trade-rl-training:verify -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '
+
+  full-training-capability:
+    name: Exact Full Training Capability
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install complete audit dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra export
+      - name: Run full training capability audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p var/training-capability-audit
+          uv run python scripts/run_training_capability_audit.py \
+            --output var/training-capability-audit
+      - name: Verify full training capability audit
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("var/training-capability-audit/audit-report.json")
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          assert payload["schema_version"] == "full_training_capability_audit_v1"
+          assert len(payload["digest"]) == 64
+          for name, record in payload["algorithms"].items():
+              assert record["status"] == "pass", (name, record)
+              assert record["actual_timesteps"] >= 16
+              assert record["checkpoint_count"] >= 1
+          for name in (
+              "behavior_cloning",
+              "exports",
+              "replay_resume",
+              "residual_controls",
+              "sequence",
+              "training_resume",
+          ):
+              assert payload[name]["status"] == "pass", (name, payload[name])
+          PY

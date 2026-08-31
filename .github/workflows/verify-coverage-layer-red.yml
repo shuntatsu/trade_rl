@@ -1,0 +1,36 @@
+name: Verify Coverage Layer RED
+
+on:
+  push:
+    branches:
+      - fix/coverage-layer-contract
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/coverage-layer-contract
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install test dependencies
+        run: uv sync --extra dev --frozen
+      - name: Verify expected RED
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q tests/architecture/test_coverage_layer_contract.py > red.log 2>&1
+          rc=$?
+          set -e
+          cat red.log
+          test "$rc" -ne 0
+          grep -Eq "omit|coveragerc.nautilus|coverage run" red.log

@@ -47,11 +47,11 @@ def _exact_mapping(
     value: object, *, keys: tuple[str, ...], field: str
 ) -> dict[str, object]:
     if not isinstance(value, Mapping):
-        raise ValueError(f"{field} must be an object with exact keys/order")
+        raise ValueError(f"{field} must be an object with exact keys")
     result = {str(key): item for key, item in value.items()}
-    if tuple(result) != keys:
+    if set(result) != set(keys) or len(result) != len(keys):
         raise ValueError(
-            f"{field} must use exact keys/order; "
+            f"{field} must use exact keys; "
             f"expected={list(keys)}, observed={list(result)}"
         )
     return result

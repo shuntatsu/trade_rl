@@ -47,8 +47,8 @@ jobs:
           assert text.count(old) == 1, "unexpected core coverage block"
           pyproject.write_text(text.replace(old, new), encoding="utf-8")
 
-          Path(".coveragerc.nautilus").write_text(
-              """[run]\n"
+          dedicated = (
+              "[run]\n"
               "source =\n"
               "    trade_rl/integrations/nautilus\n"
               "branch = True\n"
@@ -62,9 +62,9 @@ jobs:
               "\n"
               "[report]\n"
               "show_missing = True\n"
-              "skip_covered = False\n""",
-              encoding="utf-8",
+              "skip_covered = False\n"
           )
+          Path(".coveragerc.nautilus").write_text(dedicated, encoding="utf-8")
 
           workflow = Path(".github/workflows/nautilus-capability.yml")
           wf = workflow.read_text(encoding="utf-8")
@@ -82,7 +82,7 @@ jobs:
               "uv run coverage run --rcfile=.coveragerc.nautilus "
               "-m pytest -q -m nautilus"
           )
-          assert wf.count(marked) == 14, wf.count(marked)
+          assert wf.count(marked) == 16, wf.count(marked)
           wf = wf.replace(marked, marked_cov)
 
           multiline = "uv run pytest -q \\\n"
@@ -95,29 +95,25 @@ jobs:
 
           anchor = "      - name: Upload dual-shadow diagnostics\n"
           assert wf.count(anchor) == 1, "unexpected dual-shadow upload anchor"
-          coverage_steps = """      - name: Combine and record Nautilus coverage
-                shell: bash
-                run: |
-                  set -euo pipefail
-                  uv run coverage combine --rcfile=.coveragerc.nautilus
-                  uv run coverage json --rcfile=.coveragerc.nautilus -o nautilus-coverage.json
-                  uv run coverage report --rcfile=.coveragerc.nautilus
-              - name: Upload Nautilus coverage evidence
-                if: always()
-                uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-                with:
-                  name: nautilus-coverage-evidence
-                  path: nautilus-coverage.json
-                  if-no-files-found: warn
-                  retention-days: 14
-              - name: Enforce Nautilus coverage ratchet
-                run: uv run coverage report --rcfile=.coveragerc.nautilus --fail-under=81.3
-          """
-          # The literal above is indented for this Python block; normalize to workflow level.
-          coverage_steps = "\n".join(
-              line[8:] if line.startswith("        ") else line
-              for line in coverage_steps.splitlines()
-          ) + "\n"
+          coverage_steps = (
+              "      - name: Combine and record Nautilus coverage\n"
+              "        shell: bash\n"
+              "        run: |\n"
+              "          set -euo pipefail\n"
+              "          uv run coverage combine --rcfile=.coveragerc.nautilus\n"
+              "          uv run coverage json --rcfile=.coveragerc.nautilus -o nautilus-coverage.json\n"
+              "          uv run coverage report --rcfile=.coveragerc.nautilus\n"
+              "      - name: Upload Nautilus coverage evidence\n"
+              "        if: always()\n"
+              "        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n"
+              "        with:\n"
+              "          name: nautilus-coverage-evidence\n"
+              "          path: nautilus-coverage.json\n"
+              "          if-no-files-found: warn\n"
+              "          retention-days: 14\n"
+              "      - name: Enforce Nautilus coverage ratchet\n"
+              "        run: uv run coverage report --rcfile=.coveragerc.nautilus --fail-under=81.3\n"
+          )
           wf = wf.replace(anchor, coverage_steps + anchor)
           workflow.write_text(wf, encoding="utf-8")
 
@@ -154,7 +150,10 @@ jobs:
           uv run python - <<'PY'
           import yaml
           from pathlib import Path
-          yaml.safe_load(Path(".github/workflows/nautilus-capability.yml").read_text(encoding="utf-8"))
+
+          yaml.safe_load(
+              Path(".github/workflows/nautilus-capability.yml").read_text(encoding="utf-8")
+          )
           PY
           uv run python .github/check_workflow_security.py .
           git diff --check

@@ -1,0 +1,123 @@
+name: Verify Coverage Layer Platform Final
+
+on:
+  push:
+    branches:
+      - verify/coverage-layer-platform-final
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    name: Exact Compatibility (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 8571b3f5d362bd4e64b3989411668e545f1acd24
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --extra train-sb3 --frozen
+      - name: Compatibility tests
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            tests/architecture \
+            tests/data \
+            tests/simulation \
+            tests/evaluation \
+            tests/serving \
+            tests/examples/test_docker_training_assets.py::test_provenance_validation_target_fails_fast_without_valid_arguments \
+            tests/operations/test_training_capability_audit.py::test_run_training_capability_audit_preserves_report_contract \
+            tests/operations/test_training_capability_audit.py::test_sequence_training_exercises_real_hierarchical_behavior_cloning \
+            2>&1 | tee compatibility.log
+
+  training-image:
+    name: Exact Training image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 8571b3f5d362bd4e64b3989411668e545f1acd24
+          persist-credentials: false
+      - name: Build complete training image
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          source_digest="$(PYTHONPATH=. python -c 'from trade_rl.artifacts.provenance import source_tree_digest; print(source_tree_digest("."))')"
+          lock_digest="$(sha256sum uv.lock | cut -d' ' -f1)"
+          docker build \
+            --build-arg TRADE_RL_GIT_COMMIT="$commit" \
+            --build-arg TRADE_RL_GIT_DIRTY=false \
+            --build-arg TRADE_RL_SOURCE_TREE_DIGEST="$source_digest" \
+            --build-arg TRADE_RL_LOCKFILE_DIGEST="$lock_digest" \
+            --file docker/Dockerfile.training \
+            --tag trade-rl-training:coverage-final \
+            .
+      - name: Probe packaged non-root runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh trade-rl-training:coverage-final -c '
+            set -eu
+            test "$(id -u)" -ne 0
+            test -w /workspace/var
+            python -c "import torch, trade_rl; print(torch.__version__)"
+          '
+
+  full-training-capability:
+    name: Exact Full training capability
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 8571b3f5d362bd4e64b3989411668e545f1acd24
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install complete audit dependencies
+        run: uv sync --extra dev --extra train-sb3 --extra export --frozen
+      - name: Run full training capability audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p var/training-capability-audit
+          uv run python scripts/run_training_capability_audit.py \
+            --output var/training-capability-audit \
+            2>&1 | tee var/training-capability-audit.log
+      - name: Verify full training capability audit
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path("var/training-capability-audit/audit-report.json").read_text())
+          assert payload["schema_version"] == "full_training_capability_audit_v1"
+          assert len(payload["digest"]) == 64
+          for name, record in payload["algorithms"].items():
+              assert record["status"] == "pass", (name, record)
+              assert record["actual_timesteps"] >= 16
+              assert record["checkpoint_count"] >= 1
+          for name in (
+              "behavior_cloning",
+              "exports",
+              "replay_resume",
+              "residual_controls",
+              "sequence",
+              "training_resume",
+          ):
+              assert payload[name]["status"] == "pass", (name, payload[name])
+          PY

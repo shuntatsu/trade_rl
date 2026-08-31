@@ -452,7 +452,6 @@ def test_causal_beta_excludes_four_hour_sample_with_missing_intermediate_row() -
 
 
 def test_btc_beta_is_exactly_one_when_available() -> None:
-    bars_per_4h = 1
     returns = np.asarray([0.01, -0.02, 0.03, -0.01, 0.015, 0.02], dtype=np.float64)
     close = _prices_from_log_returns(returns)
     decision_indices = np.arange(len(close), dtype=np.int64)

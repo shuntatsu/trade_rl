@@ -1,0 +1,217 @@
+name: Verify Universal Trade RL U0
+
+on:
+  push:
+    branches:
+      - codex/universal-trade-rl-zero-shot-transfer-design
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3
+
+      - name: U0 boundary tests
+        run: >-
+          uv run pytest -q
+          tests/domain/test_universal_trade_rl_universe.py
+          tests/workflows/test_universal_trade_rl_universe_config.py
+          tests/workflows/test_universal_trade_rl_universe_manifest.py
+          tests/workflows/test_universal_trade_rl_universe_access.py
+          tests/workflows/test_universal_trade_rl_data_provenance.py
+          tests/workflows/test_universal_trade_rl_run_identity.py
+          tests/workflows/test_universal_trade_rl_universe_runner.py
+          tests/workflows/test_universal_trade_rl_universe_isolation.py
+
+      - name: Existing Causal Alpha compatibility
+        run: >-
+          uv run pytest -q
+          tests/workflows/test_universal_causal_alpha_v4_fitting.py
+          tests/workflows/test_universal_causal_alpha_v5_calibration.py
+          tests/workflows/test_universal_causal_alpha_v6_stage_entry.py
+          tests/workflows/test_universal_causal_alpha_v7_stage_entry.py
+          tests/workflows/test_universal_causal_alpha_v9_stage_entry.py
+          tests/workflows/test_universal_causal_alpha_v10_stage_entry.py
+          tests/workflows/test_universal_causal_alpha_v11_stage_entry.py
+
+      - name: Affected MyPy
+        run: >-
+          uv run mypy
+          trade_rl/domain/universal_trade_rl_universe.py
+          trade_rl/workflows/universal_trade_rl_universe_config.py
+          trade_rl/workflows/universal_trade_rl_universe_manifest.py
+          trade_rl/workflows/universal_trade_rl_universe_access.py
+          trade_rl/workflows/universal_trade_rl_data_provenance.py
+          trade_rl/workflows/universal_trade_rl_run_identity.py
+          trade_rl/workflows/universal_trade_rl_universe_runner.py
+
+      - name: Import architecture
+        run: uv run lint-imports
+
+      - name: Build package
+        run: uv build
+
+  exact-base-comparator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      BASE_SHA: 329131d7a9b26b2e96f8e03879e7aa49fafceb3c
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Create exact-base worktree and verify lock identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git worktree add --detach ../trade_rl-base "$BASE_SHA"
+          feature_lock="$(sha256sum uv.lock | cut -d' ' -f1)"
+          base_lock="$(sha256sum ../trade_rl-base/uv.lock | cut -d' ' -f1)"
+          printf 'feature_lock=%s\nbase_lock=%s\n' "$feature_lock" "$base_lock"
+          test "$feature_lock" = "$base_lock"
+
+      - name: Install feature and base dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev --extra export --extra train-sb3
+          (
+            cd ../trade_rl-base
+            uv sync --extra dev --extra export --extra train-sb3
+          )
+
+      - name: Run feature full suite with coverage
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q \
+            --cov=trade_rl \
+            --cov-branch \
+            --cov-report=json:feature-coverage.json \
+            > feature-full.log 2>&1
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" > feature-rc.txt
+          tail -n 80 feature-full.log
+
+      - name: Run exact-base full suite with coverage
+        shell: bash
+        run: |
+          set +e
+          (
+            cd ../trade_rl-base
+            uv run pytest -q \
+              --cov=trade_rl \
+              --cov-branch \
+              --cov-report=json:base-coverage.json \
+              > base-full.log 2>&1
+          )
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" > base-rc.txt
+          cp ../trade_rl-base/base-full.log base-full.log
+          cp ../trade_rl-base/base-coverage.json base-coverage.json
+          tail -n 80 base-full.log
+
+      - name: Compare failure sets and coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          def failures(path: str) -> set[str]:
+              values: set[str] = set()
+              for line in Path(path).read_text(encoding="utf-8").splitlines():
+                  if line.startswith("FAILED "):
+                      values.add(line.removeprefix("FAILED ").split(" - ", 1)[0])
+                  elif line.startswith("ERROR "):
+                      values.add(line.removeprefix("ERROR ").split(" - ", 1)[0])
+              return values
+
+          def counts(path: str) -> dict[str, int]:
+              text = Path(path).read_text(encoding="utf-8")
+              return {
+                  name: int(matches[-1]) if matches else 0
+                  for name in ("passed", "failed", "skipped", "deselected")
+                  if (matches := re.findall(rf"(\d+) {name}", text))
+              }
+
+          def coverage(path: str) -> float:
+              payload = json.loads(Path(path).read_text(encoding="utf-8"))
+              return float(payload["totals"]["percent_covered"])
+
+          feature = failures("feature-full.log")
+          base = failures("base-full.log")
+          payload = {
+              "base_sha": "329131d7a9b26b2e96f8e03879e7aa49fafceb3c",
+              "feature_counts": counts("feature-full.log"),
+              "base_counts": counts("base-full.log"),
+              "feature_failures": sorted(feature),
+              "base_failures": sorted(base),
+              "feature_only_failures": sorted(feature - base),
+              "base_only_failures": sorted(base - feature),
+              "feature_coverage": coverage("feature-coverage.json"),
+              "base_coverage": coverage("base-coverage.json"),
+          }
+          Path("full-suite-comparator.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, indent=2, sort_keys=True))
+          if feature - base:
+              raise SystemExit("feature introduced full-suite failures")
+          PY
+
+      - name: Compare critical coverage gates
+        shell: bash
+        run: |
+          set +e
+          uv run python .github/check_critical_coverage.py \
+            feature-coverage.json pyproject.toml \
+            > feature-critical.log 2>&1
+          feature_rc=$?
+          (
+            cd ../trade_rl-base
+            uv run python .github/check_critical_coverage.py \
+              base-coverage.json pyproject.toml \
+              > base-critical.log 2>&1
+          )
+          base_rc=$?
+          set -e
+          printf 'feature_critical_rc=%s\nbase_critical_rc=%s\n' "$feature_rc" "$base_rc"
+          cat feature-critical.log
+          cat ../trade_rl-base/base-critical.log
+          if test "$base_rc" -eq 0; then
+            test "$feature_rc" -eq 0
+          fi

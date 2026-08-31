@@ -84,9 +84,12 @@ def test_config_accepts_reordered_json_object_keys(tmp_path: Path) -> None:
         _write(tmp_path / "universe.json", reordered)
     )
 
-    assert config.digest == load_universal_trade_rl_universe_config(
-        _write(tmp_path / "canonical-universe.json", payload)
-    ).digest
+    assert (
+        config.digest
+        == load_universal_trade_rl_universe_config(
+            _write(tmp_path / "canonical-universe.json", payload)
+        ).digest
+    )
 
 
 def test_config_rejects_duplicate_json_object_keys(tmp_path: Path) -> None:

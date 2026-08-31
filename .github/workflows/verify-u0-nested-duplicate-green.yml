@@ -1,0 +1,25 @@
+name: Verify U0 Nested Duplicate GREEN
+
+on:
+  push:
+    branches:
+      - verify/u0-duplicate-nested-current
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: verify/u0-duplicate-nested-current
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --frozen
+      - name: Verify nested duplicate fail-closed behavior
+        run: uv run pytest -q tests/workflows/test_universal_trade_rl_nested_duplicate_json.py tests/workflows/test_universal_trade_rl_universe_config.py

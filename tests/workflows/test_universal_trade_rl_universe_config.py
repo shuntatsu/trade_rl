@@ -70,6 +70,25 @@ def test_load_universe_config_round_trips_strict_roles(tmp_path: Path) -> None:
     assert tuple(item.symbol for item in config.exclusions) == ("LUNA2USDT",)
 
 
+def test_config_accepts_reordered_json_object_keys(tmp_path: Path) -> None:
+    payload = _config_payload()
+    reordered = {
+        "excluded_symbols": payload["excluded_symbols"],
+        "admission_symbols": payload["admission_symbols"],
+        "development_symbols": payload["development_symbols"],
+        "train_symbols": payload["train_symbols"],
+        "schema_version": payload["schema_version"],
+    }
+
+    config = load_universal_trade_rl_universe_config(
+        _write(tmp_path / "universe.json", reordered)
+    )
+
+    assert config.digest == load_universal_trade_rl_universe_config(
+        _write(tmp_path / "canonical-universe.json", payload)
+    ).digest
+
+
 def test_config_rejects_unknown_root_keys(tmp_path: Path) -> None:
     payload = _config_payload()
     payload["unexpected"] = True

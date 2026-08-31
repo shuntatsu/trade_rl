@@ -1,0 +1,15 @@
+[run]
+source =
+    trade_rl/integrations/nautilus
+branch = True
+parallel = True
+concurrency = multiprocessing,thread
+sigterm = True
+patch =
+    subprocess
+    _exit
+data_file = .coverage.nautilus
+
+[report]
+show_missing = True
+skip_covered = False

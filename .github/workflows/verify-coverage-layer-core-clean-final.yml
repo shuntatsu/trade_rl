@@ -1,0 +1,75 @@
+name: Verify Coverage Layer Core Clean Final
+
+on:
+  push:
+    branches:
+      - verify/coverage-layer-core-clean-final
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 8571b3f5d362bd4e64b3989411668e545f1acd24
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio --frozen
+      - name: Static architecture workflow gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q tests/architecture/test_coverage_layer_contract.py
+          uv run python .github/check_workflow_security.py .
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy .
+          uv run lint-imports
+          uv run vulture trade_rl tests --min-confidence 100
+      - name: Recovery serving smoke
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
+          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
+      - name: Full suite and configured core coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json 2>&1 | tee pytest.log
+      - name: Critical coverage build identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          totals=json.loads(Path('coverage.json').read_text())['totals']
+          combined=float(totals['percent_covered'])
+          print(f'core_combined_coverage={combined:.12f}')
+          assert combined >= 80.0, combined
+          PY
+          uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+          uv build
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          test "$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')" = "$expected"
+          test "$(uv run trade-rl --version)" = "trade-rl $expected"
+          uv_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["uv"]["required-version"].removeprefix("=="))')"
+          test "$(uv --version)" = "uv $uv_version"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-layer-core-clean-final
+          path: |
+            pytest.log
+            coverage.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,42 @@
+name: Verify U0 Main Sync Conflicts
+
+on:
+  push:
+    branches:
+      - verify/u0-main-sync-conflicts
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout U0 branch history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: codex/universal-trade-rl-zero-shot-transfer-design
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Dry-run merge current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          printf 'u0_before=%s\n' "$(git rev-parse HEAD)"
+          printf 'main=%s\n' "$(git rev-parse refs/remotes/origin/main)"
+          set +e
+          git merge --no-ff --no-commit refs/remotes/origin/main > merge.log 2>&1
+          rc=$?
+          set -e
+          cat merge.log
+          printf 'merge_rc=%s\n' "$rc"
+          conflicts="$(git diff --name-only --diff-filter=U | sort)"
+          printf 'conflicts<<EOF\n%s\nEOF\n' "$conflicts"
+          if test "$rc" -eq 0; then
+            git diff --cached --name-status
+            git merge --abort || true
+          else
+            git status --short
+            git merge --abort
+          fi

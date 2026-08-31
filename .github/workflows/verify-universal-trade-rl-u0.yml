@@ -29,6 +29,41 @@ jobs:
       - name: Install verification dependencies
         run: uv sync --extra dev --extra export --extra train-sb3
 
+      - name: Verify documented U0 materialization example
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="var/runs/universal-trade-rl-u0-example"
+          rm -rf "$output"
+          uv run trade-rl-universe \
+            --config examples/binance/universal-trade-rl-universe.example.json \
+            --source-catalog examples/binance/universal-trade-rl-source-catalog.example.json \
+            --output-root "$output" \
+            | tee example-materialization.json
+          sha256sum "$output/universe.json" "$output/identity.json" > example-before.sha256
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          terminal = json.loads(Path("example-materialization.json").read_text(encoding="utf-8"))
+          universe = json.loads(Path("var/runs/universal-trade-rl-u0-example/universe.json").read_text(encoding="utf-8"))
+          identity = json.loads(Path("var/runs/universal-trade-rl-u0-example/identity.json").read_text(encoding="utf-8"))
+          assert terminal["status"] == "materialized"
+          assert terminal["production_status"] == "NO-GO"
+          assert terminal["universe_manifest_digest"] == universe["artifact_digest"]
+          assert terminal["identity_digest"] == identity["artifact_digest"]
+          assert identity["universe_manifest_digest"] == universe["artifact_digest"]
+          assert identity["stage"] == "universe_materialization"
+          PY
+          uv run trade-rl-universe \
+            --config examples/binance/universal-trade-rl-universe.example.json \
+            --source-catalog examples/binance/universal-trade-rl-source-catalog.example.json \
+            --output-root "$output" \
+            > example-materialization-rerun.json
+          sha256sum -c example-before.sha256
+          test -z "$(find var/runs -maxdepth 1 -name '.universal-trade-rl-u0-example.staging-*' -print -quit)"
+          rm -rf "$output"
+
       - name: U0 boundary tests
         run: >-
           uv run pytest -q

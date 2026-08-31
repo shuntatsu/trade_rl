@@ -37,8 +37,19 @@ _SYMBOL_RE: Final = re.compile(r"^[A-Z0-9]{2,32}$")
 
 
 def _load_json(path: str | Path, *, field: str) -> object:
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError(f"{field} JSON contains duplicate key {key!r}")
+            result[key] = item
+        return result
+
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
+        return json.loads(
+            Path(path).read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"{field} JSON is invalid") from error
 

@@ -1,0 +1,46 @@
+name: One-shot Sync Format Stack
+
+on:
+  push:
+    branches:
+      - chore/ruff-format-drift
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout formatting branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: chore/ruff-format-drift
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install formatter
+        run: uv sync --extra dev
+
+      - name: Merge current base hygiene and verify formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin fix/base-hygiene-oracles:refs/remotes/origin/fix/base-hygiene-oracles
+          git merge --no-ff --no-commit refs/remotes/origin/fix/base-hygiene-oracles
+          uv run ruff format .
+          uv run ruff check --diff .
+          uv run ruff format --check .
+          rm .github/workflows/one-shot-sync-format-stack.yml
+          git add -A
+          git diff --cached --check
+          git commit -m "merge: sync format stack with base hygiene"
+          git push origin HEAD:chore/ruff-format-drift

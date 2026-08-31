@@ -1,0 +1,171 @@
+name: One-shot Coverage Layer GREEN
+
+on:
+  push:
+    branches:
+      - fix/coverage-layer-contract
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/coverage-layer-contract
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Apply exact coverage-layer changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          pyproject = Path("pyproject.toml")
+          text = pyproject.read_text(encoding="utf-8")
+          old = '[tool.coverage.run]\nsource = ["trade_rl"]\nbranch = true\n'
+          new = (
+              '[tool.coverage.run]\n'
+              'source = ["trade_rl"]\n'
+              'branch = true\n'
+              'omit = ["trade_rl/integrations/nautilus/*"]\n'
+          )
+          assert text.count(old) == 1, "unexpected core coverage block"
+          pyproject.write_text(text.replace(old, new), encoding="utf-8")
+
+          Path(".coveragerc.nautilus").write_text(
+              """[run]\n"
+              "source =\n"
+              "    trade_rl/integrations/nautilus\n"
+              "branch = True\n"
+              "parallel = True\n"
+              "concurrency = multiprocessing,thread\n"
+              "sigterm = True\n"
+              "patch =\n"
+              "    subprocess\n"
+              "    _exit\n"
+              "data_file = .coverage.nautilus\n"
+              "\n"
+              "[report]\n"
+              "show_missing = True\n"
+              "skip_covered = False\n""",
+              encoding="utf-8",
+          )
+
+          workflow = Path(".github/workflows/nautilus-capability.yml")
+          wf = workflow.read_text(encoding="utf-8")
+          trigger_old = '      - "pyproject.toml"\n      - "uv.lock"\n'
+          trigger_new = (
+              '      - "pyproject.toml"\n'
+              '      - ".coveragerc.nautilus"\n'
+              '      - "uv.lock"\n'
+          )
+          assert wf.count(trigger_old) == 2, "unexpected Nautilus trigger blocks"
+          wf = wf.replace(trigger_old, trigger_new)
+
+          marked = "uv run pytest -q -m nautilus"
+          marked_cov = (
+              "uv run coverage run --rcfile=.coveragerc.nautilus "
+              "-m pytest -q -m nautilus"
+          )
+          assert wf.count(marked) == 14, wf.count(marked)
+          wf = wf.replace(marked, marked_cov)
+
+          multiline = "uv run pytest -q \\\n"
+          multiline_cov = (
+              "uv run coverage run --rcfile=.coveragerc.nautilus "
+              "-m pytest -q \\\n"
+          )
+          assert wf.count(multiline) == 3, wf.count(multiline)
+          wf = wf.replace(multiline, multiline_cov)
+
+          anchor = "      - name: Upload dual-shadow diagnostics\n"
+          assert wf.count(anchor) == 1, "unexpected dual-shadow upload anchor"
+          coverage_steps = """      - name: Combine and record Nautilus coverage
+                shell: bash
+                run: |
+                  set -euo pipefail
+                  uv run coverage combine --rcfile=.coveragerc.nautilus
+                  uv run coverage json --rcfile=.coveragerc.nautilus -o nautilus-coverage.json
+                  uv run coverage report --rcfile=.coveragerc.nautilus
+              - name: Upload Nautilus coverage evidence
+                if: always()
+                uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+                with:
+                  name: nautilus-coverage-evidence
+                  path: nautilus-coverage.json
+                  if-no-files-found: warn
+                  retention-days: 14
+              - name: Enforce Nautilus coverage ratchet
+                run: uv run coverage report --rcfile=.coveragerc.nautilus --fail-under=81.3
+          """
+          # The literal above is indented for this Python block; normalize to workflow level.
+          coverage_steps = "\n".join(
+              line[8:] if line.startswith("        ") else line
+              for line in coverage_steps.splitlines()
+          ) + "\n"
+          wf = wf.replace(anchor, coverage_steps + anchor)
+          workflow.write_text(wf, encoding="utf-8")
+
+          plan = Path("docs/implementation-plans/plans/2026-08-31-coverage-layer-contract.md")
+          plan_text = plan.read_text(encoding="utf-8")
+          marker = "## Global Constraints\n"
+          assert plan_text.count(marker) == 1
+          evidence = (
+              "## Baseline Evidence\n\n"
+              "- Exact core coverage before the split: `79.18290882942891%`.\n"
+              "- The same artifact excluding only `trade_rl/integrations/nautilus/**`: "
+              "`80.09797033943163%`.\n"
+              "- Isolated Nautilus diagnostic run `33359438890`: combined `81.32361189007291%`, "
+              "statements `87.52751283932501%`, branches `61.19047619047619%`.\n"
+              "- Dedicated Nautilus combined-coverage ratchet: `81.3%`.\n\n"
+          )
+          plan.write_text(plan_text.replace(marker, evidence + marker), encoding="utf-8")
+          PY
+
+      - name: Remove temporary RED and implementation workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/verify-coverage-layer-red.yml
+          rm .github/workflows/one-shot-coverage-layer-green.yml
+
+      - name: Verify targeted contract and repository hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q tests/architecture/test_coverage_layer_contract.py
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run python - <<'PY'
+          import yaml
+          from pathlib import Path
+          yaml.safe_load(Path(".github/workflows/nautilus-capability.yml").read_text(encoding="utf-8"))
+          PY
+          uv run python .github/check_workflow_security.py .
+          git diff --check
+
+      - name: Commit exact GREEN implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "ci: split core and Nautilus coverage gates"
+          git push origin HEAD:fix/coverage-layer-contract

@@ -1,0 +1,94 @@
+name: Verify Coverage With Nautilus
+
+on:
+  push:
+    branches:
+      - verify/coverage-with-nautilus
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: cba8e6bfbfa10d6fa5ea456a366a3eda4797a3cb
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact optional runtime
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra nautilus --frozen
+
+      - name: Full suite with Nautilus available
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q \
+            --cov=trade_rl \
+            --cov-branch \
+            --cov-fail-under=0 \
+            --cov-report=json:coverage-with-nautilus.json \
+            > full-suite-with-nautilus.log 2>&1
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" > pytest-rc.txt
+          tail -n 120 full-suite-with-nautilus.log
+
+      - name: Summarize coverage
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f coverage-with-nautilus.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("coverage-with-nautilus.json").read_text(encoding="utf-8"))
+          total = float(payload["totals"]["percent_covered"])
+          nautilus = []
+          for path, record in payload["files"].items():
+              if path.startswith("trade_rl/integrations/nautilus/"):
+                  summary = record["summary"]
+                  nautilus.append({
+                      "path": path,
+                      "percent_covered": float(summary["percent_covered"]),
+                      "missing_lines": int(summary.get("missing_lines", 0)),
+                      "missing_branches": int(summary.get("missing_branches", 0)),
+                  })
+          result = {
+              "global_percent_covered": total,
+              "pytest_rc": int(Path("pytest-rc.txt").read_text(encoding="utf-8").strip()),
+              "nautilus_files": sorted(nautilus, key=lambda row: row["path"]),
+          }
+          Path("coverage-with-nautilus-summary.json").write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(result, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-with-nautilus
+          path: |
+            full-suite-with-nautilus.log
+            pytest-rc.txt
+            coverage-with-nautilus.json
+            coverage-with-nautilus-summary.json
+          if-no-files-found: warn
+          retention-days: 14

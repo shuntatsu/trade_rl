@@ -1,0 +1,180 @@
+name: Verify Coverage Layer Final R2
+
+on:
+  push:
+    branches:
+      - verify/coverage-layer-final-r2
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Exact Core Quality R2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 73f2d98a48446f091279264c253b3fa0ae528195
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra export --extra train-sb3 --extra studio --frozen
+      - name: Contract and static gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q tests/architecture/test_coverage_layer_contract.py
+          uv run python .github/check_workflow_security.py .
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy .
+          uv run lint-imports
+          uv run vulture trade_rl tests --min-confidence 100
+      - name: Recovery and serving smoke
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
+          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
+      - name: Full suite with configured core coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest -q \
+            --cov=trade_rl \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=json:coverage.json \
+            2>&1 | tee pytest.log
+      - name: Verify core coverage and critical ratchets
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path("coverage.json").read_text(encoding="utf-8"))
+          percent = float(payload["totals"]["percent_covered"])
+          print(f"core_combined_coverage={percent:.12f}")
+          assert percent >= 80.0, percent
+          PY
+          uv run python .github/check_critical_coverage.py coverage.json pyproject.toml
+      - name: Package build and identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv build
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          test "$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')" = "$expected"
+          test "$(uv run trade-rl --version)" = "trade-rl $expected"
+          uv_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["uv"]["required-version"].removeprefix("=="))')"
+          test "$(uv --version)" = "uv $uv_version"
+      - name: Upload core evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-layer-core-r2
+          path: |
+            pytest.log
+            coverage.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  nautilus:
+    name: Exact Nautilus Coverage R2
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 73f2d98a48446f091279264c253b3fa0ae528195
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install exact Nautilus runtime
+        run: uv sync --extra dev --extra nautilus --extra train-sb3 --frozen
+      - name: Verify runtime and decimal coverage contract
+        run: |
+          uv run python - <<'PY'
+          import configparser
+          import importlib.metadata
+          config = configparser.ConfigParser()
+          config.read(".coveragerc.nautilus")
+          assert importlib.metadata.version("nautilus_trader") == "1.230.0"
+          assert config["report"].getint("precision") == 2
+          PY
+      - name: Run maintained capability groups in isolated covered processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_cov() { uv run coverage run --rcfile=.coveragerc.nautilus -m pytest -q "$@"; }
+          run_cov -m nautilus tests/integrations/test_nautilus_instrument.py tests/integrations/test_nautilus_quote_projection.py tests/integrations/test_nautilus_derivative_data.py tests/integrations/test_nautilus_order_adapter.py
+          run_cov -m nautilus tests/integrations/test_nautilus_capability.py
+          run_cov -m nautilus tests/integrations/test_nautilus_quote_replay.py
+          run_cov -m nautilus tests/integrations/test_nautilus_order_lifecycle.py
+          run_cov -m nautilus tests/integrations/test_nautilus_streaming_execution.py
+          run_cov -m nautilus tests/integrations/test_nautilus_streaming_worker.py
+          run_cov -m nautilus tests/integrations/test_nautilus_partial_fill_cancel.py
+          uv run pytest -q tests/simulation/test_funding_mark_price.py
+          run_cov tests/integrations/test_nautilus_funding_adapter.py tests/integrations/test_nautilus_funding_settlement.py
+          run_cov tests/workflows/test_stage_a_nautilus_historical_replay.py tests/workflows/test_stage_a_nautilus_historical_timeline.py tests/workflows/test_stage_a_nautilus_historical_differential.py
+          run_cov -m nautilus tests/integrations/test_nautilus_execution_probe.py
+          run_cov -m nautilus tests/integrations/test_nautilus_historical_execution.py
+          run_cov -m nautilus tests/integrations/test_nautilus_real_market_windows.py
+          run_cov -m nautilus tests/workflows/test_stage_a_nautilus_historical_execution.py
+          run_cov tests/rl/test_environment_execution_dual_shadow.py tests/rl/test_environment_dual_shadow_wiring.py
+          run_cov -m nautilus tests/integrations/test_nautilus_rl_dual_shadow.py
+          run_cov -m nautilus tests/integrations/test_nautilus_training_smoke.py
+          run_cov -m nautilus tests/integrations/test_nautilus_dual_shadow.py
+          run_cov -m nautilus tests/integrations/test_nautilus_sign_flip_conformance.py
+          run_cov -m nautilus tests/integrations/test_nautilus_target_change_conformance.py
+      - name: Preserve throughput and deterministic digest gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python scripts/nautilus_training_throughput_benchmark.py --timesteps 8 --timesteps 32 --timesteps 128 --output nautilus-training-throughput.json
+          first="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
+          second="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
+          third="$(uv run python scripts/nautilus_execution_probe_digest.py | tail -n 1)"
+          test "$first" = "$second"
+          test "$second" = "$third"
+          test "${#first}" -eq 64
+      - name: Combine and enforce 81.3 percent Nautilus ratchet
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run coverage combine --rcfile=.coveragerc.nautilus
+          uv run coverage json --rcfile=.coveragerc.nautilus -o nautilus-coverage.json
+          uv run coverage report --rcfile=.coveragerc.nautilus --fail-under=81.3
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          totals = json.loads(Path("nautilus-coverage.json").read_text(encoding="utf-8"))["totals"]
+          combined = float(totals["percent_covered"])
+          statements = float(totals["percent_statements_covered"])
+          branches = float(totals["percent_branches_covered"])
+          print(f"nautilus_combined_coverage={combined:.12f}")
+          print(f"nautilus_statement_coverage={statements:.12f}")
+          print(f"nautilus_branch_coverage={branches:.12f}")
+          assert combined >= 81.3, combined
+          PY
+      - name: Upload Nautilus evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-layer-nautilus-r2
+          path: |
+            nautilus-coverage.json
+            nautilus-training-throughput.json
+          if-no-files-found: warn
+          retention-days: 14

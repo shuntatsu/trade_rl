@@ -22,6 +22,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch --no-tags origin main:refs/remotes/origin/main
           printf 'u0_before=%s\n' "$(git rev-parse HEAD)"
           printf 'main=%s\n' "$(git rev-parse refs/remotes/origin/main)"
@@ -38,5 +40,5 @@ jobs:
             git merge --abort || true
           else
             git status --short
-            git merge --abort
+            git merge --abort || true
           fi

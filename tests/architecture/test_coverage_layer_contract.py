@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import configparser
 import tomllib
-from pathlib import Path
 
 from tests.architecture.repository_paths import REPOSITORY_ROOT
 
@@ -40,9 +39,11 @@ def test_nautilus_capability_keeps_native_probes_isolated_under_coverage() -> No
         encoding="utf-8"
     )
 
-    assert "coverage run --rcfile=.coveragerc.nautilus" in workflow
+    coverage_prefix = "coverage run --rcfile=.coveragerc.nautilus -m pytest"
+    assert workflow.count(coverage_prefix) >= 10
+    assert "coverage combine --rcfile=.coveragerc.nautilus" in workflow
     assert "coverage json --rcfile=.coveragerc.nautilus" in workflow
-    assert "coverage report --rcfile=.coveragerc.nautilus --fail-under=" in workflow
+    assert "coverage report --rcfile=.coveragerc.nautilus --fail-under=81.3" in workflow
     assert "nautilus-coverage.json" in workflow
 
     for path in (
@@ -50,4 +51,8 @@ def test_nautilus_capability_keeps_native_probes_isolated_under_coverage() -> No
         "tests/integrations/test_nautilus_sign_flip_conformance.py",
         "tests/integrations/test_nautilus_target_change_conformance.py",
     ):
-        assert f"run_cov {path}" in workflow
+        command = (
+            "coverage run --rcfile=.coveragerc.nautilus -m pytest -q -m nautilus "
+            + path
+        )
+        assert command in workflow

@@ -2,55 +2,62 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement a zero-shot-first, one-symbol Universal Trade RL U1 contract that exposes symbol-independent causal observations, a scalar normalized target-exposure action, Train-only pooled market normalization, and reward exactly reconciled to after-cost portfolio wealth without changing existing U3-U6 or Causal Alpha economics.
+**Goal:** Implement the audited U1 contract: one-symbol causal observations without manual strategy priors, scalar normalized target exposure with one-decision signal delay, Train-only equal-symbol market normalization, and reward exactly reconciled to realized after-cost wealth.
 
-**Architecture:** Reuse `ResidualMarketEnv` as the sole execution/accounting engine and add a U1-specific Gym wrapper rather than a second simulator. The wrapper requires the base environment to be single-symbol, `target_weight`, structured-sequence, continuing/truncation semantics, and pure net-log-growth; it projects only approved market/runtime state into `universal_trade_observation_v1`, passes a fixed-semantic scalar target exposure into the existing risk/execution path, and recomputes/validates reward from realized `BookState.portfolio_value`. Normalization fits only approved market sequence channels from U0 Train symbols; endogenous state uses dimensionless values or deterministic transforms and is not fitted from Development/Admission.
+**Architecture:** Keep `ResidualMarketEnv` as the single risk/execution/accounting authority and add a focused U1 wrapper. Add one named read-only runtime snapshot to expose the already-maintained distinctions between current submitted policy target, signal-delay pending target, post-risk execution target, realized position, execution diagnostics, and pending-order lifecycle. U1 market normalization uses equal-symbol moments over unique native source rows; endogenous policy state uses versioned deterministic transforms and is never fitted from policy-generated state distributions. U1 artifacts (`u1_contract.json`, `normalizer.json`) are materialized atomically and bind the frozen U0 generation.
 
-**Tech Stack:** Python 3.12, NumPy, Gymnasium, dataclasses, canonical SHA-256 content digests, existing `MarketDataset`/`ResidualMarketEnv`/PreTradeRisk/execution/accounting, pytest, Hypothesis, Ruff, MyPy, Import Linter.
+**Tech Stack:** Python 3.12, NumPy, Gymnasium, dataclasses, existing `MarketDataset`, `SequenceObservationBuilder`, `ResidualMarketEnv`, PreTradeRisk, execution/accounting, canonical SHA-256 digests, pytest, Hypothesis, Ruff, MyPy, Import Linter.
 
 **Spec:** `docs/implementation-plans/specs/2026-08-31-universal-trade-rl-u1-observation-reward-design.md`
 
 ## Global Constraints
 
-- Production status remains **NO-GO** throughout U1.
-- U1 must not train PPO/SAC/TD3, run Admission, claim profitability, or promote Production.
-- One environment instance controls exactly one concrete symbol and one capital budget; `dataset.n_symbols == 1` is mandatory.
-- Policy action is one scalar in `[-1, +1]`; its semantic scale is static and never the current dynamic risk cap.
-- Existing `ResidualMarketEnv` remains the only execution/accounting engine. Do not duplicate fee, spread, impact, funding, borrow, margin, partial-fill, latency, or order-state logic.
-- Existing Universal U3-U6 and Causal Alpha V9/V10/V11 observation/economic behavior must remain unchanged unless a shared read-only accessor is added with regression coverage.
-- U1 policy input must not expose symbol ID, dataset ID, raw absolute OHLC, raw nominal volume, raw quantity, `TrendTargets`, alpha-provider output, factor priors, shadow-book state, baseline-relative state, manually latched ownership state, or remaining-episode fraction.
-- U1 allowed market FeatureKinds are limited to the groups frozen in the spec. Cross-asset/BTC-reference FeatureKinds are rejected.
-- Market sequence source rows must satisfy `source_index <= decision_index`; future mutation must not change the current U1 observation.
-- Missing value, availability, and staleness remain distinct channels.
-- U0 `UniversalTradeRLUniverseAccess.require_normalization_scope()` and `UniversalTradeRLFitPurpose.FEATURE_NORMALIZATION` are the authority for normalization fit scope.
-- Development and Admission data must never contribute values to fitted market means/scales. If the full U0 universe identity changes while Train sample content is unchanged, statistics may remain equal but the bound artifact identity must change.
-- Reward is exactly `100 * log(W_after / W_before)` over the realized hybrid accounting book. No extra turnover, cost, drawdown, baseline, projection, terminal, or margin shaping is added.
-- `W_before <= 0`, `W_after <= 0`, NaN, or infinity is fail-closed; do not silently epsilon-clip a broken accounting transition inside U1 reward.
-- Episode horizon is a training sample boundary. Time-limit completion is truncation, not a market terminal state, and remaining-horizon fraction is not visible to the policy.
-- U1 implementation must preserve the U0 branch ancestry and must not merge to `main` without explicit user permission.
+- Production status remains `NO-GO`.
+- U1 does not train an RL algorithm, open Admission, claim profitability, or change Production status.
+- `dataset.n_symbols == 1` is mandatory for the U1 wrapper.
+- Existing U3-U6 and Causal Alpha V9/V10/V11 behavior/economics remain unchanged.
+- Existing `ResidualMarketEnv` remains the only risk/execution/accounting engine; U1 must not duplicate fee/spread/impact/funding/borrow/margin/order lifecycle logic.
+- U1 V1 requires `ActionMode.TARGET_WEIGHT`, target count 1, `signal_delay_decisions == 1`, structured sequence observation, external truncation, `finite_horizon_observation == False`, `liquidate_on_end == False`, and sampled `initial_state_modes == ("cash",)`.
+- Policy input must not expose symbol/dataset ID, raw absolute OHLC, raw nominal volume/cash/quantity, `TrendTargets`, alpha-provider output, factor priors, shadow/baseline state, manually latched ownership, or remaining episode fraction.
+- Market windows are exactly `15m×96`, `1h×168`, `4h×120`, `1d×60`.
+- Market feature kinds are restricted to the frozen U1 allowlist in the spec; cross-asset/BTC-reference kinds are rejected.
+- All market source rows must be causal: `source_index <= decision_index`.
+- Missing value, availability, and staleness remain separate.
+- `policy_requested_weight`, signal-delay `pending_target_weight`+`pending_target_active`, `risk_projected_weight`, and `current_weight` have distinct meanings.
+- Signal-delay pending target is not pending-order lifecycle. Pending orders use existing `PendingOrderObservationState`.
+- Existing `ObservationExecutionState.requested_weights` is post-risk target because `ResidualMarketEnv.step()` populates it from `hybrid_risk.weights`; do not rename its existing semantic globally.
+- Existing `ObservationExecutionState.execution_cost` is `cost_by_symbol / initial_capital`; U1 exposes it as `execution_cost_rate` without re-scaling.
+- U0 `require_normalization_scope()` must run before supplied normalization datasets are read.
+- Only Train data contribute to fitted market statistics.
+- Normalizer uses equal-symbol moment aggregation and unique native source rows; row-count weighting and repeated base-clock copies of high-timeframe values are prohibited.
+- Endogenous policy state uses deterministic transforms; it is not fitted from rollout/action distributions.
+- Reward is exactly `100 * log(W_after / W_before)` from realized hybrid `BookState.portfolio_value`. No extra reward shaping or cost penalty.
+- Non-positive/non-finite wealth fails closed in the U1 reward layer.
+- Sample horizon is Gymnasium truncation; no forced end liquidation/bonus.
+- No merge to `main` without explicit user permission.
 
 ---
 
-## File Structure
+## File Map
 
-### New focused modules
+**Create:**
 
-- `trade_rl/rl/universal_trade_contract.py` — U1 schema constants, frozen FeatureKind allowlist, sequence-window/model contract, content digest.
-- `trade_rl/rl/universal_trade_action.py` — strict scalar action parsing and fixed semantic mapping to policy-requested target weight.
-- `trade_rl/rl/universal_trade_runtime.py` — read-only U1 runtime snapshot types; no simulator logic.
-- `trade_rl/rl/universal_trade_observation.py` — build `universal_trade_observation_v1` from causal sequence observations plus the runtime snapshot.
-- `trade_rl/rl/universal_trade_normalization.py` — U0 Train-only pooled market-sequence normalization artifact and statistics digest.
-- `trade_rl/rl/universal_trade_reward.py` — pure net-log-growth calculation and telescoping reconciliation helper.
-- `trade_rl/rl/universal_trade_environment.py` — `UniversalTradeMarketEnv` Gym wrapper around an already-configured `ResidualMarketEnv`.
-- `trade_rl/workflows/universal_trade_rl_u1_identity.py` — immutable U1 environment identity binding universe, policy contract, normalizer, execution/risk, and reward semantics.
+- `trade_rl/rl/universal_trade_contract.py` — schema constants, allowlist, policy contract and digest.
+- `trade_rl/rl/universal_trade_action.py` — strict scalar action parsing.
+- `trade_rl/rl/universal_trade_runtime.py` — immutable named runtime snapshot.
+- `trade_rl/rl/universal_trade_observation.py` — causal U1 observation builder/space.
+- `trade_rl/rl/universal_trade_normalization.py` — equal-symbol Train-only normalizer, payload codec.
+- `trade_rl/rl/universal_trade_reward.py` — pure wealth reward/reconciliation.
+- `trade_rl/rl/universal_trade_environment.py` — U1 Gym wrapper.
+- `trade_rl/workflows/universal_trade_rl_u1_contract.py` — frozen U1 contract artifact/identity.
+- `trade_rl/workflows/universal_trade_rl_u1_runner.py` — atomic materialization of `u1_contract.json` + `normalizer.json`.
 
-### Existing modules modified only where needed
+**Modify:**
 
-- `trade_rl/rl/environment.py` — add one read-only `universal_trade_runtime_snapshot()` accessor; no step/economic behavior change.
-- `docs/UNIVERSAL_TRADE_RL.md` — document U1 contract and explicit U2 gate.
-- `tests/test_architecture_contract.py` — add new module/script allowlist only if architecture checks require it.
+- `trade_rl/rl/environment.py` — one read-only `universal_trade_runtime_snapshot()` accessor only; no economic behavior change.
+- `docs/UNIVERSAL_TRADE_RL.md` — U1 maintained documentation and U2 gate.
 
-### New tests
+**Create tests:**
 
 - `tests/rl/test_universal_trade_contract.py`
 - `tests/rl/test_universal_trade_action.py`
@@ -60,72 +67,58 @@
 - `tests/rl/test_universal_trade_reward.py`
 - `tests/rl/test_universal_trade_environment.py`
 - `tests/rl/test_universal_trade_falsification.py`
-- `tests/workflows/test_universal_trade_rl_u1_identity.py`
+- `tests/workflows/test_universal_trade_rl_u1_contract.py`
+- `tests/workflows/test_universal_trade_rl_u1_runner.py`
 
 ---
 
-### Task 1: Freeze the U1 policy contract and feature surface
+### Task 1: Freeze U1 policy/schema contract
 
 **Files:**
 - Create: `trade_rl/rl/universal_trade_contract.py`
 - Test: `tests/rl/test_universal_trade_contract.py`
 
-**Interfaces:**
-- Consumes: `trade_rl.data.contracts.FeatureKind`, `FeatureSpec`; `trade_rl.artifacts.hashing.content_digest`.
-- Produces:
-  - `UNIVERSAL_TRADE_OBSERVATION_SCHEMA = "universal_trade_observation_v1"`
-  - `UNIVERSAL_TRADE_ACTION_SCHEMA = "normalized_target_exposure_v1"`
-  - `UNIVERSAL_TRADE_REWARD_SCHEMA = "universal_net_log_growth_reward_v1"`
-  - `UNIVERSAL_TRADE_SEQUENCE_WINDOWS = (("15m", 96), ("1h", 168), ("4h", 120), ("1d", 60))`
-  - `UNIVERSAL_TRADE_ALLOWED_FEATURE_KINDS: frozenset[FeatureKind]`
-  - `UniversalTradePolicyContract(feature_specs: tuple[FeatureSpec, ...], policy_weight_scale: float = 1.0, reward_scale: float = 100.0, ...)`
-  - `UniversalTradePolicyContract.digest: str`
-
-- [ ] **Step 1: Write failing tests for exact schemas, allowlist, and forbidden cross-asset features**
+**Produces:**
 
 ```python
-from trade_rl.data.contracts import FeatureKind, FeatureSpec
-from trade_rl.rl.universal_trade_contract import (
-    UNIVERSAL_TRADE_ALLOWED_FEATURE_KINDS,
-    UNIVERSAL_TRADE_SEQUENCE_WINDOWS,
-    UniversalTradePolicyContract,
+UNIVERSAL_TRADE_OBSERVATION_SCHEMA = "universal_trade_observation_v1"
+UNIVERSAL_TRADE_ACTION_SCHEMA = "normalized_target_exposure_v1"
+UNIVERSAL_TRADE_REWARD_SCHEMA = "universal_net_log_growth_reward_v1"
+UNIVERSAL_TRADE_STATE_LAYOUT_SCHEMA = "universal_trade_policy_state_v1"
+UNIVERSAL_TRADE_SEQUENCE_WINDOWS = (
+    ("15m", 96),
+    ("1h", 168),
+    ("4h", 120),
+    ("1d", 60),
 )
+```
 
+and `UniversalTradePolicyContract` with ordered `FeatureSpec`s, `policy_weight_scale=1.0`, `reward_scale=100.0`, fixed signal delay 1, cash-only reset, external truncation, and content digest.
 
-def test_u1_contract_uses_frozen_sequence_windows() -> None:
-    assert UNIVERSAL_TRADE_SEQUENCE_WINDOWS == (
-        ("15m", 96),
-        ("1h", 168),
-        ("4h", 120),
-        ("1d", 60),
-    )
+- [ ] **Step 1: Write failing tests**
 
-
-def test_u1_contract_rejects_cross_asset_feature() -> None:
+```python
+def test_contract_rejects_cross_asset_feature() -> None:
     spec = FeatureSpec(name="relative_btc", kind=FeatureKind.RELATIVE_RETURN_TO_BTC)
-    with pytest.raises(ValueError, match="Universal Trade RL U1 feature"):
+    with pytest.raises(ValueError, match="U1 feature"):
         UniversalTradePolicyContract(feature_specs=(spec,))
 
 
-def test_u1_contract_digest_changes_when_feature_order_changes() -> None:
-    a = FeatureSpec(name="ret", kind=FeatureKind.LOG_RETURN)
-    b = FeatureSpec(name="vol", kind=FeatureKind.REALIZED_VOLATILITY, lookback=16)
-    assert UniversalTradePolicyContract(feature_specs=(a, b)).digest != UniversalTradePolicyContract(feature_specs=(b, a)).digest
+def test_contract_binds_ordered_feature_specs() -> None:
+    ret = FeatureSpec(name="ret", kind=FeatureKind.LOG_RETURN)
+    vol = FeatureSpec(name="vol", kind=FeatureKind.REALIZED_VOLATILITY, lookback=16)
+    assert UniversalTradePolicyContract(feature_specs=(ret, vol)).digest != UniversalTradePolicyContract(feature_specs=(vol, ret)).digest
 ```
 
-- [ ] **Step 2: Run the tests and confirm RED**
+Also test empty/duplicate names, unsupported timeframe, invalid scale, wrong windows, signal delay other than 1, non-cash sampled reset, finite-horizon observation, and finite-horizon termination.
 
-Run:
+- [ ] **Step 2: Confirm RED**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_contract.py -q
 ```
 
-Expected: collection/import failure because `trade_rl.rl.universal_trade_contract` does not exist.
-
-- [ ] **Step 3: Implement the exact allowlist and immutable digest-bound contract**
-
-Use this allowlist and do not broaden it in U1:
+- [ ] **Step 3: Implement exact allowlist**
 
 ```python
 UNIVERSAL_TRADE_ALLOWED_FEATURE_KINDS = frozenset(
@@ -154,9 +147,9 @@ UNIVERSAL_TRADE_ALLOWED_FEATURE_KINDS = frozenset(
 )
 ```
 
-The contract must reject empty feature specs, duplicate names, unsupported timeframes, non-finite/non-positive scales, and any FeatureKind outside the allowlist. Digest payload must include ordered `FeatureSpec.canonical_payload()`, windows, schema names, `policy_weight_scale`, `reward_scale`, and a policy-state schema version.
+Digest payload must include every semantic knob above and `FeatureSpec.canonical_payload()` in exact order.
 
-- [ ] **Step 4: Run targeted tests and static checks**
+- [ ] **Step 4: Verify**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_contract.py -q
@@ -164,58 +157,22 @@ uv run ruff check trade_rl/rl/universal_trade_contract.py tests/rl/test_universa
 uv run mypy trade_rl/rl/universal_trade_contract.py
 ```
 
-Expected: PASS.
-
 - [ ] **Step 5: Commit**
 
 ```bash
 git add trade_rl/rl/universal_trade_contract.py tests/rl/test_universal_trade_contract.py
-git commit -m "feat: define Universal Trade RL U1 policy contract"
+git commit -m "feat: define Universal Trade RL U1 contract"
 ```
 
 ---
 
-### Task 2: Implement fixed-semantic scalar target exposure
+### Task 2: Implement strict scalar action semantics
 
 **Files:**
 - Create: `trade_rl/rl/universal_trade_action.py`
 - Test: `tests/rl/test_universal_trade_action.py`
 
-**Interfaces:**
-- Consumes: `UniversalTradePolicyContract.policy_weight_scale`.
-- Produces:
-  - `NormalizedTargetExposureAction(normalized: float, policy_requested_weight: float)`
-  - `parse_normalized_target_exposure(value: np.ndarray, *, policy_weight_scale: float) -> NormalizedTargetExposureAction`
-
-- [ ] **Step 1: Write failing unit/property tests**
-
-```python
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [(-1.0, -1.0), (-0.5, -0.5), (0.0, 0.0), (0.5, 0.5), (1.0, 1.0)],
-)
-def test_action_maps_linearly_without_dynamic_risk_semantics(raw: float, expected: float) -> None:
-    action = parse_normalized_target_exposure(
-        np.asarray([raw], dtype=np.float32),
-        policy_weight_scale=1.0,
-    )
-    assert action.policy_requested_weight == pytest.approx(expected)
-
-
-def test_action_rejects_out_of_range_instead_of_hidden_clip() -> None:
-    with pytest.raises(ValueError, match=r"\[-1, 1\]"):
-        parse_normalized_target_exposure(np.asarray([1.01]), policy_weight_scale=1.0)
-```
-
-Add tests for wrong shape, NaN/inf, zero/negative/greater-than-one scale, and deterministic `float32`/`float64` equivalence.
-
-- [ ] **Step 2: Verify RED**
-
-```bash
-uv run pytest tests/rl/test_universal_trade_action.py -q
-```
-
-- [ ] **Step 3: Implement strict parsing**
+**Produces:**
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -228,288 +185,316 @@ def parse_normalized_target_exposure(
     value: np.ndarray,
     *,
     policy_weight_scale: float,
-) -> NormalizedTargetExposureAction:
-    vector = np.asarray(value, dtype=np.float64).reshape(-1)
-    if vector.shape != (1,) or not np.isfinite(vector).all():
-        raise ValueError("Universal Trade RL action must be one finite scalar")
-    if not np.isfinite(policy_weight_scale) or not 0.0 < policy_weight_scale <= 1.0:
-        raise ValueError("policy_weight_scale must be within (0, 1]")
-    normalized = float(vector[0])
-    if not -1.0 <= normalized <= 1.0:
-        raise ValueError("Universal Trade RL action must be within [-1, 1]")
-    return NormalizedTargetExposureAction(
-        normalized=normalized,
-        policy_requested_weight=normalized * policy_weight_scale,
-    )
+) -> NormalizedTargetExposureAction: ...
 ```
 
-- [ ] **Step 4: Run tests/static checks**
+- [ ] **Step 1: Write failing mapping/range tests**
+
+```python
+@pytest.mark.parametrize("raw", (-1.0, -0.5, 0.0, 0.5, 1.0))
+def test_action_is_linear(raw: float) -> None:
+    parsed = parse_normalized_target_exposure(
+        np.asarray([raw], dtype=np.float32),
+        policy_weight_scale=1.0,
+    )
+    assert parsed.policy_requested_weight == pytest.approx(raw)
+
+
+def test_action_rejects_hidden_clipping() -> None:
+    with pytest.raises(ValueError, match=r"\[-1, 1\]"):
+        parse_normalized_target_exposure(np.asarray([1.01]), policy_weight_scale=1.0)
+```
+
+Add wrong shape, NaN/inf, invalid scale tests.
+
+- [ ] **Step 2: Confirm RED**
+
+```bash
+uv run pytest tests/rl/test_universal_trade_action.py -q
+```
+
+- [ ] **Step 3: Implement minimal strict parser**
+
+```python
+vector = np.asarray(value, dtype=np.float64).reshape(-1)
+if vector.shape != (1,) or not np.isfinite(vector).all():
+    raise ValueError("Universal Trade RL action must be one finite scalar")
+normalized = float(vector[0])
+if not -1.0 <= normalized <= 1.0:
+    raise ValueError("Universal Trade RL action must be within [-1, 1]")
+```
+
+Do not call dynamic risk code here.
+
+- [ ] **Step 4: Verify and commit**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_action.py -q
 uv run ruff check trade_rl/rl/universal_trade_action.py tests/rl/test_universal_trade_action.py
 uv run mypy trade_rl/rl/universal_trade_action.py
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
 git add trade_rl/rl/universal_trade_action.py tests/rl/test_universal_trade_action.py
 git commit -m "feat: add normalized target exposure action"
 ```
 
 ---
 
-### Task 3: Expose one read-only runtime snapshot from `ResidualMarketEnv`
+### Task 3: Add named runtime snapshot without changing economics
 
 **Files:**
 - Create: `trade_rl/rl/universal_trade_runtime.py`
 - Modify: `trade_rl/rl/environment.py`
 - Test: `tests/rl/test_universal_trade_runtime.py`
-- Regression test: existing `tests/rl/test_environment*.py`
 
-**Interfaces:**
-- Produces `UniversalTradeRuntimeSnapshot` with one-symbol fields:
-  - `policy_requested_weight`
-  - `risk_projected_weight`
-  - `pending_target_weight`
-  - `current_weight`
-  - `previous_action`
-  - `fill_ratio`
-  - `unfilled_turnover_ratio`
-  - `participation_ratio`
-  - `execution_cost_rate`
-  - `position_age_hours`
-  - pending-order fields already represented by `PendingOrderObservationState`
-  - `asset_active`, `tradable`, `borrow_available`, `borrow_rate`, `mark_index_basis`
-  - `current_drawdown`, `current_gross_exposure`, `current_net_exposure`, `cash_weight`, `risk_scale`, `margin_utilization`
-- Adds `ResidualMarketEnv.universal_trade_runtime_snapshot() -> UniversalTradeRuntimeSnapshot` as a read-only accessor only.
+**Consumes existing audited semantics:**
 
-- [ ] **Step 1: Write a failing runtime-state test that distinguishes all four exposure stages**
+- current submitted action after a step: `self._previous_action[0]` in target-weight mode → `policy_requested_weight`.
+- signal-delay queue after a step: `self._pending_hybrid_target` → `pending_target_weight` + active mask.
+- post-risk target actually handed to execution: `self._execution_state.requested_weights[0]` → `risk_projected_weight`.
+- realized target: `self.hybrid.weights[0]` → `current_weight`.
+- execution diagnostics: existing `ObservationExecutionState`.
+- order lifecycle: existing `_pending_order_observation_state()` / `PendingOrderObservationState`.
+- `execution_cost` already equals cost/initial capital.
 
-Construct a single-symbol `ResidualMarketEnv` in `TARGET_WEIGHT` mode with a risk cap and partial fill such that:
+**Produces:** `UniversalTradeRuntimeSnapshot` and `ResidualMarketEnv.universal_trade_runtime_snapshot()`.
+
+- [ ] **Step 1: Write failing signal-delay/risk/partial-fill test**
+
+Use a single-symbol target-weight environment with signal delay 1. Drive two decisions so decision 2 simultaneously has:
 
 ```text
-policy requested = +0.80
-risk projected   = +0.35
-realized current = +0.22
+current submitted policy target = +0.80
+previous pending target executed this step = +0.60
+post-risk target = +0.35
+realized weight after partial fill != +0.35
+current submitted target remains pending = +0.80
 ```
 
-Assert after the step:
+Assert:
 
 ```python
 snapshot = env.universal_trade_runtime_snapshot()
 assert snapshot.policy_requested_weight == pytest.approx(0.80)
+assert snapshot.pending_target_active is True
+assert snapshot.pending_target_weight == pytest.approx(0.80)
 assert snapshot.risk_projected_weight == pytest.approx(0.35)
-assert snapshot.current_weight == pytest.approx(0.22)
-assert snapshot.pending_target_weight != snapshot.current_weight
+assert snapshot.current_weight != pytest.approx(snapshot.risk_projected_weight)
 ```
 
-The test oracle is semantic, not just field existence: the fixture must force risk projection and incomplete fill so the values cannot accidentally be aliases.
+Also assert pending-order fields are separate from `pending_target_*`.
 
-- [ ] **Step 2: Verify RED**
+- [ ] **Step 2: Confirm RED**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_runtime.py -q
 ```
 
-- [ ] **Step 3: Implement the immutable snapshot type and accessor without changing step logic**
+- [ ] **Step 3: Implement immutable snapshot**
 
-`UniversalTradeRuntimeSnapshot` validates all scalars are finite, weights are within the environment contract, masks are in `[0,1]`, and ratios/cost/ages are non-negative where applicable.
+The accessor must:
 
-In `ResidualMarketEnv.universal_trade_runtime_snapshot()`:
+1. require target-weight mode and one symbol;
+2. read, never mutate, existing state;
+3. map `None` pending target to `pending_target_weight=0.0`, `pending_target_active=False`;
+4. preserve true pending flat target as `0.0`, `pending_target_active=True`;
+5. convert `position_age` from bars to hours using `dataset.bar_hours`;
+6. expose `execution_cost_rate` directly from existing normalized execution cost;
+7. derive drawdown/gross/net/cash/risk/margin from the hybrid book/current risk state;
+8. build pending order observation through the existing maintained helper.
 
-- require `dataset.n_symbols == 1`;
-- derive `policy_requested_weight` from the last one-dimensional target-weight action accepted by the environment;
-- define `risk_projected_weight` as the target handed from the risk projector into the execution coordinator, not as realized `BookState.weights`;
-- derive `pending_target_weight` from the current hybrid pending target;
-- derive `current_weight` from `hybrid.weights[0]`;
-- reuse the maintained `ObservationExecutionState` and `PendingOrderObservationState` sources rather than recomputing order lifecycle differently;
-- return copies/read-only values so callers cannot mutate environment state.
+No `_last_risk_projected_target` field is added: existing `_execution_state.requested_weights` is already the correct post-risk oracle.
 
-If the current environment does not persist the post-risk/pre-execution target as a distinct field, add exactly one `_last_risk_projected_target` state field at the existing decision→execution handoff and update it there. Do not infer it later from realized weights.
-
-- [ ] **Step 4: Run targeted and base-environment regressions**
+- [ ] **Step 4: Regression verify**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_runtime.py -q
-uv run pytest tests/rl/test_environment.py tests/rl/test_environment_reduce_only_integration.py tests/rl/test_rollout_execution_lifecycle.py -q
+uv run pytest tests/rl/test_environment_reduce_only_integration.py tests/learning/test_rollout_execution_lifecycle.py -q
 uv run ruff check trade_rl/rl/environment.py trade_rl/rl/universal_trade_runtime.py tests/rl/test_universal_trade_runtime.py
 uv run mypy trade_rl/rl/environment.py trade_rl/rl/universal_trade_runtime.py
 ```
-
-Expected: U1 snapshot test passes and pre-existing environment behavior stays green.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add trade_rl/rl/environment.py trade_rl/rl/universal_trade_runtime.py tests/rl/test_universal_trade_runtime.py
-git commit -m "feat: expose Universal Trade RL runtime snapshot"
+git commit -m "feat: expose Universal Trade RL runtime state"
 ```
 
 ---
 
-### Task 4: Build the strategy-prior-free U1 observation
+### Task 4: Build strategy-prior-free causal U1 observation
 
 **Files:**
 - Create: `trade_rl/rl/universal_trade_observation.py`
 - Test: `tests/rl/test_universal_trade_observation.py`
 
-**Interfaces:**
-- Consumes: `SequenceObservationBuilder`, `UniversalTradePolicyContract`, `UniversalTradeRuntimeSnapshot`.
-- Produces:
-  - `UNIVERSAL_TRADE_POLICY_STATE_NAMES: tuple[str, ...]`
-  - `UniversalTradeObservationBuilder(contract: UniversalTradePolicyContract)`
-  - `build(dataset: MarketDataset, *, index: int, runtime: UniversalTradeRuntimeSnapshot, sequence_normalizer: UniversalTradeSequenceNormalizer | None = None) -> dict[str, np.ndarray]`
-  - `observation_space(dataset: MarketDataset) -> gym.spaces.Dict`
-  - `schema_digest(dataset: MarketDataset) -> str` that excludes symbol text from tensor semantics but binds ordered feature names/layout.
-
-- [ ] **Step 1: Write failing tests for the exact observation keys and forbidden priors**
-
-Expected U1 observation keys:
+**Produces:**
 
 ```python
-{
-    "sequence_15m_values",
-    "sequence_15m_available",
-    "sequence_15m_staleness",
-    "sequence_1h_values",
-    "sequence_1h_available",
-    "sequence_1h_staleness",
-    "sequence_4h_values",
-    "sequence_4h_available",
-    "sequence_4h_staleness",
-    "sequence_1d_values",
-    "sequence_1d_available",
-    "sequence_1d_staleness",
-    "policy_state",
-}
+UNIVERSAL_TRADE_POLICY_STATE_NAMES: tuple[str, ...]
+
+class UniversalTradeObservationBuilder:
+    def build(
+        self,
+        dataset: MarketDataset,
+        *,
+        index: int,
+        runtime: UniversalTradeRuntimeSnapshot,
+        normalizer: UniversalTradeSequenceNormalizer | None = None,
+    ) -> dict[str, np.ndarray]: ...
 ```
 
-Assert `policy_state` names are exactly the ordered U1 endogenous fields and contain no `trend`, `alpha`, `shadow`, `baseline`, `remaining`, `symbol`, or `dataset` field.
+- [ ] **Step 1: Write failing exact-key/layout test**
 
-- [ ] **Step 2: Add the causal future-mutation test before implementation**
+Expected keys are only:
 
-Create `dataset_a` and `dataset_b` identical through decision index `t` and mutate every market value after `t` in `dataset_b`. Build U1 observations at `t` and assert every tensor is exactly equal:
-
-```python
-for key in obs_a:
-    np.testing.assert_array_equal(obs_a[key], obs_b[key])
+```text
+sequence_15m_values / available / staleness
+sequence_1h_values / available / staleness
+sequence_4h_values / available / staleness
+sequence_1d_values / available / staleness
+policy_state
 ```
 
-- [ ] **Step 3: Add symbol-rename and price-unit falsification tests**
+Policy-state names must contain the exact fields in the spec, including `pending_target_active`, and no `trend`, `alpha`, `shadow`, `baseline`, `remaining`, `symbol`, or `dataset` field.
 
-For symbol rename, create equivalent datasets whose only identity difference is symbol text; U1 tensor values must be equal.
+- [ ] **Step 2: Write future-mutation RED test**
 
-For price-unit scaling, scale all raw OHLC/mark/index prices and compatible execution-rule units by a constant while preserving dimensionless feature paths. The U1 observation must remain equal within floating tolerance. This test must fail if raw absolute price or raw quantity is accidentally added.
+Create two datasets identical through `t`, mutate all later market arrays in one, and assert every U1 tensor at `t` is equal.
 
-- [ ] **Step 4: Verify RED**
+- [ ] **Step 3: Write symbol rename and price/unit scale tests**
+
+Symbol text-only change must not change policy tensors. Economically equivalent price/unit rescaling must leave dimensionless U1 tensors equal within defined tolerance.
+
+- [ ] **Step 4: Confirm RED**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_observation.py -q
 ```
 
-- [ ] **Step 5: Implement the builder directly from maintained causal sequence outputs plus the explicit runtime snapshot**
+- [ ] **Step 5: Implement directly from named sources**
 
-Do not parse or slice `baseline_residual_observation_v5`; that would couple U1 to hidden field offsets and could leak strategy priors. The builder must call `SequenceObservationBuilder` for market history and construct `policy_state` only from named `UniversalTradeRuntimeSnapshot` fields.
+Market plane must call existing `SequenceObservationBuilder`; do **not** slice `baseline_residual_observation_v5`, because that vector contains `TrendTargets`, alpha, shadow, and baseline-relative state.
 
-Use deterministic fixed transforms for endogenous state where necessary, for example:
+Policy-state deterministic transforms are versioned, e.g.:
 
 ```python
 position_age_days = np.log1p(runtime.position_age_hours / 24.0)
 pending_age_days = np.log1p(runtime.pending_order_age_hours / 24.0)
-mark_index_basis = np.tanh(100.0 * runtime.mark_index_basis)
-borrow_rate = np.tanh(runtime.borrow_rate)
+mark_index_basis_scaled = np.tanh(100.0 * runtime.mark_index_basis)
+borrow_rate_scaled = np.tanh(runtime.borrow_rate)
 ```
 
-Bind the exact transform names/version in the observation schema digest. Do not fit these endogenous transforms on Development/Admission data.
+Weights, masks, ratios, fill ratio, participation, execution cost rate, drawdown/gross/net/cash/risk/margin use their dimensionless maintained meanings. No fitted state normalizer.
 
-- [ ] **Step 6: Run targeted tests/static checks**
+- [ ] **Step 6: Verify and commit**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_observation.py -q
 uv run ruff check trade_rl/rl/universal_trade_observation.py tests/rl/test_universal_trade_observation.py
 uv run mypy trade_rl/rl/universal_trade_observation.py
-```
-
-- [ ] **Step 7: Commit**
-
-```bash
 git add trade_rl/rl/universal_trade_observation.py tests/rl/test_universal_trade_observation.py
-git commit -m "feat: add Universal Trade RL observation contract"
+git commit -m "feat: add Universal Trade RL observation"
 ```
 
 ---
 
-### Task 5: Fit one Train-only pooled market-sequence normalizer
+### Task 5: Implement Train-only equal-symbol market normalization
 
 **Files:**
 - Create: `trade_rl/rl/universal_trade_normalization.py`
 - Test: `tests/rl/test_universal_trade_normalization.py`
-- Reuse tests: `tests/workflows/test_universal_trade_rl_data_provenance.py`
+- Regression: `tests/workflows/test_universal_trade_rl_data_provenance.py`
 
-**Interfaces:**
-- Consumes:
-  - `UniversalTradeRLUniverseManifest`
-  - `UniversalTradeRLUniverseAccess`
-  - `build_universal_trade_rl_fit_provenance(... purpose=FEATURE_NORMALIZATION ...)`
-  - ordered `Mapping[str, MarketDataset]` for Train symbols
-  - `UniversalTradePolicyContract`
-- Produces:
-  - `UniversalTradeSequenceStatistics(timeframe, feature_names, mean, scale, sample_count)`
-  - `UniversalTradeSequenceNormalizer(...)`
-  - `UniversalTradeSequenceNormalizer.statistics_digest` — only fitted numeric statistics/schema
-  - `UniversalTradeSequenceNormalizer.digest` — statistics plus U0 universe/provenance/contract identity
-  - `fit_universal_trade_sequence_normalizer(...) -> UniversalTradeSequenceNormalizer`
-
-- [ ] **Step 1: Write the Train-only scope failure first**
+**Produces:**
 
 ```python
-def test_normalizer_rejects_development_before_reading_dataset() -> None:
-    with pytest.raises(PermissionError, match="normalization scope is Train-only"):
-        fit_universal_trade_sequence_normalizer(
-            manifest=manifest,
-            access=development_access,
-            datasets={"BTCUSDT": train_ds, "LINKUSDT": ExplodingDataset()},
-            contract=contract,
-            knowledge_cutoff=cutoff,
-        )
+@dataclass(frozen=True, slots=True)
+class UniversalTradeNormalizationSource:
+    symbol: str
+    dataset: MarketDataset
+    source_dataset_digest: str
+
+@dataclass(frozen=True, slots=True)
+class UniversalTradeChannelStatistics:
+    timeframe: str
+    feature_names: tuple[str, ...]
+    mean: np.ndarray
+    scale: np.ndarray
+    per_symbol_sample_counts: tuple[tuple[str, tuple[int, ...]], ...]
+
+@dataclass(frozen=True, slots=True)
+class UniversalTradeSequenceNormalizer:
+    ...
+    statistics_digest: str
+    digest: str
+    def to_payload(self) -> dict[str, object]: ...
+    @classmethod
+    def from_payload(cls, payload: object) -> "UniversalTradeSequenceNormalizer": ...
 ```
 
-`ExplodingDataset` raises if any array/property is touched. The test proves the U0 firewall is checked before source data lookup.
+and `fit_universal_trade_sequence_normalizer(...)`.
 
-- [ ] **Step 2: Add pooling/invariance tests**
+- [ ] **Step 1: Write firewall-before-source-access test**
 
-Test that two Train symbols contribute to each `(timeframe, feature)` mean/scale, missing/unavailable samples are excluded, zero-variance channels get scale `1.0`, and transform clips to `[-10, 10]`.
+Pass a Development/Admission source whose dataset property raises on access. Expected: `PermissionError` from `require_normalization_scope()` before the exploding dataset is touched.
 
-Add the identity distinction test:
+- [ ] **Step 2: Write exact equal-symbol moment oracle**
+
+For each feature channel, compute per-symbol:
+
+```python
+mu_s = np.mean(samples_s)
+q_s = np.mean(np.square(samples_s))
+```
+
+then expected:
+
+```python
+mean = np.mean([mu_s for each train symbol])
+second = np.mean([q_s for each train symbol])
+variance = max(second - mean * mean, 0.0)
+scale = 1.0 if math.sqrt(variance) <= epsilon else math.sqrt(variance)
+```
+
+Use unequal row counts in the fixture so a row-concatenation implementation produces a different number and fails.
+
+- [ ] **Step 3: Write unique-native-row test**
+
+For 4h features on a 15m base clock, construct repeated aligned values and assert each unique native source row contributes once, not 16 times or once per overlapping window. Bind sampling semantic `native_unique_source_rows_v1`.
+
+- [ ] **Step 4: Write Train-statistics vs artifact-identity test**
+
+Two synthetic U0 generations share identical Train numeric samples but differ only in Admission source identity:
 
 ```python
 assert normalizer_a.statistics_digest == normalizer_b.statistics_digest
 assert normalizer_a.digest != normalizer_b.digest
 ```
 
-where only the Admission source identity changes while Train source arrays, policy contract, and knowledge cutoff stay identical.
-
-- [ ] **Step 3: Verify RED**
+- [ ] **Step 5: Confirm RED**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_normalization.py -q
 ```
 
-- [ ] **Step 4: Implement pooled fitting**
+- [ ] **Step 6: Implement fit sequence**
 
-Algorithm per timeframe/feature:
+Exact order:
 
-1. Call `access.require_normalization_scope(tuple(sorted(datasets)))` before touching `datasets[symbol]`.
-2. Build U0 provenance with `UniversalTradeRLFitPurpose.FEATURE_NORMALIZATION`.
-3. Require each dataset is single-symbol and manifest dataset identity matches the supplied dataset artifact identity used by the repository.
-4. Use only samples with causal source timestamp `<= knowledge_cutoff` and feature availability true.
-5. Concatenate across Train symbols; compute population mean/std (`ddof=0`); replace `std <= 1e-8` by `1.0`.
-6. Store ordered feature names and sample counts; reject missing required features or zero available samples.
-7. `transform()` normalizes only `sequence_<tf>_values`; availability/staleness and `policy_state` are passed through unchanged after the builder's deterministic transforms.
+1. canonicalize supplied symbols;
+2. call `access.require_normalization_scope(symbols)`;
+3. build `FEATURE_NORMALIZATION` provenance;
+4. validate each `source_dataset_digest` against manifest entry before using numeric arrays;
+5. validate single-symbol dataset and required feature layout;
+6. derive unique native source rows per timeframe up to `knowledge_cutoff`;
+7. ignore unavailable samples;
+8. compute per-symbol first/second moments;
+9. equal-weight symbol moments;
+10. create content-addressed statistics and artifact digests.
 
-- [ ] **Step 5: Run targeted tests plus U0 provenance regression**
+`transform()` changes only `sequence_<tf>_values`; `available`, `staleness`, and `policy_state` pass through unchanged.
+
+- [ ] **Step 7: Verify**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_normalization.py tests/workflows/test_universal_trade_rl_data_provenance.py -q
@@ -517,173 +502,141 @@ uv run ruff check trade_rl/rl/universal_trade_normalization.py tests/rl/test_uni
 uv run mypy trade_rl/rl/universal_trade_normalization.py
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add trade_rl/rl/universal_trade_normalization.py tests/rl/test_universal_trade_normalization.py
-git commit -m "feat: add Train-only Universal Trade RL normalization"
+git commit -m "feat: add Train-only universal market normalizer"
 ```
 
 ---
 
-### Task 6: Implement the pure after-cost reward oracle
+### Task 6: Implement pure wealth reward and reconciliation
 
 **Files:**
 - Create: `trade_rl/rl/universal_trade_reward.py`
 - Test: `tests/rl/test_universal_trade_reward.py`
 
-**Interfaces:**
-- Produces:
-  - `universal_net_log_growth_reward(*, before_value: float, after_value: float, scale: float = 100.0) -> float`
-  - `reconcile_universal_trade_reward(*, rewards: Sequence[float], initial_value: float, final_value: float, scale: float = 100.0, atol: float = 1e-12) -> None`
-
-- [ ] **Step 1: Write the telescoping identity test**
+**Produces:**
 
 ```python
-def test_reward_telescopes_to_final_wealth() -> None:
-    values = [100.0, 101.0, 99.5, 103.25]
-    rewards = [
-        universal_net_log_growth_reward(before_value=a, after_value=b)
-        for a, b in zip(values, values[1:], strict=True)
-    ]
-    assert sum(rewards) / 100.0 == pytest.approx(math.log(values[-1] / values[0]))
-    reconcile_universal_trade_reward(
-        rewards=rewards,
-        initial_value=values[0],
-        final_value=values[-1],
-    )
+def universal_net_log_growth_reward(
+    *, before_value: float, after_value: float, scale: float = 100.0
+) -> float: ...
+
+def reconcile_universal_trade_reward(
+    *, rewards: Sequence[float], initial_value: float, final_value: float,
+    scale: float = 100.0, atol: float = 1e-12
+) -> None: ...
 ```
 
-- [ ] **Step 2: Add fail-closed tests**
+- [ ] **Step 1: Write telescoping and invalid-wealth tests**
 
-Reject `0`, negative, NaN, infinity for before/after wealth and non-positive/non-finite scale. No epsilon substitution is allowed.
+```python
+values = [100.0, 101.0, 99.5, 103.25]
+rewards = [
+    universal_net_log_growth_reward(before_value=a, after_value=b)
+    for a, b in zip(values, values[1:], strict=True)
+]
+assert sum(rewards) / 100.0 == pytest.approx(math.log(values[-1] / values[0]))
+```
 
-- [ ] **Step 3: Verify RED and implement**
+Reject zero/negative/NaN/inf before/after wealth and invalid scale.
+
+- [ ] **Step 2: Confirm RED, implement minimal formula, verify**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_reward.py -q
 ```
 
-Implementation core:
+Core implementation:
 
 ```python
-def universal_net_log_growth_reward(*, before_value: float, after_value: float, scale: float = 100.0) -> float:
-    for name, value in (("before_value", before_value), ("after_value", after_value)):
-        if not math.isfinite(value) or value <= 0.0:
-            raise ValueError(f"{name} must be finite and positive")
-    if not math.isfinite(scale) or scale <= 0.0:
-        raise ValueError("reward scale must be finite and positive")
-    return scale * math.log(after_value / before_value)
+return scale * math.log(after_value / before_value)
 ```
 
-- [ ] **Step 4: Run checks and commit**
+after explicit finite/positive validation.
+
+- [ ] **Step 3: Checks and commit**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_reward.py -q
 uv run ruff check trade_rl/rl/universal_trade_reward.py tests/rl/test_universal_trade_reward.py
 uv run mypy trade_rl/rl/universal_trade_reward.py
 git add trade_rl/rl/universal_trade_reward.py tests/rl/test_universal_trade_reward.py
-git commit -m "feat: add Universal Trade RL wealth reward oracle"
+git commit -m "feat: add Universal Trade RL wealth reward"
 ```
 
 ---
 
-### Task 7: Wrap the maintained environment instead of duplicating the simulator
+### Task 7: Add the U1 Gym wrapper around maintained execution
 
 **Files:**
 - Create: `trade_rl/rl/universal_trade_environment.py`
 - Test: `tests/rl/test_universal_trade_environment.py`
-- Regression: existing `tests/rl/test_environment*.py`, `tests/learning/test_rollout_execution_lifecycle.py`
 
-**Interfaces:**
-- Consumes:
-  - configured `ResidualMarketEnv`
-  - `UniversalTradePolicyContract`
-  - optional frozen `UniversalTradeSequenceNormalizer`
-  - `UniversalTradeObservationBuilder`
-  - `parse_normalized_target_exposure`
-  - `universal_net_log_growth_reward`
-- Produces:
-  - `UniversalTradeMarketEnv(gym.Wrapper)`
-  - scalar `action_space = Box(-1, 1, shape=(1,), dtype=float32)`
-  - U1 `observation_space`
+**Produces:** `UniversalTradeMarketEnv(gym.Wrapper)`.
 
-- [ ] **Step 1: Write constructor rejection tests**
+- [ ] **Step 1: Write constructor fail-closed tests**
 
-Reject a base environment when any of these are false:
+Reject each independently:
 
 ```text
-dataset.n_symbols == 1
-action_spec.mode == TARGET_WEIGHT
-action_spec.target_weight_count == 1
-config.structured_sequence_observation is True
-reward_tracker.config.is_pure_net_log_growth() is True
-finite_horizon_observation is False
-time-limit boundary is truncation/continuing semantics
+n_symbols != 1
+not TARGET_WEIGHT
+target_weight_count != 1
+structured_sequence_observation == false
+sequence windows mismatch
+signal_delay_decisions != 1
+reward not pure net log growth
+episode_boundary_mode != EXTERNAL_TRUNCATION
+finite_horizon_observation == true
+liquidate_on_end == true
+initial_state_modes != ("cash",)
 ```
 
-Also reject policy-contract feature names/layout that do not match the dataset.
+- [ ] **Step 2: Write two-decision signal-delay integration test**
 
-- [ ] **Step 2: Write reset/step behavior tests before code**
+Reset cash. Submit action A on decision 1; verify it becomes pending. Submit action B on decision 2; verify A is the executed/risk-projected target path while B becomes the next pending target. Then verify returned observation fields match runtime snapshot.
 
-```python
-obs, info = wrapper.reset(seed=7)
-assert wrapper.observation_space.contains(obs)
+- [ ] **Step 3: Write reward drift guard test**
 
-before = wrapper.base_env.hybrid.portfolio_value
-obs, reward, terminated, truncated, info = wrapper.step(np.asarray([0.5], dtype=np.float32))
-after = wrapper.base_env.hybrid.portfolio_value
-assert reward == pytest.approx(100.0 * math.log(after / before))
-assert wrapper.observation_space.contains(obs)
-```
-
-Assert the wrapper passes a one-element target-weight vector into the base env and never creates a portfolio action over multiple symbols.
-
-- [ ] **Step 3: Write the no-hidden-shaping drift test**
-
-The base env must be configured pure net-log-growth. After every step compare the base reward and U1 recomputed reward; fail closed if they diverge beyond `1e-10`:
+For every step:
 
 ```python
-if not math.isclose(base_reward, reward, rel_tol=0.0, abs_tol=1e-10):
+before = base_env.hybrid.portfolio_value
+base_obs, base_reward, terminated, truncated, info = base_env.step(
+    np.asarray([parsed.policy_requested_weight], dtype=np.float32)
+)
+after = base_env.hybrid.portfolio_value
+u1_reward = universal_net_log_growth_reward(before_value=before, after_value=after)
+if not math.isclose(base_reward, u1_reward, rel_tol=0.0, abs_tol=1e-10):
     raise RuntimeError("base environment reward drifted from U1 wealth oracle")
 ```
 
-This turns future accidental shaping changes into a contract failure.
+- [ ] **Step 4: Write truncation test**
 
-- [ ] **Step 4: Write continuing-boundary test**
-
-Force the configured episode sample boundary without insolvency/emergency termination. Expected:
+At ordinary sample horizon:
 
 ```python
 assert terminated is False
 assert truncated is True
-assert "remaining_episode_fraction" not in wrapper.policy_state_names
+assert base_env.config.liquidate_on_end is False
 ```
 
-- [ ] **Step 5: Verify RED and implement the wrapper**
+and no remaining-horizon field exists in U1 policy state.
 
-`step()` sequence:
+- [ ] **Step 5: Confirm RED and implement wrapper**
 
-```text
-parse scalar normalized action
- -> fixed policy_requested_weight
- -> record W_before from base_env.hybrid.portfolio_value
- -> base_env.step([policy_requested_weight])
- -> record W_after
- -> compute U1 reward
- -> require base reward reconciliation
- -> read base_env.universal_trade_runtime_snapshot()
- -> build U1 observation
- -> preserve base terminated/truncated/info
-```
+`reset()` only permits normal cash sampled reset; U1 V1 does not expose baseline/stress/partial-fill sampled modes through the wrapper.
 
-Do not intercept or reimplement risk/execution/accounting.
+`step()` must not call PreTradeRisk or execution directly; it delegates once to base env.
 
-- [ ] **Step 6: Run integration/regression checks**
+- [ ] **Step 6: Verify regressions**
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_environment.py -q
-uv run pytest tests/rl/test_environment.py tests/rl/test_environment_reduce_only_integration.py tests/learning/test_rollout_execution_lifecycle.py -q
+uv run pytest tests/rl/test_environment_reduce_only_integration.py tests/learning/test_rollout_execution_lifecycle.py -q
 uv run ruff check trade_rl/rl/universal_trade_environment.py tests/rl/test_universal_trade_environment.py
 uv run mypy trade_rl/rl/universal_trade_environment.py
 ```
@@ -697,163 +650,167 @@ git commit -m "feat: add Universal Trade RL environment wrapper"
 
 ---
 
-### Task 8: Bind U1 environment identity to U0 without opening Admission
+### Task 8: Build strict U1 contract artifact bound to U0
 
 **Files:**
-- Create: `trade_rl/workflows/universal_trade_rl_u1_identity.py`
-- Test: `tests/workflows/test_universal_trade_rl_u1_identity.py`
-- Reuse: `trade_rl/workflows/universal_trade_rl_run_identity.py`
+- Create: `trade_rl/workflows/universal_trade_rl_u1_contract.py`
+- Test: `tests/workflows/test_universal_trade_rl_u1_contract.py`
 
-**Interfaces:**
-- Produces `UniversalTradeRLU1EnvironmentIdentity` with:
-  - `universe_manifest_digest`
-  - `policy_contract_digest`
-  - `normalizer_digest`
-  - `normalizer_provenance_digest`
-  - `observation_schema_digest`
-  - `action_schema`
-  - `reward_schema`
-  - `execution_policy_digest`
-  - `pretrade_risk_digest` or canonical risk config digest
-  - `portfolio_risk_digest` or canonical risk config digest
-  - `schema_version = "universal_trade_rl_u1_environment_identity_v1"`
-  - `digest`
-
-- [ ] **Step 1: Write strict identity tests**
-
-Test that changing any of contract, normalizer, execution policy, risk config, or universe generation changes the identity digest. Tampered supplied digest must be rejected.
-
-- [ ] **Step 2: Prove Development does not authorize Admission**
-
-Construct identity using `UniversalTradeRLUniverseAccess.for_phase(... DEVELOPMENT)`. It must accept only the already-frozen Train normalizer provenance and must not accept or contain an Admission authorization digest.
-
-- [ ] **Step 3: Verify RED and implement canonical identity**
-
-The identity module validates:
+**Produces:**
 
 ```python
-require_universal_trade_rl_train_only_provenance(normalizer.provenance, manifest=manifest)
-if normalizer.provenance.purpose is not UniversalTradeRLFitPurpose.FEATURE_NORMALIZATION:
-    raise ValueError("U1 normalizer provenance purpose mismatch")
+U1_CONTRACT_SCHEMA = "universal_trade_rl_u1_contract_v1"
+
+@dataclass(frozen=True, slots=True)
+class UniversalTradeRLU1Contract:
+    universe_manifest_digest: str
+    u0_identity_digest: str
+    policy_contract_digest: str
+    observation_schema_digest: str
+    normalizer_digest: str
+    normalizer_provenance_digest: str
+    state_layout_digest: str
+    runtime_config_digest: str
+    execution_policy_digest: str
+    pretrade_risk_digest: str
+    portfolio_risk_digest: str
+    production_status: str = "NO-GO"
+    digest: str = ""
 ```
 
-Do not add a new U0 `UniversalTradeRLRunStage` for U1. U1 environment identity is a model/environment input artifact; U2 later binds its digest into the existing `BASE_TRAINING` run identity as `model_config_digest` or as part of the frozen model-config digest.
+- [ ] **Step 1: Write U0 binding tests**
 
-- [ ] **Step 4: Run tests/checks and commit**
+Require the supplied U0 identity to be `UNIVERSE_MATERIALIZATION` and its `universe_manifest_digest` to match the manifest. Reject missing/mismatched U0 identity and any normalizer provenance that is not Train-only `FEATURE_NORMALIZATION` for this manifest.
+
+- [ ] **Step 2: Write runtime identity drift tests**
+
+Changing signal delay, episode boundary, initial-state contract, execution cost, pretrade risk, portfolio risk, policy contract, state layout, or normalizer must change U1 contract digest.
+
+`runtime_config_digest` must explicitly bind at least:
+
+```text
+decision_hours
+episode_hours
+signal_delay_decisions=1
+episode_boundary_mode=external_truncation
+finite_horizon_observation=false
+liquidate_on_end=false
+initial_state_modes=[cash]
+```
+
+without binding symbol text.
+
+- [ ] **Step 3: Confirm RED and implement strict payload codec**
+
+Add `to_payload()` / `from_payload()` with exact keys and content digest validation. Bind `production_status="NO-GO"`; reject other status.
+
+- [ ] **Step 4: Verify and commit**
 
 ```bash
-uv run pytest tests/workflows/test_universal_trade_rl_u1_identity.py tests/workflows/test_universal_trade_rl_run_identity.py tests/workflows/test_universal_trade_rl_data_provenance.py -q
-uv run ruff check trade_rl/workflows/universal_trade_rl_u1_identity.py tests/workflows/test_universal_trade_rl_u1_identity.py
-uv run mypy trade_rl/workflows/universal_trade_rl_u1_identity.py
-git add trade_rl/workflows/universal_trade_rl_u1_identity.py tests/workflows/test_universal_trade_rl_u1_identity.py
-git commit -m "feat: bind Universal Trade RL U1 environment identity"
+uv run pytest tests/workflows/test_universal_trade_rl_u1_contract.py tests/workflows/test_universal_trade_rl_run_identity.py tests/workflows/test_universal_trade_rl_data_provenance.py -q
+uv run ruff check trade_rl/workflows/universal_trade_rl_u1_contract.py tests/workflows/test_universal_trade_rl_u1_contract.py
+uv run mypy trade_rl/workflows/universal_trade_rl_u1_contract.py
+git add trade_rl/workflows/universal_trade_rl_u1_contract.py tests/workflows/test_universal_trade_rl_u1_contract.py
+git commit -m "feat: bind Universal Trade RL U1 contract identity"
 ```
 
 ---
 
-### Task 9: Add falsification tests that try to break the U1 contract
+### Task 9: Materialize `u1_contract.json` and `normalizer.json` atomically
+
+**Files:**
+- Create: `trade_rl/workflows/universal_trade_rl_u1_runner.py`
+- Test: `tests/workflows/test_universal_trade_rl_u1_runner.py`
+
+**Produces:**
+
+```python
+def materialize_universal_trade_rl_u1(
+    *,
+    contract: UniversalTradeRLU1Contract,
+    normalizer: UniversalTradeSequenceNormalizer,
+    output_root: str | Path,
+) -> tuple[UniversalTradeRLU1Contract, UniversalTradeSequenceNormalizer]: ...
+```
+
+- [ ] **Step 1: Write atomic/idempotent RED tests**
+
+Expected output exactly:
+
+```text
+output-root/
+  normalizer.json
+  u1_contract.json
+```
+
+Test canonical bytes, sorted JSON keys, one trailing newline, byte-identical rerun success, drifted existing artifact rejection, extra file rejection, partial/staging cleanup after injected failure, and no one-file published final state.
+
+- [ ] **Step 2: Confirm RED**
+
+```bash
+uv run pytest tests/workflows/test_universal_trade_rl_u1_runner.py -q
+```
+
+- [ ] **Step 3: Implement using the same publish discipline as U0 runner**
+
+Use staging directory, write+flush+`fsync`, directory `fsync` where supported, then one `os.replace(staging, output_root)`. Existing output is success only when both canonical files are byte-identical. Never auto-repair drift.
+
+Before publish, require `contract.normalizer_digest == normalizer.digest` and `contract.normalizer_provenance_digest == normalizer.provenance_digest`.
+
+- [ ] **Step 4: Verify and commit**
+
+```bash
+uv run pytest tests/workflows/test_universal_trade_rl_u1_runner.py tests/workflows/test_universal_trade_rl_universe_runner.py -q
+uv run ruff check trade_rl/workflows/universal_trade_rl_u1_runner.py tests/workflows/test_universal_trade_rl_u1_runner.py
+uv run mypy trade_rl/workflows/universal_trade_rl_u1_runner.py
+git add trade_rl/workflows/universal_trade_rl_u1_runner.py tests/workflows/test_universal_trade_rl_u1_runner.py
+git commit -m "feat: materialize Universal Trade RL U1 artifacts"
+```
+
+---
+
+### Task 10: Falsification, documentation, and final Quality Gate
 
 **Files:**
 - Create: `tests/rl/test_universal_trade_falsification.py`
-- May extend: `tests/rl/test_universal_trade_environment.py`
+- Modify: `docs/UNIVERSAL_TRADE_RL.md`
+- Review: all U1 files above.
 
-**Interfaces:**
-- No new production API unless a test exposes a missing observable contract.
+- [ ] **Step 1: Add future mutation falsification**
 
-- [ ] **Step 1: Future-leakage falsification**
+Mutate all market arrays after `t`; raw and normalized U1 Observation(t) must remain unchanged.
 
-Mutate all bars after `t`; U1 observation at `t` must remain identical.
+- [ ] **Step 2: Add symbol rename / price-unit falsification**
 
-- [ ] **Step 2: Symbol-ID falsification**
+Symbol text-only change must not alter policy tensors. Economically equivalent price/unit rescaling must preserve dimensionless policy tensors within explicit tolerance.
 
-Rename the symbol while keeping economically equivalent data; all policy tensors must remain equal.
+- [ ] **Step 3: Add Admission poisoning/equal-symbol falsification**
 
-- [ ] **Step 3: Price-scale falsification**
+Prove Development/Admission cannot be read before U0 normalization authorization; prove identical Train numeric samples across generations produce identical `statistics_digest` while U0-bound artifact digest changes.
 
-Multiply price units and compatible contract/execution units by a positive constant; U1 policy tensors and normalized action semantics must remain economically equivalent.
+- [ ] **Step 4: Add signal-delay/risk/partial-fill falsification**
 
-- [ ] **Step 4: Exposure-stage falsification**
+Force distinct current submitted target, executed previous pending target, risk-projected target, and realized current weight. Assert pending-order lifecycle remains separately observable.
 
-Force:
+- [ ] **Step 5: Add flat-market cost reconciliation**
 
-```text
-policy_requested_weight != risk_projected_weight != pending_target_weight != current_weight
-```
-
-and assert all four fields retain their distinct oracle values after one step and after a retry/partial fill.
-
-- [ ] **Step 5: Cost double-counting falsification**
-
-Use a flat-price fixture with `0 -> long -> flat`. Let the existing accounting engine calculate fee/spread/impact loss. Assert:
+Execute a flat-price round trip through maintained accounting. Assert final wealth loss is exactly the existing execution/accounting effect and:
 
 ```python
-assert final_value < initial_value
 assert sum(rewards) / 100.0 == pytest.approx(math.log(final_value / initial_value))
 ```
 
-Do not separately subtract turnover/cost in reward.
+No turnover/cost reward penalty is added.
 
-- [ ] **Step 6: Admission poisoning falsification**
+- [ ] **Step 6: Add reset-prior/state-leak falsification**
 
-Change only Admission dataset content/identity while keeping Train arrays identical. Refit under the new universe generation:
+U1 wrapper must reject baseline/stress/partial-fill sampled reset and cash reset must clear prior action, signal-delay target, pending orders, position age, and realized position.
 
-```python
-assert normalizer_a.statistics_digest == normalizer_b.statistics_digest
-assert normalizer_a.digest != normalizer_b.digest
-```
+- [ ] **Step 7: Update maintained docs**
 
-Attempt to include Admission in normalization input and assert `PermissionError` before dataset access.
+Document U1 semantics, exact four exposure stages, separate pending-order state, equal-symbol/native-row normalization, cash-only reset, pure reward, artifact materialization, Quality Gate, and U2 handoff. Keep `Production status: NO-GO` explicit.
 
-- [ ] **Step 7: Episode restart/state-leak falsification**
-
-Reset an environment after a trajectory with pending order/position state. Assert no previous episode pending order, previous action, risk projection, or position age leaks into the new episode unless the selected existing initial-state mode explicitly defines a carried baseline state. Cash-mode reset must be clean.
-
-- [ ] **Step 8: Run falsification suite**
-
-```bash
-uv run pytest tests/rl/test_universal_trade_falsification.py -q
-```
-
-Expected: PASS without weakening assertions or skipping cases.
-
-- [ ] **Step 9: Commit**
-
-```bash
-git add tests/rl/test_universal_trade_falsification.py tests/rl/test_universal_trade_environment.py
-git commit -m "test: falsify Universal Trade RL U1 boundaries"
-```
-
----
-
-### Task 10: Document U1 and run the full quality gate
-
-**Files:**
-- Modify: `docs/UNIVERSAL_TRADE_RL.md`
-- Modify only if required: `tests/test_architecture_contract.py`
-- Review all U1 production/test files from Tasks 1-9.
-
-**Interfaces:**
-- Documentation must state U1 is NO-GO and U2 is blocked until a real production-candidate U0 universe is materialized/frozen.
-
-- [ ] **Step 1: Update maintained documentation**
-
-Add sections covering:
-
-```text
-U0 prerequisite gate
-U1 observation schema
-forbidden strategy priors
-scalar action semantics
-policy-requested vs risk-projected vs pending vs realized weight
-Train-only pooled normalizer
-pure after-cost reward equation
-continuing/truncation episode semantics
-U1 Quality Gate
-U2 handoff
-Production status: NO-GO
-```
-
-- [ ] **Step 2: Run focused U1 + U0 regression tests**
+- [ ] **Step 8: Run targeted U1/U0 suite**
 
 ```bash
 uv run pytest \
@@ -865,14 +822,15 @@ uv run pytest \
   tests/rl/test_universal_trade_reward.py \
   tests/rl/test_universal_trade_environment.py \
   tests/rl/test_universal_trade_falsification.py \
-  tests/workflows/test_universal_trade_rl_u1_identity.py \
+  tests/workflows/test_universal_trade_rl_u1_contract.py \
+  tests/workflows/test_universal_trade_rl_u1_runner.py \
   tests/workflows/test_universal_trade_rl_data_provenance.py \
   tests/workflows/test_universal_trade_rl_universe_access.py \
   tests/workflows/test_universal_trade_rl_run_identity.py \
   -q
 ```
 
-- [ ] **Step 3: Run static/architecture checks**
+- [ ] **Step 9: Run static/architecture checks**
 
 ```bash
 uv run ruff check trade_rl tests
@@ -881,120 +839,69 @@ uv run mypy trade_rl
 uv run lint-imports
 ```
 
-If repository conventions use a narrower maintained MyPy command, execute that exact documented CI command in addition to the affected-file command; do not claim full MyPy success from a partial invocation.
+If a repository-maintained CI command differs, run the exact CI command as an additional check; do not replace the commands above with a weaker partial check.
 
-- [ ] **Step 4: Run the full test suite**
+- [ ] **Step 10: Run full tests and build**
 
 ```bash
 uv run pytest -q
-```
-
-Record exact `passed / skipped / failed` counts and compare with the U0 exact base. A green full suite proves regression coverage only; it does not prove profitability or zero-shot transfer quality.
-
-- [ ] **Step 5: Build package**
-
-```bash
 uv build
 ```
 
-Expected: successful sdist/wheel build with no untracked generated artifacts intended for commit.
+Record exact pass/skip/fail counts and build outputs.
 
-- [ ] **Step 6: Self-review the complete diff**
-
-Explicitly inspect:
+- [ ] **Step 11: Self-review final diff and status**
 
 ```bash
 git diff <U0_BASE_SHA>...HEAD
 git status --short
-git log --oneline --decorate -n 20
+git log --oneline --decorate -n 30
 ```
 
-Review for:
+Inspect for manual-prior leakage, ID/raw nominal leakage, duplicated accounting, reward double counting, row-weighted normalizer, Development/Admission fit leakage, signal-delay/pending-order semantic confusion, truncation leakage, reset prior leakage, debug code, secrets, generated files, and unrelated refactors.
 
-- accidental U3-U6/Causal Alpha behavior changes;
-- strategy priors leaking into U1 tensors;
-- symbol/dataset identifiers in policy observations;
-- private-state mutation through the runtime snapshot;
-- duplicated accounting/risk logic in the wrapper;
-- reward cost double-counting;
-- Development/Admission normalization leakage;
-- episode-end information leakage;
-- stale debug code, generated files, temporary workflows, or secrets.
+- [ ] **Step 12: Independent/falsification review**
 
-- [ ] **Step 7: Independent/falsification review**
+Rebuild the acceptance oracle from the spec and try to construct a wrong implementation that still passes. Specifically challenge future leakage, row-count weighting, repeated native rows, zero-vs-missing, pending flat target vs no pending target, post-risk vs realized exposure, cost double-counting, and old-path compatibility. Fix substantive findings and rerun from targeted tests through full verification.
 
-Reconstruct the Acceptance Criteria from the spec without relying on implementation conclusions. Review the actual diff and assertions and answer:
-
-```text
-Can a wrong implementation still pass these tests?
-Can future data affect obs(t)?
-Can symbol identity be inferred from an explicit ID/raw price scale?
-Can Admission values enter fitted statistics?
-Can policy-requested and realized exposure collapse into one field?
-Can reward differ from realized after-cost wealth?
-Can time-limit termination teach end-of-episode behavior?
-Did any existing economic path change?
-```
-
-Fix any substantive issue found and rerun from the smallest affected test through the required full checks.
-
-- [ ] **Step 8: Commit documentation/final test adjustments**
+- [ ] **Step 13: Commit docs/falsification tests**
 
 ```bash
-git add docs/UNIVERSAL_TRADE_RL.md tests/test_architecture_contract.py
-git commit -m "docs: document Universal Trade RL U1 contract"
+git add tests/rl/test_universal_trade_falsification.py docs/UNIVERSAL_TRADE_RL.md
+git commit -m "test: close Universal Trade RL U1 quality gate"
 ```
 
-Only stage `tests/test_architecture_contract.py` if it actually changed.
+- [ ] **Step 14: Draft PR + exact-final-HEAD CI evidence**
 
-- [ ] **Step 9: CI gate on the exact final HEAD**
-
-Push the branch and use a Draft PR. Required checks must execute against the same final HEAD that is reported. Confirm at minimum the repository's normal CI, PostgreSQL Catalog, Nautilus Capability, and any U1-specific workflow added by repository convention. Do not treat CI from an earlier SHA as final evidence.
-
-Record:
-
-```text
-final HEAD SHA
-base SHA
-workflow/run IDs
-conclusion per required check
-full-suite counts
-coverage evidence if CI publishes it
-unverified external/economic claims
-remaining risks
-```
-
-Do not mark the PR Ready solely because tests are green; the complete U1 Quality Gate below must be satisfied.
+Push the branch and use a Draft PR. Record final HEAD SHA and confirm the repository's required CI, PostgreSQL Catalog, Nautilus Capability, and any applicable training/static jobs all run on that exact SHA. Earlier-SHA green runs are not final evidence.
 
 ---
 
-## U1 Quality Gate
+## Completion Gate
 
-U1 may be described as implementation-complete only when all of the following are evidenced on the final HEAD:
+Do not call U1 complete unless all are evidenced on final HEAD:
 
-1. `dataset.n_symbols == 1` is enforced for the U1 wrapper.
-2. U1 tensors contain no symbol/dataset ID, raw absolute OHLC, raw nominal volume/quantity, manual trend/alpha/factor/shadow/baseline prior, or remaining-horizon fraction.
-3. Every sequence source row is causal and future mutation cannot alter the current observation.
-4. Missing value, availability, and staleness are distinct.
-5. `policy_requested_weight`, `risk_projected_weight`, `pending_target_weight`, and `current_weight` are independently observable and proven distinct under a forced projection/partial-fill test.
-6. Scalar action meaning is static and independent of current risk cap.
-7. Normalizer scope is checked by U0 before any supplied dataset is read.
-8. Only Train samples contribute to fitted market statistics.
-9. Admission-only generation drift changes the identity-bound normalizer digest but not `statistics_digest` when Train samples are identical.
-10. Reward telescopes exactly to realized after-cost wealth and does not double-count costs.
-11. Broken/non-positive wealth fails closed rather than being hidden by epsilon clipping in the U1 reward layer.
-12. Time-limit boundary is truncation/continuing semantics and horizon fraction is absent from policy state.
-13. Existing U3-U6 and Causal Alpha regression suites pass with no intended economic behavior change.
-14. Ruff, format check, required MyPy/static analysis, import architecture, full test suite, and package build pass.
-15. Falsification review finds no known implementation path that violates the spec while satisfying current assertions.
-16. CI/required checks are green on the exact final HEAD.
-17. Remaining limitations explicitly state that U1 does **not** prove RL learnability, zero-shot economics, profitability, Admission performance, real-market execution fidelity, or Production readiness.
+1. one-symbol U1 wrapper and fixed V1 runtime config are enforced;
+2. policy tensors exclude IDs/raw nominal/manual priors/horizon fraction;
+3. causal future-mutation test passes;
+4. missing/availability/staleness remain distinct;
+5. current policy request, signal-delay pending+active, post-risk target, realized weight, and pending-order lifecycle are separately observable;
+6. scalar action meaning is static, not dynamic-risk-scaled;
+7. cash-only sampled reset prevents TrendStrategy prior injection;
+8. U0 normalization firewall runs before source access;
+9. equal-symbol moment oracle passes with unequal row counts;
+10. unique native source-row oracle prevents high-timeframe repetition weighting;
+11. Admission-only generation drift keeps statistics digest equal and artifact digest different when Train numeric samples are identical;
+12. pure reward telescopes to realized after-cost wealth on normal, cost, funding/borrow, partial-fill paths that are part of maintained test fixtures;
+13. non-positive wealth fails closed;
+14. external truncation produces no forced liquidation/terminal bonus;
+15. `u1_contract.json` + `normalizer.json` materialize atomically/canonically/idempotently;
+16. existing U3-U6 and Causal Alpha regression tests show no intended economic behavior change;
+17. targeted/property/integration/falsification tests, Ruff, format, MyPy, import architecture, full suite, and build pass;
+18. diff self-review and independent/falsification review find no unresolved substantive issue;
+19. required CI is green on exact final HEAD;
+20. report explicitly states U1 does not prove RL learnability, zero-shot economics, profitability, Admission, real-market fidelity, or Production readiness.
 
 ## U2 Handoff
 
-U2 Base RL training is blocked until both conditions are true:
-
-1. U1 Quality Gate above is satisfied and its U1 environment identity is frozen.
-2. A real production-candidate U0 source catalog/role config—not illustrative example data—has been materialized and its `universe.json` / `identity.json` digests are frozen.
-
-U2 must then create `UniversalTradeRLFitPurpose.RL_TRAINING` provenance from U0 Train symbols and bind the frozen U1 environment/model config digest into `UniversalTradeRLRunStage.BASE_TRAINING`. Development remains evaluation-only and Admission remains unopened.
+U2 starts only after a real production-candidate U0 generation and U1 artifacts are frozen. U2 must create `UniversalTradeRLFitPurpose.RL_TRAINING` provenance from U0 Train symbols and bind the frozen U1 contract digest into the existing `UniversalTradeRLRunStage.BASE_TRAINING` model/checkpoint identity. Development remains evaluation-only and Admission remains unopened.

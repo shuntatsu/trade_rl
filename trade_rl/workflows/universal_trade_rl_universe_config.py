@@ -122,10 +122,13 @@ def _source_records(value: object) -> tuple[UniversalTradeRLSymbolSource, ...]:
             keys=_SOURCE_KEYS,
             field=f"source catalog symbol[{index}]",
         )
+        dataset_digest = record["dataset_digest"]
+        if not isinstance(dataset_digest, str):
+            raise ValueError("source dataset digest must be a string")
         records.append(
             UniversalTradeRLSymbolSource(
                 symbol=_symbol(record["symbol"], field="source symbol"),
-                dataset_digest=str(record["dataset_digest"]),
+                dataset_digest=dataset_digest,
                 first_timestamp_ns=_integer(
                     record["first_timestamp_ns"], field="first_timestamp_ns"
                 ),

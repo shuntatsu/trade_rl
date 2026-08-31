@@ -28,11 +28,20 @@ jobs:
       - name: Install verification dependencies
         run: uv sync --extra dev
 
-      - name: Apply targeted lint fix and verify repository lint
+      - name: Remove exact unused local and verify repository lint
         shell: bash
         run: |
           set -euo pipefail
-          uv run ruff check --fix tests/data/test_v4_context.py
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/data/test_v4_context.py")
+          text = path.read_text(encoding="utf-8")
+          old = "def test_btc_beta_is_exactly_one_when_available() -> None:\n    bars_per_4h = 1\n"
+          new = "def test_btc_beta_is_exactly_one_when_available() -> None:\n"
+          assert text.count(old) == 1, "unexpected V4 context lint-fix source shape"
+          path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
           changed="$(git diff --name-only)"
           printf '%s\n' "$changed"
           test "$changed" = "tests/data/test_v4_context.py"

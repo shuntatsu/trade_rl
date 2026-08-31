@@ -193,6 +193,20 @@ def test_catalog_rejects_invalid_dataset_digest(tmp_path: Path) -> None:
         )
 
 
+def test_catalog_rejects_non_string_dataset_digest_without_coercion(
+    tmp_path: Path,
+) -> None:
+    payload = _catalog_payload()
+    record = dict(payload["symbols"][0])  # type: ignore[index]
+    record["dataset_digest"] = int("1" * 64)
+    payload["symbols"] = [record]
+
+    with pytest.raises(ValueError, match="digest|string"):
+        load_universal_trade_rl_source_catalog(
+            _write(tmp_path / "catalog.json", payload)
+        )
+
+
 def test_catalog_rejects_unknown_record_keys(tmp_path: Path) -> None:
     payload = _catalog_payload()
     record = dict(payload["symbols"][0])  # type: ignore[index]

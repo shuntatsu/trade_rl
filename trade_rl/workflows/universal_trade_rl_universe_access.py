@@ -91,9 +91,9 @@ def _role_symbols(
     return tuple(entry.symbol for entry in manifest.entries if entry.role is role)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class UniversalTradeRLUniverseAccess:
-    """Immutable phase-specific view of the frozen U0 universe."""
+    """Immutable phase-specific view issued only by the authorization-aware factory."""
 
     universe_manifest_digest: str
     phase: UniversalTradeRLAccessPhase
@@ -103,6 +103,38 @@ class UniversalTradeRLUniverseAccess:
     fit_symbols: tuple[str, ...]
     evaluation_symbols: tuple[str, ...]
     admission_authorization_digest: str | None = None
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError("Universal Trade RL universe access must be issued by for_phase()")
+
+    @classmethod
+    def _validated(
+        cls,
+        *,
+        universe_manifest_digest: str,
+        phase: UniversalTradeRLAccessPhase,
+        train_symbols: tuple[str, ...],
+        development_symbols: tuple[str, ...],
+        admission_symbols: tuple[str, ...],
+        fit_symbols: tuple[str, ...],
+        evaluation_symbols: tuple[str, ...],
+        admission_authorization_digest: str | None = None,
+    ) -> UniversalTradeRLUniverseAccess:
+        access = object.__new__(cls)
+        object.__setattr__(access, "universe_manifest_digest", universe_manifest_digest)
+        object.__setattr__(access, "phase", phase)
+        object.__setattr__(access, "train_symbols", train_symbols)
+        object.__setattr__(access, "development_symbols", development_symbols)
+        object.__setattr__(access, "admission_symbols", admission_symbols)
+        object.__setattr__(access, "fit_symbols", fit_symbols)
+        object.__setattr__(access, "evaluation_symbols", evaluation_symbols)
+        object.__setattr__(
+            access,
+            "admission_authorization_digest",
+            admission_authorization_digest,
+        )
+        access.__post_init__()
+        return access
 
     def __post_init__(self) -> None:
         require_sha256(
@@ -178,7 +210,7 @@ class UniversalTradeRLUniverseAccess:
                 raise PermissionError(
                     "Train/Development phases forbid Admission authorization context"
                 )
-            return cls(
+            return cls._validated(
                 universe_manifest_digest=manifest.digest,
                 phase=phase,
                 train_symbols=train,
@@ -214,7 +246,7 @@ class UniversalTradeRLUniverseAccess:
             )
         if authorization.selection_evidence_digest != selection_evidence_digest:
             raise PermissionError("Admission authorization Selection identity mismatch")
-        return cls(
+        return cls._validated(
             universe_manifest_digest=manifest.digest,
             phase=phase,
             train_symbols=train,

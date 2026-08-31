@@ -1,0 +1,194 @@
+name: Verify Final Base Hygiene Stack
+
+on:
+  push:
+    branches:
+      - verify/final-base-hygiene-stack
+
+permissions:
+  contents: read
+
+env:
+  BASE_SHA: c04d2c765d3c554ce2988b1d58fc4a3fbf15ba66
+  TARGET_SHA: cba8e6bfbfa10d6fa5ea456a366a3eda4797a3cb
+
+jobs:
+  python-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove formatting-only AST equivalence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import os
+          import subprocess
+
+          base = os.environ["BASE_SHA"]
+          target = os.environ["TARGET_SHA"]
+          paths = subprocess.check_output(
+              ["git", "diff", "--name-only", base, target], text=True
+          ).splitlines()
+          assert len(paths) == 40, paths
+          assert all(path.endswith(".py") for path in paths), paths
+          for path in paths:
+              before = subprocess.check_output(["git", "show", f"{base}:{path}"], text=True)
+              after = subprocess.check_output(["git", "show", f"{target}:{path}"], text=True)
+              before_ast = ast.dump(ast.parse(before, filename=path), include_attributes=False)
+              after_ast = ast.dump(ast.parse(after, filename=path), include_attributes=False)
+              assert before_ast == after_ast, path
+          print(f"AST-equivalent formatted Python files: {len(paths)}")
+          PY
+
+      - name: Checkout exact target
+        run: git checkout --detach "$TARGET_SHA"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev --extra export --extra train-sb3
+
+      - name: Ruff
+        run: uv run ruff check --diff .
+
+      - name: Format
+        run: uv run ruff format --check --diff .
+
+      - name: Mypy
+        run: uv run mypy .
+
+      - name: Import architecture
+        run: uv run lint-imports
+
+      - name: Dead-code report
+        run: uv run vulture trade_rl tests --min-confidence 100
+
+      - name: Recovery and structured serving smoke
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
+          tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
+
+      - name: Full suite with diagnostic coverage threshold
+        shell: bash
+        run: |
+          set +e
+          uv run pytest -q \
+            --cov=trade_rl \
+            --cov-branch \
+            --cov-fail-under=0 \
+            --cov-report=json:coverage.json \
+            > full-suite.log 2>&1
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" > pytest-rc.txt
+          tail -n 120 full-suite.log
+
+      - name: Critical branch coverage
+        shell: bash
+        run: |
+          set +e
+          uv run python .github/check_critical_coverage.py coverage.json pyproject.toml \
+            > critical-coverage.log 2>&1
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" > critical-coverage-rc.txt
+          cat critical-coverage.log
+
+      - name: Rank global coverage debt
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("coverage.json").read_text(encoding="utf-8"))
+          totals = payload["totals"]
+          percent = float(totals["percent_covered"])
+          rows = []
+          for path, record in payload["files"].items():
+              if not path.startswith("trade_rl/"):
+                  continue
+              summary = record["summary"]
+              missing_lines = int(summary.get("missing_lines", 0))
+              missing_branches = int(summary.get("missing_branches", 0))
+              rows.append({
+                  "path": path,
+                  "percent_covered": float(summary["percent_covered"]),
+                  "missing_lines": missing_lines,
+                  "missing_branches": missing_branches,
+                  "missing_total": missing_lines + missing_branches,
+              })
+          rows.sort(key=lambda row: (-row["missing_total"], row["percent_covered"], row["path"]))
+          result = {
+              "global_percent_covered": percent,
+              "configured_fail_under": 80.0,
+              "gap_percentage_points": 80.0 - percent,
+              "totals": totals,
+              "top_missing": rows[:50],
+          }
+          Path("coverage-opportunities.json").write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(result, indent=2, sort_keys=True))
+          PY
+
+      - name: Package and uv identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          cli="$(uv run trade-rl --version)"
+          uv_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["uv"]["required-version"].removeprefix("=="))')"
+          test "$module" = "$expected"
+          test "$cli" = "trade-rl $expected"
+          test "$(uv --version)" = "uv $uv_version"
+
+      - name: Upload exact-head evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: final-base-hygiene-stack-evidence
+          path: |
+            full-suite.log
+            pytest-rc.txt
+            coverage.json
+            coverage-opportunities.json
+            critical-coverage.log
+            critical-coverage-rc.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Enforce test and configured coverage gates
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f pytest-rc.txt
+          test "$(cat pytest-rc.txt)" -eq 0
+          test -f coverage.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          percent = float(json.loads(Path("coverage.json").read_text(encoding="utf-8"))["totals"]["percent_covered"])
+          if percent < 80.0:
+              raise SystemExit(f"global coverage {percent:.4f}% is below configured 80.0%")
+          PY
+          test -f critical-coverage-rc.txt
+          test "$(cat critical-coverage-rc.txt)" -eq 0

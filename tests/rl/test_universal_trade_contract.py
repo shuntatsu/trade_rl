@@ -21,6 +21,12 @@ def test_contract_freezes_windows() -> None:
     )
 
 
+def test_contract_digest_is_sha256() -> None:
+    contract = UniversalTradePolicyContract(feature_specs=make_u1_feature_specs())
+    assert len(contract.digest) == 64
+    assert set(contract.digest) <= set("0123456789abcdef")
+
+
 @pytest.mark.parametrize(
     "kind",
     (

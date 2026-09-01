@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Protocol, Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 
@@ -12,33 +12,10 @@ _NORMALIZER_VERSION = "symbol_balanced_standard_normalizer_v1"
 _EPSILON = 1e-12
 
 
-class _UniversalTradeNormalizationAccess(Protocol):
-    @property
-    def phase(self) -> object: ...
-
-    def require_normalization_scope(self, symbols: tuple[str, ...]) -> None: ...
-
-
 @dataclass(frozen=True, slots=True)
 class UniversalTradePublishedSource:
     symbol: str
     artifact_root: Path
-
-
-def fit_universal_trade_sequence_normalizer(
-    *,
-    manifest: object,
-    access: _UniversalTradeNormalizationAccess,
-    sources: Sequence[UniversalTradePublishedSource],
-    contract: object,
-    knowledge_cutoff_ns: int,
-) -> None:
-    del manifest, contract, knowledge_cutoff_ns
-    phase_value = getattr(access.phase, "value", access.phase)
-    if phase_value != "train":
-        raise PermissionError("Universal Trade RL normalization fitting is Train-only")
-    access.require_normalization_scope(tuple(source.symbol for source in sources))
-    raise NotImplementedError("U1 sequence normalizer fitting is not implemented yet")
 
 
 def _evenly_spaced_indices(count: int, sample_count: int) -> np.ndarray:

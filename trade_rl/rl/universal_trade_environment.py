@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from trade_rl.data.market import MarketDataset
 from trade_rl.rl.actions import (
     BaselineResidualComposer,
     ResidualComposition,
@@ -49,10 +50,14 @@ class _UniversalTradeTargetComposer(BaselineResidualComposer):
 class UniversalTradeMarketEnv(ResidualMarketEnv):
     """Expose U1 semantics while retaining maintained Risk/Execution economics."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, dataset: MarketDataset, **kwargs: Any) -> None:
+        if dataset.n_symbols != 1:
+            raise ValueError(
+                "Universal Trade RL U1 environment requires a single-symbol dataset"
+            )
         if "composer" in kwargs:
             raise ValueError("Universal Trade RL fixes the U1 target composer")
-        super().__init__(*args, composer=_UniversalTradeTargetComposer(), **kwargs)
+        super().__init__(dataset, composer=_UniversalTradeTargetComposer(), **kwargs)
 
     def universal_trade_runtime_snapshot(self) -> UniversalTradeRuntimeSnapshot:
         """Return scalar U1 state from existing Risk/Execution/accounting state."""

@@ -108,6 +108,7 @@ def _feature_moments(
     )
     event_ns = timestamps_ns - np.rint(staleness * _NS_PER_HOUR).astype(np.int64)
     valid = available & np.isfinite(values) & np.isfinite(staleness)
+    valid &= timestamps_ns <= knowledge_cutoff_ns
     valid &= event_ns <= knowledge_cutoff_ns
     valid_values = values[valid]
     valid_events = event_ns[valid]
@@ -115,6 +116,21 @@ def _feature_moments(
     samples = valid_values[unique_indices]
     assert samples.size > 0
     return float(samples.mean()), float(np.mean(samples * samples)), int(samples.size)
+
+
+def _fit_fixture_normalizer(tmp_path: Path):
+    btc = make_u1_market(symbol="BTCUSDT", n_bars=5800, feature_level=1.0)
+    eth = make_u1_market(symbol="ETHUSDT", n_bars=5800, feature_level=2.0)
+    btc_source, btc_published = _published_source(tmp_path / "btc", btc)
+    eth_source, eth_published = _published_source(tmp_path / "eth", eth)
+    manifest = _manifest((btc_source, eth_source))
+    return fit_universal_trade_sequence_normalizer(
+        manifest=manifest,
+        access=_train_access(manifest),
+        sources=(btc_published, eth_published),
+        contract=_contract(),
+        knowledge_cutoff_ns=btc_source.last_timestamp_ns,
+    )
 
 
 def test_published_artifact_digest_must_match_u0_manifest(tmp_path: Path) -> None:
@@ -202,6 +218,35 @@ def test_carried_native_timeframe_events_are_deduplicated(tmp_path: Path) -> Non
     assert expected < btc.n_bars
 
 
+def test_cutoff_excludes_event_revealed_only_after_cutoff(tmp_path: Path) -> None:
+    btc = make_u1_market(symbol="BTCUSDT", n_bars=5800, feature_level=1.0)
+    available = btc.resolved_array("feature_available").copy()
+    cutoff_row = 5000
+    carried_source_row = (cutoff_row // 16) * 16
+    available[carried_source_row : cutoff_row + 1, 0, 2] = False
+    btc = replace(btc, feature_available=available).with_content_identity(
+        {"fixture": "u1_post_cutoff_revelation_v1"}
+    )
+    eth = make_u1_market(symbol="ETHUSDT", n_bars=5800, feature_level=2.0)
+    btc_source, btc_published = _published_source(tmp_path / "btc", btc)
+    eth_source, eth_published = _published_source(tmp_path / "eth", eth)
+    manifest = _manifest((btc_source, eth_source))
+    cutoff = int(btc.timestamps[cutoff_row].astype("datetime64[ns]").astype(np.int64))
+
+    normalizer = fit_universal_trade_sequence_normalizer(
+        manifest=manifest,
+        access=_train_access(manifest),
+        sources=(btc_published, eth_published),
+        contract=_contract(),
+        knowledge_cutoff_ns=cutoff,
+    )
+
+    counts = dict(normalizer.statistics_for("4h").per_symbol_sample_counts)
+    previous_source_row = carried_source_row - 16
+    expected_count = previous_source_row // 16 + 1
+    assert counts["BTCUSDT"][0] == expected_count
+
+
 def test_knowledge_cutoff_excludes_future_source_events(tmp_path: Path) -> None:
     btc = make_u1_market(symbol="BTCUSDT", n_bars=5800, feature_level=1.0)
     features = btc.features.copy()
@@ -264,3 +309,12 @@ def test_generation_changes_identity_but_not_train_statistics(tmp_path: Path) ->
     )
     assert normalizer_a.statistics_digest == normalizer_b.statistics_digest
     assert normalizer_a.digest != normalizer_b.digest
+
+
+def test_normalizer_rejects_tampered_content_digests(tmp_path: Path) -> None:
+    normalizer = _fit_fixture_normalizer(tmp_path)
+
+    with pytest.raises(ValueError, match="statistics|digest"):
+        replace(normalizer, statistics_digest="f" * 64)
+    with pytest.raises(ValueError, match="digest"):
+        replace(normalizer, digest="f" * 64)

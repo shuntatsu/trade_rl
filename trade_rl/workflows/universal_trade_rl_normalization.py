@@ -34,7 +34,9 @@ def _canonical_sources(
     resolved = tuple(sources)
     if not resolved:
         raise ValueError("Universal Trade normalization sources must not be empty")
-    if any(not isinstance(source, UniversalTradePublishedSource) for source in resolved):
+    if any(
+        not isinstance(source, UniversalTradePublishedSource) for source in resolved
+    ):
         raise TypeError("Universal Trade normalization source contract is invalid")
     ordered = tuple(sorted(resolved, key=lambda source: source.symbol))
     symbols = tuple(source.symbol for source in ordered)
@@ -79,8 +81,7 @@ def fit_universal_trade_sequence_normalizer(
         artifact = inspect_published_market_dataset_artifact(source.artifact_root)
         if artifact.artifact_digest != expected_digests[source.symbol]:
             raise ValueError(
-                "published market dataset artifact digest mismatch for "
-                f"{source.symbol}"
+                f"published market dataset artifact digest mismatch for {source.symbol}"
             )
         dataset = load_market_dataset_artifact(source.artifact_root)
         if dataset.n_symbols != 1 or dataset.symbols != (source.symbol,):

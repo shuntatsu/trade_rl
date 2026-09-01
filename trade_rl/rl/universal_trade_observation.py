@@ -73,7 +73,9 @@ class UniversalTradeObservationBuilder:
             for timeframe, _length in UNIVERSAL_TRADE_SEQUENCE_WINDOWS
         }
         if any(count <= 0 for count in feature_counts.values()):
-            raise ValueError("U1 observation requires features for every sequence clock")
+            raise ValueError(
+                "U1 observation requires features for every sequence clock"
+            )
 
         observation_spaces: dict[str, spaces.Space[np.ndarray]] = {}
         for timeframe, length in UNIVERSAL_TRADE_SEQUENCE_WINDOWS:

@@ -89,9 +89,7 @@ def make_u1_market(
         periods_per_year=35_040,
         feature_staleness_hours=staleness_hours,
         feature_staleness=np.minimum(staleness_hours / 24.0, 1.0),
-        borrow_available=np.full(
-            (n_bars, 1), borrow_available_value, dtype=np.bool_
-        ),
+        borrow_available=np.full((n_bars, 1), borrow_available_value, dtype=np.bool_),
         borrow_rate=np.full((n_bars, 1), borrow_rate_value, dtype=np.float64),
         mark_price=close_2d,
         index_price=close_2d,

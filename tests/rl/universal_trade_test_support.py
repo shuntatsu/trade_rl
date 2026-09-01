@@ -144,6 +144,7 @@ def make_u1_base_env(
             decision_every=None,
             signal_delay_decisions=1,
             initial_capital=100_000.0,
+            random_initial_gross=min(0.25, max_abs_weight),
             reward_config=pure_growth_reward_config(),
             episode_boundary_mode=EpisodeBoundaryMode.EXTERNAL_TRUNCATION,
             finite_horizon_observation=False,

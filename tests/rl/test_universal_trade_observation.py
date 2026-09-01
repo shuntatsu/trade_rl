@@ -10,7 +10,9 @@ from tests.rl.universal_trade_test_support import (
     make_u1_feature_specs,
     make_u1_market,
 )
-from trade_rl.rl.universal_normalization import build_universal_trade_sequence_normalizer
+from trade_rl.rl.universal_normalization import (
+    build_universal_trade_sequence_normalizer,
+)
 from trade_rl.rl.universal_trade_contract import UniversalTradePolicyContract
 
 _EXPECTED_KEYS = (
@@ -158,7 +160,12 @@ def test_u1_observation_normalizer_transforms_sequence_values_only() -> None:
             feature_names=feature_names,
         )
 
-        np.testing.assert_allclose(normalized[values_key], expected, atol=1e-7, rtol=0.0)
+        np.testing.assert_allclose(
+            normalized[values_key],
+            expected,
+            atol=1e-7,
+            rtol=0.0,
+        )
         np.testing.assert_array_equal(normalized[available_key], raw[available_key])
         np.testing.assert_array_equal(normalized[staleness_key], raw[staleness_key])
         changed_values |= not np.array_equal(normalized[values_key], raw[values_key])

@@ -63,10 +63,14 @@ class UniversalTradeChannelStatistics:
             raise ValueError("Universal Trade normalization scale must be positive")
         symbols = tuple(symbol for symbol, _counts in self.per_symbol_sample_counts)
         if symbols != tuple(sorted(symbols)) or len(set(symbols)) != len(symbols):
-            raise ValueError("normalization sample-count symbols must be sorted and unique")
+            raise ValueError(
+                "normalization sample-count symbols must be sorted and unique"
+            )
         for symbol, counts in self.per_symbol_sample_counts:
             if not symbol or len(counts) != len(self.feature_names):
-                raise ValueError("normalization sample counts do not match feature width")
+                raise ValueError(
+                    "normalization sample counts do not match feature width"
+                )
             if any(isinstance(count, bool) or count <= 0 for count in counts):
                 raise ValueError("normalization sample counts must be positive")
         object.__setattr__(self, "mean", mean)
@@ -100,9 +104,15 @@ class UniversalTradeSequenceNormalizer:
         timeframes = tuple(channel.timeframe for channel in self.channels)
         if not self.channels or len(set(timeframes)) != len(timeframes):
             raise ValueError("Universal Trade normalization channels are invalid")
-        if self.train_symbols != tuple(sorted(self.train_symbols)) or not self.train_symbols:
+        if (
+            self.train_symbols != tuple(sorted(self.train_symbols))
+            or not self.train_symbols
+        ):
             raise ValueError("Universal Trade normalization Train symbols are invalid")
-        if tuple(symbol for symbol, _digest in self.source_dataset_digests) != self.train_symbols:
+        if (
+            tuple(symbol for symbol, _digest in self.source_dataset_digests)
+            != self.train_symbols
+        ):
             raise ValueError("Universal Trade normalization source identities mismatch")
         if isinstance(self.knowledge_cutoff_ns, bool) or self.knowledge_cutoff_ns <= 0:
             raise ValueError("Universal Trade normalization cutoff must be positive")
@@ -134,7 +144,9 @@ class UniversalTradeSequenceNormalizer:
             raise ValueError("Universal Trade normalization feature width mismatch")
         safe_values = np.where(availability, array, statistics.mean)
         if not np.all(np.isfinite(safe_values)):
-            raise ValueError("available Universal Trade normalization values must be finite")
+            raise ValueError(
+                "available Universal Trade normalization values must be finite"
+            )
         normalized = (safe_values - statistics.mean) / statistics.scale
         normalized = np.clip(normalized, -self.clip_value, self.clip_value)
         normalized = np.where(availability, normalized, 0.0)
@@ -191,18 +203,26 @@ def build_universal_trade_sequence_normalizer(
 
     train_symbols = tuple(symbol for symbol, _digest in source_dataset_digests)
     if not train_symbols or train_symbols != tuple(sorted(train_symbols)):
-        raise ValueError("Universal Trade normalization source identities must be sorted")
+        raise ValueError(
+            "Universal Trade normalization source identities must be sorted"
+        )
     if len(set(train_symbols)) != len(train_symbols):
-        raise ValueError("Universal Trade normalization source identities must be unique")
+        raise ValueError(
+            "Universal Trade normalization source identities must be unique"
+        )
     if set(symbol_datasets) != set(train_symbols):
-        raise ValueError("Universal Trade normalization datasets must exactly match Train")
+        raise ValueError(
+            "Universal Trade normalization datasets must exactly match Train"
+        )
     if isinstance(knowledge_cutoff_ns, bool) or knowledge_cutoff_ns <= 0:
         raise ValueError("Universal Trade normalization cutoff must be positive")
     expected_feature_names = tuple(spec.name for spec in contract.feature_specs)
     for symbol in train_symbols:
         dataset = symbol_datasets[symbol]
         if dataset.n_symbols != 1 or dataset.symbols != (symbol,):
-            raise ValueError("Universal Trade normalization requires one symbol per dataset")
+            raise ValueError(
+                "Universal Trade normalization requires one symbol per dataset"
+            )
         if dataset.feature_names != expected_feature_names:
             raise ValueError("Universal Trade normalization feature order mismatch")
 
@@ -215,7 +235,9 @@ def build_universal_trade_sequence_normalizer(
         )
         if not feature_indices:
             continue
-        feature_names = tuple(expected_feature_names[index] for index in feature_indices)
+        feature_names = tuple(
+            expected_feature_names[index] for index in feature_indices
+        )
         per_symbol_means: list[np.ndarray] = []
         per_symbol_seconds: list[np.ndarray] = []
         sample_counts: list[tuple[str, tuple[int, ...]]] = []

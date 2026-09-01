@@ -13,6 +13,7 @@ from trade_rl.rl.sequence_observations import (
     SequenceObservationBuilder,
     SequenceWindowSpec,
 )
+from trade_rl.rl.universal_normalization import UniversalTradeSequenceNormalizer
 from trade_rl.rl.universal_trade_contract import (
     UNIVERSAL_TRADE_SEQUENCE_WINDOWS,
     UniversalTradePolicyContract,
@@ -55,21 +56,32 @@ _POLICY_STATE_FIELDS = (
 class UniversalTradeObservationBuilder:
     """Project maintained market/runtime state into the narrow U1 policy surface."""
 
-    def __init__(self, *, contract: UniversalTradePolicyContract) -> None:
+    def __init__(
+        self,
+        *,
+        contract: UniversalTradePolicyContract,
+        normalizer: UniversalTradeSequenceNormalizer | None = None,
+    ) -> None:
         if not isinstance(contract, UniversalTradePolicyContract):
             raise TypeError("U1 observation requires a Universal Trade policy contract")
         self._contract = contract
+        self._normalizer = normalizer
         self._sequence_builder = SequenceObservationBuilder(
             windows=tuple(
                 SequenceWindowSpec(timeframe=timeframe, length=length)
                 for timeframe, length in UNIVERSAL_TRADE_SEQUENCE_WINDOWS
             )
         )
-        feature_counts = {
-            timeframe: sum(
-                spec.resolved_timeframe("15m") == timeframe
+        self._feature_names_by_timeframe = {
+            timeframe: tuple(
+                spec.name
                 for spec in contract.feature_specs
+                if spec.resolved_timeframe("15m") == timeframe
             )
+            for timeframe, _length in UNIVERSAL_TRADE_SEQUENCE_WINDOWS
+        }
+        feature_counts = {
+            timeframe: len(self._feature_names_by_timeframe[timeframe])
             for timeframe, _length in UNIVERSAL_TRADE_SEQUENCE_WINDOWS
         }
         if any(count <= 0 for count in feature_counts.values()):
@@ -172,12 +184,17 @@ class UniversalTradeObservationBuilder:
         sequence = self._sequence(dataset=dataset, index=index)
         result: dict[str, np.ndarray] = {}
         for timeframe, _length in UNIVERSAL_TRADE_SEQUENCE_WINDOWS:
-            result[f"sequence_{timeframe}_values"] = np.asarray(
-                sequence.values[timeframe], dtype=np.float32
-            )
-            result[f"sequence_{timeframe}_available"] = np.asarray(
-                sequence.available[timeframe], dtype=np.uint8
-            )
+            values = np.asarray(sequence.values[timeframe], dtype=np.float32)
+            available = np.asarray(sequence.available[timeframe], dtype=np.uint8)
+            if self._normalizer is not None:
+                values = self._normalizer.transform(
+                    timeframe,
+                    values,
+                    available.astype(np.bool_),
+                    feature_names=self._feature_names_by_timeframe[timeframe],
+                )
+            result[f"sequence_{timeframe}_values"] = values
+            result[f"sequence_{timeframe}_available"] = available
             result[f"sequence_{timeframe}_staleness"] = np.asarray(
                 sequence.staleness[timeframe], dtype=np.float32
             )

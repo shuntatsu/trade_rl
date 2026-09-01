@@ -81,7 +81,9 @@ def _contract() -> UniversalTradePolicyContract:
     return UniversalTradePolicyContract(feature_specs=make_u1_feature_specs())
 
 
-def _train_access(manifest: UniversalTradeRLUniverseManifest) -> UniversalTradeRLUniverseAccess:
+def _train_access(
+    manifest: UniversalTradeRLUniverseManifest,
+) -> UniversalTradeRLUniverseAccess:
     return UniversalTradeRLUniverseAccess.for_phase(
         manifest=manifest,
         phase=UniversalTradeRLAccessPhase.TRAIN,
@@ -146,9 +148,9 @@ def test_equal_symbol_statistics_ignore_unavailable_extreme(tmp_path: Path) -> N
     available = btc.resolved_array("feature_available").copy()
     features[100, 0, 0] = 1e9
     available[100, 0, 0] = False
-    btc = replace(btc, features=features, feature_available=available).with_content_identity(
-        {"fixture": "u1_unavailable_extreme_v1"}
-    )
+    btc = replace(
+        btc, features=features, feature_available=available
+    ).with_content_identity({"fixture": "u1_unavailable_extreme_v1"})
     eth = make_u1_market(symbol="ETHUSDT", n_bars=6000, feature_level=10.0)
     btc_source, btc_published = _published_source(tmp_path / "btc", btc)
     eth_source, eth_published = _published_source(tmp_path / "eth", eth)

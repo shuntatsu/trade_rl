@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -29,6 +30,7 @@ from trade_rl.workflows.universal_trade_rl_universe_manifest import (
 )
 
 _NS_PER_HOUR = 3_600_000_000_000
+_ZERO_DIGEST = "0" * 64
 
 
 def _source(symbol: str, digest_char: str) -> UniversalTradeRLSymbolSource:
@@ -57,6 +59,21 @@ def _manifest(
         ),
         sources=tuple(by_symbol[symbol] for symbol in sorted(by_symbol)),
     )
+
+
+def _rebind_market_identity(
+    dataset: MarketDataset,
+    *,
+    fixture: str,
+    **changes: Any,
+) -> MarketDataset:
+    unbound = replace(
+        dataset,
+        dataset_id=_ZERO_DIGEST,
+        identity_payload_json=None,
+        **changes,
+    )
+    return unbound.with_content_identity({"fixture": fixture})
 
 
 def _published_source(
@@ -162,11 +179,17 @@ def test_equal_symbol_statistics_ignore_unavailable_extreme(tmp_path: Path) -> N
     btc = make_u1_market(symbol="BTCUSDT", n_bars=5800, feature_level=1.0)
     features = btc.features.copy()
     available = btc.resolved_array("feature_available").copy()
+    feature_staleness = btc.resolved_array("feature_staleness").copy()
     features[100, 0, 0] = 1e9
     available[100, 0, 0] = False
-    btc = replace(
-        btc, features=features, feature_available=available
-    ).with_content_identity({"fixture": "u1_unavailable_extreme_v1"})
+    feature_staleness[100, 0, 0] = 1.0
+    btc = _rebind_market_identity(
+        btc,
+        fixture="u1_unavailable_extreme_v1",
+        features=features,
+        feature_available=available,
+        feature_staleness=feature_staleness,
+    )
     eth = make_u1_market(symbol="ETHUSDT", n_bars=6000, feature_level=10.0)
     btc_source, btc_published = _published_source(tmp_path / "btc", btc)
     eth_source, eth_published = _published_source(tmp_path / "eth", eth)
@@ -221,11 +244,16 @@ def test_carried_native_timeframe_events_are_deduplicated(tmp_path: Path) -> Non
 def test_cutoff_excludes_event_revealed_only_after_cutoff(tmp_path: Path) -> None:
     btc = make_u1_market(symbol="BTCUSDT", n_bars=5800, feature_level=1.0)
     available = btc.resolved_array("feature_available").copy()
+    feature_staleness = btc.resolved_array("feature_staleness").copy()
     cutoff_row = 5000
     carried_source_row = (cutoff_row // 16) * 16
     available[carried_source_row : cutoff_row + 1, 0, 2] = False
-    btc = replace(btc, feature_available=available).with_content_identity(
-        {"fixture": "u1_post_cutoff_revelation_v1"}
+    feature_staleness[carried_source_row : cutoff_row + 1, 0, 2] = 1.0
+    btc = _rebind_market_identity(
+        btc,
+        fixture="u1_post_cutoff_revelation_v1",
+        feature_available=available,
+        feature_staleness=feature_staleness,
     )
     eth = make_u1_market(symbol="ETHUSDT", n_bars=5800, feature_level=2.0)
     btc_source, btc_published = _published_source(tmp_path / "btc", btc)
@@ -251,8 +279,10 @@ def test_knowledge_cutoff_excludes_future_source_events(tmp_path: Path) -> None:
     btc = make_u1_market(symbol="BTCUSDT", n_bars=5800, feature_level=1.0)
     features = btc.features.copy()
     features[5001:, 0, 0] = 1e9
-    btc = replace(btc, features=features).with_content_identity(
-        {"fixture": "u1_cutoff_future_mutation_v1"}
+    btc = _rebind_market_identity(
+        btc,
+        fixture="u1_cutoff_future_mutation_v1",
+        features=features,
     )
     eth = make_u1_market(symbol="ETHUSDT", n_bars=5800, feature_level=2.0)
     btc_source, btc_published = _published_source(tmp_path / "btc", btc)

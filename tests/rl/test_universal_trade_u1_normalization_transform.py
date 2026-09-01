@@ -4,7 +4,9 @@ import numpy as np
 import pytest
 
 from tests.rl.universal_trade_test_support import make_u1_feature_specs, make_u1_market
-from trade_rl.rl.universal_normalization import build_universal_trade_sequence_normalizer
+from trade_rl.rl.universal_normalization import (
+    build_universal_trade_sequence_normalizer,
+)
 from trade_rl.rl.universal_trade_contract import UniversalTradePolicyContract
 
 

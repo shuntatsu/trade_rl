@@ -228,9 +228,9 @@ class UniversalTradeSequenceNormalizer:
             raise ValueError("Universal Trade normalization feature order mismatch")
         array = np.asarray(values, dtype=np.float64)
         availability = np.asarray(available, dtype=np.bool_)
-        if array.shape != availability.shape or array.ndim != 2:
+        if array.shape != availability.shape or array.ndim < 1:
             raise ValueError("Universal Trade normalization values/mask shape mismatch")
-        if array.shape[1] != len(statistics.feature_names):
+        if array.shape[-1] != len(statistics.feature_names):
             raise ValueError("Universal Trade normalization feature width mismatch")
         safe_values = np.where(availability, array, statistics.mean)
         if not np.all(np.isfinite(safe_values)):

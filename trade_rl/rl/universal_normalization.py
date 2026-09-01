@@ -8,6 +8,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
+from trade_rl.domain.common import require_sha256
 from trade_rl.rl.universal_trade_contract import (
     UNIVERSAL_TRADE_SEQUENCE_WINDOWS,
     UniversalTradePolicyContract,
@@ -86,6 +87,41 @@ class UniversalTradeChannelStatistics:
         }
 
 
+def _universal_statistics_payload(
+    *,
+    channels: tuple[UniversalTradeChannelStatistics, ...],
+    contract_digest: str,
+    source_dataset_digests: tuple[tuple[str, str], ...],
+    knowledge_cutoff_ns: int,
+    clip_value: float,
+) -> dict[str, object]:
+    return {
+        "version": _UNIVERSAL_SEQUENCE_NORMALIZER_VERSION,
+        "statistics_semantics": _UNIVERSAL_STATISTICS_SEMANTICS,
+        "contract_digest": contract_digest,
+        "source_dataset_digests": source_dataset_digests,
+        "knowledge_cutoff_ns": knowledge_cutoff_ns,
+        "clip_value": clip_value,
+        "channels": tuple(channel.digest_payload() for channel in channels),
+    }
+
+
+def _universal_artifact_payload(
+    *,
+    statistics_digest: str,
+    universe_manifest_digest: str,
+    provenance_digest: str,
+    contract_digest: str,
+) -> dict[str, object]:
+    return {
+        "version": _UNIVERSAL_SEQUENCE_NORMALIZER_VERSION,
+        "statistics_digest": statistics_digest,
+        "universe_manifest_digest": universe_manifest_digest,
+        "provenance_digest": provenance_digest,
+        "contract_digest": contract_digest,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class UniversalTradeSequenceNormalizer:
     channels: tuple[UniversalTradeChannelStatistics, ...]
@@ -101,12 +137,15 @@ class UniversalTradeSequenceNormalizer:
     clip_value: float = 10.0
 
     def __post_init__(self) -> None:
+        if self.version != _UNIVERSAL_SEQUENCE_NORMALIZER_VERSION:
+            raise ValueError("unsupported Universal Trade sequence normalizer version")
         timeframes = tuple(channel.timeframe for channel in self.channels)
         if not self.channels or len(set(timeframes)) != len(timeframes):
             raise ValueError("Universal Trade normalization channels are invalid")
         if (
             self.train_symbols != tuple(sorted(self.train_symbols))
             or not self.train_symbols
+            or len(set(self.train_symbols)) != len(self.train_symbols)
         ):
             raise ValueError("Universal Trade normalization Train symbols are invalid")
         if (
@@ -114,10 +153,61 @@ class UniversalTradeSequenceNormalizer:
             != self.train_symbols
         ):
             raise ValueError("Universal Trade normalization source identities mismatch")
-        if isinstance(self.knowledge_cutoff_ns, bool) or self.knowledge_cutoff_ns <= 0:
+        require_sha256(
+            self.contract_digest,
+            field="Universal Trade normalization contract digest",
+        )
+        for symbol, dataset_digest in self.source_dataset_digests:
+            require_sha256(
+                dataset_digest,
+                field=f"Universal Trade normalization source {symbol} digest",
+            )
+        require_sha256(
+            self.universe_manifest_digest,
+            field="Universal Trade normalization universe manifest digest",
+        )
+        require_sha256(
+            self.provenance_digest,
+            field="Universal Trade normalization provenance digest",
+        )
+        require_sha256(
+            self.statistics_digest,
+            field="Universal Trade normalization statistics digest",
+        )
+        require_sha256(
+            self.digest,
+            field="Universal Trade normalization artifact digest",
+        )
+        if (
+            isinstance(self.knowledge_cutoff_ns, bool)
+            or not isinstance(self.knowledge_cutoff_ns, int)
+            or self.knowledge_cutoff_ns <= 0
+        ):
             raise ValueError("Universal Trade normalization cutoff must be positive")
         if not np.isfinite(self.clip_value) or self.clip_value <= 0.0:
             raise ValueError("Universal Trade normalization clip must be positive")
+
+        expected_statistics_digest = content_digest(
+            _universal_statistics_payload(
+                channels=self.channels,
+                contract_digest=self.contract_digest,
+                source_dataset_digests=self.source_dataset_digests,
+                knowledge_cutoff_ns=self.knowledge_cutoff_ns,
+                clip_value=self.clip_value,
+            )
+        )
+        if self.statistics_digest != expected_statistics_digest:
+            raise ValueError("Universal Trade normalization statistics digest mismatch")
+        expected_digest = content_digest(
+            _universal_artifact_payload(
+                statistics_digest=self.statistics_digest,
+                universe_manifest_digest=self.universe_manifest_digest,
+                provenance_digest=self.provenance_digest,
+                contract_digest=self.contract_digest,
+            )
+        )
+        if self.digest != expected_digest:
+            raise ValueError("Universal Trade normalization artifact digest mismatch")
 
     def statistics_for(self, timeframe: str) -> UniversalTradeChannelStatistics:
         for channel in self.channels:
@@ -173,6 +263,7 @@ def _source_event_samples(
     safe_staleness = np.where(finite_staleness, staleness, 0.0)
     event_ns = timestamps_ns - np.rint(safe_staleness * _NS_PER_HOUR).astype(np.int64)
     valid = available & finite_staleness & np.isfinite(values)
+    valid &= timestamps_ns <= knowledge_cutoff_ns
     valid &= event_ns <= knowledge_cutoff_ns
     valid_values = values[valid]
     valid_events = event_ns[valid]
@@ -273,27 +364,26 @@ def build_universal_trade_sequence_normalizer(
             )
         )
 
-    statistics_payload = {
-        "version": _UNIVERSAL_SEQUENCE_NORMALIZER_VERSION,
-        "statistics_semantics": _UNIVERSAL_STATISTICS_SEMANTICS,
-        "contract_digest": contract.digest,
-        "source_dataset_digests": source_dataset_digests,
-        "knowledge_cutoff_ns": knowledge_cutoff_ns,
-        "clip_value": clip_value,
-        "channels": tuple(channel.digest_payload() for channel in channels),
-    }
-    statistics_digest = content_digest(statistics_payload)
+    resolved_channels = tuple(channels)
+    statistics_digest = content_digest(
+        _universal_statistics_payload(
+            channels=resolved_channels,
+            contract_digest=contract.digest,
+            source_dataset_digests=source_dataset_digests,
+            knowledge_cutoff_ns=knowledge_cutoff_ns,
+            clip_value=clip_value,
+        )
+    )
     digest = content_digest(
-        {
-            "version": _UNIVERSAL_SEQUENCE_NORMALIZER_VERSION,
-            "statistics_digest": statistics_digest,
-            "universe_manifest_digest": universe_manifest_digest,
-            "provenance_digest": provenance_digest,
-            "contract_digest": contract.digest,
-        }
+        _universal_artifact_payload(
+            statistics_digest=statistics_digest,
+            universe_manifest_digest=universe_manifest_digest,
+            provenance_digest=provenance_digest,
+            contract_digest=contract.digest,
+        )
     )
     return UniversalTradeSequenceNormalizer(
-        channels=tuple(channels),
+        channels=resolved_channels,
         contract_digest=contract.digest,
         train_symbols=train_symbols,
         source_dataset_digests=source_dataset_digests,

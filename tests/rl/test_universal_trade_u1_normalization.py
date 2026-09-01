@@ -4,10 +4,13 @@ from pathlib import Path
 
 import pytest
 
-import trade_rl.rl.universal_normalization as universal_normalization
 from tests.rl.universal_trade_test_support import make_u1_feature_specs
 from trade_rl.domain.universal_trade_rl_universe import UniversalTradeRLUniverseConfig
+from trade_rl.rl.universal_normalization import UniversalTradePublishedSource
 from trade_rl.rl.universal_trade_contract import UniversalTradePolicyContract
+from trade_rl.workflows.universal_trade_rl_normalization import (
+    fit_universal_trade_sequence_normalizer,
+)
 from trade_rl.workflows.universal_trade_rl_universe_access import (
     UniversalTradeRLAccessPhase,
     UniversalTradeRLUniverseAccess,
@@ -49,19 +52,6 @@ def _manifest(
 
 
 def test_scope_fails_before_missing_artifact_path_is_touched() -> None:
-    fit = getattr(
-        universal_normalization,
-        "fit_universal_trade_sequence_normalizer",
-        None,
-    )
-    published_source_type = getattr(
-        universal_normalization,
-        "UniversalTradePublishedSource",
-        None,
-    )
-    assert callable(fit), "U1 sequence normalizer fitter is not implemented"
-    assert published_source_type is not None, "U1 published source contract is missing"
-
     train = (
         _source("BTCUSDT", "b"),
         _source("ETHUSDT", "e"),
@@ -73,12 +63,12 @@ def test_scope_fails_before_missing_artifact_path_is_touched() -> None:
     )
 
     with pytest.raises(PermissionError, match="normalization|Train"):
-        fit(
+        fit_universal_trade_sequence_normalizer(
             manifest=manifest,
             access=access,
             sources=(
-                published_source_type("BTCUSDT", Path("/missing/btc")),
-                published_source_type("ETHUSDT", Path("/missing/eth")),
+                UniversalTradePublishedSource("BTCUSDT", Path("/missing/btc")),
+                UniversalTradePublishedSource("ETHUSDT", Path("/missing/eth")),
             ),
             contract=UniversalTradePolicyContract(
                 feature_specs=make_u1_feature_specs()

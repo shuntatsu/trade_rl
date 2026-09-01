@@ -24,7 +24,7 @@ def _normalizer():
         ),
         knowledge_cutoff_ns=cutoff,
         universe_manifest_digest="a" * 64,
-        provenance_digest="p" * 64,
+        provenance_digest="f" * 64,
     )
 
 

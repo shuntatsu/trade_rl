@@ -45,15 +45,18 @@ def _observation_module():
         pytest.fail("Universal Trade U1 observation module is not implemented")
 
 
-def test_u1_observation_has_exact_strategy_prior_free_layout() -> None:
+def _builder():
     module = _observation_module()
     builder_type = getattr(module, "UniversalTradeObservationBuilder", None)
     assert builder_type is not None, "Universal Trade U1 observation builder is missing"
-
-    dataset = make_u1_market()
-    builder = builder_type(
+    return builder_type(
         contract=UniversalTradePolicyContract(feature_specs=make_u1_feature_specs())
     )
+
+
+def test_u1_observation_has_exact_strategy_prior_free_layout() -> None:
+    dataset = make_u1_market()
+    builder = _builder()
     observation = builder.build(
         dataset=dataset,
         index=6000,
@@ -75,3 +78,29 @@ def test_u1_observation_has_exact_strategy_prior_free_layout() -> None:
         for field in state_fields
         for token in _FORBIDDEN_STATE_TOKENS
     )
+
+
+def test_u1_policy_state_uses_fixed_dimensionless_transforms() -> None:
+    builder = _builder()
+    observation = builder.build(
+        dataset=make_u1_market(),
+        index=6000,
+        runtime=make_runtime_snapshot(
+            position_age_hours=24.0,
+            pending_order_age_hours=48.0,
+            pending_order_eligible_delay_hours=24.0,
+            pending_order_expiry_distance_hours=72.0,
+            mark_index_basis=0.01,
+            borrow_rate=0.02,
+        ),
+    )
+    state = dict(
+        zip(builder.policy_state_fields, observation["policy_state"], strict=True)
+    )
+
+    assert state["position_age_days"] == pytest.approx(np.log1p(1.0))
+    assert state["pending_order_age_days"] == pytest.approx(np.log1p(2.0))
+    assert state["pending_order_eligible_delay_days"] == pytest.approx(np.log1p(1.0))
+    assert state["pending_order_expiry_distance_days"] == pytest.approx(np.log1p(3.0))
+    assert state["mark_index_basis"] == pytest.approx(np.tanh(1.0))
+    assert state["borrow_rate"] == pytest.approx(np.tanh(0.02))

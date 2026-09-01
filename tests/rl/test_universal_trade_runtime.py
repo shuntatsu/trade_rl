@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import Any, cast
+
 import numpy as np
 import pytest
 
 from tests.rl.universal_trade_test_support import make_u1_base_env, make_u1_market
+from trade_rl.rl.universal_trade_environment import UniversalTradeMarketEnv
 from trade_rl.simulation.execution import ExecutionCostConfig
+
+
+def test_u1_environment_rejects_multi_symbol_before_base_initialization() -> None:
+    dataset = cast(Any, SimpleNamespace(n_symbols=2))
+    with pytest.raises(ValueError, match="single-symbol"):
+        UniversalTradeMarketEnv(dataset)
 
 
 def test_runtime_separates_submission_pending_risk_and_realized_weight() -> None:

@@ -4,12 +4,12 @@ import math
 
 import pytest
 
+from tests.rl.universal_trade_test_support import make_u1_feature_specs
 from trade_rl.data.contracts import FeatureKind, FeatureSpec
 from trade_rl.rl.universal_trade_contract import (
     UNIVERSAL_TRADE_SEQUENCE_WINDOWS,
     UniversalTradePolicyContract,
 )
-from tests.rl.universal_trade_test_support import make_u1_feature_specs
 
 
 def test_contract_freezes_windows() -> None:

@@ -10,6 +10,7 @@ from tests.rl.universal_trade_test_support import (
     make_u1_feature_specs,
     make_u1_market,
 )
+from trade_rl.rl.universal_normalization import build_universal_trade_sequence_normalizer
 from trade_rl.rl.universal_trade_contract import UniversalTradePolicyContract
 
 _EXPECTED_KEYS = (
@@ -104,3 +105,63 @@ def test_u1_policy_state_uses_fixed_dimensionless_transforms() -> None:
     assert state["pending_order_expiry_distance_days"] == pytest.approx(np.log1p(3.0))
     assert state["mark_index_basis"] == pytest.approx(np.tanh(1.0))
     assert state["borrow_rate"] == pytest.approx(np.tanh(0.02))
+
+
+def test_u1_observation_normalizer_transforms_sequence_values_only() -> None:
+    contract = UniversalTradePolicyContract(feature_specs=make_u1_feature_specs())
+    btc = make_u1_market(
+        symbol="BTCUSDT",
+        n_bars=6200,
+        feature_level=1.0,
+    )
+    eth = make_u1_market(
+        symbol="ETHUSDT",
+        n_bars=6200,
+        feature_level=2.0,
+    )
+    cutoff = int(btc.timestamps[6000].astype("datetime64[ns]").astype(np.int64))
+    normalizer = build_universal_trade_sequence_normalizer(
+        symbol_datasets={"BTCUSDT": btc, "ETHUSDT": eth},
+        contract=contract,
+        source_dataset_digests=(
+            ("BTCUSDT", "b" * 64),
+            ("ETHUSDT", "e" * 64),
+        ),
+        knowledge_cutoff_ns=cutoff,
+        universe_manifest_digest="a" * 64,
+        provenance_digest="c" * 64,
+    )
+
+    module = _observation_module()
+    builder_type = getattr(module, "UniversalTradeObservationBuilder", None)
+    assert builder_type is not None, "Universal Trade U1 observation builder is missing"
+    raw_builder = builder_type(contract=contract)
+    normalized_builder = builder_type(contract=contract, normalizer=normalizer)
+    runtime = make_runtime_snapshot()
+    raw = raw_builder.build(dataset=btc, index=6000, runtime=runtime)
+    normalized = normalized_builder.build(dataset=btc, index=6000, runtime=runtime)
+
+    changed_values = False
+    for timeframe in ("15m", "1h", "4h", "1d"):
+        values_key = f"sequence_{timeframe}_values"
+        available_key = f"sequence_{timeframe}_available"
+        staleness_key = f"sequence_{timeframe}_staleness"
+        feature_names = tuple(
+            spec.name
+            for spec in contract.feature_specs
+            if spec.resolved_timeframe("15m") == timeframe
+        )
+        expected = normalizer.transform(
+            timeframe,
+            raw[values_key],
+            raw[available_key].astype(np.bool_),
+            feature_names=feature_names,
+        )
+
+        np.testing.assert_allclose(normalized[values_key], expected, atol=1e-7, rtol=0.0)
+        np.testing.assert_array_equal(normalized[available_key], raw[available_key])
+        np.testing.assert_array_equal(normalized[staleness_key], raw[staleness_key])
+        changed_values |= not np.array_equal(normalized[values_key], raw[values_key])
+
+    assert changed_values
+    np.testing.assert_array_equal(normalized["policy_state"], raw["policy_state"])

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Any
+
 import numpy as np
 
 from trade_rl.data.contracts import FeatureKind, FeatureSpec
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.rl.actions import ActionMode, ActionSpec, ActionValidationMode
-from trade_rl.rl.environment import ResidualMarketEnv
 from trade_rl.rl.environment_config import EpisodeBoundaryMode, ResidualMarketEnvConfig
 from trade_rl.rl.rewards import RewardConfig
 from trade_rl.rl.universal_trade_contract import UNIVERSAL_TRADE_SEQUENCE_WINDOWS
+from trade_rl.rl.universal_trade_environment import UniversalTradeMarketEnv
+from trade_rl.rl.universal_trade_runtime import UniversalTradeRuntimeSnapshot
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
@@ -115,9 +119,9 @@ def make_u1_base_env(
     dataset: MarketDataset | None = None,
     max_abs_weight: float = 1.0,
     execution_cost: ExecutionCostConfig | None = None,
-) -> ResidualMarketEnv:
+) -> UniversalTradeMarketEnv:
     market = make_u1_market() if dataset is None else dataset
-    return ResidualMarketEnv(
+    return UniversalTradeMarketEnv(
         market,
         trend_strategy=TrendStrategy(
             TrendConfig(fast_lookback=2, base_lookback=4, slow_lookback=8)
@@ -159,3 +163,38 @@ def make_u1_base_env(
             ),
         ),
     )
+
+
+def make_runtime_snapshot(**overrides: Any) -> UniversalTradeRuntimeSnapshot:
+    snapshot = UniversalTradeRuntimeSnapshot(
+        policy_requested_weight=0.0,
+        pending_target_weight=0.0,
+        pending_target_active=False,
+        risk_projected_weight=0.0,
+        current_weight=0.0,
+        previous_action=0.0,
+        fill_ratio=0.0,
+        unfilled_turnover_ratio=0.0,
+        participation_ratio=0.0,
+        execution_cost_rate=0.0,
+        position_age_hours=0.0,
+        pending_notional_ratio=0.0,
+        pending_order_type_code=0.0,
+        pending_order_status_code=0.0,
+        pending_order_age_hours=0.0,
+        pending_order_eligible_delay_hours=0.0,
+        pending_order_triggered=False,
+        pending_order_expiry_distance_hours=0.0,
+        asset_active=True,
+        tradable=True,
+        borrow_available=True,
+        borrow_rate=0.0,
+        mark_index_basis=0.0,
+        current_drawdown=0.0,
+        current_gross_exposure=0.0,
+        current_net_exposure=0.0,
+        cash_weight=1.0,
+        risk_scale=1.0,
+        margin_utilization=0.0,
+    )
+    return replace(snapshot, **overrides)

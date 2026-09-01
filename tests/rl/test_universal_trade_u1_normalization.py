@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import trade_rl.rl.universal_normalization as universal_normalization
+from tests.rl.universal_trade_test_support import make_u1_feature_specs
 from trade_rl.domain.universal_trade_rl_universe import UniversalTradeRLUniverseConfig
 from trade_rl.rl.universal_trade_contract import UniversalTradePolicyContract
 from trade_rl.workflows.universal_trade_rl_universe_access import (
@@ -18,7 +19,6 @@ from trade_rl.workflows.universal_trade_rl_universe_manifest import (
     UniversalTradeRLUniverseManifest,
     build_universal_trade_rl_universe_manifest,
 )
-from tests.rl.universal_trade_test_support import make_u1_feature_specs
 
 
 def _source(symbol: str, digest_char: str) -> UniversalTradeRLSymbolSource:

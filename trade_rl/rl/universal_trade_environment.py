@@ -353,6 +353,8 @@ class UniversalTradeEnvironment(gym.Env[dict[str, np.ndarray], np.ndarray]):
             raise ValueError("U1 environment reset is cash-only")
         if "initial_book" in resolved_options:
             raise ValueError("U1 environment reset is cash-only")
+        if "episode_hours" in resolved_options or "episode_bars" in resolved_options:
+            raise ValueError("U1 environment fixes the episode horizon at 720 hours")
         resolved_options["initial_state_mode"] = "cash"
         super().reset(seed=seed)
         _base_observation, info = self._base_env.reset(

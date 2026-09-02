@@ -2,11 +2,11 @@
 
 > Status: **DESIGN / Production NO-GO**
 >
-> U2 does not authorize Admission access, production deployment, profitability claims, or live trading. It defines the first fixed Base RL training experiment and the Development gate that may reject that experiment before Admission is opened.
+> U2 does not authorize Admission access, production deployment, profitability claims, or live trading. It defines one preregistered Base RL experiment and the Development gate that may reject that experiment before Admission is opened.
 
 ## 1. Conclusion
 
-U2 V1 is a **single-candidate, multi-seed Base RL experiment** over the U1 one-symbol Universal Trade environment.
+U2 V1 is a **single-candidate, eight-seed PPO experiment** over the U1 one-symbol Universal Trade environment.
 
 The scientific question is not "which RL configuration backtests best?". It is:
 
@@ -15,16 +15,17 @@ The scientific question is not "which RL configuration backtests best?". It is:
 U2 therefore freezes:
 
 - one U0 universe generation;
-- one global temporal partition;
+- one deterministic global temporal partition derived from frozen source identities;
 - one U1 contract and one U1 normalizer fitted only through the U2 fit cutoff;
-- one model/training configuration;
-- one training budget;
+- one U1-specific sequence-policy architecture;
+- one exact PPO configuration and training budget;
 - exactly eight deterministically derived training seeds;
-- one final checkpoint per seed;
-- fixed Development evaluation scopes and fixed baselines;
-- fail-closed Development gates.
+- one performance-eligible final checkpoint per seed;
+- fixed G1/G2/G3 Development scopes;
+- fixed Cash / Buy-and-Hold / Trend baselines;
+- fixed statistical aggregation and Development gates.
 
-The primary Development question is **joint generalization**: unseen Development symbols evaluated in a future Development time interval that was excluded from both normalization fit and RL gradient updates.
+The primary Development question is **G3 joint generalization**: unseen Development symbols evaluated in a future interval that was excluded from normalization fit and RL gradient updates.
 
 ## 2. Ordering Constraint: U2 Temporal Design Precedes Final U1 Freeze
 
@@ -34,7 +35,7 @@ Required order:
 
 ```text
 U0 universe generation freeze
-  -> U2 temporal partition design freeze
+  -> U2 temporal contract materialization
   -> T_fit_end freeze
   -> U1 normalizer fit with knowledge_cutoff = T_fit_end
   -> U1 artifact / identity freeze
@@ -43,51 +44,52 @@ U0 universe generation freeze
   -> U2 Development evaluation
 ```
 
-Reason: the U1 normalizer is learned statistical state. If it is fitted using Train observations after `T_fit_end`, future distribution information leaks into an otherwise time-OOS U2 evaluation even if no future return label is used.
+The U1 normalizer is learned statistical state. Fitting it with Train observations after `T_fit_end` would leak future distribution information into a time-OOS U2 evaluation even when no future return label is used.
 
-This design therefore treats the equality below as a Critical invariant:
+Critical equality:
 
 ```text
 U1 normalizer knowledge_cutoff
-  == U2 RL_TRAINING knowledge_cutoff
-  == T_fit_end
+  == U0 RL_TRAINING provenance knowledge_cutoff
+  == U2 T_fit_end
 ```
 
-A U1 artifact whose normalizer cutoff exceeds `T_fit_end` is not valid for this U2 generation.
+Any mismatch rejects the U2 generation before training.
 
 ## 3. Objective
 
-Build an auditable Base RL experiment that can answer, with fixed selection rules:
+Build an auditable Base RL experiment that can answer:
 
-1. whether the policy learns anything economically useful beyond staying flat;
-2. whether the result survives future time on seen Train symbols;
-3. whether the result transfers to unseen Development symbols in already-known market time;
-4. whether the result survives the hardest Development scope: unseen symbols in unseen future time;
-5. whether the conclusion is robust across stochastic training seeds;
-6. whether after-cost performance is not explained by one exceptional seed, symbol, or episode.
+1. whether a pure U1 policy learns economically useful behavior beyond Cash;
+2. whether that behavior survives future time on seen Train symbols;
+3. whether it transfers to unseen Development symbols in pre-cutoff time;
+4. whether it survives unseen Development symbols in future time;
+5. whether the result is robust across stochastic training seeds;
+6. whether aggregate profit is not explained by one seed, symbol, or episode;
+7. whether gross edge survives the maintained execution-cost path.
 
 ## 4. Non-goals
 
 U2 V1 does not:
 
-- search PPO/SAC/TD3 or other algorithm families;
-- tune architecture, learning rate, entropy, discount, GAE, batch size, or other model hyperparameters using Development results;
-- select the best seed;
-- select the best intermediate checkpoint;
-- fit or refit normalization on Development or Admission;
-- fine-tune on Development or Admission;
-- use Causal Alpha, Trend, BC, teacher actions, DAgger, anchored residual actions, or reward shaping;
+- compare PPO/SAC/TD3/TQC or other algorithm families;
+- tune architecture or hyperparameters from Development results;
+- use Behavior Cloning, teacher actions, Causal Alpha, DAgger, anchored residual actions, or Trend priors;
+- select a best seed;
+- select a best intermediate checkpoint;
+- use Development or Admission for normalization, gradient updates, calibration, threshold fitting, or reward tuning;
 - change U1 Observation / Action / Reward semantics;
+- reintroduce instrument descriptors or V4 cross-market context;
 - perform 1-minute execution-fidelity research;
 - perform multi-asset portfolio allocation;
 - open Admission;
-- claim profitability, zero-shot production readiness, or Production GO.
+- claim profitability, live-market validity, or Production GO.
 
-Any later change to a scientific hyperparameter after observing Development results creates a **new U2 generation** and does not overwrite the rejected generation.
+A scientific change after Development is observed creates a **new U2 generation**. Rejected evidence is never overwritten.
 
-## 5. Maintained Architecture
+## 5. Existing Boundaries Reused
 
-U2 reuses existing maintained boundaries:
+U2 reuses:
 
 ```text
 U0 Universe / access firewall
@@ -99,115 +101,325 @@ U1 contract + normalizer + one-symbol environment
 EpisodeRoutedSingleInstrumentEnv
         |
         v
-existing framework adapter / PPO training path
+U2 authorized-episode wrapper
         |
         v
-one final checkpoint per seed
+maintained SB3 PPO infrastructure
         |
         v
-Development evaluator
+8 final checkpoints
+        |
+        v
+Development evaluator / gate
 ```
 
-No second Universal symbol router, execution engine, risk engine, accounting implementation, reward implementation, or normalizer implementation is introduced.
+No second symbol router, Risk engine, execution engine, accounting implementation, reward implementation, or normalizer implementation is introduced.
 
 `ResidualMarketEnv` remains the sole Risk / Execution / Accounting authority under U1.
 
-`EpisodeRoutedSingleInstrumentEnv` remains the symbol-routing authority. U2 V1 must instantiate it with:
+`EpisodeRoutedSingleInstrumentEnv` remains the symbol-routing authority and must be instantiated with:
 
 ```text
 instrument_context_provider = None
 v4_context_provider = None
 ```
 
-so concrete ticker identity, instrument descriptors, and cross-market V4 context do not re-enter the U1 policy surface.
+## 6. Discovered U1-to-PPO Boundary
 
-## 6. Algorithm Contract
+The existing `hierarchical_sequence_v2` `SequenceAssetFeatureExtractor` is **not** the U2 policy encoder. It requires legacy structured keys including:
 
-U2 V1 uses the repository's maintained PPO/SB3 training path as the **single Base RL candidate**.
+```text
+current_snapshot
+asset_state
+global_state
+active
+current_weights
+```
 
-This is not a claim that PPO is optimal. It is chosen because U2 is testing the Universal policy/environment hypothesis, not conducting an algorithm tournament, and the repository already has maintained PPO training, checkpoint, resume, and capability infrastructure.
+U1 intentionally replaces those legacy planes with one versioned `policy_state` vector. Reintroducing the legacy keys would undermine the U1 contract.
 
-The complete PPO model/training configuration must be stored in one canonical `model_config_digest` before any Development evaluation begins.
+U2 therefore introduces one narrow policy-side adapter:
 
-No field that can materially change learning dynamics may be omitted from the digest. At minimum it binds:
+```text
+UniversalTradeSequenceFeatureExtractor
+```
 
-- algorithm and implementation/version identity;
-- policy architecture and feature extractor identity;
-- optimizer and learning rate schedule;
-- discount / GAE semantics;
-- rollout length;
-- batch size;
-- epoch count;
-- clipping semantics;
-- entropy/value coefficients;
-- gradient clipping;
-- observation/action spaces and U1 contract digest;
-- training budget;
-- environment count and routing semantics;
-- deterministic seed derivation schema.
+It consumes only the exact U1 observation keys and reuses existing causal temporal/fusion primitives. It does not change the U1 environment.
 
-The exact numeric hyperparameter values are a configuration freeze task for the implementation plan. U2 V1 permits one precommitted configuration only; Development cannot choose among multiple values.
+## 7. U2 V1 Policy Architecture
 
-## 7. Universe Contract
+### 7.1 Input surface
+
+The extractor accepts exactly:
+
+```text
+sequence_15m_values / available / staleness
+sequence_1h_values  / available / staleness
+sequence_4h_values  / available / staleness
+sequence_1d_values  / available / staleness
+policy_state
+```
+
+No concrete symbol string, dataset ID, instrument descriptor, alpha output, Trend state, baseline/shadow state, remaining horizon, or Admission identity may enter the tensor path.
+
+### 7.2 Timeframe encoding
+
+For each maintained timeframe:
+
+```text
+input_t = concat(
+  normalized_values,
+  availability_float,
+  log1p(staleness_hours)
+)
+```
+
+The implementation reuses:
+
+- `CausalTimeframeEncoder`;
+- `CrossTimeframeFusion`;
+- `sequence_encoder_widths("standard")`.
+
+Fixed latent widths:
+
+```text
+15m = 192
+1h  = 192
+4h  = 160
+1d  = 128
+```
+
+Fixed fusion configuration:
+
+```text
+d_model = 336
+timeframe_attention_heads = 8
+timeframe_attention_layers = 2
+timeframe_ffn_multiplier = 3
+timeframe_gate_bias = -2.0
+sequence_dropout = 0.05
+```
+
+There is no cross-asset attention because U1 has one instrument slot.
+
+### 7.3 Policy-state context
+
+`policy_state` width and field order are taken from the frozen U1 state-layout digest, never hard-coded independently.
+
+Two deterministic encoders are built from the same U1 state vector:
+
+```text
+context encoder:
+  state_width -> 256 -> 336
+
+global critic/context encoder:
+  state_width -> 256 -> 128
+```
+
+with LayerNorm + SiLU after hidden/projection layers.
+
+The 336-wide state context is supplied to `CrossTimeframeFusion` as the one-instrument context token.
+
+### 7.4 Reuse maintained bounded PPO policy
+
+U2 reuses `SharedPerAssetActorCriticPolicy` with:
+
+```text
+shared_actor_n_symbols = 1
+shared_actor_d_model = 336
+shared_actor_global_dim = 128
+shared_actor_head = "shared_target_v1"
+```
+
+The feature extractor emits the maintained policy layout:
+
+```text
+[fused instrument token]
+[pooled token]
+[128-wide state global]
+[distribution-active mask]
+[current_weight]
+```
+
+For U2 V1:
+
+- `distribution-active mask` is always `1.0`;
+- U1 `asset_active` and `tradable` remain explicit fields inside `policy_state`;
+- Risk/Execution, not the policy adapter, decide whether a requested target can execute;
+- `current_weight` is copied from the exact U1 state field and is also present in the versioned policy-state vector by design.
+
+The constant distribution mask prevents hidden policy-side zeroing of requests while retaining the maintained bounded action distribution implementation.
+
+### 7.5 No hierarchical Gate head
+
+U2 V1 does **not** use `hierarchical_gate_target_v1`.
+
+The actor learns the scalar normalized target exposure directly. Turnover suppression belongs to learned state dependence and the maintained Risk / Execution contract, not a second hidden Gate semantic.
+
+### 7.6 Strict bounded action invariant
+
+`SharedPerAssetActorCriticPolicy` already uses the maintained squashed Gaussian distribution. U2 requires rollout and deterministic actions to be finite and inside `[-1, +1]` **before** the environment receives them.
+
+External SB3 action-space clipping must be an identity operation. A test must prove that the value produced by the policy and the value received by the U1 strict action parser are equal within the exact float32 transport tolerance. U2 must not rely on external clipping to make invalid actions legal.
+
+## 8. Exact PPO Configuration
+
+U2 V1 has one preregistered configuration. It reuses the maintained Universal PPO resource profile where appropriate, removes BC/teacher-dependent behavior, and uses the U1-specific encoder above.
+
+```text
+algorithm = ppo
+timesteps = 524288
+gamma = 1.0
+learning_rate = 0.00012
+learning_rate_schedule = linear
+learning_rate_final_ratio = 0.1
+n_envs = 8
+n_steps = 128
+batch_size = 256
+n_epochs = 10
+gae_lambda = 0.95
+clip_range = 0.2
+normalize_advantage = true
+ent_coef = 0.0
+vf_coef = 0.5
+max_grad_norm = 0.5
+log_std_init = -0.5
+target_kl = 0.02
+use_sde = false
+policy = maintained bounded MultiInput PPO policy
+observation_encoder = universal_trade_sequence_v1
+policy_actor_head = shared_target_v1
+policy_net_arch = (384, 256, 128)
+value_net_arch = (512, 384, 256)
+sequence_tcn_capacity = standard
+sequence_d_model = 336
+sequence_timeframe_attention_heads = 8
+sequence_timeframe_attention_layers = 2
+sequence_timeframe_ffn_multiplier = 3
+sequence_timeframe_gate_bias = -2.0
+sequence_dropout = 0.05
+sequence_compile = false
+sequence_compile_mode = reduce-overhead
+sequence_transfer_mode = pinned_non_blocking
+vector_environment_mode = subprocess
+max_policy_parameters = 12000000
+max_rollout_buffer_bytes = 805306368
+checkpoint_interval_steps = 32768
+max_checkpoints = 8
+tensorboard_enabled = true
+tensorboard_log_interval = 1
+behavior_cloning_epochs = 0
+behavior_cloning_critic_warm_start_steps = 0
+behavior_cloning_joint_warm_start_steps = 0
+```
+
+`log_std_init=-0.5` intentionally uses the maintained pure-PPO default instead of the very low exploration scale used by the BC-initialized Universal U6 profile.
+
+Any change to these values is a new U2 model-config digest and therefore a new generation.
+
+## 9. U0 Universe Contract
 
 U2 consumes exactly one U0 materialized universe generation.
 
-Required role semantics:
-
-- `Train`: may contribute to normalization and RL training before `T_fit_end`;
-- `Development`: evaluation only; never contributes to fit or gradient updates;
-- `Admission`: inaccessible throughout U2 Base Training and Development Selection;
+- `Train`: normalization + RL training only inside FIT;
+- `Development`: evaluation only;
+- `Admission`: sealed and inaccessible to U2 execution;
 - `Excluded`: inaccessible.
 
-Role membership, source dataset identities, and U0 materialization identity are immutable for one U2 generation.
+Role membership and source identities are immutable for the generation.
 
-If a symbol lacks sufficient history for the frozen temporal contract, do not shorten the evaluation period after seeing results. Either:
+## 10. Deterministic Temporal Partition
 
-1. exclude it before the U0 generation is frozen; or
-2. create a new U0/U2 generation.
+### 10.1 Episode unit
 
-## 8. Global Temporal Partition
-
-### 8.1 Absolute timestamps, not per-symbol percentages
-
-All eligible symbols use the same UTC boundaries:
+The unit is the U1 fixed horizon:
 
 ```text
-T_data_start < T_fit_end < T_dev_end <= T_data_end
+E = 720 hours
 ```
 
-The main intervals are:
+Fixed counts:
 
 ```text
-FIT = [T_data_start, T_fit_end]
-DEV = (T_fit_end, T_dev_end]
+DEV_EPISODES = 12
+SEALED_EPISODES = 12
+MIN_TRAIN_FIT_EPISODES = 24
+G2_FIT_EPISODES = 12
 ```
 
-A later sealed time interval may be reserved for post-Development research/Admission design, but U2 Development Selection itself does not open Admission.
+Therefore DEV and reserved SEALED time are each 8640 hours (360 days), aligned to complete U1 horizons.
 
-Per-symbol 70/15/15 percentage splits are forbidden because listing dates differ and would place symbols in different market regimes.
+### 10.2 Boundary derivation
 
-### 8.2 Minimum intended duration
+Temporal boundaries are derived from the frozen U0 manifest/source identities, not chosen after economic inspection.
 
-Production-candidate boundary selection should target, where available:
+Let:
 
-- FIT: at least 24 months;
-- DEV: at least 12 months;
-- later SEALED time: at least 12 months.
+```text
+T_sealed_end = minimum last_timestamp_ns across
+               Train + Development + Admission source identities
 
-These are design targets, not permission to invent dates without inspecting the production source catalog. Final UTC timestamps are frozen only after catalog coverage is audited.
+T_dev_end = T_sealed_end - 12 * E
+T_fit_end = T_dev_end    - 12 * E
+```
 
-### 8.3 Complete episode semantics
+All timestamps must lie on the maintained 15-minute clock. A non-aligned source identity fails materialization.
 
-U1 uses a fixed 720-hour episode horizon. Training and evaluation include only complete episodes whose required causal observation history and complete economic execution interval lie inside the authorized temporal scope.
+Only U0 source identity metadata may be consulted to derive these cutoffs. Admission price/feature arrays and economic outcomes remain unopened.
 
-No episode may cross from FIT into DEV.
+### 10.3 Exact period semantics
 
-Boundary fragments are excluded deterministically and their exclusion count is evidence.
+- FIT episode: final accounting timestamp `<= T_fit_end`;
+- DEV episode: initial decision timestamp `>= T_fit_end` and final accounting timestamp `<= T_dev_end`;
+- SEALED episode: initial decision timestamp `>= T_dev_end` and final accounting timestamp `<= T_sealed_end`.
 
-## 9. Two-dimensional Generalization Matrix
+Lookback observations may naturally reference earlier timestamps. No reward, execution, or next-state accounting may cross the period's final cutoff.
 
-Development evidence is separated into three scopes before aggregation.
+### 10.4 Coverage requirements
+
+Before training:
+
+- every Train symbol must expose at least 24 valid complete FIT episodes;
+- every Train symbol must expose all 12 fixed DEV evaluation episodes for G1;
+- every Development symbol must expose the fixed latest 12 FIT episodes used by G2;
+- every Development symbol must expose all 12 DEV episodes used by G3;
+- Admission source identity metadata must cover the reserved 12-episode SEALED interval.
+
+If coverage fails, do not shorten periods in place. Change the universe before freeze or create a new U0/U2 generation.
+
+### 10.5 Fixed evaluation episode grids
+
+G1 and G3 use the same 12 non-overlapping DEV episode intervals anchored by `[T_fit_end, T_dev_end]`.
+
+G2 uses the latest 12 non-overlapping FIT episode intervals ending at `T_fit_end`.
+
+The episode grid is part of the temporal-contract digest.
+
+## 11. Authorized Episode Planning API
+
+U2 must not duplicate the maintained environment's episode-validity logic.
+
+Before U2 training, U1 must expose a read-only episode-planning surface equivalent to:
+
+```text
+valid_episode_starts()
+episode_end_index(start_index)
+```
+
+for the fixed U1 720h contract, backed by the maintained episode sampler.
+
+This API changes no economics and exposes no policy input. U2 uses it to create immutable per-symbol authorized FIT start sets and fixed Development episode plans.
+
+Training child environments are wrapped by a thin U2 authorized-episode wrapper that:
+
+- samples only from the precomputed Train/FIT authorized starts;
+- forbids caller override to a non-authorized start;
+- records the chosen start/end and temporal-contract digest;
+- delegates exactly once to the U1 child environment.
+
+The existing symbol router is unchanged.
+
+## 12. Two-dimensional Generalization Matrix
 
 ```text
                        SYMBOL
@@ -219,364 +431,405 @@ DEV time      | G1 time-OOS   | G3 joint-OOS       |
               +---------------+--------------------+
 ```
 
-Definitions:
-
-### G1 — Time generalization
+### G1 — time-OOS
 
 ```text
 symbols = U0 Train
-period  = DEV
+period  = fixed 12 DEV episodes
 ```
 
-Tests future-time behavior on symbols seen during training.
-
-### G2 — Symbol generalization
+### G2 — symbol-OOS
 
 ```text
 symbols = U0 Development
-period  = FIT
+period  = latest fixed 12 FIT episodes
 ```
 
-Tests unseen symbols in a market period whose broad regime could overlap training.
-
-### G3 — Joint generalization — PRIMARY
+### G3 — joint-OOS — PRIMARY
 
 ```text
 symbols = U0 Development
-period  = DEV
+period  = fixed 12 DEV episodes
 ```
 
-Tests unseen symbols in future time. G3 is the primary U2 generalization scope.
+G1/G2/G3 are always reported separately. Strong G1/G2 cannot compensate for failed G3.
 
-G1, G2, and G3 must remain separately reported. A strong G1 result cannot compensate for a failed G3 result.
+## 13. Fit Firewall
 
-## 10. Fit Firewall
-
-Only this cell may update learned/statistical state:
+Only:
 
 ```text
 U0 Train x FIT
 ```
 
-The following are prohibited inputs to all fit/update operations:
+may update learned/statistical state.
+
+Forbidden as fit/update input:
 
 - Train x DEV;
 - Development x FIT;
 - Development x DEV;
-- all Admission rows;
-- all Excluded rows.
+- all Admission;
+- all Excluded.
 
-The rule applies to:
+This covers:
 
 - feature normalization;
-- RL gradient updates;
-- optimizer state updates;
-- architecture or hyperparameter choice;
-- reward coefficient choice;
-- calibration;
-- population thresholds;
-- early-stopping performance criteria;
+- PPO gradients;
+- optimizer state;
+- architecture/hyperparameter selection;
+- reward coefficients;
+- calibration/threshold fitting;
+- performance early stopping;
 - checkpoint selection.
 
-## 11. U1 Dependency Contract
+Training-only diagnostics may detect implementation failure, NaN, zero gradients, or resource failure. They may not compare economic candidate performance because U2 has only one candidate.
 
-U2 requires a frozen U1 generation that passes its own Quality Gate.
+## 14. U1 Dependency Contract
 
-At minimum U2 verifies:
+U2 accepts only a frozen U1 generation that passes U1 Quality Gate.
 
-- U1 contract digest;
-- U1 normalizer digest;
-- U1 normalizer provenance digest;
-- U0 universe manifest digest;
-- U0 materialization identity digest;
-- U1 observation/state/action/reward digests;
-- runtime/Risk/Execution identities bound by the final U1 contract;
-- `production_status = NO-GO` remains unchanged.
+Required checks include:
 
-Additionally:
+- U0 universe/materialization digests;
+- U1 contract/artifact/normalizer/provenance digests;
+- exact observation/action/reward/state-layout identities;
+- U1 runtime/Risk/Execution identities;
+- unavailable market values are zeroed on the policy-facing value plane regardless of raw placeholder;
+- U1 normalizer is present; `normalizer=None` is forbidden for Base Training;
+- `U1.normalizer.knowledge_cutoff_ns == T_fit_end`;
+- `production_status = NO-GO`.
 
-```text
-U1 normalizer.knowledge_cutoff_ns == T_fit_end
-```
+## 15. Seed Contract
 
-must hold exactly.
+### 15.1 No circular seed identity
 
-U2 must not accept a debug U1 environment with `normalizer=None` as a Base Training environment.
-
-## 12. Seed Contract
-
-### 12.1 Exactly eight training seeds
-
-U2 V1 trains exactly eight stochastic runs.
-
-The seeds are not manually chosen and are not chosen after observing returns.
-
-Canonical derivation:
+Seeds are derived before the final U2 contract digest from a seed namespace that excludes the resolved seed vector.
 
 ```text
-seed_i = uint32(
-  SHA256(
-    u2_contract_digest
-    || "universal_trade_rl_u2_seed_v1"
-    || i
-  )[0:8]
-)
-
-for i = 0..7
+seed_namespace_digest = SHA256(canonical_json({
+  schema_version: "universal_trade_rl_u2_seed_namespace_v1",
+  universe_manifest_digest,
+  u1_artifact_digest,
+  temporal_contract_digest,
+  model_config_digest,
+  seed_count: 8
+}))
 ```
 
-The implementation must specify exact byte/string serialization and collision handling. The resolved ordered seed vector is persisted in the U2 contract before training.
+For `i = 0..7`:
 
-### 12.2 No best-seed selection
+```text
+seed_digest_i = SHA256(canonical_json({
+  schema_version: "universal_trade_rl_u2_seed_v1",
+  seed_namespace_digest,
+  index: i
+}))
 
-Every seed produces one final policy checkpoint. All eight are part of the scientific result.
+seed_i = unsigned big-endian uint32(first 4 bytes of seed_digest_i)
+```
+
+If any collision occurs among the eight resolved seeds, materialization fails closed. It does not silently probe another seed.
+
+The ordered seed vector is then bound into the final U2 contract digest.
+
+### 15.2 Seed domains
+
+Each resolved seed deterministically binds:
+
+- SB3/PPO seed;
+- Python/NumPy/Torch seed inputs where maintained APIs expose them;
+- Universal router `run_seed`;
+- child-environment episode sampling seed derivation;
+- execution RNG seed derivation.
+
+U2 does not claim bit-for-bit CUDA determinism unless separately verified. Seed robustness is part of the scientific evidence.
+
+### 15.3 No best seed
+
+Every technically valid completed seed is evidence.
 
 Forbidden:
 
 - selecting the best Development seed;
-- discarding a weak seed as a failed training run when it completed validly;
-- replacing a weak seed with an additional seed;
-- changing the seed vector after any economic result is observed.
+- discarding a poor seed;
+- replacing a poor seed with an extra seed;
+- changing the seed vector after any Development result.
 
-A technical execution failure may be rerun only under the exact same run identity and seed. A successfully completed but economically poor seed is evidence, not a retry condition.
+A technical failure may rerun only the exact same seed/run identity.
 
-## 13. Symbol Routing Contract
+## 16. Symbol Routing Contract
 
-Use `DeterministicBalancedInstrumentRouter` without a second routing algorithm.
+Use `DeterministicBalancedInstrumentRouter` unchanged.
 
 Invariant:
 
-> In every complete routing cycle for each environment, each Train symbol appears exactly once.
+> Every complete routing cycle per environment contains each Train symbol exactly once.
 
-The U2 training evidence records, per environment and seed:
+Persist per seed/environment:
 
 - completed episode count;
-- routing cycle;
-- symbol episode counts;
-- incomplete final cycle, if any.
+- routing cycle/position evidence;
+- per-symbol episode count;
+- deterministic incomplete final cycle, if any.
 
-Training budget should be expressed so the final intended budget ends on complete routing cycles where practical. If the framework budget cannot terminate exactly at a cycle boundary, the deterministic remainder is recorded and must not be chosen based on performance.
+No symbol receives higher routing probability because its history is longer.
 
-## 14. Training Budget / Checkpoint Contract
+## 17. Training Budget / Checkpoint Contract
 
-One training budget is fixed in the U2 model config before Development evaluation.
+The fixed budget is `524288` SB3 timesteps per seed.
 
-Intermediate checkpoints may exist only for:
+Intermediate checkpoints at the fixed checkpoint cadence exist for:
 
 - crash recovery;
 - NaN/divergence diagnostics;
-- learning-curve evidence;
-- reproducible resume.
+- learning curves;
+- exact resume.
 
-They are **not candidates**.
+They are never Development candidates.
 
-Development evaluates only the canonical final checkpoint for each seed.
+Only the canonical final checkpoint is performance-eligible.
 
-Forbidden:
+If the budget is changed after Development, that is a new generation.
 
-```text
-20% / 40% / 60% / 80% / 100% checkpoints
-  -> evaluate all
-  -> choose best
-```
+## 18. Baselines
 
-If the fixed budget is later judged inadequate after observing Development, the next budget is a new U2 generation.
+Evaluate on every G1/G2/G3 leaf with the same economic authority:
 
-## 15. Baselines
+1. `CASH_FLAT` — requested target always zero;
+2. `BUY_AND_HOLD_LONG` — fixed long target under the same Risk / Execution path;
+3. `TREND_BASELINE` — maintained TrendStrategy only as an external benchmark.
 
-At minimum evaluate these fixed baselines on every G1/G2/G3 scope under the same economic simulator contract:
+Baseline comparisons use identical:
 
-1. `CASH_FLAT` — target exposure always zero;
-2. `BUY_AND_HOLD_LONG` — long exposure under the same U1 Risk / Execution / cost contract;
-3. `TREND_BASELINE` — existing maintained TrendStrategy used only as an external benchmark.
+- episode timestamps;
+- source data;
+- fees/spread/impact;
+- liquidity and partial fills;
+- funding/borrow;
+- Risk/margin semantics;
+- terminal accounting semantics.
 
-TrendStrategy must not enter the U1 policy observation, reset state, reward, or action composition.
+Trend never enters U1 policy input, reset state, reward, or action composition.
 
-Baseline comparison must use equivalent:
+## 19. Immutable Economic Leaf
 
-- timestamps and episode boundaries;
-- fees;
-- spread;
-- impact/slippage;
-- liquidity / participation constraints;
-- funding;
-- borrow cost;
-- Risk / margin rules where semantically applicable.
-
-A cheaper execution path for a baseline is not a valid comparison.
-
-## 16. Economic Evidence Unit
-
-The atomic evaluation record is:
+Atomic record:
 
 ```text
-(seed, scope, symbol, episode)
+(seed, scope, symbol, episode_index)
 ```
 
-For each record persist at minimum:
+Persist:
 
+- episode start/end timestamps;
 - initial/final wealth;
-- after-cost net return / net log growth;
-- gross return where available;
-- maximum drawdown;
-- turnover;
+- gross return;
+- after-cost net return and net log growth;
+- Cash/BuyHold/Trend corresponding metrics;
+- drawdown;
+- turnover and turnover/day;
 - execution cost;
 - funding PnL;
 - borrow cost;
-- fill/rebalance/trade counts;
+- requested/executed/filled target evidence;
+- trade/rebalance/fill counts;
 - termination reason;
-- hard Risk violations;
-- unexplained execution rejections;
-- policy / environment / source identities.
+- hard Risk violation count;
+- execution rejection reasons;
+- policy/environment/source/contract identities.
 
-Aggregate summaries must remain reconstructible from immutable leaf records.
+Aggregate evidence must be exactly reconstructible from leaf records.
 
-## 17. Statistical Aggregation
+## 20. Statistical Aggregation
 
-U2 must not reduce eight seeds and multiple symbols to one unqualified mean.
+### 20.1 Equal-symbol and seed-robust aggregation
 
-Required evidence includes:
+Do not pool raw rows or treat repeated seeds on the same market episode as independent time samples.
 
-- per-seed metrics;
-- per-symbol metrics;
-- per-episode metrics;
-- median across seeds;
-- worst valid seed;
-- positive-seed fraction;
-- median across symbols;
-- positive-symbol fraction;
-- lower-tail / CVaR-style evidence;
-- moving-block or other time-dependence-aware bootstrap interval for the primary after-cost excess-return statistic.
+For each scope:
 
-The existing seed robustness / block-bootstrap infrastructure should be reused where its contracts match, rather than implementing a second incompatible statistics stack.
+1. compute each seed/symbol's compound episode net log growth;
+2. retain all eight seed results;
+3. report seed median and worst valid seed;
+4. report per-symbol median across seeds;
+5. equal-weight symbols in cross-symbol summaries.
 
-All bootstrap seeds, block-size rules, resample counts, and aggregation formulas are precommitted in the U2 contract.
+### 20.2 G3 primary time series
 
-## 18. Development Gate
+For each of the 12 fixed DEV episodes `j`:
 
-Development is a rejection gate for the single frozen U2 V1 candidate.
+```text
+leaf_excess(seed, symbol, j)
+  = policy_net_log_growth
+    - CASH_FLAT_net_log_growth
 
-### 18.1 Structural Hard Gate
+symbol_episode_excess(symbol, j)
+  = median over 8 seeds of leaf_excess
 
-Any of the following rejects the generation before profitability interpretation:
+primary_excess(j)
+  = median over Development symbols of symbol_episode_excess
+```
+
+This yields exactly 12 ordered time observations. Seed repetitions are collapsed before the time-series significance calculation.
+
+### 20.3 Bootstrap
+
+Use the existing moving-block mean test with fixed parameters:
+
+```text
+n_bootstrap = 2000
+block_size = 3 episodes
+confidence interval = existing 2.5% / 97.5% implementation
+bootstrap_seed = uint32(first 4 bytes of SHA256(
+  seed_namespace_digest || "u2-development-bootstrap-v1"
+))
+```
+
+The bootstrap configuration is identity-bound. Development results cannot change it.
+
+## 21. Development Gate
+
+Development is a rejection gate for one frozen configuration.
+
+### 21.1 Structural Hard Gate
+
+Any of the following invalidates the run/evidence before economic interpretation:
 
 - NaN/Inf policy output, reward, wealth, or required metric;
 - U0/U1/U2 identity mismatch;
 - source/provenance drift;
-- observation/action/reward contract violation;
-- unauthorized Development/Admission fit/update;
-- unexplained execution rejection;
-- hard Risk violation;
-- insolvency;
-- margin-call termination caused by a valid policy trajectory;
+- unauthorized fit/update;
+- U1 contract violation;
+- policy action outside `[-1,+1]` before environment transport;
+- hidden external action clipping changing the policy action;
 - missing required seed/symbol/episode evidence;
-- retry/replacement of an economically poor but technically valid seed.
+- unexplained execution rejection;
+- hard Risk invariant violation;
+- evidence overwrite/tamper;
+- economically poor seed retry/replacement.
 
-### 18.2 Economic Gate V1
-
-The following are the proposed U2 V1 preregistered gates.
-
-#### G1
+### 21.2 G1 gate
 
 ```text
-median seed after-cost excess net growth vs CASH_FLAT > 0
+median across 8 seed-level G1 excess net log growth vs CASH_FLAT > 0
 ```
 
-#### G2
+### 21.3 G2 gate
 
 ```text
-median seed after-cost excess net growth vs CASH_FLAT > 0
+median across 8 seed-level G2 excess net log growth vs CASH_FLAT > 0
 ```
 
-#### G3 — primary
+### 21.4 G3 primary gate
 
-All must hold:
+All conditions are required:
 
 ```text
-median seed after-cost excess net growth vs CASH_FLAT > 0
-95% time-aware bootstrap lower bound of primary excess statistic > 0
+median across 8 seed-level G3 excess net log growth vs CASH_FLAT > 0
+mean(primary_excess[12 episodes]) > 0
+moving-block bootstrap lower_ci(primary_excess) > 0
 positive seed count >= 6 / 8
-median symbol after-cost net growth > 0
-positive Development-symbol fraction >= 0.60
+median Development-symbol absolute net log growth > 0
+positive Development-symbol excess-vs-Cash fraction >= 0.60
+minimum required G3 leaf net return >= -0.05
+for every seed: mean G3 turnover_per_day <= 1.0
+G3 economic termination count = 0
 ```
 
-#### Trend secondary gate
+The `-5%` episode floor and `1.0x/day` turnover ceiling reuse established repository research guardrails rather than being fitted to U2 Development.
+
+Economic termination includes drawdown-stop, minimum-equity, margin-call, execution-cost exhaustion, and insolvency. Such a result is economically rejected even when software behavior is correct.
+
+### 21.5 Trend secondary gate
+
+For Development acceptance also require:
 
 ```text
-G3 median after-cost excess net growth vs TREND_BASELINE > 0
+median across 8 seed-level G3 excess net log growth vs TREND_BASELINE > 0
 ```
 
-For U2 V1 this is a secondary gate, not permission to ignore a failed CASH/generalization gate.
+No significance claim versus Trend is made at U2; the requirement only prevents promoting a Base RL generation whose median result is weaker than the maintained simple strategy.
 
-### 18.3 Risk / concentration guardrails
+### 21.6 Buy-and-Hold
 
-Before final implementation, numeric thresholds for these fields must be frozen in the U2 contract from pre-Development rationale, not tuned to observed Development results:
+Buy-and-Hold is always reported but is diagnostic, not a U2 pass condition because long-market beta is not the Universal RL objective.
 
-- maximum per-episode drawdown;
-- worst-symbol net wealth floor;
-- lower-tail/CVaR loss limit;
-- maximum cost-to-gross-profit ratio when gross profit is positive;
-- maximum turnover / target-churn budget if required to prevent an execution-insensitive policy.
+## 22. Seed-level and Symbol-level Statistics
 
-The implementation plan must identify each threshold's independent rationale. It may reuse already preregistered repository risk limits where those semantics match U2. It must not derive thresholds from U2 Development outcomes.
+For each seed and scope:
 
-## 19. Selection Semantics
+1. sum non-overlapping episode log growth per symbol;
+2. compute equal-symbol median excess vs Cash;
+3. the seed is positive when this statistic is `> 0`.
 
-U2 V1 has exactly one candidate configuration.
+For each symbol and scope:
 
-Therefore Development produces only:
+1. sum its non-overlapping episode log growth per seed;
+2. take median across eight seeds;
+3. report absolute growth and excess vs every baseline.
+
+The positive Development-symbol fraction uses excess vs Cash.
+
+Worst seed, worst symbol, worst episode, and `minimum G3 leaf return` are always published even when the generation passes.
+
+## 23. Selection Semantics
+
+There is one U2 V1 candidate.
+
+Development result is only:
 
 ```text
-ACCEPT_FOR_NEXT_RESEARCH_STAGE
+DEVELOPMENT_ACCEPTED
 or
-REJECT_U2_GENERATION
+DEVELOPMENT_REJECTED
 ```
 
-It does not rank multiple model configurations.
+No ranking occurs.
 
-If rejected, diagnostics may identify why, for example:
+Failure diagnostics may classify:
 
-- no learned edge;
-- seen-symbol only performance;
+- no edge;
 - future-time failure;
-- symbol transfer failure;
+- symbol-transfer failure;
 - joint-OOS failure;
 - seed instability;
-- one-symbol concentration;
+- symbol concentration;
 - cost collapse;
-- downside/tail failure;
-- excessive target churn.
+- downside breach;
+- excessive turnover;
+- economic termination.
 
-Any scientific response that changes model/training semantics is a new generation with a new contract digest.
+Changing policy/training/gate semantics creates a new generation.
 
-## 20. Admission Firewall
+## 24. Admission Firewall
 
-U2 Development Selection must not open U0 Admission.
+U2 does not open Admission.
 
-Even if G1/G2/G3 pass, the result means only:
-
-> the frozen Base RL candidate survived the preregistered Development gate.
-
-It does not mean final zero-shot success.
-
-Admission requires a later explicit authorization artifact bound to:
-
-- U0 universe generation;
-- exact frozen U1 identity;
-- exact frozen U2 model config and seed vector;
-- exact Development evidence digest;
-- exact accepted candidate/policy-set identity;
-- no post-Development refit or threshold change.
-
-No normalization, gradient update, calibration, reward tuning, threshold tuning, seed selection, or checkpoint selection is permitted after Development acceptance and before Admission.
-
-## 21. U2 Artifact / Identity Contract
-
-The final implementation should produce canonical immutable artifacts analogous to U0/U1.
-
-Minimum logical artifacts:
+Even after Development acceptance:
 
 ```text
+Admission = CLOSED
+Production = NO-GO
+```
+
+A later authorization must bind:
+
+- U0 universe generation;
+- frozen U1 identity;
+- frozen U2 contract/model config/seed vector;
+- complete Development leaf/summary/decision digests;
+- accepted eight-policy set identity;
+- proof of no post-Development refit or threshold change.
+
+Between Development acceptance and Admission, no normalization, gradient update, calibration, reward tuning, threshold tuning, seed selection, or checkpoint selection is permitted.
+
+## 25. Artifact / Identity Contract
+
+Logical artifacts:
+
+```text
+u2_temporal_contract.json
 u2_contract.json
 u2_training_identity.json
 seeds.json
@@ -586,193 +839,226 @@ development/summary.json
 development/decision.json
 ```
 
-`u2_contract.json` must bind at minimum:
+`u2_temporal_contract.json` binds:
+
+- U0 universe/source identity digest;
+- episode semantic `720h`;
+- derivation schema;
+- `T_fit_end`, `T_dev_end`, `T_sealed_end`;
+- G1/G2/G3 fixed episode grids;
+- per-symbol authorized FIT start-set digests;
+- coverage evidence.
+
+`u2_contract.json` binds at minimum:
 
 - schema version;
-- U0 universe manifest/materialization digests;
-- U1 artifact / contract / normalizer digests;
-- `T_data_start`, `T_fit_end`, `T_dev_end`;
-- temporal-partition semantic version;
-- complete-episode rule;
-- model/training config digest;
+- U0 universe/materialization identities;
+- U1 artifact/contract/normalizer identities;
+- temporal-contract digest;
+- exact policy architecture digest;
+- exact PPO model-config digest;
 - exact training budget;
-- seed derivation schema and resolved ordered seed vector digest;
-- symbol router digest/semantics;
+- seed namespace and ordered seed-vector digest;
+- router semantics;
 - baseline identities;
-- evaluation scope definitions;
-- statistical aggregation identity;
-- Development gate thresholds;
-- software/code identity required for replay/resume acceptance;
+- statistical aggregation/bootstrap identity;
+- exact Development thresholds;
+- evaluator/gate code identity;
 - `production_status = NO-GO`.
 
-The U0 `BASE_TRAINING` run identity should bind at least:
+U0 `BASE_TRAINING` run identity binds:
 
 - U0 universe manifest digest;
 - U2 model config digest;
 - U1 FEATURE_NORMALIZATION provenance digest;
 - U0 `RL_TRAINING` provenance digest.
 
-The `RL_TRAINING` provenance cutoff must equal `T_fit_end`.
+## 26. Resume / Retry
 
-## 22. Resume / Retry Semantics
+Resume is accepted only when all immutable identity matches.
 
-Training and evaluation may resume only when immutable identity matches.
+A valid persisted final checkpoint is never retrained because performance is poor.
 
-A valid persisted final seed checkpoint must not be retrained simply because its Development performance is poor.
+A valid Development leaf is never recomputed and replaced after aggregate results are observed.
 
-A valid persisted evaluation leaf must not be recomputed and replaced after the aggregate result is observed.
+Crash between computation and durable publication may recompute the exact same leaf only under the exact same immutable inputs. Partial/corrupt/identity-drifted final evidence fails closed.
 
-Crash between computation and durable publication may cause exact-scope recomputation only if the eventual durable record is required to match all immutable inputs and identities.
+## 27. Invariants
 
-Corrupt, partial, unknown, or identity-drifted evidence fails closed; it is not silently repaired by overwriting final output.
-
-## 23. Invariants
-
-1. U0 Train/Development/Admission symbol roles remain disjoint.
-2. Only Train x FIT can contribute to normalization or RL gradient state.
-3. `U1.normalizer.knowledge_cutoff == RL_TRAINING.knowledge_cutoff == T_fit_end`.
-4. No training episode crosses `T_fit_end`.
-5. Development and Admission never update model/statistical state.
+1. U0 symbol roles remain disjoint.
+2. Only Train x FIT updates statistical/model state.
+3. U1 normalizer cutoff = RL training cutoff = `T_fit_end`.
+4. No training execution/reward crosses `T_fit_end`.
+5. Development/Admission never update model/statistical state.
 6. U1 Observation / Action / Reward semantics are unchanged.
-7. U2 training requires a real frozen U1 normalizer; `normalizer=None` is not a valid Base Training surface.
-8. Exactly one U2 V1 model/training configuration exists.
-9. Exactly eight precommitted training seeds exist.
-10. No best-seed selection.
-11. Exactly one performance-eligible final checkpoint per seed.
-12. No best-checkpoint selection.
-13. Train symbols are episode-balanced by the maintained router.
-14. G1/G2/G3 are evaluated and reported separately.
-15. G3 is the primary Development generalization scope.
-16. All economic comparisons are after cost.
-17. Baselines use comparable economic execution semantics.
-18. Aggregate evidence is reconstructible from immutable leaf records.
-19. Development failure cannot be converted into success by changing gates in place.
-20. Admission remains inaccessible throughout U2.
-21. Passing U2 does not imply profitability or Production readiness.
+7. U2 Base Training requires a frozen U1 normalizer.
+8. Policy input is exactly U1 observation; legacy structured planes are not reintroduced.
+9. U2 action is bounded before environment transport; no hidden clipping is required.
+10. One exact PPO configuration exists.
+11. Exactly eight precommitted seeds exist.
+12. No best-seed selection.
+13. One performance-eligible final checkpoint per seed.
+14. No best-checkpoint selection.
+15. Train symbols are balanced by the maintained router.
+16. Training episodes come only from authorized FIT start sets.
+17. G1/G2/G3 remain separate.
+18. G3 is primary.
+19. All comparisons are after cost.
+20. Baselines share equivalent economic execution semantics.
+21. Aggregate evidence reconstructs from immutable leaves.
+22. Development failure cannot be converted to success by editing gates in place.
+23. Admission remains inaccessible.
+24. U2 acceptance does not imply Production readiness.
 
-## 24. Primary Failure Modes
+## 28. Failure Modes
 
 ### Critical
 
-- U1 normalizer uses rows after `T_fit_end`;
-- RL gradient or optimizer state uses any non-Train or post-cutoff observation;
+- normalizer uses post-`T_fit_end` data;
+- RL update uses non-Train or post-cutoff state;
 - Development/Admission refit;
-- best seed / best checkpoint chosen after Development;
-- G3 definition changed after results;
-- Admission accessed before authorization;
-- identity drift or evidence overwrite;
-- reward/accounting mismatch inherited from invalid U1 generation.
+- legacy observation/prior reintroduced into U2 policy;
+- unbounded PPO action is legalized by external clipping;
+- best seed/checkpoint selected from Development;
+- G3/gates changed after results;
+- Admission accessed early;
+- identity drift/evidence overwrite.
 
 ### High
 
-- per-symbol percentage time splits create regime mismatch;
-- one long-history symbol dominates training episodes;
-- one seed or one symbol explains aggregate profit;
-- gross profit disappears after cost;
-- severe lower-tail loss despite positive average;
-- excessive turnover/target churn creates execution-fragile results;
-- evaluation baseline receives cheaper execution assumptions;
-- incomplete episode boundary handling differs across symbols.
+- symbol histories receive unequal routing probability;
+- evaluation episodes are not time-aligned;
+- one seed/symbol explains aggregate profit;
+- gross edge collapses after costs;
+- minimum episode return below `-5%`;
+- turnover exceeds `1.0x/day`;
+- economic termination occurs;
+- baseline uses cheaper execution assumptions;
+- bootstrap treats seed replicas as independent time samples.
 
 ### Medium
 
-- insufficient Development episode count for stable interval estimates;
-- bootstrap configuration too weak for serial dependence;
-- logging/checkpoint cadence adds large training overhead;
-- final budget ends with a small symbol-routing imbalance.
+- source coverage leaves too few complete FIT episodes;
+- training budget ends with a deterministic partial routing cycle;
+- checkpoint/logging overhead materially changes throughput;
+- GPU stochasticity prevents bitwise reproduction while statistical seed contract remains intact.
 
-## 25. Test Oracle
+## 29. Test Oracle
 
-Correctness is not "training completed".
+Correctness is not "PPO finished".
 
-Required observable oracles include:
+### Data/leakage
 
-### Data / leakage
+Observe:
 
-- exact authorized timestamp range for every fit sample;
-- exact Train symbol set for every fit sample;
-- normalizer cutoff equality;
+- exact authorized Train symbols;
+- exact episode start/end timestamps;
+- normalizer/RL cutoff equality;
 - zero Development/Admission fit provenance;
-- no episode crossing a temporal boundary.
+- zero training episode crossing FIT boundary.
+
+### Policy architecture
+
+Observe:
+
+- exact U1 keys only;
+- exact state-layout digest;
+- expected sequence shapes/dtypes;
+- no concrete symbol identity;
+- causal timeframe encoder source rows;
+- fixed architecture digest;
+- bounded pre-environment actions;
+- external clipping identity.
 
 ### Training
 
+Observe:
+
 - exact model config digest;
-- exact resolved seed vector;
-- exact per-seed training budget;
-- exact routing counts/cycles;
+- exact seed namespace/vector;
+- exact per-seed budget;
+- router cycle/symbol counts;
 - final checkpoint identity;
-- optimizer/resume identity where applicable.
+- resume identity.
 
 ### Evaluation
 
-- immutable `(seed, scope, symbol, episode)` leaf records;
-- independent recomputation of after-cost wealth from accounting evidence;
-- G1/G2/G3 scope membership;
+Observe:
+
+- complete immutable leaf set;
+- independent wealth/accounting reconciliation;
+- exact G1/G2/G3 membership;
 - baseline parity;
-- deterministic aggregate/gate recomputation from leaf evidence.
+- exact aggregation reproduction.
 
 ### Selection
 
-- only final checkpoints evaluated for promotion eligibility;
-- no omitted valid seed;
-- no Development-driven retry;
-- fixed gate thresholds before Development read;
-- `development_decision` reproducible byte-for-byte from frozen inputs.
+Observe:
 
-## 26. Required Test Layers
+- only final checkpoints are performance-eligible;
+- all eight valid seeds included;
+- no economic retry;
+- exact precommitted gates;
+- deterministic `development_decision` from immutable inputs.
 
-- Unit: temporal contract, seed derivation, identity codecs, gate arithmetic;
-- Property: boundary timestamps, seed uniqueness/determinism, symbol routing balance;
-- Integration: U0 -> U1 -> U2 training factory; U1 cutoff equality; Base Training provenance;
-- Falsification: Development leakage, future-normalizer leakage, best-seed substitution, best-checkpoint substitution, missing leaf, tampered identity;
-- Economic integration: fees/spread/impact/funding/borrow and margin behavior;
-- Compatibility: existing U0/U1 and maintained PPO/universal router paths;
-- Static Analysis: Ruff, format, MyPy, import architecture;
+## 30. Required Test Layers
+
+- Unit: temporal derivation, episode plans, seed derivation, codecs, gate arithmetic;
+- Property: timestamp boundaries, seed determinism/uniqueness, routing balance;
+- Policy unit: U1 extractor shapes, state transform binding, action boundedness;
+- Integration: U0 -> temporal -> U1 -> U2 environment/model assembly;
+- PPO integration: rollout action transport, log-prob reevaluation, final checkpoint/resume;
+- Falsification: post-cutoff normalizer, Development leakage, start override, seed substitution, checkpoint substitution, missing/tampered leaf;
+- Economic integration: fee/spread/impact/funding/borrow/margin;
+- Compatibility: U0/U1, existing router, maintained PPO policy/distribution;
+- Static: Ruff, format, MyPy, import architecture;
 - Full suite;
 - package build;
 - exact-final-HEAD CI;
 - independent/falsification review.
 
-## 27. Acceptance Criteria
+## 31. Acceptance Criteria
 
-U2 V1 may be called software-complete only when all of the following are evidenced on one exact final HEAD:
+U2 software is complete only when all are evidenced on one exact final HEAD:
 
-1. One frozen U0 universe generation is bound.
-2. One frozen temporal contract is bound.
-3. Production-candidate absolute UTC boundaries are evidence-backed from source coverage.
-4. U1 final normalizer cutoff equals `T_fit_end`.
-5. U1 Quality Gate is complete with no unresolved substantive finding relevant to U2.
-6. U2 accepts no `normalizer=None` Base Training environment.
-7. Only Train x FIT can fit/update.
-8. Exact fixed PPO configuration is canonical and identity-bound.
-9. Exact eight-seed vector is deterministic and frozen before training.
-10. Each seed receives the same fixed training budget.
-11. Maintained balanced symbol router is used.
-12. No intermediate checkpoint is performance-selected.
-13. Exactly one final checkpoint per valid seed is promotion-eligible.
-14. G1/G2/G3 scopes are immutable and independently auditable.
-15. CASH, Buy-and-Hold, and Trend baselines are comparable after-cost evaluations.
-16. Immutable leaf evaluation evidence exists for every required scope/seed/symbol/episode.
-17. Aggregate summaries reproduce exactly from leaf evidence.
-18. Structural Hard Gate is implemented fail-closed.
-19. Economic gate calculations and thresholds are preregistered and tested.
-20. Poor but valid seeds cannot be retried/replaced.
-21. Development cannot trigger refit or in-generation threshold change.
-22. Admission is inaccessible.
-23. Targeted/Property/Integration/Falsification/Compatibility tests pass.
-24. Ruff, format, MyPy, import architecture, full suite, package build pass.
-25. Self-review and independent/falsification review find no unresolved substantive issue.
-26. Required CI is green on the exact final HEAD.
-27. Final report distinguishes software validity from economic acceptance.
+1. One frozen U0 generation is bound.
+2. Temporal boundaries are deterministically derived from frozen source identity metadata.
+3. Exact 12 DEV and 12 reserved SEALED 720h periods are frozen.
+4. Train/Development coverage requirements pass before training.
+5. U1 final normalizer cutoff equals `T_fit_end`.
+6. U1 Quality Gate is complete for all U2-relevant findings.
+7. U1 missing-value policy invariant is fixed and tested.
+8. `normalizer=None` is rejected for U2 Base Training.
+9. Only Train x FIT can fit/update.
+10. U1 episode-planning read API exists and matches maintained sampler behavior.
+11. U2 authorized episode wrapper cannot escape FIT.
+12. U2 extractor consumes only exact U1 observation keys.
+13. Existing causal timeframe/fusion primitives are reused rather than duplicated.
+14. Exact U2 architecture/model config is identity-bound.
+15. Policy actions are valid before environment transport.
+16. Exact eight-seed vector is deterministic and frozen.
+17. Every seed receives `524288` timesteps.
+18. Maintained balanced symbol router is used.
+19. No intermediate checkpoint is performance-selected.
+20. Exactly one final checkpoint per valid seed is performance-eligible.
+21. G1/G2/G3 episode grids are immutable and auditable.
+22. Cash/BuyHold/Trend baseline replay is economically comparable.
+23. Complete immutable leaf evidence exists.
+24. Aggregate/Bootstrap results reproduce from leaves.
+25. Structural Hard Gate is fail-closed.
+26. Exact economic gates are tested, including `6/8`, `60%`, `-5%`, `1.0x/day`, and zero economic termination.
+27. Poor but valid seeds cannot be retried/replaced.
+28. Development cannot trigger refit or in-generation gate change.
+29. Admission remains inaccessible.
+30. Targeted/Property/Integration/Falsification/Compatibility tests pass.
+31. Ruff, format, MyPy, import architecture, full suite, package build pass.
+32. Self-review and independent/falsification review have no unresolved substantive finding.
+33. Required CI is green on the exact final HEAD.
+34. Final report separates software validity from economic acceptance.
 
-## 28. Development Economic Acceptance
-
-Software completion and economic acceptance are separate states.
+## 32. Development Outcome States
 
 ### Software valid, economic reject
-
-If all software Quality Gates pass but Development economic gates fail:
 
 ```text
 U2 software = VALID
@@ -781,46 +1067,48 @@ Admission = CLOSED
 Production = NO-GO
 ```
 
-The rejection is a successful scientific result and must remain durable.
+The rejection is a successful scientific result and remains durable.
 
-### Software valid, Development accept
-
-If all software and preregistered Development gates pass:
+### Software valid, economic accept
 
 ```text
 U2 software = VALID
 U2 generation = DEVELOPMENT_ACCEPTED
-Admission = STILL CLOSED
+Admission = CLOSED
 Production = NO-GO
 ```
 
-A separate later design/authorization is required to open Admission.
+A separate later authorization/design is required to open Admission.
 
-## 29. What U2 Can and Cannot Claim
+## 33. Claims Allowed After Development Acceptance
 
-If U2 passes Development, it can support the limited statement:
+Allowed limited statement:
 
-> Under one frozen U0/U1/U2 contract, the eight-seed Base PPO policy set showed preregistered positive after-cost Development generalization, including unseen Development symbols in the future DEV interval, without best-seed or best-checkpoint selection.
+> Under one frozen U0/U1/U2 contract, all eight preregistered Base PPO runs were evaluated without best-seed or best-checkpoint selection, and the policy set passed the preregistered after-cost Development gates including unseen Development symbols in future time.
 
-It still cannot claim:
+Not established:
 
-- final zero-shot performance;
-- robustness to an unopened Admission universe;
-- live-market profitability;
-- execution parity at 1-minute or tick fidelity;
+- final zero-shot Admission performance;
+- unseen later-regime robustness beyond the reserved but unopened SEALED interval;
+- live profitability;
+- 1-minute/tick execution fidelity;
 - Production readiness;
-- superiority to all alternative strategies or RL algorithms.
+- superiority to all other strategies or RL algorithms.
 
-## 30. Handoff to Implementation Planning
+## 34. Implementation Handoff
 
-Before writing the implementation plan, the remaining design-time values that must be resolved from evidence are:
+No scientific degree of freedom remains to be chosen from U2 Development results.
 
-1. production-candidate source catalog coverage;
-2. exact `T_data_start`, `T_fit_end`, `T_dev_end` UTC timestamps;
-3. exact fixed PPO hyperparameter configuration and training budget;
-4. exact time-aware bootstrap configuration;
-5. preregistered numeric drawdown/tail/cost/turnover guardrails.
+Implementation planning must now specify tasks for:
 
-These values must be resolved without reading U2 Development economic outcomes.
+1. U1 episode-planning read API and remaining U1 Quality Gate closure;
+2. temporal-contract materializer;
+3. U2 authorized episode wrapper;
+4. `UniversalTradeSequenceFeatureExtractor` and model assembly;
+5. exact seed/run identity;
+6. Base PPO training/resume artifacts;
+7. deterministic G1/G2/G3 evaluator and baseline replay;
+8. immutable Development leaves/aggregation/gate;
+9. falsification and full Quality Gate.
 
-Implementation must then follow Red -> Green -> Refactor and preserve this contract. A test failure is not permission to weaken these gates.
+All implementation changes follow Red -> Green -> Refactor. Test failure is not permission to weaken this design.

@@ -11,8 +11,15 @@ from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.rl.actions import ActionMode, ActionSpec, ActionValidationMode
 from trade_rl.rl.environment_config import EpisodeBoundaryMode, ResidualMarketEnvConfig
 from trade_rl.rl.rewards import RewardConfig
-from trade_rl.rl.universal_trade_contract import UNIVERSAL_TRADE_SEQUENCE_WINDOWS
-from trade_rl.rl.universal_trade_environment import UniversalTradeMarketEnv
+from trade_rl.rl.universal_normalization import UniversalTradeSequenceNormalizer
+from trade_rl.rl.universal_trade_contract import (
+    UNIVERSAL_TRADE_SEQUENCE_WINDOWS,
+    UniversalTradePolicyContract,
+)
+from trade_rl.rl.universal_trade_environment import (
+    UniversalTradeEnvironment,
+    UniversalTradeMarketEnv,
+)
 from trade_rl.rl.universal_trade_runtime import UniversalTradeRuntimeSnapshot
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.trend import TrendConfig, TrendStrategy
@@ -162,6 +169,30 @@ def make_u1_base_env(
                 ExecutionCostConfig.zero() if execution_cost is None else execution_cost
             ),
         ),
+    )
+
+
+def make_u1_wrapper(
+    *,
+    dataset: MarketDataset | None = None,
+    max_abs_weight: float = 1.0,
+    execution_cost: ExecutionCostConfig | None = None,
+    contract: UniversalTradePolicyContract | None = None,
+    normalizer: UniversalTradeSequenceNormalizer | None = None,
+) -> UniversalTradeEnvironment:
+    resolved_contract = (
+        UniversalTradePolicyContract(feature_specs=make_u1_feature_specs())
+        if contract is None
+        else contract
+    )
+    return UniversalTradeEnvironment(
+        make_u1_base_env(
+            dataset=dataset,
+            max_abs_weight=max_abs_weight,
+            execution_cost=execution_cost,
+        ),
+        contract=resolved_contract,
+        normalizer=normalizer,
     )
 
 

@@ -69,7 +69,9 @@ def _require_identity_match(
         raise ValueError("U1 contract normalizer clip value mismatch")
 
 
-def _normalizer_payload(normalizer: UniversalTradeSequenceNormalizer) -> dict[str, object]:
+def _normalizer_payload(
+    normalizer: UniversalTradeSequenceNormalizer,
+) -> dict[str, object]:
     return {
         "version": normalizer.version,
         "artifact_digest": normalizer.digest,

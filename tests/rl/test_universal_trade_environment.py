@@ -48,7 +48,9 @@ def test_u1_wrapper_accepts_fixed_contract_and_exposes_only_policy_surface() -> 
         },
     ),
 )
-def test_u1_wrapper_rejects_environment_contract_drift(config_change: dict[str, object]) -> None:
+def test_u1_wrapper_rejects_environment_contract_drift(
+    config_change: dict[str, object],
+) -> None:
     base = make_u1_base_env()
     object.__setattr__(base, "config", replace(base.config, **config_change))
 
@@ -58,8 +60,12 @@ def test_u1_wrapper_rejects_environment_contract_drift(config_change: dict[str, 
 
 def test_u1_wrapper_rejects_non_pure_growth_reward() -> None:
     base = make_u1_base_env()
-    reward_config = replace(base.config.resolved_reward_config(), projection_penalty_weight=0.1)
-    object.__setattr__(base, "config", replace(base.config, reward_config=reward_config))
+    reward_config = replace(
+        base.config.resolved_reward_config(), projection_penalty_weight=0.1
+    )
+    object.__setattr__(
+        base, "config", replace(base.config, reward_config=reward_config)
+    )
 
     with pytest.raises(ValueError, match="reward|U1|contract"):
         _wrapper(base=base)
@@ -97,7 +103,9 @@ def test_u1_wrapper_recomputes_wealth_reward_and_rejects_base_reward_drift(
     def drifting_step(action: np.ndarray):
         nonlocal calls
         calls += 1
-        observation, delegated_reward, terminated, truncated, info = original_step(action)
+        observation, delegated_reward, terminated, truncated, info = original_step(
+            action
+        )
         return observation, delegated_reward + 1e-4, terminated, truncated, info
 
     monkeypatch.setattr(base, "step", drifting_step)

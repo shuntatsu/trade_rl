@@ -9,6 +9,7 @@ from tests.rl.universal_trade_test_support import (
     make_u1_base_env,
     make_u1_feature_specs,
     make_u1_market,
+    make_u1_wrapper,
 )
 from trade_rl.rl.environment_config import EpisodeBoundaryMode
 from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
@@ -25,11 +26,9 @@ def _contract() -> UniversalTradePolicyContract:
 
 
 def _wrapper(*, base=None) -> UniversalTradeEnvironment:
-    resolved_base = make_u1_base_env() if base is None else base
-    return UniversalTradeEnvironment(
-        resolved_base,
-        contract=_contract(),
-    )
+    if base is None:
+        return make_u1_wrapper()
+    return UniversalTradeEnvironment(base, contract=_contract())
 
 
 def _policy_state(
@@ -130,7 +129,7 @@ def test_u1_wrapper_is_cash_only_and_action_strict() -> None:
 
 def test_u1_wrapper_preserves_submission_pending_risk_and_realized_state() -> None:
     contract = _contract()
-    base = make_u1_base_env(
+    env = make_u1_wrapper(
         dataset=make_u1_market(volume=100.0),
         max_abs_weight=0.35,
         execution_cost=ExecutionCostConfig(
@@ -140,8 +139,9 @@ def test_u1_wrapper_preserves_submission_pending_risk_and_realized_state() -> No
             max_participation_rate=0.01,
             maintenance_margin_rate=0.0,
         ),
+        contract=contract,
     )
-    env = UniversalTradeEnvironment(base, contract=contract)
+    base = env.base_env
     env.reset(
         seed=19,
         options={"start_idx": 6000, "initial_state_mode": "cash"},
@@ -161,8 +161,8 @@ def test_u1_wrapper_preserves_submission_pending_risk_and_realized_state() -> No
 
 
 def test_u1_wrapper_external_truncation_does_not_liquidate_open_position() -> None:
-    base = make_u1_base_env()
-    env = _wrapper(base=base)
+    env = _wrapper()
+    base = env.base_env
     env.reset(
         seed=23,
         options={"start_idx": 6000, "initial_state_mode": "cash"},
@@ -236,8 +236,8 @@ def test_u1_wrapper_is_compatible_with_two_symbol_episode_router() -> None:
     def environment_factory(
         binding: InstrumentDatasetBinding,
     ) -> UniversalTradeEnvironment:
-        environment = UniversalTradeEnvironment(
-            make_u1_base_env(dataset=datasets[binding.concrete_symbol]),
+        environment = make_u1_wrapper(
+            dataset=datasets[binding.concrete_symbol],
             contract=contract,
         )
         environments[binding.concrete_symbol] = environment

@@ -4,45 +4,50 @@
 
 **Goal:** Implement one preregistered eight-seed PPO Base RL experiment over the frozen U1 one-symbol environment, with a deterministic symbol×time split, Train×FIT-only updates, bounded identity-free policy input/output, immutable G1/G2/G3 Development evidence, and a fail-closed Development decision that never opens Admission.
 
-**Architecture:** U2 does not create a second market simulator, symbol router, Risk engine, execution engine, reward function, or normalizer. It consumes one frozen U0 universe and one frozen U1 generation, adds a deterministic temporal contract and authorized-episode wrapper, adds a U1-specific sequence feature extractor to the maintained bounded PPO path, derives eight seeds from immutable identities, trains one final checkpoint per seed, replays G1/G2/G3 and fixed baselines through the same U1 economics, then computes one immutable Development ACCEPT/REJECT result.
+**Architecture:** U2 does not create a second market simulator, symbol router, Risk engine, execution engine, reward function, or normalizer. It consumes one frozen U0 universe and one frozen U1 generation. U2 adds: (1) a source-metadata-only temporal-boundary artifact, (2) dataset/U1-planner-backed immutable episode plans, (3) a thin authorized-episode wrapper, (4) a U1-specific causal sequence extractor plugged into the maintained bounded PPO policy, (5) an immutable eight-seed/model/run identity, and (6) deterministic Development replay/aggregation/gating. Development code depends on frozen training outputs; training code never imports Development-selection logic.
 
 **Tech Stack:** Python 3.12, NumPy, PyTorch, Gymnasium, Stable-Baselines3 PPO, existing `ResidualMarketEnv`, `UniversalTradeEnvironment`, `EpisodeRoutedSingleInstrumentEnv`, `UniversalRoutedEnvironmentFactory`, `StableBaselines3Backend`, canonical JSON/SHA-256 artifacts, pytest, Hypothesis where useful, Ruff, MyPy, Import Linter.
 
 **Spec:** `docs/implementation-plans/specs/2026-09-03-universal-trade-rl-u2-base-training-development-gate-design.md`
 
-**Planning base:** U1 draft head `a26f21b2ff113b6d7e4b554ff9cc30d3355ed996`, with the U2 design branch currently stacked on that head. **Do not begin Task 1 production code until the blocking U1 gate below is satisfied and the U2 branch is synchronized to that exact final U1 head.**
+**Planning base:** U1 draft head `a26f21b2ff113b6d7e4b554ff9cc30d3355ed996`. **Do not begin Task 1 production code until the blocking U1 gate below is satisfied and the final U1 head is an ancestor of the U2 implementation branch.**
 
 ---
 
-## 0. Blocking prerequisite — not part of U2 implementation commits
+## 0. Blocking prerequisite — separate U1 work, not U2 implementation commits
 
 U1 closure remains a separate change. Do not hide U1 fixes inside U2 commits.
 
 Before Task 1:
 
-1. Finish the existing U1 implementation plan Tasks 8–11:
+1. Finish the existing U1 implementation-plan Tasks 8–11:
    - `trade_rl/workflows/universal_trade_rl_u1_contract.py`;
    - `trade_rl/workflows/universal_trade_rl_u1_runner.py`;
    - adversarial accounting/state falsification;
    - docs/full verification/independent review/exact-head CI.
-2. Fix the confirmed U1 unavailable-value invariant:
-   - when `available == false`, the policy-facing value must be exactly zero even when no normalizer is supplied;
-   - add the mutation/property test that changes the hidden raw placeholder across `0`, `±1`, `±1e9` and proves identical policy observation.
-3. Freeze/document `UniversalTradeSequenceNormalizer.clip_value = 10.0` as part of U1 semantics and identity.
-4. Add a read-only U1 episode-planning API backed by the existing `EpisodeContractSampler`, equivalent to:
+2. Fix the confirmed unavailable-value invariant in U1:
+   - whenever `available == false`, the policy-facing value is exactly zero even when the low-level observation builder is invoked without a normalizer;
+   - mutate the hidden raw placeholder across `0`, `±1`, `±1e9` and prove identical policy observations with and without normalization.
+3. Freeze/document `UniversalTradeSequenceNormalizer.clip_value = 10.0` as U1 semantics and identity.
+4. Add a **read-only public U1 episode-planning surface**, backed by the existing `EpisodeContractSampler`, equivalent to:
 
 ```python
 def valid_episode_starts(self) -> np.ndarray: ...
 def episode_end_index(self, start_index: int) -> int: ...
 ```
 
-   It must not modify reset/step economics.
-5. Complete U1 Quality Gate on one exact U1 head.
-6. Re-run the stronger U0/U1 stack verification on the exact final heads; do not rely on the stale U0 strong-verification SHA.
-7. Synchronize the U2 branch to the exact final U1 head without force-push/history rewrite unless the user explicitly authorizes it.
-8. Re-run the design-diff review. If the final U1 public surface differs materially from this plan, update this plan/spec before coding.
+   This must delegate to the maintained 720h episode contract and must not modify reset/step economics.
+5. Ensure the frozen U1 artifact exposes/binds enough public state-layout identity for U2 to obtain:
+   - `state_layout_digest`;
+   - ordered `policy_state_fields` or an equivalent canonical field-order artifact;
+   - observation/action/reward/normalizer/runtime/economic digests.
+   U2 must not reach into `_POLICY_STATE_LAYOUT` or other U1 private fields.
+6. Complete the U1 Quality Gate on one exact U1 head.
+7. Re-run stronger U0/U1 stack verification on the exact final U0/U1 heads; do not inherit the stale strong-verification claim from the older U0 SHA.
+8. Bring the final U1 head into the U2 branch by a normal merge/fast-forward-compatible ancestry-preserving operation. Verify with `git merge-base --is-ancestor <final-u1-head> HEAD`. **Do not rebase, force-push, or rewrite history without explicit user authorization.**
+9. Re-run the U2 design-diff review. If the final U1 public surface differs materially from this plan, update spec/plan before coding.
 
-**Stop condition:** if any prerequisite above is not evidenced, U2 remains **NO-GO** and Task 1 does not start.
+**Stop condition:** if any prerequisite is not evidenced, U2 remains **NO-GO** and Task 1 does not start.
 
 ---
 
@@ -58,50 +63,52 @@ def episode_end_index(self, start_index: int) -> int: ...
 
 ## Non-goals
 
-- No algorithm tournament.
-- No Development-driven hyperparameter search.
-- No BC, teacher, Causal Alpha, DAgger, anchored residual, or Trend prior in the policy.
-- No best-seed or best-checkpoint selection.
-- No U1 Observation/Action/Reward change.
-- No multi-asset allocation.
+- No PPO/SAC/TD3/TQC tournament.
+- No Development-driven hyperparameter search or checkpoint search.
+- No BC, teacher, Causal Alpha, DAgger, anchored residual, or Trend prior inside the policy.
+- No best-seed selection.
+- No U1 Observation/Action/Reward semantic change.
+- No multi-asset portfolio allocation.
 - No 1-minute execution-fidelity project.
 - No Admission opening, live trading, profitability claim, or Production GO.
 
 ## Critical Invariants
 
 1. `U1 normalizer cutoff == U0 RL_TRAINING cutoff == U2 T_fit_end`.
-2. Only `Train × FIT` can update statistical/model/optimizer state.
-3. U2 policy input is exactly the U1 Dict observation; no legacy planes or concrete symbol identity re-enter.
+2. Only `Train × FIT` updates statistical/model/optimizer state.
+3. U2 policy input is exactly the U1 Dict observation; no legacy planes, instrument descriptors, V4 context, ticker, dataset ID, role, or horizon enter the tensor path.
 4. Policy output is finite and already inside `[-1, 1]` before environment transport.
 5. External action clipping is an identity operation.
 6. Every complete router cycle contains each Train symbol exactly once per environment.
 7. Exactly eight precommitted seeds exist; a poor valid seed is never replaced.
-8. Only the final `524288`-timestep checkpoint per seed is performance-eligible.
-9. G1/G2/G3 use immutable episode grids.
+8. Only the canonical final `524288`-timestep checkpoint per seed is performance-eligible.
+9. G1/G2/G3 use immutable, globally aligned 720h episode grids.
 10. Development evidence is immutable and reconstructible from leaf records.
-11. Admission remains closed even if Development passes.
+11. Development logic cannot be imported by the training path.
+12. Admission remains closed even if Development passes.
 
 ## Primary Failure Modes
 
 - time leakage through normalizer or episode boundaries;
 - Development/Admission fit leakage;
-- U1 state layout drift;
-- legacy observation or context reinjection;
+- U1 state-layout drift;
+- legacy observation/context reinjection;
 - hidden action clipping;
-- wrong seed substitution;
+- wrong seed substitution or retrying an economically poor seed;
 - uneven symbol routing;
 - intermediate checkpoint selection;
 - baseline/economic path mismatch;
 - seed replicas treated as independent time samples;
-- missing/tampered leaf evidence;
-- aggregate winner masking a catastrophic seed/symbol/episode;
-- post-result threshold edits.
+- missing/duplicated/tampered leaf evidence;
+- aggregate winners hiding catastrophic seed/symbol/episode behavior;
+- post-result threshold edits;
+- execution/evidence resume accepting stale code/config identity.
 
 ## Risk
 
-- **Critical:** leakage, Admission access, identity drift, hidden action alteration, best-seed/checkpoint selection.
-- **High:** wrong episode alignment, economic execution mismatch, unstable seed result, severe downside/turnover, incomplete evidence.
-- **Medium:** performance/resource overhead, deterministic incomplete router cycle, CUDA non-bitwise reproducibility.
+- **Critical:** leakage, Admission access, identity drift, hidden action alteration, best-seed/checkpoint selection, mutable post-result gates.
+- **High:** wrong episode alignment, baseline economic mismatch, unstable seed result, severe downside/turnover, incomplete evidence.
+- **Medium:** runtime/memory overhead, deterministic incomplete router cycle, CUDA non-bitwise reproducibility.
 
 ## Test Oracle
 
@@ -111,8 +118,8 @@ Correctness is observed through:
 - exact authorized episode start/end timestamps;
 - exact U1 observation keys/shapes/state-layout digest;
 - actual pre-environment actions;
-- actual PPO model architecture/config/checkpoint identity;
-- exact router cycle counts;
+- actual PPO extractor/actor/distribution/config/checkpoint identity;
+- exact router cycle and per-symbol counts;
 - independent wealth/accounting reconciliation;
 - immutable per-leaf Development records;
 - aggregate recomputation from leaves;
@@ -125,7 +132,7 @@ Unit + Property/Falsification + Integration + PPO Integration + Economic Integra
 
 ## Quality Gate
 
-Task completion requires the evidence in Task 13 on one exact final HEAD. Targeted tests alone are insufficient.
+Task completion requires the evidence in **Task 14** on one exact final HEAD. Targeted tests alone are insufficient.
 
 ---
 
@@ -143,7 +150,24 @@ Task completion requires the evidence in Task 13 on one exact final HEAD. Target
 - `trade_rl/workflows/universal_trade_rl_u2_runner.py`
 - `scripts/run_universal_trade_rl_u2.py`
 - `tests/workflows/universal_trade_rl_u2_test_support.py`
-- task-specific tests listed below.
+- `tests/workflows/test_universal_trade_rl_u2_temporal.py`
+- `tests/workflows/test_universal_trade_rl_u2_episode_planning.py`
+- `tests/rl/test_universal_trade_u2_environment.py`
+- `tests/rl/test_universal_trade_u2_training_config.py`
+- `tests/rl/test_universal_trade_policy.py`
+- `tests/integrations/test_universal_trade_u2_sb3_model_assembly.py`
+- `tests/workflows/test_universal_trade_rl_u2_contract.py`
+- `tests/workflows/test_universal_trade_rl_u2_seed_identity.py`
+- `tests/workflows/test_universal_trade_rl_u2_training.py`
+- `tests/workflows/test_universal_trade_rl_u2_evaluation.py`
+- `tests/workflows/test_universal_trade_rl_u2_baselines.py`
+- `tests/workflows/test_universal_trade_rl_u2_evidence_io.py`
+- `tests/workflows/test_universal_trade_rl_u2_aggregation.py`
+- `tests/workflows/test_universal_trade_rl_u2_development_gate.py`
+- `tests/workflows/test_universal_trade_rl_u2_runner.py`
+- `tests/scripts/test_run_universal_trade_rl_u2.py`
+- `tests/workflows/test_universal_trade_rl_u2_falsification.py`
+- `tests/integrations/test_universal_trade_rl_u2_economics.py`
 
 ## Modify narrowly
 
@@ -159,7 +183,7 @@ Task completion requires the evidence in Task 13 on one exact final HEAD. Target
 ## Reuse — do not duplicate
 
 - `trade_rl/rl/environment_episode.py::EpisodeContractSampler`
-- U1 final read-only episode planning API
+- frozen U1 read-only episode-planning API
 - `trade_rl/rl/universal_episode_router.py::DeterministicBalancedInstrumentRouter`
 - `trade_rl/rl/universal_single_instrument_env.py::EpisodeRoutedSingleInstrumentEnv`
 - `trade_rl/workflows/universal_training_runner.py::UniversalRoutedEnvironmentFactory`
@@ -167,12 +191,13 @@ Task completion requires the evidence in Task 13 on one exact final HEAD. Target
 - `trade_rl/rl/timeframe_fusion.py::CrossTimeframeFusion`
 - `trade_rl/rl/policies.py::SharedPerAssetActorCriticPolicy`
 - `trade_rl/integrations/sb3_training.py::StableBaselines3Backend`
+- `trade_rl/rl/training_environment_contract.py`
 - `trade_rl/evaluation/bootstrap.py::moving_block_mean_test`
-- Risk / Execution / BookState / U1 reward.
+- existing Risk / Execution / BookState / U1 reward implementations.
 
 ---
 
-# Task 1: Pure deterministic U2 temporal contract
+# Task 1: Pure source-metadata temporal boundaries
 
 **Files**
 
@@ -180,7 +205,7 @@ Task completion requires the evidence in Task 13 on one exact final HEAD. Target
 - Create `tests/workflows/universal_trade_rl_u2_test_support.py`.
 - Create `tests/workflows/test_universal_trade_rl_u2_temporal.py`.
 
-**Produces**
+**Produces only source-metadata-derived boundaries:**
 
 ```python
 U2_EPISODE_HOURS = 720
@@ -195,7 +220,7 @@ class UniversalTradeRLU2EpisodeInterval:
     end_timestamp_ns: int
 
 @dataclass(frozen=True, slots=True)
-class UniversalTradeRLU2TemporalContract:
+class UniversalTradeRLU2TemporalBoundaries:
     universe_manifest_digest: str
     t_fit_end_ns: int
     t_dev_end_ns: int
@@ -203,14 +228,14 @@ class UniversalTradeRLU2TemporalContract:
     g1_dev_intervals: tuple[UniversalTradeRLU2EpisodeInterval, ...]
     g2_fit_intervals: tuple[UniversalTradeRLU2EpisodeInterval, ...]
     g3_dev_intervals: tuple[UniversalTradeRLU2EpisodeInterval, ...]
-    authorized_fit_start_digests: tuple[tuple[str, str], ...]
-    coverage_digest: str
     digest: str = ""
 ```
 
-### Step 1 — RED: timestamp/role-count tests
+Do **not** put dataset-index start sets or coverage evidence in this Task 1 class; those require Task 2 and belong to the final temporal contract.
 
-Write tests that prove:
+### Step 1 — RED: role/count/cutoff tests
+
+Write tests proving:
 
 - Train count `< 9` rejects;
 - Development count `< 3` rejects;
@@ -218,22 +243,12 @@ Write tests that prove:
 - `T_sealed_end = min(last_timestamp)` over Train+Development+Admission manifest entries;
 - `T_dev_end = T_sealed_end - 12*720h`;
 - `T_fit_end = T_dev_end - 12*720h`;
-- all three cutoffs are 15-minute aligned;
-- G1 and G3 contain exactly the same 12 DEV intervals;
-- G2 contains exactly the latest 12 FIT intervals;
-- mutating one source identity changes the temporal digest.
-
-Example RED oracle:
-
-```python
-def test_temporal_contract_uses_common_absolute_cutoffs() -> None:
-    manifest = make_u2_manifest(train=9, development=3, admission=3)
-    contract = derive_u2_temporal_boundaries(manifest)
-    assert len(contract.g1_dev_intervals) == 12
-    assert contract.g1_dev_intervals == contract.g3_dev_intervals
-    assert len(contract.g2_fit_intervals) == 12
-    assert contract.t_fit_end_ns < contract.t_dev_end_ns < contract.t_sealed_end_ns
-```
+- all cutoffs are 15-minute aligned;
+- G1 and G3 are the same 12 DEV intervals;
+- G2 is the latest 12 FIT intervals ending at `T_fit_end`;
+- intervals are non-overlapping and exactly 720h;
+- mutating any bound source identity changes the digest;
+- no dataset loader is called.
 
 ### Step 2 — Verify RED
 
@@ -241,51 +256,91 @@ def test_temporal_contract_uses_common_absolute_cutoffs() -> None:
 uv run pytest tests/workflows/test_universal_trade_rl_u2_temporal.py -q
 ```
 
-Expected: import/missing-symbol failures because U2 temporal code does not exist.
+Expected RED: U2 temporal module is absent.
 
-### Step 3 — GREEN: implement pure derivation
+### Step 3 — GREEN
 
-- Consume only `UniversalTradeRLUniverseManifest` metadata.
-- Do not open datasets.
-- Use integer nanoseconds; no local-time datetime arithmetic.
+- Consume `UniversalTradeRLUniverseManifest` only.
+- Use integer nanoseconds, not local-time arithmetic.
 - Canonicalize role entries by symbol.
 - Fail closed on non-15-minute alignment.
-- Do not silently shorten DEV/SEALED.
+- Never shorten DEV/SEALED in place.
 
-### Step 4 — GREEN verification
+### Step 4 — Verify + Refactor
 
 ```bash
 uv run pytest tests/workflows/test_universal_trade_rl_u2_temporal.py -q
 ```
 
-### Step 5 — Refactor + commit
+### Step 5 — Commit
 
 ```bash
 git add trade_rl/workflows/universal_trade_rl_u2_temporal.py tests/workflows/universal_trade_rl_u2_test_support.py tests/workflows/test_universal_trade_rl_u2_temporal.py
-git commit -m "feat: define Universal Trade RL U2 temporal contract"
+git commit -m "feat: define Universal Trade RL U2 temporal boundaries"
 ```
 
 ---
 
-# Task 2: Materialize authorized FIT starts and fixed Development episode plans
+# Task 2: Freeze dataset-backed episode plans and final temporal contract
 
 **Files**
 
 - Modify `trade_rl/workflows/universal_trade_rl_u2_temporal.py`.
 - Create `tests/workflows/test_universal_trade_rl_u2_episode_planning.py`.
 
-### Step 1 — RED: coverage and boundary tests
+**Produces:**
 
-For each Train/Development test dataset, use the frozen U1 episode-planning API. Test:
+```python
+@dataclass(frozen=True, slots=True)
+class UniversalTradeRLU2SymbolEpisodePlan:
+    symbol: str
+    role: str
+    dataset_digest: str
+    authorized_fit_starts: tuple[int, ...]
+    fit_coverage_starts: tuple[int, ...]
+    g1_starts: tuple[int, ...]
+    g2_starts: tuple[int, ...]
+    g3_starts: tuple[int, ...]
+    digest: str = ""
 
-- every authorized Train start has `episode_end <= T_fit_end`;
-- no authorized Train start is after FIT;
-- each Train symbol has at least 24 non-overlapping complete FIT episodes;
-- each Train symbol resolves all 12 G1 starts;
-- each Development symbol resolves all 12 G2 and 12 G3 starts;
-- Admission arrays are never requested; only manifest metadata coverage is checked;
-- missing one required Development interval fails instead of shortening the grid;
-- boundary fragment exclusion count is deterministic.
+@dataclass(frozen=True, slots=True)
+class UniversalTradeRLU2TemporalContract:
+    boundaries_digest: str
+    universe_manifest_digest: str
+    symbol_plan_digests: tuple[tuple[str, str], ...]
+    coverage_digest: str
+    digest: str = ""
+```
+
+### Step 1 — RED: canonical coverage and boundary tests
+
+Use the frozen U1 public episode planner for Train/Development datasets.
+
+For Train symbols:
+
+- `authorized_fit_starts` contains every valid 720h U1 start whose **final accounting timestamp** is `<= T_fit_end`;
+- no authorized start crosses FIT;
+- `fit_coverage_starts` is the canonical **latest 24 non-overlapping 720h FIT grid ending at `T_fit_end`**;
+- all 24 required coverage episodes exist;
+- all fixed 12 G1 DEV episodes resolve exactly.
+
+For Development symbols:
+
+- all fixed 12 G2 FIT episodes resolve exactly;
+- all fixed 12 G3 DEV episodes resolve exactly.
+
+For Admission:
+
+- no dataset/planner/price/feature array is accepted or loaded;
+- only U0 manifest metadata coverage of the reserved SEALED interval is checked.
+
+Also test:
+
+- one missing required interval fails closed;
+- boundary fragments do not become partial episodes;
+- plan input ordering cannot alter digest;
+- dataset digest drift fails;
+- per-role fields are closed: Train plan cannot contain G2/G3 and Development plan cannot contain authorized Train starts/G1.
 
 ### Step 2 — Verify RED
 
@@ -293,28 +348,12 @@ For each Train/Development test dataset, use the frozen U1 episode-planning API.
 uv run pytest tests/workflows/test_universal_trade_rl_u2_episode_planning.py -q
 ```
 
-### Step 3 — GREEN: add planning contracts
+### Step 3 — GREEN
 
-Add immutable structures such as:
-
-```python
-@dataclass(frozen=True, slots=True)
-class UniversalTradeRLU2SymbolEpisodePlan:
-    symbol: str
-    authorized_fit_starts: tuple[int, ...]
-    g1_starts: tuple[int, ...]
-    g2_starts: tuple[int, ...]
-    g3_starts: tuple[int, ...]
-    digest: str = ""
-```
-
-Rules:
-
-- Train: `authorized_fit_starts + g1_starts` only.
-- Development: `g2_starts + g3_starts` only.
-- Admission: no dataset/planner object is accepted.
-- Bind dataset digest and temporal digest to every symbol plan.
-- Store a digest of sorted authorized starts, not an unbounded opaque mutable container.
+- Use public U1 planner only; no private `EpisodeContractSampler` access from U2.
+- Convert timestamp intervals to exact U1 `start_idx` by matching dataset timestamps; no nearest-neighbor/coercion.
+- Bind each symbol plan to dataset digest + boundary digest.
+- Bind final temporal contract to all symbol-plan digests and coverage evidence.
 
 ### Step 4 — Verify
 
@@ -338,29 +377,30 @@ git commit -m "feat: freeze U2 authorized episode plans"
 - Create `trade_rl/rl/universal_trade_u2_environment.py`.
 - Create `tests/rl/test_universal_trade_u2_environment.py`.
 
-**Produces**
+**Produces:**
 
 ```python
 class AuthorizedUniversalTradeEnvironment(gym.Wrapper):
     ...
 ```
 
-The wrapper owns only episode authorization and U2 sequence-layout metadata. It does not own economics.
+The wrapper owns only episode authorization and public policy-layout metadata. It does not own economics.
 
-### Step 1 — RED: reset escape tests
+### Step 1 — RED: constructor/reset escape tests
 
 Test:
 
-1. `normalizer=None` child rejects at construction.
+1. `child.sequence_normalizer is None` rejects. Do **not** inspect U1 `.normalizer`, which intentionally represents the legacy flat-normalizer slot.
 2. wrong U1 observation-contract digest rejects.
-3. wrong U1 state-layout digest rejects.
-4. no `start_idx`: wrapper chooses only from authorized FIT starts using the reset seed.
-5. explicit authorized `start_idx`: accepted.
-6. explicit non-authorized `start_idx`: rejected before child reset.
-7. child `start_index/end_index` must exactly match the planned contract.
-8. wrapper does not alter `step()` action/reward/terminated/truncated/info.
-9. same seed + same authorized set => same selected start.
-10. changing order of the input authorized set does not change the canonical set/digest.
+3. wrong U1 state-layout digest/field order rejects.
+4. child observation keys must equal the exact U1 closed set.
+5. no `start_idx`: wrapper chooses only from canonical authorized FIT starts using the supplied reset seed.
+6. explicit authorized `start_idx`: accepted.
+7. explicit non-authorized `start_idx`: rejected before child reset.
+8. child returned `start_index/end_index` must exactly equal the planned U1 episode contract.
+9. wrapper delegates `step()` exactly once and preserves action/reward/terminated/truncated/info.
+10. same seed + same canonical authorized set => same selected start.
+11. input authorized-set ordering cannot alter canonical digest.
 
 ### Step 2 — Verify RED
 
@@ -368,9 +408,9 @@ Test:
 uv run pytest tests/rl/test_universal_trade_u2_environment.py -q
 ```
 
-### Step 3 — GREEN: minimal wrapper
+### Step 3 — GREEN
 
-Constructor inputs should include:
+Constructor inputs:
 
 ```python
 AuthorizedUniversalTradeEnvironment(
@@ -379,12 +419,12 @@ AuthorizedUniversalTradeEnvironment(
     authorized_start_indices: tuple[int, ...],
     temporal_contract_digest: str,
     expected_u1_observation_contract_digest: str,
-    u1_state_layout_digest: str,
+    state_layout_digest: str,
     policy_state_fields: tuple[str, ...],
 )
 ```
 
-Expose `sequence_layout_metadata` for the later SB3 assembly:
+Expose public `sequence_layout_metadata` for SB3 assembly:
 
 ```python
 {
@@ -399,14 +439,15 @@ Expose `sequence_layout_metadata` for the later SB3 assembly:
 }
 ```
 
-Important:
+Rules:
 
-- derive feature counts from the actual child `observation_space`;
-- reject extra/missing U1 observation keys;
-- do not read private U1 fields;
-- use `np.random.default_rng(seed)` only to select from the frozen start tuple; router already derives an episode-specific seed.
+- derive feature counts from actual child observation space;
+- reject missing/extra U1 keys;
+- never import U1 private layout symbols;
+- use `np.random.default_rng(seed)` only to choose among the frozen start tuple;
+- rely on the routed environment to derive its episode-specific reset seed.
 
-### Step 4 — Verify
+### Step 4 — Verify compatibility
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_u2_environment.py tests/rl/test_universal_trade_environment.py -q
@@ -421,60 +462,68 @@ git commit -m "feat: restrict U2 episodes to frozen FIT starts"
 
 ---
 
-# Task 4: Add `universal_trade_sequence_v1` as a closed training mode
+# Task 4: Register `universal_trade_sequence_v1` and exact U2 training config validation
 
 **Files**
 
 - Modify `trade_rl/rl/training_modes.py`.
 - Modify `trade_rl/rl/training.py`.
+- Create `tests/rl/test_universal_trade_u2_training_config.py`.
 - Modify `tests/rl/test_training_modes.py`.
-- Modify/add the nearest `ResidualTrainingConfig` validation tests.
 
-### Step 1 — RED: enum and inactive-field tests
+### Step 1 — RED: closed encoder vocabulary
 
-Add:
+Add tests expecting:
 
 ```python
-UNIVERSAL_TRADE_SEQUENCE_V1 = "universal_trade_sequence_v1"
+ObservationEncoder.UNIVERSAL_TRADE_SEQUENCE_V1.value == "universal_trade_sequence_v1"
 ```
 
-Tests must prove:
+and prove typo/unknown values reject.
 
-- exact string resolves through `ObservationEncoder`;
-- typo/unknown value rejects;
-- mode is PPO-family compatible but U2 later freezes PPO only;
-- sequence settings are active for this mode;
-- asset-set-only embedding settings remain inactive/default;
-- BC is not silently enabled by the encoder change.
+### Step 2 — RED: exact U2 config helper
 
-### Step 2 — Verify RED
+Define the production U2 training profile in `trade_rl/workflows/universal_trade_rl_u2_contract.py` later in Task 7; at this task add config-level capability tests proving `ResidualTrainingConfig` can represent the new sequence mode without weakening existing modes.
+
+Required mode behavior:
+
+- sequence parameters are active;
+- asset-set-only embedding fields remain default/inactive;
+- `policy_actor_head="shared_target_v1"` is required for U2 assembly later;
+- BC remains disabled in the final U2 contract;
+- existing `flat_mlp`, `asset_set`, `hierarchical_sequence_v2` validation remains unchanged.
+
+### Step 3 — Verify RED
 
 ```bash
-uv run pytest tests/rl/test_training_modes.py tests/rl/test_training_config.py -q
+uv run pytest tests/rl/test_training_modes.py tests/rl/test_universal_trade_u2_training_config.py -q
 ```
 
-Use the actual nearest config-test filename if the repository differs; do not invent a new duplicate config suite.
+### Step 4 — GREEN
 
-### Step 3 — GREEN
+- Extend `ObservationEncoder`.
+- Refactor sequence-mode validation into shared helpers only where behavior is truly shared.
+- Do not relax inactive-field checks for unrelated encoders.
+- Keep existing error contracts deterministic.
 
-- Extend the closed enum and validation messages.
-- Factor sequence-mode checks into a helper instead of copying the entire `hierarchical_sequence_v2` branch.
-- Keep existing three encoder semantics unchanged.
-
-### Step 4 — Compatibility verification
+### Step 5 — Compatibility
 
 ```bash
-uv run pytest tests/rl/test_training_modes.py tests/integrations/test_universal_sb3_model_assembly.py tests/workflows/test_universal_full_research_training.py -q
+uv run pytest \
+  tests/rl/test_training_modes.py \
+  tests/rl/test_universal_trade_u2_training_config.py \
+  tests/rl/test_action_head_ablation.py \
+  tests/integrations/test_universal_sb3_model_assembly.py \
+  tests/workflows/test_universal_full_research_training.py \
+  -q
 ```
 
-### Step 5 — Commit
+### Step 6 — Commit
 
 ```bash
-git add trade_rl/rl/training_modes.py trade_rl/rl/training.py tests/rl/test_training_modes.py tests/rl/test_training_config.py
+git add trade_rl/rl/training_modes.py trade_rl/rl/training.py tests/rl/test_training_modes.py tests/rl/test_universal_trade_u2_training_config.py
 git commit -m "feat: register U2 Universal Trade sequence mode"
 ```
-
-If the nearest config test has a different path, commit the actual path only.
 
 ---
 
@@ -485,7 +534,7 @@ If the nearest config test has a different path, commit the actual path only.
 - Create `trade_rl/rl/universal_trade_policy.py`.
 - Create `tests/rl/test_universal_trade_policy.py`.
 
-**Produces**
+**Produces:**
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -498,7 +547,7 @@ class UniversalTradeSequenceFeatureExtractor(BaseFeaturesExtractor):
 
 ### Step 1 — RED: exact observation surface
 
-Test the extractor accepts exactly:
+The extractor accepts exactly:
 
 ```text
 sequence_15m_values / available / staleness
@@ -508,7 +557,7 @@ sequence_1d_values  / available / staleness
 policy_state
 ```
 
-and rejects legacy/context keys such as:
+and rejects legacy/context keys:
 
 ```text
 current_snapshot
@@ -518,30 +567,31 @@ instrument_context
 local_cross_market_context
 ```
 
-Test architecture constants:
+### Step 2 — RED: fixed architecture
+
+Test exact U-Medium Direct structure:
 
 ```text
-capacity=compact
-d_model=256
-heads=4
-layers=1
-ffn=3
-gate_bias=-2.0
-dropout=0.0
-actor/value widths=(256,128)
+sequence_tcn_capacity = compact
+d_model = 256
+timeframe_attention_heads = 4
+timeframe_attention_layers = 1
+timeframe_ffn_multiplier = 3
+timeframe_gate_bias = -2.0
+sequence_dropout = 0.0
+actor MLP = (256, 128)
+critic MLP = (256, 128)
 ```
-
-### Step 2 — RED: numerical/shape tests
 
 Test:
 
 - output width is `1*256 + 256 + 128 + 2 = 642`;
-- per-timeframe input is `values + availability + log1p(staleness)`;
-- unavailable values are defensively zeroed before encoding;
-- `current_weight` comes from the state-layout index, not a hard-coded position;
+- per-timeframe input is `safe_values + availability + log1p(staleness)`;
+- unavailable values are defensively zeroed before encoding even though U1 should already guarantee it;
+- `current_weight` comes from `current_weight_state_index`, not a hard-coded ordinal;
 - distribution-active mask output is exactly `1.0`;
-- changing a field not present in U1 is impossible because the Dict space is closed;
-- architecture digest changes if any structural width/head/layer/window/input-channel value changes.
+- architecture digest changes if structural widths/heads/layers/windows/channels/state-layout digest change;
+- no cross-asset attention module exists.
 
 ### Step 3 — Verify RED
 
@@ -551,14 +601,14 @@ uv run pytest tests/rl/test_universal_trade_policy.py -q
 
 ### Step 4 — GREEN implementation
 
-Reuse:
+Reuse only:
 
 ```python
 from trade_rl.rl.sequence_policy import CausalTimeframeEncoder, sequence_encoder_widths
 from trade_rl.rl.timeframe_fusion import CrossTimeframeFusion
 ```
 
-Do **not** instantiate `MultiTimeframeAssetEncoder` because it reintroduces snapshot/asset-state context.
+Do **not** instantiate `MultiTimeframeAssetEncoder`; it requires the legacy snapshot/asset-state context that U1 removed.
 
 Forward outline:
 
@@ -572,19 +622,18 @@ for timeframe in TIMEFRAMES:
         (safe_values, available.float(), torch.log1p(staleness.clamp_min(0.0))),
         dim=-1,
     )
-    # flatten [batch, 1, time, channels] -> [batch, time, channels]
     ...
 
 state_context = context_encoder(policy_state).unsqueeze(1)
 fused = timeframe_fusion(..., context=state_context)
-pooled = fused[:, 0]
+asset_token = fused[:, 0]
+pooled = asset_token
 global_state = global_state_encoder(policy_state)
-active = torch.ones(...)
-current_weight = policy_state[:, current_weight_state_index]
-return torch.cat((fused[:, 0], pooled, global_state, active, current_weight), dim=-1)
+active = torch.ones_like(current_weight)
+return torch.cat((asset_token, pooled, global_state, active, current_weight), dim=-1)
 ```
 
-### Step 5 — Verify + refactor
+### Step 5 — Verify + Refactor
 
 ```bash
 uv run pytest tests/rl/test_universal_trade_policy.py tests/rl/test_sequence_policy_core.py -q
@@ -607,9 +656,9 @@ git commit -m "feat: add U1-only Universal Trade policy encoder"
 - Modify `trade_rl/rl/policy_identity.py`.
 - Modify `trade_rl/artifacts/policy_identity_contract.py`.
 - Create `tests/integrations/test_universal_trade_u2_sb3_model_assembly.py`.
-- Extend nearest policy-identity tests.
+- Extend the existing policy-identity tests that cover current v4 payloads.
 
-### Step 1 — RED: assembly tests
+### Step 1 — RED: model assembly
 
 Build a routed U2 probe and assert:
 
@@ -621,29 +670,30 @@ assembly.sequence_symbols == ("INSTRUMENT",)
 assembly.sequence_action_names == ("target_weight:INSTRUMENT",)
 ```
 
-Assert feature extractor class is `UniversalTradeSequenceFeatureExtractor` and receives the frozen U2 metadata.
+Assert `features_extractor_class is UniversalTradeSequenceFeatureExtractor` and exact U2 architecture metadata is passed.
 
 Reject:
 
 - non-generic policy symbol;
 - action size != 1;
-- missing U1 state-layout digest;
+- missing/wrong state-layout digest;
 - `hierarchical_gate_target_v1`;
-- nonzero instrument/V4 context.
+- instrument/V4 context enabled;
+- incorrect feature/window metadata.
 
-### Step 2 — RED: action transport test
+### Step 2 — RED: action transport
 
-Create the actual SB3 policy/model and prove both stochastic rollout and deterministic actions are finite and bounded before `UniversalTradeEnvironment.step()`.
+Create an actual PPO model/policy and instrument the U1 child to record the received action.
 
-Instrument the child environment to record the incoming action and assert:
+Prove stochastic rollout and deterministic actions are finite and already in `[-1,+1]` before U1 receives them. The transport oracle should be exact at float32 where the maintained vector-env path allows:
 
 ```python
 np.testing.assert_array_equal(received_action, produced_action.astype(np.float32))
 ```
 
-or the narrowest exact float32 transport oracle supported by the existing vector-env path.
+If the framework inserts an unavoidable dtype conversion, use a separately justified byte/dtype oracle; do not accept value clipping as transport.
 
-Also inject an out-of-range fake policy action and prove the U1 strict parser rejects it; do not let wrapper clipping turn it legal.
+Inject a fake out-of-range action (`1.0001`) and prove U1 strict parsing rejects it. External clipping must not be the safety mechanism.
 
 ### Step 3 — Verify RED
 
@@ -653,33 +703,36 @@ uv run pytest tests/integrations/test_universal_trade_u2_sb3_model_assembly.py -
 
 ### Step 4 — GREEN assembly
 
-Add a dedicated branch in `resolve_sb3_policy_assembly()` for `universal_trade_sequence_v1`.
+Add a dedicated `universal_trade_sequence_v1` branch in `resolve_sb3_policy_assembly()`:
 
 - reuse `SharedPerAssetActorCriticPolicy`;
-- use `shared_target_v1` only;
-- use standard Dict rollout storage unless measured memory exceeds the already frozen cap;
-- do not use the old single-dataset `SequenceRolloutReconstructor` across routed symbols;
-- preserve old `hierarchical_sequence_v2` branch byte-for-byte where practical.
+- force `shared_target_v1` for the frozen U2 contract;
+- use standard Dict rollout storage for routed U2 environments;
+- do not use the old single-dataset `SequenceRolloutReconstructor` across symbol-routed datasets;
+- preserve `hierarchical_sequence_v2` behavior.
 
 ### Step 5 — GREEN identity
 
-Add canonical identity vocabulary for the new encoder without weakening old payload validation.
-
-The U2 identity must bind the **actual extractor architecture**, not merely config text:
+Extend `sb3_policy_identity_v4` as a **discriminated additive encoder variant** only if existing v4 payloads remain byte/semantic compatible. Add explicit U2 schemas such as:
 
 ```text
-u1 observation/state-layout identity
-clock order/windows/input channels
-compact TCN widths/dilations
-d_model=256
-TF attention 4x1, FFN=3, gate bias=-2, dropout=0
-state context/global encoder widths
-direct actor head
-squashed action distribution
-INSTRUMENT / target_weight:INSTRUMENT binding
+universal_trade_sequence_architecture_v1
+universal_trade_direct_policy_v1
 ```
 
-Existing v4 identities must continue to validate exactly as before. If implementation proves an additive v4 variant cannot be represented unambiguously, stop and version the schema explicitly; do not silently reinterpret old fields.
+Bind the **actual instantiated extractor**, not config text only:
+
+- U1 observation + state-layout identity;
+- clock order/window/input channels;
+- compact TCN widths/dilations;
+- d_model 256;
+- timeframe attention 4×1, FFN 3, gate bias -2, dropout 0;
+- state context/global encoder widths;
+- direct shared actor head;
+- squashed Gaussian exploration identity;
+- generic `INSTRUMENT` / `target_weight:INSTRUMENT` binding.
+
+Compatibility oracle: existing v4 `flat_mlp`, `asset_set`, and `hierarchical_sequence_v2` payloads still validate identically. If implementation shows the new union cannot be represented without changing existing v4 meaning, **stop**, version to a new schema, add explicit legacy read behavior, update spec/plan, then continue. Do not silently reinterpret v4.
 
 ### Step 6 — Verify compatibility
 
@@ -688,7 +741,8 @@ uv run pytest \
   tests/integrations/test_universal_trade_u2_sb3_model_assembly.py \
   tests/integrations/test_universal_sb3_model_assembly.py \
   tests/integrations/test_sb3_policy_identity_v3.py \
-  tests/rl/test_asset_agnostic_policy_identity.py -q
+  tests/rl/test_asset_agnostic_policy_identity.py \
+  -q
 ```
 
 ### Step 7 — Commit
@@ -698,109 +752,150 @@ git add trade_rl/integrations/sb3_model_assembly.py trade_rl/rl/policy_identity.
 git commit -m "feat: assemble bounded U2 PPO policy"
 ```
 
-Include the actual modified identity-test paths in the same commit.
+Include any actually modified existing identity-test files in the same commit.
 
 ---
 
-# Task 7: Frozen U2 model config, seed namespace, and run identity
+# Task 7: Frozen runtime/model config, seed namespace, and U0 run identity
 
 **Files**
 
 - Create `trade_rl/workflows/universal_trade_rl_u2_contract.py`.
 - Create `tests/workflows/test_universal_trade_rl_u2_contract.py`.
 - Create `tests/workflows/test_universal_trade_rl_u2_seed_identity.py`.
+- Extend `tests/rl/test_universal_trade_u2_training_config.py`.
 
-### Step 1 — RED: exact model config
+### Step 1 — RED: strict authored runtime config closure
 
-Create an oracle that rejects one-field drift from this exact profile:
+U2 accepts one strict `TrainingRunConfig` as construction input. It is not a free tuning surface.
 
-```python
-EXPECTED = {
-    "algorithm": "ppo",
-    "timesteps": 524_288,
-    "gamma": 1.0,
-    "learning_rate": 0.00012,
-    "learning_rate_schedule": "linear",
-    "learning_rate_final_ratio": 0.1,
-    "n_envs": 8,
-    "n_steps": 128,
-    "batch_size": 256,
-    "n_epochs": 10,
-    "gae_lambda": 0.95,
-    "clip_range": 0.2,
-    "normalize_advantage": True,
-    "ent_coef": 0.0,
-    "vf_coef": 0.5,
-    "max_grad_norm": 0.5,
-    "log_std_init": -0.5,
-    "target_kl": 0.02,
-    "use_sde": False,
-    "observation_encoder": "universal_trade_sequence_v1",
-    "policy_actor_head": "shared_target_v1",
-    "policy_net_arch": (256, 128),
-    "value_net_arch": (256, 128),
-    "sequence_tcn_capacity": "compact",
-    "sequence_d_model": 256,
-    "sequence_timeframe_attention_heads": 4,
-    "sequence_timeframe_attention_layers": 1,
-    "sequence_timeframe_ffn_multiplier": 3,
-    "sequence_timeframe_gate_bias": -2.0,
-    "sequence_dropout": 0.0,
-    "behavior_cloning_epochs": 0,
-}
-```
+The config must satisfy two independent closures before dataset/environment creation:
 
-The full digest payload must also bind remaining resource/checkpoint/tensorboard/vector-env fields from the spec.
+**U1 economic/runtime closure**
 
-### Step 2 — RED: cutoff/U1 dependency tests
+Its environment/action/reward/risk/portfolio-risk/execution semantics must reproduce the digests frozen in `u1_contract.json`.
 
-Reject:
+**U2 learner closure**
 
-- missing U1 normalizer;
-- U1 normalizer cutoff != `T_fit_end`;
-- `RL_TRAINING` provenance cutoff != `T_fit_end`;
-- U1/U0 manifest mismatch;
-- U1 observation/state/action/reward digest mismatch;
-- U1 `production_status` anything except `NO-GO`.
+Its `training` section must equal the preregistered U-Medium Direct PPO profile.
 
-### Step 3 — RED: seed derivation
-
-Test exact two-stage derivation:
+Exact production learner values:
 
 ```text
-seed_namespace_digest -> 8 ordered seed digests -> uint32 seeds -> final U2 contract
+algorithm = ppo
+timesteps = 524288
+gamma = 1.0
+learning_rate = 0.00012
+learning_rate_schedule = linear
+learning_rate_final_ratio = 0.1
+n_envs = 8
+n_steps = 128
+batch_size = 256
+n_epochs = 10
+gae_lambda = 0.95
+clip_range = 0.2
+normalize_advantage = true
+ent_coef = 0.0
+vf_coef = 0.5
+max_grad_norm = 0.5
+log_std_init = -0.5
+target_kl = 0.02
+use_sde = false
+observation_encoder = universal_trade_sequence_v1
+policy_actor_head = shared_target_v1
+policy_net_arch = (256,128)
+value_net_arch = (256,128)
+sequence_tcn_capacity = compact
+sequence_d_model = 256
+sequence_timeframe_attention_heads = 4
+sequence_timeframe_attention_layers = 1
+sequence_timeframe_ffn_multiplier = 3
+sequence_timeframe_gate_bias = -2.0
+sequence_dropout = 0.0
+sequence_compile = false
+sequence_compile_mode = reduce-overhead
+sequence_transfer_mode = pinned_non_blocking
+vector_environment_mode = subprocess
+max_policy_parameters = 12000000
+max_rollout_buffer_bytes = 805306368
+checkpoint_interval_steps = 32768
+max_checkpoints = 8
+tensorboard_enabled = true
+tensorboard_log_interval = 1
+behavior_cloning_epochs = 0
+behavior_cloning_critic_warm_start_steps = 0
+behavior_cloning_joint_warm_start_steps = 0
+```
+
+All remaining `ResidualTrainingConfig` fields are also included in canonical model-config identity; inactive fields must be at their validated defaults.
+
+One-field mutation tests must fail for every scientific/resource field that can change learning or retained-checkpoint behavior.
+
+### Step 2 — RED: U1/U0/cutoff dependencies
+
+Reject before training:
+
+- `sequence_normalizer` absent;
+- U1 normalizer cutoff != `T_fit_end`;
+- U0 `RL_TRAINING` provenance cutoff != `T_fit_end`;
+- U1/U0 universe manifest mismatch;
+- U1 observation/state/action/reward/runtime/economic digest mismatch;
+- authored runtime config does not reproduce frozen U1 digests;
+- U1 `production_status` not `NO-GO`.
+
+### Step 3 — RED: no circular seed identity
+
+Implement/test:
+
+```text
+seed_namespace_digest
+  = digest(universe + U1 + temporal + model config + seed_count=8)
+
+seed_digest_i
+  = digest(seed_namespace_digest + index i + schema)
+
+seed_i
+  = unsigned big-endian uint32(first 4 bytes)
 ```
 
 Assert:
 
-- deterministic across repeated construction;
-- exactly 8 unique non-negative uint32 values;
-- changing universe/U1/temporal/model digest changes namespace;
-- forced collision raises; it does not probe a ninth seed;
-- final U2 digest changes if ordered seed vector changes.
+- exactly eight ordered unique uint32 seeds;
+- repeated construction is deterministic;
+- changing universe/U1/temporal/model identity changes namespace;
+- forced collision fails closed; no ninth probing seed;
+- final U2 contract digest binds the ordered resolved seed vector.
 
-### Step 4 — Verify RED
+### Step 4 — RED: U0 maintained run identity
+
+Build existing:
+
+- `UniversalTradeRLFitPurpose.RL_TRAINING` provenance;
+- `UniversalTradeRLRunStage.BASE_TRAINING` identity.
+
+Do not add a second U2 stage enum.
+
+### Step 5 — Verify RED
 
 ```bash
-uv run pytest tests/workflows/test_universal_trade_rl_u2_contract.py tests/workflows/test_universal_trade_rl_u2_seed_identity.py -q
+uv run pytest \
+  tests/rl/test_universal_trade_u2_training_config.py \
+  tests/workflows/test_universal_trade_rl_u2_contract.py \
+  tests/workflows/test_universal_trade_rl_u2_seed_identity.py \
+  -q
 ```
 
-### Step 5 — GREEN implementation
-
-Define versioned dataclasses/codecs for:
-
-- U2 model-config identity;
-- seed namespace;
-- ordered seeds artifact;
-- full U2 contract.
-
-Build the existing U0 `UniversalTradeRLFitPurpose.RL_TRAINING` provenance and `UniversalTradeRLRunStage.BASE_TRAINING` identity rather than inventing a second stage enum.
-
-### Step 6 — Verify + commit
+### Step 6 — GREEN + commit
 
 ```bash
-uv run pytest tests/workflows/test_universal_trade_rl_u2_contract.py tests/workflows/test_universal_trade_rl_u2_seed_identity.py tests/workflows/test_universal_trade_rl_run_identity.py tests/workflows/test_universal_trade_rl_data_provenance.py -q
-git add trade_rl/workflows/universal_trade_rl_u2_contract.py tests/workflows/test_universal_trade_rl_u2_contract.py tests/workflows/test_universal_trade_rl_u2_seed_identity.py
+uv run pytest \
+  tests/workflows/test_universal_trade_rl_u2_contract.py \
+  tests/workflows/test_universal_trade_rl_u2_seed_identity.py \
+  tests/workflows/test_universal_trade_rl_run_identity.py \
+  tests/workflows/test_universal_trade_rl_data_provenance.py \
+  -q
+
+git add trade_rl/workflows/universal_trade_rl_u2_contract.py tests/workflows/test_universal_trade_rl_u2_contract.py tests/workflows/test_universal_trade_rl_u2_seed_identity.py tests/rl/test_universal_trade_u2_training_config.py
 git commit -m "feat: freeze U2 model and seed identities"
 ```
 
@@ -812,49 +907,73 @@ git commit -m "feat: freeze U2 model and seed identities"
 
 - Create `trade_rl/workflows/universal_trade_rl_u2_training.py`.
 - Create `tests/workflows/test_universal_trade_rl_u2_training.py`.
-- Add/extend a focused SB3 integration test if needed.
 
-### Step 1 — RED: factory wiring tests
-
-Build a U2 concrete factory that:
-
-1. loads one immutable single-symbol dataset artifact;
-2. verifies dataset digest against U0 manifest;
-3. constructs the frozen U1 environment + frozen normalizer;
-4. wraps it with `AuthorizedUniversalTradeEnvironment` using that symbol's FIT plan.
-
-Then pass it to existing `UniversalRoutedEnvironmentFactory` with:
+**Produces:**
 
 ```python
-instrument_context_provider=None
-v4_context_provider=None
-training_contract_digest=u2_contract.digest
-run_seed=seed
+@dataclass(frozen=True, slots=True)
+class UniversalTradeU2ConcreteEnvironmentFactory:
+    ...
+
+@dataclass(frozen=True, slots=True)
+class UniversalTradeRLU2TrainingResult:
+    ...
 ```
 
-Test `for_environment_index(0..7)` yields distinct router environment indices and balanced cycle semantics.
+### Step 1 — RED: concrete factory closes U1 economics
 
-### Step 2 — RED: seed/checkpoint eligibility tests
+The factory receives only frozen, identity-checked inputs:
 
-Test runner behavior:
+- dataset artifact paths for U0 Train symbols;
+- U0 manifest;
+- frozen U1 policy contract;
+- frozen U1 sequence normalizer;
+- strict authored `TrainingRunConfig` already validated against U1 + U2 identities;
+- per-symbol U2 FIT plans.
 
-- loops exactly the 8 frozen seeds;
-- each seed receives exactly the fixed `524288` target timesteps;
-- a technically valid but negative-return seed is retained, not retried;
-- a technical crash may resume only the same seed + identity;
-- wrong checkpoint/config/environment digest rejects resume;
-- intermediate checkpoint never becomes `performance_eligible=true`;
-- one final checkpoint manifest per seed is required.
+For each binding:
 
-### Step 3 — Verify RED
+1. load immutable single-symbol dataset artifact;
+2. verify dataset digest against U0 manifest/binding;
+3. create `UniversalTradeMarketEnv` using the frozen U1 runtime/economic config;
+4. wrap with `UniversalTradeEnvironment(..., normalizer=frozen_u1_sequence_normalizer)`;
+5. wrap with `AuthorizedUniversalTradeEnvironment` using that Train symbol's authorized FIT starts.
+
+No Development/Admission dataset path is accepted by this factory type.
+
+### Step 2 — RED: routed vector factory
+
+For each frozen member seed build existing `UniversalRoutedEnvironmentFactory` with:
+
+```python
+instrument_context_provider = None
+v4_context_provider = None
+training_contract_digest = u2_contract.digest
+run_seed = member_seed
+```
+
+Test `for_environment_index(0..7)` produces distinct worker identities and every complete router cycle is balanced.
+
+### Step 3 — RED: exactly eight valid runs
+
+Test orchestration:
+
+- iterates exactly the frozen 8 seeds;
+- each member targets exactly `524288` timesteps;
+- uses `StableBaselines3Backend` rather than a new PPO implementation;
+- technically valid but economically losing members are retained;
+- no ninth replacement member;
+- technical retry/resume requires same seed/U2/model/environment/checkpoint identity;
+- intermediate checkpoint is never performance-eligible;
+- exactly one canonical final checkpoint manifest per valid seed is performance-eligible.
+
+### Step 4 — Verify RED
 
 ```bash
 uv run pytest tests/workflows/test_universal_trade_rl_u2_training.py tests/integrations/test_universal_trade_u2_sb3_model_assembly.py -q
 ```
 
-### Step 4 — GREEN implementation
-
-Reuse `StableBaselines3Backend` per seed with a seed-specific `UniversalRoutedEnvironmentFactory`. Do not fork PPO.
+### Step 5 — GREEN
 
 Persist under:
 
@@ -865,24 +984,17 @@ training/<seed>/
   routing_evidence.json
 ```
 
-`training_result.json` binds at minimum:
+`training_result.json` binds U2 contract/model/seed/BASE_TRAINING identity, final checkpoint identity, observed timesteps, worker/router evidence, and technical completion state.
 
-- U2 contract/model/seed/run-identity digests;
-- exact final checkpoint identity;
-- observed timesteps;
-- worker/router evidence;
-- technical completion state;
-- `performance_eligible=true` only for the canonical final checkpoint.
+### Step 6 — Test-only tiny integration
 
-### Step 5 — Small integration training
-
-Use tiny test-only timesteps/config in an integration fixture to prove wiring, but do **not** weaken the production U2 contract. Production profile validation remains exact; the tiny integration path must be clearly test-only.
+A test-only fixture may replace timesteps with a tiny number **only inside tests** to prove plumbing. It must not instantiate or serialize a production U2 contract under the reduced values. Production contract validator still rejects the reduced profile.
 
 ```bash
 uv run pytest tests/workflows/test_universal_trade_rl_u2_training.py -q
 ```
 
-### Step 6 — Commit
+### Step 7 — Commit
 
 ```bash
 git add trade_rl/workflows/universal_trade_rl_u2_training.py tests/workflows/test_universal_trade_rl_u2_training.py
@@ -899,60 +1011,64 @@ git commit -m "feat: train frozen U2 PPO seed set"
 - Create `tests/workflows/test_universal_trade_rl_u2_evaluation.py`.
 - Create `tests/workflows/test_universal_trade_rl_u2_baselines.py`.
 
-### Step 1 — RED: evaluation-scope tests
+### Step 1 — RED: exact evaluation scope
 
-Assert exact scope closure:
+Assert:
 
-- G1 = Train × 12 DEV episodes;
-- G2 = Development × latest 12 FIT episodes;
-- G3 = Development × same 12 DEV episodes as G1;
-- no Admission symbol accepted;
-- no missing/extra symbol or episode accepted;
-- final checkpoints only.
+- G1 = Train × fixed 12 DEV episodes;
+- G2 = Development × latest fixed 12 FIT episodes;
+- G3 = Development × exactly the same 12 DEV intervals as G1;
+- Development symbol count is at least 3;
+- no Admission/Excluded symbol is accepted;
+- no missing/extra episode is accepted;
+- only canonical final checkpoints are accepted.
 
-### Step 2 — RED: baseline parity tests
+### Step 2 — RED: baseline economic parity
 
-On a deterministic synthetic market:
+On deterministic synthetic markets prove:
 
-- `CASH_FLAT` always requests 0;
-- `BUY_AND_HOLD_LONG` requests +1 through the same signal-delay/Risk/Execution path;
-- `TREND_BASELINE` uses the maintained child TrendStrategy target but still enters through U1 target-action/Risk/Execution economics;
-- all four paths begin from the same cash reset and exact same start/end;
-- fee/spread/impact/funding/borrow changes affect policy and baselines consistently;
-- no baseline gets free terminal liquidation.
+- `CASH_FLAT` requests 0;
+- `BUY_AND_HOLD_LONG` requests +1;
+- `TREND_BASELINE` uses the maintained TrendStrategy target only as an external action source;
+- all paths start cash-only at identical start/end timestamps;
+- all actions pass through the same U1 signal-delay/Risk/Execution/accounting contract;
+- fees/spread/impact/funding/borrow/partial fills/margin affect baseline and policy consistently;
+- no baseline receives free terminal liquidation.
 
-### Step 3 — RED: leaf accounting tests
+### Step 3 — RED: immutable economic leaf contract
 
-Leaf schema:
+Atomic key:
 
-```python
+```text
 (seed, scope, symbol, episode_index)
 ```
 
 Require:
 
-- start/end timestamps;
+- exact start/end timestamps;
 - initial/final wealth;
-- gross return;
-- net return + net log growth;
-- Cash/BuyHold/Trend metrics;
+- gross return when independently defined;
+- after-cost net return and net log growth;
+- Cash/BuyHold/Trend comparable results;
 - max drawdown;
-- turnover + turnover/day;
+- turnover and turnover/day;
 - execution cost;
-- funding/borrow;
-- requested/executed/fill counts;
+- funding PnL;
+- borrow cost;
+- requested/executed/fill evidence;
 - trade/rebalance/fill counts;
 - termination reason;
-- hard-risk and execution-rejection evidence;
-- all source/policy/environment/U2 identities.
+- hard-Risk invariant evidence;
+- execution rejection reasons;
+- policy/checkpoint/environment/source/U0/U1/U2 identities.
 
-Independently recompute:
+Independent accounting oracle:
 
 ```python
-expected_log_growth = math.log(final_wealth / initial_wealth)
+expected_net_log_growth = math.log(final_wealth / initial_wealth)
 ```
 
-and reject drift.
+Reject disagreement.
 
 ### Step 4 — Verify RED
 
@@ -960,13 +1076,13 @@ and reject drift.
 uv run pytest tests/workflows/test_universal_trade_rl_u2_evaluation.py tests/workflows/test_universal_trade_rl_u2_baselines.py -q
 ```
 
-### Step 5 — GREEN implementation
+### Step 5 — GREEN
 
-- Load checkpoint through maintained checkpoint loader.
-- Use deterministic policy prediction for Development.
-- Never update optimizer/normalizer/calibration.
-- Reset every leaf with the exact planned `start_idx`.
-- Preserve immutable scope identity.
+- Load final checkpoint via maintained checkpoint loader.
+- Development prediction is deterministic.
+- No optimizer/normalizer/calibration update path is imported or called.
+- Each leaf resets with exact planned `start_idx`.
+- Preserve all scope/identity evidence.
 
 ### Step 6 — Verify + commit
 
@@ -978,7 +1094,7 @@ git commit -m "feat: replay U2 Development scopes and baselines"
 
 ---
 
-# Task 10: Immutable Development leaf publication and resume
+# Task 10: Atomic immutable Development evidence and resume
 
 **Files**
 
@@ -989,14 +1105,14 @@ git commit -m "feat: replay U2 Development scopes and baselines"
 
 Test:
 
-- leaf path is exactly `development/records/<scope>/<seed>/<symbol>/<episode>.json`;
-- canonical bytes/digest round-trip;
-- identical existing leaf = idempotent success;
-- modified/tampered leaf = fail closed;
-- extra unknown leaf = fail closed at complete-scope validation;
-- partial write never appears as valid final leaf;
-- crash after compute but before durable publish can recompute same immutable leaf;
-- existing valid leaf is not recomputed/replaced after aggregate results exist.
+- path exactly `development/records/<scope>/<seed>/<symbol>/<episode>.json`;
+- canonical byte/digest round-trip;
+- identical existing leaf => idempotent reuse;
+- modified/corrupt/wrong-path/wrong-identity leaf => fail closed;
+- extra unknown leaf => complete-scope failure;
+- partial write never appears as final valid evidence;
+- crash after compute/before durable publish may recompute the exact same leaf;
+- once a valid leaf exists, aggregate outcomes cannot cause it to be recomputed/replaced.
 
 ### Step 2 — Verify RED
 
@@ -1006,7 +1122,7 @@ uv run pytest tests/workflows/test_universal_trade_rl_u2_evidence_io.py -q
 
 ### Step 3 — GREEN
 
-Reuse canonical JSON + existing atomic-write helpers. Do not create a parallel serialization convention.
+Reuse canonical JSON and existing atomic-write conventions; do not invent a second serializer.
 
 ### Step 4 — Verify + commit
 
@@ -1026,70 +1142,68 @@ git commit -m "feat: persist immutable U2 Development leaves"
 - Create `tests/workflows/test_universal_trade_rl_u2_aggregation.py`.
 - Create `tests/workflows/test_universal_trade_rl_u2_development_gate.py`.
 
-### Step 1 — RED: aggregation oracle
+### Step 1 — RED: independent aggregation fixture
 
-Build a hand-calculated fixture with 8 seeds × >=3 Development symbols × 12 episodes.
+Use hand-calculated evidence with exactly 8 seeds × at least 3 Development symbols × 12 episodes.
 
-For G3 compute exactly:
+G3 primary series:
 
 ```python
-leaf_excess = policy_net_log_growth - cash_net_log_growth
-symbol_episode_excess = median(8 seed leaf_excess values)
-primary_excess_j = median(symbol_episode_excess across Development symbols)
+leaf_excess(seed, symbol, j) = policy_net_log_growth - cash_net_log_growth
+symbol_episode_excess(symbol, j) = median(leaf_excess over 8 seeds)
+primary_excess(j) = median(symbol_episode_excess over Development symbols)
 ```
 
-Assert exactly 12 ordered `primary_excess` values; seeds are collapsed before bootstrap.
+Assert exactly 12 ordered time observations. Seed replicas are collapsed before significance testing.
 
-### Step 2 — RED: bootstrap identity
+### Step 2 — RED: fixed block bootstrap
 
-Use existing `moving_block_mean_test` with:
+Reuse `moving_block_mean_test` with frozen parameters:
 
 ```text
-n_bootstrap=2000
-block_size=3
-CI=2.5%/97.5%
-bootstrap_seed=derived from seed namespace + "u2-development-bootstrap-v1"
+n_bootstrap = 2000
+block_size = 3 episodes
+CI = existing 2.5% / 97.5%
+bootstrap_seed = deterministic digest-derived uint32
 ```
 
-Test independently calculated deterministic fixture output/digest.
+Bind bootstrap schema/seed/parameters into summary identity.
 
-### Step 3 — RED: every gate reason
+### Step 3 — RED: every rejection reason
 
-Test each condition independently:
-
-**Structural rejection**
+**Structural:**
 
 - NaN/Inf;
-- identity/source drift;
+- source/identity drift;
 - unauthorized fit/update evidence;
 - action transport alteration;
-- missing leaf;
+- missing/duplicate/extra leaf;
 - unexplained execution rejection;
 - hard Risk invariant violation;
 - evidence tamper;
-- poor-seed substitution.
+- poor-seed substitution/retry.
 
-**G1**
+**G1:**
 
 ```text
-median 8-seed excess vs Cash > 0
+median across 8 seed-level excess net log growth vs Cash > 0
 ```
 
-**G2** same.
+**G2:** same.
 
-**G3 — all required**
+**G3 — all required:**
 
 ```text
-median 8-seed excess vs Cash > 0
+median across 8 seed-level G3 excess vs Cash > 0
 mean(primary_excess[12]) > 0
-bootstrap lower_ci > 0
-positive seeds >= 6/8
+moving-block bootstrap lower_ci(primary_excess) > 0
+positive seed count >= 6 / 8
 median Development-symbol absolute net log growth > 0
 positive Development-symbol excess-vs-Cash fraction >= 0.60
 minimum G3 leaf net return >= -0.05
 for every seed: mean G3 turnover/day <= 1.0
 economic termination count == 0
-median 8-seed G3 excess vs Trend > 0
+median across 8 seed-level G3 excess vs Trend > 0
 ```
 
 Buy-and-Hold remains diagnostic.
@@ -1102,14 +1216,14 @@ uv run pytest tests/workflows/test_universal_trade_rl_u2_aggregation.py tests/wo
 
 ### Step 5 — GREEN
 
-Output only:
+Only terminal decisions:
 
 ```text
 DEVELOPMENT_ACCEPTED
 DEVELOPMENT_REJECTED
 ```
 
-No ranking score/candidate grid.
+No ranking/candidate grid.
 
 Persist:
 
@@ -1118,7 +1232,7 @@ development/summary.json
 development/decision.json
 ```
 
-The decision artifact binds all required leaf digests, threshold identity, evaluator code identity, bootstrap identity, and U2 contract digest.
+Decision binds complete leaf digest closure, threshold identity, evaluator/gate code identity, bootstrap identity, and U2 contract digest.
 
 ### Step 6 — Verify + commit
 
@@ -1139,14 +1253,16 @@ git commit -m "feat: gate U2 Development evidence"
 - Create `tests/workflows/test_universal_trade_rl_u2_runner.py`.
 - Create `tests/scripts/test_run_universal_trade_rl_u2.py`.
 
-### Step 1 — RED: orchestration order
+### Step 1 — RED: one-way orchestration dependency
 
-The runner must enforce:
+Enforce:
 
 ```text
-load/verify frozen U0 + frozen U1
--> materialize/reuse temporal contract
--> materialize/reuse U2 contract + seeds + BASE_TRAINING identity
+load/verify frozen U0 + U1 + strict runtime config
+-> derive/materialize source-only temporal boundaries
+-> build/materialize dataset-backed episode plans/final temporal contract
+-> verify U1 normalizer cutoff == T_fit_end
+-> materialize U2 contract + seeds + BASE_TRAINING identity
 -> train/reuse exact 8 final checkpoints
 -> replay/reuse complete G1/G2/G3 leaves
 -> aggregate
@@ -1154,27 +1270,29 @@ load/verify frozen U0 + frozen U1
 -> STOP
 ```
 
-Test:
+Tests:
 
 - missing prior-stage artifact prevents later stage;
-- existing valid artifacts resume idempotently;
-- corrupt/extra/wrong-identity artifact fails closed;
-- Development rejected is a valid terminal research outcome, not an exception that deletes evidence;
-- no code path loads/authorizes Admission datasets.
+- valid artifacts resume idempotently;
+- corrupt/extra/wrong-identity artifacts fail closed;
+- Development reject is a valid terminal research result and evidence remains;
+- training module does not import Development module;
+- no U2 path loads Admission datasets.
 
-### Step 2 — RED: CLI
+### Step 2 — RED: narrow CLI
 
-Keep the CLI narrow. It should accept explicit frozen artifact/source roots and output root, print terminal state, and provide `--help`. Do not expose thresholds, seed count, candidate grid, algorithm, or hyperparameters as command-line knobs.
-
-Example intended surface:
+CLI accepts frozen roots/config only, not scientific knobs:
 
 ```bash
 uv run python scripts/run_universal_trade_rl_u2.py \
   --u0-root <path> \
   --u1-root <path> \
+  --runtime-config <path> \
   --dataset-root <path> \
   --output-root <path>
 ```
+
+Do **not** expose algorithm, seed count, thresholds, architecture, learning rate, or candidate grid.
 
 ### Step 3 — Verify RED
 
@@ -1184,15 +1302,13 @@ uv run pytest tests/workflows/test_universal_trade_rl_u2_runner.py tests/scripts
 
 ### Step 4 — GREEN
 
-Do not delete durable evidence on Development reject.
+Runner terminal status is a versioned operational contract. Before coding, check the final repository's maintained research-run exit convention. If no stronger convention exists, use:
 
-Recommended terminal semantics:
+- `0`: software valid + `DEVELOPMENT_ACCEPTED`;
+- `3`: software valid + `DEVELOPMENT_REJECTED`;
+- other nonzero: contract/execution failure.
 
-- exit `0`: software valid + `DEVELOPMENT_ACCEPTED`;
-- exit `3`: software valid + `DEVELOPMENT_REJECTED`;
-- other nonzero: execution/contract failure.
-
-If the repository already has a stronger standardized research outcome convention by implementation time, use that exact convention and update the plan/spec before changing semantics.
+If the maintained convention differs, update spec/plan first; do not silently change semantics.
 
 ### Step 5 — Verify + commit
 
@@ -1212,45 +1328,48 @@ git commit -m "feat: orchestrate Universal Trade RL U2"
 - Create `tests/workflows/test_universal_trade_rl_u2_falsification.py`.
 - Create `tests/integrations/test_universal_trade_rl_u2_economics.py`.
 
-### Step 1 — Write falsification tests before final docs
+### Step 1 — Attempt to break the implementation
 
-Attempt to break the implementation with at least:
+At minimum test:
 
 1. U1 normalizer cutoff one 15m bar after `T_fit_end`.
-2. RL_TRAINING provenance containing Development symbol.
+2. `RL_TRAINING` provenance containing a Development symbol.
 3. Train reset with a DEV `start_idx`.
-4. Development reset with wrong planned episode.
-5. U1 raw missing placeholder changed under `available=false`.
-6. concrete symbol/ticker injected into policy observation.
-7. instrument context or V4 provider enabled.
-8. fake policy produces `1.0001` and relies on external clip.
-9. seed vector element replaced after six successful runs.
-10. ninth replacement seed added for a losing seed.
+4. Development reset with a wrong planned interval.
+5. U1 hidden missing placeholder changed under `available=false`.
+6. concrete ticker/dataset ID injected into policy observation.
+7. instrument context or V4 context enabled.
+8. fake policy emits `1.0001` and relies on external clipping.
+9. seed vector member replaced after valid runs exist.
+10. ninth seed substituted for an economically poor seed.
 11. intermediate checkpoint substituted for final.
-12. valid final checkpoint from wrong model config.
-13. missing one G3 leaf.
-14. duplicated G3 leaf.
-15. modified execution cost on Trend baseline only.
-16. funding/borrow applied twice.
-17. same 8 seed replicas incorrectly fed as 96 bootstrap time samples.
-18. one -5.01% G3 leaf hidden by positive mean.
-19. one seed turnover `>1.0x/day` hidden by median.
-20. economic termination hidden by positive final aggregate.
-21. threshold artifact modified after leaves exist.
-22. Admission dataset loader touched before authorization.
+12. final checkpoint from wrong model config/U2 identity.
+13. one G3 leaf missing.
+14. one G3 leaf duplicated/extra.
+15. one leaf content modified while preserving path.
+16. execution cost changed for Trend baseline only.
+17. funding or borrow double-counted.
+18. 8 seed replicas incorrectly fed as independent bootstrap time observations.
+19. one `-5.01%` G3 leaf hidden by a positive mean.
+20. one seed mean turnover above `1.0x/day` hidden by median.
+21. economic termination hidden by positive aggregate.
+22. gate/threshold artifact changed after leaves exist.
+23. Admission dataset loader invoked before authorization.
+24. resume artifact generated by different evaluator/gate code identity.
 
-### Step 2 — Economic integration
+### Step 2 — Real-boundary economic integration
 
-Use real maintained execution/accounting objects, not mocks only, to verify:
+Use maintained production objects rather than mocks only to exercise:
 
 - fee;
 - spread;
 - impact;
 - funding;
 - borrow;
-- partial fill/liquidity;
+- liquidity/partial fill;
+- signal delay;
 - margin/economic termination;
-- signal delay and no terminal liquidation.
+- no terminal liquidation.
 
 ### Step 3 — Run
 
@@ -1258,11 +1377,9 @@ Use real maintained execution/accounting objects, not mocks only, to verify:
 uv run pytest tests/workflows/test_universal_trade_rl_u2_falsification.py tests/integrations/test_universal_trade_rl_u2_economics.py -q
 ```
 
-Expected: all adversarial mutations are detected by the intended independent oracle.
+### Step 4 — Fix/retest
 
-### Step 4 — Fix any discovered issue and rerun nearest tests first
-
-Do not merely document a fixable substantive defect.
+A substantive fixable issue discovered here must be fixed, followed by nearest targeted tests and then this suite again. Do not only document it.
 
 ### Step 5 — Commit
 
@@ -1273,44 +1390,45 @@ git commit -m "test: falsify Universal Trade RL U2 boundaries"
 
 ---
 
-# Task 14: Documentation, architecture review, full verification, independent review, exact-head CI
+# Task 14: Documentation, full verification, architecture review, independent review, exact-HEAD CI
 
 **Files**
 
 - Modify `docs/UNIVERSAL_TRADE_RL.md`.
 - Modify `docs/CONFIGURATION.md`.
-- Modify `tests/test_architecture_contract.py` only if necessary.
-- Optionally add a strict illustrative U2 input example only if the CLI needs one; label it non-production evidence.
+- Modify `tests/test_architecture_contract.py` only if the architecture checker requires it.
 
-### Step 1 — Update docs without overstating research state
+### Step 1 — Documentation
 
-Document:
+Document without overstating research state:
 
-- U2 symbol×time split;
-- cutoff ordering and U1 normalizer dependency;
+- source-only temporal-boundary derivation vs dataset-backed episode-plan closure;
+- U1 normalizer cutoff dependency;
 - U-Medium Direct `universal_trade_sequence_v1` architecture;
 - exact eight-seed PPO profile;
 - no best-seed/checkpoint selection;
 - G1/G2/G3;
+- baseline/economic parity;
 - Development gates;
-- artifact tree/resume behavior;
-- `Admission=CLOSED`, `Production=NO-GO` even after Development pass.
+- artifact/resume semantics;
+- `Admission=CLOSED`, `Production=NO-GO` even after Development acceptance.
 
-Resolve any stale U0/U1 handoff wording so the documented order matches:
+Resolve stale U0/U1 handoff wording to the actual order:
 
 ```text
 U0 freeze
--> U2 temporal contract
--> final U1 normalizer/artifact freeze
+-> U2 temporal boundaries
+-> U1 final normalizer/artifact freeze at T_fit_end
 -> U1 Quality Gate
--> U2 execution
+-> U2 episode-plan closure/training/evaluation
 ```
 
-### Step 2 — Targeted test wave
+### Step 2 — Targeted U2 wave
 
 ```bash
 uv run pytest \
   tests/rl/test_universal_trade_u2_environment.py \
+  tests/rl/test_universal_trade_u2_training_config.py \
   tests/rl/test_universal_trade_policy.py \
   tests/integrations/test_universal_trade_u2_sb3_model_assembly.py \
   tests/workflows/test_universal_trade_rl_u2_temporal.py \
@@ -1326,10 +1444,13 @@ uv run pytest \
   tests/workflows/test_universal_trade_rl_u2_runner.py \
   tests/workflows/test_universal_trade_rl_u2_falsification.py \
   tests/integrations/test_universal_trade_rl_u2_economics.py \
+  tests/scripts/test_run_universal_trade_rl_u2.py \
   -q
 ```
 
-### Step 3 — Related compatibility wave
+### Step 3 — U1/Universal compatibility wave
+
+Run current equivalents of:
 
 ```bash
 uv run pytest \
@@ -1337,15 +1458,16 @@ uv run pytest \
   tests/rl/test_universal_trade_observation.py \
   tests/rl/test_universal_trade_u1_normalization.py \
   tests/integrations/test_universal_sb3_model_assembly.py \
+  tests/integrations/test_sb3_training.py \
   tests/workflows/test_universal_full_research_training.py \
   tests/workflows/test_universal_trade_rl_run_identity.py \
   tests/workflows/test_universal_trade_rl_data_provenance.py \
   -q
 ```
 
-Use actual current filenames if U1 final refactors them; do not skip the layer because a path changed.
+If U1 finalization renames a file, replace it with the current equivalent; do not skip the coverage layer.
 
-### Step 4 — Static / architecture checks
+### Step 4 — Static / architecture
 
 ```bash
 uv run ruff check trade_rl tests scripts
@@ -1361,99 +1483,92 @@ uv run pytest -q
 uv build
 ```
 
-If the repository uses a canonical wrapper command in the final U1 head, run that canonical command in addition to the explicit layers above.
+Also run any canonical repository verification wrapper introduced by final U1.
 
-### Step 6 — Inspect coverage of changed behavior
+### Step 6 — Changed-line/assertion audit
 
-Confirm changed production lines are actually executed by tests. Pay special attention to:
+Confirm changed production branches are actually executed and strongly asserted, especially:
 
 - cutoff rejection;
-- explicit/non-explicit `start_idx` paths;
-- unavailable-value defense;
-- new encoder assembly/identity;
-- action transport;
+- authorized/unauthorized `start_idx`;
+- missing-value defense;
+- exact U1-only extractor surface;
+- bounded action transport;
 - seed collision/substitution;
 - resume/tamper;
 - every Development rejection reason.
 
-Coverage percentage alone is not the oracle.
+Coverage percentage is only a signal, not the oracle.
 
-### Step 7 — Self-review full diff
+### Step 7 — Architecture/self-review loop
 
-Review:
+Review final diff for:
 
-- Requirement compliance;
-- dependency direction (`U2 -> frozen U1`, never `U1 -> U2`);
-- no duplicate economics;
-- no Development access from training modules;
-- no Admission loader in U2;
-- identity closure;
-- error handling/atomic publication;
+- original requirement compliance;
+- dependency direction: `U2 -> frozen U1`, never `U1 -> U2`;
+- training module cannot import Development module;
+- no duplicated Risk/Execution/Reward/normalizer logic;
+- no Development/Admission dataset access from training;
+- no concrete symbol/context in policy tensors;
+- action distribution/transport correctness;
+- state transition/accounting correctness;
+- atomicity/resume/idempotency;
 - deterministic ordering;
 - dead/debug/temporary code;
-- accidental generated artifacts/secrets.
+- secrets/generated artifacts/unrelated refactors.
 
-Fix substantive findings and rerun impacted tests.
+For each substantive finding: fix → nearest targeted tests → falsification → broader verification again.
 
 ### Step 8 — Independent / falsification review
 
-Give a reviewer/verifier only:
+Give the verifier only:
 
 1. original U2 spec;
 2. this plan;
 3. final diff;
-4. final tests/assertions;
+4. tests and assertions;
 5. actual verification outputs.
 
-Ask the reviewer to find:
+Ask the verifier to find, not justify:
 
-- a path from Development/Admission into fit state;
-- a path that alters the policy action before U1 parser;
-- a way to replace a poor seed/checkpoint;
-- a way to change gates after results;
-- a way to pass with missing/downside-breaching evidence;
-- an assumption hidden by mocks.
+- any path from Development/Admission into fit state;
+- any path that changes the action before U1 strict parser;
+- any way to replace a poor seed/final checkpoint;
+- any way to change gates after results;
+- any way to pass with missing/downside-breaching evidence;
+- any integration assumption hidden by mocks.
 
-Do not ask merely whether the implementation “looks good.”
-
-### Step 9 — Git/HEAD hygiene
-
-Before reporting completion:
+### Step 9 — Git hygiene
 
 ```bash
 git diff --check
 git status --short
 git log -1 --oneline
+git merge-base --is-ancestor <final-u1-head> HEAD
 ```
 
-Confirm:
-
-- no untracked debug/temp files;
-- no secrets;
-- no temporary workflows;
-- no unrelated refactor;
-- branch is based on the intended final U1 head.
+Confirm no untracked debug/temp files, secrets, temporary workflows, unrelated changes, or unintended branch ancestry.
 
 ### Step 10 — exact-final-HEAD CI
 
-Push only after local gates pass. Verify required CI belongs to the exact final U2 HEAD, not an earlier commit. Do not mark Ready or merge unless the user explicitly authorizes the relevant action and the Quality Gate is complete.
+Push only after local gates pass. Verify required CI belongs to the exact final U2 HEAD, not an earlier commit. Do not mark Ready or merge unless explicitly authorized and the full Quality Gate is met.
 
 ### Step 11 — Final evidence report
 
 Report separately:
 
 1. what changed;
-2. why this architecture was used;
+2. design rationale;
 3. Acceptance Criteria mapping;
-4. Failure Modes tested;
-5. exact test/static/build results;
+4. Failure Modes exercised;
+5. exact tests/static/build outputs;
 6. independent/falsification findings;
-7. exact HEAD and CI status;
+7. exact HEAD and CI state;
 8. unverified items;
 9. residual risks;
-10. what the verification guarantees and does **not** guarantee.
+10. what this verification guarantees and does not guarantee.
 
-If no real production-candidate eight-seed run has been executed, explicitly state:
+If a real production-candidate eight-seed run has **not** been executed, state explicitly:
 
 ```text
 Software implementation may be valid.
@@ -1462,29 +1577,29 @@ Admission remains closed.
 Production remains NO-GO.
 ```
 
-### Step 12 — Commit docs/verification-only changes
+### Step 12 — Docs commit
 
 ```bash
-git add docs/UNIVERSAL_TRADE_RL.md docs/CONFIGURATION.md tests/test_architecture_contract.py
+git add docs/UNIVERSAL_TRADE_RL.md docs/CONFIGURATION.md
+git add tests/test_architecture_contract.py  # only if actually modified
 git commit -m "docs: document Universal Trade RL U2 gates"
 ```
-
-Only add `tests/test_architecture_contract.py` if actually modified.
 
 ---
 
 # Acceptance Criteria → Task Mapping
 
-| Acceptance area | Primary task(s) |
+| Acceptance area | Primary tasks |
 | --- | --- |
-| deterministic temporal cutoffs/grids | 1–2 |
-| Train×FIT-only authorized episodes | 2–3 |
+| deterministic source-only cutoffs/grids | 1 |
+| dataset-backed coverage/authorized starts | 2 |
+| Train×FIT-only reset enforcement | 3, 8 |
 | frozen U1 normalizer/cutoff dependency | 0, 7, 13 |
 | exact U1 observation only | 3, 5 |
-| bounded direct scalar action | 5–6 |
+| bounded direct scalar action | 5, 6 |
 | U-Medium Direct PPO identity | 4–7 |
 | exact 8 seeds/no replacement | 7–8 |
-| balanced train-symbol routing | 8 |
+| balanced Train-symbol routing | 8 |
 | final-checkpoint-only eligibility | 8 |
 | G1/G2/G3 fixed evaluation | 9 |
 | baseline parity | 9, 13 |
@@ -1493,25 +1608,25 @@ Only add `tests/test_architecture_contract.py` if actually modified.
 | fixed Development thresholds | 11 |
 | Admission firewall | 7, 9, 12, 13 |
 | falsification | 13 |
-| static/full/build/CI/review | 14 |
+| static/full/build/CI/independent review | 14 |
 
 ---
 
 # Final execution rule
 
-Do not start a real U2 training run merely because the software tests pass.
+Do not start a real U2 training run merely because software tests pass.
 
-Real execution order is:
+Real execution order:
 
 ```text
-U1 final Quality Gate
--> production-candidate U0/U1 identities frozen
--> U2 temporal materialization
--> inspect temporal/coverage artifact
--> U1 final normalizer cutoff equality verified
--> U2 contract/seeds frozen
+final U0/U1 Quality Gate
+-> U2 source-only temporal-boundary materialization
+-> verify/freeze T_fit_end
+-> final U1 normalizer/artifact identity at T_fit_end
+-> U2 dataset-backed episode-plan/coverage closure
+-> U2 runtime/model/seed contract freeze
 -> 8-seed Base PPO training
--> final checkpoint closure
+-> final-checkpoint closure
 -> G1/G2/G3 Development replay
 -> immutable Development decision
 -> STOP; Admission stays closed

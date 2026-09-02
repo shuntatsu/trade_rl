@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -10,6 +11,8 @@ from tests.rl.universal_trade_test_support import (
     make_u1_feature_specs,
     make_u1_market,
 )
+from trade_rl.data.contracts import FeatureKind, FeatureSpec
+from trade_rl.data.market import MarketDataset
 from trade_rl.rl.universal_normalization import (
     build_universal_trade_sequence_normalizer,
 )
@@ -48,13 +51,35 @@ def _observation_module():
         pytest.fail("Universal Trade U1 observation module is not implemented")
 
 
-def _builder():
+def _builder_type():
     module = _observation_module()
     builder_type = getattr(module, "UniversalTradeObservationBuilder", None)
     assert builder_type is not None, "Universal Trade U1 observation builder is missing"
-    return builder_type(
+    return builder_type
+
+
+def _builder():
+    return _builder_type()(
         contract=UniversalTradePolicyContract(feature_specs=make_u1_feature_specs())
     )
+
+
+def _reidentified(dataset: MarketDataset, **changes: object) -> MarketDataset:
+    return replace(
+        dataset,
+        dataset_id="0" * 64,
+        identity_payload_json=None,
+        **changes,
+    ).with_content_identity({"fixture": "universal_trade_u1_observation_mutation_v1"})
+
+
+def _assert_observations_equal(
+    left: dict[str, np.ndarray],
+    right: dict[str, np.ndarray],
+) -> None:
+    assert tuple(left) == tuple(right)
+    for key in left:
+        np.testing.assert_array_equal(left[key], right[key], err_msg=key)
 
 
 def test_u1_observation_has_exact_strategy_prior_free_layout() -> None:
@@ -109,6 +134,180 @@ def test_u1_policy_state_uses_fixed_dimensionless_transforms() -> None:
     assert state["borrow_rate"] == pytest.approx(np.tanh(0.02))
 
 
+def test_u1_observation_ignores_all_future_market_mutations() -> None:
+    decision_index = 6000
+    original = make_u1_market(n_bars=6200)
+
+    features = original.features.copy()
+    features[decision_index + 1 :] += 10_000.0
+    open_price = original.open.copy()
+    high = original.high.copy()
+    low = original.low.copy()
+    close = original.close.copy()
+    volume = original.volume.copy()
+    funding_rate = original.funding_rate.copy()
+    mark_price = original.resolved_array("mark_price").copy()
+    index_price = original.resolved_array("index_price").copy()
+    for array in (open_price, high, low, close, volume, mark_price, index_price):
+        array[decision_index + 1 :] *= 1_000.0
+    funding_rate[decision_index + 1 :] += 0.25
+
+    mutated = _reidentified(
+        original,
+        features=features,
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+        volume=volume,
+        funding_rate=funding_rate,
+        mark_price=mark_price,
+        index_price=index_price,
+    )
+    runtime = make_runtime_snapshot()
+    builder = _builder()
+
+    before = builder.build(
+        dataset=original,
+        index=decision_index,
+        runtime=runtime,
+    )
+    after = builder.build(
+        dataset=mutated,
+        index=decision_index,
+        runtime=runtime,
+    )
+    _assert_observations_equal(before, after)
+
+
+def test_u1_observation_is_invariant_to_symbol_rename() -> None:
+    builder = _builder()
+    runtime = make_runtime_snapshot()
+    btc = builder.build(
+        dataset=make_u1_market(symbol="BTCUSDT"),
+        index=6000,
+        runtime=runtime,
+    )
+    renamed = builder.build(
+        dataset=make_u1_market(symbol="FOOUSDT"),
+        index=6000,
+        runtime=runtime,
+    )
+    _assert_observations_equal(btc, renamed)
+
+
+def test_u1_observation_is_invariant_to_price_units() -> None:
+    builder = _builder()
+    runtime = make_runtime_snapshot()
+    base = builder.build(
+        dataset=make_u1_market(price_scale=1.0),
+        index=6000,
+        runtime=runtime,
+    )
+    rescaled = builder.build(
+        dataset=make_u1_market(price_scale=1_000.0),
+        index=6000,
+        runtime=runtime,
+    )
+
+    assert tuple(base) == tuple(rescaled)
+    for key in base:
+        np.testing.assert_allclose(base[key], rescaled[key], atol=1e-7, rtol=0.0)
+
+
+def test_u1_observation_distinguishes_true_zero_from_unavailable_zero() -> None:
+    decision_index = 6000
+    source = make_u1_market(n_bars=6200)
+    features = source.features.copy()
+    features[decision_index, 0, 0] = 0.0
+    available = source.feature_available.copy()
+    available[decision_index, 0, 0] = True
+    true_zero = _reidentified(source, features=features, feature_available=available)
+
+    unavailable_mask = available.copy()
+    unavailable_mask[decision_index, 0, 0] = False
+    unavailable_zero = _reidentified(
+        source,
+        features=features,
+        feature_available=unavailable_mask,
+    )
+
+    builder = _builder()
+    runtime = make_runtime_snapshot()
+    observed = builder.build(
+        dataset=true_zero,
+        index=decision_index,
+        runtime=runtime,
+    )
+    missing = builder.build(
+        dataset=unavailable_zero,
+        index=decision_index,
+        runtime=runtime,
+    )
+
+    assert observed["sequence_15m_values"][0, -1, 0] == pytest.approx(0.0)
+    assert missing["sequence_15m_values"][0, -1, 0] == pytest.approx(0.0)
+    assert observed["sequence_15m_available"][0, -1, 0] == 1
+    assert missing["sequence_15m_available"][0, -1, 0] == 0
+
+
+def test_u1_observation_schema_digest_binds_feature_order_not_identity() -> None:
+    specs = make_u1_feature_specs()
+    extra = FeatureSpec(
+        name="15m__ret_2",
+        kind=FeatureKind.LOG_RETURN,
+        lookback=2,
+    )
+    first = _builder_type()(
+        contract=UniversalTradePolicyContract(
+            feature_specs=(specs[0], extra, specs[1], specs[2], specs[3])
+        )
+    )
+    reordered = _builder_type()(
+        contract=UniversalTradePolicyContract(
+            feature_specs=(extra, specs[0], specs[1], specs[2], specs[3])
+        )
+    )
+
+    assert len(first.schema_digest) == 64
+    assert len(first.state_layout_digest) == 64
+    assert first.schema_digest != reordered.schema_digest
+    assert first.state_layout_digest == reordered.state_layout_digest
+
+    digest_before = first.schema_digest
+    runtime = make_runtime_snapshot()
+    first.build(dataset=make_u1_market(symbol="BTCUSDT"), index=6000, runtime=runtime)
+    first.build(dataset=make_u1_market(symbol="FOOUSDT"), index=6000, runtime=runtime)
+    assert first.schema_digest == digest_before
+
+
+def test_u1_observation_rejects_normalizer_for_different_contract() -> None:
+    specs = make_u1_feature_specs()
+    fitted_contract = UniversalTradePolicyContract(
+        feature_specs=(
+            replace(specs[0], lookback=2),
+            specs[1],
+            specs[2],
+            specs[3],
+        )
+    )
+    btc = make_u1_market(symbol="BTCUSDT", n_bars=6200)
+    eth = make_u1_market(symbol="ETHUSDT", n_bars=6200)
+    cutoff = int(btc.timestamps[6000].astype("datetime64[ns]").astype(np.int64))
+    normalizer = build_universal_trade_sequence_normalizer(
+        symbol_datasets={"BTCUSDT": btc, "ETHUSDT": eth},
+        contract=fitted_contract,
+        source_dataset_digests=(("BTCUSDT", "b" * 64), ("ETHUSDT", "e" * 64)),
+        knowledge_cutoff_ns=cutoff,
+        universe_manifest_digest="a" * 64,
+        provenance_digest="c" * 64,
+    )
+
+    expected_contract = UniversalTradePolicyContract(feature_specs=specs)
+    with pytest.raises(ValueError, match="normalizer|contract"):
+        _builder_type()(contract=expected_contract, normalizer=normalizer)
+
+
 def test_u1_observation_normalizer_transforms_sequence_values_only() -> None:
     contract = UniversalTradePolicyContract(feature_specs=make_u1_feature_specs())
     btc = make_u1_market(
@@ -134,9 +333,7 @@ def test_u1_observation_normalizer_transforms_sequence_values_only() -> None:
         provenance_digest="c" * 64,
     )
 
-    module = _observation_module()
-    builder_type = getattr(module, "UniversalTradeObservationBuilder", None)
-    assert builder_type is not None, "Universal Trade U1 observation builder is missing"
+    builder_type = _builder_type()
     raw_builder = builder_type(contract=contract)
     normalized_builder = builder_type(contract=contract, normalizer=normalizer)
     runtime = make_runtime_snapshot()

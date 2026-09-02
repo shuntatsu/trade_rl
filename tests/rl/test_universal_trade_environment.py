@@ -73,6 +73,29 @@ def test_u1_wrapper_rejects_non_pure_growth_reward() -> None:
         _wrapper(base=base)
 
 
+@pytest.mark.parametrize(
+    "horizon_override",
+    (
+        {"episode_hours": 24.0},
+        {"episode_bars": 96},
+    ),
+)
+def test_u1_wrapper_rejects_reset_horizon_override(
+    horizon_override: dict[str, object],
+) -> None:
+    env = _wrapper()
+
+    with pytest.raises(ValueError, match="U1|horizon|episode|contract"):
+        env.reset(
+            seed=17,
+            options={
+                "initial_state_mode": "cash",
+                "start_idx": 6000,
+                **horizon_override,
+            },
+        )
+
+
 def test_u1_wrapper_is_cash_only_and_action_strict() -> None:
     env = _wrapper()
 

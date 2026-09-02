@@ -10,7 +10,9 @@ from tests.workflows.universal_trade_rl_u1_test_support import (
     U1WorkflowFixture,
     build_u1_workflow_fixture,
 )
-from trade_rl.rl.universal_normalization import build_universal_trade_sequence_normalizer
+from trade_rl.rl.universal_normalization import (
+    build_universal_trade_sequence_normalizer,
+)
 from trade_rl.rl.universal_trade_observation import UniversalTradeObservationBuilder
 from trade_rl.workflows.universal_trade_rl_run_identity import (
     UniversalTradeRLRunIdentity,

@@ -7,6 +7,7 @@ from collections.abc import Mapping
 import numpy as np
 from gymnasium import spaces
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.sequence_observations import (
     SequenceObservation,
@@ -15,42 +16,74 @@ from trade_rl.rl.sequence_observations import (
 )
 from trade_rl.rl.universal_normalization import UniversalTradeSequenceNormalizer
 from trade_rl.rl.universal_trade_contract import (
+    UNIVERSAL_TRADE_OBSERVATION_SCHEMA,
     UNIVERSAL_TRADE_SEQUENCE_WINDOWS,
+    UNIVERSAL_TRADE_STATE_LAYOUT_SCHEMA,
     UniversalTradePolicyContract,
 )
 from trade_rl.rl.universal_trade_runtime import UniversalTradeRuntimeSnapshot
 
-_POLICY_STATE_FIELDS = (
-    "policy_requested_weight",
-    "pending_target_weight",
-    "pending_target_active",
-    "risk_projected_weight",
-    "current_weight",
-    "previous_action",
-    "fill_ratio",
-    "unfilled_turnover_ratio",
-    "participation_ratio",
-    "execution_cost_rate",
-    "position_age_days",
-    "pending_notional_ratio",
-    "pending_order_type_code",
-    "pending_order_status_code",
-    "pending_order_age_days",
-    "pending_order_eligible_delay_days",
-    "pending_order_triggered",
-    "pending_order_expiry_distance_days",
-    "asset_active",
-    "tradable",
-    "borrow_available",
-    "borrow_rate",
-    "mark_index_basis",
-    "current_drawdown",
-    "current_gross_exposure",
-    "current_net_exposure",
-    "cash_weight",
-    "risk_scale",
-    "margin_utilization",
+_POLICY_STATE_LAYOUT = (
+    ("policy_requested_weight", "policy_requested_weight", "identity_v1"),
+    ("pending_target_weight", "pending_target_weight", "identity_v1"),
+    ("pending_target_active", "pending_target_active", "bool_to_float_v1"),
+    ("risk_projected_weight", "risk_projected_weight", "identity_v1"),
+    ("current_weight", "current_weight", "identity_v1"),
+    ("previous_action", "previous_action", "identity_v1"),
+    ("fill_ratio", "fill_ratio", "identity_v1"),
+    ("unfilled_turnover_ratio", "unfilled_turnover_ratio", "identity_v1"),
+    ("participation_ratio", "participation_ratio", "identity_v1"),
+    ("execution_cost_rate", "execution_cost_rate", "identity_v1"),
+    ("position_age_days", "position_age_hours", "log1p_hours_over_24_v1"),
+    ("pending_notional_ratio", "pending_notional_ratio", "identity_v1"),
+    ("pending_order_type_code", "pending_order_type_code", "identity_v1"),
+    ("pending_order_status_code", "pending_order_status_code", "identity_v1"),
+    (
+        "pending_order_age_days",
+        "pending_order_age_hours",
+        "log1p_hours_over_24_v1",
+    ),
+    (
+        "pending_order_eligible_delay_days",
+        "pending_order_eligible_delay_hours",
+        "log1p_hours_over_24_v1",
+    ),
+    ("pending_order_triggered", "pending_order_triggered", "bool_to_float_v1"),
+    (
+        "pending_order_expiry_distance_days",
+        "pending_order_expiry_distance_hours",
+        "log1p_hours_over_24_v1",
+    ),
+    ("asset_active", "asset_active", "bool_to_float_v1"),
+    ("tradable", "tradable", "bool_to_float_v1"),
+    ("borrow_available", "borrow_available", "bool_to_float_v1"),
+    ("borrow_rate", "borrow_rate", "tanh_raw_v1"),
+    ("mark_index_basis", "mark_index_basis", "tanh_100x_v1"),
+    ("current_drawdown", "current_drawdown", "identity_v1"),
+    ("current_gross_exposure", "current_gross_exposure", "identity_v1"),
+    ("current_net_exposure", "current_net_exposure", "identity_v1"),
+    ("cash_weight", "cash_weight", "identity_v1"),
+    ("risk_scale", "risk_scale", "identity_v1"),
+    ("margin_utilization", "margin_utilization", "identity_v1"),
 )
+_POLICY_STATE_FIELDS = tuple(
+    field_name for field_name, _source_name, _transform in _POLICY_STATE_LAYOUT
+)
+
+
+def _transform_policy_state_value(transform: str, value: float | bool) -> float:
+    resolved = float(value)
+    if transform == "identity_v1":
+        return resolved
+    if transform == "bool_to_float_v1":
+        return float(bool(value))
+    if transform == "log1p_hours_over_24_v1":
+        return float(np.log1p(resolved / 24.0))
+    if transform == "tanh_raw_v1":
+        return float(np.tanh(resolved))
+    if transform == "tanh_100x_v1":
+        return float(np.tanh(100.0 * resolved))
+    raise AssertionError(f"unknown U1 policy-state transform: {transform}")
 
 
 class UniversalTradeObservationBuilder:
@@ -64,6 +97,13 @@ class UniversalTradeObservationBuilder:
     ) -> None:
         if not isinstance(contract, UniversalTradePolicyContract):
             raise TypeError("U1 observation requires a Universal Trade policy contract")
+        if normalizer is not None:
+            if not isinstance(normalizer, UniversalTradeSequenceNormalizer):
+                raise TypeError("U1 observation normalizer is invalid")
+            if normalizer.contract_digest != contract.digest:
+                raise ValueError(
+                    "U1 observation normalizer contract digest does not match policy contract"
+                )
         self._contract = contract
         self._normalizer = normalizer
         self._sequence_builder = SequenceObservationBuilder(
@@ -88,6 +128,51 @@ class UniversalTradeObservationBuilder:
             raise ValueError(
                 "U1 observation requires features for every sequence clock"
             )
+
+        self._state_layout_digest = content_digest(
+            {
+                "schema": UNIVERSAL_TRADE_STATE_LAYOUT_SCHEMA,
+                "dtype": "float32",
+                "fields": tuple(
+                    {
+                        "name": field_name,
+                        "source": source_name,
+                        "transform": transform,
+                    }
+                    for field_name, source_name, transform in _POLICY_STATE_LAYOUT
+                ),
+            }
+        )
+        self._schema_digest = content_digest(
+            {
+                "schema": UNIVERSAL_TRADE_OBSERVATION_SCHEMA,
+                "symbol_axis_semantics": "one_concrete_instrument_v1",
+                "sequence_windows": UNIVERSAL_TRADE_SEQUENCE_WINDOWS,
+                "feature_specs": tuple(
+                    spec.canonical_payload() for spec in contract.feature_specs
+                ),
+                "sequence_channels": tuple(
+                    {
+                        "timeframe": timeframe,
+                        "values_key": f"sequence_{timeframe}_values",
+                        "available_key": f"sequence_{timeframe}_available",
+                        "staleness_key": f"sequence_{timeframe}_staleness",
+                        "shape": (1, length, feature_counts[timeframe]),
+                        "feature_names": self._feature_names_by_timeframe[timeframe],
+                        "values_dtype": "float32",
+                        "available_dtype": "uint8",
+                        "staleness_dtype": "float32",
+                    }
+                    for timeframe, length in UNIVERSAL_TRADE_SEQUENCE_WINDOWS
+                ),
+                "policy_state": {
+                    "key": "policy_state",
+                    "shape": (len(_POLICY_STATE_LAYOUT),),
+                    "dtype": "float32",
+                    "state_layout_digest": self._state_layout_digest,
+                },
+            }
+        )
 
         observation_spaces: dict[str, spaces.Space[np.ndarray]] = {}
         for timeframe, length in UNIVERSAL_TRADE_SEQUENCE_WINDOWS:
@@ -122,6 +207,14 @@ class UniversalTradeObservationBuilder:
     def policy_state_fields(self) -> tuple[str, ...]:
         return _POLICY_STATE_FIELDS
 
+    @property
+    def schema_digest(self) -> str:
+        return self._schema_digest
+
+    @property
+    def state_layout_digest(self) -> str:
+        return self._state_layout_digest
+
     def _validate_dataset(self, dataset: MarketDataset) -> None:
         if not isinstance(dataset, MarketDataset):
             raise TypeError("U1 observation dataset is invalid")
@@ -136,36 +229,12 @@ class UniversalTradeObservationBuilder:
         if not isinstance(runtime, UniversalTradeRuntimeSnapshot):
             raise TypeError("U1 observation runtime snapshot is invalid")
         return np.asarray(
-            (
-                runtime.policy_requested_weight,
-                runtime.pending_target_weight,
-                float(runtime.pending_target_active),
-                runtime.risk_projected_weight,
-                runtime.current_weight,
-                runtime.previous_action,
-                runtime.fill_ratio,
-                runtime.unfilled_turnover_ratio,
-                runtime.participation_ratio,
-                runtime.execution_cost_rate,
-                np.log1p(runtime.position_age_hours / 24.0),
-                runtime.pending_notional_ratio,
-                runtime.pending_order_type_code,
-                runtime.pending_order_status_code,
-                np.log1p(runtime.pending_order_age_hours / 24.0),
-                np.log1p(runtime.pending_order_eligible_delay_hours / 24.0),
-                float(runtime.pending_order_triggered),
-                np.log1p(runtime.pending_order_expiry_distance_hours / 24.0),
-                float(runtime.asset_active),
-                float(runtime.tradable),
-                float(runtime.borrow_available),
-                np.tanh(runtime.borrow_rate),
-                np.tanh(100.0 * runtime.mark_index_basis),
-                runtime.current_drawdown,
-                runtime.current_gross_exposure,
-                runtime.current_net_exposure,
-                runtime.cash_weight,
-                runtime.risk_scale,
-                runtime.margin_utilization,
+            tuple(
+                _transform_policy_state_value(
+                    transform,
+                    getattr(runtime, source_name),
+                )
+                for _field_name, source_name, transform in _POLICY_STATE_LAYOUT
             ),
             dtype=np.float32,
         )

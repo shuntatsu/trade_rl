@@ -171,7 +171,7 @@ def test_u1_wrapper_external_truncation_does_not_liquidate_open_position() -> No
     env.step(np.asarray([0.70], dtype=np.float32))
     assert abs(float(base.hybrid.weights[0])) > 1e-12
 
-    object.__setattr__(base, "_end_index", base.current_index + 1)
+    object.__setattr__(base, "end_index", base.current_index + 1)
     _observation, _reward, terminated, truncated, info = env.step(
         np.asarray([0.70], dtype=np.float32)
     )
@@ -263,7 +263,7 @@ def test_u1_wrapper_is_compatible_with_two_symbol_episode_router() -> None:
     first_environment = environments[first_symbol]
     object.__setattr__(
         first_environment.base_env,
-        "_end_index",
+        "end_index",
         first_environment.current_index + 1,
     )
     _observation, _reward, terminated, truncated, _info = routed.step(
@@ -285,7 +285,7 @@ def test_u1_wrapper_is_compatible_with_two_symbol_episode_router() -> None:
     second_environment = environments[second_symbol]
     object.__setattr__(
         second_environment.base_env,
-        "_end_index",
+        "end_index",
         second_environment.current_index + 1,
     )
     _observation, _reward, terminated, truncated, _info = routed.step(

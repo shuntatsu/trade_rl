@@ -47,3 +47,22 @@ def test_reward_reconciliation_rejects_tampered_sequence() -> None:
             initial_value=values[0],
             final_value=values[-1],
         )
+
+
+def test_reward_handles_finite_wealth_without_ratio_overflow() -> None:
+    before = 1e-300
+    after = 1e300
+    expected = 100.0 * (math.log(after) - math.log(before))
+
+    reward = universal_net_log_growth_reward(
+        before_value=before,
+        after_value=after,
+    )
+
+    assert math.isfinite(reward)
+    assert reward == pytest.approx(expected, abs=1e-10, rel=0.0)
+    reconcile_universal_trade_reward(
+        rewards=(reward,),
+        initial_value=before,
+        final_value=after,
+    )

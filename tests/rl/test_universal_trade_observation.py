@@ -226,10 +226,16 @@ def test_u1_observation_distinguishes_true_zero_from_unavailable_zero() -> None:
 
     unavailable_mask = available.copy()
     unavailable_mask[decision_index, 0, 0] = False
+    staleness_hours = source.feature_staleness_hours.copy()
+    staleness_hours[decision_index, 0, 0] = 24.0
+    staleness = source.feature_staleness.copy()
+    staleness[decision_index, 0, 0] = 1.0
     unavailable_zero = _reidentified(
         source,
         features=features,
         feature_available=unavailable_mask,
+        feature_staleness_hours=staleness_hours,
+        feature_staleness=staleness,
     )
 
     builder = _builder()
@@ -274,11 +280,20 @@ def test_u1_observation_schema_digest_binds_feature_order_not_identity() -> None
     assert first.schema_digest != reordered.schema_digest
     assert first.state_layout_digest == reordered.state_layout_digest
 
-    digest_before = first.schema_digest
+    identity_builder = _builder()
+    digest_before = identity_builder.schema_digest
     runtime = make_runtime_snapshot()
-    first.build(dataset=make_u1_market(symbol="BTCUSDT"), index=6000, runtime=runtime)
-    first.build(dataset=make_u1_market(symbol="FOOUSDT"), index=6000, runtime=runtime)
-    assert first.schema_digest == digest_before
+    identity_builder.build(
+        dataset=make_u1_market(symbol="BTCUSDT"),
+        index=6000,
+        runtime=runtime,
+    )
+    identity_builder.build(
+        dataset=make_u1_market(symbol="FOOUSDT"),
+        index=6000,
+        runtime=runtime,
+    )
+    assert identity_builder.schema_digest == digest_before
 
 
 def test_u1_observation_rejects_normalizer_for_different_contract() -> None:

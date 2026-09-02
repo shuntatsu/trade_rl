@@ -208,7 +208,10 @@ class UniversalTradeEnvironment(gym.Env[dict[str, np.ndarray], np.ndarray]):
             or action_spec.n_factors != 0
         ):
             raise self._contract_error("action schema")
-        if ActionValidationMode(action_spec.validation_mode) is not ActionValidationMode.STRICT:
+        if (
+            ActionValidationMode(action_spec.validation_mode)
+            is not ActionValidationMode.STRICT
+        ):
             raise self._contract_error("action validation mode")
         if config.accept_legacy_actions:
             raise self._contract_error("legacy actions")
@@ -237,7 +240,9 @@ class UniversalTradeEnvironment(gym.Env[dict[str, np.ndarray], np.ndarray]):
         if config.liquidate_on_end:
             raise self._contract_error("terminal liquidation")
 
-        expected_feature_names = tuple(spec.name for spec in self.contract.feature_specs)
+        expected_feature_names = tuple(
+            spec.name for spec in self.contract.feature_specs
+        )
         if base.dataset.feature_names != expected_feature_names:
             raise self._contract_error("feature order")
 

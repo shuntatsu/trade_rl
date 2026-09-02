@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 
 _UNIVERSAL_TRADE_REWARD_SCALE = 100.0
 _DEFAULT_RECONCILIATION_ATOL = 1e-10
@@ -16,6 +16,18 @@ def _require_positive_finite_wealth(value: float, *, name: str) -> float:
     return resolved
 
 
+def _finite_rewards(rewards: Iterable[float]) -> Iterator[float]:
+    for reward in rewards:
+        resolved = float(reward)
+        if not math.isfinite(resolved):
+            raise ValueError("rewards must contain only finite values")
+        yield resolved
+
+
+def _log_growth(*, before_value: float, after_value: float) -> float:
+    return math.log(after_value) - math.log(before_value)
+
+
 def universal_net_log_growth_reward(
     *,
     before_value: float,
@@ -25,7 +37,10 @@ def universal_net_log_growth_reward(
 
     before = _require_positive_finite_wealth(before_value, name="before_value")
     after = _require_positive_finite_wealth(after_value, name="after_value")
-    return _UNIVERSAL_TRADE_REWARD_SCALE * math.log(after / before)
+    return _UNIVERSAL_TRADE_REWARD_SCALE * _log_growth(
+        before_value=before,
+        after_value=after,
+    )
 
 
 def reconcile_universal_trade_reward(
@@ -43,15 +58,8 @@ def reconcile_universal_trade_reward(
     if not math.isfinite(tolerance) or tolerance < 0.0:
         raise ValueError("atol must be finite and non-negative")
 
-    reward_total = 0.0
-    for reward in rewards:
-        resolved = float(reward)
-        if not math.isfinite(resolved):
-            raise ValueError("rewards must contain only finite values")
-        reward_total += resolved
-
-    observed = reward_total / _UNIVERSAL_TRADE_REWARD_SCALE
-    expected = math.log(final / initial)
+    observed = math.fsum(_finite_rewards(rewards)) / _UNIVERSAL_TRADE_REWARD_SCALE
+    expected = _log_growth(before_value=initial, after_value=final)
     if not math.isclose(observed, expected, rel_tol=0.0, abs_tol=tolerance):
         raise ValueError(
             "Universal Trade U1 reward reconciliation mismatch: "

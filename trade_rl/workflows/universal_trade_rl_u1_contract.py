@@ -98,7 +98,9 @@ def _runtime_config_digest(environment: UniversalTradeEnvironment) -> str:
     config_payload["episode_boundary_mode"] = base.config.episode_boundary_mode.value
     config_payload["action_validation_mode"] = base.config.action_validation_mode.value
     config_payload["resolved_sequence_windows"] = base.config.resolved_sequence_windows
-    config_payload["resolved_reward_config"] = asdict(base.config.resolved_reward_config())
+    config_payload["resolved_reward_config"] = asdict(
+        base.config.resolved_reward_config()
+    )
     return content_digest(
         {
             "action_spec_digest": environment.action_spec_digest,
@@ -154,7 +156,9 @@ class UniversalTradeRLU1Contract:
         if self.schema_version != UNIVERSAL_TRADE_RL_U1_CONTRACT_SCHEMA:
             raise ValueError("unsupported Universal Trade RL U1 contract schema")
         if self.production_status != U1_PRODUCTION_STATUS:
-            raise ValueError("Universal Trade RL U1 production status must remain NO-GO")
+            raise ValueError(
+                "Universal Trade RL U1 production status must remain NO-GO"
+            )
         for field_name in (
             "universe_manifest_digest",
             "u0_identity_digest",
@@ -224,7 +228,9 @@ class UniversalTradeRLU1Contract:
         if values["schema_version"] != UNIVERSAL_TRADE_RL_U1_CONTRACT_SCHEMA:
             raise ValueError("unsupported Universal Trade RL U1 contract schema")
         if values["production_status"] != U1_PRODUCTION_STATUS:
-            raise ValueError("Universal Trade RL U1 production status must remain NO-GO")
+            raise ValueError(
+                "Universal Trade RL U1 production status must remain NO-GO"
+            )
 
         fields = _policy_state_fields(values["policy_state_fields"])
         return cls(
@@ -250,7 +256,8 @@ class UniversalTradeRLU1Contract:
             ),
             normalizer_clip_value=_normalizer_clip(values["normalizer_clip_value"]),
             observation_schema_digest=_require_digest(
-                values["observation_schema_digest"], field="U1 observation schema digest"
+                values["observation_schema_digest"],
+                field="U1 observation schema digest",
             ),
             state_layout_digest=_require_digest(
                 values["state_layout_digest"], field="U1 state layout digest"
@@ -270,7 +277,9 @@ class UniversalTradeRLU1Contract:
             ),
             production_status=U1_PRODUCTION_STATUS,
             schema_version=UNIVERSAL_TRADE_RL_U1_CONTRACT_SCHEMA,
-            digest=_require_digest(values["artifact_digest"], field="U1 artifact digest"),
+            digest=_require_digest(
+                values["artifact_digest"], field="U1 artifact digest"
+            ),
         )
 
 
@@ -302,7 +311,9 @@ def build_universal_trade_rl_u1_contract(
         manifest=manifest,
     )
     if provenance.purpose is not UniversalTradeRLFitPurpose.FEATURE_NORMALIZATION:
-        raise ValueError("U1 normalizer provenance purpose must be feature normalization")
+        raise ValueError(
+            "U1 normalizer provenance purpose must be feature normalization"
+        )
 
     normalizer = environment.sequence_normalizer
     if not isinstance(normalizer, UniversalTradeSequenceNormalizer):

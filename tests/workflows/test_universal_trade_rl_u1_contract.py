@@ -45,10 +45,14 @@ def test_u1_contract_binds_u0_normalizer_policy_and_no_go(
     assert contract.u0_identity_digest == u1_fixture.u0_identity.digest
     assert contract.policy_contract_digest == environment.contract.digest
     assert contract.normalizer_digest == normalizer.digest
-    assert contract.normalizer_provenance_digest == u1_fixture.normalizer_provenance.digest
+    assert (
+        contract.normalizer_provenance_digest == u1_fixture.normalizer_provenance.digest
+    )
     assert contract.observation_schema_digest == observation.schema_digest
     assert contract.state_layout_digest == observation.state_layout_digest
-    assert contract.execution_policy_digest == environment.base_env.execution_policy_digest
+    assert (
+        contract.execution_policy_digest == environment.base_env.execution_policy_digest
+    )
     assert contract.production_status == "NO-GO"
 
 

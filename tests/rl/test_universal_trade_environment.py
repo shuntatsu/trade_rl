@@ -5,11 +5,14 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.rl.universal_trade_test_support import (
+    make_u1_base_env,
+    make_u1_feature_specs,
+)
 from trade_rl.rl.environment_config import EpisodeBoundaryMode
 from trade_rl.rl.universal_trade_contract import UniversalTradePolicyContract
 from trade_rl.rl.universal_trade_environment import UniversalTradeEnvironment
 from trade_rl.rl.universal_trade_reward import universal_net_log_growth_reward
-from tests.rl.universal_trade_test_support import make_u1_base_env, make_u1_feature_specs
 
 
 def _wrapper(*, base=None) -> UniversalTradeEnvironment:

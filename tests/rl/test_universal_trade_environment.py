@@ -61,7 +61,9 @@ def test_u1_wrapper_rejects_environment_contract_drift(
 def test_u1_wrapper_rejects_non_pure_growth_reward() -> None:
     base = make_u1_base_env()
     reward_config = replace(
-        base.config.resolved_reward_config(), projection_penalty_weight=0.1
+        base.config.resolved_reward_config(),
+        projection_penalty_weight=0.1,
+        terminal_equity_weight=1.0,
     )
     object.__setattr__(
         base, "config", replace(base.config, reward_config=reward_config)

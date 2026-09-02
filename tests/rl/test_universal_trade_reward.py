@@ -14,7 +14,7 @@ def test_reward_telescopes_to_final_wealth() -> None:
     values = (100.0, 101.0, 99.5, 103.25)
     rewards = tuple(
         universal_net_log_growth_reward(before_value=a, after_value=b)
-        for a, b in zip(values, values[1:], strict=True)
+        for a, b in zip(values[:-1], values[1:], strict=True)
     )
 
     assert sum(rewards) / 100.0 == pytest.approx(math.log(values[-1] / values[0]))
@@ -37,7 +37,7 @@ def test_reward_reconciliation_rejects_tampered_sequence() -> None:
     values = (100.0, 101.0, 99.5, 103.25)
     rewards = tuple(
         universal_net_log_growth_reward(before_value=a, after_value=b)
-        for a, b in zip(values, values[1:], strict=True)
+        for a, b in zip(values[:-1], values[1:], strict=True)
     )
     tampered = (rewards[0] + 1e-3, *rewards[1:])
 

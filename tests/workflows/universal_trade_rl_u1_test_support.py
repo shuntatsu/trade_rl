@@ -12,7 +12,9 @@ from tests.rl.universal_trade_test_support import (
     make_u1_wrapper,
 )
 from trade_rl.domain.universal_trade_rl_universe import UniversalTradeRLUniverseConfig
-from trade_rl.rl.universal_normalization import build_universal_trade_sequence_normalizer
+from trade_rl.rl.universal_normalization import (
+    build_universal_trade_sequence_normalizer,
+)
 from trade_rl.rl.universal_trade_contract import UniversalTradePolicyContract
 from trade_rl.rl.universal_trade_environment import UniversalTradeEnvironment
 from trade_rl.workflows.universal_trade_rl_data_provenance import (

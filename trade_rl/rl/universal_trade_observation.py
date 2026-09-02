@@ -255,11 +255,16 @@ class UniversalTradeObservationBuilder:
         for timeframe, _length in UNIVERSAL_TRADE_SEQUENCE_WINDOWS:
             values = np.asarray(sequence.values[timeframe], dtype=np.float32)
             available = np.asarray(sequence.available[timeframe], dtype=np.uint8)
-            if self._normalizer is not None:
+            availability_mask = available.astype(np.bool_, copy=False)
+            if self._normalizer is None:
+                values = np.where(availability_mask, values, 0.0).astype(
+                    np.float32, copy=False
+                )
+            else:
                 values = self._normalizer.transform(
                     timeframe,
                     values,
-                    available.astype(np.bool_),
+                    availability_mask,
                     feature_names=self._feature_names_by_timeframe[timeframe],
                 )
             result[f"sequence_{timeframe}_values"] = values

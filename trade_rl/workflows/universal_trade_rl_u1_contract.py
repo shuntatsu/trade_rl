@@ -8,6 +8,8 @@ from typing import Final
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.rl.actions import ActionValidationMode
+from trade_rl.rl.environment_config import EpisodeBoundaryMode
 from trade_rl.rl.universal_normalization import UniversalTradeSequenceNormalizer
 from trade_rl.rl.universal_trade_environment import UniversalTradeEnvironment
 from trade_rl.rl.universal_trade_observation import UniversalTradeObservationBuilder
@@ -95,8 +97,12 @@ def _normalizer_clip(value: object) -> float:
 def _runtime_config_digest(environment: UniversalTradeEnvironment) -> str:
     base = environment.base_env
     config_payload = asdict(base.config)
-    config_payload["episode_boundary_mode"] = base.config.episode_boundary_mode.value
-    config_payload["action_validation_mode"] = base.config.action_validation_mode.value
+    config_payload["episode_boundary_mode"] = EpisodeBoundaryMode(
+        base.config.episode_boundary_mode
+    ).value
+    config_payload["action_validation_mode"] = ActionValidationMode(
+        base.config.action_validation_mode
+    ).value
     config_payload["resolved_sequence_windows"] = base.config.resolved_sequence_windows
     config_payload["resolved_reward_config"] = asdict(
         base.config.resolved_reward_config()

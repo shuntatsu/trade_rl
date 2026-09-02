@@ -71,7 +71,9 @@ def _fixture_contract_and_normalizer() -> tuple[
     return contract, normalizer
 
 
-def _materialize(output: Path) -> tuple[UniversalTradeRLU1Contract, UniversalTradeSequenceNormalizer]:
+def _materialize(
+    output: Path,
+) -> tuple[UniversalTradeRLU1Contract, UniversalTradeSequenceNormalizer]:
     contract, normalizer = _fixture_contract_and_normalizer()
     _runner().materialize_universal_trade_rl_u1(
         contract=contract,
@@ -112,7 +114,10 @@ def test_u1_materialization_is_exact_canonical_and_idempotent(tmp_path: Path) ->
     assert normalizer_payload["contract_digest"] == normalizer.contract_digest
     assert normalizer_payload["train_symbols"] == list(normalizer.train_symbols)
     assert normalizer_payload["knowledge_cutoff_ns"] == normalizer.knowledge_cutoff_ns
-    assert normalizer_payload["universe_manifest_digest"] == normalizer.universe_manifest_digest
+    assert (
+        normalizer_payload["universe_manifest_digest"]
+        == normalizer.universe_manifest_digest
+    )
     assert normalizer_payload["provenance_digest"] == normalizer.provenance_digest
     assert normalizer_payload["clip_value"] == normalizer.clip_value
     channels = normalizer_payload["channels"]

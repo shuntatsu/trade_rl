@@ -457,7 +457,9 @@ class UniversalTradeRLU2Contract:
         payload = _normalized_training_payload(self.training_config_payload)
         canonical_payload = _canonical_training_payload()
         if payload != canonical_payload:
-            raise ValueError("U2 training config recipe is not the canonical Base PPO V1")
+            raise ValueError(
+                "U2 training config recipe is not the canonical Base PPO V1"
+            )
         expected_training_digest = content_digest(payload)
         if self.training_config_digest != expected_training_digest:
             raise ValueError("U2 training config digest mismatch")
@@ -477,7 +479,9 @@ class UniversalTradeRLU2Contract:
             raise ValueError("Universal Trade RL U2 remains Production NO-GO")
 
         expected_rules = {
-            "architecture_spec_digest": content_digest(_architecture_contract_payload()),
+            "architecture_spec_digest": content_digest(
+                _architecture_contract_payload()
+            ),
             "router_contract_digest": content_digest(
                 _router_contract_payload(
                     universe_manifest_digest=self.universe_manifest_digest,
@@ -592,9 +596,7 @@ class UniversalTradeRLU2Contract:
             ),
             time_partition_digest=strings["time_partition_digest"],
             fit_end_ns=_integer(values["fit_end_ns"], field="U2 FIT end"),
-            rl_training_provenance_digest=strings[
-                "rl_training_provenance_digest"
-            ],
+            rl_training_provenance_digest=strings["rl_training_provenance_digest"],
             rl_training_knowledge_cutoff_ns=_integer(
                 values["rl_training_knowledge_cutoff_ns"],
                 field="U2 RL_TRAINING knowledge cutoff",
@@ -668,7 +670,9 @@ def build_universal_trade_rl_u2_contract(
 
     expected_train_symbols = _train_symbols(manifest)
     if rl_training_provenance.source_symbols != expected_train_symbols:
-        raise ValueError("U2 RL_TRAINING provenance must cover the complete Train symbol scope")
+        raise ValueError(
+            "U2 RL_TRAINING provenance must cover the complete Train symbol scope"
+        )
     fit_end = time_partition.fit_end_ns
     if u1_contract.normalizer_knowledge_cutoff_ns != fit_end:
         raise ValueError("U2 U1 normalizer cutoff must equal FIT end")
@@ -741,7 +745,10 @@ def build_universal_trade_rl_u2_base_training_identity(
         raise TypeError("U2 RL_TRAINING provenance is invalid")
     if rl_training_provenance.purpose is not UniversalTradeRLFitPurpose.RL_TRAINING:
         raise ValueError("U2 provenance purpose must be RL_TRAINING")
-    if rl_training_provenance.universe_manifest_digest != contract.universe_manifest_digest:
+    if (
+        rl_training_provenance.universe_manifest_digest
+        != contract.universe_manifest_digest
+    ):
         raise ValueError("U2 BASE_TRAINING provenance universe identity mismatch")
     if rl_training_provenance.digest != contract.rl_training_provenance_digest:
         raise ValueError("U2 BASE_TRAINING fit provenance digest mismatch")

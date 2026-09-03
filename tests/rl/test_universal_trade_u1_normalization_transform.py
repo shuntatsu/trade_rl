@@ -46,3 +46,26 @@ def test_u1_normalizer_accepts_native_sequence_leading_axes() -> None:
     assert transformed.dtype == np.float32
     assert transformed[0, 1, 0] == pytest.approx(0.0)
     assert np.isfinite(transformed).all()
+
+
+def test_u1_normalizer_clips_standardized_values_at_fixed_ten_sigma() -> None:
+    normalizer = _normalizer()
+    statistics = normalizer.statistics_for("15m")
+    mean = float(statistics.mean[0])
+    scale = float(statistics.scale[0])
+    values = np.asarray(
+        [[[mean + 100.0 * scale], [mean - 100.0 * scale]]],
+        dtype=np.float64,
+    )
+    available = np.ones(values.shape, dtype=np.bool_)
+
+    transformed = normalizer.transform(
+        "15m",
+        values,
+        available,
+        feature_names=("15m__ret",),
+    )
+
+    assert normalizer.clip_value == pytest.approx(10.0)
+    assert transformed[0, 0, 0] == pytest.approx(10.0)
+    assert transformed[0, 1, 0] == pytest.approx(-10.0)

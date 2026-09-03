@@ -48,8 +48,11 @@ def test_u1_contract_binds_u0_normalizer_policy_and_no_go(
     assert (
         contract.normalizer_provenance_digest == u1_fixture.normalizer_provenance.digest
     )
+    assert contract.normalizer_knowledge_cutoff_ns == normalizer.knowledge_cutoff_ns
+    assert contract.normalizer_clip_value == pytest.approx(10.0)
     assert contract.observation_schema_digest == observation.schema_digest
     assert contract.state_layout_digest == observation.state_layout_digest
+    assert contract.policy_state_fields == observation.policy_state_fields
     assert (
         contract.execution_policy_digest == environment.base_env.execution_policy_digest
     )
@@ -136,6 +139,28 @@ def test_u1_contract_from_payload_rejects_tampered_runtime_digest(
 
     with pytest.raises(ValueError, match="digest mismatch"):
         module.UniversalTradeRLU1Contract.from_payload(payload)
+
+
+def test_u1_contract_rejects_non_v1_normalizer_clip(
+    u1_fixture: U1WorkflowFixture,
+) -> None:
+    contract = u1_fixture.build_contract()
+
+    with pytest.raises(ValueError, match="clip"):
+        replace(contract, normalizer_clip_value=9.0, digest="")
+
+
+def test_u1_policy_state_order_changes_u1_identity(
+    u1_fixture: U1WorkflowFixture,
+) -> None:
+    contract = u1_fixture.build_contract()
+    changed = replace(
+        contract,
+        policy_state_fields=tuple(reversed(contract.policy_state_fields)),
+        digest="",
+    )
+
+    assert changed.digest != contract.digest
 
 
 @pytest.mark.parametrize(

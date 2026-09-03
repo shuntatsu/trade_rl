@@ -70,7 +70,9 @@ def _manifest(
     )
 
 
-def test_u2_time_partition_uses_common_dense_15m_interval_and_exact_bar_fractions() -> None:
+def test_u2_time_partition_uses_common_dense_15m_interval_and_exact_bar_fractions() -> (
+    None
+):
     module = _module()
     manifest = _manifest()
 
@@ -101,13 +103,17 @@ def test_u2_time_partition_uses_common_dense_15m_interval_and_exact_bar_fraction
         d2_stop,
         common_bars,
     )
-    assert fit.bar_count + d1.bar_count + d2.bar_count + admission.bar_count == common_bars
+    assert (
+        fit.bar_count + d1.bar_count + d2.bar_count + admission.bar_count == common_bars
+    )
     assert seen.bar_count == 60 * _BARS_PER_DAY
     assert seen.stop_bar_index_exclusive == fit.stop_bar_index_exclusive
     assert partition.fit_end_ns == fit.last_timestamp_ns
 
 
-def test_u2_time_partition_predeclares_non_overlapping_complete_720h_evaluation_tiles() -> None:
+def test_u2_time_partition_predeclares_non_overlapping_complete_720h_evaluation_tiles() -> (
+    None
+):
     module = _module()
     partition = module.build_universal_trade_rl_u2_time_partition(manifest=_manifest())
 
@@ -125,7 +131,9 @@ def test_u2_time_partition_predeclares_non_overlapping_complete_720h_evaluation_
             assert tile.tile_index == index
             assert tile.source_window == window_name
             assert tile.bar_count == _EPISODE_BARS
-            assert tile.start_bar_index == window.start_bar_index + index * _EPISODE_BARS
+            assert (
+                tile.start_bar_index == window.start_bar_index + index * _EPISODE_BARS
+            )
             assert tile.stop_bar_index_exclusive == tile.start_bar_index + _EPISODE_BARS
         for left, right in zip(tiles, tiles[1:]):
             assert left.stop_bar_index_exclusive == right.start_bar_index
@@ -135,7 +143,9 @@ def test_u2_time_partition_round_trips_canonically() -> None:
     module = _module()
     partition = module.build_universal_trade_rl_u2_time_partition(manifest=_manifest())
 
-    restored = module.UniversalTradeRLU2TimePartition.from_payload(partition.to_payload())
+    restored = module.UniversalTradeRLU2TimePartition.from_payload(
+        partition.to_payload()
+    )
 
     assert restored == partition
     assert restored.digest == partition.digest

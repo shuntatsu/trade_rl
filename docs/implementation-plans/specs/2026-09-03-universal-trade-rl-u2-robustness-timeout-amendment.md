@@ -17,6 +17,8 @@ The reason for the amendment is independent falsification review. Three loophole
 
 A fourth ordering ambiguity is also closed: U2 time metadata must exist before the real U1 normalizer can use `FIT end` as its cutoff, while U2 *training* still starts only after U1 is frozen.
 
+A fifth metadata loophole is closed: U0 source identity contains `first_timestamp_ns`, `last_timestamp_ns`, and `row_count`, so a bar-count partition can be constructed without reading numeric arrays only when those fields prove a dense 15-minute decision grid.
+
 ---
 
 ## 1. U0 → time partition → U1 → U2 ordering
@@ -48,6 +50,38 @@ U2 FIT end determines the real U1 normalization cutoff
 ```
 
 are not contradictory.
+
+### 1.1 Dense 15-minute metadata grid is mandatory
+
+The U2 time-partition builder must validate every non-excluded U0 source record using metadata only.
+
+Let:
+
+```text
+BAR_NS = 15 minutes in nanoseconds
+```
+
+For every Train / Development / Admission source:
+
+```text
+first_timestamp_ns % BAR_NS == 0
+last_timestamp_ns  % BAR_NS == 0
+(last_timestamp_ns - first_timestamp_ns) % BAR_NS == 0
+row_count == ((last_timestamp_ns - first_timestamp_ns) / BAR_NS) + 1
+```
+
+must hold.
+
+This proves that the source identity describes one dense 15-minute grid with no missing decision bars between the recorded endpoints. Once all sources satisfy it, `common_start=max(first)` and `common_end=min(last)` also define an exact common bar grid and the 60/10/10/20 split can be computed without loading numeric arrays.
+
+If any record fails this metadata equation, U2 time partitioning is **technical NO-GO**. The builder must not open market arrays to infer missing timestamps, silently interpolate gaps, or repair the source identity. A richer/updated source-identity generation must be created and reviewed first.
+
+Required falsification tests:
+
+- one missing row with unchanged endpoints is rejected;
+- one endpoint off the 15-minute grid is rejected;
+- a numerically modified dataset with unchanged valid metadata cannot change the partition digest;
+- Admission arrays are never read while validating the grid.
 
 ---
 
@@ -268,6 +302,10 @@ No partial-pass state may authorize Admission.
 
 The implementation plan is amended as follows.
 
+### Task 2 — time partition
+
+Add RED tests for the dense 15-minute metadata equation in Section 1.1. Partition construction must remain metadata-only.
+
 ### Task 3 — U2 contract
 
 Add RED tests for every fixed runtime field in Section 2 and for the complete resolved `ResidualTrainingConfig.digest_payload()`.
@@ -298,6 +336,7 @@ Verify the real host supports the exact `cuda + deterministic + in_process` cont
 
 U2 software cannot be called training-ready unless independent review confirms:
 
+- U0 metadata alone proves a dense common 15-minute grid before partitioning;
 - no losing Development symbol can be hidden inside seed aggregation;
 - no losing seed can be hidden inside cross-seed aggregation;
 - normal U1 horizon truncation receives exactly one critic bootstrap;

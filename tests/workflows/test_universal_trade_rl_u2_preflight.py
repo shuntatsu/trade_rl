@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass, replace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -64,9 +65,9 @@ class U2PreflightFixture:
 
 class SpyBoundedLoader:
     def __init__(self) -> None:
-        self.calls: list[object] = []
+        self.calls: list[Any] = []
 
-    def __call__(self, request: object) -> object:
+    def __call__(self, request: Any) -> Any:
         self.calls.append(request)
         return request
 
@@ -249,7 +250,7 @@ def u2_fixture() -> U2PreflightFixture:
     return _fixture()
 
 
-def _closure(module: object, fixture: U2PreflightFixture):
+def _closure(module: Any, fixture: U2PreflightFixture) -> Any:
     return module.build_universal_trade_rl_u2_training_source_closure(
         manifest=fixture.manifest,
         u1_contract=fixture.u1_contract,

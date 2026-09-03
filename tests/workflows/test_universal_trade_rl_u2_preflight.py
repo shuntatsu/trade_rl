@@ -143,9 +143,7 @@ def _normalizer(
         feature_names=("test_feature",),
         mean=np.asarray([0.0], dtype=np.float64),
         scale=np.asarray([1.0], dtype=np.float64),
-        per_symbol_sample_counts=tuple(
-            (symbol, (1,)) for symbol in train_symbols
-        ),
+        per_symbol_sample_counts=tuple((symbol, (1,)) for symbol in train_symbols),
     )
     statistics_digest = content_digest(
         {
@@ -321,13 +319,13 @@ def test_u2_preflight_returns_only_verified_train_sources_and_fit_bounds(
     assert closure.u1_contract_digest == u2_fixture.u1_contract.digest
     assert closure.normalizer_digest == u2_fixture.normalizer.digest
     assert (
-        closure.normalizer_provenance_digest
-        == u2_fixture.normalizer_provenance.digest
+        closure.normalizer_provenance_digest == u2_fixture.normalizer_provenance.digest
     )
     assert closure.time_partition_digest == u2_fixture.time_partition.digest
-    assert closure.fit_first_timestamp_ns == u2_fixture.time_partition.window(
-        "fit"
-    ).first_timestamp_ns
+    assert (
+        closure.fit_first_timestamp_ns
+        == u2_fixture.time_partition.window("fit").first_timestamp_ns
+    )
     assert closure.fit_last_timestamp_ns == u2_fixture.time_partition.fit_end_ns
     assert tuple(source.symbol for source in closure.sources) == (
         "BTCUSDT",

@@ -5,7 +5,9 @@ import importlib
 import pytest
 
 from trade_rl.domain.universal_trade_rl_universe import UniversalTradeRLUniverseConfig
-from trade_rl.workflows.universal_trade_rl_universe_config import UniversalTradeRLSymbolSource
+from trade_rl.workflows.universal_trade_rl_universe_config import (
+    UniversalTradeRLSymbolSource,
+)
 from trade_rl.workflows.universal_trade_rl_universe_manifest import (
     UniversalTradeRLUniverseManifest,
     build_universal_trade_rl_universe_manifest,

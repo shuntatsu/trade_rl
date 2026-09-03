@@ -173,10 +173,17 @@ def test_request_pending_risk_realized_and_order_pending_remain_distinct() -> No
         contract=contract,
     )
     wrapper.reset(options={"start_idx": 6000, "initial_state_mode": "cash"})
-    wrapper.step(np.asarray([0.60], dtype=np.float32))
-    observation, _reward, _terminated, _truncated, _info = wrapper.step(
+    initial = float(wrapper.base_env.hybrid.portfolio_value)
+    rewards: list[float] = []
+
+    _observation, reward, _terminated, _truncated, _info = wrapper.step(
+        np.asarray([0.60], dtype=np.float32)
+    )
+    rewards.append(reward)
+    observation, reward, _terminated, _truncated, _info = wrapper.step(
         np.asarray([0.80], dtype=np.float32)
     )
+    rewards.append(reward)
     state = _policy_state(observation, contract=contract)
 
     assert state["policy_requested_weight"] == pytest.approx(0.80)
@@ -187,9 +194,10 @@ def test_request_pending_risk_realized_and_order_pending_remain_distinct() -> No
     assert 0.0 <= state["fill_ratio"] < 1.0
     assert state["pending_notional_ratio"] > 0.0
 
-    next_observation, _reward, _terminated, _truncated, _info = wrapper.step(
+    next_observation, reward, _terminated, _truncated, _info = wrapper.step(
         np.asarray([0.0], dtype=np.float32)
     )
+    rewards.append(reward)
     next_state = _policy_state(next_observation, contract=contract)
 
     assert next_state["policy_requested_weight"] == pytest.approx(0.0)
@@ -197,3 +205,10 @@ def test_request_pending_risk_realized_and_order_pending_remain_distinct() -> No
     assert next_state["pending_target_weight"] == pytest.approx(0.0)
     assert next_state["risk_projected_weight"] == pytest.approx(0.35)
     assert next_state["pending_notional_ratio"] > 0.0
+
+    final = float(wrapper.base_env.hybrid.portfolio_value)
+    _assert_reward_telescopes(
+        rewards=rewards,
+        initial_value=initial,
+        final_value=final,
+    )

@@ -53,7 +53,9 @@ class U2ContractFixture:
 
 def _module():
     try:
-        return importlib.import_module("trade_rl.workflows.universal_trade_rl_u2_contract")
+        return importlib.import_module(
+            "trade_rl.workflows.universal_trade_rl_u2_contract"
+        )
     except ModuleNotFoundError:
         pytest.fail("Universal Trade RL U2 training contract is not implemented")
 
@@ -211,7 +213,10 @@ def test_u2_contract_binds_u0_u1_time_provenance_and_full_training_payload(
     assert contract.universe_manifest_digest == u2_fixture.manifest.digest
     assert contract.u1_contract_digest == u2_fixture.u1_contract.digest
     assert contract.u1_normalizer_digest == u2_fixture.u1_contract.normalizer_digest
-    assert contract.u1_normalizer_knowledge_cutoff_ns == u2_fixture.time_partition.fit_end_ns
+    assert (
+        contract.u1_normalizer_knowledge_cutoff_ns
+        == u2_fixture.time_partition.fit_end_ns
+    )
     assert contract.time_partition_digest == u2_fixture.time_partition.digest
     assert contract.fit_end_ns == u2_fixture.time_partition.fit_end_ns
     assert (
@@ -219,8 +224,7 @@ def test_u2_contract_binds_u0_u1_time_provenance_and_full_training_payload(
         == u2_fixture.rl_training_provenance.digest
     )
     assert (
-        contract.rl_training_knowledge_cutoff_ns
-        == u2_fixture.time_partition.fit_end_ns
+        contract.rl_training_knowledge_cutoff_ns == u2_fixture.time_partition.fit_end_ns
     )
     assert contract.training_config_payload == training.digest_payload()
     assert contract.training_config_digest == content_digest(training.digest_payload())

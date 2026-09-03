@@ -26,6 +26,7 @@ from trade_rl.workflows.universal_trade_rl_universe_access import (
     UniversalTradeRLUniverseAccess,
 )
 from trade_rl.workflows.universal_trade_rl_universe_manifest import (
+    UniversalTradeRLUniverseEntry,
     UniversalTradeRLUniverseManifest,
 )
 
@@ -134,7 +135,9 @@ class U2TrainingSource:
             raise ValueError("unsupported U2 training source schema")
         if not isinstance(self.symbol, str) or not self.symbol:
             raise ValueError("U2 training source symbol must be non-empty")
-        require_sha256(self.dataset_digest, field=f"U2 source {self.symbol} dataset digest")
+        require_sha256(
+            self.dataset_digest, field=f"U2 source {self.symbol} dataset digest"
+        )
 
         source_first = _integer(
             self.source_first_timestamp_ns,
@@ -171,7 +174,9 @@ class U2TrainingSource:
             field="U2 FIT interval",
         )
         if fit_stop != fit_last + U2_DECISION_STEP_NS:
-            raise ValueError("U2 FIT exclusive stop must be one 15m step after FIT last")
+            raise ValueError(
+                "U2 FIT exclusive stop must be one 15m step after FIT last"
+            )
         if source_first > fit_first or source_last < fit_last:
             raise ValueError("U2 source does not fully cover the FIT interval")
 
@@ -288,11 +293,15 @@ class U2TrainingSourceClosure:
             raise ValueError("U2 closure FIT exclusive stop drifted")
 
         sources = tuple(self.sources)
-        if not sources or any(not isinstance(source, U2TrainingSource) for source in sources):
+        if not sources or any(
+            not isinstance(source, U2TrainingSource) for source in sources
+        ):
             raise TypeError("U2 training source closure requires valid source records")
         symbols = tuple(source.symbol for source in sources)
         if symbols != tuple(sorted(symbols)) or len(set(symbols)) != len(symbols):
-            raise ValueError("U2 training source closure symbols must be unique and canonical")
+            raise ValueError(
+                "U2 training source closure symbols must be unique and canonical"
+            )
         for source in sources:
             if (
                 source.fit_first_timestamp_ns != fit_first
@@ -305,7 +314,9 @@ class U2TrainingSourceClosure:
 
         expected = content_digest(self.to_payload(include_digest=False))
         if self.digest:
-            require_sha256(self.digest, field="U2 training source closure artifact digest")
+            require_sha256(
+                self.digest, field="U2 training source closure artifact digest"
+            )
             if self.digest != expected:
                 raise ValueError("U2 training source closure digest mismatch")
         object.__setattr__(self, "digest", expected)
@@ -428,7 +439,9 @@ class U2BoundedDatasetRequest:
         )
 
 
-def _train_entries(manifest: UniversalTradeRLUniverseManifest):
+def _train_entries(
+    manifest: UniversalTradeRLUniverseManifest,
+) -> tuple[UniversalTradeRLUniverseEntry, ...]:
     return tuple(
         entry
         for entry in manifest.entries
@@ -477,8 +490,13 @@ def build_universal_trade_rl_u2_training_source_closure(
         raise ValueError("U2 preflight U1/U2 normalizer digest mismatch")
     if normalizer.digest != u1_contract.normalizer_digest:
         raise ValueError("U2 preflight normalizer artifact digest mismatch")
-    if normalizer_provenance.purpose is not UniversalTradeRLFitPurpose.FEATURE_NORMALIZATION:
-        raise ValueError("U2 normalizer provenance purpose must be FEATURE_NORMALIZATION")
+    if (
+        normalizer_provenance.purpose
+        is not UniversalTradeRLFitPurpose.FEATURE_NORMALIZATION
+    ):
+        raise ValueError(
+            "U2 normalizer provenance purpose must be FEATURE_NORMALIZATION"
+        )
     require_universal_trade_rl_train_only_provenance(
         normalizer_provenance,
         manifest=manifest,
@@ -523,7 +541,9 @@ def build_universal_trade_rl_u2_training_source_closure(
     if normalizer_provenance.source_dataset_digests != expected_dataset_digests:
         raise ValueError("U2 normalizer provenance dataset source identity mismatch")
     if normalizer.source_dataset_digests != expected_dataset_digests:
-        raise ValueError("U2 normalizer dataset source identity drifted from U0 manifest")
+        raise ValueError(
+            "U2 normalizer dataset source identity drifted from U0 manifest"
+        )
 
     fit_stop = fit.last_timestamp_ns + U2_DECISION_STEP_NS
     sources = tuple(
@@ -564,7 +584,9 @@ def load_universal_trade_rl_u2_fit_sources(
     """Validate the complete request set, then perform only FIT-bounded numeric reads."""
 
     if not isinstance(closure, U2TrainingSourceClosure):
-        raise TypeError("U2 numeric loading requires a verified training source closure")
+        raise TypeError(
+            "U2 numeric loading requires a verified training source closure"
+        )
     if isinstance(requested_symbols, (str, bytes)) or not isinstance(
         requested_symbols, Sequence
     ):

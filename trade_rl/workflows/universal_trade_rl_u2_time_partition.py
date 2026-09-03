@@ -100,7 +100,9 @@ class UniversalTradeRLU2TimeWindow:
             self.stop_bar_index_exclusive,
             field="time window stop_bar_index_exclusive",
         )
-        first = _integer(self.first_timestamp_ns, field="time window first_timestamp_ns")
+        first = _integer(
+            self.first_timestamp_ns, field="time window first_timestamp_ns"
+        )
         last = _integer(self.last_timestamp_ns, field="time window last_timestamp_ns")
         if start < 0 or stop <= start:
             raise ValueError("Universal Trade RL U2 time window bar range is invalid")
@@ -171,7 +173,10 @@ class UniversalTradeRLU2EpisodeTile:
             raise ValueError("Universal Trade RL U2 tile index is invalid")
         if stop - start != U2_EVALUATION_TILE_BARS:
             raise ValueError("Universal Trade RL U2 tile must span exactly 720h")
-        if first < 0 or last != first + (U2_EVALUATION_TILE_BARS - 1) * U2_DECISION_STEP_NS:
+        if (
+            first < 0
+            or last != first + (U2_EVALUATION_TILE_BARS - 1) * U2_DECISION_STEP_NS
+        ):
             raise ValueError("Universal Trade RL U2 tile timestamps drifted")
 
     @property
@@ -244,14 +249,18 @@ class UniversalTradeRLU2TimePartition:
         )
         count = _integer(self.common_bar_count, field="U2 common_bar_count")
         if first < 0 or last < first or count < U2_MINIMUM_COMMON_BARS:
-            raise ValueError("Universal Trade RL U2 common history must cover at least 600 days")
+            raise ValueError(
+                "Universal Trade RL U2 common history must cover at least 600 days"
+            )
         if last != first + (count - 1) * U2_DECISION_STEP_NS:
             raise ValueError("Universal Trade RL U2 common 15m grid drifted")
 
         windows = tuple(self.windows)
         if tuple(window.name for window in windows) != _WINDOW_NAMES:
             raise ValueError("Universal Trade RL U2 time windows are not canonical")
-        if any(not isinstance(window, UniversalTradeRLU2TimeWindow) for window in windows):
+        if any(
+            not isinstance(window, UniversalTradeRLU2TimeWindow) for window in windows
+        ):
             raise TypeError("Universal Trade RL U2 time window contract is invalid")
         by_name = {window.name: window for window in windows}
         fit = by_name["fit"]
@@ -260,13 +269,17 @@ class UniversalTradeRLU2TimePartition:
         d2 = by_name["development_future_2"]
         admission = by_name["admission_future"]
         if fit.start_bar_index != 0 or admission.stop_bar_index_exclusive != count:
-            raise ValueError("Universal Trade RL U2 partition does not close common history")
+            raise ValueError(
+                "Universal Trade RL U2 partition does not close common history"
+            )
         if not (
             fit.stop_bar_index_exclusive == d1.start_bar_index
             and d1.stop_bar_index_exclusive == d2.start_bar_index
             and d2.stop_bar_index_exclusive == admission.start_bar_index
         ):
-            raise ValueError("Universal Trade RL U2 primary time windows overlap or gap")
+            raise ValueError(
+                "Universal Trade RL U2 primary time windows overlap or gap"
+            )
         if (
             seen.bar_count != U2_SEEN_TIME_PROBE_BARS
             or seen.stop_bar_index_exclusive != fit.stop_bar_index_exclusive
@@ -275,41 +288,55 @@ class UniversalTradeRLU2TimePartition:
             raise ValueError("Universal Trade RL U2 seen-time probe contract drifted")
         for window in windows:
             expected_first = first + window.start_bar_index * U2_DECISION_STEP_NS
-            expected_last = first + (window.stop_bar_index_exclusive - 1) * U2_DECISION_STEP_NS
+            expected_last = (
+                first + (window.stop_bar_index_exclusive - 1) * U2_DECISION_STEP_NS
+            )
             if (
                 window.first_timestamp_ns != expected_first
                 or window.last_timestamp_ns != expected_last
             ):
-                raise ValueError("Universal Trade RL U2 window/common-grid identity drifted")
+                raise ValueError(
+                    "Universal Trade RL U2 window/common-grid identity drifted"
+                )
 
         tiles = tuple(self.tiles)
         if any(not isinstance(tile, UniversalTradeRLU2EpisodeTile) for tile in tiles):
             raise TypeError("Universal Trade RL U2 episode tile contract is invalid")
         for window_name in _TILED_WINDOW_NAMES:
             window = by_name[window_name]
-            observed = tuple(tile for tile in tiles if tile.source_window == window_name)
+            observed = tuple(
+                tile for tile in tiles if tile.source_window == window_name
+            )
             expected_count = window.bar_count // U2_EVALUATION_TILE_BARS
             if expected_count < U2_MINIMUM_EVALUATION_TILES:
                 raise ValueError(
                     "Universal Trade RL U2 evaluation window requires at least two 720h tiles"
                 )
             if len(observed) != expected_count:
-                raise ValueError("Universal Trade RL U2 evaluation tile closure drifted")
+                raise ValueError(
+                    "Universal Trade RL U2 evaluation tile closure drifted"
+                )
             for index, tile in enumerate(observed):
-                expected_start = window.start_bar_index + index * U2_EVALUATION_TILE_BARS
+                expected_start = (
+                    window.start_bar_index + index * U2_EVALUATION_TILE_BARS
+                )
                 if (
                     tile.tile_index != index
                     or tile.start_bar_index != expected_start
                     or tile.stop_bar_index_exclusive
                     != expected_start + U2_EVALUATION_TILE_BARS
                 ):
-                    raise ValueError("Universal Trade RL U2 evaluation tile order drifted")
+                    raise ValueError(
+                        "Universal Trade RL U2 evaluation tile order drifted"
+                    )
                 expected_first = first + expected_start * U2_DECISION_STEP_NS
                 if tile.first_timestamp_ns != expected_first:
-                    raise ValueError("Universal Trade RL U2 evaluation tile time drifted")
-        if tuple(
-            (tile.source_window, tile.tile_index) for tile in tiles
-        ) != tuple(sorted((tile.source_window, tile.tile_index) for tile in tiles)):
+                    raise ValueError(
+                        "Universal Trade RL U2 evaluation tile time drifted"
+                    )
+        if tuple((tile.source_window, tile.tile_index) for tile in tiles) != tuple(
+            sorted((tile.source_window, tile.tile_index) for tile in tiles)
+        ):
             raise ValueError("Universal Trade RL U2 episode tiles are not canonical")
 
         object.__setattr__(self, "windows", windows)
@@ -353,7 +380,9 @@ class UniversalTradeRLU2TimePartition:
 
     @classmethod
     def from_payload(cls, payload: object) -> UniversalTradeRLU2TimePartition:
-        values = _exact_mapping(payload, keys=_PARTITION_KEYS, field="U2 time partition")
+        values = _exact_mapping(
+            payload, keys=_PARTITION_KEYS, field="U2 time partition"
+        )
         schema = values["schema_version"]
         universe_digest = values["universe_manifest_digest"]
         artifact_digest = values["artifact_digest"]
@@ -392,8 +421,12 @@ class UniversalTradeRLU2TimePartition:
         )
 
 
-def _validate_dense_15m_source_metadata(manifest: UniversalTradeRLUniverseManifest) -> None:
-    active_entries = tuple(entry for entry in manifest.entries if entry.role is not None)
+def _validate_dense_15m_source_metadata(
+    manifest: UniversalTradeRLUniverseManifest,
+) -> None:
+    active_entries = tuple(
+        entry for entry in manifest.entries if entry.role is not None
+    )
     if not active_entries:
         raise ValueError("Universal Trade RL U2 requires active universe sources")
     for entry in active_entries:
@@ -442,9 +475,7 @@ def _tiles(
         UniversalTradeRLU2EpisodeTile(
             source_window=window.name,
             tile_index=index,
-            start_bar_index=(
-                window.start_bar_index + index * U2_EVALUATION_TILE_BARS
-            ),
+            start_bar_index=(window.start_bar_index + index * U2_EVALUATION_TILE_BARS),
             stop_bar_index_exclusive=(
                 window.start_bar_index + (index + 1) * U2_EVALUATION_TILE_BARS
             ),
@@ -455,11 +486,7 @@ def _tiles(
             ),
             last_timestamp_ns=(
                 common_first_ns
-                + (
-                    window.start_bar_index
-                    + (index + 1) * U2_EVALUATION_TILE_BARS
-                    - 1
-                )
+                + (window.start_bar_index + (index + 1) * U2_EVALUATION_TILE_BARS - 1)
                 * U2_DECISION_STEP_NS
             ),
         )
@@ -476,7 +503,9 @@ def build_universal_trade_rl_u2_time_partition(
     if not isinstance(manifest, UniversalTradeRLUniverseManifest):
         raise TypeError("U2 time partition requires a Universal Trade RL U0 manifest")
     _validate_dense_15m_source_metadata(manifest)
-    active_entries = tuple(entry for entry in manifest.entries if entry.role is not None)
+    active_entries = tuple(
+        entry for entry in manifest.entries if entry.role is not None
+    )
     common_first = max(entry.first_timestamp_ns for entry in active_entries)
     common_last = min(entry.last_timestamp_ns for entry in active_entries)
     if common_last < common_first:
@@ -486,14 +515,18 @@ def build_universal_trade_rl_u2_time_partition(
         raise ValueError("Universal Trade RL U2 common history is not a dense 15m grid")
     common_count = common_delta // U2_DECISION_STEP_NS + 1
     if common_count < U2_MINIMUM_COMMON_BARS:
-        raise ValueError("Universal Trade RL U2 common history must cover at least 600 days")
+        raise ValueError(
+            "Universal Trade RL U2 common history must cover at least 600 days"
+        )
 
     fit_stop = common_count * 6 // 10
     d1_stop = common_count * 7 // 10
     d2_stop = common_count * 8 // 10
     seen_start = fit_stop - U2_SEEN_TIME_PROBE_BARS
     if seen_start < 0:
-        raise ValueError("Universal Trade RL U2 FIT window cannot hold 60-day seen probe")
+        raise ValueError(
+            "Universal Trade RL U2 FIT window cannot hold 60-day seen probe"
+        )
 
     windows = (
         _window(name="fit", start=0, stop=fit_stop, common_first_ns=common_first),

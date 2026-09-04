@@ -51,3 +51,9 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
           tests/rl/test_universal_trade_u2_binding_derivation.py
           tests/rl/test_universal_trade_u2_seed_contract.py
+
+      - name: Generic router regressions
+        run: >-
+          uv run pytest -q
+          tests/rl/test_universal_episode_router.py
+          tests/rl/test_universal_training_contract_binding.py

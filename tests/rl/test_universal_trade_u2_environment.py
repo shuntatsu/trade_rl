@@ -159,7 +159,9 @@ def u2_environment_fixture() -> U2EnvironmentFixture:
         source_symbols=config.train_symbols,
         knowledge_cutoff=last_ns,
     )
-    policy_contract = UniversalTradePolicyContract(feature_specs=make_u1_feature_specs())
+    policy_contract = UniversalTradePolicyContract(
+        feature_specs=make_u1_feature_specs()
+    )
     normalizer = build_universal_trade_sequence_normalizer(
         symbol_datasets=datasets,
         contract=policy_contract,
@@ -265,9 +267,7 @@ def _build(
     fixture: U2EnvironmentFixture,
     *,
     bindings: tuple[InstrumentDatasetBinding, ...] | None = None,
-    environment_factory: Callable[
-        [InstrumentDatasetBinding], UniversalTradeEnvironment
-    ]
+    environment_factory: Callable[[InstrumentDatasetBinding], UniversalTradeEnvironment]
     | None = None,
     environment_index: int = 0,
 ) -> EpisodeRoutedSingleInstrumentEnv:
@@ -285,7 +285,9 @@ def _build(
     )
 
 
-def _active_child(environment: EpisodeRoutedSingleInstrumentEnv) -> UniversalTradeEnvironment:
+def _active_child(
+    environment: EpisodeRoutedSingleInstrumentEnv,
+) -> UniversalTradeEnvironment:
     active = environment._active_environment
     if not isinstance(active, UniversalTradeEnvironment):
         raise AssertionError("active U2 child must be a UniversalTradeEnvironment")
@@ -331,9 +333,15 @@ def test_u2_environment_reuses_exact_u1_surface_and_has_no_context_channels(
 
         observation, _info = environment.reset(seed=_RUN_SEED)
         child = _active_child(environment)
-        assert child.contract.digest == u2_environment_fixture.u1_contract.policy_contract_digest
+        assert (
+            child.contract.digest
+            == u2_environment_fixture.u1_contract.policy_contract_digest
+        )
         assert child.sequence_normalizer is u2_environment_fixture.normalizer
-        assert child.sequence_normalizer.digest == u2_environment_fixture.u1_contract.normalizer_digest
+        assert (
+            child.sequence_normalizer.digest
+            == u2_environment_fixture.u1_contract.normalizer_digest
+        )
         assert child.observation_space == environment.observation_space
         assert child.action_space == environment.action_space
         assert set(observation) == set(child.observation_space.spaces)
@@ -463,7 +471,9 @@ def test_u2_environment_preserves_complete_balanced_symbol_cycles(
             assert {route.concrete_symbol for route in cycle} == set(
                 u2_environment_fixture.train_symbols
             )
-            assert tuple(route.routing_position for route in cycle) == tuple(range(width))
+            assert tuple(route.routing_position for route in cycle) == tuple(
+                range(width)
+            )
     finally:
         environment.close()
 
@@ -494,7 +504,9 @@ def test_u2_environment_cached_symbol_reset_clears_policy_and_execution_state(
             if environment.active_episode_binding.concrete_symbol == first_symbol:
                 break
         else:
-            raise AssertionError("cached first symbol did not reappear within next cycle")
+            raise AssertionError(
+                "cached first symbol did not reappear within next cycle"
+            )
 
         assert _active_child(environment) is first_child
         _assert_cash_runtime(first_child)

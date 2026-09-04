@@ -44,8 +44,9 @@ jobs:
           tests/rl/test_universal_trade_u2_seed_contract.py
           tests/rl/test_universal_trade_u2_generation_identity.py
           tests/rl/test_universal_trade_u2_shared_environment_identity.py
+          tests/rl/test_universal_trade_u2_environment_factory.py
 
-      - name: U2 source FIT binding seed and generation contracts
+      - name: U2 source FIT binding seed generation and factory contracts
         run: >-
           uv run pytest -q
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid
@@ -55,6 +56,7 @@ jobs:
           tests/rl/test_universal_trade_u2_seed_contract.py
           tests/rl/test_universal_trade_u2_generation_identity.py
           tests/rl/test_universal_trade_u2_shared_environment_identity.py
+          tests/rl/test_universal_trade_u2_environment_factory.py
 
       - name: Generic router regressions
         run: >-

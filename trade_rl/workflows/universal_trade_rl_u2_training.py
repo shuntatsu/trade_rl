@@ -36,7 +36,9 @@ class UniversalTradeRLU2SeedTrainingPlan:
 
     def __post_init__(self) -> None:
         if self.schema_version != U2_SEED_TRAINING_PLAN_SCHEMA:
-            raise ValueError("unsupported Universal Trade RL U2 seed training plan schema")
+            raise ValueError(
+                "unsupported Universal Trade RL U2 seed training plan schema"
+            )
         for field_name, value in (
             ("u2_contract_digest", self.u2_contract_digest),
             ("source_closure_digest", self.source_closure_digest),
@@ -46,8 +48,14 @@ class UniversalTradeRLU2SeedTrainingPlan:
             ("training_config_digest", self.training_config_digest),
         ):
             require_sha256(value, field=f"U2 seed training plan {field_name}")
-        if isinstance(self.seed, bool) or not isinstance(self.seed, int) or self.seed < 0:
-            raise ValueError("U2 seed training plan seed must be a non-negative integer")
+        if (
+            isinstance(self.seed, bool)
+            or not isinstance(self.seed, int)
+            or self.seed < 0
+        ):
+            raise ValueError(
+                "U2 seed training plan seed must be a non-negative integer"
+            )
         if (
             isinstance(self.final_timesteps, bool)
             or not isinstance(self.final_timesteps, int)

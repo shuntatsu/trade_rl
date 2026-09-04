@@ -154,6 +154,7 @@ class UniversalTradeU1SequenceFeatureExtractor(BaseFeaturesExtractor):
         self,
         observation_space: spaces.Dict,
         *,
+        timeframes: tuple[str, ...],
         feature_counts: dict[str, int],
         window_lengths: dict[str, int],
         n_symbols: int,
@@ -181,7 +182,7 @@ class UniversalTradeU1SequenceFeatureExtractor(BaseFeaturesExtractor):
         canonical = universal_trade_u1_sequence_adapter_metadata(observation_space)
         supplied = {
             "schema_version": schema_version,
-            "timeframes": _TIMEFRAMES,
+            "timeframes": tuple(timeframes),
             "feature_counts": dict(feature_counts),
             "window_lengths": dict(window_lengths),
             "n_symbols": n_symbols,

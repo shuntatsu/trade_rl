@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -24,6 +25,11 @@ from trade_rl.workflows.universal_trade_rl_u1_contract import (
     require_universal_trade_rl_u1_environment_contract,
 )
 from trade_rl.workflows.universal_trade_rl_u2_contract import UniversalTradeRLU2Contract
+from trade_rl.workflows.universal_trade_rl_u2_fit_dataset import (
+    U2SourceArtifactLoader,
+    U2SourceArtifactLocator,
+    load_universal_trade_rl_u2_fit_datasets,
+)
 from trade_rl.workflows.universal_trade_rl_u2_preflight import (
     U2TrainingSource,
     U2TrainingSourceClosure,
@@ -31,6 +37,7 @@ from trade_rl.workflows.universal_trade_rl_u2_preflight import (
 from trade_rl.workflows.universal_trade_rl_u2_time_partition import U2_DECISION_STEP_NS
 
 U2EnvironmentFactory = Callable[[InstrumentDatasetBinding], UniversalTradeEnvironment]
+U2MarketEnvironmentFactory = Callable[[MarketDataset], UniversalTradeEnvironment]
 
 _FORBIDDEN_CONTEXT_KEYS = frozenset(
     {
@@ -590,8 +597,165 @@ def build_universal_trade_rl_u2_environment(
         raise
 
 
+class UniversalTradeRLU2EnvironmentFactory:
+    """Own canonical FIT datasets and create fresh indexed U2 worker environments."""
+
+    def __init__(
+        self,
+        *,
+        u2_contract: UniversalTradeRLU2Contract,
+        source_closure: U2TrainingSourceClosure,
+        artifact_locators: Mapping[str, U2SourceArtifactLocator],
+        u1_contract: UniversalTradeRLU1Contract,
+        policy_contract: UniversalTradePolicyContract,
+        normalizer: UniversalTradeSequenceNormalizer,
+        u1_environment_factory: U2MarketEnvironmentFactory,
+        run_seed: int,
+        source_artifact_loader: U2SourceArtifactLoader | None = None,
+    ) -> None:
+        if not isinstance(u2_contract, UniversalTradeRLU2Contract):
+            raise TypeError("U2 high-level factory requires a U2 contract")
+        if not isinstance(source_closure, U2TrainingSourceClosure):
+            raise TypeError("U2 high-level factory requires a source closure")
+        if not isinstance(u1_contract, UniversalTradeRLU1Contract):
+            raise TypeError("U2 high-level factory requires a U1 contract")
+        if not isinstance(policy_contract, UniversalTradePolicyContract):
+            raise TypeError("U2 high-level factory requires a policy contract")
+        if not isinstance(normalizer, UniversalTradeSequenceNormalizer):
+            raise TypeError("U2 high-level factory requires a frozen normalizer")
+        if not callable(u1_environment_factory):
+            raise TypeError("U2 high-level factory U1 environment factory must be callable")
+        if source_artifact_loader is not None and not callable(source_artifact_loader):
+            raise TypeError("U2 high-level source artifact loader must be callable")
+
+        resolved_seed = _non_negative_integer(run_seed, field="U2 member seed")
+        if resolved_seed not in u2_contract.training_seeds:
+            raise ValueError(
+                "U2 member seed must be one of the preregistered training seeds"
+            )
+        n_envs = u2_contract.training_config_payload.get("n_envs")
+        vector_mode = u2_contract.training_config_payload.get(
+            "vector_environment_mode"
+        )
+        if n_envs != 8:
+            raise ValueError("U2 high-level factory requires n_envs == 8")
+        if vector_mode != "in_process":
+            raise ValueError(
+                "U2 high-level factory requires vector_environment_mode == in_process"
+            )
+
+        if source_closure.u2_contract_digest != u2_contract.digest:
+            raise ValueError("U2 high-level source closure contract mismatch")
+        if source_closure.universe_manifest_digest != u2_contract.universe_manifest_digest:
+            raise ValueError("U2 high-level universe identity mismatch")
+        if source_closure.u1_contract_digest != u2_contract.u1_contract_digest:
+            raise ValueError("U2 high-level U1 contract identity mismatch")
+        if source_closure.normalizer_digest != u2_contract.u1_normalizer_digest:
+            raise ValueError("U2 high-level normalizer identity mismatch")
+        if source_closure.time_partition_digest != u2_contract.time_partition_digest:
+            raise ValueError("U2 high-level time partition identity mismatch")
+        if source_closure.fit_last_timestamp_ns != u2_contract.fit_end_ns:
+            raise ValueError("U2 high-level FIT end identity mismatch")
+        _require_frozen_generation(
+            closure=source_closure,
+            u1_contract=u1_contract,
+            policy_contract=policy_contract,
+            normalizer=normalizer,
+        )
+
+        if source_artifact_loader is None:
+            fit_datasets = load_universal_trade_rl_u2_fit_datasets(
+                closure=source_closure,
+                artifact_locators=artifact_locators,
+            )
+        else:
+            fit_datasets = load_universal_trade_rl_u2_fit_datasets(
+                closure=source_closure,
+                artifact_locators=artifact_locators,
+                loader=source_artifact_loader,
+            )
+        bindings = build_universal_trade_rl_u2_instrument_bindings(
+            closure=source_closure,
+            fit_datasets=fit_datasets,
+            u1_contract=u1_contract,
+        )
+        generation_digest = build_universal_trade_rl_u2_environment_generation_digest(
+            u2_contract=u2_contract,
+            source_closure=source_closure,
+            bindings=bindings,
+            run_seed=resolved_seed,
+        )
+
+        self._u2_contract = u2_contract
+        self._source_closure = source_closure
+        self._u1_contract = u1_contract
+        self._policy_contract = policy_contract
+        self._normalizer = normalizer
+        self._u1_environment_factory = u1_environment_factory
+        self._run_seed = resolved_seed
+        self._n_envs = 8
+        self._fit_datasets = dict(fit_datasets)
+        self._bindings = tuple(bindings)
+        self._environment_generation_digest = generation_digest
+
+    @property
+    def bindings(self) -> tuple[InstrumentDatasetBinding, ...]:
+        return self._bindings
+
+    @property
+    def environment_generation_digest(self) -> str:
+        return self._environment_generation_digest
+
+    @property
+    def run_seed(self) -> int:
+        return self._run_seed
+
+    def _require_environment_index(self, environment_index: object) -> int:
+        resolved = _non_negative_integer(
+            environment_index,
+            field="U2 environment index",
+        )
+        if resolved >= self._n_envs:
+            raise ValueError("U2 environment index must be in the fixed range 0..7")
+        return resolved
+
+    def _create(self, environment_index: int) -> EpisodeRoutedSingleInstrumentEnv:
+        resolved_index = self._require_environment_index(environment_index)
+
+        def environment_factory(
+            binding: InstrumentDatasetBinding,
+        ) -> UniversalTradeEnvironment:
+            return self._u1_environment_factory(
+                self._fit_datasets[binding.concrete_symbol]
+            )
+
+        return build_universal_trade_rl_u2_environment(
+            closure=self._source_closure,
+            u1_contract=self._u1_contract,
+            policy_contract=self._policy_contract,
+            normalizer=self._normalizer,
+            bindings=self._bindings,
+            environment_factory=environment_factory,
+            run_seed=self._run_seed,
+            environment_index=resolved_index,
+            environment_generation_digest=self._environment_generation_digest,
+        )
+
+    def __call__(self) -> EpisodeRoutedSingleInstrumentEnv:
+        return self._create(0)
+
+    def for_environment_index(
+        self,
+        environment_index: object,
+    ) -> Callable[[], EpisodeRoutedSingleInstrumentEnv]:
+        resolved_index = self._require_environment_index(environment_index)
+        return partial(self._create, resolved_index)
+
+
 __all__ = [
     "U2EnvironmentFactory",
+    "U2MarketEnvironmentFactory",
+    "UniversalTradeRLU2EnvironmentFactory",
     "build_universal_trade_rl_u2_environment",
     "build_universal_trade_rl_u2_environment_generation_digest",
     "build_universal_trade_rl_u2_instrument_bindings",

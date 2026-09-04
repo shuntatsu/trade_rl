@@ -157,7 +157,9 @@ def test_u2_u1_policy_identity_binds_adapter_and_current_weight_location() -> No
             ],
             "schema_version": "universal_trade_u1_sequence_adapter_identity_v1",
         }
-        assert identity["sequence_observation_adapter_digest"] == content_digest(adapter)
+        assert identity["sequence_observation_adapter_digest"] == content_digest(
+            adapter
+        )
         assert identity["current_weight_observation"] == {
             "bounds": (-1.0, 1.0),
             "dtype": "float32",

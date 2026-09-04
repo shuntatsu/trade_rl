@@ -173,7 +173,9 @@ def test_u2_binding_derivation_rejects_fit_bounds_drift(
     u1_contract = _u1_contract()
     source, _fit_dataset = _source_and_fit()
     closure = _closure(sources=(source,), u1_contract=u1_contract)
-    source_dataset = make_u1_market(symbol=source.symbol, n_bars=source.source_row_count)
+    source_dataset = make_u1_market(
+        symbol=source.symbol, n_bars=source.source_row_count
+    )
     drifted = MarketDatasetView(source_dataset, *replacement_view).materialize()
 
     with pytest.raises(ValueError, match="FIT|fit|timestamp|bar|bound"):

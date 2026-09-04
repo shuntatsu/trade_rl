@@ -66,9 +66,10 @@ _POLICY_STATE_LAYOUT = (
     ("risk_scale", "risk_scale", "identity_v1"),
     ("margin_utilization", "margin_utilization", "identity_v1"),
 )
-_POLICY_STATE_FIELDS = tuple(
+UNIVERSAL_TRADE_POLICY_STATE_FIELDS = tuple(
     field_name for field_name, _source_name, _transform in _POLICY_STATE_LAYOUT
 )
+_POLICY_STATE_FIELDS = UNIVERSAL_TRADE_POLICY_STATE_FIELDS
 
 
 def _transform_policy_state_value(transform: str, value: float | bool) -> float:
@@ -284,4 +285,7 @@ class UniversalTradeObservationBuilder:
         return self._sequence(dataset=dataset, index=index).source_indices
 
 
-__all__ = ["UniversalTradeObservationBuilder"]
+__all__ = [
+    "UNIVERSAL_TRADE_POLICY_STATE_FIELDS",
+    "UniversalTradeObservationBuilder",
+]

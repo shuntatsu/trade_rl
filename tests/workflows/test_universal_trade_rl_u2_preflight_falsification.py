@@ -73,3 +73,25 @@ def test_mixed_valid_and_invalid_scope_rejects_before_any_numeric_read() -> None
         )
 
     assert loader.calls == []
+
+
+def test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid() -> None:
+    source_first = 100 * _STEP_NS
+    source_rows = 200
+    source_last = source_first + (source_rows - 1) * _STEP_NS
+    fit_first = source_first + 5 * 60 * 1_000_000_000
+    fit_rows = 32
+    fit_last = fit_first + (fit_rows - 1) * _STEP_NS
+
+    with pytest.raises(ValueError, match="FIT|source|align|grid"):
+        U2TrainingSource(
+            symbol="BTCUSDT",
+            dataset_digest="a" * 64,
+            source_first_timestamp_ns=source_first,
+            source_last_timestamp_ns=source_last,
+            source_row_count=source_rows,
+            fit_first_timestamp_ns=fit_first,
+            fit_last_timestamp_ns=fit_last,
+            fit_stop_timestamp_ns_exclusive=fit_last + _STEP_NS,
+            fit_bar_count=fit_rows,
+        )

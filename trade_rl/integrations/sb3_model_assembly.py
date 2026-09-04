@@ -111,6 +111,21 @@ def _rollout_buffer_bytes(
     return estimated
 
 
+def _u1_sequence_adapter_metadata(unwrapped: object) -> dict[str, object] | None:
+    if not _is_universal_single_instrument(unwrapped):
+        return None
+    observation_space = getattr(unwrapped, "observation_space", None)
+    if not isinstance(observation_space, gym.spaces.Dict):
+        return None
+    if "policy_state" not in observation_space.spaces:
+        return None
+    from trade_rl.rl.universal_trade_u1_policy_adapter import (
+        universal_trade_u1_sequence_adapter_metadata,
+    )
+
+    return universal_trade_u1_sequence_adapter_metadata(observation_space)
+
+
 def _sequence_policy_assembly(
     *,
     probe: object,
@@ -129,12 +144,23 @@ def _sequence_policy_assembly(
     )
 
     unwrapped: Any = getattr(probe, "unwrapped", probe)
-    metadata = getattr(unwrapped, "sequence_layout_metadata", None)
-    if not isinstance(metadata, dict):
-        raise ValueError("sequence training requires environment sequence metadata")
-    sequence_metadata = dict(metadata)
-    action_names = _action_names(identity)
     universal = _is_universal_single_instrument(unwrapped)
+    adapter_metadata = _u1_sequence_adapter_metadata(unwrapped)
+    if adapter_metadata is not None:
+        from trade_rl.rl.universal_trade_u1_policy_adapter import (
+            UniversalTradeU1SequenceFeatureExtractor,
+        )
+
+        sequence_metadata = dict(adapter_metadata)
+        features_extractor_class: object = UniversalTradeU1SequenceFeatureExtractor
+    else:
+        metadata = getattr(unwrapped, "sequence_layout_metadata", None)
+        if not isinstance(metadata, dict):
+            raise ValueError("sequence training requires environment sequence metadata")
+        sequence_metadata = dict(metadata)
+        features_extractor_class = SequenceAssetFeatureExtractor
+
+    action_names = _action_names(identity)
     sequence_reconstructor: SequenceRolloutReconstructor | None = None
     if universal:
         if getattr(unwrapped, "policy_symbols", None) != ("INSTRUMENT",):
@@ -177,7 +203,7 @@ def _sequence_policy_assembly(
             "pi": list(config.policy_net_arch),
             "vf": list(config.value_net_arch),
         },
-        "features_extractor_class": SequenceAssetFeatureExtractor,
+        "features_extractor_class": features_extractor_class,
         "features_extractor_kwargs": {
             **sequence_metadata,
             "sequence_tcn_capacity": config.sequence_tcn_capacity,

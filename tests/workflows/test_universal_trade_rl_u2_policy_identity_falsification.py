@@ -47,15 +47,18 @@ def test_u2_u1_checkpoint_identity_carries_exact_adapter_binding() -> None:
         assert checkpoint_identity["policy"] == policy_identity
         checkpoint_policy = checkpoint_identity["policy"]
         assert isinstance(checkpoint_policy, dict)
-        assert checkpoint_policy["sequence_observation_adapter"] == policy_identity[
-            "sequence_observation_adapter"
-        ]
-        assert checkpoint_policy["sequence_observation_adapter_digest"] == (
-            policy_identity["sequence_observation_adapter_digest"]
+        assert (
+            checkpoint_policy["sequence_observation_adapter"]
+            == policy_identity["sequence_observation_adapter"]
         )
-        assert checkpoint_policy["current_weight_observation"] == policy_identity[
-            "current_weight_observation"
-        ]
+        assert (
+            checkpoint_policy["sequence_observation_adapter_digest"]
+            == (policy_identity["sequence_observation_adapter_digest"])
+        )
+        assert (
+            checkpoint_policy["current_weight_observation"]
+            == policy_identity["current_weight_observation"]
+        )
     finally:
         probe.close()
 
@@ -70,7 +73,9 @@ def test_u2_u1_serialized_identity_cannot_drop_adapter_binding() -> None:
         tampered.pop("sequence_observation_adapter")
         tampered.pop("sequence_observation_adapter_digest")
 
-        with pytest.raises(ValueError, match="current-weight observation identity mismatch"):
+        with pytest.raises(
+            ValueError, match="current-weight observation identity mismatch"
+        ):
             validated_sb3_policy_identity(tampered)
     finally:
         probe.close()

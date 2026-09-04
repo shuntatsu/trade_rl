@@ -95,3 +95,28 @@ def test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid() -> Non
             fit_stop_timestamp_ns_exclusive=fit_last + _STEP_NS,
             fit_bar_count=fit_rows,
         )
+
+
+def test_u2_training_source_exposes_exact_fit_indices() -> None:
+    source_first = 100 * _STEP_NS
+    source_rows = 200
+    source_last = source_first + (source_rows - 1) * _STEP_NS
+    fit_start_index = 40
+    fit_rows = 32
+    fit_first = source_first + fit_start_index * _STEP_NS
+    fit_last = fit_first + (fit_rows - 1) * _STEP_NS
+
+    source = U2TrainingSource(
+        symbol="BTCUSDT",
+        dataset_digest="a" * 64,
+        source_first_timestamp_ns=source_first,
+        source_last_timestamp_ns=source_last,
+        source_row_count=source_rows,
+        fit_first_timestamp_ns=fit_first,
+        fit_last_timestamp_ns=fit_last,
+        fit_stop_timestamp_ns_exclusive=fit_last + _STEP_NS,
+        fit_bar_count=fit_rows,
+    )
+
+    assert source.fit_start_index == 40
+    assert source.fit_stop_index == 72

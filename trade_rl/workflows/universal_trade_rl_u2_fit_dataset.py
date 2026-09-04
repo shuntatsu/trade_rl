@@ -30,9 +30,8 @@ def _require_exact_locator_closure(
         raise TypeError("U2 source artifact locators must be a mapping")
     expected_symbols = tuple(source.symbol for source in closure.sources)
     observed_symbols = tuple(artifact_locators)
-    if (
-        len(observed_symbols) != len(expected_symbols)
-        or set(observed_symbols) != set(expected_symbols)
+    if len(observed_symbols) != len(expected_symbols) or set(observed_symbols) != set(
+        expected_symbols
     ):
         raise ValueError("U2 source artifact locator closure must equal Train symbols")
 

@@ -43,6 +43,7 @@ jobs:
           tests/rl/test_universal_trade_u2_binding_derivation.py
           tests/rl/test_universal_trade_u2_seed_contract.py
           tests/rl/test_universal_trade_u2_generation_identity.py
+          tests/rl/test_universal_trade_u2_shared_environment_identity.py
 
       - name: U2 source FIT binding seed and generation contracts
         run: >-
@@ -53,6 +54,7 @@ jobs:
           tests/rl/test_universal_trade_u2_binding_derivation.py
           tests/rl/test_universal_trade_u2_seed_contract.py
           tests/rl/test_universal_trade_u2_generation_identity.py
+          tests/rl/test_universal_trade_u2_shared_environment_identity.py
 
       - name: Generic router regressions
         run: >-

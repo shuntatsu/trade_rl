@@ -22,6 +22,7 @@ from trade_rl.workflows.universal_trade_rl_u1_contract import (
     UniversalTradeRLU1Contract,
     require_universal_trade_rl_u1_environment_contract,
 )
+from trade_rl.workflows.universal_trade_rl_u2_contract import UniversalTradeRLU2Contract
 from trade_rl.workflows.universal_trade_rl_u2_preflight import (
     U2TrainingSource,
     U2TrainingSourceClosure,
@@ -133,6 +134,71 @@ def _dataset_timestamps_ns(dataset: MarketDataset) -> np.ndarray:
     if timestamps.ndim != 1 or timestamps.size != dataset.n_bars:
         raise ValueError("U2 environment dataset timestamp layout is invalid")
     return timestamps
+
+
+def build_universal_trade_rl_u2_environment_generation_digest(
+    *,
+    u2_contract: UniversalTradeRLU2Contract,
+    source_closure: U2TrainingSourceClosure,
+    bindings: Sequence[InstrumentDatasetBinding],
+    run_seed: int,
+) -> str:
+    """Bind the complete fixed U2 vector-environment generation for one member seed."""
+
+    if not isinstance(u2_contract, UniversalTradeRLU2Contract):
+        raise TypeError("U2 environment generation requires a U2 contract")
+    if not isinstance(source_closure, U2TrainingSourceClosure):
+        raise TypeError("U2 environment generation requires a source closure")
+    if source_closure.u2_contract_digest != u2_contract.digest:
+        raise ValueError("U2 environment generation source closure contract mismatch")
+    if source_closure.universe_manifest_digest != u2_contract.universe_manifest_digest:
+        raise ValueError("U2 environment generation universe identity mismatch")
+    if source_closure.u1_contract_digest != u2_contract.u1_contract_digest:
+        raise ValueError("U2 environment generation U1 contract identity mismatch")
+    if source_closure.normalizer_digest != u2_contract.u1_normalizer_digest:
+        raise ValueError("U2 environment generation normalizer identity mismatch")
+    if source_closure.time_partition_digest != u2_contract.time_partition_digest:
+        raise ValueError("U2 environment generation time partition mismatch")
+
+    resolved_seed = _non_negative_integer(run_seed, field="U2 member seed")
+    if resolved_seed not in u2_contract.training_seeds:
+        raise ValueError("U2 member seed must be one of the preregistered training seeds")
+
+    n_envs = u2_contract.training_config_payload.get("n_envs")
+    vector_mode = u2_contract.training_config_payload.get("vector_environment_mode")
+    if n_envs != 8:
+        raise ValueError("U2 environment generation requires n_envs == 8")
+    if vector_mode != "in_process":
+        raise ValueError(
+            "U2 environment generation requires vector_environment_mode == in_process"
+        )
+
+    train_symbols = tuple(source.symbol for source in source_closure.sources)
+    sources = _training_sources(source_closure)
+    resolved_bindings = _require_binding_closure(
+        train_symbols=train_symbols,
+        sources=sources,
+        bindings=bindings,
+    )
+    payload = {
+        "schema_version": "universal_trade_rl_u2_environment_generation_v1",
+        "u2_contract_digest": u2_contract.digest,
+        "source_closure_digest": source_closure.digest,
+        "training_config_digest": u2_contract.training_config_digest,
+        "run_seed": resolved_seed,
+        "n_envs": 8,
+        "vector_environment_mode": "in_process",
+        "environment_indices": tuple(range(8)),
+        "binding_digests": tuple(
+            (symbol, resolved_bindings[symbol].digest) for symbol in train_symbols
+        ),
+        "router_contract_digest": u2_contract.router_contract_digest,
+        "episode_sampling_contract_digest": (
+            u2_contract.episode_sampling_contract_digest
+        ),
+        "episode_seed_schema": "universal_trade_rl_u2_episode_seed_v1",
+    }
+    return content_digest(payload)
 
 
 def build_universal_trade_rl_u2_instrument_bindings(
@@ -512,5 +578,6 @@ def build_universal_trade_rl_u2_environment(
 __all__ = [
     "U2EnvironmentFactory",
     "build_universal_trade_rl_u2_environment",
+    "build_universal_trade_rl_u2_environment_generation_digest",
     "build_universal_trade_rl_u2_instrument_bindings",
 ]

@@ -62,6 +62,17 @@ def _action_names(identity: Mapping[str, object]) -> tuple[str, ...]:
     return value
 
 
+def _metadata_positive_int(
+    metadata: Mapping[str, object],
+    *,
+    key: str,
+) -> int:
+    value = metadata.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"sequence metadata {key} must be a positive integer")
+    return value
+
+
 def _is_universal_single_instrument(probe: object) -> bool:
     unwrapped = getattr(probe, "unwrapped", probe)
     return bool(getattr(unwrapped, "is_universal_single_instrument", False))
@@ -160,6 +171,7 @@ def _sequence_policy_assembly(
         sequence_metadata = dict(metadata)
         features_extractor_class = SequenceAssetFeatureExtractor
 
+    n_symbols = _metadata_positive_int(sequence_metadata, key="n_symbols")
     action_names = _action_names(identity)
     sequence_reconstructor: SequenceRolloutReconstructor | None = None
     if universal:
@@ -167,7 +179,7 @@ def _sequence_policy_assembly(
             raise ValueError(
                 "Universal sequence training requires generic policy symbols"
             )
-        if int(sequence_metadata["n_symbols"]) != 1 or _action_size(identity) != 1:
+        if n_symbols != 1 or _action_size(identity) != 1:
             raise ValueError("Universal sequence training requires one instrument")
         if action_names != ("target_weight:INSTRUMENT",):
             raise ValueError("Universal sequence action contract mismatch")
@@ -180,10 +192,7 @@ def _sequence_policy_assembly(
         if any(not isinstance(item, str) or not item for item in symbols):
             raise ValueError("sequence training requires ordered dataset symbols")
         expected = tuple(f"target_weight:{symbol}" for symbol in symbols)
-        if (
-            _action_size(identity) != int(sequence_metadata["n_symbols"])
-            or action_names != expected
-        ):
+        if _action_size(identity) != n_symbols or action_names != expected:
             raise ValueError("hierarchical sequence action/symbol order mismatch")
         builder = getattr(unwrapped, "sequence_observation_builder", None)
         if dataset is None or builder is None:
@@ -222,7 +231,7 @@ def _sequence_policy_assembly(
     risk_config = getattr(getattr(unwrapped, "pre_trade_risk", None), "config", None)
     policy_kwargs.update(
         {
-            "shared_actor_n_symbols": int(sequence_metadata["n_symbols"]),
+            "shared_actor_n_symbols": n_symbols,
             "shared_actor_d_model": config.sequence_d_model,
             "shared_actor_global_dim": 128,
             "shared_actor_net_arch": tuple(config.policy_net_arch),

@@ -155,7 +155,7 @@ def _validated_sequence_observation_adapter(
         raw_contract_digest,
         field="sequence observation adapter contract digest",
     )
-    normalized = {
+    normalized: dict[str, object] = {
         "adapter_contract_digest": contract_digest,
         "schema_version": _U1_SEQUENCE_ADAPTER_IDENTITY_SCHEMA,
     }

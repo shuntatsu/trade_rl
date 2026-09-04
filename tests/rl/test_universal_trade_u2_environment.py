@@ -4,7 +4,7 @@ import importlib
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Any, cast
+from typing import cast
 
 import numpy as np
 import pytest
@@ -48,7 +48,9 @@ from trade_rl.workflows.universal_trade_rl_universe_access import (
     UniversalTradeRLAccessPhase,
     UniversalTradeRLUniverseAccess,
 )
-from trade_rl.workflows.universal_trade_rl_universe_config import UniversalTradeRLSymbolSource
+from trade_rl.workflows.universal_trade_rl_universe_config import (
+    UniversalTradeRLSymbolSource,
+)
 from trade_rl.workflows.universal_trade_rl_universe_manifest import (
     UniversalTradeRLUniverseManifest,
     build_universal_trade_rl_universe_manifest,

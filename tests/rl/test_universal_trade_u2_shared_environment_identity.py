@@ -33,11 +33,6 @@ def _build_with_generation(
     )
 
 
-def test_u2_workers_expose_one_shared_environment_generation_digest() -> None:
-    fixture = pytest.FixtureRequest  # keep import-time collection independent of fixture data
-    del fixture
-
-
 def test_u2_workers_expose_one_shared_environment_generation_digest_runtime(
     u2_environment_fixture: U2EnvironmentFixture,
 ) -> None:

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
+from trade_rl.rl.universal_episode_router import InstrumentRoute
 from trade_rl.rl.universal_instrument_binding import (
     InstrumentDatasetBinding,
     validate_training_instrument_bindings,
@@ -360,6 +362,50 @@ class _OwnedU2RoutedEnvironment(EpisodeRoutedSingleInstrumentEnv):
             training_contract_digest=training_contract_digest,
             max_cached_environments=None,
         )
+
+    @property
+    def run_seed(self) -> int:
+        return self._run_seed
+
+    @property
+    def environment_index(self) -> int:
+        return self._environment_index
+
+    @property
+    def canonical_probe_seed(self) -> int:
+        return self._run_seed + self._environment_index
+
+    def _episode_seed(
+        self,
+        *,
+        route: InstrumentRoute,
+        binding: InstrumentDatasetBinding,
+    ) -> int:
+        digest = content_digest(
+            {
+                "schema_version": "universal_trade_rl_u2_episode_seed_v1",
+                "run_seed": self._run_seed,
+                "partition_digest": self._router.partition_digest,
+                "environment_index": self._environment_index,
+                "completed_episode_count": route.completed_episode_count,
+                "fit_dataset_id": binding.source_dataset_id,
+            }
+        )
+        return int(digest[:8], 16)
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[Any, dict[str, Any]]:
+        if seed is not None:
+            resolved_seed = _non_negative_integer(seed, field="seed")
+            if resolved_seed != self.canonical_probe_seed:
+                raise ValueError(
+                    "U2 reset seed must equal run_seed + environment_index"
+                )
+        return super().reset(seed=self._run_seed, options=options)
 
     def close(self) -> None:
         if self._u2_closed:

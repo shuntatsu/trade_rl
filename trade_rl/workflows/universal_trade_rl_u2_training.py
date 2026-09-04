@@ -7,6 +7,7 @@ from typing import Final
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.rl.checkpointing import CheckpointManifest
 from trade_rl.workflows.universal_trade_rl_u2_contract import (
     U2_FINAL_TIMESTEPS,
     UniversalTradeRLU2Contract,
@@ -141,8 +142,41 @@ def build_universal_trade_rl_u2_seed_training_plan(
     )
 
 
+def require_universal_trade_rl_u2_selection_checkpoint(
+    *,
+    plan: UniversalTradeRLU2SeedTrainingPlan,
+    checkpoint: CheckpointManifest,
+    expected_environment_digest: str,
+) -> CheckpointManifest:
+    """Accept only the exact fixed-budget checkpoint for one frozen U2 seed plan."""
+
+    if not isinstance(plan, UniversalTradeRLU2SeedTrainingPlan):
+        raise TypeError("U2 selection checkpoint requires a seed training plan")
+    if not isinstance(checkpoint, CheckpointManifest):
+        raise TypeError("U2 selection checkpoint requires a CheckpointManifest")
+    require_sha256(
+        expected_environment_digest,
+        field="U2 selection expected environment digest",
+    )
+    if checkpoint.algorithm != "ppo":
+        raise ValueError("U2 selection checkpoint algorithm mismatch")
+    if checkpoint.seed != plan.seed:
+        raise ValueError("U2 selection checkpoint seed mismatch")
+    if checkpoint.training_config_digest != plan.training_config_digest:
+        raise ValueError("U2 selection checkpoint training config mismatch")
+    if checkpoint.environment_digest != expected_environment_digest:
+        raise ValueError("U2 selection checkpoint environment mismatch")
+    if (
+        checkpoint.requested_timestep != plan.final_timesteps
+        or checkpoint.observed_timestep != plan.final_timesteps
+    ):
+        raise ValueError("U2 selection checkpoint must be the exact final timestep")
+    return checkpoint
+
+
 __all__ = [
     "U2_SEED_TRAINING_PLAN_SCHEMA",
     "UniversalTradeRLU2SeedTrainingPlan",
     "build_universal_trade_rl_u2_seed_training_plan",
+    "require_universal_trade_rl_u2_selection_checkpoint",
 ]

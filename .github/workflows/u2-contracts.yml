@@ -1,0 +1,51 @@
+name: U2 Contracts
+
+on:
+  pull_request:
+    paths:
+      - "trade_rl/workflows/universal_trade_rl_u2_*.py"
+      - "tests/rl/test_universal_trade_u2_*.py"
+      - "tests/workflows/test_universal_trade_rl_u2_*.py"
+      - ".github/workflows/u2-contracts.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: u2-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: U2 Contract Regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install contract dependencies
+        run: uv sync --extra dev
+
+      - name: Verify U2 contract tests are formatted
+        run: >-
+          uv run ruff format --check
+          tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py
+          tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
+          tests/rl/test_universal_trade_u2_binding_derivation.py
+
+      - name: U2 source FIT and binding contracts
+        run: >-
+          uv run pytest -q
+          tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid
+          tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_exposes_exact_fit_indices
+          tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
+          tests/rl/test_universal_trade_u2_binding_derivation.py

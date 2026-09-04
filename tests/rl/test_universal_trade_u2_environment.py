@@ -486,7 +486,7 @@ def test_u2_environment_cached_symbol_reset_clears_policy_and_execution_state(
         environment.reset(seed=_RUN_SEED)
         first_binding = environment.active_episode_binding
         first_child = _active_child(environment)
-        first_symbol = first_binding.concrete_symbol
+        first_symbol = first_binding.dataset_binding.concrete_symbol
 
         environment.step(np.asarray([1.0], dtype=np.float32))
         contaminated = first_child.base_env.universal_trade_runtime_snapshot()
@@ -494,14 +494,19 @@ def test_u2_environment_cached_symbol_reset_clears_policy_and_execution_state(
 
         _force_episode_boundary(environment)
         environment.reset()
-        second_symbol = environment.active_episode_binding.concrete_symbol
+        second_symbol = (
+            environment.active_episode_binding.dataset_binding.concrete_symbol
+        )
         assert second_symbol != first_symbol
         _assert_cash_runtime(_active_child(environment))
 
         for _ in range(2):
             _force_episode_boundary(environment)
             environment.reset()
-            if environment.active_episode_binding.concrete_symbol == first_symbol:
+            if (
+                environment.active_episode_binding.dataset_binding.concrete_symbol
+                == first_symbol
+            ):
                 break
         else:
             raise AssertionError(

@@ -123,9 +123,7 @@ def _build_factory_inputs(
     list[tuple[str, int, UniversalTradeEnvironment]],
 ]:
     contract, closure = _adapt_contract(fixture)
-    locators = {
-        symbol: f"fixture://{symbol}" for symbol in fixture.train_symbols
-    }
+    locators = {symbol: f"fixture://{symbol}" for symbol in fixture.train_symbols}
     by_locator = {
         locators[symbol]: fixture.datasets[symbol] for symbol in fixture.train_symbols
     }

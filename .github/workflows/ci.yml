@@ -136,6 +136,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_training.py::test_u2_u1_sequence_adapter_constructs_and_forwards_exact_u1_observation
           tests/workflows/test_universal_trade_rl_u2_training.py::test_u2_u1_policy_identity_binds_adapter_and_current_weight_location
           tests/workflows/test_universal_trade_rl_u2_training_runtime.py::test_u2_seed_training_plan_binds_contract_source_closure_and_fixed_budget
+          tests/workflows/test_universal_trade_rl_u2_training_runtime.py::test_u2_selection_checkpoint_requires_exact_final_fixed_budget
 
       - name: Tests and coverage
         shell: bash

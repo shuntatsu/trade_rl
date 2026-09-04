@@ -134,6 +134,7 @@ jobs:
           tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_exposes_exact_fit_indices
+          tests/workflows/test_universal_trade_rl_u2_fit_dataset.py::test_u2_fit_loader_materializes_exact_market_dataset_view
           tests/workflows/test_universal_trade_rl_u2_training.py::test_u2_routed_u1_observation_has_explicit_sb3_sequence_adapter
           tests/workflows/test_universal_trade_rl_u2_training.py::test_u2_u1_sequence_adapter_constructs_and_forwards_exact_u1_observation
           tests/workflows/test_universal_trade_rl_u2_training.py::test_u2_u1_policy_identity_binds_adapter_and_current_weight_location

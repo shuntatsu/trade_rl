@@ -9,6 +9,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
+from trade_rl.domain.common import require_sha256
 from trade_rl.rl.universal_episode_router import InstrumentRoute
 from trade_rl.rl.universal_instrument_binding import (
     InstrumentDatasetBinding,
@@ -413,9 +414,11 @@ class _OwnedU2RoutedEnvironment(EpisodeRoutedSingleInstrumentEnv):
         run_seed: int,
         environment_index: int,
         training_contract_digest: str,
+        environment_generation_digest: str,
     ) -> None:
         self._owned_factory = owned_factory
         self._u2_closed = False
+        self._environment_generation_digest = environment_generation_digest
         super().__init__(
             train_symbols=train_symbols,
             partition_digest=partition_digest,
@@ -428,6 +431,10 @@ class _OwnedU2RoutedEnvironment(EpisodeRoutedSingleInstrumentEnv):
             training_contract_digest=training_contract_digest,
             max_cached_environments=None,
         )
+
+    @property
+    def environment_digest(self) -> str:
+        return self._environment_generation_digest
 
     @property
     def run_seed(self) -> int:
@@ -501,6 +508,7 @@ def build_universal_trade_rl_u2_environment(
     environment_factory: U2EnvironmentFactory,
     run_seed: int,
     environment_index: int,
+    environment_generation_digest: str,
 ) -> EpisodeRoutedSingleInstrumentEnv:
     """Build one prevalidated balanced U2 environment from exact FIT children."""
 
@@ -508,6 +516,10 @@ def build_universal_trade_rl_u2_environment(
     resolved_environment_index = _non_negative_integer(
         environment_index,
         field="U2 environment_index",
+    )
+    resolved_environment_generation_digest = require_sha256(
+        environment_generation_digest,
+        field="U2 environment generation digest",
     )
     if not callable(environment_factory):
         raise TypeError("U2 environment_factory must be callable")
@@ -566,6 +578,9 @@ def build_universal_trade_rl_u2_environment(
                 run_seed=resolved_run_seed,
                 environment_index=resolved_environment_index,
                 training_contract_digest=closure.u2_contract_digest,
+                environment_generation_digest=(
+                    resolved_environment_generation_digest
+                ),
             )
         except Exception:
             owned_factory.close_all()

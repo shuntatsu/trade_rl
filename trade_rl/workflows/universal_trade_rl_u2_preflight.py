@@ -183,6 +183,16 @@ class U2TrainingSource:
         if source_first > fit_first or source_last < fit_last:
             raise ValueError("U2 source does not fully cover the FIT interval")
 
+    @property
+    def fit_start_index(self) -> int:
+        return (
+            self.fit_first_timestamp_ns - self.source_first_timestamp_ns
+        ) // U2_DECISION_STEP_NS
+
+    @property
+    def fit_stop_index(self) -> int:
+        return self.fit_start_index + self.fit_bar_count
+
     def to_payload(self) -> dict[str, object]:
         return {
             "schema_version": self.schema_version,

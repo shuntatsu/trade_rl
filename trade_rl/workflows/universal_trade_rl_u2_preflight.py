@@ -177,6 +177,9 @@ class U2TrainingSource:
             raise ValueError(
                 "U2 FIT exclusive stop must be one 15m step after FIT last"
             )
+        fit_offset_ns = fit_first - source_first
+        if fit_offset_ns < 0 or fit_offset_ns % U2_DECISION_STEP_NS != 0:
+            raise ValueError("U2 FIT interval must align to the source 15m grid")
         if source_first > fit_first or source_last < fit_last:
             raise ValueError("U2 source does not fully cover the FIT interval")
 

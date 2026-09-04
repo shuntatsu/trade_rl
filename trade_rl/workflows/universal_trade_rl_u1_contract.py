@@ -289,6 +289,57 @@ class UniversalTradeRLU1Contract:
         )
 
 
+def require_universal_trade_rl_u1_environment_contract(
+    *,
+    contract: UniversalTradeRLU1Contract,
+    environment: UniversalTradeEnvironment,
+) -> UniversalTradeEnvironment:
+    """Fail closed unless one concrete environment exactly matches frozen U1."""
+
+    if not isinstance(contract, UniversalTradeRLU1Contract):
+        raise TypeError("U1 environment validation contract is invalid")
+    if not isinstance(environment, UniversalTradeEnvironment):
+        raise TypeError("U1 environment validation requires UniversalTradeEnvironment")
+    if environment.contract.digest != contract.policy_contract_digest:
+        raise ValueError("U1 environment policy contract digest mismatch")
+
+    normalizer = environment.sequence_normalizer
+    if not isinstance(normalizer, UniversalTradeSequenceNormalizer):
+        raise ValueError("U1 environment requires the frozen sequence normalizer")
+    if normalizer.digest != contract.normalizer_digest:
+        raise ValueError("U1 environment normalizer digest mismatch")
+    if normalizer.universe_manifest_digest != contract.universe_manifest_digest:
+        raise ValueError("U1 environment normalizer universe identity mismatch")
+    if normalizer.provenance_digest != contract.normalizer_provenance_digest:
+        raise ValueError("U1 environment normalizer provenance mismatch")
+    if normalizer.knowledge_cutoff_ns != contract.normalizer_knowledge_cutoff_ns:
+        raise ValueError("U1 environment normalizer knowledge cutoff mismatch")
+    if normalizer.clip_value != contract.normalizer_clip_value:
+        raise ValueError("U1 environment normalizer clip value mismatch")
+    if normalizer.contract_digest != contract.policy_contract_digest:
+        raise ValueError("U1 environment normalizer policy contract mismatch")
+
+    observation = UniversalTradeObservationBuilder(
+        contract=environment.contract,
+        normalizer=normalizer,
+    )
+    if observation.schema_digest != contract.observation_schema_digest:
+        raise ValueError("U1 environment observation schema digest mismatch")
+    if observation.state_layout_digest != contract.state_layout_digest:
+        raise ValueError("U1 environment state layout digest mismatch")
+    if observation.policy_state_fields != contract.policy_state_fields:
+        raise ValueError("U1 environment policy-state fields mismatch")
+    if _runtime_config_digest(environment) != contract.runtime_config_digest:
+        raise ValueError("U1 environment runtime config digest mismatch")
+    if environment.base_env.execution_policy_digest != contract.execution_policy_digest:
+        raise ValueError("U1 environment execution policy digest mismatch")
+    if _pretrade_risk_digest(environment) != contract.pretrade_risk_digest:
+        raise ValueError("U1 environment pretrade risk digest mismatch")
+    if _portfolio_risk_digest(environment) != contract.portfolio_risk_digest:
+        raise ValueError("U1 environment portfolio risk digest mismatch")
+    return environment
+
+
 def build_universal_trade_rl_u1_contract(
     *,
     manifest: UniversalTradeRLUniverseManifest,
@@ -367,4 +418,5 @@ __all__ = [
     "U1_PRODUCTION_STATUS",
     "UniversalTradeRLU1Contract",
     "build_universal_trade_rl_u1_contract",
+    "require_universal_trade_rl_u1_environment_contract",
 ]

@@ -195,10 +195,13 @@ class UniversalTradeU1SequenceFeatureExtractor(BaseFeaturesExtractor):
             "adapter_contract_digest": adapter_contract_digest,
         }
         if supplied != canonical:
-            raise ValueError("U1 sequence adapter metadata does not match observation space")
+            raise ValueError(
+                "U1 sequence adapter metadata does not match observation space"
+            )
 
         field_indices = {
-            field: index for index, field in enumerate(UNIVERSAL_TRADE_POLICY_STATE_FIELDS)
+            field: index
+            for index, field in enumerate(UNIVERSAL_TRADE_POLICY_STATE_FIELDS)
         }
         asset_indices = tuple(field_indices[field] for field in _ASSET_STATE_FIELDS)
         global_indices = tuple(field_indices[field] for field in _GLOBAL_STATE_FIELDS)
@@ -288,7 +291,9 @@ class UniversalTradeU1SequenceFeatureExtractor(BaseFeaturesExtractor):
             ),
             dim=-1,
         )
-        asset_state = policy_state.index_select(1, self.asset_state_indices).unsqueeze(1)
+        asset_state = policy_state.index_select(1, self.asset_state_indices).unsqueeze(
+            1
+        )
         active = policy_state[:, self.active_index].reshape(-1, 1)
         current_weights = policy_state[:, self.current_weight_index].reshape(-1, 1)
         global_state = policy_state.index_select(1, self.global_state_indices)

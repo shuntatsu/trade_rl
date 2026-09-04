@@ -12,6 +12,7 @@ from trade_rl.artifacts.policy_identity_contract import (
     HIERARCHICAL_SEQUENCE_ENCODER,
     SB3_POLICY_IDENTITY_SCHEMA,
 )
+from trade_rl.domain.common import require_sha256
 from trade_rl.rl.observations import CURRENT_WEIGHT_SOURCE
 from trade_rl.rl.sequence_architecture import (
     SINGLE_SYMBOL_ASSET_FUSION_MODE,
@@ -43,6 +44,10 @@ CURRENT_WEIGHT_KEY: Final = "current_weights"
 _SEQUENCE_ARCHITECTURE_SCHEMA: Final = "hierarchical_sequence_policy_v4"
 _SEQUENCE_ASSET_BINDING_SCHEMA: Final = "sequence_asset_binding_v1"
 _ASSET_IDENTITY_MODE: Final = "identity_free_v1"
+_U1_SEQUENCE_ADAPTER_SCHEMA: Final = "universal_trade_u1_sequence_adapter_v1"
+_U1_SEQUENCE_ADAPTER_IDENTITY_SCHEMA: Final = (
+    "universal_trade_u1_sequence_adapter_identity_v1"
+)
 _ASSET_ATTENTION_IDENTITY_FIELDS: Final = frozenset(
     {
         "asset_attention_heads",
@@ -107,13 +112,106 @@ def current_weight_observation_identity(n_symbols: int) -> dict[str, object]:
     }
 
 
+def _u1_current_weight_observation_identity(n_symbols: int) -> dict[str, object]:
+    if n_symbols != 1:
+        raise ValueError("U1 current-weight identity requires exactly one instrument")
+    from trade_rl.rl.universal_trade_contract import (
+        UNIVERSAL_TRADE_OBSERVATION_SCHEMA,
+        UNIVERSAL_TRADE_STATE_LAYOUT_SCHEMA,
+    )
+    from trade_rl.rl.universal_trade_observation import (
+        UNIVERSAL_TRADE_POLICY_STATE_FIELDS,
+    )
+
+    return {
+        "bounds": (-1.0, 1.0),
+        "dtype": "float32",
+        "field": "current_weight",
+        "field_index": UNIVERSAL_TRADE_POLICY_STATE_FIELDS.index("current_weight"),
+        "key": "policy_state",
+        "observation_schema": UNIVERSAL_TRADE_OBSERVATION_SCHEMA,
+        "shape": (1,),
+        "source": CURRENT_WEIGHT_SOURCE,
+        "state_layout_schema": UNIVERSAL_TRADE_STATE_LAYOUT_SCHEMA,
+    }
+
+
+def _validated_sequence_observation_adapter(
+    value: object,
+    *,
+    digest: object,
+) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError("sequence observation adapter identity is missing")
+    payload = dict(value)
+    if set(payload) != {"adapter_contract_digest", "schema_version"}:
+        raise ValueError("sequence observation adapter identity field closure mismatch")
+    if payload.get("schema_version") != _U1_SEQUENCE_ADAPTER_IDENTITY_SCHEMA:
+        raise ValueError("sequence observation adapter identity schema mismatch")
+    raw_contract_digest = payload.get("adapter_contract_digest")
+    if not isinstance(raw_contract_digest, str):
+        raise ValueError("sequence observation adapter contract digest is missing")
+    contract_digest = require_sha256(
+        raw_contract_digest,
+        field="sequence observation adapter contract digest",
+    )
+    normalized = {
+        "adapter_contract_digest": contract_digest,
+        "schema_version": _U1_SEQUENCE_ADAPTER_IDENTITY_SCHEMA,
+    }
+    if not isinstance(digest, str) or digest != content_digest(normalized):
+        raise ValueError("sequence observation adapter identity digest mismatch")
+    return normalized
+
+
+def _sequence_observation_adapter_from_assembly(
+    *,
+    model: object,
+    assembly: object,
+) -> dict[str, object] | None:
+    metadata = getattr(assembly, "sequence_metadata", None)
+    if not isinstance(metadata, Mapping):
+        return None
+    metadata_payload = dict(metadata)
+    if metadata_payload.get("schema_version") != _U1_SEQUENCE_ADAPTER_SCHEMA:
+        return None
+    if metadata_payload.get("n_symbols") != 1:
+        raise ValueError("U1 sequence adapter identity requires one instrument")
+    if metadata_payload.get("current_weight_field") != "current_weight":
+        raise ValueError("U1 sequence adapter current-weight field mismatch")
+    raw_contract_digest = metadata_payload.pop("adapter_contract_digest", None)
+    if not isinstance(raw_contract_digest, str):
+        raise ValueError("U1 sequence adapter contract digest is missing")
+    contract_digest = require_sha256(
+        raw_contract_digest,
+        field="U1 sequence adapter contract digest",
+    )
+    if content_digest(metadata_payload) != contract_digest:
+        raise ValueError("U1 sequence adapter metadata digest mismatch")
+    policy = getattr(model, "policy", None)
+    extractor = getattr(policy, "features_extractor", None)
+    if getattr(extractor, "adapter_contract_digest", None) != contract_digest:
+        raise ValueError("U1 sequence adapter model/assembly identity mismatch")
+    return {
+        "adapter_contract_digest": contract_digest,
+        "schema_version": _U1_SEQUENCE_ADAPTER_IDENTITY_SCHEMA,
+    }
+
+
 def _validated_current_weight_identity(
-    value: object, *, n_symbols: int
+    value: object,
+    *,
+    n_symbols: int,
+    sequence_observation_adapter: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     if not isinstance(value, Mapping):
         raise ValueError("current-weight observation identity is missing")
     observed = dict(value)
-    expected = current_weight_observation_identity(n_symbols)
+    expected = (
+        current_weight_observation_identity(n_symbols)
+        if sequence_observation_adapter is None
+        else _u1_current_weight_observation_identity(n_symbols)
+    )
     normalized = {
         **observed,
         "bounds": tuple(observed.get("bounds", ())),
@@ -184,8 +282,9 @@ def _policy_architecture_payload(
     sequence_architecture_digest: str,
     current_weight_observation: Mapping[str, object],
     exploration_contract: Mapping[str, object],
+    sequence_observation_adapter_digest: str | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "actor_head": actor_head,
         "current_weight_observation": dict(current_weight_observation),
         "exploration_contract": dict(exploration_contract),
@@ -194,6 +293,11 @@ def _policy_architecture_payload(
         "schema_version": _policy_architecture_schema(actor_head),
         "sequence_architecture_digest": sequence_architecture_digest,
     }
+    if sequence_observation_adapter_digest is not None:
+        payload["sequence_observation_adapter_digest"] = (
+            sequence_observation_adapter_digest
+        )
+    return payload
 
 
 def _validated_sequence_architecture(
@@ -278,6 +382,22 @@ def _validated_payload(value: object) -> dict[str, object]:
         )
         payload["asset_binding"] = binding.digest_payload()
         payload["asset_binding_digest"] = binding.digest
+        adapter_declared = (
+            "sequence_observation_adapter" in payload
+            or "sequence_observation_adapter_digest" in payload
+        )
+        if adapter_declared:
+            sequence_observation_adapter = _validated_sequence_observation_adapter(
+                payload.get("sequence_observation_adapter"),
+                digest=payload.get("sequence_observation_adapter_digest"),
+            )
+            adapter_digest = payload.get("sequence_observation_adapter_digest")
+            assert isinstance(adapter_digest, str)
+            payload["sequence_observation_adapter"] = sequence_observation_adapter
+            payload["sequence_observation_adapter_digest"] = adapter_digest
+        else:
+            sequence_observation_adapter = None
+            adapter_digest = None
         actor_head = payload.get("actor_head")
         if actor_head not in SUPPORTED_SEQUENCE_ACTOR_HEADS:
             raise ValueError("sequence actor-head identity mismatch")
@@ -290,7 +410,9 @@ def _validated_payload(value: object) -> dict[str, object]:
                 raise ValueError("direct actor gate temperature must be null")
             temperature = None
         current_weight = _validated_current_weight_identity(
-            payload.get("current_weight_observation"), n_symbols=n_symbols
+            payload.get("current_weight_observation"),
+            n_symbols=n_symbols,
+            sequence_observation_adapter=sequence_observation_adapter,
         )
         exploration = _validated_exploration(
             payload.get("exploration_contract"), actor_head=actor_head
@@ -304,6 +426,7 @@ def _validated_payload(value: object) -> dict[str, object]:
             sequence_architecture_digest=sequence_digest,
             current_weight_observation=current_weight,
             exploration_contract=exploration,
+            sequence_observation_adapter_digest=adapter_digest,
         )
         architecture_digest = payload.get("policy_architecture_digest")
         if not isinstance(
@@ -322,6 +445,8 @@ def _validated_payload(value: object) -> dict[str, object]:
             "policy_architecture_digest",
             "sequence_architecture",
             "sequence_architecture_digest",
+            "sequence_observation_adapter",
+            "sequence_observation_adapter_digest",
         )
     ):
         raise ValueError("non-sequence policy cannot declare sequence architecture")
@@ -397,7 +522,18 @@ def bind_sb3_policy_identity(model: Any, assembly: object) -> dict[str, object]:
             gate_temperature: float | None = None
         else:
             gate_temperature = actual_raw_temperature
-        current_weight = current_weight_observation_identity(architecture.n_symbols)
+        sequence_observation_adapter = _sequence_observation_adapter_from_assembly(
+            model=model,
+            assembly=assembly,
+        )
+        if sequence_observation_adapter is None:
+            adapter_digest = None
+            current_weight = current_weight_observation_identity(architecture.n_symbols)
+        else:
+            adapter_digest = content_digest(sequence_observation_adapter)
+            current_weight = _u1_current_weight_observation_identity(
+                architecture.n_symbols
+            )
         exploration = _actual_exploration(policy, actor_head=actual_head)
         policy_architecture = _policy_architecture_payload(
             actor_head=actual_head,
@@ -405,6 +541,7 @@ def bind_sb3_policy_identity(model: Any, assembly: object) -> dict[str, object]:
             sequence_architecture_digest=identity.digest,
             current_weight_observation=current_weight,
             exploration_contract=exploration,
+            sequence_observation_adapter_digest=adapter_digest,
         )
         payload.update(
             {
@@ -419,6 +556,14 @@ def bind_sb3_policy_identity(model: Any, assembly: object) -> dict[str, object]:
                 "sequence_architecture_digest": identity.digest,
             }
         )
+        if sequence_observation_adapter is not None:
+            assert adapter_digest is not None
+            payload.update(
+                {
+                    "sequence_observation_adapter": sequence_observation_adapter,
+                    "sequence_observation_adapter_digest": adapter_digest,
+                }
+            )
     resolved = _validated_payload(payload)
     setattr(model, SB3_POLICY_IDENTITY_ATTRIBUTE, resolved)
     return dict(resolved)

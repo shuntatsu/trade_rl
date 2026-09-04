@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any, cast
+
+import torch
+
 from tests.rl.universal_trade_test_support import make_u1_market, make_u1_wrapper
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.integrations.sb3_model_assembly import resolve_sb3_policy_assembly
@@ -38,6 +43,20 @@ def _u2_routed_u1_probe() -> EpisodeRoutedSingleInstrumentEnv:
     )
 
 
+def _assembly(probe: EpisodeRoutedSingleInstrumentEnv):
+    config = build_universal_trade_rl_u2_training_config()
+    assembly = resolve_sb3_policy_assembly(
+        probe=probe,
+        identity={
+            "action_size": 1,
+            "action_names": ("target_weight:INSTRUMENT",),
+        },
+        config=config,
+        algorithm_config=build_algorithm_config(config),
+    )
+    return config, assembly
+
+
 def test_u2_routed_u1_observation_has_explicit_sb3_sequence_adapter() -> None:
     probe = _u2_routed_u1_probe()
     try:
@@ -58,17 +77,7 @@ def test_u2_routed_u1_observation_has_explicit_sb3_sequence_adapter() -> None:
             "policy_state",
         }
 
-        config = build_universal_trade_rl_u2_training_config()
-        assembly = resolve_sb3_policy_assembly(
-            probe=probe,
-            identity={
-                "action_size": 1,
-                "action_names": ("target_weight:INSTRUMENT",),
-            },
-            config=config,
-            algorithm_config=build_algorithm_config(config),
-        )
-
+        _config, assembly = _assembly(probe)
         extractor = assembly.policy_kwargs["features_extractor_class"]
         assert getattr(extractor, "__name__", "") == (
             "UniversalTradeU1SequenceFeatureExtractor"
@@ -81,5 +90,28 @@ def test_u2_routed_u1_observation_has_explicit_sb3_sequence_adapter() -> None:
         assert assembly.sequence_action_names == ("target_weight:INSTRUMENT",)
         assert assembly.rollout_buffer_class is None
         assert assembly.rollout_buffer_kwargs is None
+    finally:
+        probe.close()
+
+
+def test_u2_u1_sequence_adapter_constructs_and_forwards_exact_u1_observation() -> None:
+    probe = _u2_routed_u1_probe()
+    try:
+        observation, _info = probe.reset(seed=0)
+        config, assembly = _assembly(probe)
+        extractor_type = cast(Any, assembly.policy_kwargs["features_extractor_class"])
+        raw_kwargs = assembly.policy_kwargs["features_extractor_kwargs"]
+        assert isinstance(raw_kwargs, Mapping)
+        extractor = extractor_type(probe.observation_space, **dict(raw_kwargs))
+
+        batched = {
+            key: torch.as_tensor(value).unsqueeze(0)
+            for key, value in observation.items()
+        }
+        encoded = extractor(batched)
+
+        assert set(observation) == set(probe.observation_space.spaces)
+        assert encoded.shape == (1, 2 * config.sequence_d_model + 128 + 2)
+        assert torch.isfinite(encoded).all()
     finally:
         probe.close()

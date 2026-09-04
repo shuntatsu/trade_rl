@@ -133,6 +133,7 @@ jobs:
           tests/integrations/test_sb3_training.py::test_backend_resumes_ppo_checkpoint_to_requested_total
           tests/serving/test_sb3_loader.py::test_structured_sb3_loader_rebuilds_native_sequence_observation
           tests/workflows/test_universal_trade_rl_u2_training.py::test_u2_routed_u1_observation_has_explicit_sb3_sequence_adapter
+          tests/workflows/test_universal_trade_rl_u2_training.py::test_u2_u1_sequence_adapter_constructs_and_forwards_exact_u1_observation
 
       - name: Tests and coverage
         shell: bash

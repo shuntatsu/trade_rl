@@ -124,7 +124,9 @@ def _require_binding_closure(
 
 
 def _dataset_timestamps_ns(dataset: MarketDataset) -> np.ndarray:
-    timestamps = np.asarray(dataset.timestamps).astype("datetime64[ns]").astype(np.int64)
+    timestamps = (
+        np.asarray(dataset.timestamps).astype("datetime64[ns]").astype(np.int64)
+    )
     if timestamps.ndim != 1 or timestamps.size != dataset.n_bars:
         raise ValueError("U2 environment dataset timestamp layout is invalid")
     return timestamps
@@ -152,7 +154,9 @@ def _require_fit_dataset(
         dtype=np.int64,
     ) * np.int64(U2_DECISION_STEP_NS)
     if not np.array_equal(timestamps_ns, expected):
-        raise ValueError("U2 child environment timestamps must equal the dense FIT grid")
+        raise ValueError(
+            "U2 child environment timestamps must equal the dense FIT grid"
+        )
     if int(timestamps_ns[-1]) != source.fit_last_timestamp_ns:
         raise ValueError("U2 child environment crosses the FIT end")
     if source.fit_stop_timestamp_ns_exclusive != (
@@ -181,9 +185,7 @@ def _require_child_surface(
         raise ValueError("U2 child requires the frozen sequence normalizer")
     if child_normalizer.digest != normalizer.digest:
         raise ValueError("U2 child normalizer generation mismatch")
-    if tuple(environment.action_names) != (
-        f"target_weight:{binding.concrete_symbol}",
-    ):
+    if tuple(environment.action_names) != (f"target_weight:{binding.concrete_symbol}",):
         raise ValueError("U2 child action names do not match its concrete symbol")
     if environment.action_space.shape != (1,):
         raise ValueError("U2 child action space must remain scalar target weight")
@@ -349,7 +351,9 @@ def build_universal_trade_rl_u2_environment(
                     "U2 environment_factory must return UniversalTradeEnvironment"
                 )
             if id(environment) in object_ids:
-                raise ValueError("U2 environment_factory reused one child across symbols")
+                raise ValueError(
+                    "U2 environment_factory reused one child across symbols"
+                )
             object_ids.add(id(environment))
             built[symbol] = environment
             _require_child_surface(

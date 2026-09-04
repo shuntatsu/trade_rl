@@ -23,7 +23,7 @@ def _build_with_generation(
     return build_universal_trade_rl_u2_environment(
         closure=fixture.closure,
         u1_contract=fixture.u1_contract,
-        policy_contract=fixture.contract,
+        policy_contract=fixture.policy_contract,
         normalizer=fixture.normalizer,
         bindings=fixture.bindings,
         environment_factory=_factory(fixture),

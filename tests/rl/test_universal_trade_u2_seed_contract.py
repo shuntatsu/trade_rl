@@ -6,13 +6,39 @@ import pytest
 
 from tests.rl.test_universal_trade_u2_environment import (
     U2EnvironmentFixture,
-    _build,
+    _factory,
 )
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.rl.universal_instrument_binding import InstrumentDatasetBinding
+from trade_rl.workflows.universal_trade_rl_u2_environment import (
+    build_universal_trade_rl_u2_environment,
+)
 
 pytest_plugins = ("tests.rl.test_universal_trade_u2_environment",)
 
 _RUN_SEED = 17
+_ENVIRONMENT_GENERATION_DIGEST = content_digest(
+    {"fixture": "u2-seed-contract-generation"}
+)
+
+
+def _build_seed_environment(
+    fixture: U2EnvironmentFixture,
+    *,
+    bindings: tuple[InstrumentDatasetBinding, ...] | None = None,
+    environment_index: int = 0,
+):
+    return build_universal_trade_rl_u2_environment(
+        closure=fixture.closure,
+        u1_contract=fixture.u1_contract,
+        policy_contract=fixture.policy_contract,
+        normalizer=fixture.normalizer,
+        bindings=fixture.bindings if bindings is None else bindings,
+        environment_factory=_factory(fixture),
+        run_seed=_RUN_SEED,
+        environment_index=environment_index,
+        environment_generation_digest=_ENVIRONMENT_GENERATION_DIGEST,
+    )
 
 
 def test_u2_episode_sampling_ignores_unrelated_binding_metadata(
@@ -36,8 +62,11 @@ def test_u2_episode_sampling_ignores_unrelated_binding_metadata(
         )
         for binding in u2_environment_fixture.bindings
     )
-    reference = _build(u2_environment_fixture)
-    drifted = _build(u2_environment_fixture, bindings=drifted_bindings)
+    reference = _build_seed_environment(u2_environment_fixture)
+    drifted = _build_seed_environment(
+        u2_environment_fixture,
+        bindings=drifted_bindings,
+    )
     try:
         reference.reset(seed=_RUN_SEED)
         drifted.reset(seed=_RUN_SEED)
@@ -55,7 +84,10 @@ def test_u2_episode_sampling_ignores_unrelated_binding_metadata(
 def test_u2_worker_reset_seed_is_member_seed_plus_environment_index(
     u2_environment_fixture: U2EnvironmentFixture,
 ) -> None:
-    environment = _build(u2_environment_fixture, environment_index=3)
+    environment = _build_seed_environment(
+        u2_environment_fixture,
+        environment_index=3,
+    )
     try:
         assert environment.canonical_probe_seed == 20
         assert environment.run_seed == _RUN_SEED

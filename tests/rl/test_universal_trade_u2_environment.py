@@ -58,6 +58,9 @@ from trade_rl.workflows.universal_trade_rl_universe_manifest import (
 
 _U2_ENVIRONMENT_MODULE = "trade_rl.workflows.universal_trade_rl_u2_environment"
 _RUN_SEED = 17
+_ENVIRONMENT_GENERATION_DIGEST = content_digest(
+    {"fixture": "u2-low-level-environment-generation"}
+)
 
 
 def _timestamp_ns(value: np.datetime64) -> int:
@@ -282,6 +285,7 @@ def _build(
         ),
         run_seed=_RUN_SEED,
         environment_index=environment_index,
+        environment_generation_digest=_ENVIRONMENT_GENERATION_DIGEST,
     )
 
 

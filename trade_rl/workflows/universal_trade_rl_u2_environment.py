@@ -170,7 +170,9 @@ def build_universal_trade_rl_u2_environment_generation_digest(
 
     resolved_seed = _non_negative_integer(run_seed, field="U2 member seed")
     if resolved_seed not in u2_contract.training_seeds:
-        raise ValueError("U2 member seed must be one of the preregistered training seeds")
+        raise ValueError(
+            "U2 member seed must be one of the preregistered training seeds"
+        )
 
     n_envs = u2_contract.training_config_payload.get("n_envs")
     vector_mode = u2_contract.training_config_payload.get("vector_environment_mode")
@@ -585,9 +587,7 @@ def build_universal_trade_rl_u2_environment(
                 run_seed=resolved_run_seed,
                 environment_index=resolved_environment_index,
                 training_contract_digest=closure.u2_contract_digest,
-                environment_generation_digest=(
-                    resolved_environment_generation_digest
-                ),
+                environment_generation_digest=(resolved_environment_generation_digest),
             )
         except Exception:
             owned_factory.close_all()
@@ -624,7 +624,9 @@ class UniversalTradeRLU2EnvironmentFactory:
         if not isinstance(normalizer, UniversalTradeSequenceNormalizer):
             raise TypeError("U2 high-level factory requires a frozen normalizer")
         if not callable(u1_environment_factory):
-            raise TypeError("U2 high-level factory U1 environment factory must be callable")
+            raise TypeError(
+                "U2 high-level factory U1 environment factory must be callable"
+            )
         if source_artifact_loader is not None and not callable(source_artifact_loader):
             raise TypeError("U2 high-level source artifact loader must be callable")
 
@@ -634,9 +636,7 @@ class UniversalTradeRLU2EnvironmentFactory:
                 "U2 member seed must be one of the preregistered training seeds"
             )
         n_envs = u2_contract.training_config_payload.get("n_envs")
-        vector_mode = u2_contract.training_config_payload.get(
-            "vector_environment_mode"
-        )
+        vector_mode = u2_contract.training_config_payload.get("vector_environment_mode")
         if n_envs != 8:
             raise ValueError("U2 high-level factory requires n_envs == 8")
         if vector_mode != "in_process":
@@ -646,7 +646,10 @@ class UniversalTradeRLU2EnvironmentFactory:
 
         if source_closure.u2_contract_digest != u2_contract.digest:
             raise ValueError("U2 high-level source closure contract mismatch")
-        if source_closure.universe_manifest_digest != u2_contract.universe_manifest_digest:
+        if (
+            source_closure.universe_manifest_digest
+            != u2_contract.universe_manifest_digest
+        ):
             raise ValueError("U2 high-level universe identity mismatch")
         if source_closure.u1_contract_digest != u2_contract.u1_contract_digest:
             raise ValueError("U2 high-level U1 contract identity mismatch")

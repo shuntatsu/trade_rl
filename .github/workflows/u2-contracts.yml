@@ -41,11 +41,13 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
           tests/rl/test_universal_trade_u2_binding_derivation.py
+          tests/rl/test_universal_trade_u2_seed_contract.py
 
-      - name: U2 source FIT and binding contracts
+      - name: U2 source FIT binding and seed contracts
         run: >-
           uv run pytest -q
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_exposes_exact_fit_indices
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
           tests/rl/test_universal_trade_u2_binding_derivation.py
+          tests/rl/test_universal_trade_u2_seed_contract.py

@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.rl.universal_instrument_binding import (
     InstrumentDatasetBinding,
@@ -130,6 +131,79 @@ def _dataset_timestamps_ns(dataset: MarketDataset) -> np.ndarray:
     if timestamps.ndim != 1 or timestamps.size != dataset.n_bars:
         raise ValueError("U2 environment dataset timestamp layout is invalid")
     return timestamps
+
+
+def build_universal_trade_rl_u2_instrument_bindings(
+    *,
+    closure: U2TrainingSourceClosure,
+    fit_datasets: Mapping[str, MarketDataset],
+    u1_contract: UniversalTradeRLU1Contract,
+) -> tuple[InstrumentDatasetBinding, ...]:
+    """Derive canonical U2 bindings from verified FIT datasets and frozen U1 identity."""
+
+    if not isinstance(closure, U2TrainingSourceClosure):
+        raise TypeError("U2 binding derivation requires a verified source closure")
+    if not isinstance(u1_contract, UniversalTradeRLU1Contract):
+        raise TypeError("U2 binding derivation requires a U1 contract")
+    if not isinstance(fit_datasets, Mapping):
+        raise TypeError("U2 binding FIT datasets must be a mapping")
+    if closure.u1_contract_digest != u1_contract.digest:
+        raise ValueError("U2 binding U1 contract identity mismatch")
+
+    expected_symbols = tuple(source.symbol for source in closure.sources)
+    observed_symbols = tuple(fit_datasets)
+    if len(observed_symbols) != len(expected_symbols) or set(observed_symbols) != set(
+        expected_symbols
+    ):
+        raise ValueError("U2 binding FIT dataset closure must equal Train symbols")
+
+    instrument_descriptor_digest = content_digest(
+        {
+            "schema_version": "universal_trade_rl_u2_instrument_descriptor_disabled_v1",
+            "instrument_context_enabled": False,
+            "v4_context_enabled": False,
+        }
+    )
+    bindings: list[InstrumentDatasetBinding] = []
+    for source in closure.sources:
+        fit_dataset = fit_datasets[source.symbol]
+        if not isinstance(fit_dataset, MarketDataset):
+            raise TypeError("U2 binding FIT dataset must be a MarketDataset")
+        if fit_dataset.symbols != (source.symbol,):
+            raise ValueError("U2 binding FIT dataset symbol mismatch")
+        if fit_dataset.n_bars != source.fit_bar_count:
+            raise ValueError("U2 binding FIT dataset bar count mismatch")
+
+        timestamps_ns = _dataset_timestamps_ns(fit_dataset)
+        expected_timestamps_ns = source.fit_first_timestamp_ns + np.arange(
+            source.fit_bar_count,
+            dtype=np.int64,
+        ) * np.int64(U2_DECISION_STEP_NS)
+        if not np.array_equal(timestamps_ns, expected_timestamps_ns):
+            raise ValueError("U2 binding FIT dataset timestamps mismatch")
+        if int(timestamps_ns[-1]) != source.fit_last_timestamp_ns:
+            raise ValueError("U2 binding FIT dataset crosses the FIT end")
+
+        execution_metadata_digest = content_digest(
+            {
+                "schema_version": "universal_trade_rl_u2_execution_binding_v1",
+                "fit_dataset_id": fit_dataset.dataset_id,
+                "u1_execution_policy_digest": u1_contract.execution_policy_digest,
+                "u1_pretrade_risk_digest": u1_contract.pretrade_risk_digest,
+                "u1_portfolio_risk_digest": u1_contract.portfolio_risk_digest,
+            }
+        )
+        bindings.append(
+            InstrumentDatasetBinding(
+                concrete_symbol=source.symbol,
+                source_dataset_id=fit_dataset.dataset_id,
+                symbol_dataset_digest=source.dataset_digest,
+                execution_metadata_digest=execution_metadata_digest,
+                instrument_descriptor_digest=instrument_descriptor_digest,
+                split="train",
+            )
+        )
+    return tuple(bindings)
 
 
 def _require_fit_dataset(
@@ -392,4 +466,5 @@ def build_universal_trade_rl_u2_environment(
 __all__ = [
     "U2EnvironmentFactory",
     "build_universal_trade_rl_u2_environment",
+    "build_universal_trade_rl_u2_instrument_bindings",
 ]

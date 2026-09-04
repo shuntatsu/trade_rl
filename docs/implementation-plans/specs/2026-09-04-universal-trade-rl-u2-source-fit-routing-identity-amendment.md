@@ -5,7 +5,7 @@ Production: **NO-GO**
 Admission: **SEALED**  
 Real U2 training: **NO-GO**
 
-This amendment is written before any real U2 PPO training, Development numeric evaluation, Admission access, or economic result. It is a mechanics / provenance amendment discovered by implementation-time falsification review. It must not be relaxed after Development results.
+This amendment is written before any real U2 PPO training, Development numeric evaluation, Admission access, or economic result. It is a mechanics / provenance amendment discovered by implementation-time falsification review and must not be relaxed after Development results.
 
 It supersedes only the affected source-loading, routed-environment, seed, vector-worker identity, and checkpoint-lineage statements in:
 
@@ -17,17 +17,17 @@ All economic thresholds, algorithm choices, architecture choices, Development / 
 
 ---
 
-## 1. Reason for the amendment
+## 1. Why this amendment exists
 
-Implementation-time falsification review found five mechanics loopholes before any real U2 economic result.
+Implementation-time falsification review found five mechanics loopholes before any real U2 economic result:
 
-1. `U2TrainingSource` required both source and FIT to be dense 15-minute grids but did not independently require the FIT grid to be phase-aligned to the source grid.
-2. The current U2 environment builder accepted caller-supplied dataset bindings and an arbitrary child-environment factory. It validated the resulting FIT child but did not own the maintained derivation from the frozen U0 source artifact to that child.
-3. The generic routed environment derives the episode seed from the complete `InstrumentDatasetBinding.digest`. Therefore unrelated binding metadata can change episode sampling under otherwise identical U2 training identity.
-4. Stable-Baselines3 vector seeding offsets worker reset seeds as `member_seed + environment_index`, while the generic routed environment accepts only `reset(seed == run_seed)`. With one shared member run seed this makes workers 1..7 incompatible with the current generic reset contract.
-5. The maintained SB3 backend probes `environment_factory()` before vector construction and uses that single environment's `environment_digest` as the training/checkpoint identity. A worker-0-specific digest therefore does not, by itself, bind the complete fixed 8-worker U2 environment generation.
+1. `U2TrainingSource` required source and FIT to be dense 15-minute grids but did not independently require FIT to be phase-aligned to the source grid.
+2. The current U2 environment builder accepts caller-supplied dataset bindings and a child-environment factory. It validates the resulting FIT child but does not own the maintained derivation from the frozen U0 source artifact to that child.
+3. The generic routed environment derives episode seed from the complete `InstrumentDatasetBinding.digest`; unrelated binding metadata can therefore change episode sampling.
+4. Stable-Baselines3 offsets vector-worker reset seeds as `member_seed + environment_index`, while the generic routed environment accepts only `reset(seed == run_seed)`. Workers 1..7 therefore conflict with a common immutable U2 member run seed.
+5. The maintained SB3 backend probes `environment_factory()` before vector construction and uses that one environment's `environment_digest` as the training/checkpoint identity. A worker-0-specific digest therefore does not bind the complete fixed 8-worker generation.
 
-The amendment closes these loopholes without changing U1 economics or introducing a new data format, vector framework, checkpoint schema, or FIT dataset artifact.
+The amendment closes these loopholes without introducing a new market-data format, persistent FIT artifact, vector framework, or checkpoint schema.
 
 ---
 
@@ -35,7 +35,7 @@ The amendment closes these loopholes without changing U1 economics or introducin
 
 ### Objective
 
-Create one fail-closed U2 V1 provenance chain:
+Create one fail-closed U2 V1 chain:
 
 ```text
 frozen U0 source identity
@@ -48,7 +48,7 @@ frozen U0 source identity
 -> SB3 checkpoint environment identity
 ```
 
-and make the U2 member seed / worker-seed namespace explicit for `n_envs=8`, `vector_environment_mode=in_process`.
+and define the exact member-seed / worker-reset-seed namespace for `n_envs=8`, `vector_environment_mode=in_process`.
 
 ### Non-goals
 
@@ -57,7 +57,7 @@ This amendment does **not**:
 - run real PPO training;
 - open Development or Admission numeric arrays;
 - change PPO hyperparameters, architecture, reward, risk, execution, or Selection thresholds;
-- create a persistent FIT dataset artifact;
+- create or publish a persistent FIT dataset artifact;
 - redesign `MarketDataset`, `MarketDatasetView`, generic `EpisodeRoutedSingleInstrumentEnv`, generic SB3 vectorization, or generic checkpoint schemas;
 - claim exact mid-episode / bitwise trajectory resume from an intermediate checkpoint;
 - implement Development B/C/D evaluation or Selection.
@@ -66,81 +66,64 @@ This amendment does **not**:
 
 1. FIT bounds are provably aligned to the frozen source grid using metadata before numeric loading.
 2. A canonical U0 source artifact must match the frozen source dataset identity before FIT materialization.
-3. The FIT child is the deterministic `MarketDatasetView` of that exact source and exact FIT range.
-4. Production U2 training does not accept caller-authored `InstrumentDatasetBinding` values as the source of truth.
+3. FIT is the deterministic maintained `MarketDatasetView` of that exact source and exact preregistered range.
+4. Production U2 training does not accept caller-authored `InstrumentDatasetBinding` values as source of truth.
 5. U2 episode sampling is unaffected by unrelated execution/descriptor binding metadata.
-6. All eight in-process workers share one immutable U2 member run seed and one run-level environment-generation digest while retaining distinct worker indices.
-7. Every worker owns fresh mutable U1 runtime state; immutable FIT datasets / normalizer / contracts may be shared.
-8. The SB3-facing reset seed for worker `i` is exactly `member_seed + i`, while the router run seed remains the member seed.
-9. Checkpoint environment identity binds the U2 contract, training config, source closure, FIT bindings, member seed, fixed vector mode, and fixed worker count.
+6. All eight in-process workers share one immutable member run seed and one run-level environment-generation digest while retaining distinct worker indices.
+7. Every worker owns fresh mutable U1 runtime state; immutable FIT datasets, normalizer, and contracts may be shared.
+8. The SB3-facing reset seed for worker `i` is exactly `member_seed + i`, while router `run_seed` remains the member seed.
+9. Checkpoint environment identity binds U2 contract, training config, source closure, exact FIT bindings, member seed, fixed vector mode, and fixed worker set.
 10. Existing U1 observation/action/reward/risk/execution semantics remain unchanged.
 
 ### Invariants
 
-- Source artifact filesystem paths are locators, not research identity.
+- Source artifact filesystem paths are locators, never research identity.
 - `source.dataset_digest` denotes the frozen U0 source `MarketDataset.dataset_id`.
-- Formal source artifacts must carry a verified canonical content identity.
-- FIT materialization cannot escape the frozen source or the preregistered FIT interval.
-- `MarketDatasetView.identity` is the FIT dataset identity used by the routed child.
-- The same FIT dataset identity must be used by every worker for the same symbol and member run.
+- Formal source artifacts must have verified canonical content identity.
+- FIT materialization cannot escape the frozen source or preregistered FIT interval.
+- `MarketDatasetView.identity` is the FIT dataset identity used by routed children.
+- The same symbol-specific FIT dataset identity is used by all workers in one member run.
 - `run_seed == preregistered PPO member seed` for U2 V1.
 - `environment_index` is a worker coordinate and never redefines `run_seed`.
-- U2 policy input remains symbol-independent and contains no instrument/V4 context.
+- U2 policy input remains symbol-independent with instrument and V4 context disabled.
 - `ResidualMarketEnv` / U1 remains the sole Risk / Execution / Accounting authority.
 - Normal U1 horizon remains `terminated=false`, `truncated=true`, no liquidation.
 
 ### Primary Failure Modes
 
 - source/FIT grid phase mismatch;
-- wrong source artifact at a valid locator;
-- source artifact with matching timestamps but different numeric content;
+- wrong or tampered source artifact;
+- matching timestamps/count but different numeric source content;
 - source artifact without canonical content identity;
 - wrong FIT start/stop or off-by-one range;
-- caller binding spoof / drift;
+- caller binding spoof/drift;
 - unrelated binding metadata changing episode start sampling;
 - worker 1..7 reset rejection from SB3 seed offsets;
 - worker index collapse to zero;
-- worker runtime object reuse / cross-worker BookState or pending-order leakage;
-- worker-specific data drift hidden by a worker-0 checkpoint identity;
-- source closure or FIT dataset drift accepted on checkpoint resume;
-- timeout metadata loss at vectorization (covered by the existing timeout amendment).
+- cross-worker BookState / pending-order / episode-state leakage;
+- worker-specific runtime/data drift hidden by a worker-0 checkpoint identity;
+- source closure or FIT binding drift accepted on checkpoint resume;
+- timeout metadata loss at vectorization, covered by the existing timeout amendment.
 
 ### Risk
 
-The highest-risk failures can invalidate the scientific interpretation of one seed run while still producing apparently valid training artifacts. Data/source drift, hidden episode-sampling drift, or worker-state contamination is therefore treated as **training-blocking technical NO-GO**, not a warning.
+Data/source drift, hidden sampling drift, or worker-state contamination can invalidate the scientific interpretation of a seed while still producing apparently valid model artifacts. These failures are **training-blocking technical NO-GO**.
 
 ### Test Oracle
 
-Correctness is observed through:
-
-- exact source `dataset_id`, symbol, first/last timestamp, row count, and canonical identity;
-- exact FIT absolute `start` / `stop` and `MarketDatasetView.identity`;
-- exact internal `InstrumentDatasetBinding` payload;
-- exact episode seed and `InstrumentEpisodeBinding`;
-- router `run_seed`, `environment_index`, routing cycle/position;
-- worker object identity / state transitions;
-- shared environment-generation digest across workers;
-- SB3 external reset seeds;
-- checkpoint `environment_digest` and training-config digest;
-- unchanged U1 reward / runtime contract evidence.
+Correctness is observed through exact source dataset identity, exact source/FIT bounds, `MarketDatasetView.identity`, internally derived binding payloads, episode seed/binding, router seed/index, worker object identity/state, shared environment-generation digest, SB3 reset seeds, checkpoint environment identity, and unchanged U1 reward/runtime evidence.
 
 ### Required Test Layers
 
-- Unit / contract tests for source/FIT arithmetic and identities;
-- artifact integration tests using canonical market-dataset artifacts;
-- U1/U2 integration tests for binding and routing;
-- real `DummyVecEnv` integration for all 8 workers;
-- timeout / terminal-observation integration from the existing amendment;
-- static analysis, Ruff, format, MyPy, architecture/import checks;
-- related suite, full suite, build/package checks, and exact-final-HEAD CI before training readiness.
+Unit/contract + canonical-artifact integration + U1/U2 integration + real `DummyVecEnv` integration + timeout/terminal-observation integration + static analysis/Ruff/format/MyPy/architecture checks + related/full suite + package/build + exact-final-HEAD CI.
 
 ### Quality Gate
 
-U2 remains training **NO-GO** until all Acceptance Criteria have executable oracles, the required test layers pass on one exact final HEAD, falsification review finds no unresolved Critical/High mechanics issue, and remaining limitations are recorded. Test Green alone is not sufficient.
+U2 remains training **NO-GO** until all Acceptance Criteria have executable oracles, required layers pass on one exact final HEAD, falsification review finds no unresolved Critical/High mechanics issue, and remaining limitations are recorded. Test Green alone is insufficient.
 
 ---
 
-## 3. Source / FIT grid alignment is mandatory
+## 3. Source / FIT grid alignment
 
 Let:
 
@@ -148,20 +131,20 @@ Let:
 BAR_NS = U2_DECISION_STEP_NS = 15 minutes
 ```
 
-For each `U2TrainingSource`, the existing dense-grid equations remain mandatory. In addition, FIT must lie on the exact source grid:
+The existing dense source/FIT grid equations remain mandatory. In addition, FIT must lie on the exact source grid:
 
 ```text
 fit_offset_ns = fit_first_timestamp_ns - source_first_timestamp_ns
 fit_offset_ns >= 0
 fit_offset_ns % BAR_NS == 0
 
-fit_start_index = fit_offset_ns / BAR_NS
+fit_start_index = fit_offset_ns // BAR_NS
 fit_stop_index  = fit_start_index + fit_bar_count
 
 0 <= fit_start_index < fit_stop_index <= source_row_count
 ```
 
-The timestamps implied by these indices must equal the FIT metadata exactly:
+The implied timestamps must equal FIT metadata exactly:
 
 ```text
 source_first_timestamp_ns + fit_start_index * BAR_NS
@@ -171,17 +154,19 @@ source_first_timestamp_ns + (fit_stop_index - 1) * BAR_NS
     == fit_last_timestamp_ns
 ```
 
-A source grid such as `00:00, 00:15, ...` and a FIT grid such as `00:05, 00:20, ...` is invalid even though each grid is independently dense at 15-minute cadence.
+A source grid `00:00, 00:15, ...` and FIT grid `00:05, 00:20, ...` is invalid even though both are independently dense 15-minute grids.
 
-Failure is metadata-only technical NO-GO. Numeric arrays must not be opened to repair the mismatch.
+Failure is metadata-only technical NO-GO. Numeric arrays must not be opened to repair it.
 
 ---
 
-## 4. Formal source artifact loading
+## 4. Canonical source artifact loading
 
-U0 source identity intentionally does not contain a filesystem path. Therefore U2 runtime may receive a symbol-to-artifact locator mapping, but locator values are not identity and must not enter U2 digests.
+U0 source identity intentionally does not contain a filesystem path. U2 runtime may therefore receive a Train-symbol-to-artifact-locator mapping, but locator values must not enter research digests.
 
-For each Train source, before any FIT child is materialized, the maintained source loader must load one canonical market-dataset artifact and require:
+Before loading any source, locator keys must equal the complete Train source closure exactly: no missing, extra, Development, or Admission symbol.
+
+For each Train source, before FIT materialization, U2 loads one canonical market-dataset artifact and requires:
 
 ```text
 dataset.identity_verified == true
@@ -192,37 +177,26 @@ first timestamp            == source.source_first_timestamp_ns
 last timestamp             == source.source_last_timestamp_ns
 ```
 
-The loaded timestamps must also equal the exact dense 15-minute source grid implied by the source metadata.
+The loaded timestamp array must equal the exact dense 15-minute grid implied by source metadata.
 
-Artifact/file tampering, a wrong valid artifact at the supplied path, an unverified dataset identity, wrong symbol, wrong row count, or wrong endpoints must fail before FIT materialization and before U1 environment creation.
+Artifact/file tampering, a wrong valid artifact at the supplied locator, unverified content identity, wrong symbol/count/endpoints, or numeric content drift must fail before FIT materialization and before U1 environment creation.
 
 ### 4.1 Locator independence
 
-Moving one byte-identical canonical source artifact from one filesystem path to another must not change:
-
-- source closure digest;
-- FIT view identity;
-- U2 binding identity;
-- U2 environment-generation identity;
-- episode sampling;
-- checkpoint compatibility.
+Moving one byte-identical canonical source artifact to another filesystem path must not change source closure, FIT view identity, binding identity, environment-generation identity, episode sampling, or checkpoint compatibility.
 
 ---
 
-## 5. FIT is an in-memory `MarketDatasetView`, not a new artifact
+## 5. FIT is an in-memory `MarketDatasetView`
 
-U2 V1 reuses the maintained `MarketDatasetView` contract.
-
-For one verified source dataset:
+U2 V1 reuses the maintained `MarketDatasetView` contract:
 
 ```text
-start = fit_start_index
-stop  = fit_stop_index
-view  = MarketDatasetView(source_dataset, start, stop)
+view = MarketDatasetView(source_dataset, fit_start_index, fit_stop_index)
 fit_dataset = view.materialize()
 ```
 
-The implementation must require:
+The implementation requires:
 
 ```text
 fit_dataset.dataset_id == view.identity
@@ -231,38 +205,35 @@ fit timestamps[0]      == source.fit_first_timestamp_ns
 fit timestamps[-1]     == source.fit_last_timestamp_ns
 ```
 
-The FIT child is an in-memory deterministic derived view. U2 V1 does not publish a second market-dataset artifact for FIT.
+The FIT child is a deterministic in-memory derived view and is **not** a second formal market-data artifact. Therefore formal-source `identity_verified=true` is required before slicing; the materialized FIT child is validated by exact `MarketDatasetView.identity` rather than being republished.
 
-Because formal source identity already content-addresses the source arrays, `MarketDatasetView.identity` transitively binds the exact source content and exact absolute FIT range.
+Because the formal source dataset ID content-addresses the source arrays, `MarketDatasetView.identity` transitively binds exact source content and exact absolute FIT range.
 
 ### 5.1 Sharing rule
 
-Within one U2 environment-factory instance, each symbol's FIT dataset is materialized once and may be shared as immutable data across all in-process workers.
+Within one `UniversalTradeRLU2EnvironmentFactory`, each symbol's FIT dataset is materialized once and may be shared as immutable data across all eight in-process workers.
 
-The following may be shared across workers:
+May be shared:
 
 - FIT `MarketDataset` values;
 - frozen U1 normalizer;
 - immutable U0/U1/U2 contracts and source closure.
 
-The following must never be shared across workers:
+Must never be shared:
 
-- `UniversalTradeMarketEnv`;
-- `UniversalTradeEnvironment`;
+- `UniversalTradeMarketEnv` / `UniversalTradeEnvironment` instances;
 - BookState / portfolio state;
 - order / pending-target state;
 - reward tracker;
-- episode lifecycle / RNG state.
+- episode lifecycle / mutable RNG state.
 
 ---
 
 ## 6. U2 owns production binding derivation
 
-The low-level routed-environment validator may remain useful for focused tests, but the production U2 training path must not treat caller-authored `InstrumentDatasetBinding` values as authoritative.
+The low-level routed-environment validator may remain for focused tests, but the production training path must not treat caller-authored `InstrumentDatasetBinding` values as authoritative.
 
-For each verified Train source / FIT view, U2 derives the binding internally.
-
-Required semantics:
+For each verified source/FIT view, U2 derives:
 
 ```text
 concrete_symbol       = source.symbol
@@ -271,71 +242,105 @@ symbol_dataset_digest = source.dataset_digest
 split                 = "train"
 ```
 
-`execution_metadata_digest` and `instrument_descriptor_digest` must also be deterministic U2-owned values, not arbitrary caller inputs.
+The remaining required digests are exact U2 V1 derived values.
 
-For U2 V1, `execution_metadata_digest` must bind at least:
+### 6.1 Exact execution binding digest
 
 ```text
-FIT dataset identity
-U1 execution_policy_digest
-U1 pretrade_risk_digest
-U1 portfolio_risk_digest
+execution_metadata_digest = content_digest({
+    "schema_version": "universal_trade_rl_u2_execution_binding_v1",
+    "fit_dataset_id": fit_dataset.dataset_id,
+    "u1_execution_policy_digest": u1_contract.execution_policy_digest,
+    "u1_pretrade_risk_digest": u1_contract.pretrade_risk_digest,
+    "u1_portfolio_risk_digest": u1_contract.portfolio_risk_digest,
+})
 ```
 
-`instrument_descriptor_digest` must bind the fixed U2 V1 fact that instrument context and V4 context are disabled. It must not create a policy observation channel.
+### 6.2 Exact disabled descriptor digest
 
-Changing any of these semantics requires a new versioned U2 binding schema / generation.
+```text
+instrument_descriptor_digest = content_digest({
+    "schema_version": "universal_trade_rl_u2_instrument_descriptor_disabled_v1",
+    "instrument_context_enabled": false,
+    "v4_context_enabled": false,
+})
+```
+
+This digest does not add an observation channel. Any change to these payloads requires a new versioned U2 generation.
 
 ---
 
-## 7. U1 runtime construction remains injected and validated
+## 7. High-level U2 environment factory boundary
 
-U2 owns source/FIT provenance, but it must not duplicate U1 economic configuration.
+U2 owns source/FIT provenance but must not duplicate U1 economic configuration.
 
-The maintained U2 environment factory receives a U1 constructor equivalent to:
+The maintained high-level factory is constructed from the semantic equivalent of:
 
-```python
-Callable[[MarketDataset], UniversalTradeEnvironment]
+```text
+u2_contract: UniversalTradeRLU2Contract
+source_closure: U2TrainingSourceClosure
+source_artifact_locators: exact Train-symbol mapping
+u1_contract: UniversalTradeRLU1Contract
+policy_contract: UniversalTradePolicyContract
+normalizer: UniversalTradeSequenceNormalizer
+u1_environment_factory: Callable[[MarketDataset], UniversalTradeEnvironment]
+run_seed: one member seed
 ```
 
-For every worker and concrete Train symbol, this constructor must return a fresh mutable U1 environment around the supplied verified FIT dataset.
+Construction must reject unless:
 
-U2 then applies the existing frozen U1 environment validator and requires exact equality for the frozen U1 policy/normalizer/runtime/execution/risk contracts before the worker can be used.
+```text
+source_closure.u2_contract_digest == u2_contract.digest
+source_closure.digest is the exact closure consumed by the factory
+run_seed in u2_contract.training_seeds
+u2_contract training payload fixes n_envs == 8
+u2_contract training payload fixes vector_environment_mode == "in_process"
+```
+
+The factory derives `training_config_digest`, worker count, and vector mode from `u2_contract`; it must not import the later `universal_trade_rl_u2_training` orchestration module merely to obtain them.
+
+For every worker/symbol, `u1_environment_factory(fit_dataset)` returns a **fresh mutable** U1 environment. U2 then applies the existing frozen U1 environment validator before the worker is usable.
 
 No fallback U1 config, default risk config, alternate execution policy, or hidden context provider is permitted.
 
----
-
-## 8. U2 episode-seed namespace
-
-The generic routed environment's complete binding digest is too broad for U2 V1 episode sampling because unrelated descriptor/execution metadata can perturb sampling.
-
-U2 V1 therefore uses a versioned U2-specific episode seed derived only from sampling-relevant identity:
+The factory protocol is:
 
 ```text
-schema_version = universal_trade_rl_u2_episode_seed_v1
-run_seed
-partition_digest
-environment_index
-completed_episode_count
-fit_dataset_id
+factory() == factory.for_environment_index(0)()
+factory.for_environment_index(i) for i in 0..7
+any other index -> reject
 ```
 
-The resulting seed must fit the unsigned 32-bit concrete-environment seed contract.
+---
+
+## 8. U2 episode-seed contract
+
+The generic binding digest is too broad for U2 episode sampling. U2 V1 uses:
+
+```text
+payload = {
+    "schema_version": "universal_trade_rl_u2_episode_seed_v1",
+    "run_seed": run_seed,
+    "partition_digest": source_closure.time_partition_digest,
+    "environment_index": environment_index,
+    "completed_episode_count": completed_episode_count,
+    "fit_dataset_id": selected_fit_dataset.dataset_id,
+}
+
+episode_seed = int(content_digest(payload)[:8], 16)
+```
 
 Consequences:
 
-- changing member seed changes sampling;
-- changing worker index changes sampling;
-- changing episode count changes sampling;
-- changing partition/FIT data changes sampling;
-- changing unrelated execution/descriptor metadata does **not** change sampling.
+- member seed, worker index, episode count, partition, or FIT data change sampling;
+- unrelated execution/descriptor metadata does **not** change sampling;
+- the selected symbol is transitively bound by its symbol-specific FIT dataset ID.
 
-The selected concrete symbol is already determined by the router and is transitively bound by its symbol-specific `fit_dataset_id`.
+The seed remains an unsigned 32-bit concrete-environment seed.
 
 ---
 
-## 9. Member seed and SB3 worker reset seed are distinct namespaces
+## 9. Member seed vs SB3 worker reset seed
 
 For one PPO member:
 
@@ -348,116 +353,120 @@ All eight workers share that immutable router `run_seed`.
 Worker `i` has:
 
 ```text
-environment_index = i                    # i in 0..7
+environment_index = i
+canonical_probe_seed = member_seed + i
 SB3-facing reset seed = member_seed + i
 ```
 
-The SB3-facing reset seed does **not** redefine router `run_seed` and is not used directly as the U2 episode seed.
-
-A U2 worker must accept only:
+A U2 worker accepts only:
 
 ```text
 seed is None
 or
-seed == member_seed + environment_index
+seed == canonical_probe_seed
 ```
 
-at the external Gymnasium/SB3 boundary. Internally, the routed base reset remains bound to the immutable member `run_seed` and the U2-specific episode-seed derivation in Section 8.
+at its external Gymnasium/SB3 boundary. The external seed does not redefine router `run_seed` and is not the concrete episode seed. The U2 adapter validates the external seed, then delegates the routed reset under the immutable member `run_seed` and Section 8 episode-seed rule.
 
-The generic `EpisodeRoutedSingleInstrumentEnv` reset contract is not changed by this amendment; the translation is U2-specific.
+The generic `EpisodeRoutedSingleInstrumentEnv` reset contract is unchanged.
 
 ---
 
-## 10. Run-level environment-generation identity
+## 10. Shared run-level environment-generation identity
 
-The maintained SB3 backend probes `environment_factory()` before it constructs the 8-worker vector environment. Therefore U2 worker 0 must expose a digest that represents the **whole fixed U2 environment generation**, not merely worker 0.
+The SB3 backend probes `environment_factory()` before vector construction. U2 worker 0 must therefore expose an identity for the **whole fixed environment generation**, not a worker-0-only identity.
 
-U2 V1 defines one run-level environment-generation digest shared by workers 0..7.
-
-The canonical payload must bind at least:
+All workers 0..7 expose the same `environment_digest`, computed from this exact payload:
 
 ```text
-schema_version = universal_trade_rl_u2_environment_generation_v1
-u2_contract_digest
-source_closure_digest
-training_config_digest
-run_seed
-n_envs = 8
-vector_environment_mode = in_process
-ordered internal binding digests
-router schema / contract identity
-episode-seed schema / contract identity
+{
+    "schema_version": "universal_trade_rl_u2_environment_generation_v1",
+    "u2_contract_digest": u2_contract.digest,
+    "source_closure_digest": source_closure.digest,
+    "training_config_digest": u2_contract.training_config_digest,
+    "run_seed": run_seed,
+    "n_envs": 8,
+    "vector_environment_mode": "in_process",
+    "environment_indices": (0, 1, 2, 3, 4, 5, 6, 7),
+    "binding_digests": tuple(
+        (symbol, internal_binding[symbol].digest)
+        for symbol in source_closure Train-symbol order
+    ),
+    "router_contract_digest": u2_contract.router_contract_digest,
+    "episode_sampling_contract_digest": u2_contract.episode_sampling_contract_digest,
+    "episode_seed_schema": "universal_trade_rl_u2_episode_seed_v1",
+}
 ```
 
-`environment_index` is intentionally not part of this shared generation digest. Instead, the generation binds the complete fixed worker set `0..7`, and each worker exposes its own router/environment index through runtime telemetry.
+`environment_index` is intentionally absent as a scalar because this is the run-level generation identity; the complete allowed worker set is bound by `environment_indices`.
 
-Every worker returned by `for_environment_index(i)` must satisfy:
+Every worker must satisfy:
 
 ```text
 worker.environment_digest == environment_generation_digest
-worker.router.run_seed      == member_seed
-worker.environment_index    == i
+worker router run_seed      == member_seed
+worker environment_index    == requested index
+worker router_digest        may differ by worker index
 ```
 
-The factory must reject indices outside `0..7`.
+This shared digest is consumed by the existing framework-neutral training identity and checkpoint machinery.
 
-This shared digest is the `environment_digest` consumed by the existing framework-neutral training identity and checkpoint machinery.
+### 10.1 Per-seed orchestration
 
-### 10.1 Why a new checkpoint schema is unnecessary
+`run_seed` is part of the generation digest, so seed 0/1/2 intentionally have different environment-generation digests. U2 must therefore orchestrate each preregistered seed as its own training member; it must not reuse a generic multi-seed runner contract that requires one identical environment digest across seeds.
 
-The existing ordinary checkpoint-resume path already requires exact environment-digest equality before loading the policy/optimizer state. Once `environment_digest` is the shared U2 generation digest, it transitively binds the source closure, FIT identities, worker-count/vector contract, and member seed.
+### 10.2 Checkpoint compatibility
 
-No U2-specific field needs to be added to generic `CheckpointManifest` for identity-safe compatibility checking.
+The existing ordinary checkpoint path already rejects an environment-digest mismatch before model/optimizer state is loaded. No U2-specific `CheckpointManifest` field is required once `environment_digest` is this run-level generation digest.
 
-### 10.2 Exact trajectory resume remains a separate unresolved requirement
+### 10.3 Exact trajectory resume is still unresolved
 
-Environment/checkpoint identity equality proves configuration/data compatibility. It does **not** by itself prove exact continuation of a partially completed vector rollout or mid-episode environment state.
+Environment/checkpoint identity equality proves data/configuration compatibility only. It does not prove exact continuation of partially completed vector episodes or rollout state.
 
-This amendment does not authorize an exact mid-episode PPO optimization resume. The existing exact-resume wording remains a separate technical requirement that must be resolved before any implementation claims exact trajectory continuation.
+This amendment does not authorize a claim of exact mid-episode PPO trajectory continuation. That remains a separate technical requirement to resolve before any exact-resume claim.
 
 ---
 
 ## 11. Required falsification tests
 
-At minimum, implementation must add tests proving the following failures and invariants.
+### Source / FIT metadata
 
-### 11.1 Source / FIT metadata
+- 5-minute phase-shifted FIT grid is rejected before numeric load;
+- FIT stop beyond source count is rejected;
+- aligned metadata resolves to exact integer start/stop indices.
 
-- FIT grid shifted by 5 minutes relative to source grid is rejected before numeric load.
-- FIT stop beyond source row count is rejected.
-- valid aligned bounds resolve to exact integer start/stop indices.
+### Source artifact provenance
 
-### 11.2 Source artifact provenance
+- exact canonical frozen source passes;
+- same symbol/timestamps/count but different numeric content fails source dataset identity;
+- tampered artifact fails;
+- unverified source content fails before slicing;
+- changing only artifact locator leaves all U2 identities unchanged.
 
-- canonical source artifact with exact frozen identity passes;
-- same symbol/timestamps/count but different numeric content is rejected by source dataset identity;
-- tampered artifact is rejected;
-- artifact with no canonical content identity is rejected;
-- changing only filesystem locator does not change U2 identity.
+### FIT view
 
-### 11.3 FIT view
-
-- full source -> exact preregistered FIT `MarketDatasetView`;
+- full source -> exact preregistered `MarketDatasetView`;
 - child ID equals view identity;
 - first/last/count equal FIT metadata;
-- no post-FIT bar exists in the child.
+- no post-FIT row exists.
 
-### 11.4 Binding / episode sampling
+### Binding / sampling
 
-- U2 training factory derives bindings internally;
-- FIT view ID is `source_dataset_id` and frozen U0 source ID is `symbol_dataset_digest`;
-- unrelated execution/descriptor metadata cannot change U2 episode seed;
-- changing FIT data/range does change episode seed.
+- production factory derives bindings internally;
+- FIT view ID is `source_dataset_id`; frozen U0 ID is `symbol_dataset_digest`;
+- exact execution/descriptor digests match Section 6;
+- unrelated descriptor/execution representation cannot perturb Section 8 episode seed;
+- changing FIT data/range does perturb episode seed.
 
-### 11.5 Worker isolation / identity
+### Worker isolation / generation identity
 
-- workers 0..7 have distinct mutable U1/base environments;
-- workers use the same verified FIT dataset identities and frozen normalizer generation;
-- workers expose indices 0..7 exactly once;
-- every worker exposes the same run-level environment-generation digest;
-- changing any binding/source closure/member seed changes that generation digest.
+- workers 0..7 own distinct mutable U1/base environments;
+- all workers use the same symbol-specific FIT dataset identities and frozen normalizer generation;
+- worker indices are exactly 0..7;
+- all workers expose the same generation digest;
+- changing source closure, binding, member seed, worker-count/vector contract changes generation identity.
 
-### 11.6 SB3 seed integration
+### SB3 integration
 
 Using the actual maintained `DummyVecEnv` path with eight U2 workers:
 
@@ -468,17 +477,15 @@ vec.reset()
 -> succeeds for every worker
 ```
 
-After reset, every router still reports the common member `run_seed`, while each worker keeps its own environment index.
+After reset, each router still reports the common member run seed and its distinct environment index.
 
-### 11.7 Timeout integration
+### Timeout integration
 
-The existing robustness/timeout amendment remains mandatory after this source/vector amendment. The actual U2 8-worker in-process path must preserve timeout metadata, exact terminal observation, and exactly one PPO terminal-value bootstrap without modifying economic reward/wealth.
+The robustness/timeout amendment remains mandatory. The actual U2 in-process vector path must preserve timeout metadata, exact terminal observation, and exactly one PPO terminal-value bootstrap without changing economic reward or wealth.
 
 ---
 
 ## 12. Updated implementation order
-
-The U2 implementation sequence is amended to:
 
 ```text
 Task 4A  source/FIT grid-phase contract
@@ -502,20 +509,20 @@ Task 7 must not begin while any Task 4A-6D mechanics gate is unresolved.
 
 ## 13. Completion / training-readiness gate
 
-The source/FIT/routing portion of U2 cannot be called complete unless one exact final HEAD proves:
+The source/FIT/routing portion cannot be called complete unless one exact final HEAD proves:
 
-- source/FIT metadata alignment contract;
+- source/FIT metadata alignment;
 - canonical source artifact provenance;
-- deterministic `MarketDatasetView` FIT derivation;
-- internally derived binding closure;
-- U2-specific sampling seed independence from unrelated metadata;
-- one common member run seed across workers;
+- deterministic `MarketDatasetView` derivation;
+- U2-owned binding closure;
+- sampling independence from unrelated metadata;
+- common member run seed across workers;
 - exact SB3 worker reset-seed translation;
 - fresh mutable state for all eight workers;
 - one shared run-level environment-generation identity;
 - checkpoint rejection after source/FIT/generation drift;
 - unchanged U1 economics;
-- existing timeout/bootstrap requirements;
-- related and full test suites, static checks, architecture checks, build/package checks, and exact-HEAD CI.
+- existing timeout/bootstrap obligations;
+- related/full tests, static checks, architecture checks, package/build checks, and exact-HEAD CI.
 
-Even after this gate passes, real U2 PPO training remains separately gated by real production-candidate U0/U1 artifact freeze and the maintained authorization requirements. Production remains **NO-GO** and Admission remains **SEALED**.
+Even after this gate passes, real U2 PPO remains separately gated by the real production-candidate U0/U1 freeze and maintained authorization requirements. Production remains **NO-GO** and Admission remains **SEALED**.

@@ -153,3 +153,33 @@ def test_u2_replay_evidence_retains_step_aligned_lifecycle_inputs(
     assert payload["hard_risk_violation_count"] == hard_risk_violation_count
     assert payload["execution_rejection_count"] == execution_rejection_count
     assert payload["fill_count"] == fill_count
+
+
+def test_u2_replay_evidence_retains_emergency_liquidation_execution_inputs() -> None:
+    fixture = _build_replay_fixture(development_execution_cost_drawdown=True)
+    scope = _scope(fixture, cell="B")
+    evidence = fixture.session.replay(
+        UniversalTradeRLU2ReplayRequest(
+            scope_digest=scope.digest,
+            policy_variant=UniversalTradeRLU2ReplayVariant.CONSTANT_LONG,
+            evaluation_seed=0,
+            paired_candidate_checkpoint_digest=_CHECKPOINT_DIGEST,
+        )
+    )
+
+    assert evidence.normal_completion is False
+    assert evidence.termination_reason == "drawdown_stop"
+    assert evidence.trade_count == evidence.fill_count
+
+    emergency_steps = [step for step in evidence.step_evidence if step.emergency_deleverage]
+    assert len(emergency_steps) == 1
+    emergency = emergency_steps[0]
+    assert emergency.liquidation_requested_turnover > 0.0
+    assert emergency.liquidation_filled_turnover > 0.0
+    assert emergency.liquidation_requested_notional > 0.0
+    assert emergency.liquidation_filled_notional > 0.0
+    assert emergency.liquidation_fill_count > 0
+
+    assert evidence.fill_count == sum(
+        step.fill_count + step.liquidation_fill_count for step in evidence.step_evidence
+    )

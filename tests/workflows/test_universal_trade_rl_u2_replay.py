@@ -50,6 +50,11 @@ class ReplayContractFixture:
     closure: UniversalTradeRLU2DevelopmentScopeClosure
 
 
+@dataclass(frozen=True, slots=True)
+class DatasetIdentityStub:
+    dataset_id: str
+
+
 def _module():
     try:
         return importlib.import_module(
@@ -187,3 +192,36 @@ def test_u2_replay_request_accepts_only_preregistered_evaluation_seeds() -> None
             evaluation_seed=3,
             paired_candidate_checkpoint_digest="a" * 64,
         )
+
+
+def test_u2_replay_session_exposes_canonical_scope_and_dataset_identity() -> None:
+    module = _module()
+    fixture = _fixture()
+    expected_dataset_ids: dict[str, str] = {}
+    for scope in fixture.closure.scopes:
+        expected_dataset_ids.setdefault(
+            scope.concrete_symbol,
+            scope.evaluation_dataset_digest,
+        )
+    datasets = {
+        symbol: DatasetIdentityStub(dataset_id)
+        for symbol, dataset_id in expected_dataset_ids.items()
+    }
+    session = module.UniversalTradeRLU2DevelopmentReplaySession(
+        manifest=fixture.manifest,
+        time_partition=fixture.partition,
+        u2_contract=fixture.contract,
+        u1_contract=None,
+        policy_contract=None,
+        normalizer=None,
+        scope_closure=fixture.closure,
+        datasets=datasets,
+        environment_factory=lambda _dataset: None,
+    )
+
+    assert session.scope_closure_digest == fixture.closure.digest
+    assert session.evaluation_dataset_ids == tuple(expected_dataset_ids.items())
+    first_scope = fixture.closure.scopes[0]
+    assert session.scope(first_scope.digest) == first_scope
+    with pytest.raises(ValueError, match="scope"):
+        session.scope("f" * 64)

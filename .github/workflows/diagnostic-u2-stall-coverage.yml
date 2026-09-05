@@ -1,0 +1,46 @@
+name: U2 Full Suite Stall Coverage Diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/u2-full-suite-stall-20260906
+
+permissions:
+  contents: read
+
+jobs:
+  coverage-target:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Run first uncompleted test with full branch coverage instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v uv run pytest -vv -s --durations=0 \
+            --cov=trade_rl --cov-branch --cov-report=none \
+            tests/rl/test_universal_trade_u2_environment.py::test_u2_environment_rejects_child_with_post_fit_bar \
+            2>&1 | tee coverage-target.log
+
+      - name: Upload coverage target diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: u2-full-suite-coverage-target-diagnostic
+          path: coverage-target.log
+          if-no-files-found: ignore
+          retention-days: 1

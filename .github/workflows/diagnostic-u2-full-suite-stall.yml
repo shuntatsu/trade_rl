@@ -1,0 +1,70 @@
+name: U2 Full Suite Stall Diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/u2-full-suite-stall-20260906
+
+permissions:
+  contents: read
+
+jobs:
+  collect-order:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Collect pytest order and locate 60 percent boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest --collect-only -q > collected.txt
+          uv run python - <<'PY'
+          from collections import Counter
+          from pathlib import Path
+
+          lines = Path("collected.txt").read_text(encoding="utf-8").splitlines()
+          nodes = [line.strip() for line in lines if line.startswith("tests/") and "::" in line]
+          if not nodes:
+              raise SystemExit("no pytest node ids collected")
+          total = len(nodes)
+          center = int(total * 0.60)
+          start = max(0, center - 80)
+          stop = min(total, center + 81)
+          out = [
+              f"total_collected={total}",
+              f"sixty_percent_index_zero_based={center}",
+              f"sixty_percent_node={nodes[center]}",
+              "",
+              "nodes_around_60_percent:",
+          ]
+          out.extend(f"{idx:05d}\t{nodes[idx]}" for idx in range(start, stop))
+          counts = Counter(node.split("::", 1)[0] for node in nodes)
+          out.extend(("", "tests_per_file:"))
+          out.extend(f"{count:05d}\t{path}" for path, count in sorted(counts.items()))
+          Path("collection-window.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
+          PY
+          cat collection-window.txt
+
+      - name: Upload collection diagnostic
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: u2-full-suite-collection-diagnostic
+          path: |
+            collected.txt
+            collection-window.txt
+          if-no-files-found: error
+          retention-days: 1

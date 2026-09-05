@@ -161,7 +161,9 @@ def test_u2_candidate_replay_rejects_malformed_action_through_strict_u1_surface(
     replay_fixture: ReplayIntegrationFixture,
     action: list[float],
 ) -> None:
-    with pytest.raises((TypeError, ValueError), match="action|shape|finite|range|bound"):
+    with pytest.raises(
+        (TypeError, ValueError), match="action|shape|finite|range|bound"
+    ):
         replay_fixture.session.replay(
             _request(replay_fixture, variant=UniversalTradeRLU2ReplayVariant.CANDIDATE),
             model=DeterministicModelSpy(action=action),

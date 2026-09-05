@@ -50,6 +50,7 @@ jobs:
           tests/rl/test_universal_trade_u2_seed_contract.py
           tests/rl/test_universal_trade_u2_generation_identity.py
           tests/rl/test_universal_trade_u2_shared_environment_identity.py
+          tests/rl/test_universal_trade_u2_environment.py
           tests/rl/test_universal_trade_u2_environment_factory.py
           tests/rl/test_universal_trade_u2_factory_lineage.py
           tests/integrations/test_universal_trade_rl_u2_replay.py
@@ -73,6 +74,7 @@ jobs:
           tests/rl/test_universal_trade_u2_seed_contract.py
           tests/rl/test_universal_trade_u2_generation_identity.py
           tests/rl/test_universal_trade_u2_shared_environment_identity.py
+          tests/rl/test_universal_trade_u2_environment.py
           tests/rl/test_universal_trade_u2_environment_factory.py
           tests/rl/test_universal_trade_u2_factory_lineage.py
 

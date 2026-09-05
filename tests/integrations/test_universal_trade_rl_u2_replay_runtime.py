@@ -313,6 +313,38 @@ def test_u2_early_economic_termination_is_explicit_non_normal_evidence(
 ) -> None:
     fixture = economic_termination_replay_fixture
     scope = _scope(fixture, cell="B")
+    environment = fixture.session._create_verified_environment(scope)
+    diagnostics: list[dict[str, object]] = []
+    try:
+        fixture.session._reset_scope_environment(environment, scope, evaluation_seed=0)
+        terminated = False
+        truncated = False
+        for _ in range(4):
+            _obs, _reward, terminated, truncated, info = environment.step(
+                np.asarray([1.0], dtype=np.float32)
+            )
+            runtime = environment.base_env.universal_trade_runtime_snapshot()
+            diagnostics.append(
+                {
+                    "current_index": environment.base_env.current_index,
+                    "current_weight": runtime.current_weight,
+                    "pending_target_weight": runtime.pending_target_weight,
+                    "total_cost": environment.base_env.hybrid.total_cost,
+                    "termination_reason": info.get("termination_reason"),
+                    "fee_rate": float(
+                        environment.dataset.resolved_array("fee_rate")[
+                            environment.base_env.current_index, 0
+                        ]
+                    ),
+                }
+            )
+            if terminated or truncated:
+                break
+        assert terminated is True, diagnostics
+        assert truncated is False, diagnostics
+    finally:
+        environment.close()
+
     evidence = fixture.session.replay(
         _request(
             fixture,

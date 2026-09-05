@@ -86,14 +86,14 @@ def _common_interval_view_identity(
 ) -> tuple[int, int, str]:
     offset_ns = time_partition.common_first_timestamp_ns - source_first_timestamp_ns
     if offset_ns < 0 or offset_ns % U2_DECISION_STEP_NS != 0:
-        raise ValueError("U2 Development source cannot align to the common 15m interval")
+        raise ValueError(
+            "U2 Development source cannot align to the common 15m interval"
+        )
     start = offset_ns // U2_DECISION_STEP_NS
     stop = start + time_partition.common_bar_count
     if stop > source_row_count:
         raise ValueError("U2 Development common interval escapes the frozen source")
-    source_last_common_ns = (
-        source_first_timestamp_ns + (stop - 1) * U2_DECISION_STEP_NS
-    )
+    source_last_common_ns = source_first_timestamp_ns + (stop - 1) * U2_DECISION_STEP_NS
     if source_last_common_ns != time_partition.common_last_timestamp_ns:
         raise ValueError("U2 Development common interval endpoint drifted")
     digest = content_digest(
@@ -134,7 +134,9 @@ class UniversalTradeRLU2EvaluationScope:
 
     def __post_init__(self) -> None:
         if self.schema_version != UNIVERSAL_TRADE_RL_U2_EVALUATION_SCOPE_SCHEMA:
-            raise ValueError("unsupported Universal Trade RL U2 evaluation scope schema")
+            raise ValueError(
+                "unsupported Universal Trade RL U2 evaluation scope schema"
+            )
         for field_name, value in (
             ("u2_contract_digest", self.u2_contract_digest),
             ("universe_manifest_digest", self.universe_manifest_digest),
@@ -154,7 +156,9 @@ class UniversalTradeRLU2EvaluationScope:
         if self.source_window != expected_window:
             raise ValueError("U2 evaluation scope time window does not match its cell")
         if self.selection_use != expected_selection_use:
-            raise ValueError("U2 evaluation scope Selection role does not match its cell")
+            raise ValueError(
+                "U2 evaluation scope Selection role does not match its cell"
+            )
         if not isinstance(self.concrete_symbol, str) or not self.concrete_symbol:
             raise ValueError("U2 evaluation scope concrete symbol must be non-empty")
 
@@ -209,14 +213,18 @@ class UniversalTradeRLU2EvaluationScope:
             raise ValueError("U2 evaluation scope escapes its common-interval dataset")
 
         object.__setattr__(self, "evaluation_source_start_bar_index", source_start)
-        object.__setattr__(self, "evaluation_source_stop_bar_index_exclusive", source_stop)
+        object.__setattr__(
+            self, "evaluation_source_stop_bar_index_exclusive", source_stop
+        )
         object.__setattr__(self, "tile_index", tile_index)
 
         expected = content_digest(self.to_payload(include_digest=False))
         if self.digest:
             require_sha256(self.digest, field="U2 evaluation scope artifact digest")
             if self.digest != expected:
-                raise ValueError("Universal Trade RL U2 evaluation scope digest mismatch")
+                raise ValueError(
+                    "Universal Trade RL U2 evaluation scope digest mismatch"
+                )
         object.__setattr__(self, "digest", expected)
 
     @property
@@ -275,7 +283,10 @@ class UniversalTradeRLU2DevelopmentScopeClosure:
     digest: str = ""
 
     def __post_init__(self) -> None:
-        if self.schema_version != UNIVERSAL_TRADE_RL_U2_DEVELOPMENT_SCOPE_CLOSURE_SCHEMA:
+        if (
+            self.schema_version
+            != UNIVERSAL_TRADE_RL_U2_DEVELOPMENT_SCOPE_CLOSURE_SCHEMA
+        ):
             raise ValueError("unsupported U2 Development scope closure schema")
         for field_name, value in (
             ("universe_manifest_digest", self.universe_manifest_digest),
@@ -286,7 +297,9 @@ class UniversalTradeRLU2DevelopmentScopeClosure:
         scopes = tuple(self.scopes)
         if not scopes:
             raise ValueError("U2 Development scope closure must not be empty")
-        if any(not isinstance(scope, UniversalTradeRLU2EvaluationScope) for scope in scopes):
+        if any(
+            not isinstance(scope, UniversalTradeRLU2EvaluationScope) for scope in scopes
+        ):
             raise TypeError("U2 Development scope closure contains invalid scopes")
         if any(
             scope.universe_manifest_digest != self.universe_manifest_digest

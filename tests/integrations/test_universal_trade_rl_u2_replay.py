@@ -100,43 +100,33 @@ def _source(
     )
 
 
-def _with_cash_interest_insolvency(
-    dataset: MarketDataset,
-    *,
-    source_bar_index: int,
-) -> MarketDataset:
-    """Create one maintained cash-interest insolvency event at an exact source bar."""
+def _with_execution_cost_drawdown(dataset: MarketDataset) -> MarketDataset:
+    """Create a positive-wealth drawdown-stop path through maintained U1 economics."""
 
-    if source_bar_index < 0 or source_bar_index >= dataset.n_bars:
-        raise ValueError("cash-interest insolvency source bar is outside dataset")
-    cash_rate = np.zeros(dataset.n_bars, dtype=np.float64)
-    cash_rate[source_bar_index] = -float(dataset.periods_per_year)
     unverified = replace(
         dataset,
         dataset_id="0" * 64,
         identity_payload_json=None,
-        cash_rate=cash_rate,
+        fee_rate=np.full_like(dataset.close, 0.25, dtype=np.float64),
     )
     return unverified.with_content_identity(
-        {"fixture": "u2-replay-cash-interest-insolvency-v1"}
+        {"fixture": "u2-replay-execution-cost-drawdown-v1"}
     )
 
 
 def _build_replay_fixture(
     *,
-    development_cash_interest_insolvency_source_bar_index: int | None = None,
+    development_execution_cost_drawdown: bool = False,
 ) -> ReplayIntegrationFixture:
     development = make_u1_market(
         symbol="SOLUSDT",
         n_bars=_TOTAL_BARS,
         price_scale=1.2,
+        price_drift=0.0 if development_execution_cost_drawdown else 1e-4,
         feature_level=0.2,
     )
-    if development_cash_interest_insolvency_source_bar_index is not None:
-        development = _with_cash_interest_insolvency(
-            development,
-            source_bar_index=development_cash_interest_insolvency_source_bar_index,
-        )
+    if development_execution_cost_drawdown:
+        development = _with_execution_cost_drawdown(development)
     sources = {
         "BTCUSDT": make_u1_market(symbol="BTCUSDT", n_bars=_TOTAL_BARS),
         "SOLUSDT": development,
@@ -284,22 +274,7 @@ def replay_fixture() -> ReplayIntegrationFixture:
 
 @pytest.fixture(scope="module")
 def economic_termination_replay_fixture() -> ReplayIntegrationFixture:
-    probe = _build_replay_fixture()
-    probe_scope = _scope(probe, cell="B")
-    source_bar_index = (
-        probe_scope.evaluation_source_start_bar_index
-        + probe_scope.evaluation_start_bar_index
-        + 1
-    )
-    fixture = _build_replay_fixture(
-        development_cash_interest_insolvency_source_bar_index=source_bar_index
-    )
-    scope = _scope(fixture, cell="B")
-    assert (
-        scope.evaluation_source_start_bar_index + scope.evaluation_start_bar_index + 1
-        == source_bar_index
-    )
-    return fixture
+    return _build_replay_fixture(development_execution_cost_drawdown=True)
 
 
 def _scope(

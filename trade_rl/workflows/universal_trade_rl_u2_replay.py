@@ -683,9 +683,7 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             repr=False,
         )
     )
-    _issued_mutable_roots: dict[
-        int, tuple[object, UniversalTradeMarketEnv]
-    ] = field(
+    _issued_mutable_roots: dict[int, tuple[object, UniversalTradeMarketEnv]] = field(
         default_factory=dict,
         init=False,
         repr=False,

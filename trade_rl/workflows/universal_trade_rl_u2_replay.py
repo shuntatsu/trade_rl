@@ -730,6 +730,8 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             ("shadow executor", base_environment.shadow_executor),
             ("hybrid executor RNG", base_environment.hybrid_executor._rng),
             ("shadow executor RNG", base_environment.shadow_executor._rng),
+            ("reward tracker", base_environment.reward_tracker),
+            ("reward history cache", base_environment._reward_history_cache),
             ("hybrid BookState", base_environment.hybrid),
             ("shadow BookState", base_environment.shadow),
             ("hybrid order state", base_environment.hybrid_order_book),
@@ -740,6 +742,7 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             ("execution state", base_environment._execution_state),
         ]
         optional_roots = (
+            ("episode RNG", base_environment._np_random),
             ("pending hybrid target", base_environment._pending_hybrid_target),
             ("pending shadow target", base_environment._pending_shadow_target),
             (

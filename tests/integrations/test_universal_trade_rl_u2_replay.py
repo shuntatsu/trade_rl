@@ -100,33 +100,36 @@ def _source(
     )
 
 
-def _with_execution_cost_exhaustion(dataset: MarketDataset) -> MarketDataset:
-    """Create a Development source that deterministically terminates on first fill."""
+def _with_cash_interest_insolvency(dataset: MarketDataset) -> MarketDataset:
+    """Create a Development source that becomes insolvent on the first bar."""
 
     unverified = replace(
         dataset,
         dataset_id="0" * 64,
         identity_payload_json=None,
-        fee_rate=np.ones_like(dataset.close, dtype=np.float64),
+        cash_rate=np.full(
+            dataset.n_bars,
+            -float(dataset.periods_per_year),
+            dtype=np.float64,
+        ),
     )
     return unverified.with_content_identity(
-        {"fixture": "u2-replay-execution-cost-exhaustion-v1"}
+        {"fixture": "u2-replay-cash-interest-insolvency-v1"}
     )
 
 
 def _build_replay_fixture(
     *,
-    development_execution_cost_exhaustion: bool = False,
+    development_cash_interest_insolvency: bool = False,
 ) -> ReplayIntegrationFixture:
     development = make_u1_market(
         symbol="SOLUSDT",
         n_bars=_TOTAL_BARS,
         price_scale=1.2,
-        price_drift=0.0 if development_execution_cost_exhaustion else 1e-4,
         feature_level=0.2,
     )
-    if development_execution_cost_exhaustion:
-        development = _with_execution_cost_exhaustion(development)
+    if development_cash_interest_insolvency:
+        development = _with_cash_interest_insolvency(development)
     sources = {
         "BTCUSDT": make_u1_market(symbol="BTCUSDT", n_bars=_TOTAL_BARS),
         "SOLUSDT": development,
@@ -274,7 +277,7 @@ def replay_fixture() -> ReplayIntegrationFixture:
 
 @pytest.fixture(scope="module")
 def economic_termination_replay_fixture() -> ReplayIntegrationFixture:
-    return _build_replay_fixture(development_execution_cost_exhaustion=True)
+    return _build_replay_fixture(development_cash_interest_insolvency=True)
 
 
 def _scope(

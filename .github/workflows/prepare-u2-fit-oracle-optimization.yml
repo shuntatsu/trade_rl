@@ -1,0 +1,93 @@
+name: Prepare U2 FIT Oracle Optimization
+
+on:
+  push:
+    branches:
+      - diagnostic/u2-full-suite-stall-20260906
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.event.head_commit.message != 'chore: prepare U2 FIT boundary oracle optimization'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: diagnostic/u2-full-suite-stall-20260906
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Rewrite FIT-boundary oracle without weakening it
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          test_path = Path("tests/rl/test_universal_trade_u2_environment.py")
+          text = test_path.read_text(encoding="utf-8")
+          import_old = "import numpy as np\nimport pytest\n"
+          import_new = "import gymnasium as gym\nimport numpy as np\nimport pytest\n"
+          if import_old not in text:
+              raise SystemExit("U2 environment test import anchor not found")
+          text = text.replace(import_old, import_new, 1)
+
+          old_test = '''def test_u2_environment_many_deterministic_resets_cannot_cross_fit_end(\n    u2_environment_fixture: U2EnvironmentFixture,\n) -> None:\n    checked = 0\n    for environment_index in (0, 1):\n        routed = _build(\n            u2_environment_fixture,\n            environment_index=environment_index,\n        )\n        try:\n            child = cast(UniversalTradeEnvironment, routed._reference_environment)\n            for offset in range(512):\n                _observation, info = child.reset(\n                    seed=environment_index * 10_000 + offset,\n                )\n                end_index = int(info["end_index"])\n                end_ns = _timestamp_ns(child.dataset.timestamps[end_index])\n                assert end_ns <= u2_environment_fixture.closure.fit_last_timestamp_ns\n                checked += 1\n        finally:\n            routed.close()\n\n    assert checked == 1_024\n'''
+          new_test = '''def test_u2_environment_many_deterministic_reset_seeds_cannot_cross_fit_end(\n    u2_environment_fixture: U2EnvironmentFixture,\n) -> None:\n    checked = 0\n    for environment_index in (0, 1):\n        routed = _build(\n            u2_environment_fixture,\n            environment_index=environment_index,\n        )\n        try:\n            child = cast(UniversalTradeEnvironment, routed._reference_environment)\n            base = child.base_env\n            sampler = base._episode_sampler\n            valid_starts = sampler.valid_starts(\n                hours=base.config.episode_hours,\n                bars=base.config.episode_bars,\n            )\n            assert valid_starts.size > 0\n            for raw_start in valid_starts:\n                start_index = int(raw_start)\n                end_index = sampler.episode_end(\n                    start_index,\n                    hours=base.config.episode_hours,\n                    bars=base.config.episode_bars,\n                )\n                end_ns = _timestamp_ns(child.dataset.timestamps[end_index])\n                assert end_ns <= u2_environment_fixture.closure.fit_last_timestamp_ns\n\n            # UniversalTradeMarketEnv.reset() seeds Gym and immediately samples the\n            # episode contract before any later RNG draw. Exercise that exact boundary\n            # path for all preregistered stress seeds without paying for unrelated\n            # Book/reward-pre-roll/observation reconstruction on every sample.\n            for offset in range(512):\n                seed = environment_index * 10_000 + offset\n                gym.Env.reset(base, seed=seed)\n                start_index, end_index, _hours = base._sample_episode_contract({})\n                assert start_index >= base.minimum_start_index\n                end_ns = _timestamp_ns(child.dataset.timestamps[end_index])\n                assert end_ns <= u2_environment_fixture.closure.fit_last_timestamp_ns\n                checked += 1\n        finally:\n            routed.close()\n\n    assert checked == 1_024\n\n\n@pytest.mark.parametrize(\n    ("environment_index", "offset"),\n    ((0, 0), (0, 511), (1, 0), (1, 511)),\n)\ndef test_u2_environment_direct_sampling_matches_real_reset_at_seed_edges(\n    u2_environment_fixture: U2EnvironmentFixture,\n    environment_index: int,\n    offset: int,\n) -> None:\n    sampling_environment = _build(\n        u2_environment_fixture,\n        environment_index=environment_index,\n    )\n    reset_environment = _build(\n        u2_environment_fixture,\n        environment_index=environment_index,\n    )\n    try:\n        sampling_child = cast(\n            UniversalTradeEnvironment, sampling_environment._reference_environment\n        )\n        reset_child = cast(\n            UniversalTradeEnvironment, reset_environment._reference_environment\n        )\n        assert sampling_child.dataset.dataset_id == reset_child.dataset.dataset_id\n        seed = environment_index * 10_000 + offset\n        gym.Env.reset(sampling_child.base_env, seed=seed)\n        expected_start, expected_end, _hours = (\n            sampling_child.base_env._sample_episode_contract({})\n        )\n        _observation, info = reset_child.reset(seed=seed)\n        assert info["start_index"] == expected_start\n        assert info["end_index"] == expected_end\n        end_ns = _timestamp_ns(reset_child.dataset.timestamps[expected_end])\n        assert end_ns <= u2_environment_fixture.closure.fit_last_timestamp_ns\n    finally:\n        sampling_environment.close()\n        reset_environment.close()\n'''
+          if old_test not in text:
+              raise SystemExit("U2 many-reset test block not found")
+          test_path.write_text(text.replace(old_test, new_test, 1), encoding="utf-8")
+
+          workflow_path = Path(".github/workflows/u2-contracts.yml")
+          workflow = workflow_path.read_text(encoding="utf-8")
+          anchor = "          tests/rl/test_universal_trade_u2_shared_environment_identity.py\n          tests/rl/test_universal_trade_u2_environment_factory.py"
+          replacement = "          tests/rl/test_universal_trade_u2_shared_environment_identity.py\n          tests/rl/test_universal_trade_u2_environment.py\n          tests/rl/test_universal_trade_u2_environment_factory.py"
+          if workflow.count(anchor) != 2:
+              raise SystemExit("expected exactly two U2 environment workflow anchors")
+          workflow_path.write_text(workflow.replace(anchor, replacement), encoding="utf-8")
+
+          plan_path = Path("docs/implementation-plans/plans/2026-09-03-universal-trade-rl-u2-base-ppo-selection.md")
+          plan = plan_path.read_text(encoding="utf-8")
+          plan_anchor = "### Step 5 — RED: FIT-only episode starts\n\nThousands of deterministic resets across seeds/env indices must never produce an episode stop after FIT end.\n\n### Step 6 — GREEN"
+          plan_replacement = """### Step 5 — RED: FIT-only episode starts\n\nThousands of deterministic resets across seeds/env indices must never produce an episode stop after FIT end.\n\n**2026-09-06 verification implementation note:** full `UniversalTradeEnvironment.reset()` also reconstructs Book/Execution/Reward state, replays reward pre-roll, and builds observations after the episode contract has already been sampled. Repeating that unrelated work for every boundary seed made the repository-wide coverage gate impractically slow without strengthening the FIT-leakage oracle. The acceptance criterion and sample count are unchanged: the test now (1) proves every sampler-valid start ends within FIT, (2) exercises the exact Gym-seed → `EpisodeContractSampler` boundary path for 1,024 deterministic seeds across env indices, and (3) cross-checks representative edge seeds against full real-U1 `reset()` results. This is a test-layer split only; U1 runtime/economics and the preregistered FIT boundary are unchanged.\n\n### Step 6 — GREEN"""
+          if plan_anchor not in plan:
+              raise SystemExit("Task 5 Step 5 plan anchor not found")
+          plan_path.write_text(plan.replace(plan_anchor, plan_replacement, 1), encoding="utf-8")
+          PY
+          uv run ruff format tests/rl/test_universal_trade_u2_environment.py
+          uv run ruff format --check tests/rl/test_universal_trade_u2_environment.py
+          git diff --check
+
+      - name: Verify strengthened U2 environment oracle with branch coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term --cov-fail-under=0 \
+            tests/rl/test_universal_trade_u2_environment.py
+
+      - name: Commit prepared blobs to diagnostic branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add \
+            tests/rl/test_universal_trade_u2_environment.py \
+            .github/workflows/u2-contracts.yml \
+            docs/implementation-plans/plans/2026-09-03-universal-trade-rl-u2-base-ppo-selection.md
+          git diff --cached --check
+          git commit -m "chore: prepare U2 FIT boundary oracle optimization"
+          git push origin HEAD:diagnostic/u2-full-suite-stall-20260906

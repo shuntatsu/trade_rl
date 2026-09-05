@@ -176,9 +176,7 @@ def test_u2_baseline_replay_uses_exact_preregistered_normalized_action(
 
 def test_u2_candidate_replay_uses_deterministic_inference_on_every_decision(
     replay_fixture: ReplayIntegrationFixture,
-    candidate_evidence: tuple[
-        UniversalTradeRLU2ReplayEvidence, DeterministicModelSpy
-    ],
+    candidate_evidence: tuple[UniversalTradeRLU2ReplayEvidence, DeterministicModelSpy],
 ) -> None:
     scope = _scope(replay_fixture, cell="B")
     evidence, model = candidate_evidence
@@ -194,9 +192,7 @@ def test_u2_replay_pair_identity_is_equal_across_candidate_and_all_baselines(
     baseline_evidence: dict[
         UniversalTradeRLU2ReplayVariant, UniversalTradeRLU2ReplayEvidence
     ],
-    candidate_evidence: tuple[
-        UniversalTradeRLU2ReplayEvidence, DeterministicModelSpy
-    ],
+    candidate_evidence: tuple[UniversalTradeRLU2ReplayEvidence, DeterministicModelSpy],
 ) -> None:
     candidate, _model = candidate_evidence
     evidences = (candidate, *baseline_evidence.values())
@@ -245,14 +241,17 @@ def test_u2_replay_evidence_digest_binds_seed_checkpoint_and_dataset_identity(
         digest="",
     )
 
-    assert len(
-        {
-            evidence.digest,
-            seed_identity.digest,
-            checkpoint_identity.digest,
-            dataset_identity.digest,
-        }
-    ) == 4
+    assert (
+        len(
+            {
+                evidence.digest,
+                seed_identity.digest,
+                checkpoint_identity.digest,
+                dataset_identity.digest,
+            }
+        )
+        == 4
+    )
     with pytest.raises(ValueError, match="digest"):
         replace(
             evidence,

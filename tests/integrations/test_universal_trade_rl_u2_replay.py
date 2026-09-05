@@ -100,30 +100,23 @@ def _source(
     )
 
 
-def _with_repeating_adverse_short_shocks(dataset: MarketDataset) -> MarketDataset:
-    """Create deterministic 10x up-jumps without changing U1 runtime economics."""
+def _with_execution_cost_exhaustion(dataset: MarketDataset) -> MarketDataset:
+    """Create a Development source that deterministically terminates on first fill."""
 
-    rows = np.arange(dataset.n_bars, dtype=np.int64)
-    close = np.where((rows // 2) % 2 == 0, 100.0, 1_000.0)[:, None]
     unverified = replace(
         dataset,
         dataset_id="0" * 64,
         identity_payload_json=None,
-        open=close.copy(),
-        high=close * 1.001,
-        low=close * 0.999,
-        close=close,
-        mark_price=close.copy(),
-        index_price=close.copy(),
+        fee_rate=np.ones_like(dataset.close, dtype=np.float64),
     )
     return unverified.with_content_identity(
-        {"fixture": "u2-replay-adverse-short-price-shocks-v1"}
+        {"fixture": "u2-replay-execution-cost-exhaustion-v1"}
     )
 
 
 def _build_replay_fixture(
     *,
-    development_adverse_short_shocks: bool = False,
+    development_execution_cost_exhaustion: bool = False,
 ) -> ReplayIntegrationFixture:
     development = make_u1_market(
         symbol="SOLUSDT",
@@ -131,8 +124,8 @@ def _build_replay_fixture(
         price_scale=1.2,
         feature_level=0.2,
     )
-    if development_adverse_short_shocks:
-        development = _with_repeating_adverse_short_shocks(development)
+    if development_execution_cost_exhaustion:
+        development = _with_execution_cost_exhaustion(development)
     sources = {
         "BTCUSDT": make_u1_market(symbol="BTCUSDT", n_bars=_TOTAL_BARS),
         "SOLUSDT": development,
@@ -280,7 +273,7 @@ def replay_fixture() -> ReplayIntegrationFixture:
 
 @pytest.fixture(scope="module")
 def economic_termination_replay_fixture() -> ReplayIntegrationFixture:
-    return _build_replay_fixture(development_adverse_short_shocks=True)
+    return _build_replay_fixture(development_execution_cost_exhaustion=True)
 
 
 def _scope(

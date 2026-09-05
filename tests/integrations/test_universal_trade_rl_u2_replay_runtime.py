@@ -314,93 +314,33 @@ def test_u2_early_economic_termination_is_explicit_non_normal_evidence(
     fixture = economic_termination_replay_fixture
     scope = _scope(fixture, cell="B")
     environment = fixture.session._create_verified_environment(scope)
-    diagnostics: list[dict[str, object]] = []
     try:
         fixture.session._reset_scope_environment(environment, scope, evaluation_seed=0)
-        fee_rates = environment.dataset.resolved_array("fee_rate")
-        np.testing.assert_allclose(
-            fee_rates[
-                scope.evaluation_start_bar_index : scope.evaluation_start_bar_index + 5,
-                0,
-            ],
-            np.ones(5, dtype=np.float64),
+        cash_rates = environment.dataset.resolved_array("cash_rate")
+        expected_rate = -float(environment.dataset.periods_per_year)
+        assert cash_rates[scope.evaluation_start_bar_index + 1] == pytest.approx(
+            expected_rate
         )
-        terminated = False
-        truncated = False
-        for _ in range(4):
-            _obs, _reward, terminated, truncated, info = environment.step(
-                np.asarray([1.0], dtype=np.float32)
-            )
-            runtime = environment.base_env.universal_trade_runtime_snapshot()
-            execution = info["hybrid_execution"]
-            executed_target = np.asarray(info["executed_target"], dtype=np.float64)
-            if np.allclose(executed_target, np.asarray([1.0], dtype=np.float64)):
-                requested_notional = float(getattr(execution, "requested_notional"))
-                rejected_count = int(getattr(execution, "rejected_count"))
-                filled_notional = float(getattr(execution, "filled_notional"))
-                fill_count = int(getattr(execution, "fill_count"))
-                order_events = tuple(
-                    repr(event) for event in getattr(execution, "order_events")
-                )
-                assert requested_notional > 0.0, order_events
-                assert rejected_count == 0, order_events
-                assert filled_notional > 0.0, order_events
-                assert fill_count > 0, order_events
-            diagnostics.append(
-                {
-                    "current_index": environment.base_env.current_index,
-                    "current_weight": runtime.current_weight,
-                    "pending_target_weight": runtime.pending_target_weight,
-                    "executed_target": executed_target.tolist(),
-                    "effective_filled_weights": np.asarray(
-                        info["effective_filled_weights"]
-                    ).tolist(),
-                    "requested_notional": getattr(
-                        execution, "requested_notional", None
-                    ),
-                    "filled_notional": getattr(execution, "filled_notional", None),
-                    "fill_count": getattr(execution, "fill_count", None),
-                    "rejected_count": getattr(execution, "rejected_count", None),
-                    "expired_count": getattr(execution, "expired_count", None),
-                    "fill_ratio": getattr(execution, "fill_ratio", None),
-                    "order_events": tuple(
-                        repr(event) for event in getattr(execution, "order_events", ())
-                    ),
-                    "active_orders": tuple(
-                        repr(order)
-                        for order in environment.base_env.hybrid_order_book.active_orders
-                    ),
-                    "terminal_orders": tuple(
-                        repr(order)
-                        for order in environment.base_env.hybrid_order_book.terminal_orders
-                    ),
-                    "total_cost": environment.base_env.hybrid.total_cost,
-                    "termination_reason": info.get("termination_reason"),
-                    "fee_rate": float(
-                        environment.dataset.resolved_array("fee_rate")[
-                            environment.base_env.current_index, 0
-                        ]
-                    ),
-                }
-            )
-            if terminated or truncated:
-                break
-        assert terminated is True, diagnostics
-        assert truncated is False, diagnostics
+        _obs, _reward, terminated, truncated, info = environment.step(
+            np.asarray([0.0], dtype=np.float32)
+        )
+        assert terminated is True
+        assert truncated is False
+        assert info["termination_reason"] == "insolvency"
     finally:
         environment.close()
 
     evidence = fixture.session.replay(
         _request(
             fixture,
-            variant=UniversalTradeRLU2ReplayVariant.CONSTANT_LONG,
+            variant=UniversalTradeRLU2ReplayVariant.CASH,
         )
     )
 
     assert evidence.normal_completion is False
     assert evidence.terminated is True
     assert evidence.truncated is False
-    assert evidence.termination_reason is not None
+    assert evidence.termination_reason == "insolvency"
     assert evidence.observed_decision_count < scope.decision_count
     assert evidence.final_current_bar_index < evidence.runtime_end_bar_index
 

@@ -57,16 +57,24 @@ def _required_dataset_contracts(
         try:
             entry = manifest.entry_for(scope.concrete_symbol)
         except KeyError as error:
-            raise ValueError("U2 Development scope references an unknown symbol") from error
+            raise ValueError(
+                "U2 Development scope references an unknown symbol"
+            ) from error
         if entry.role is UniversalTradeRLSymbolRole.ADMISSION:
-            raise PermissionError("U2 Development scope cannot reference an Admission symbol")
+            raise PermissionError(
+                "U2 Development scope cannot reference an Admission symbol"
+            )
         if entry.role not in {
             UniversalTradeRLSymbolRole.TRAIN,
             UniversalTradeRLSymbolRole.DEVELOPMENT,
         }:
-            raise PermissionError("U2 Development scope references a non-evaluation role")
+            raise PermissionError(
+                "U2 Development scope references a non-evaluation role"
+            )
         if scope.symbol_role is not entry.role:
-            raise PermissionError("U2 Development scope symbol role mismatches the manifest")
+            raise PermissionError(
+                "U2 Development scope symbol role mismatches the manifest"
+            )
         if scope.source_dataset_digest != entry.dataset_digest:
             raise ValueError("U2 Development scope source dataset identity mismatch")
 
@@ -116,7 +124,9 @@ def _require_exact_locators(
     for symbol in required_symbols:
         locator = artifact_locators[symbol]
         if not isinstance(locator, str | Path):
-            raise TypeError("U2 Development source artifact locator must be string or Path")
+            raise TypeError(
+                "U2 Development source artifact locator must be string or Path"
+            )
         resolved[symbol] = locator
     return resolved
 

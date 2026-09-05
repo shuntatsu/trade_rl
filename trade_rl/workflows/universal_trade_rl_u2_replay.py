@@ -683,6 +683,13 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             repr=False,
         )
     )
+    _issued_mutable_roots: dict[
+        int, tuple[object, UniversalTradeMarketEnv]
+    ] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
 
     @property
     def scope_closure_digest(self) -> str:
@@ -715,6 +722,61 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                 "U2 replay scope identity drifted from the canonical closure"
             )
         return canonical
+
+    @staticmethod
+    def _mutable_runtime_roots(
+        base_environment: UniversalTradeMarketEnv,
+    ) -> tuple[tuple[str, object], ...]:
+        return (
+            ("hybrid executor", base_environment.hybrid_executor),
+            ("shadow executor", base_environment.shadow_executor),
+            ("hybrid BookState", base_environment.hybrid),
+            ("shadow BookState", base_environment.shadow),
+            ("hybrid order state", base_environment.hybrid_order_book),
+            ("shadow order state", base_environment.shadow_order_book),
+            ("action diagnostics", base_environment._action_diagnostics),
+            ("previous action", base_environment._previous_action),
+        )
+
+    def _claim_mutable_runtime_roots(
+        self,
+        base_environment: UniversalTradeMarketEnv,
+    ) -> None:
+        roots = self._mutable_runtime_roots(base_environment)
+        local_roots: dict[int, tuple[str, object]] = {}
+        for label, root in roots:
+            root_id = id(root)
+            local = local_roots.get(root_id)
+            if local is not None:
+                local_label, local_root = local
+                if local_root is root:
+                    raise ValueError(
+                        "U2 replay requires distinct mutable roots within one "
+                        f"environment: {local_label} and {label}"
+                    )
+                raise RuntimeError(
+                    "U2 replay observed a mutable-root object-id collision"
+                )
+            local_roots[root_id] = (label, root)
+
+            existing = self._issued_mutable_roots.get(root_id)
+            if existing is None:
+                continue
+            existing_root, existing_owner = existing
+            if existing_root is not root:
+                raise RuntimeError(
+                    "U2 replay observed a retained mutable-root object-id collision"
+                )
+            if existing_owner is not base_environment:
+                raise ValueError(
+                    f"U2 replay detected shared mutable {label} across variants"
+                )
+
+        for _label, root in roots:
+            self._issued_mutable_roots.setdefault(
+                id(root),
+                (root, base_environment),
+            )
 
     def _create_verified_environment(
         self,
@@ -774,6 +836,7 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                 raise ValueError("U2 replay environment dataset identity mismatch")
             if environment.dataset.symbols != (canonical.concrete_symbol,):
                 raise ValueError("U2 replay environment dataset symbol mismatch")
+            self._claim_mutable_runtime_roots(base_environment)
         except Exception:
             environment.close()
             raise
@@ -815,6 +878,7 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             raise RuntimeError("U2 replay environment start state drifted")
         if base.end_index != expected_end:
             raise RuntimeError("U2 replay environment end state drifted")
+        self._claim_mutable_runtime_roots(base)
         return observation, info
 
     @staticmethod

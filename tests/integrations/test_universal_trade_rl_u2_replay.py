@@ -100,21 +100,42 @@ def _source(
     )
 
 
+def _with_repeating_adverse_short_shocks(dataset: MarketDataset) -> MarketDataset:
+    """Create deterministic 10x up-jumps without changing U1 runtime economics."""
+
+    rows = np.arange(dataset.n_bars, dtype=np.int64)
+    close = np.where((rows // 2) % 2 == 0, 100.0, 1_000.0)[:, None]
+    unverified = replace(
+        dataset,
+        dataset_id="0" * 64,
+        identity_payload_json=None,
+        open=close.copy(),
+        high=close * 1.001,
+        low=close * 0.999,
+        close=close,
+        mark_price=close.copy(),
+        index_price=close.copy(),
+    )
+    return unverified.with_content_identity(
+        {"fixture": "u2-replay-adverse-short-price-shocks-v1"}
+    )
+
+
 def _build_replay_fixture(
     *,
-    development_funding_rate_value: float = 0.0,
-    development_funding_due_from: int | None = None,
+    development_adverse_short_shocks: bool = False,
 ) -> ReplayIntegrationFixture:
+    development = make_u1_market(
+        symbol="SOLUSDT",
+        n_bars=_TOTAL_BARS,
+        price_scale=1.2,
+        feature_level=0.2,
+    )
+    if development_adverse_short_shocks:
+        development = _with_repeating_adverse_short_shocks(development)
     sources = {
         "BTCUSDT": make_u1_market(symbol="BTCUSDT", n_bars=_TOTAL_BARS),
-        "SOLUSDT": make_u1_market(
-            symbol="SOLUSDT",
-            n_bars=_TOTAL_BARS,
-            price_scale=1.2,
-            feature_level=0.2,
-            funding_rate_value=development_funding_rate_value,
-            funding_due_from=development_funding_due_from,
-        ),
+        "SOLUSDT": development,
     }
     first_ns = _timestamp_ns(sources["BTCUSDT"].timestamps[0])
     last_ns = _timestamp_ns(sources["BTCUSDT"].timestamps[-1])
@@ -259,10 +280,7 @@ def replay_fixture() -> ReplayIntegrationFixture:
 
 @pytest.fixture(scope="module")
 def economic_termination_replay_fixture() -> ReplayIntegrationFixture:
-    return _build_replay_fixture(
-        development_funding_rate_value=10.0,
-        development_funding_due_from=0,
-    )
+    return _build_replay_fixture(development_adverse_short_shocks=True)
 
 
 def _scope(

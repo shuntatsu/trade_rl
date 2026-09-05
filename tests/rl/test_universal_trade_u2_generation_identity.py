@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib
 from dataclasses import replace
 from typing import Callable, cast
@@ -231,4 +232,146 @@ def test_u2_environment_generation_digest_rejects_unregistered_member_seed() -> 
             source_closure=closure,
             bindings=bindings,
             run_seed=99,
+        )
+
+
+@pytest.mark.parametrize(
+    ("invalid_field", "message"),
+    (("u2_contract", "U2 contract"), ("source_closure", "source closure")),
+)
+def test_u2_environment_generation_digest_rejects_invalid_top_level_types(
+    invalid_field: str,
+    message: str,
+) -> None:
+    contract, closure, bindings = _generation_fixture()
+    arguments: dict[str, object] = {
+        "u2_contract": contract,
+        "source_closure": closure,
+        "bindings": bindings,
+        "run_seed": 0,
+    }
+    arguments[invalid_field] = object()
+
+    with pytest.raises(TypeError, match=message):
+        _generation_builder()(**arguments)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "message"),
+    (
+        ("u2_contract_digest", "contract"),
+        ("universe_manifest_digest", "universe"),
+        ("u1_contract_digest", "U1 contract"),
+        ("normalizer_digest", "normalizer"),
+        ("time_partition_digest", "partition"),
+    ),
+)
+def test_u2_environment_generation_digest_rejects_source_closure_identity_drift(
+    field_name: str,
+    message: str,
+) -> None:
+    contract, closure, bindings = _generation_fixture()
+    drifted_closure = replace(
+        closure,
+        **{field_name: "f" * 64},
+        digest="",
+    )
+
+    with pytest.raises(ValueError, match=message):
+        _generation_builder()(
+            u2_contract=contract,
+            source_closure=drifted_closure,
+            bindings=bindings,
+            run_seed=0,
+        )
+
+
+def test_u2_environment_generation_digest_rejects_binding_source_drift() -> None:
+    contract, closure, bindings = _generation_fixture()
+    drifted_bindings = list(bindings)
+    drifted_bindings[0] = replace(
+        drifted_bindings[0],
+        symbol_dataset_digest="f" * 64,
+    )
+
+    with pytest.raises(ValueError, match="binding|source|dataset|digest"):
+        _generation_builder()(
+            u2_contract=contract,
+            source_closure=closure,
+            bindings=tuple(drifted_bindings),
+            run_seed=0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    (
+        ("n_envs", 7, "n_envs"),
+        ("vector_environment_mode", "subprocess", "vector_environment_mode"),
+    ),
+)
+def test_u2_environment_generation_digest_revalidates_vector_runtime_contract(
+    field_name: str,
+    value: object,
+    message: str,
+) -> None:
+    contract, closure, bindings = _generation_fixture()
+    tampered_contract = copy.copy(contract)
+    tampered_payload = dict(contract.training_config_payload)
+    tampered_payload[field_name] = value
+    object.__setattr__(
+        tampered_contract,
+        "training_config_payload",
+        tampered_payload,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        _generation_builder()(
+            u2_contract=tampered_contract,
+            source_closure=closure,
+            bindings=bindings,
+            run_seed=0,
+        )
+
+
+def test_u2_environment_timestamp_layout_rejects_malformed_dataset_shape() -> None:
+    class MalformedDataset:
+        timestamps = (0, 1)
+        n_bars = 3
+
+    module = importlib.import_module(_U2_ENVIRONMENT_MODULE)
+    validator = getattr(module, "_dataset_timestamps_ns")
+
+    with pytest.raises(ValueError, match="timestamp layout"):
+        validator(MalformedDataset())
+
+
+def test_u2_environment_frozen_generation_rejects_invalid_contract_types() -> None:
+    _contract, closure, _bindings = _generation_fixture()
+    fixture = _fixture()
+    module = importlib.import_module(_U2_ENVIRONMENT_MODULE)
+    validator = getattr(module, "_require_frozen_generation")
+
+    with pytest.raises(TypeError, match="source closure"):
+        validator(
+            closure=object(),
+            u1_contract=object(),
+            policy_contract=object(),
+            normalizer=object(),
+        )
+
+    with pytest.raises(TypeError, match="U1 contract"):
+        validator(
+            closure=closure,
+            u1_contract=object(),
+            policy_contract=object(),
+            normalizer=object(),
+        )
+
+    with pytest.raises(TypeError, match="policy contract"):
+        validator(
+            closure=closure,
+            u1_contract=fixture.u1_contract,
+            policy_contract=object(),
+            normalizer=object(),
         )

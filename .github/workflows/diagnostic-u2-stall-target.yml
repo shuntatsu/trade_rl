@@ -1,0 +1,55 @@
+name: U2 Full Suite Stall Target Diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/u2-full-suite-stall-20260906
+
+permissions:
+  contents: read
+
+jobs:
+  target-u2-environment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Run exact first uncompleted test
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v uv run pytest -vv -s --durations=0 \
+            tests/rl/test_universal_trade_u2_environment.py::test_u2_environment_rejects_child_with_post_fit_bar \
+            2>&1 | tee exact-target.log
+
+      - name: Run complete U2 environment module
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v uv run pytest -vv -s --durations=0 \
+            tests/rl/test_universal_trade_u2_environment.py \
+            2>&1 | tee module-target.log
+
+      - name: Upload target diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: u2-full-suite-target-diagnostic
+          path: |
+            exact-target.log
+            module-target.log
+          if-no-files-found: ignore
+          retention-days: 1

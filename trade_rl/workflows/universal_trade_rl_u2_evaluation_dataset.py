@@ -97,6 +97,22 @@ def _required_dataset_contracts(
 
     if not by_symbol:
         raise ValueError("U2 Development scope closure contains no evaluation symbols")
+    expected_symbols = tuple(
+        entry.symbol
+        for entry in manifest.entries
+        if entry.role
+        in {
+            UniversalTradeRLSymbolRole.TRAIN,
+            UniversalTradeRLSymbolRole.DEVELOPMENT,
+        }
+    )
+    observed_symbols = tuple(by_symbol)
+    if len(observed_symbols) != len(expected_symbols) or set(observed_symbols) != set(
+        expected_symbols
+    ):
+        raise ValueError(
+            "U2 Development scope closure must cover every Train/Development symbol"
+        )
     return tuple(
         by_symbol[entry.symbol]
         for entry in manifest.entries

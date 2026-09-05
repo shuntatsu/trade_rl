@@ -38,7 +38,7 @@ jobs:
 
       - name: Verify U2 contract tests are formatted
         run: >-
-          uv run ruff format --check
+          uv run ruff format --check --diff
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
           tests/workflows/test_universal_trade_rl_u2_training_runtime.py

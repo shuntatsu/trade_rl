@@ -390,7 +390,7 @@ class UniversalTradeRLU2ReplayEvidence:
             ),
         ):
             require_sha256(value, field=f"U2 replay evidence {field_name}")
-        for field_name, value in (
+        for field_name, text_value in (
             ("concrete_symbol", self.concrete_symbol),
             ("symbol_role", self.symbol_role),
             ("cell", self.cell),
@@ -398,7 +398,7 @@ class UniversalTradeRLU2ReplayEvidence:
             ("policy_variant", self.policy_variant),
             ("terminal_accounting_mode", self.terminal_accounting_mode),
         ):
-            if not isinstance(value, str) or not value:
+            if not isinstance(text_value, str) or not text_value:
                 raise ValueError(f"U2 replay evidence {field_name} must be non-empty")
         if self.policy_variant not in {
             variant.value for variant in UniversalTradeRLU2ReplayVariant
@@ -408,7 +408,7 @@ class UniversalTradeRLU2ReplayEvidence:
             not isinstance(self.termination_reason, str) or not self.termination_reason
         ):
             raise ValueError("U2 replay evidence termination reason is invalid")
-        for field_name, value in (
+        for field_name, count_value in (
             ("tile_index", self.tile_index),
             ("outcome_start_bar_index", self.outcome_start_bar_index),
             (
@@ -431,7 +431,7 @@ class UniversalTradeRLU2ReplayEvidence:
             ("hard_risk_violation_count", self.hard_risk_violation_count),
             ("execution_rejection_count", self.execution_rejection_count),
         ):
-            _non_negative_count(value, field_name=f"evidence {field_name}")
+            _non_negative_count(count_value, field_name=f"evidence {field_name}")
         if (
             isinstance(self.evaluation_seed, bool)
             or not isinstance(self.evaluation_seed, int)
@@ -455,7 +455,7 @@ class UniversalTradeRLU2ReplayEvidence:
         )
         if self.observed_decision_count > expected_decisions:
             raise ValueError("U2 replay observed more decisions than the outcome scope")
-        for field_name, value in (
+        for field_name, numeric_value in (
             ("terminal_liquidation_cost", self.terminal_liquidation_cost),
             ("initial_capital", self.initial_capital),
             ("final_net_portfolio_value", self.final_net_portfolio_value),
@@ -466,7 +466,7 @@ class UniversalTradeRLU2ReplayEvidence:
             ("funding_pnl", self.funding_pnl),
             ("borrow_cost", self.borrow_cost),
         ):
-            if not math.isfinite(value):
+            if not math.isfinite(numeric_value):
                 raise ValueError(f"U2 replay evidence {field_name} must be finite")
         if self.initial_capital <= 0.0:
             raise ValueError("U2 replay evidence initial capital must be positive")

@@ -6,7 +6,7 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Final
 from weakref import WeakValueDictionary
 
 import numpy as np
@@ -14,12 +14,14 @@ import numpy as np
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 from trade_rl.domain.common import require_sha256
+from trade_rl.risk.pretrade import RiskConstrainedTarget
 from trade_rl.rl.universal_normalization import UniversalTradeSequenceNormalizer
 from trade_rl.rl.universal_trade_contract import UniversalTradePolicyContract
 from trade_rl.rl.universal_trade_environment import (
     UniversalTradeEnvironment,
     UniversalTradeMarketEnv,
 )
+from trade_rl.simulation.stateful_execution import StatefulExecutionResult
 from trade_rl.workflows.universal_trade_rl_u1_contract import (
     UniversalTradeRLU1Contract,
     require_universal_trade_rl_u1_environment_contract,
@@ -46,6 +48,11 @@ from trade_rl.workflows.universal_trade_rl_universe_manifest import (
 )
 
 U2ReplayEnvironmentFactory = Callable[[MarketDataset], UniversalTradeEnvironment]
+U2_REPLAY_EVIDENCE_SCHEMA: Final = "universal_trade_rl_u2_replay_evidence_v1"
+_DIAGNOSTIC_TOLERANCE: Final = 1e-6
+_TRANSITION_CLASSES: Final = frozenset(
+    {"flat", "entry", "exit", "flip", "rebalance", "hold"}
+)
 
 
 class UniversalTradeRLU2ReplayVariant(str, Enum):
@@ -62,6 +69,76 @@ _BASELINE_ACTIONS = {
     UniversalTradeRLU2ReplayVariant.CONSTANT_LONG: np.asarray([1.0], dtype=np.float32),
     UniversalTradeRLU2ReplayVariant.CONSTANT_SHORT: np.asarray([-1.0], dtype=np.float32),
 }
+
+
+def _single_symbol_value(value: object, *, field_name: str) -> float:
+    try:
+        vector = np.asarray(value, dtype=np.float64).reshape(-1)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"U2 replay {field_name} must be numeric") from error
+    if vector.shape != (1,) or not np.isfinite(vector).all():
+        raise ValueError(f"U2 replay {field_name} must be one finite symbol value")
+    return float(vector[0])
+
+
+def _finite_number(value: object, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.number)):
+        raise ValueError(f"U2 replay {field_name} must be numeric")
+    resolved = float(value)
+    if not math.isfinite(resolved):
+        raise ValueError(f"U2 replay {field_name} must be finite")
+    return resolved
+
+
+def _non_negative_count(value: object, *, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"U2 replay {field_name} must be a non-negative integer")
+    return value
+
+
+def _change_count(values: tuple[float, ...]) -> int:
+    previous = 0.0
+    count = 0
+    for value in values:
+        if abs(value - previous) > _DIAGNOSTIC_TOLERANCE:
+            count += 1
+        previous = value
+    return count
+
+
+def _transition_class(before: float, after: float) -> str:
+    before_nonflat = abs(before) > _DIAGNOSTIC_TOLERANCE
+    after_nonflat = abs(after) > _DIAGNOSTIC_TOLERANCE
+    if not before_nonflat and not after_nonflat:
+        return "flat"
+    if not before_nonflat and after_nonflat:
+        return "entry"
+    if before_nonflat and not after_nonflat:
+        return "exit"
+    if before * after < 0.0:
+        return "flip"
+    if abs(after - before) > _DIAGNOSTIC_TOLERANCE:
+        return "rebalance"
+    return "hold"
+
+
+def _hard_risk_violation(
+    *,
+    projected_target: float,
+    risk_scale: float,
+    max_abs_weight: float,
+    max_gross: float,
+    fail_closed_tolerance: float,
+) -> bool:
+    return bool(
+        abs(projected_target)
+        > max_abs_weight * risk_scale + fail_closed_tolerance
+        or abs(projected_target) > max_gross * risk_scale + fail_closed_tolerance
+        or (
+            risk_scale == 0.0
+            and abs(projected_target) > fail_closed_tolerance
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +167,119 @@ class UniversalTradeRLU2ReplayRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class UniversalTradeRLU2ReplayStepEvidence:
+    """One decision's maintained U1 action/risk/execution lifecycle evidence."""
+
+    decision_bar_index: int
+    normalized_action: float
+    submitted_target: float
+    executed_target: float
+    risk_projected_target: float
+    realized_exposure: float
+    requested_turnover: float
+    filled_turnover: float
+    requested_notional: float
+    filled_notional: float
+    fill_count: int
+    rejected_count: int
+    rejection_reasons: tuple[str, ...]
+    risk_scale: float
+    max_abs_weight: float
+    max_gross: float
+    fail_closed_tolerance: float
+    risk_reasons: tuple[str, ...]
+    hard_risk_violation: bool
+    transition_class: str
+
+    def __post_init__(self) -> None:
+        _non_negative_count(self.decision_bar_index, field_name="decision bar index")
+        for field_name, value in (
+            ("normalized_action", self.normalized_action),
+            ("submitted_target", self.submitted_target),
+            ("executed_target", self.executed_target),
+            ("risk_projected_target", self.risk_projected_target),
+            ("realized_exposure", self.realized_exposure),
+            ("requested_turnover", self.requested_turnover),
+            ("filled_turnover", self.filled_turnover),
+            ("requested_notional", self.requested_notional),
+            ("filled_notional", self.filled_notional),
+            ("risk_scale", self.risk_scale),
+            ("max_abs_weight", self.max_abs_weight),
+            ("max_gross", self.max_gross),
+            ("fail_closed_tolerance", self.fail_closed_tolerance),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(f"U2 replay step {field_name} must be finite")
+        if abs(self.normalized_action) > 1.0:
+            raise ValueError("U2 replay step normalized action is outside [-1, 1]")
+        if any(
+            value < 0.0
+            for value in (
+                self.requested_turnover,
+                self.filled_turnover,
+                self.requested_notional,
+                self.filled_notional,
+                self.fail_closed_tolerance,
+            )
+        ):
+            raise ValueError("U2 replay step turnover/notional/tolerance cannot be negative")
+        if not 0.0 <= self.risk_scale <= 1.0:
+            raise ValueError("U2 replay step risk scale must be within [0, 1]")
+        if self.max_abs_weight <= 0.0 or self.max_gross <= 0.0:
+            raise ValueError("U2 replay step hard-risk limits must be positive")
+        _non_negative_count(self.fill_count, field_name="step fill count")
+        _non_negative_count(self.rejected_count, field_name="step rejected count")
+        if not isinstance(self.rejection_reasons, tuple) or any(
+            not isinstance(reason, str) or not reason
+            for reason in self.rejection_reasons
+        ):
+            raise ValueError("U2 replay step rejection reasons are malformed")
+        if len(self.rejection_reasons) != self.rejected_count:
+            raise ValueError("U2 replay step rejected count does not match reasons")
+        if not isinstance(self.risk_reasons, tuple) or any(
+            not isinstance(reason, str) or not reason for reason in self.risk_reasons
+        ):
+            raise ValueError("U2 replay step risk reasons are malformed")
+        if not isinstance(self.hard_risk_violation, bool):
+            raise TypeError("U2 replay step hard-risk violation must be boolean")
+        expected_violation = _hard_risk_violation(
+            projected_target=self.risk_projected_target,
+            risk_scale=self.risk_scale,
+            max_abs_weight=self.max_abs_weight,
+            max_gross=self.max_gross,
+            fail_closed_tolerance=self.fail_closed_tolerance,
+        )
+        if self.hard_risk_violation is not expected_violation:
+            raise ValueError("U2 replay step hard-risk evidence is inconsistent")
+        if self.transition_class not in _TRANSITION_CLASSES:
+            raise ValueError("U2 replay step transition class is invalid")
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "decision_bar_index": self.decision_bar_index,
+            "normalized_action": self.normalized_action,
+            "submitted_target": self.submitted_target,
+            "executed_target": self.executed_target,
+            "risk_projected_target": self.risk_projected_target,
+            "realized_exposure": self.realized_exposure,
+            "requested_turnover": self.requested_turnover,
+            "filled_turnover": self.filled_turnover,
+            "requested_notional": self.requested_notional,
+            "filled_notional": self.filled_notional,
+            "fill_count": self.fill_count,
+            "rejected_count": self.rejected_count,
+            "rejection_reasons": self.rejection_reasons,
+            "risk_scale": self.risk_scale,
+            "max_abs_weight": self.max_abs_weight,
+            "max_gross": self.max_gross,
+            "fail_closed_tolerance": self.fail_closed_tolerance,
+            "risk_reasons": self.risk_reasons,
+            "hard_risk_violation": self.hard_risk_violation,
+            "transition_class": self.transition_class,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class UniversalTradeRLU2ReplayEvidence:
     """Content-addressed raw net-economic evidence for one U2 replay scope."""
 
@@ -108,6 +298,10 @@ class UniversalTradeRLU2ReplayEvidence:
     policy_variant: str
     evaluation_seed: int
     paired_candidate_checkpoint_digest: str
+    outcome_start_bar_index: int
+    outcome_stop_bar_index_exclusive: int
+    evaluation_start_bar_index: int
+    evaluation_stop_bar_index: int
     runtime_start_bar_index: int
     runtime_end_bar_index: int
     final_current_bar_index: int
@@ -129,11 +323,22 @@ class UniversalTradeRLU2ReplayEvidence:
     borrow_cost: float
     trade_count: int
     rebalance_count: int
+    fill_count: int
+    target_change_count: int
+    submitted_change_count: int
+    executed_change_count: int
+    sign_flip_count: int
+    hard_risk_violation_count: int
+    execution_rejection_count: int
     normalized_action_trace: tuple[float, ...]
     realized_exposure_trace: tuple[float, ...]
+    step_evidence: tuple[UniversalTradeRLU2ReplayStepEvidence, ...]
+    schema_version: str = U2_REPLAY_EVIDENCE_SCHEMA
     digest: str = ""
 
     def __post_init__(self) -> None:
+        if self.schema_version != U2_REPLAY_EVIDENCE_SCHEMA:
+            raise ValueError("U2 replay evidence schema is unsupported")
         for field_name, value in (
             ("scope_closure_digest", self.scope_closure_digest),
             ("scope_digest", self.scope_digest),
@@ -168,23 +373,51 @@ class UniversalTradeRLU2ReplayEvidence:
             raise ValueError("U2 replay evidence termination reason is invalid")
         for field_name, value in (
             ("tile_index", self.tile_index),
+            ("outcome_start_bar_index", self.outcome_start_bar_index),
+            (
+                "outcome_stop_bar_index_exclusive",
+                self.outcome_stop_bar_index_exclusive,
+            ),
+            ("evaluation_start_bar_index", self.evaluation_start_bar_index),
+            ("evaluation_stop_bar_index", self.evaluation_stop_bar_index),
             ("runtime_start_bar_index", self.runtime_start_bar_index),
             ("runtime_end_bar_index", self.runtime_end_bar_index),
             ("final_current_bar_index", self.final_current_bar_index),
             ("observed_decision_count", self.observed_decision_count),
             ("trade_count", self.trade_count),
             ("rebalance_count", self.rebalance_count),
+            ("fill_count", self.fill_count),
+            ("target_change_count", self.target_change_count),
+            ("submitted_change_count", self.submitted_change_count),
+            ("executed_change_count", self.executed_change_count),
+            ("sign_flip_count", self.sign_flip_count),
+            ("hard_risk_violation_count", self.hard_risk_violation_count),
+            ("execution_rejection_count", self.execution_rejection_count),
         ):
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ValueError(
-                    f"U2 replay evidence {field_name} must be a non-negative integer"
-                )
+            _non_negative_count(value, field_name=f"evidence {field_name}")
         if (
             isinstance(self.evaluation_seed, bool)
             or not isinstance(self.evaluation_seed, int)
             or self.evaluation_seed not in U2_TRAINING_SEEDS
         ):
             raise ValueError("U2 replay evidence evaluation seed must be preregistered")
+        if self.outcome_stop_bar_index_exclusive <= self.outcome_start_bar_index:
+            raise ValueError("U2 replay outcome interval is empty or reversed")
+        if self.evaluation_start_bar_index != self.outcome_start_bar_index - 1:
+            raise ValueError("U2 replay evaluation start boundary is inconsistent")
+        if self.evaluation_stop_bar_index != self.outcome_stop_bar_index_exclusive:
+            raise ValueError("U2 replay evaluation stop must remain exclusive")
+        if self.runtime_start_bar_index != self.evaluation_start_bar_index:
+            raise ValueError("U2 replay runtime start boundary is inconsistent")
+        if self.runtime_end_bar_index != self.outcome_stop_bar_index_exclusive - 1:
+            raise ValueError("U2 replay runtime end must be inclusive O_stop - 1")
+        if self.final_current_bar_index > self.runtime_end_bar_index:
+            raise ValueError("U2 replay final current index exceeded runtime end")
+        expected_decisions = (
+            self.outcome_stop_bar_index_exclusive - self.outcome_start_bar_index
+        )
+        if self.observed_decision_count > expected_decisions:
+            raise ValueError("U2 replay observed more decisions than the outcome scope")
         for field_name, value in (
             ("terminal_liquidation_cost", self.terminal_liquidation_cost),
             ("initial_capital", self.initial_capital),
@@ -200,6 +433,8 @@ class UniversalTradeRLU2ReplayEvidence:
                 raise ValueError(f"U2 replay evidence {field_name} must be finite")
         if self.initial_capital <= 0.0:
             raise ValueError("U2 replay evidence initial capital must be positive")
+        if self.final_net_portfolio_value <= 0.0 or self.net_wealth_ratio <= 0.0:
+            raise ValueError("U2 replay evidence final net wealth must stay positive")
         if self.terminal_liquidation_cost < 0.0:
             raise ValueError("U2 replay terminal liquidation cost cannot be negative")
         if not 0.0 <= self.maximum_drawdown <= 1.0:
@@ -215,6 +450,8 @@ class UniversalTradeRLU2ReplayEvidence:
             raise TypeError("U2 replay completion flags must be booleans")
         if self.terminated and self.truncated:
             raise ValueError("U2 replay cannot be both terminated and truncated")
+        if self.terminated and self.termination_reason is None:
+            raise ValueError("U2 terminated replay requires a termination reason")
 
         for field_name, values in (
             ("net_simple_returns", self.net_simple_returns),
@@ -231,6 +468,50 @@ class UniversalTradeRLU2ReplayEvidence:
                 )
         if any(abs(value) > 1.0 for value in self.normalized_action_trace):
             raise ValueError("U2 replay normalized action trace is outside [-1, 1]")
+        if any(value <= -1.0 for value in self.net_simple_returns):
+            raise ValueError("U2 replay returns violate positive-wealth U1 semantics")
+
+        if not isinstance(self.step_evidence, tuple) or not all(
+            isinstance(step, UniversalTradeRLU2ReplayStepEvidence)
+            for step in self.step_evidence
+        ):
+            raise TypeError("U2 replay step evidence must be an immutable step tuple")
+        if len(self.step_evidence) != self.observed_decision_count:
+            raise ValueError("U2 replay step evidence length must match decisions")
+        for offset, step in enumerate(self.step_evidence):
+            if step.decision_bar_index != self.runtime_start_bar_index + offset:
+                raise ValueError("U2 replay step evidence bar alignment drifted")
+
+        action_trace = tuple(step.normalized_action for step in self.step_evidence)
+        submitted_trace = tuple(step.submitted_target for step in self.step_evidence)
+        executed_trace = tuple(step.executed_target for step in self.step_evidence)
+        exposure_trace = tuple(step.realized_exposure for step in self.step_evidence)
+        if action_trace != self.normalized_action_trace:
+            raise ValueError("U2 replay action trace does not match step evidence")
+        if exposure_trace != self.realized_exposure_trace:
+            raise ValueError("U2 replay exposure trace does not match step evidence")
+        if self.target_change_count != _change_count(action_trace):
+            raise ValueError("U2 replay target-change count is inconsistent")
+        if self.submitted_change_count != _change_count(submitted_trace):
+            raise ValueError("U2 replay submitted-change count is inconsistent")
+        if self.executed_change_count != _change_count(executed_trace):
+            raise ValueError("U2 replay executed-change count is inconsistent")
+        expected_sign_flips = sum(
+            step.transition_class == "flip" for step in self.step_evidence
+        )
+        if self.sign_flip_count != expected_sign_flips:
+            raise ValueError("U2 replay sign-flip count is inconsistent")
+        expected_hard_risk = sum(
+            step.hard_risk_violation for step in self.step_evidence
+        )
+        if self.hard_risk_violation_count != expected_hard_risk:
+            raise ValueError("U2 replay hard-risk count is inconsistent")
+        expected_rejections = sum(step.rejected_count for step in self.step_evidence)
+        if self.execution_rejection_count != expected_rejections:
+            raise ValueError("U2 replay execution rejection count is inconsistent")
+        expected_fills = sum(step.fill_count for step in self.step_evidence)
+        if self.fill_count != expected_fills:
+            raise ValueError("U2 replay fill count is inconsistent")
 
         expected_ratio = self.final_net_portfolio_value / self.initial_capital
         if not math.isclose(
@@ -251,6 +532,8 @@ class UniversalTradeRLU2ReplayEvidence:
         ):
             raise ValueError("U2 replay simple returns do not reconcile to net wealth")
         if self.normal_completion:
+            if self.observed_decision_count != expected_decisions:
+                raise ValueError("U2 normal replay decision count is incomplete")
             if self.terminated or not self.truncated:
                 raise ValueError("U2 normal replay completion flags are invalid")
             if self.termination_reason is not None:
@@ -258,7 +541,9 @@ class UniversalTradeRLU2ReplayEvidence:
             if self.final_current_bar_index != self.runtime_end_bar_index:
                 raise ValueError("U2 normal replay did not finish on runtime end")
             if self.terminal_accounting_mode != "mark_to_market":
-                raise ValueError("U2 normal replay must use mark-to-market terminal accounting")
+                raise ValueError(
+                    "U2 normal replay must use mark-to-market terminal accounting"
+                )
             if self.terminal_liquidation_cost != 0.0:
                 raise ValueError("U2 normal replay cannot charge terminal liquidation")
 
@@ -271,6 +556,7 @@ class UniversalTradeRLU2ReplayEvidence:
 
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
+            "schema_version": self.schema_version,
             "scope_closure_digest": self.scope_closure_digest,
             "scope_digest": self.scope_digest,
             "universe_manifest_digest": self.universe_manifest_digest,
@@ -288,6 +574,10 @@ class UniversalTradeRLU2ReplayEvidence:
             "paired_candidate_checkpoint_digest": (
                 self.paired_candidate_checkpoint_digest
             ),
+            "outcome_start_bar_index": self.outcome_start_bar_index,
+            "outcome_stop_bar_index_exclusive": self.outcome_stop_bar_index_exclusive,
+            "evaluation_start_bar_index": self.evaluation_start_bar_index,
+            "evaluation_stop_bar_index": self.evaluation_stop_bar_index,
             "runtime_start_bar_index": self.runtime_start_bar_index,
             "runtime_end_bar_index": self.runtime_end_bar_index,
             "final_current_bar_index": self.final_current_bar_index,
@@ -309,8 +599,16 @@ class UniversalTradeRLU2ReplayEvidence:
             "borrow_cost": self.borrow_cost,
             "trade_count": self.trade_count,
             "rebalance_count": self.rebalance_count,
+            "fill_count": self.fill_count,
+            "target_change_count": self.target_change_count,
+            "submitted_change_count": self.submitted_change_count,
+            "executed_change_count": self.executed_change_count,
+            "sign_flip_count": self.sign_flip_count,
+            "hard_risk_violation_count": self.hard_risk_violation_count,
+            "execution_rejection_count": self.execution_rejection_count,
             "normalized_action_trace": self.normalized_action_trace,
             "realized_exposure_trace": self.realized_exposure_trace,
+            "step_evidence": tuple(step.to_payload() for step in self.step_evidence),
         }
         if include_digest:
             payload["artifact_digest"] = self.digest
@@ -487,6 +785,126 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             raise ValueError("U2 candidate replay action must have shape (1,)")
         return action
 
+    @staticmethod
+    def _step_evidence(
+        *,
+        decision_bar_index: int,
+        before_exposure: float,
+        action: np.ndarray,
+        info: Mapping[str, Any],
+        runtime_exposure: float,
+    ) -> UniversalTradeRLU2ReplayStepEvidence:
+        risk = info.get("hybrid_risk")
+        execution = info.get("hybrid_execution")
+        if not isinstance(risk, RiskConstrainedTarget):
+            raise TypeError("U2 replay requires maintained U1 hybrid_risk evidence")
+        if not isinstance(execution, StatefulExecutionResult):
+            raise TypeError("U2 replay requires maintained U1 hybrid_execution evidence")
+        if risk.max_abs_weight is None or risk.max_gross is None:
+            raise ValueError("U2 replay hard-risk limit metadata is missing")
+        if risk.fail_closed_tolerance is None:
+            raise ValueError("U2 replay hard-risk tolerance metadata is missing")
+
+        normalized_action = _single_symbol_value(action, field_name="normalized action")
+        submitted_target = _single_symbol_value(
+            info.get("submitted_target"),
+            field_name="submitted target",
+        )
+        executed_target = _single_symbol_value(
+            info.get("executed_target"),
+            field_name="executed target",
+        )
+        risk_projected_target = _single_symbol_value(
+            risk.weights,
+            field_name="risk-projected target",
+        )
+        realized_exposure = _single_symbol_value(
+            info.get("effective_filled_weights"),
+            field_name="effective filled exposure",
+        )
+        if not math.isclose(
+            realized_exposure,
+            runtime_exposure,
+            rel_tol=0.0,
+            abs_tol=1e-10,
+        ):
+            raise RuntimeError(
+                "U2 replay maintained filled exposure drifted from runtime snapshot"
+            )
+
+        rejected_events = tuple(
+            event for event in execution.order_events if event.event_type == "rejected"
+        )
+        rejection_reasons = tuple(
+            "" if event.reason is None else str(event.reason)
+            for event in rejected_events
+        )
+        rejected_count = _non_negative_count(
+            execution.rejected_count,
+            field_name="execution rejected count",
+        )
+        if len(rejected_events) != rejected_count:
+            raise RuntimeError(
+                "U2 replay maintained execution rejection count does not match events"
+            )
+        if any(not reason for reason in rejection_reasons):
+            raise RuntimeError("U2 replay execution rejection lacks an explicit reason")
+
+        risk_scale = _finite_number(risk.risk_scale, field_name="risk scale")
+        max_abs_weight = _finite_number(
+            risk.max_abs_weight,
+            field_name="max abs weight",
+        )
+        max_gross = _finite_number(risk.max_gross, field_name="max gross")
+        fail_closed_tolerance = _finite_number(
+            risk.fail_closed_tolerance,
+            field_name="fail-closed tolerance",
+        )
+        hard_risk_violation = _hard_risk_violation(
+            projected_target=risk_projected_target,
+            risk_scale=risk_scale,
+            max_abs_weight=max_abs_weight,
+            max_gross=max_gross,
+            fail_closed_tolerance=fail_closed_tolerance,
+        )
+        return UniversalTradeRLU2ReplayStepEvidence(
+            decision_bar_index=decision_bar_index,
+            normalized_action=normalized_action,
+            submitted_target=submitted_target,
+            executed_target=executed_target,
+            risk_projected_target=risk_projected_target,
+            realized_exposure=realized_exposure,
+            requested_turnover=_finite_number(
+                execution.requested_turnover,
+                field_name="requested turnover",
+            ),
+            filled_turnover=_finite_number(
+                execution.filled_turnover,
+                field_name="filled turnover",
+            ),
+            requested_notional=_finite_number(
+                execution.requested_notional,
+                field_name="requested notional",
+            ),
+            filled_notional=_finite_number(
+                execution.filled_notional,
+                field_name="filled notional",
+            ),
+            fill_count=_non_negative_count(
+                execution.fill_count,
+                field_name="execution fill count",
+            ),
+            rejected_count=rejected_count,
+            rejection_reasons=rejection_reasons,
+            risk_scale=risk_scale,
+            max_abs_weight=max_abs_weight,
+            max_gross=max_gross,
+            fail_closed_tolerance=fail_closed_tolerance,
+            risk_reasons=tuple(str(reason) for reason in risk.reasons),
+            hard_risk_violation=hard_risk_violation,
+            transition_class=_transition_class(before_exposure, realized_exposure),
+        )
+
     def replay(
         self,
         request: UniversalTradeRLU2ReplayRequest,
@@ -518,8 +936,7 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             if base.hybrid.returns_history:
                 raise RuntimeError("U2 replay reset produced non-empty return history")
 
-            normalized_actions: list[float] = []
-            realized_exposures: list[float] = []
+            steps: list[UniversalTradeRLU2ReplayStepEvidence] = []
             observed_decision_count = 0
             terminated = False
             truncated = False
@@ -533,11 +950,23 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                     action = self._candidate_action(model, observation)
                 else:
                     action = _BASELINE_ACTIONS[request.policy_variant].copy()
+                decision_bar_index = base.current_index
+                before_exposure = float(
+                    base.universal_trade_runtime_snapshot().current_weight
+                )
                 observation, _reward, terminated, truncated, info = environment.step(action)
                 observed_decision_count += 1
-                normalized_actions.append(float(action[0]))
-                realized_exposures.append(
-                    float(base.universal_trade_runtime_snapshot().current_weight)
+                runtime_exposure = float(
+                    base.universal_trade_runtime_snapshot().current_weight
+                )
+                steps.append(
+                    self._step_evidence(
+                        decision_bar_index=decision_bar_index,
+                        before_exposure=before_exposure,
+                        action=action,
+                        info=info,
+                        runtime_exposure=runtime_exposure,
+                    )
                 )
                 final_info = info
 
@@ -589,6 +1018,15 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             if truncated and not normal_completion:
                 raise RuntimeError("U2 replay time-limit completion drifted from contract")
 
+            step_evidence = tuple(steps)
+            normalized_action_trace = tuple(
+                step.normalized_action for step in step_evidence
+            )
+            submitted_trace = tuple(step.submitted_target for step in step_evidence)
+            executed_trace = tuple(step.executed_target for step in step_evidence)
+            realized_exposure_trace = tuple(
+                step.realized_exposure for step in step_evidence
+            )
             return UniversalTradeRLU2ReplayEvidence(
                 scope_closure_digest=self.scope_closure.digest,
                 scope_digest=scope.digest,
@@ -607,6 +1045,12 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                 paired_candidate_checkpoint_digest=(
                     request.paired_candidate_checkpoint_digest
                 ),
+                outcome_start_bar_index=scope.outcome_start_bar_index,
+                outcome_stop_bar_index_exclusive=(
+                    scope.outcome_stop_bar_index_exclusive
+                ),
+                evaluation_start_bar_index=scope.evaluation_start_bar_index,
+                evaluation_stop_bar_index=scope.evaluation_stop_bar_index,
                 runtime_start_bar_index=runtime_start_bar_index,
                 runtime_end_bar_index=runtime_end_bar_index,
                 final_current_bar_index=final_current_bar_index,
@@ -628,8 +1072,22 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                 borrow_cost=float(book.borrow_cost),
                 trade_count=int(book.n_trades),
                 rebalance_count=int(book.rebalance_events),
-                normalized_action_trace=tuple(normalized_actions),
-                realized_exposure_trace=tuple(realized_exposures),
+                fill_count=sum(step.fill_count for step in step_evidence),
+                target_change_count=_change_count(normalized_action_trace),
+                submitted_change_count=_change_count(submitted_trace),
+                executed_change_count=_change_count(executed_trace),
+                sign_flip_count=sum(
+                    step.transition_class == "flip" for step in step_evidence
+                ),
+                hard_risk_violation_count=sum(
+                    step.hard_risk_violation for step in step_evidence
+                ),
+                execution_rejection_count=sum(
+                    step.rejected_count for step in step_evidence
+                ),
+                normalized_action_trace=normalized_action_trace,
+                realized_exposure_trace=realized_exposure_trace,
+                step_evidence=step_evidence,
             )
         finally:
             environment.close()
@@ -726,10 +1184,12 @@ def build_universal_trade_rl_u2_development_replay_session(
 
 
 __all__ = [
+    "U2_REPLAY_EVIDENCE_SCHEMA",
     "U2ReplayEnvironmentFactory",
     "UniversalTradeRLU2DevelopmentReplaySession",
     "UniversalTradeRLU2ReplayEvidence",
     "UniversalTradeRLU2ReplayRequest",
+    "UniversalTradeRLU2ReplayStepEvidence",
     "UniversalTradeRLU2ReplayVariant",
     "build_universal_trade_rl_u2_development_replay_session",
 ]

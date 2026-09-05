@@ -329,6 +329,69 @@ def test_u2_replay_rejects_reused_mutable_u1_environment_before_stepping(
             shared.close()
 
 
+@pytest.mark.parametrize(
+    "component_name",
+    (
+        "hybrid_executor",
+        "shadow_executor",
+        "hybrid_book",
+        "shadow_book",
+        "hybrid_order_book",
+        "shadow_order_book",
+        "action_diagnostics",
+        "previous_action",
+    ),
+)
+def test_u2_replay_rejects_shared_mutable_runtime_roots_before_stepping(
+    replay_fixture: ReplayIntegrationFixture,
+    component_name: str,
+) -> None:
+    scope = _scope(replay_fixture, cell="B")
+    dataset = replay_fixture.session.datasets[scope.concrete_symbol]
+    first_environment = make_u1_wrapper(
+        dataset=dataset,
+        contract=replay_fixture.policy_contract,
+        normalizer=replay_fixture.normalizer,
+    )
+    second_environment = make_u1_wrapper(
+        dataset=dataset,
+        contract=replay_fixture.policy_contract,
+        normalizer=replay_fixture.normalizer,
+    )
+    first_base = first_environment.base_env
+    second_base = second_environment.base_env
+    if component_name == "hybrid_executor":
+        second_base.hybrid_executor = first_base.hybrid_executor
+    elif component_name == "shadow_executor":
+        second_base.shadow_executor = first_base.shadow_executor
+    elif component_name == "hybrid_book":
+        second_base.hybrid = first_base.hybrid
+    elif component_name == "shadow_book":
+        second_base.shadow = first_base.shadow
+    elif component_name == "hybrid_order_book":
+        second_base._hybrid_order_book = first_base.hybrid_order_book
+    elif component_name == "shadow_order_book":
+        second_base._shadow_order_book = first_base.shadow_order_book
+    elif component_name == "action_diagnostics":
+        second_base._action_diagnostics = first_base._action_diagnostics
+    elif component_name == "previous_action":
+        second_base._previous_action = first_base._previous_action
+    else:  # pragma: no cover - parametrization is closed above
+        raise AssertionError(f"unexpected component: {component_name}")
+
+    issued = iter((first_environment, second_environment))
+    original_factory = replay_fixture.session.environment_factory
+    replay_fixture.session.environment_factory = lambda _dataset: next(issued)
+    try:
+        replay_fixture.session._create_verified_environment(scope)
+        with pytest.raises(ValueError, match="reuse|shared|fresh|mutable"):
+            replay_fixture.session._create_verified_environment(scope)
+    finally:
+        replay_fixture.session.environment_factory = original_factory
+        first_environment.close()
+        second_environment.close()
+
+
 def test_u2_replay_rejects_u1_risk_generation_drift_before_stepping(
     replay_fixture: ReplayIntegrationFixture,
 ) -> None:

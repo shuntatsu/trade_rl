@@ -4,13 +4,14 @@ on:
   push:
     branches:
       - diagnostic/u2-full-suite-stall-20260906
+    paths:
+      - .github/workflows/prepare-u2-fit-oracle-optimization.yml
 
 permissions:
   contents: write
 
 jobs:
   prepare:
-    if: github.event.head_commit.message != 'chore: prepare U2 FIT boundary oracle optimization'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

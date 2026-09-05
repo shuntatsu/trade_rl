@@ -183,6 +183,19 @@ class UniversalTradeRLU2EpisodeTile:
     def bar_count(self) -> int:
         return self.stop_bar_index_exclusive - self.start_bar_index
 
+    @property
+    def decision_count(self) -> int:
+        return self.bar_count
+
+    @property
+    def evaluation_range(self) -> tuple[int, int]:
+        """Map outcome bars to the evaluator range using one preceding state bar."""
+
+        initial_state_index = self.start_bar_index - 1
+        if initial_state_index < 0:
+            raise ValueError("U2 evaluation tile requires one preceding state bar")
+        return (initial_state_index, self.stop_bar_index_exclusive)
+
     def to_payload(self) -> dict[str, object]:
         return {
             "source_window": self.source_window,

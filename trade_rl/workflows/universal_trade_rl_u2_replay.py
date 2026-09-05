@@ -725,7 +725,7 @@ class UniversalTradeRLU2DevelopmentReplaySession:
     def _mutable_runtime_roots(
         base_environment: UniversalTradeMarketEnv,
     ) -> tuple[tuple[str, object], ...]:
-        return (
+        roots: list[tuple[str, object]] = [
             ("hybrid executor", base_environment.hybrid_executor),
             ("shadow executor", base_environment.shadow_executor),
             ("hybrid executor RNG", base_environment.hybrid_executor._rng),
@@ -736,7 +736,25 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             ("shadow order state", base_environment.shadow_order_book),
             ("action diagnostics", base_environment._action_diagnostics),
             ("previous action", base_environment._previous_action),
+            ("position age", base_environment._position_age),
+            ("execution state", base_environment._execution_state),
+        ]
+        optional_roots = (
+            ("pending hybrid target", base_environment._pending_hybrid_target),
+            ("pending shadow target", base_environment._pending_shadow_target),
+            (
+                "pending hybrid reduce-only mask",
+                base_environment._pending_hybrid_reduce_only_mask,
+            ),
+            (
+                "next hybrid reduce-only mask",
+                base_environment._next_hybrid_reduce_only_mask,
+            ),
         )
+        roots.extend(
+            (label, root) for label, root in optional_roots if root is not None
+        )
+        return tuple(roots)
 
     def _claim_mutable_runtime_roots(
         self,

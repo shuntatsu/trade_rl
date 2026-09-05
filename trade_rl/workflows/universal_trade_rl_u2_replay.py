@@ -21,6 +21,7 @@ from trade_rl.rl.universal_trade_environment import (
     UniversalTradeEnvironment,
     UniversalTradeMarketEnv,
 )
+from trade_rl.simulation.execution import ExecutionResult
 from trade_rl.simulation.stateful_execution import StatefulExecutionResult
 from trade_rl.workflows.universal_trade_rl_u1_contract import (
     UniversalTradeRLU1Contract,
@@ -67,7 +68,9 @@ class UniversalTradeRLU2ReplayVariant(str, Enum):
 _BASELINE_ACTIONS = {
     UniversalTradeRLU2ReplayVariant.CASH: np.asarray([0.0], dtype=np.float32),
     UniversalTradeRLU2ReplayVariant.CONSTANT_LONG: np.asarray([1.0], dtype=np.float32),
-    UniversalTradeRLU2ReplayVariant.CONSTANT_SHORT: np.asarray([-1.0], dtype=np.float32),
+    UniversalTradeRLU2ReplayVariant.CONSTANT_SHORT: np.asarray(
+        [-1.0], dtype=np.float32
+    ),
 }
 
 
@@ -183,6 +186,12 @@ class UniversalTradeRLU2ReplayStepEvidence:
     fill_count: int
     rejected_count: int
     rejection_reasons: tuple[str, ...]
+    emergency_deleverage: bool
+    liquidation_requested_turnover: float
+    liquidation_filled_turnover: float
+    liquidation_requested_notional: float
+    liquidation_filled_notional: float
+    liquidation_fill_count: int
     risk_scale: float
     max_abs_weight: float
     max_gross: float
@@ -203,6 +212,10 @@ class UniversalTradeRLU2ReplayStepEvidence:
             ("filled_turnover", self.filled_turnover),
             ("requested_notional", self.requested_notional),
             ("filled_notional", self.filled_notional),
+            ("liquidation_requested_turnover", self.liquidation_requested_turnover),
+            ("liquidation_filled_turnover", self.liquidation_filled_turnover),
+            ("liquidation_requested_notional", self.liquidation_requested_notional),
+            ("liquidation_filled_notional", self.liquidation_filled_notional),
             ("risk_scale", self.risk_scale),
             ("max_abs_weight", self.max_abs_weight),
             ("max_gross", self.max_gross),
@@ -219,16 +232,38 @@ class UniversalTradeRLU2ReplayStepEvidence:
                 self.filled_turnover,
                 self.requested_notional,
                 self.filled_notional,
+                self.liquidation_requested_turnover,
+                self.liquidation_filled_turnover,
+                self.liquidation_requested_notional,
+                self.liquidation_filled_notional,
                 self.fail_closed_tolerance,
             )
         ):
-            raise ValueError("U2 replay step turnover/notional/tolerance cannot be negative")
+            raise ValueError(
+                "U2 replay step turnover/notional/tolerance cannot be negative"
+            )
         if not 0.0 <= self.risk_scale <= 1.0:
             raise ValueError("U2 replay step risk scale must be within [0, 1]")
         if self.max_abs_weight <= 0.0 or self.max_gross <= 0.0:
             raise ValueError("U2 replay step hard-risk limits must be positive")
         _non_negative_count(self.fill_count, field_name="step fill count")
+        _non_negative_count(
+            self.liquidation_fill_count,
+            field_name="step liquidation fill count",
+        )
         _non_negative_count(self.rejected_count, field_name="step rejected count")
+        if not isinstance(self.emergency_deleverage, bool):
+            raise TypeError("U2 replay step emergency-deleverage flag must be boolean")
+        if not self.emergency_deleverage and (
+            self.liquidation_requested_turnover != 0.0
+            or self.liquidation_filled_turnover != 0.0
+            or self.liquidation_requested_notional != 0.0
+            or self.liquidation_filled_notional != 0.0
+            or self.liquidation_fill_count != 0
+        ):
+            raise ValueError(
+                "U2 replay step liquidation evidence requires emergency deleveraging"
+            )
         if not isinstance(self.rejection_reasons, tuple) or any(
             not isinstance(reason, str) or not reason
             for reason in self.rejection_reasons
@@ -269,6 +304,12 @@ class UniversalTradeRLU2ReplayStepEvidence:
             "fill_count": self.fill_count,
             "rejected_count": self.rejected_count,
             "rejection_reasons": self.rejection_reasons,
+            "emergency_deleverage": self.emergency_deleverage,
+            "liquidation_requested_turnover": self.liquidation_requested_turnover,
+            "liquidation_filled_turnover": self.liquidation_filled_turnover,
+            "liquidation_requested_notional": self.liquidation_requested_notional,
+            "liquidation_filled_notional": self.liquidation_filled_notional,
+            "liquidation_fill_count": self.liquidation_fill_count,
             "risk_scale": self.risk_scale,
             "max_abs_weight": self.max_abs_weight,
             "max_gross": self.max_gross,
@@ -461,7 +502,9 @@ class UniversalTradeRLU2ReplayEvidence:
             if not isinstance(values, tuple) or not all(
                 math.isfinite(value) for value in values
             ):
-                raise ValueError(f"U2 replay evidence {field_name} must be finite tuple")
+                raise ValueError(
+                    f"U2 replay evidence {field_name} must be finite tuple"
+                )
             if len(values) != self.observed_decision_count:
                 raise ValueError(
                     f"U2 replay evidence {field_name} length must match decisions"
@@ -509,9 +552,14 @@ class UniversalTradeRLU2ReplayEvidence:
         expected_rejections = sum(step.rejected_count for step in self.step_evidence)
         if self.execution_rejection_count != expected_rejections:
             raise ValueError("U2 replay execution rejection count is inconsistent")
-        expected_fills = sum(step.fill_count for step in self.step_evidence)
+        expected_fills = sum(
+            step.fill_count + step.liquidation_fill_count
+            for step in self.step_evidence
+        )
         if self.fill_count != expected_fills:
             raise ValueError("U2 replay fill count is inconsistent")
+        if self.trade_count != self.fill_count:
+            raise ValueError("U2 replay trade/fill ledger counts are inconsistent")
 
         expected_ratio = self.final_net_portfolio_value / self.initial_capital
         if not math.isclose(
@@ -799,7 +847,9 @@ class UniversalTradeRLU2DevelopmentReplaySession:
         if not isinstance(risk, RiskConstrainedTarget):
             raise TypeError("U2 replay requires maintained U1 hybrid_risk evidence")
         if not isinstance(execution, StatefulExecutionResult):
-            raise TypeError("U2 replay requires maintained U1 hybrid_execution evidence")
+            raise TypeError(
+                "U2 replay requires maintained U1 hybrid_execution evidence"
+            )
         if risk.max_abs_weight is None or risk.max_gross is None:
             raise ValueError("U2 replay hard-risk limit metadata is missing")
         if risk.fail_closed_tolerance is None:
@@ -850,6 +900,48 @@ class UniversalTradeRLU2DevelopmentReplaySession:
         if any(not reason for reason in rejection_reasons):
             raise RuntimeError("U2 replay execution rejection lacks an explicit reason")
 
+        emergency_deleverage = info.get("emergency_deleverage")
+        if not isinstance(emergency_deleverage, bool):
+            raise TypeError("U2 replay emergency-deleverage evidence must be boolean")
+        liquidation = info.get("hybrid_liquidation")
+        if liquidation is None:
+            if emergency_deleverage:
+                raise RuntimeError(
+                    "U2 replay emergency deleveraging lacks liquidation evidence"
+                )
+            liquidation_requested_turnover = 0.0
+            liquidation_filled_turnover = 0.0
+            liquidation_requested_notional = 0.0
+            liquidation_filled_notional = 0.0
+            liquidation_fill_count = 0
+        else:
+            if not emergency_deleverage:
+                raise RuntimeError(
+                    "U2 replay liquidation evidence appeared outside emergency deleveraging"
+                )
+            if not isinstance(liquidation, ExecutionResult):
+                raise TypeError("U2 replay hybrid_liquidation evidence is invalid")
+            liquidation_requested_turnover = _finite_number(
+                liquidation.requested_turnover,
+                field_name="liquidation requested turnover",
+            )
+            liquidation_filled_turnover = _finite_number(
+                liquidation.filled_turnover,
+                field_name="liquidation filled turnover",
+            )
+            liquidation_requested_notional = _single_symbol_value(
+                liquidation.requested_notional_by_symbol,
+                field_name="liquidation requested notional",
+            )
+            liquidation_filled_notional = _single_symbol_value(
+                liquidation.filled_notional_by_symbol,
+                field_name="liquidation filled notional",
+            )
+            liquidation_fill_count = _non_negative_count(
+                liquidation.fill_count,
+                field_name="liquidation fill count",
+            )
+
         risk_scale = _finite_number(risk.risk_scale, field_name="risk scale")
         max_abs_weight = _finite_number(
             risk.max_abs_weight,
@@ -896,6 +988,12 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             ),
             rejected_count=rejected_count,
             rejection_reasons=rejection_reasons,
+            emergency_deleverage=emergency_deleverage,
+            liquidation_requested_turnover=liquidation_requested_turnover,
+            liquidation_filled_turnover=liquidation_filled_turnover,
+            liquidation_requested_notional=liquidation_requested_notional,
+            liquidation_filled_notional=liquidation_filled_notional,
+            liquidation_fill_count=liquidation_fill_count,
             risk_scale=risk_scale,
             max_abs_weight=max_abs_weight,
             max_gross=max_gross,
@@ -944,7 +1042,9 @@ class UniversalTradeRLU2DevelopmentReplaySession:
 
             while not terminated and not truncated:
                 if observed_decision_count >= scope.decision_count:
-                    raise RuntimeError("U2 replay exceeded the preregistered decision count")
+                    raise RuntimeError(
+                        "U2 replay exceeded the preregistered decision count"
+                    )
                 if candidate:
                     assert model is not None
                     action = self._candidate_action(model, observation)
@@ -954,7 +1054,9 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                 before_exposure = float(
                     base.universal_trade_runtime_snapshot().current_weight
                 )
-                observation, _reward, terminated, truncated, info = environment.step(action)
+                observation, _reward, terminated, truncated, info = environment.step(
+                    action
+                )
                 observed_decision_count += 1
                 runtime_exposure = float(
                     base.universal_trade_runtime_snapshot().current_weight
@@ -989,7 +1091,9 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                 rel_tol=0.0,
                 abs_tol=1e-10,
             ):
-                raise RuntimeError("U2 replay simple returns do not reconcile to wealth")
+                raise RuntimeError(
+                    "U2 replay simple returns do not reconcile to wealth"
+                )
 
             raw_reason = final_info.get("termination_reason")
             termination_reason = (
@@ -1016,7 +1120,9 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                 and terminal_liquidation_cost == 0.0
             )
             if truncated and not normal_completion:
-                raise RuntimeError("U2 replay time-limit completion drifted from contract")
+                raise RuntimeError(
+                    "U2 replay time-limit completion drifted from contract"
+                )
 
             step_evidence = tuple(steps)
             normalized_action_trace = tuple(
@@ -1072,7 +1178,7 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                 borrow_cost=float(book.borrow_cost),
                 trade_count=int(book.n_trades),
                 rebalance_count=int(book.rebalance_events),
-                fill_count=sum(step.fill_count for step in step_evidence),
+                fill_count=int(book.fill_count),
                 target_change_count=_change_count(normalized_action_trace),
                 submitted_change_count=_change_count(submitted_trace),
                 executed_change_count=_change_count(executed_trace),

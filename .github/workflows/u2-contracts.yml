@@ -55,6 +55,7 @@ jobs:
           tests/integrations/test_universal_trade_rl_u2_replay.py
           tests/integrations/test_universal_trade_rl_u2_replay_runtime.py
           tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
+          tests/integrations/test_universal_trade_rl_u2_replay_rng_isolation.py
           tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
           tests/integrations/test_universal_trade_rl_u2_timeout_bootstrap.py
 
@@ -81,6 +82,7 @@ jobs:
           tests/integrations/test_universal_trade_rl_u2_replay.py
           tests/integrations/test_universal_trade_rl_u2_replay_runtime.py
           tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
+          tests/integrations/test_universal_trade_rl_u2_replay_rng_isolation.py
 
       - name: U2 fixed member orchestration contracts
         run: >-

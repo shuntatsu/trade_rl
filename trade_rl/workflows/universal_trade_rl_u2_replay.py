@@ -134,13 +134,9 @@ def _hard_risk_violation(
     fail_closed_tolerance: float,
 ) -> bool:
     return bool(
-        abs(projected_target)
-        > max_abs_weight * risk_scale + fail_closed_tolerance
+        abs(projected_target) > max_abs_weight * risk_scale + fail_closed_tolerance
         or abs(projected_target) > max_gross * risk_scale + fail_closed_tolerance
-        or (
-            risk_scale == 0.0
-            and abs(projected_target) > fail_closed_tolerance
-        )
+        or (risk_scale == 0.0 and abs(projected_target) > fail_closed_tolerance)
     )
 
 
@@ -553,8 +549,7 @@ class UniversalTradeRLU2ReplayEvidence:
         if self.execution_rejection_count != expected_rejections:
             raise ValueError("U2 replay execution rejection count is inconsistent")
         expected_fills = sum(
-            step.fill_count + step.liquidation_fill_count
-            for step in self.step_evidence
+            step.fill_count + step.liquidation_fill_count for step in self.step_evidence
         )
         if self.fill_count != expected_fills:
             raise ValueError("U2 replay fill count is inconsistent")

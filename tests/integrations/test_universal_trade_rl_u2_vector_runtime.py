@@ -82,7 +82,10 @@ def test_u2_timeout_preserves_terminal_observation_and_raw_economic_reward(
 
         vector_worker0 = vector.envs[0].unwrapped
         assert isinstance(vector_worker0, EpisodeRoutedSingleInstrumentEnv)
-        assert direct.active_episode_binding.digest == vector_worker0.active_episode_binding.digest
+        assert (
+            direct.active_episode_binding.digest
+            == vector_worker0.active_episode_binding.digest
+        )
 
         warmup_action = np.asarray([1.0], dtype=np.float32)
         _observation, _reward, terminated, truncated, _info = direct.step(warmup_action)

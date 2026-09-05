@@ -333,12 +333,25 @@ def test_u2_early_economic_termination_is_explicit_non_normal_evidence(
             )
             runtime = environment.base_env.universal_trade_runtime_snapshot()
             execution = info["hybrid_execution"]
+            executed_target = np.asarray(info["executed_target"], dtype=np.float64)
+            if np.allclose(executed_target, np.asarray([1.0], dtype=np.float64)):
+                requested_notional = float(getattr(execution, "requested_notional"))
+                rejected_count = int(getattr(execution, "rejected_count"))
+                filled_notional = float(getattr(execution, "filled_notional"))
+                fill_count = int(getattr(execution, "fill_count"))
+                order_events = tuple(
+                    repr(event) for event in getattr(execution, "order_events")
+                )
+                assert requested_notional > 0.0, order_events
+                assert rejected_count == 0, order_events
+                assert filled_notional > 0.0, order_events
+                assert fill_count > 0, order_events
             diagnostics.append(
                 {
                     "current_index": environment.base_env.current_index,
                     "current_weight": runtime.current_weight,
                     "pending_target_weight": runtime.pending_target_weight,
-                    "executed_target": np.asarray(info["executed_target"]).tolist(),
+                    "executed_target": executed_target.tolist(),
                     "effective_filled_weights": np.asarray(
                         info["effective_filled_weights"]
                     ).tolist(),

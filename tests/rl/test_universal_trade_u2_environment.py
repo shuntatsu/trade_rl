@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import cast
 
+import gymnasium as gym
 import numpy as np
 import pytest
 
@@ -523,7 +524,7 @@ def test_u2_environment_cached_symbol_reset_clears_policy_and_execution_state(
         environment.close()
 
 
-def test_u2_environment_many_deterministic_resets_cannot_cross_fit_end(
+def test_u2_environment_many_deterministic_reset_seeds_cannot_cross_fit_end(
     u2_environment_fixture: U2EnvironmentFixture,
 ) -> None:
     checked = 0
@@ -534,11 +535,32 @@ def test_u2_environment_many_deterministic_resets_cannot_cross_fit_end(
         )
         try:
             child = cast(UniversalTradeEnvironment, routed._reference_environment)
-            for offset in range(512):
-                _observation, info = child.reset(
-                    seed=environment_index * 10_000 + offset,
+            base = child.base_env
+            sampler = base._episode_sampler
+            valid_starts = sampler.valid_starts(
+                hours=base.config.episode_hours,
+                bars=base.config.episode_bars,
+            )
+            assert valid_starts.size > 0
+            for raw_start in valid_starts:
+                start_index = int(raw_start)
+                end_index = sampler.episode_end(
+                    start_index,
+                    hours=base.config.episode_hours,
+                    bars=base.config.episode_bars,
                 )
-                end_index = int(info["end_index"])
+                end_ns = _timestamp_ns(child.dataset.timestamps[end_index])
+                assert end_ns <= u2_environment_fixture.closure.fit_last_timestamp_ns
+
+            # UniversalTradeMarketEnv.reset() seeds Gym and immediately samples the
+            # episode contract before any later RNG draw. Exercise that exact boundary
+            # path for all preregistered stress seeds without paying for unrelated
+            # Book/reward-pre-roll/observation reconstruction on every sample.
+            for offset in range(512):
+                seed = environment_index * 10_000 + offset
+                gym.Env.reset(base, seed=seed)
+                start_index, end_index, _hours = base._sample_episode_contract({})
+                assert start_index >= base.minimum_start_index
                 end_ns = _timestamp_ns(child.dataset.timestamps[end_index])
                 assert end_ns <= u2_environment_fixture.closure.fit_last_timestamp_ns
                 checked += 1
@@ -546,6 +568,46 @@ def test_u2_environment_many_deterministic_resets_cannot_cross_fit_end(
             routed.close()
 
     assert checked == 1_024
+
+
+@pytest.mark.parametrize(
+    ("environment_index", "offset"),
+    ((0, 0), (0, 511), (1, 0), (1, 511)),
+)
+def test_u2_environment_direct_sampling_matches_real_reset_at_seed_edges(
+    u2_environment_fixture: U2EnvironmentFixture,
+    environment_index: int,
+    offset: int,
+) -> None:
+    sampling_environment = _build(
+        u2_environment_fixture,
+        environment_index=environment_index,
+    )
+    reset_environment = _build(
+        u2_environment_fixture,
+        environment_index=environment_index,
+    )
+    try:
+        sampling_child = cast(
+            UniversalTradeEnvironment, sampling_environment._reference_environment
+        )
+        reset_child = cast(
+            UniversalTradeEnvironment, reset_environment._reference_environment
+        )
+        assert sampling_child.dataset.dataset_id == reset_child.dataset.dataset_id
+        seed = environment_index * 10_000 + offset
+        gym.Env.reset(sampling_child.base_env, seed=seed)
+        expected_start, expected_end, _hours = (
+            sampling_child.base_env._sample_episode_contract({})
+        )
+        _observation, info = reset_child.reset(seed=seed)
+        assert info["start_index"] == expected_start
+        assert info["end_index"] == expected_end
+        end_ns = _timestamp_ns(reset_child.dataset.timestamps[expected_end])
+        assert end_ns <= u2_environment_fixture.closure.fit_last_timestamp_ns
+    finally:
+        sampling_environment.close()
+        reset_environment.close()
 
 
 def test_u2_environment_reward_remains_realized_u1_net_log_growth(

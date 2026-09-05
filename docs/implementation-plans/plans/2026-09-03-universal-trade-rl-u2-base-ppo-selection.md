@@ -308,6 +308,8 @@ Trade on symbol A, complete episode, route symbol B. B must start cash with zero
 
 Thousands of deterministic resets across seeds/env indices must never produce an episode stop after FIT end.
 
+**2026-09-06 verification implementation note:** full `UniversalTradeEnvironment.reset()` also reconstructs Book/Execution/Reward state, replays reward pre-roll, and builds observations after the episode contract has already been sampled. Repeating that unrelated work for every boundary seed made the repository-wide coverage gate impractically slow without strengthening the FIT-leakage oracle. The acceptance criterion and sample count are unchanged: the test now (1) proves every sampler-valid start ends within FIT, (2) exercises the exact Gym-seed → `EpisodeContractSampler` boundary path for 1,024 deterministic seeds across env indices, and (3) cross-checks representative edge seeds against full real-U1 `reset()` results. This is a test-layer split only; U1 runtime/economics and the preregistered FIT boundary are unchanged.
+
 ### Step 6 — GREEN
 
 Implement only the adapter/factory needed to build U1 child environments from U2 source closure.

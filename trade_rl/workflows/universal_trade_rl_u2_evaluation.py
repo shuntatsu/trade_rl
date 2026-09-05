@@ -168,6 +168,16 @@ class UniversalTradeRLU2EvaluationScope:
         )
         if source_stop <= source_start:
             raise ValueError("U2 evaluation source common interval is empty")
+        expected_evaluation_dataset_digest = content_digest(
+            {
+                "dataset_id": self.source_dataset_digest,
+                "schema_version": DATASET_VIEW_SCHEMA,
+                "start": source_start,
+                "stop": source_stop,
+            }
+        )
+        if self.evaluation_dataset_digest != expected_evaluation_dataset_digest:
+            raise ValueError("U2 evaluation common-view dataset identity mismatch")
 
         tile_index = _non_negative_integer(self.tile_index, field="U2 tile index")
         outcome_start = _non_negative_integer(

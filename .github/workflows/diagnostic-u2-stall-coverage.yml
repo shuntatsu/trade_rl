@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           /usr/bin/time -v uv run pytest -vv -s --durations=0 \
-            --cov=trade_rl --cov-branch --cov-report=none \
+            --cov=trade_rl --cov-branch --cov-report=term --cov-fail-under=0 \
             tests/rl/test_universal_trade_u2_environment.py::test_u2_environment_rejects_child_with_post_fit_bar \
             2>&1 | tee coverage-target.log
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pytest
 
 from tests.rl.universal_trade_test_support import (
+    make_u1_base_env,
     make_u1_feature_specs,
     make_u1_market,
     make_u1_wrapper,
@@ -99,8 +100,11 @@ def _source(
     )
 
 
-@pytest.fixture(scope="module")
-def replay_fixture() -> ReplayIntegrationFixture:
+def _build_replay_fixture(
+    *,
+    development_funding_rate_value: float = 0.0,
+    development_funding_due_from: int | None = None,
+) -> ReplayIntegrationFixture:
     sources = {
         "BTCUSDT": make_u1_market(symbol="BTCUSDT", n_bars=_TOTAL_BARS),
         "SOLUSDT": make_u1_market(
@@ -108,6 +112,8 @@ def replay_fixture() -> ReplayIntegrationFixture:
             n_bars=_TOTAL_BARS,
             price_scale=1.2,
             feature_level=0.2,
+            funding_rate_value=development_funding_rate_value,
+            funding_due_from=development_funding_due_from,
         ),
     }
     first_ns = _timestamp_ns(sources["BTCUSDT"].timestamps[0])
@@ -246,6 +252,19 @@ def replay_fixture() -> ReplayIntegrationFixture:
     )
 
 
+@pytest.fixture(scope="module")
+def replay_fixture() -> ReplayIntegrationFixture:
+    return _build_replay_fixture()
+
+
+@pytest.fixture(scope="module")
+def economic_termination_replay_fixture() -> ReplayIntegrationFixture:
+    return _build_replay_fixture(
+        development_funding_rate_value=10.0,
+        development_funding_due_from=0,
+    )
+
+
 def _scope(
     fixture: ReplayIntegrationFixture, *, cell: str
 ) -> UniversalTradeRLU2EvaluationScope:
@@ -315,6 +334,29 @@ def test_u2_replay_rejects_u1_risk_generation_drift_before_stepping(
     replay_fixture.session.environment_factory = drifted_factory
     try:
         with pytest.raises(ValueError, match="U1|risk|contract|economic"):
+            replay_fixture.session._create_verified_environment(scope)
+    finally:
+        replay_fixture.session.environment_factory = original_factory
+
+
+def test_u2_replay_rejects_terminal_liquidation_drift_before_stepping(
+    replay_fixture: ReplayIntegrationFixture,
+) -> None:
+    scope = _scope(replay_fixture, cell="B")
+    original_factory = replay_fixture.session.environment_factory
+
+    def drifted_factory(dataset: MarketDataset) -> UniversalTradeEnvironment:
+        base = make_u1_base_env(dataset=dataset)
+        base.config = replace(base.config, liquidate_on_end=True)
+        return UniversalTradeEnvironment(
+            base,
+            contract=replay_fixture.policy_contract,
+            normalizer=replay_fixture.normalizer,
+        )
+
+    replay_fixture.session.environment_factory = drifted_factory
+    try:
+        with pytest.raises(ValueError, match="U1|contract|liquidat"):
             replay_fixture.session._create_verified_environment(scope)
     finally:
         replay_fixture.session.environment_factory = original_factory

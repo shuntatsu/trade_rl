@@ -139,6 +139,30 @@ def test_u2_time_partition_predeclares_non_overlapping_complete_720h_evaluation_
             assert left.stop_bar_index_exclusive == right.start_bar_index
 
 
+def test_u2_evaluation_tiles_define_outcome_bars_and_exact_720h_evaluation_range() -> (
+    None
+):
+    module = _module()
+    partition = module.build_universal_trade_rl_u2_time_partition(manifest=_manifest())
+
+    for window_name in (
+        "seen_time_probe",
+        "development_future_1",
+        "development_future_2",
+        "admission_future",
+    ):
+        for tile in partition.tiles_for(window_name):
+            evaluation_start, evaluation_stop = tile.evaluation_range
+
+            assert tile.decision_count == _EPISODE_BARS
+            assert evaluation_start == tile.start_bar_index - 1
+            assert evaluation_stop == tile.stop_bar_index_exclusive
+            assert evaluation_stop - evaluation_start - 1 == _EPISODE_BARS
+            assert tuple(range(evaluation_start + 1, evaluation_stop)) == tuple(
+                range(tile.start_bar_index, tile.stop_bar_index_exclusive)
+            )
+
+
 def test_u2_time_partition_round_trips_canonically() -> None:
     module = _module()
     partition = module.build_universal_trade_rl_u2_time_partition(manifest=_manifest())

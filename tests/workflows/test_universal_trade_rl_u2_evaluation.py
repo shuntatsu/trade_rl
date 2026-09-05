@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.artifacts import DATASET_VIEW_SCHEMA
 from trade_rl.domain.universal_trade_rl_universe import (
     UniversalTradeRLSymbolRole,
     UniversalTradeRLUniverseConfig,
@@ -63,20 +65,25 @@ def _fixture() -> U2EvaluationFixture:
         development_symbols=("SOLUSDT",),
         admission_symbols=("XRPUSDT",),
     )
+    definitions = (
+        ("BTCUSDT", "a", 0, 0),
+        ("ETHUSDT", "b", 10, 0),
+        ("SOLUSDT", "c", 5, 20),
+        ("XRPUSDT", "d", 0, 10),
+    )
     sources = tuple(
         UniversalTradeRLSymbolSource(
             symbol=symbol,
             dataset_digest=digest_char * 64,
-            first_timestamp_ns=_START_NS,
-            last_timestamp_ns=_START_NS + (_TOTAL_BARS - 1) * _STEP_NS,
-            row_count=_TOTAL_BARS,
+            first_timestamp_ns=_START_NS + start_offset * _STEP_NS,
+            last_timestamp_ns=(
+                _START_NS
+                + start_offset * _STEP_NS
+                + (_TOTAL_BARS - start_offset - end_trim - 1) * _STEP_NS
+            ),
+            row_count=_TOTAL_BARS - start_offset - end_trim,
         )
-        for symbol, digest_char in (
-            ("BTCUSDT", "a"),
-            ("ETHUSDT", "b"),
-            ("SOLUSDT", "c"),
-            ("XRPUSDT", "d"),
-        )
+        for symbol, digest_char, start_offset, end_trim in definitions
     )
     manifest = build_universal_trade_rl_universe_manifest(
         config=config, sources=sources
@@ -197,3 +204,36 @@ def test_u2_development_scope_closure_matches_preregistered_a_through_d_cells() 
             assert scope.decision_count == tile.decision_count
 
     assert len(closure.digest) == 64
+
+
+def test_u2_development_scopes_bind_symbol_specific_common_interval_view_identity() -> (
+    None
+):
+    fixture = _fixture()
+    module = _module()
+    closure = module.build_universal_trade_rl_u2_development_scope_closure(
+        manifest=fixture.manifest,
+        time_partition=fixture.partition,
+        u2_contract=fixture.contract,
+    )
+
+    for scope in closure.scopes:
+        entry = fixture.manifest.entry_for(scope.concrete_symbol)
+        offset_ns = fixture.partition.common_first_timestamp_ns - entry.first_timestamp_ns
+        assert offset_ns >= 0
+        assert offset_ns % _STEP_NS == 0
+        view_start = offset_ns // _STEP_NS
+        view_stop = view_start + fixture.partition.common_bar_count
+        expected_view_digest = content_digest(
+            {
+                "dataset_id": entry.dataset_digest,
+                "schema_version": DATASET_VIEW_SCHEMA,
+                "start": view_start,
+                "stop": view_stop,
+            }
+        )
+
+        assert scope.evaluation_source_range == (view_start, view_stop)
+        assert scope.evaluation_dataset_digest == expected_view_digest
+        tile = fixture.partition.tiles_for(scope.source_window)[scope.tile_index]
+        assert scope.evaluation_range == tile.evaluation_range

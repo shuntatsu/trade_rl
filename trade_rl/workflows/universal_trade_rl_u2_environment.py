@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
 from typing import Any
+from weakref import WeakValueDictionary
 
 import numpy as np
 
@@ -700,6 +701,9 @@ class UniversalTradeRLU2EnvironmentFactory:
         self._fit_datasets = dict(fit_datasets)
         self._bindings = tuple(bindings)
         self._environment_generation_digest = generation_digest
+        self._issued_u1_environments: WeakValueDictionary[
+            int, UniversalTradeEnvironment
+        ] = WeakValueDictionary()
 
     @property
     def bindings(self) -> tuple[InstrumentDatasetBinding, ...]:
@@ -726,13 +730,26 @@ class UniversalTradeRLU2EnvironmentFactory:
             raise ValueError("U2 environment index must be in the fixed range 0..7")
         return resolved
 
+    def _fresh_u1_environment(self, dataset: MarketDataset) -> UniversalTradeEnvironment:
+        environment = self._u1_environment_factory(dataset)
+        object_id = id(environment)
+        existing = self._issued_u1_environments.get(object_id)
+        if existing is environment:
+            raise ValueError(
+                "U2 high-level factory requires a fresh mutable U1 environment per worker"
+            )
+        if existing is not None:
+            raise RuntimeError("U2 high-level factory observed a live object-id collision")
+        self._issued_u1_environments[object_id] = environment
+        return environment
+
     def _create(self, environment_index: int) -> EpisodeRoutedSingleInstrumentEnv:
         resolved_index = self._require_environment_index(environment_index)
 
         def environment_factory(
             binding: InstrumentDatasetBinding,
         ) -> UniversalTradeEnvironment:
-            return self._u1_environment_factory(
+            return self._fresh_u1_environment(
                 self._fit_datasets[binding.concrete_symbol]
             )
 

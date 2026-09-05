@@ -4,6 +4,8 @@
 >
 > Production: **NO-GO**  
 > Real U2 training: **NO-GO until real production-candidate U0/U1 freeze + fresh stack verification**
+>
+> **2026-09-04 mechanics amendment:** Task 4-6 source/FIT/routing/vector identity details are superseded by `../specs/2026-09-04-universal-trade-rl-u2-source-fit-routing-identity-amendment.md` and `../../../superpowers/plans/2026-09-04-universal-trade-rl-u2-source-fit-routing-identity.md`. Economic preregistration and Selection thresholds are unchanged.
 
 ## 0. Quality contract
 

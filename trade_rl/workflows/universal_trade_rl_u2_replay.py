@@ -96,10 +96,12 @@ class UniversalTradeRLU2DevelopmentReplaySession:
         init=False,
         repr=False,
     )
-    _issued_base_environments: WeakValueDictionary[int, UniversalTradeMarketEnv] = field(
-        default_factory=WeakValueDictionary,
-        init=False,
-        repr=False,
+    _issued_base_environments: WeakValueDictionary[int, UniversalTradeMarketEnv] = (
+        field(
+            default_factory=WeakValueDictionary,
+            init=False,
+            repr=False,
+        )
     )
 
     @property
@@ -108,7 +110,9 @@ class UniversalTradeRLU2DevelopmentReplaySession:
 
     @property
     def evaluation_dataset_ids(self) -> tuple[tuple[str, str], ...]:
-        return tuple((symbol, dataset.dataset_id) for symbol, dataset in self.datasets.items())
+        return tuple(
+            (symbol, dataset.dataset_id) for symbol, dataset in self.datasets.items()
+        )
 
     def scope(self, scope_digest: str) -> UniversalTradeRLU2EvaluationScope:
         require_sha256(scope_digest, field="U2 replay scope digest")
@@ -127,7 +131,9 @@ class UniversalTradeRLU2DevelopmentReplaySession:
             raise TypeError("U2 replay requires an evaluation scope")
         canonical = self.scope(scope.digest)
         if canonical != scope:
-            raise ValueError("U2 replay scope identity drifted from the canonical closure")
+            raise ValueError(
+                "U2 replay scope identity drifted from the canonical closure"
+            )
         return canonical
 
     def _create_verified_environment(
@@ -145,20 +151,28 @@ class UniversalTradeRLU2DevelopmentReplaySession:
 
         environment = self.environment_factory(dataset)
         if not isinstance(environment, UniversalTradeEnvironment):
-            raise TypeError("U2 replay environment factory must return UniversalTradeEnvironment")
+            raise TypeError(
+                "U2 replay environment factory must return UniversalTradeEnvironment"
+            )
 
         object_id = id(environment)
         existing = self._issued_environments.get(object_id)
         if existing is environment:
-            raise ValueError("U2 replay requires a fresh mutable U1 environment per variant")
+            raise ValueError(
+                "U2 replay requires a fresh mutable U1 environment per variant"
+            )
         if existing is not None:
-            raise RuntimeError("U2 replay observed a live U1 environment object-id collision")
+            raise RuntimeError(
+                "U2 replay observed a live U1 environment object-id collision"
+            )
 
         base_environment = environment.base_env
         base_id = id(base_environment)
         existing_base = self._issued_base_environments.get(base_id)
         if existing_base is base_environment:
-            raise ValueError("U2 replay requires a fresh mutable U1 base environment per variant")
+            raise ValueError(
+                "U2 replay requires a fresh mutable U1 base environment per variant"
+            )
         if existing_base is not None:
             raise RuntimeError("U2 replay observed a live U1 base object-id collision")
 

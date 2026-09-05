@@ -45,3 +45,47 @@ def test_u2_replay_rejects_shared_executor_rng_before_stepping(
         replay_fixture.session.environment_factory = original_factory
         first_environment.close()
         second_environment.close()
+
+
+@pytest.mark.parametrize(
+    "component_name",
+    ("episode_rng", "reward_tracker", "reward_history_cache"),
+)
+def test_u2_replay_rejects_shared_episode_reward_state_before_stepping(
+    replay_fixture: ReplayIntegrationFixture,
+    component_name: str,
+) -> None:
+    scope = _scope(replay_fixture, cell="B")
+    dataset = replay_fixture.session.datasets[scope.concrete_symbol]
+    first_environment = make_u1_wrapper(
+        dataset=dataset,
+        contract=replay_fixture.policy_contract,
+        normalizer=replay_fixture.normalizer,
+    )
+    second_environment = make_u1_wrapper(
+        dataset=dataset,
+        contract=replay_fixture.policy_contract,
+        normalizer=replay_fixture.normalizer,
+    )
+    first_base = first_environment.base_env
+    second_base = second_environment.base_env
+    if component_name == "episode_rng":
+        second_base._np_random = first_base.np_random
+    elif component_name == "reward_tracker":
+        second_base.reward_tracker = first_base.reward_tracker
+    elif component_name == "reward_history_cache":
+        second_base._reward_history_cache = first_base._reward_history_cache
+    else:  # pragma: no cover - parametrization is closed above
+        raise AssertionError(f"unexpected component: {component_name}")
+
+    issued = iter((first_environment, second_environment))
+    original_factory = replay_fixture.session.environment_factory
+    replay_fixture.session.environment_factory = lambda _dataset: next(issued)
+    try:
+        replay_fixture.session._create_verified_environment(scope)
+        with pytest.raises(ValueError, match="reuse|shared|fresh|mutable|random|RNG"):
+            replay_fixture.session._create_verified_environment(scope)
+    finally:
+        replay_fixture.session.environment_factory = original_factory
+        first_environment.close()
+        second_environment.close()

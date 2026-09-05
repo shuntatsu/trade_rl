@@ -219,7 +219,9 @@ def test_u2_development_scopes_bind_symbol_specific_common_interval_view_identit
 
     for scope in closure.scopes:
         entry = fixture.manifest.entry_for(scope.concrete_symbol)
-        offset_ns = fixture.partition.common_first_timestamp_ns - entry.first_timestamp_ns
+        offset_ns = (
+            fixture.partition.common_first_timestamp_ns - entry.first_timestamp_ns
+        )
         assert offset_ns >= 0
         assert offset_ns % _STEP_NS == 0
         view_start = offset_ns // _STEP_NS

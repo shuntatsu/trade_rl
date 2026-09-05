@@ -6,9 +6,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
 import pytest
 
-from tests.rl.test_universal_trade_u2_environment import U2EnvironmentFixture
+from tests.rl.test_universal_trade_u2_environment import (
+    U2EnvironmentFixture,
+    _active_child,
+    _assert_cash_runtime,
+)
 from tests.rl.universal_trade_test_support import make_u1_wrapper
 from tests.workflows.test_universal_trade_rl_u2_contract import _fixture
 from trade_rl.artifacts.hashing import content_digest
@@ -218,6 +223,84 @@ def test_u2_high_level_factory_materializes_sources_once_and_reuses_fit_datasets
     finally:
         worker0.close()
         worker1.close()
+
+
+def test_u2_high_level_factory_workers_do_not_share_mutable_state(
+    u2_environment_fixture: U2EnvironmentFixture,
+) -> None:
+    factory, _closure, _locators, _source_loads, _child_builds = _construct_factory(
+        u2_environment_fixture
+    )
+    worker0 = cast(EpisodeRoutedSingleInstrumentEnv, factory())
+    worker1 = cast(EpisodeRoutedSingleInstrumentEnv, factory.for_environment_index(1)())
+    try:
+        worker0.reset(seed=factory.run_seed)
+        worker1.reset(seed=factory.run_seed + 1)
+        _assert_cash_runtime(_active_child(worker0))
+        _assert_cash_runtime(_active_child(worker1))
+
+        worker0.step(np.asarray([1.0], dtype=np.float32))
+
+        contaminated = _active_child(worker0).base_env.universal_trade_runtime_snapshot()
+        assert contaminated.previous_action == pytest.approx(1.0)
+        _assert_cash_runtime(_active_child(worker1))
+    finally:
+        worker0.close()
+        worker1.close()
+
+
+def test_u2_high_level_factory_rejects_mutable_u1_reuse_across_workers(
+    u2_environment_fixture: U2EnvironmentFixture,
+) -> None:
+    (
+        contract,
+        closure,
+        locators,
+        source_loader,
+        _source_loads,
+        _good_factory,
+        _child_builds,
+    ) = _build_factory_inputs(u2_environment_fixture)
+    issued: list[UniversalTradeEnvironment] = []
+    calls = 0
+
+    def reusing_factory(dataset: MarketDataset) -> UniversalTradeEnvironment:
+        nonlocal calls
+        calls += 1
+        if calls == len(closure.sources) + 1:
+            return issued[0]
+        environment = make_u1_wrapper(
+            dataset=dataset,
+            contract=u2_environment_fixture.policy_contract,
+            normalizer=u2_environment_fixture.normalizer,
+        )
+        issued.append(environment)
+        return environment
+
+    factory = _factory_class()(
+        u2_contract=contract,
+        source_closure=closure,
+        artifact_locators=locators,
+        u1_contract=u2_environment_fixture.u1_contract,
+        policy_contract=u2_environment_fixture.policy_contract,
+        normalizer=u2_environment_fixture.normalizer,
+        u1_environment_factory=reusing_factory,
+        run_seed=0,
+        source_artifact_loader=source_loader,
+    )
+    worker0 = cast(EpisodeRoutedSingleInstrumentEnv, factory())
+    worker1: EpisodeRoutedSingleInstrumentEnv | None = None
+    try:
+        with pytest.raises(ValueError, match="reuse|shared|mutable|fresh"):
+            worker1 = cast(
+                EpisodeRoutedSingleInstrumentEnv,
+                factory.for_environment_index(1)(),
+            )
+        worker0.reset(seed=factory.run_seed)
+    finally:
+        if worker1 is not None:
+            worker1.close()
+        worker0.close()
 
 
 def test_u2_high_level_factory_call_matches_fresh_worker_zero(

@@ -340,6 +340,12 @@ def test_u2_replay_rejects_reused_mutable_u1_environment_before_stepping(
         "shadow_order_book",
         "action_diagnostics",
         "previous_action",
+        "pending_hybrid_target",
+        "pending_shadow_target",
+        "pending_hybrid_reduce_only_mask",
+        "next_hybrid_reduce_only_mask",
+        "position_age",
+        "execution_state",
     ),
 )
 def test_u2_replay_rejects_shared_mutable_runtime_roots_before_stepping(
@@ -376,6 +382,26 @@ def test_u2_replay_rejects_shared_mutable_runtime_roots_before_stepping(
         second_base._action_diagnostics = first_base._action_diagnostics
     elif component_name == "previous_action":
         second_base._previous_action = first_base._previous_action
+    elif component_name == "pending_hybrid_target":
+        shared_target = np.asarray([0.25], dtype=np.float64)
+        first_base._pending_hybrid_target = shared_target
+        second_base._pending_hybrid_target = shared_target
+    elif component_name == "pending_shadow_target":
+        shared_target = np.asarray([-0.25], dtype=np.float64)
+        first_base._pending_shadow_target = shared_target
+        second_base._pending_shadow_target = shared_target
+    elif component_name == "pending_hybrid_reduce_only_mask":
+        shared_mask = np.asarray([True], dtype=np.bool_)
+        first_base._pending_hybrid_reduce_only_mask = shared_mask
+        second_base._pending_hybrid_reduce_only_mask = shared_mask
+    elif component_name == "next_hybrid_reduce_only_mask":
+        shared_mask = np.asarray([False], dtype=np.bool_)
+        first_base._next_hybrid_reduce_only_mask = shared_mask
+        second_base._next_hybrid_reduce_only_mask = shared_mask
+    elif component_name == "position_age":
+        second_base._position_age = first_base._position_age
+    elif component_name == "execution_state":
+        second_base._execution_state = first_base._execution_state
     else:  # pragma: no cover - parametrization is closed above
         raise AssertionError(f"unexpected component: {component_name}")
 

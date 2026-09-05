@@ -28,9 +28,6 @@ from trade_rl.workflows.universal_trade_rl_u2_preflight import (
     U2TrainingSource,
     U2TrainingSourceClosure,
 )
-from trade_rl.workflows.universal_trade_rl_u2_training import (
-    UniversalTradeRLU2SeedTrainingPlan,
-)
 
 _ENVIRONMENT_DIGEST = content_digest({"fixture": "u2-training-environment"})
 

@@ -241,7 +241,9 @@ def test_u2_high_level_factory_workers_do_not_share_mutable_state(
 
         worker0.step(np.asarray([1.0], dtype=np.float32))
 
-        contaminated = _active_child(worker0).base_env.universal_trade_runtime_snapshot()
+        contaminated = _active_child(
+            worker0
+        ).base_env.universal_trade_runtime_snapshot()
         assert contaminated.previous_action == pytest.approx(1.0)
         _assert_cash_runtime(_active_child(worker1))
     finally:

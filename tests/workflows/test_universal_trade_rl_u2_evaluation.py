@@ -78,7 +78,9 @@ def _fixture() -> U2EvaluationFixture:
             ("XRPUSDT", "d"),
         )
     )
-    manifest = build_universal_trade_rl_universe_manifest(config=config, sources=sources)
+    manifest = build_universal_trade_rl_universe_manifest(
+        config=config, sources=sources
+    )
     partition = build_universal_trade_rl_u2_time_partition(manifest=manifest)
     u1_contract = UniversalTradeRLU1Contract(
         universe_manifest_digest=manifest.digest,
@@ -188,7 +190,9 @@ def test_u2_development_scope_closure_matches_preregistered_a_through_d_cells() 
             assert scope.source_window == window_name
             assert scope.source_dataset_digest == entry.dataset_digest
             assert scope.outcome_start_bar_index == tile.start_bar_index
-            assert scope.outcome_stop_bar_index_exclusive == tile.stop_bar_index_exclusive
+            assert (
+                scope.outcome_stop_bar_index_exclusive == tile.stop_bar_index_exclusive
+            )
             assert scope.evaluation_range == tile.evaluation_range
             assert scope.decision_count == tile.decision_count
 

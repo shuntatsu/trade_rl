@@ -189,7 +189,10 @@ def train_universal_trade_rl_u2_seed(
 
     probe = environment_factory()
     try:
-        if probe.environment_digest != environment_factory.environment_generation_digest:
+        if (
+            probe.environment_digest
+            != environment_factory.environment_generation_digest
+        ):
             raise ValueError("U2 training environment generation mismatch")
     finally:
         probe.close()

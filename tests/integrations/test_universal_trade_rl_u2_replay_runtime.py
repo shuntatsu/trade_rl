@@ -10,8 +10,6 @@ import pytest
 from tests.integrations.test_universal_trade_rl_u2_replay import (
     ReplayIntegrationFixture,
     _scope,
-    economic_termination_replay_fixture,
-    replay_fixture,
 )
 from tests.rl.universal_trade_test_support import make_u1_base_env
 from trade_rl.artifacts.hashing import content_digest
@@ -22,6 +20,8 @@ from trade_rl.workflows.universal_trade_rl_u2_replay import (
     UniversalTradeRLU2ReplayRequest,
     UniversalTradeRLU2ReplayVariant,
 )
+
+pytest_plugins = ("tests.integrations.test_universal_trade_rl_u2_replay",)
 
 
 class DeterministicModelSpy:

@@ -52,7 +52,9 @@ def test_u2_replay_evidence_explicitly_binds_normative_scope_boundaries(
     assert evidence.evaluation_stop_bar_index == scope.evaluation_stop_bar_index
 
     assert evidence.evaluation_start_bar_index == evidence.outcome_start_bar_index - 1
-    assert evidence.evaluation_stop_bar_index == evidence.outcome_stop_bar_index_exclusive
+    assert (
+        evidence.evaluation_stop_bar_index == evidence.outcome_stop_bar_index_exclusive
+    )
     assert evidence.runtime_start_bar_index == evidence.evaluation_start_bar_index
     assert (
         evidence.runtime_end_bar_index == evidence.outcome_stop_bar_index_exclusive - 1

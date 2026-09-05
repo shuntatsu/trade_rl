@@ -90,9 +90,10 @@ A scope binds at minimum:
 - concrete symbol
 - symbol role
 - cell identity
-- window digest
-- episode start timestamp
-- episode stop timestamp
+- source window identity
+- tile index
+- outcome start/stop bar indices
+- evaluation start/stop bar indices
 - exact source/common-view dataset identity
 - execution/risk identity through the U1 contract
 - policy variant
@@ -119,17 +120,46 @@ The replay runner does not implement a second independent dataset loader. It del
 
 ## 8. Episode alignment
 
-For a target evaluation interval `[S, E)` expressed in decision-bar timestamps, the U1 environment reset starts at the immediately preceding state timestamp `S - one decision step`.
+Let the canonical outcome tile be:
 
-The frozen U1 episode is 720 hours at a 15-minute decision cadence:
+```text
+[O_start, O_stop)
+```
+
+where `O_stop - O_start == 2880` decision bars. The existing U2 scope contract defines:
+
+```text
+evaluation_start_bar_index = O_start - 1
+evaluation_stop_bar_index  = O_stop
+```
+
+`evaluation_stop_bar_index` is an **exclusive metadata boundary**. It is not the `UniversalTradeEnvironment` / `ResidualMarketEnv` runtime `end_index`.
+
+The U1 environment must reset with:
+
+```text
+start_idx = evaluation_start_bar_index = O_start - 1
+```
+
+Because the fixed U1 horizon is 720 hours at a 15-minute cadence, `EpisodeContractSampler` resolves the runtime episode end to:
+
+```text
+env.end_index = O_stop - 1
+```
+
+The first decision advances from `O_start - 1` to outcome bar `O_start`. The 2880th decision advances to outcome bar `O_stop - 1`. Therefore a normal complete replay must observe exactly:
 
 ```text
 720 h * 4 decisions/h = 2880 decisions
 ```
 
-For a normal complete U2 tile, replay must therefore observe exactly 2880 policy decisions and finish with the environment positioned at `E`.
+and finish with:
 
-The runner must verify the reset `start_index` and `end_index` against the scope timestamps rather than trusting arithmetic alone.
+```text
+env.current_index == env.end_index == O_stop - 1
+```
+
+The runner must verify the reset `start_index` and runtime `end_index` against these scope-derived values. It must never compare `env.current_index` directly with the exclusive `evaluation_stop_bar_index`.
 
 No caller may override `episode_hours`, `episode_bars`, initial state, or terminal accounting behavior.
 
@@ -195,14 +225,15 @@ This requirement is verified by integration tests, not assumed from factory stru
 
 Normal scope completion under U1 V1 must satisfy:
 
-- exact expected decision count
-- final `current_index` equals the scope stop position
+- exact expected decision count `scope.decision_count == 2880`
+- final `current_index == outcome_stop_bar_index_exclusive - 1`
+- final `current_index == runtime end_index`
 - `terminated == False`
 - `truncated == True`
 - terminal accounting mode is mark-to-market
 - no terminal liquidation
 
-Economic termination before the scope stop is not silently converted into a normal replay. It is retained as explicit evidence with its termination reason and shorter realized path, and the replay result marks the scope as not normally completed.
+Economic termination before the runtime end index is not silently converted into a normal replay. It is retained as explicit evidence with its termination reason and shorter realized path, and the replay result marks the scope as not normally completed.
 
 Infrastructure/code errors propagate as errors and must not be converted into economic evidence.
 
@@ -221,14 +252,16 @@ The evidence records at minimum:
 - U2 contract digest
 - scope digest / scope identity
 - concrete symbol and role
-- cell/window identity
-- dataset identity
+- cell / source-window / tile identity
+- source and common-view dataset identity
 - policy variant
 - candidate checkpoint digest where applicable
 
 ### Episode/runtime
 
-- reset/start/end indices or timestamps
+- outcome start/stop indices
+- evaluation start/exclusive-stop indices
+- resolved runtime start/end indices
 - observed decision count
 - normal-completion flag
 - terminated/truncated flags
@@ -289,7 +322,8 @@ Task 7C-1 must reject or explicitly surface at least:
 - policy-contract drift
 - environment factory returning shared mutable env instances
 - off-by-one reset alignment
-- unexpected episode end index
+- treating the exclusive evaluation stop as the runtime end index
+- unexpected runtime episode end index
 - wrong decision count on normal completion
 - normal tile ending as `terminated=True`
 - terminal liquidation on a normal time-limit completion
@@ -306,7 +340,8 @@ Required oracles include:
 
 - canonical closure digest and exact scope equality
 - loader call audit: zero calls before closure validation failure
-- reset `start_index` / `end_index`
+- reset `start_index`
+- resolved runtime `end_index == outcome_stop_bar_index_exclusive - 1`
 - environment `current_index`
 - exact decision count
 - `terminated` / `truncated`
@@ -337,6 +372,7 @@ Using synthetic source artifacts and an actual `UniversalTradeEnvironment`:
 - same-scope identity across all variants
 - fresh mutable environment state across variants
 - exact 2880-decision external truncation
+- exact runtime end index at `outcome_stop_bar_index_exclusive - 1`
 - no terminal liquidation on normal completion
 
 ### Falsification / regression
@@ -370,7 +406,7 @@ Task 7C-1 is not complete unless all of the following hold on the same final com
 3. real U1 environment semantics are used without runtime/economic mutation
 4. deterministic candidate and fixed cash/long/short variants are supported
 5. variant mutable state is isolated
-6. normal completion is exact 2880-decision external truncation with no terminal liquidation
+6. normal completion is exact 2880-decision external truncation ending at `outcome_stop_bar_index_exclusive - 1`, with no terminal liquidation
 7. economic early termination is explicit evidence
 8. raw evidence is immutable and content-addressed
 9. no gross metric claim is made without the separate gross-definition amendment

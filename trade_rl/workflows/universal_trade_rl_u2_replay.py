@@ -728,6 +728,8 @@ class UniversalTradeRLU2DevelopmentReplaySession:
         return (
             ("hybrid executor", base_environment.hybrid_executor),
             ("shadow executor", base_environment.shadow_executor),
+            ("hybrid executor RNG", base_environment.hybrid_executor._rng),
+            ("shadow executor RNG", base_environment.shadow_executor._rng),
             ("hybrid BookState", base_environment.hybrid),
             ("shadow BookState", base_environment.shadow),
             ("hybrid order state", base_environment.hybrid_order_book),

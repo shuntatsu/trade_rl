@@ -296,7 +296,9 @@ def test_u2_development_dataset_loader_rejects_unverified_source() -> None:
         )
 
 
-def test_u2_development_dataset_loader_rejects_missing_manifest_evaluation_symbol_before_numeric_load() -> None:
+def test_u2_development_dataset_loader_rejects_missing_manifest_evaluation_symbol_before_numeric_load() -> (
+    None
+):
     fixture = _fixture()
     incomplete_closure = replace(
         fixture.closure,

@@ -52,6 +52,7 @@ jobs:
           tests/rl/test_universal_trade_u2_shared_environment_identity.py
           tests/rl/test_universal_trade_u2_environment_factory.py
           tests/rl/test_universal_trade_u2_factory_lineage.py
+          tests/integrations/test_universal_trade_rl_u2_replay.py
           tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
           tests/integrations/test_universal_trade_rl_u2_timeout_bootstrap.py
 
@@ -71,6 +72,11 @@ jobs:
           tests/rl/test_universal_trade_u2_shared_environment_identity.py
           tests/rl/test_universal_trade_u2_environment_factory.py
           tests/rl/test_universal_trade_u2_factory_lineage.py
+
+      - name: U2 deterministic Development replay integration
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_universal_trade_rl_u2_replay.py
 
       - name: U2 fixed member orchestration contracts
         run: >-

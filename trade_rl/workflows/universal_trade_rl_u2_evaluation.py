@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from typing import Final
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.artifacts import DATASET_VIEW_SCHEMA
 from trade_rl.domain.common import require_sha256
 from trade_rl.domain.universal_trade_rl_universe import UniversalTradeRLSymbolRole
 from trade_rl.workflows.universal_trade_rl_u2_contract import UniversalTradeRLU2Contract
 from trade_rl.workflows.universal_trade_rl_u2_time_partition import (
+    U2_DECISION_STEP_NS,
     UniversalTradeRLU2TimePartition,
 )
 from trade_rl.workflows.universal_trade_rl_universe_access import (
@@ -75,6 +77,36 @@ def _non_negative_integer(value: object, *, field: str) -> int:
     return value
 
 
+def _common_interval_view_identity(
+    *,
+    source_dataset_digest: str,
+    source_first_timestamp_ns: int,
+    source_row_count: int,
+    time_partition: UniversalTradeRLU2TimePartition,
+) -> tuple[int, int, str]:
+    offset_ns = time_partition.common_first_timestamp_ns - source_first_timestamp_ns
+    if offset_ns < 0 or offset_ns % U2_DECISION_STEP_NS != 0:
+        raise ValueError("U2 Development source cannot align to the common 15m interval")
+    start = offset_ns // U2_DECISION_STEP_NS
+    stop = start + time_partition.common_bar_count
+    if stop > source_row_count:
+        raise ValueError("U2 Development common interval escapes the frozen source")
+    source_last_common_ns = (
+        source_first_timestamp_ns + (stop - 1) * U2_DECISION_STEP_NS
+    )
+    if source_last_common_ns != time_partition.common_last_timestamp_ns:
+        raise ValueError("U2 Development common interval endpoint drifted")
+    digest = content_digest(
+        {
+            "dataset_id": source_dataset_digest,
+            "schema_version": DATASET_VIEW_SCHEMA,
+            "start": start,
+            "stop": stop,
+        }
+    )
+    return start, stop, digest
+
+
 @dataclass(frozen=True, slots=True)
 class UniversalTradeRLU2EvaluationScope:
     """One immutable U2 symbol × time × tile Development evaluation scope."""
@@ -88,6 +120,9 @@ class UniversalTradeRLU2EvaluationScope:
     symbol_role: UniversalTradeRLSymbolRole
     concrete_symbol: str
     source_dataset_digest: str
+    evaluation_dataset_digest: str
+    evaluation_source_start_bar_index: int
+    evaluation_source_stop_bar_index_exclusive: int
     source_window: str
     tile_index: int
     outcome_start_bar_index: int
@@ -106,6 +141,7 @@ class UniversalTradeRLU2EvaluationScope:
             ("time_partition_digest", self.time_partition_digest),
             ("u1_contract_digest", self.u1_contract_digest),
             ("source_dataset_digest", self.source_dataset_digest),
+            ("evaluation_dataset_digest", self.evaluation_dataset_digest),
         ):
             require_sha256(value, field=f"U2 evaluation scope {field_name}")
 
@@ -121,6 +157,17 @@ class UniversalTradeRLU2EvaluationScope:
             raise ValueError("U2 evaluation scope Selection role does not match its cell")
         if not isinstance(self.concrete_symbol, str) or not self.concrete_symbol:
             raise ValueError("U2 evaluation scope concrete symbol must be non-empty")
+
+        source_start = _non_negative_integer(
+            self.evaluation_source_start_bar_index,
+            field="U2 evaluation source start bar index",
+        )
+        source_stop = _non_negative_integer(
+            self.evaluation_source_stop_bar_index_exclusive,
+            field="U2 evaluation source stop bar index",
+        )
+        if source_stop <= source_start:
+            raise ValueError("U2 evaluation source common interval is empty")
 
         tile_index = _non_negative_integer(self.tile_index, field="U2 tile index")
         outcome_start = _non_negative_integer(
@@ -147,6 +194,12 @@ class UniversalTradeRLU2EvaluationScope:
             raise ValueError("U2 evaluation scope terminal endpoint drifted")
         if evaluation_stop - evaluation_start - 1 != outcome_stop - outcome_start:
             raise ValueError("U2 evaluation scope decision count drifted")
+        common_bar_count = source_stop - source_start
+        if evaluation_stop > common_bar_count:
+            raise ValueError("U2 evaluation scope escapes its common-interval dataset")
+
+        object.__setattr__(self, "evaluation_source_start_bar_index", source_start)
+        object.__setattr__(self, "evaluation_source_stop_bar_index_exclusive", source_stop)
         object.__setattr__(self, "tile_index", tile_index)
 
         expected = content_digest(self.to_payload(include_digest=False))
@@ -164,6 +217,13 @@ class UniversalTradeRLU2EvaluationScope:
     def evaluation_range(self) -> tuple[int, int]:
         return (self.evaluation_start_bar_index, self.evaluation_stop_bar_index)
 
+    @property
+    def evaluation_source_range(self) -> tuple[int, int]:
+        return (
+            self.evaluation_source_start_bar_index,
+            self.evaluation_source_stop_bar_index_exclusive,
+        )
+
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
             "schema_version": self.schema_version,
@@ -176,6 +236,11 @@ class UniversalTradeRLU2EvaluationScope:
             "symbol_role": self.symbol_role.value,
             "concrete_symbol": self.concrete_symbol,
             "source_dataset_digest": self.source_dataset_digest,
+            "evaluation_dataset_digest": self.evaluation_dataset_digest,
+            "evaluation_source_start_bar_index": self.evaluation_source_start_bar_index,
+            "evaluation_source_stop_bar_index_exclusive": (
+                self.evaluation_source_stop_bar_index_exclusive
+            ),
             "source_window": self.source_window,
             "tile_index": self.tile_index,
             "outcome_start_bar_index": self.outcome_start_bar_index,
@@ -220,7 +285,10 @@ class UniversalTradeRLU2DevelopmentScopeClosure:
             for scope in scopes
         ):
             raise ValueError("U2 Development scope identity closure drifted")
-        if any(scope.cell == "E" or scope.source_window == "admission_future" for scope in scopes):
+        if any(
+            scope.cell == "E" or scope.source_window == "admission_future"
+            for scope in scopes
+        ):
             raise PermissionError("U2 Development scope closure must exclude Admission")
         order = {cell: index for index, cell in enumerate(_CELL_ORDER)}
         expected_order = tuple(
@@ -294,6 +362,14 @@ def build_universal_trade_rl_u2_development_scope_closure(
         tiles = time_partition.tiles_for(window_name)
         for symbol in symbols_by_role[role]:
             entry = manifest.entry_for(symbol)
+            source_start, source_stop, evaluation_dataset_digest = (
+                _common_interval_view_identity(
+                    source_dataset_digest=entry.dataset_digest,
+                    source_first_timestamp_ns=entry.first_timestamp_ns,
+                    source_row_count=entry.row_count,
+                    time_partition=time_partition,
+                )
+            )
             for tile in tiles:
                 evaluation_start, evaluation_stop = tile.evaluation_range
                 scopes.append(
@@ -307,6 +383,9 @@ def build_universal_trade_rl_u2_development_scope_closure(
                         symbol_role=role,
                         concrete_symbol=symbol,
                         source_dataset_digest=entry.dataset_digest,
+                        evaluation_dataset_digest=evaluation_dataset_digest,
+                        evaluation_source_start_bar_index=source_start,
+                        evaluation_source_stop_bar_index_exclusive=source_stop,
                         source_window=window_name,
                         tile_index=tile.tile_index,
                         outcome_start_bar_index=tile.start_bar_index,

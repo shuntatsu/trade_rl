@@ -40,6 +40,7 @@ jobs:
         run: >-
           uv run ruff format --check --diff
           tests/workflows/test_universal_trade_rl_u2_time_partition.py
+          tests/workflows/test_universal_trade_rl_u2_evaluation.py
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
           tests/workflows/test_universal_trade_rl_u2_training_runtime.py
@@ -52,10 +53,11 @@ jobs:
           tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
           tests/integrations/test_universal_trade_rl_u2_timeout_bootstrap.py
 
-      - name: U2 source FIT binding seed generation and factory contracts
+      - name: U2 source FIT binding seed generation factory and Development scope contracts
         run: >-
           uv run pytest -q
           tests/workflows/test_universal_trade_rl_u2_time_partition.py
+          tests/workflows/test_universal_trade_rl_u2_evaluation.py
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_exposes_exact_fit_indices
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -153,6 +154,24 @@ def test_u2_replay_evidence_retains_step_aligned_lifecycle_inputs(
     assert payload["hard_risk_violation_count"] == hard_risk_violation_count
     assert payload["execution_rejection_count"] == execution_rejection_count
     assert payload["fill_count"] == fill_count
+
+
+def test_u2_replay_evidence_digest_binds_step_level_risk_inputs(
+    evidence_fixture: ReplayIntegrationFixture,
+) -> None:
+    _scope_value, evidence = _cash_evidence(evidence_fixture)
+    first_step = evidence.step_evidence[0]
+    changed_step = replace(
+        first_step,
+        risk_reasons=(*first_step.risk_reasons, "digest-falsification"),
+    )
+    changed_steps = (changed_step, *evidence.step_evidence[1:])
+
+    changed = replace(evidence, step_evidence=changed_steps, digest="")
+    assert changed.digest != evidence.digest
+
+    with pytest.raises(ValueError, match="digest"):
+        replace(evidence, step_evidence=changed_steps)
 
 
 def test_u2_replay_evidence_retains_emergency_liquidation_execution_inputs() -> None:

@@ -296,3 +296,25 @@ def test_u2_replay_rejects_reused_mutable_u1_environment_before_stepping(
             first.close()
         else:
             shared.close()
+
+
+def test_u2_replay_rejects_u1_risk_generation_drift_before_stepping(
+    replay_fixture: ReplayIntegrationFixture,
+) -> None:
+    scope = _scope(replay_fixture, cell="B")
+    original_factory = replay_fixture.session.environment_factory
+
+    def drifted_factory(dataset: MarketDataset) -> UniversalTradeEnvironment:
+        return make_u1_wrapper(
+            dataset=dataset,
+            max_abs_weight=0.5,
+            contract=replay_fixture.policy_contract,
+            normalizer=replay_fixture.normalizer,
+        )
+
+    replay_fixture.session.environment_factory = drifted_factory
+    try:
+        with pytest.raises(ValueError, match="U1|risk|contract|economic"):
+            replay_fixture.session._create_verified_environment(scope)
+    finally:
+        replay_fixture.session.environment_factory = original_factory

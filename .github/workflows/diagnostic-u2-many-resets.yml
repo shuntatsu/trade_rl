@@ -1,0 +1,56 @@
+name: U2 Many Resets Timing Diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/u2-full-suite-stall-20260906
+
+permissions:
+  contents: read
+
+jobs:
+  many-resets:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [plain, coverage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Run many-resets timing
+        shell: bash
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          set -euo pipefail
+          if test "$MODE" = coverage; then
+            extra=(--cov=trade_rl --cov-branch --cov-report=term --cov-fail-under=0)
+          else
+            extra=()
+          fi
+          /usr/bin/time -v uv run pytest -vv -s --durations=0 "${extra[@]}" \
+            tests/rl/test_universal_trade_u2_environment.py::test_u2_environment_many_deterministic_resets_cannot_cross_fit_end \
+            2>&1 | tee "many-resets-${MODE}.log"
+
+      - name: Upload timing diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: u2-many-resets-${{ matrix.mode }}
+          path: many-resets-${{ matrix.mode }}.log
+          if-no-files-found: ignore
+          retention-days: 1

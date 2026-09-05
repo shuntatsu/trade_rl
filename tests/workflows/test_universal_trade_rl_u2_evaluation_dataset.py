@@ -294,3 +294,27 @@ def test_u2_development_dataset_loader_rejects_unverified_source() -> None:
             artifact_locators=fixture.locators,
             loader=lambda locator: by_locator[locator],
         )
+
+
+def test_u2_development_dataset_loader_rejects_missing_manifest_evaluation_symbol_before_numeric_load() -> None:
+    fixture = _fixture()
+    incomplete_closure = replace(
+        fixture.closure,
+        scopes=(fixture.closure.scopes[0],),
+        digest="",
+    )
+    calls = 0
+
+    def loader(_locator: object) -> MarketDataset:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("loader must not be called for incomplete scope closure")
+
+    with pytest.raises(ValueError, match="complete|closure|Development|symbol"):
+        _module().load_universal_trade_rl_u2_development_evaluation_datasets(
+            manifest=fixture.manifest,
+            scope_closure=incomplete_closure,
+            artifact_locators={"BTCUSDT": Path("btc-source")},
+            loader=loader,
+        )
+    assert calls == 0

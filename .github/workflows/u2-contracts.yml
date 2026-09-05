@@ -46,6 +46,7 @@ jobs:
           tests/rl/test_universal_trade_u2_generation_identity.py
           tests/rl/test_universal_trade_u2_shared_environment_identity.py
           tests/rl/test_universal_trade_u2_environment_factory.py
+          tests/rl/test_universal_trade_u2_factory_lineage.py
           tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
           tests/integrations/test_universal_trade_rl_u2_timeout_bootstrap.py
 
@@ -60,6 +61,7 @@ jobs:
           tests/rl/test_universal_trade_u2_generation_identity.py
           tests/rl/test_universal_trade_u2_shared_environment_identity.py
           tests/rl/test_universal_trade_u2_environment_factory.py
+          tests/rl/test_universal_trade_u2_factory_lineage.py
 
       - name: U2 maintained SB3 vector integration
         run: >-

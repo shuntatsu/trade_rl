@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import importlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from inspect import signature
 
 import pytest
 
@@ -130,15 +131,17 @@ def _fixture() -> U2EvaluationFixture:
     )
 
 
-def test_u2_development_scope_closure_matches_preregistered_a_through_d_cells() -> None:
-    fixture = _fixture()
-    module = _module()
-
-    closure = module.build_universal_trade_rl_u2_development_scope_closure(
+def _closure(fixture: U2EvaluationFixture):
+    return _module().build_universal_trade_rl_u2_development_scope_closure(
         manifest=fixture.manifest,
         time_partition=fixture.partition,
         u2_contract=fixture.contract,
     )
+
+
+def test_u2_development_scope_closure_matches_preregistered_a_through_d_cells() -> None:
+    fixture = _fixture()
+    closure = _closure(fixture)
 
     expected_cells = {
         "A": (UniversalTradeRLSymbolRole.TRAIN, "seen_time_probe", "diagnostic_only"),
@@ -210,12 +213,7 @@ def test_u2_development_scopes_bind_symbol_specific_common_interval_view_identit
     None
 ):
     fixture = _fixture()
-    module = _module()
-    closure = module.build_universal_trade_rl_u2_development_scope_closure(
-        manifest=fixture.manifest,
-        time_partition=fixture.partition,
-        u2_contract=fixture.contract,
-    )
+    closure = _closure(fixture)
 
     for scope in closure.scopes:
         entry = fixture.manifest.entry_for(scope.concrete_symbol)
@@ -239,3 +237,66 @@ def test_u2_development_scopes_bind_symbol_specific_common_interval_view_identit
         assert scope.evaluation_dataset_digest == expected_view_digest
         tile = fixture.partition.tiles_for(scope.source_window)[scope.tile_index]
         assert scope.evaluation_range == tile.evaluation_range
+
+
+def test_u2_evaluation_scope_rejects_spoofed_common_view_identity() -> None:
+    scope = _closure(_fixture()).scopes[0]
+
+    with pytest.raises(ValueError, match="view|dataset|identity"):
+        replace(scope, evaluation_dataset_digest="0" * 64, digest="")
+    with pytest.raises(ValueError, match="view|dataset|identity"):
+        replace(
+            scope,
+            evaluation_source_start_bar_index=(
+                scope.evaluation_source_start_bar_index + 1
+            ),
+            digest="",
+        )
+
+
+def test_u2_development_scope_closure_is_deterministic_and_metadata_only() -> None:
+    fixture = _fixture()
+    module = _module()
+    builder = module.build_universal_trade_rl_u2_development_scope_closure
+
+    first = builder(
+        manifest=fixture.manifest,
+        time_partition=fixture.partition,
+        u2_contract=fixture.contract,
+    )
+    second = builder(
+        manifest=fixture.manifest,
+        time_partition=fixture.partition,
+        u2_contract=fixture.contract,
+    )
+
+    assert first == second
+    assert first.digest == second.digest
+    assert tuple(signature(builder).parameters) == (
+        "manifest",
+        "time_partition",
+        "u2_contract",
+    )
+    with pytest.raises(TypeError):
+        builder(
+            manifest=fixture.manifest,
+            time_partition=fixture.partition,
+            u2_contract=fixture.contract,
+            artifact_locators={},
+        )
+
+
+def test_u2_development_scope_closure_rejects_partition_identity_drift() -> None:
+    fixture = _fixture()
+    drifted = replace(
+        fixture.partition,
+        universe_manifest_digest="0" * 64,
+        digest="",
+    )
+
+    with pytest.raises(ValueError, match="universe identity"):
+        _module().build_universal_trade_rl_u2_development_scope_closure(
+            manifest=fixture.manifest,
+            time_partition=drifted,
+            u2_contract=fixture.contract,
+        )

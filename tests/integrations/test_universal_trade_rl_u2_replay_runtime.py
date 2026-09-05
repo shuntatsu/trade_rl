@@ -10,6 +10,7 @@ import pytest
 from tests.integrations.test_universal_trade_rl_u2_replay import (
     ReplayIntegrationFixture,
     _scope,
+    economic_termination_replay_fixture,
     replay_fixture,
 )
 from tests.rl.universal_trade_test_support import make_u1_base_env
@@ -305,6 +306,26 @@ def test_u2_replay_passes_request_seed_exactly_to_u1_reset(
     assert issued
     assert observed_reset_seeds == [2]
     assert evidence.evaluation_seed == 2
+
+
+def test_u2_early_economic_termination_is_explicit_non_normal_evidence(
+    economic_termination_replay_fixture: ReplayIntegrationFixture,
+) -> None:
+    fixture = economic_termination_replay_fixture
+    scope = _scope(fixture, cell="B")
+    evidence = fixture.session.replay(
+        _request(
+            fixture,
+            variant=UniversalTradeRLU2ReplayVariant.CONSTANT_LONG,
+        )
+    )
+
+    assert evidence.normal_completion is False
+    assert evidence.terminated is True
+    assert evidence.truncated is False
+    assert evidence.termination_reason is not None
+    assert evidence.observed_decision_count < scope.decision_count
+    assert evidence.final_current_bar_index < evidence.runtime_end_bar_index
 
 
 def test_u2_candidate_replay_requires_model(

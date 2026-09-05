@@ -710,6 +710,10 @@ class UniversalTradeRLU2EnvironmentFactory:
         return self._environment_generation_digest
 
     @property
+    def source_closure_digest(self) -> str:
+        return self._source_closure.digest
+
+    @property
     def run_seed(self) -> int:
         return self._run_seed
 

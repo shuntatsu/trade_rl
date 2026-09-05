@@ -74,7 +74,9 @@ def test_u2_cash_replay_completes_exact_720h_external_truncation(
     assert len(evidence.normalized_action_trace) == scope.decision_count
     assert set(evidence.normalized_action_trace) == {0.0}
     assert len(evidence.realized_exposure_trace) == scope.decision_count
-    assert math.prod(1.0 + value for value in evidence.net_simple_returns) == pytest.approx(
+    assert math.prod(
+        1.0 + value for value in evidence.net_simple_returns
+    ) == pytest.approx(
         evidence.net_wealth_ratio,
         rel=0.0,
         abs=1e-10,

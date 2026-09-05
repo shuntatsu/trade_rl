@@ -39,6 +39,7 @@ jobs:
       - name: Verify U2 contract tests are formatted
         run: >-
           uv run ruff format --check --diff
+          tests/workflows/test_universal_trade_rl_u2_time_partition.py
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
           tests/workflows/test_universal_trade_rl_u2_training_runtime.py
@@ -54,6 +55,7 @@ jobs:
       - name: U2 source FIT binding seed generation and factory contracts
         run: >-
           uv run pytest -q
+          tests/workflows/test_universal_trade_rl_u2_time_partition.py
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_exposes_exact_fit_indices
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py

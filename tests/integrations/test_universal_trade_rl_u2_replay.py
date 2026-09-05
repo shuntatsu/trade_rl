@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 import pytest
@@ -210,9 +209,7 @@ def replay_fixture() -> ReplayIntegrationFixture:
         "BTCUSDT": "fixture://BTCUSDT",
         "SOLUSDT": "fixture://SOLUSDT",
     }
-    by_locator = {
-        locators[symbol]: dataset for symbol, dataset in sources.items()
-    }
+    by_locator = {locators[symbol]: dataset for symbol, dataset in sources.items()}
 
     def source_loader(locator: object) -> MarketDataset:
         return by_locator[str(locator)]
@@ -249,7 +246,9 @@ def replay_fixture() -> ReplayIntegrationFixture:
     )
 
 
-def _scope(fixture: ReplayIntegrationFixture, *, cell: str) -> UniversalTradeRLU2EvaluationScope:
+def _scope(
+    fixture: ReplayIntegrationFixture, *, cell: str
+) -> UniversalTradeRLU2EvaluationScope:
     return next(scope for scope in fixture.closure.scopes if scope.cell == cell)
 
 

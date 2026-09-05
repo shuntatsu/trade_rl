@@ -314,33 +314,47 @@ def test_u2_early_economic_termination_is_explicit_non_normal_evidence(
     fixture = economic_termination_replay_fixture
     scope = _scope(fixture, cell="B")
     environment = fixture.session._create_verified_environment(scope)
+    saw_fill = False
     try:
         fixture.session._reset_scope_environment(environment, scope, evaluation_seed=0)
-        cash_rates = environment.dataset.resolved_array("cash_rate")
-        expected_rate = -float(environment.dataset.periods_per_year)
-        assert cash_rates[scope.evaluation_start_bar_index + 1] == pytest.approx(
-            expected_rate
-        )
-        _obs, _reward, terminated, truncated, info = environment.step(
-            np.asarray([0.0], dtype=np.float32)
-        )
+        assert np.all(environment.dataset.resolved_array("fee_rate") == 0.25)
+        terminated = False
+        truncated = False
+        info: dict[str, Any] = {}
+        for _ in range(4):
+            _obs, _reward, terminated, truncated, info = environment.step(
+                np.asarray([1.0], dtype=np.float32)
+            )
+            execution = info["hybrid_execution"]
+            assert execution.rejected_count == 0
+            if execution.fill_count > 0:
+                saw_fill = True
+                assert execution.requested_notional > 0.0
+                assert execution.filled_notional > 0.0
+            if terminated or truncated:
+                break
+        assert saw_fill is True
         assert terminated is True
         assert truncated is False
-        assert info["termination_reason"] == "insolvency"
+        assert info["termination_reason"] == "drawdown_stop"
+        assert math.isfinite(environment.base_env.hybrid.portfolio_value)
+        assert environment.base_env.hybrid.portfolio_value > 0.0
     finally:
         environment.close()
 
     evidence = fixture.session.replay(
         _request(
             fixture,
-            variant=UniversalTradeRLU2ReplayVariant.CASH,
+            variant=UniversalTradeRLU2ReplayVariant.CONSTANT_LONG,
         )
     )
 
     assert evidence.normal_completion is False
     assert evidence.terminated is True
     assert evidence.truncated is False
-    assert evidence.termination_reason == "insolvency"
+    assert evidence.termination_reason == "drawdown_stop"
+    assert math.isfinite(evidence.final_net_portfolio_value)
+    assert evidence.final_net_portfolio_value > 0.0
     assert evidence.observed_decision_count < scope.decision_count
     assert evidence.final_current_bar_index < evidence.runtime_end_bar_index
 

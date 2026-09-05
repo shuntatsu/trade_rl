@@ -296,9 +296,7 @@ def economic_termination_replay_fixture() -> ReplayIntegrationFixture:
     )
     scope = _scope(fixture, cell="B")
     assert (
-        scope.evaluation_source_start_bar_index
-        + scope.evaluation_start_bar_index
-        + 1
+        scope.evaluation_source_start_bar_index + scope.evaluation_start_bar_index + 1
         == source_bar_index
     )
     return fixture

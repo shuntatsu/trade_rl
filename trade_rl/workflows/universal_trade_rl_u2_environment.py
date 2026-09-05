@@ -730,7 +730,9 @@ class UniversalTradeRLU2EnvironmentFactory:
             raise ValueError("U2 environment index must be in the fixed range 0..7")
         return resolved
 
-    def _fresh_u1_environment(self, dataset: MarketDataset) -> UniversalTradeEnvironment:
+    def _fresh_u1_environment(
+        self, dataset: MarketDataset
+    ) -> UniversalTradeEnvironment:
         environment = self._u1_environment_factory(dataset)
         object_id = id(environment)
         existing = self._issued_u1_environments.get(object_id)
@@ -739,7 +741,9 @@ class UniversalTradeRLU2EnvironmentFactory:
                 "U2 high-level factory requires a fresh mutable U1 environment per worker"
             )
         if existing is not None:
-            raise RuntimeError("U2 high-level factory observed a live object-id collision")
+            raise RuntimeError(
+                "U2 high-level factory observed a live object-id collision"
+            )
         self._issued_u1_environments[object_id] = environment
         return environment
 

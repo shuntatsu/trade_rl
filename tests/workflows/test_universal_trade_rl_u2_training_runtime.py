@@ -319,7 +319,9 @@ def test_u2_training_rejects_lineage_drift_before_backend_creation(
             "seed",
         ),
         (
-            _Factory(source_closure_digest=content_digest({"fixture": "wrong-closure"})),
+            _Factory(
+                source_closure_digest=content_digest({"fixture": "wrong-closure"})
+            ),
             plan,
             "source|closure",
         ),
@@ -365,7 +367,9 @@ def test_u2_training_rejects_probe_generation_mismatch_and_closes_probe(
     fixture = _runtime_fixture()
     factory = _Factory(
         source_closure_digest=fixture.closure.digest,
-        probe_environment_digest=content_digest({"fixture": "wrong-probe-generation"}),
+        probe_environment_digest=content_digest(
+            {"fixture": "wrong-probe-generation"}
+        ),
     )
     output_path = tmp_path / "policy.zip"
     backend = _Backend(

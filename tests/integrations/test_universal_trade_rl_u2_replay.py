@@ -122,6 +122,7 @@ def _build_replay_fixture(
         symbol="SOLUSDT",
         n_bars=_TOTAL_BARS,
         price_scale=1.2,
+        price_drift=0.0 if development_execution_cost_exhaustion else 1e-4,
         feature_level=0.2,
     )
     if development_execution_cost_exhaustion:

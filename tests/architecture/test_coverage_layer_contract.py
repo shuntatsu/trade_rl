@@ -37,6 +37,20 @@ def test_core_and_nautilus_coverage_have_separate_fail_closed_scopes() -> None:
     assert report.getint("precision") == 2
 
 
+def test_core_ci_explicitly_enforces_configured_global_coverage_threshold() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    fail_under = project["tool"]["coverage"]["report"]["fail_under"]
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+    coverage_step = workflow.split("      - name: Tests and coverage\n", maxsplit=1)[
+        1
+    ].split("      - name: Upload pytest diagnostics\n", maxsplit=1)[0]
+
+    assert "set -o pipefail" in coverage_step
+    assert f"--cov-fail-under={fail_under}" in coverage_step
+
+
 def test_nautilus_capability_keeps_native_probes_isolated_under_coverage() -> None:
     workflow = (ROOT / ".github" / "workflows" / "nautilus-capability.yml").read_text(
         encoding="utf-8"

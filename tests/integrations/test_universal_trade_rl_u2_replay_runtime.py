@@ -351,8 +351,7 @@ def test_u2_early_economic_termination_is_explicit_non_normal_evidence(
                     "expired_count": getattr(execution, "expired_count", None),
                     "fill_ratio": getattr(execution, "fill_ratio", None),
                     "order_events": tuple(
-                        repr(event)
-                        for event in getattr(execution, "order_events", ())
+                        repr(event) for event in getattr(execution, "order_events", ())
                     ),
                     "active_orders": tuple(
                         repr(order)

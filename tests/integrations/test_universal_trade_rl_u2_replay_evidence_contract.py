@@ -171,7 +171,9 @@ def test_u2_replay_evidence_retains_emergency_liquidation_execution_inputs() -> 
     assert evidence.termination_reason == "drawdown_stop"
     assert evidence.trade_count == evidence.fill_count
 
-    emergency_steps = [step for step in evidence.step_evidence if step.emergency_deleverage]
+    emergency_steps = [
+        step for step in evidence.step_evidence if step.emergency_deleverage
+    ]
     assert len(emergency_steps) == 1
     emergency = emergency_steps[0]
     assert emergency.liquidation_requested_turnover > 0.0

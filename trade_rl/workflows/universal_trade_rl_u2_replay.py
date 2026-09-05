@@ -18,6 +18,7 @@ from trade_rl.workflows.universal_trade_rl_u2_contract import (
 )
 from trade_rl.workflows.universal_trade_rl_u2_evaluation import (
     UniversalTradeRLU2DevelopmentScopeClosure,
+    UniversalTradeRLU2EvaluationScope,
     build_universal_trade_rl_u2_development_scope_closure,
 )
 from trade_rl.workflows.universal_trade_rl_u2_evaluation_dataset import (
@@ -82,6 +83,23 @@ class UniversalTradeRLU2DevelopmentReplaySession:
     scope_closure: UniversalTradeRLU2DevelopmentScopeClosure
     datasets: dict[str, MarketDataset]
     environment_factory: U2ReplayEnvironmentFactory
+
+    @property
+    def scope_closure_digest(self) -> str:
+        return self.scope_closure.digest
+
+    @property
+    def evaluation_dataset_ids(self) -> tuple[tuple[str, str], ...]:
+        return tuple((symbol, dataset.dataset_id) for symbol, dataset in self.datasets.items())
+
+    def scope(self, scope_digest: str) -> UniversalTradeRLU2EvaluationScope:
+        require_sha256(scope_digest, field="U2 replay scope digest")
+        matches = tuple(
+            scope for scope in self.scope_closure.scopes if scope.digest == scope_digest
+        )
+        if len(matches) != 1:
+            raise ValueError("U2 replay scope is not present exactly once")
+        return matches[0]
 
 
 def _require_runtime_generation(

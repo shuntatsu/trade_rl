@@ -1,0 +1,63 @@
+name: U2 Optimized Sampling Diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/u2-full-suite-stall-20260906
+
+permissions:
+  contents: read
+
+jobs:
+  optimized-module:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Apply diagnostic-only oracle-preserving sampling rewrite
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/rl/test_universal_trade_u2_environment.py")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace("import numpy as np\nimport pytest\n", "import gymnasium as gym\nimport numpy as np\nimport pytest\n", 1)
+          old = '''def test_u2_environment_many_deterministic_resets_cannot_cross_fit_end(\n    u2_environment_fixture: U2EnvironmentFixture,\n) -> None:\n    checked = 0\n    for environment_index in (0, 1):\n        routed = _build(\n            u2_environment_fixture,\n            environment_index=environment_index,\n        )\n        try:\n            child = cast(UniversalTradeEnvironment, routed._reference_environment)\n            for offset in range(512):\n                _observation, info = child.reset(\n                    seed=environment_index * 10_000 + offset,\n                )\n                end_index = int(info["end_index"])\n                end_ns = _timestamp_ns(child.dataset.timestamps[end_index])\n                assert end_ns <= u2_environment_fixture.closure.fit_last_timestamp_ns\n                checked += 1\n        finally:\n            routed.close()\n\n    assert checked == 1_024\n'''
+          new = '''def test_u2_environment_many_deterministic_resets_cannot_cross_fit_end(\n    u2_environment_fixture: U2EnvironmentFixture,\n) -> None:\n    checked = 0\n    for environment_index in (0, 1):\n        routed = _build(\n            u2_environment_fixture,\n            environment_index=environment_index,\n        )\n        try:\n            child = cast(UniversalTradeEnvironment, routed._reference_environment)\n            base = child.base_env\n            for offset in range(512):\n                seed = environment_index * 10_000 + offset\n                gym.Env.reset(base, seed=seed)\n                start_index, end_index, _hours = base._sample_episode_contract({})\n                assert start_index >= base.minimum_start_index\n                end_ns = _timestamp_ns(child.dataset.timestamps[end_index])\n                assert end_ns <= u2_environment_fixture.closure.fit_last_timestamp_ns\n                checked += 1\n        finally:\n            routed.close()\n\n    assert checked == 1_024\n\n\n@pytest.mark.parametrize(\n    ("environment_index", "offset"),\n    ((0, 0), (0, 511), (1, 0), (1, 511)),\n)\ndef test_u2_environment_direct_sampling_matches_real_reset_at_seed_edges(\n    u2_environment_fixture: U2EnvironmentFixture,\n    environment_index: int,\n    offset: int,\n) -> None:\n    sampling_environment = _build(\n        u2_environment_fixture, environment_index=environment_index\n    )\n    reset_environment = _build(\n        u2_environment_fixture, environment_index=environment_index\n    )\n    try:\n        sampling_child = cast(\n            UniversalTradeEnvironment, sampling_environment._reference_environment\n        )\n        reset_child = cast(\n            UniversalTradeEnvironment, reset_environment._reference_environment\n        )\n        assert sampling_child.dataset.dataset_id == reset_child.dataset.dataset_id\n        seed = environment_index * 10_000 + offset\n        gym.Env.reset(sampling_child.base_env, seed=seed)\n        expected_start, expected_end, _hours = (\n            sampling_child.base_env._sample_episode_contract({})\n        )\n        _observation, info = reset_child.reset(seed=seed)\n        assert info["start_index"] == expected_start\n        assert info["end_index"] == expected_end\n    finally:\n        sampling_environment.close()\n        reset_environment.close()\n'''
+          if old not in text:
+              raise SystemExit("target many-resets test block not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          uv run ruff format tests/rl/test_universal_trade_u2_environment.py
+
+      - name: Run optimized U2 environment module with branch coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v uv run pytest -q --durations=20 \
+            --cov=trade_rl --cov-branch --cov-report=term --cov-fail-under=0 \
+            tests/rl/test_universal_trade_u2_environment.py \
+            2>&1 | tee optimized-module.log
+
+      - name: Upload optimized diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: u2-optimized-sampling-diagnostic
+          path: optimized-module.log
+          if-no-files-found: ignore
+          retention-days: 1

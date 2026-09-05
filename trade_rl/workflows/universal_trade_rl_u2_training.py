@@ -2,20 +2,45 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Final
+from pathlib import Path
+from typing import Final, Protocol
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.integrations.sb3_training import StableBaselines3PPOBackend
 from trade_rl.rl.checkpointing import CheckpointManifest
+from trade_rl.rl.training import PolicyTrainingResult, ResidualTrainingConfig
 from trade_rl.workflows.universal_trade_rl_u2_contract import (
     U2_FINAL_TIMESTEPS,
     UniversalTradeRLU2Contract,
     build_universal_trade_rl_u2_training_config,
 )
+from trade_rl.workflows.universal_trade_rl_u2_environment import (
+    UniversalTradeRLU2EnvironmentFactory,
+)
 from trade_rl.workflows.universal_trade_rl_u2_preflight import U2TrainingSourceClosure
 
 U2_SEED_TRAINING_PLAN_SCHEMA: Final = "universal_trade_rl_u2_seed_training_plan_v1"
+
+
+class U2TrainingBackend(Protocol):
+    """Minimal backend surface required by one fixed U2 PPO member."""
+
+    def train(
+        self,
+        *,
+        seed: int,
+        config: ResidualTrainingConfig,
+        output_path: Path,
+    ) -> PolicyTrainingResult: ...
+
+
+U2TrainingBackendFactory = Callable[
+    [UniversalTradeRLU2EnvironmentFactory],
+    U2TrainingBackend,
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +167,46 @@ def build_universal_trade_rl_u2_seed_training_plan(
     )
 
 
+def train_universal_trade_rl_u2_seed(
+    *,
+    plan: UniversalTradeRLU2SeedTrainingPlan,
+    environment_factory: UniversalTradeRLU2EnvironmentFactory,
+    output_path: Path,
+    backend_factory: U2TrainingBackendFactory = StableBaselines3PPOBackend,
+) -> PolicyTrainingResult:
+    """Train exactly one preregistered U2 PPO member under its frozen lineage."""
+
+    if not isinstance(plan, UniversalTradeRLU2SeedTrainingPlan):
+        raise TypeError("U2 training requires a seed training plan")
+    if environment_factory.run_seed != plan.seed:
+        raise ValueError("U2 training environment member seed mismatch")
+    if environment_factory.source_closure_digest != plan.source_closure_digest:
+        raise ValueError("U2 training environment source closure mismatch")
+
+    config = build_universal_trade_rl_u2_training_config()
+    if content_digest(config.digest_payload()) != plan.training_config_digest:
+        raise ValueError("U2 training plan configuration mismatch")
+
+    probe = environment_factory()
+    try:
+        if probe.environment_digest != environment_factory.environment_generation_digest:
+            raise ValueError("U2 training environment generation mismatch")
+    finally:
+        probe.close()
+
+    backend = backend_factory(environment_factory)
+    result = backend.train(
+        seed=plan.seed,
+        config=config,
+        output_path=output_path,
+    )
+    if result.environment_digest != environment_factory.environment_generation_digest:
+        raise ValueError("U2 training result environment mismatch")
+    if result.actual_timesteps != plan.final_timesteps:
+        raise ValueError("U2 training result timestep mismatch")
+    return result
+
+
 def require_universal_trade_rl_u2_selection_checkpoint(
     *,
     plan: UniversalTradeRLU2SeedTrainingPlan,
@@ -176,7 +241,10 @@ def require_universal_trade_rl_u2_selection_checkpoint(
 
 __all__ = [
     "U2_SEED_TRAINING_PLAN_SCHEMA",
+    "U2TrainingBackend",
+    "U2TrainingBackendFactory",
     "UniversalTradeRLU2SeedTrainingPlan",
     "build_universal_trade_rl_u2_seed_training_plan",
     "require_universal_trade_rl_u2_selection_checkpoint",
+    "train_universal_trade_rl_u2_seed",
 ]

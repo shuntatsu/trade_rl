@@ -87,7 +87,6 @@ jobs:
           git config user.email "148511409+shuntatsu@users.noreply.github.com"
           git add \
             tests/rl/test_universal_trade_u2_environment.py \
-            .github/workflows/u2-contracts.yml \
             docs/implementation-plans/plans/2026-09-03-universal-trade-rl-u2-base-ppo-selection.md
           git diff --cached --check
           git commit -m "chore: prepare U2 FIT boundary oracle optimization"

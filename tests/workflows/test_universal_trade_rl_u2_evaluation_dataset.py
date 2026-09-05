@@ -45,7 +45,9 @@ def _module() -> Any:
             "trade_rl.workflows.universal_trade_rl_u2_evaluation_dataset"
         )
     except ModuleNotFoundError:
-        pytest.fail("Universal Trade RL U2 Development dataset loader is not implemented")
+        pytest.fail(
+            "Universal Trade RL U2 Development dataset loader is not implemented"
+        )
 
 
 def _timestamp_ns(value: np.datetime64) -> int:
@@ -147,8 +149,7 @@ def _fixture() -> U2EvaluationDatasetFixture:
 def test_u2_development_dataset_loader_materializes_exact_common_views_once() -> None:
     fixture = _fixture()
     by_locator = {
-        fixture.locators[symbol]: fixture.sources[symbol]
-        for symbol in fixture.locators
+        fixture.locators[symbol]: fixture.sources[symbol] for symbol in fixture.locators
     }
     calls: list[Path] = []
 

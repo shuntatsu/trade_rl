@@ -6,6 +6,7 @@ on:
       - "trade_rl/workflows/universal_trade_rl_u2_*.py"
       - "tests/rl/test_universal_trade_u2_*.py"
       - "tests/workflows/test_universal_trade_rl_u2_*.py"
+      - "tests/integrations/test_universal_trade_rl_u2_*.py"
       - ".github/workflows/u2-contracts.yml"
 
 permissions:
@@ -33,7 +34,7 @@ jobs:
           enable-cache: true
 
       - name: Install contract dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra train-sb3
 
       - name: Verify U2 contract tests are formatted
         run: >-
@@ -45,6 +46,7 @@ jobs:
           tests/rl/test_universal_trade_u2_generation_identity.py
           tests/rl/test_universal_trade_u2_shared_environment_identity.py
           tests/rl/test_universal_trade_u2_environment_factory.py
+          tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
 
       - name: U2 source FIT binding seed generation and factory contracts
         run: >-
@@ -57,6 +59,12 @@ jobs:
           tests/rl/test_universal_trade_u2_generation_identity.py
           tests/rl/test_universal_trade_u2_shared_environment_identity.py
           tests/rl/test_universal_trade_u2_environment_factory.py
+
+      - name: U2 maintained SB3 vector integration
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_indexed_environment_factory.py
+          tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
 
       - name: Generic router regressions
         run: >-

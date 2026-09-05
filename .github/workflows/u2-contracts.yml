@@ -42,7 +42,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_time_partition.py
           tests/workflows/test_universal_trade_rl_u2_evaluation.py
           tests/workflows/test_universal_trade_rl_u2_evaluation_dataset.py
-          tests/workflows/test_universal_trade_rl_u2_replay.py
+          tests/workflows/test_universal_trade_rl_u2_replay_contract.py
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
           tests/workflows/test_universal_trade_rl_u2_training_runtime.py
@@ -64,7 +64,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_time_partition.py
           tests/workflows/test_universal_trade_rl_u2_evaluation.py
           tests/workflows/test_universal_trade_rl_u2_evaluation_dataset.py
-          tests/workflows/test_universal_trade_rl_u2_replay.py
+          tests/workflows/test_universal_trade_rl_u2_replay_contract.py
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_exposes_exact_fit_indices
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py

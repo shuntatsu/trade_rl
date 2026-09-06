@@ -20,6 +20,7 @@ from trade_rl.workflows.universal_trade_rl_u2_development_closure import (
 )
 from trade_rl.workflows.universal_trade_rl_u2_predevelopment import (
     UniversalTradeRLU2DevelopmentLock,
+    universal_trade_rl_u2_evaluation_seed,
 )
 from trade_rl.workflows.universal_trade_rl_u2_replay import (
     UniversalTradeRLU2ReplayEvidence,
@@ -600,6 +601,7 @@ def build_universal_trade_rl_u2_selection_leaf_metrics(
     *,
     training_seed: int,
     replay_evidence: UniversalTradeRLU2ReplayEvidence,
+    checkpoint_closure: UniversalTradeRLU2FinalCheckpointClosure,
 ) -> UniversalTradeRLU2SelectionLeafMetrics:
     """Derive one Selection leaf from the maintained same-path candidate replay."""
 
@@ -611,6 +613,40 @@ def build_universal_trade_rl_u2_selection_leaf_metrics(
         raise ValueError("U2 Selection training seed is outside the fixed closure")
     if not isinstance(replay_evidence, UniversalTradeRLU2ReplayEvidence):
         raise TypeError("U2 Selection leaf requires replay evidence")
+    if not isinstance(
+        checkpoint_closure,
+        UniversalTradeRLU2FinalCheckpointClosure,
+    ):
+        raise TypeError("U2 Selection leaf requires final checkpoint closure")
+    if checkpoint_closure.u2_contract_digest != replay_evidence.u2_contract_digest:
+        raise ValueError("U2 Selection leaf checkpoint/U2 identity mismatch")
+    if (
+        checkpoint_closure.universe_manifest_digest
+        != replay_evidence.universe_manifest_digest
+    ):
+        raise ValueError("U2 Selection leaf checkpoint/universe identity mismatch")
+    if checkpoint_closure.u1_contract_digest != replay_evidence.u1_contract_digest:
+        raise ValueError("U2 Selection leaf checkpoint/U1 identity mismatch")
+    expected_evaluation_seed = universal_trade_rl_u2_evaluation_seed(
+        u2_contract_digest=replay_evidence.u2_contract_digest,
+        scope_digest=replay_evidence.scope_digest,
+    )
+    if replay_evidence.evaluation_seed != expected_evaluation_seed:
+        raise ValueError(
+            "U2 Selection leaf evaluation seed must equal the scope-common CRN seed"
+        )
+    checkpoint_digest = replay_evidence.paired_candidate_checkpoint_digest
+    matching_seeds = tuple(
+        seed
+        for seed, digest in checkpoint_closure.checkpoint_digests
+        if digest == checkpoint_digest
+    )
+    if len(matching_seeds) != 1:
+        raise ValueError(
+            "U2 Selection leaf candidate checkpoint is outside exact training-seed closure"
+        )
+    if training_seed != matching_seeds[0]:
+        raise ValueError("U2 Selection leaf training seed/checkpoint identity mismatch")
     if (
         replay_evidence.policy_variant
         != UniversalTradeRLU2ReplayVariant.CANDIDATE.value
@@ -1107,6 +1143,14 @@ def build_universal_trade_rl_u2_paired_replay_scope_evidence(
 
     if candidate_replay.u2_contract_digest != u2_contract.digest:
         raise ValueError("U2 paired replay contract identity mismatch")
+    expected_evaluation_seed = universal_trade_rl_u2_evaluation_seed(
+        u2_contract_digest=u2_contract.digest,
+        scope_digest=candidate_replay.scope_digest,
+    )
+    if candidate_replay.evaluation_seed != expected_evaluation_seed:
+        raise ValueError(
+            "U2 paired replay evaluation seed must equal the scope-common CRN seed"
+        )
     if not isinstance(time_partition, UniversalTradeRLU2TimePartition):
         raise TypeError("U2 paired replay time partition is invalid")
     if time_partition.digest != u2_contract.time_partition_digest:

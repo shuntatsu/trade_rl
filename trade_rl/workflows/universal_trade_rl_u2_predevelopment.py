@@ -69,14 +69,14 @@ def _exact_mapping(
 ) -> dict[str, object]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{field} must be an object with exact keys")
-    resolved: dict[str, object] = {}
+    result: dict[str, object] = {}
     for key, item in value.items():
         if not isinstance(key, str):
             raise ValueError(f"{field} keys must be strings")
-        resolved[key] = item
-    if set(resolved) != set(keys) or len(resolved) != len(keys):
+        result[key] = item
+    if set(result) != set(keys) or len(result) != len(keys):
         raise ValueError(f"{field} must use exact keys")
-    return resolved
+    return result
 
 
 def _integer(value: object, *, field: str) -> int:
@@ -97,33 +97,42 @@ def _sequence(value: object, *, field: str) -> tuple[object, ...]:
     return tuple(value)
 
 
-def _digest_pair_sequence(
+def _integer_digest_pairs(
     value: object,
     *,
-    integer_key: bool,
     field: str,
-) -> tuple[tuple[int, str], ...] | tuple[tuple[str, str], ...]:
-    rows = _sequence(value, field=field)
-    if integer_key:
-        integer_result: list[tuple[int, str]] = []
-        for row in rows:
-            pair = _sequence(row, field=f"{field} row")
-            if len(pair) != 2:
-                raise ValueError(f"{field} rows must be key/digest pairs")
-            key = _integer(pair[0], field=f"{field} key")
-            digest = _string(pair[1], field=f"{field} digest")
-            integer_result.append((key, digest))
-        return tuple(integer_result)
-
-    string_result: list[tuple[str, str]] = []
-    for row in rows:
+) -> tuple[tuple[int, str], ...]:
+    result: list[tuple[int, str]] = []
+    for row in _sequence(value, field=field):
         pair = _sequence(row, field=f"{field} row")
         if len(pair) != 2:
             raise ValueError(f"{field} rows must be key/digest pairs")
-        key = _string(pair[0], field=f"{field} key")
-        digest = _string(pair[1], field=f"{field} digest")
-        string_result.append((key, digest))
-    return tuple(string_result)
+        result.append(
+            (
+                _integer(pair[0], field=f"{field} key"),
+                _string(pair[1], field=f"{field} digest"),
+            )
+        )
+    return tuple(result)
+
+
+def _string_digest_pairs(
+    value: object,
+    *,
+    field: str,
+) -> tuple[tuple[str, str], ...]:
+    result: list[tuple[str, str]] = []
+    for row in _sequence(value, field=field):
+        pair = _sequence(row, field=f"{field} row")
+        if len(pair) != 2:
+            raise ValueError(f"{field} rows must be key/digest pairs")
+        result.append(
+            (
+                _string(pair[0], field=f"{field} key"),
+                _string(pair[1], field=f"{field} digest"),
+            )
+        )
+    return tuple(result)
 
 
 def _role_cardinality_contract_payload() -> dict[str, object]:
@@ -275,7 +284,10 @@ class UniversalTradeRLU2PreDevelopmentContract:
             ("selection_metric_contract_digest", self.selection_metric_contract_digest),
             ("bootstrap_panel_contract_digest", self.bootstrap_panel_contract_digest),
             ("resume_contract_digest", self.resume_contract_digest),
-            ("training_exposure_contract_digest", self.training_exposure_contract_digest),
+            (
+                "training_exposure_contract_digest",
+                self.training_exposure_contract_digest,
+            ),
         ):
             require_sha256(value, field=f"U2 pre-development {field_name}")
 
@@ -295,7 +307,10 @@ class UniversalTradeRLU2PreDevelopmentContract:
             ),
             (
                 "Admission",
-                _integer(self.admission_symbol_count, field="U2 Admission symbol count"),
+                _integer(
+                    self.admission_symbol_count,
+                    field="U2 Admission symbol count",
+                ),
                 U2_MIN_ADMISSION_SYMBOLS,
             ),
         )
@@ -391,14 +406,16 @@ class UniversalTradeRLU2PreDevelopmentContract:
                 field="U2 pre-development contract digest",
             ),
             train_symbol_count=_integer(
-                payload["train_symbol_count"], field="U2 Train symbol count"
+                payload["train_symbol_count"],
+                field="U2 Train symbol count",
             ),
             development_symbol_count=_integer(
                 payload["development_symbol_count"],
                 field="U2 Development symbol count",
             ),
             admission_symbol_count=_integer(
-                payload["admission_symbol_count"], field="U2 Admission symbol count"
+                payload["admission_symbol_count"],
+                field="U2 Admission symbol count",
             ),
             role_cardinality_contract_digest=_string(
                 payload["role_cardinality_contract_digest"],
@@ -425,16 +442,20 @@ class UniversalTradeRLU2PreDevelopmentContract:
                 field="U2 training exposure contract digest",
             ),
             production_status=_string(
-                payload["production_status"], field="U2 production status"
+                payload["production_status"],
+                field="U2 production status",
             ),
             admission_status=_string(
-                payload["admission_status"], field="U2 Admission status"
+                payload["admission_status"],
+                field="U2 Admission status",
             ),
             schema_version=_string(
-                payload["schema_version"], field="U2 pre-development schema"
+                payload["schema_version"],
+                field="U2 pre-development schema",
             ),
             digest=_string(
-                payload["artifact_digest"], field="U2 pre-development artifact digest"
+                payload["artifact_digest"],
+                field="U2 pre-development artifact digest",
             ),
         )
 
@@ -457,16 +478,16 @@ def build_universal_trade_rl_u2_predevelopment_contract(
     if u2_universe_manifest_digest != manifest.digest:
         raise ValueError("U2 pre-development universe manifest identity mismatch")
 
-    role_counts = {
+    counts = {
         role: sum(entry.role is role for entry in manifest.entries)
         for role in UniversalTradeRLSymbolRole
     }
     return UniversalTradeRLU2PreDevelopmentContract(
         universe_manifest_digest=manifest.digest,
         u2_contract_digest=u2_contract_digest,
-        train_symbol_count=role_counts[UniversalTradeRLSymbolRole.TRAIN],
-        development_symbol_count=role_counts[UniversalTradeRLSymbolRole.DEVELOPMENT],
-        admission_symbol_count=role_counts[UniversalTradeRLSymbolRole.ADMISSION],
+        train_symbol_count=counts[UniversalTradeRLSymbolRole.TRAIN],
+        development_symbol_count=counts[UniversalTradeRLSymbolRole.DEVELOPMENT],
+        admission_symbol_count=counts[UniversalTradeRLSymbolRole.ADMISSION],
         role_cardinality_contract_digest=content_digest(
             _role_cardinality_contract_payload()
         ),
@@ -517,7 +538,10 @@ class UniversalTradeRLU2DevelopmentLock:
             ("u1_contract_digest", self.u1_contract_digest),
             ("u1_normalizer_digest", self.u1_normalizer_digest),
             ("u2_contract_digest", self.u2_contract_digest),
-            ("development_scope_closure_digest", self.development_scope_closure_digest),
+            (
+                "development_scope_closure_digest",
+                self.development_scope_closure_digest,
+            ),
             ("source_tree_digest", self.source_tree_digest),
             ("lockfile_digest", self.lockfile_digest),
             (
@@ -608,20 +632,6 @@ class UniversalTradeRLU2DevelopmentLock:
             keys=_DEVELOPMENT_LOCK_KEYS,
             field="U2 Development lock",
         )
-        checkpoint_pairs = _digest_pair_sequence(
-            payload["checkpoint_digests"],
-            integer_key=True,
-            field="U2 Development lock checkpoint mapping",
-        )
-        dataset_pairs = _digest_pair_sequence(
-            payload["evaluation_dataset_digests"],
-            integer_key=False,
-            field="U2 Development lock dataset mapping",
-        )
-        if not all(isinstance(seed, int) for seed, _digest in checkpoint_pairs):
-            raise ValueError("U2 Development lock checkpoint mapping is invalid")
-        if not all(isinstance(symbol, str) for symbol, _digest in dataset_pairs):
-            raise ValueError("U2 Development lock dataset mapping is invalid")
         return cls(
             predevelopment_contract_digest=_string(
                 payload["predevelopment_contract_digest"],
@@ -643,18 +653,25 @@ class UniversalTradeRLU2DevelopmentLock:
                 payload["u2_contract_digest"],
                 field="U2 Development lock U2 digest",
             ),
-            checkpoint_digests=checkpoint_pairs,
+            checkpoint_digests=_integer_digest_pairs(
+                payload["checkpoint_digests"],
+                field="U2 Development lock checkpoint mapping",
+            ),
             development_scope_closure_digest=_string(
                 payload["development_scope_closure_digest"],
                 field="U2 Development lock scope closure digest",
             ),
-            evaluation_dataset_digests=dataset_pairs,
+            evaluation_dataset_digests=_string_digest_pairs(
+                payload["evaluation_dataset_digests"],
+                field="U2 Development lock dataset mapping",
+            ),
             source_tree_digest=_string(
                 payload["source_tree_digest"],
                 field="U2 Development lock source tree digest",
             ),
             lockfile_digest=_string(
-                payload["lockfile_digest"], field="U2 Development lock lockfile digest"
+                payload["lockfile_digest"],
+                field="U2 Development lock lockfile digest",
             ),
             evaluation_runtime_identity_digest=_string(
                 payload["evaluation_runtime_identity_digest"],
@@ -669,16 +686,20 @@ class UniversalTradeRLU2DevelopmentLock:
                 field="U2 Admission numeric open count",
             ),
             admission_status=_string(
-                payload["admission_status"], field="U2 Admission status"
+                payload["admission_status"],
+                field="U2 Admission status",
             ),
             production_status=_string(
-                payload["production_status"], field="U2 production status"
+                payload["production_status"],
+                field="U2 production status",
             ),
             schema_version=_string(
-                payload["schema_version"], field="U2 Development lock schema"
+                payload["schema_version"],
+                field="U2 Development lock schema",
             ),
             digest=_string(
-                payload["artifact_digest"], field="U2 Development lock artifact digest"
+                payload["artifact_digest"],
+                field="U2 Development lock artifact digest",
             ),
         )
 
@@ -700,7 +721,8 @@ def build_universal_trade_rl_u2_development_lock(
     """Freeze exact Development inputs before any Development numeric open."""
 
     if not isinstance(
-        predevelopment_contract, UniversalTradeRLU2PreDevelopmentContract
+        predevelopment_contract,
+        UniversalTradeRLU2PreDevelopmentContract,
     ):
         raise TypeError("U2 Development lock requires a pre-development contract")
     return UniversalTradeRLU2DevelopmentLock(

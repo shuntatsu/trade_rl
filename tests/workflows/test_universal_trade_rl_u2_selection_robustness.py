@@ -269,7 +269,9 @@ def test_u2_seed_robustness_aggregate_binds_both_bootstrap_segments() -> None:
         segments=segments,
     )
 
-    assert result.bootstrap_segment_digests == tuple(segment.digest for segment in segments)
+    assert result.bootstrap_segment_digests == tuple(
+        segment.digest for segment in segments
+    )
     assert result.bootstrap_lower_ci > 0.0
     assert result.passed is True
 

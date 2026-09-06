@@ -14,6 +14,13 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
 from trade_rl.workflows import universal_trade_rl_u2_contract as u2_contract
 from trade_rl.workflows.universal_trade_rl_u2_contract import U2_TRAINING_SEEDS
+from trade_rl.workflows.universal_trade_rl_u2_development_closure import (
+    UniversalTradeRLU2AuthoritativeDevelopmentLock,
+    UniversalTradeRLU2FinalCheckpointClosure,
+)
+from trade_rl.workflows.universal_trade_rl_u2_predevelopment import (
+    UniversalTradeRLU2DevelopmentLock,
+)
 from trade_rl.workflows.universal_trade_rl_u2_replay import (
     UniversalTradeRLU2ReplayEvidence,
     UniversalTradeRLU2ReplayVariant,
@@ -1823,7 +1830,307 @@ def evaluate_universal_trade_rl_u2_seed_robustness(
     )
 
 
+U2_DEVELOPMENT_SELECTION_EVIDENCE_SCHEMA: Final = (
+    "universal_trade_rl_u2_development_selection_evidence_v1"
+)
+_U2_FINAL_PRIMARY_CELLS: Final = ("B", "C1", "C2", "D1", "D2")
+_U2_FINAL_ROBUSTNESS_SCOPES: Final = ("D1", "D2", "D1+D2")
+
+
+@dataclass(frozen=True, slots=True)
+class UniversalTradeRLU2DevelopmentSelectionEvidence:
+    """Final fail-closed AND artifact for the preregistered Development gate."""
+
+    u2_contract: u2_contract.UniversalTradeRLU2Contract
+    base_lock: UniversalTradeRLU2DevelopmentLock
+    development_lock: UniversalTradeRLU2AuthoritativeDevelopmentLock
+    checkpoint_closure: UniversalTradeRLU2FinalCheckpointClosure
+    primary_cell_gates: tuple[UniversalTradeRLU2PrimarySelectionCellGateEvidence, ...]
+    seed_robustness_gates: tuple[UniversalTradeRLU2SeedRobustnessEvidence, ...]
+    passed: bool = field(init=False)
+    selected_checkpoint_digest: str | None = field(init=False)
+    admission_eligible: bool = field(init=False)
+    production_eligible: bool = field(init=False)
+    rejection_reasons: tuple[str, ...] = field(init=False)
+    schema_version: str = U2_DEVELOPMENT_SELECTION_EVIDENCE_SCHEMA
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if self.schema_version != U2_DEVELOPMENT_SELECTION_EVIDENCE_SCHEMA:
+            raise ValueError("unsupported U2 Development Selection evidence schema")
+        if not isinstance(
+            self.u2_contract,
+            u2_contract.UniversalTradeRLU2Contract,
+        ):
+            raise TypeError("U2 final Selection requires a U2 contract")
+        if not isinstance(self.base_lock, UniversalTradeRLU2DevelopmentLock):
+            raise TypeError("U2 final Selection requires a base Development lock")
+        if not isinstance(
+            self.development_lock,
+            UniversalTradeRLU2AuthoritativeDevelopmentLock,
+        ):
+            raise TypeError(
+                "U2 final Selection requires an authoritative Development lock"
+            )
+        if not isinstance(
+            self.checkpoint_closure,
+            UniversalTradeRLU2FinalCheckpointClosure,
+        ):
+            raise TypeError("U2 final Selection requires final checkpoint closure")
+
+        if self.base_lock.u2_contract_digest != self.u2_contract.digest:
+            raise ValueError("U2 final Selection base-lock U2 identity mismatch")
+        if self.development_lock.base_lock_digest != self.base_lock.digest:
+            raise ValueError("U2 final Selection authoritative base-lock mismatch")
+        if self.development_lock.u2_contract_digest != self.u2_contract.digest:
+            raise ValueError("U2 final Selection Development-lock U2 mismatch")
+        if self.checkpoint_closure.u2_contract_digest != self.u2_contract.digest:
+            raise ValueError("U2 final Selection checkpoint U2 identity mismatch")
+        if (
+            self.development_lock.final_checkpoint_closure_digest
+            != self.checkpoint_closure.digest
+        ):
+            raise ValueError(
+                "U2 final Selection checkpoint closure does not match Development lock"
+            )
+        if (
+            self.base_lock.checkpoint_digests
+            != self.checkpoint_closure.checkpoint_digests
+        ):
+            raise ValueError(
+                "U2 final Selection checkpoint mapping does not match base lock"
+            )
+        if (
+            self.base_lock.predevelopment_contract_digest
+            != self.development_lock.predevelopment_contract_digest
+            or self.base_lock.predevelopment_contract_digest
+            != self.checkpoint_closure.predevelopment_contract_digest
+        ):
+            raise ValueError(
+                "U2 final Selection pre-development identity closure mismatch"
+            )
+        if (
+            self.base_lock.u1_contract_digest != self.u2_contract.u1_contract_digest
+            or self.development_lock.u1_contract_digest
+            != self.u2_contract.u1_contract_digest
+            or self.checkpoint_closure.u1_contract_digest
+            != self.u2_contract.u1_contract_digest
+        ):
+            raise ValueError("U2 final Selection U1 identity closure mismatch")
+        if (
+            self.base_lock.u1_normalizer_digest != self.u2_contract.u1_normalizer_digest
+            or self.development_lock.u1_normalizer_digest
+            != self.u2_contract.u1_normalizer_digest
+            or self.checkpoint_closure.normalizer_digest
+            != self.u2_contract.u1_normalizer_digest
+        ):
+            raise ValueError("U2 final Selection normalizer identity closure mismatch")
+        if (
+            self.base_lock.development_numeric_open_count != 0
+            or self.base_lock.admission_numeric_open_count != 0
+        ):
+            raise ValueError(
+                "U2 final Selection requires Development lock from zero numeric opens"
+            )
+
+        primary = tuple(self.primary_cell_gates)
+        if any(
+            not isinstance(
+                gate,
+                UniversalTradeRLU2PrimarySelectionCellGateEvidence,
+            )
+            for gate in primary
+        ):
+            raise TypeError("U2 final Selection primary gate is invalid")
+        if tuple(gate.cell for gate in primary) != _U2_FINAL_PRIMARY_CELLS:
+            raise ValueError(
+                "U2 final Selection requires exact B/C1/C2/D1/D2 primary closure"
+            )
+        if any(
+            gate.training_seed != u2_contract.U2_PRIMARY_CANDIDATE_SEED
+            for gate in primary
+        ):
+            raise ValueError("U2 final Selection primary closure must use seed 0")
+        if any(
+            gate.selection_thresholds_digest
+            != self.u2_contract.selection_thresholds_digest
+            for gate in primary
+        ):
+            raise ValueError("U2 final Selection primary threshold identity drifted")
+        object.__setattr__(self, "primary_cell_gates", primary)
+
+        robustness = tuple(self.seed_robustness_gates)
+        if any(
+            not isinstance(gate, UniversalTradeRLU2SeedRobustnessEvidence)
+            for gate in robustness
+        ):
+            raise TypeError("U2 final Selection robustness gate is invalid")
+        if tuple(gate.scope for gate in robustness) != _U2_FINAL_ROBUSTNESS_SCOPES:
+            raise ValueError(
+                "U2 final Selection requires exact D1/D2/D1+D2 robustness closure"
+            )
+        robustness_thresholds_digest = content_digest(
+            _u2_cross_seed_robustness_thresholds()
+        )
+        if any(
+            gate.robustness_thresholds_digest != robustness_thresholds_digest
+            for gate in robustness
+        ):
+            raise ValueError("U2 final Selection robustness threshold identity drifted")
+        object.__setattr__(self, "seed_robustness_gates", robustness)
+
+        primary_by_cell = {gate.cell: gate for gate in primary}
+        robustness_by_scope = {gate.scope: gate for gate in robustness}
+        for cell in ("D1", "D2"):
+            gate = robustness_by_scope[cell]
+            matching = tuple(
+                summary
+                for summary in gate.summaries
+                if summary.training_seed == u2_contract.U2_PRIMARY_CANDIDATE_SEED
+                and summary.cell == cell
+            )
+            if len(matching) != 1:
+                raise ValueError(
+                    f"U2 final Selection {cell} robustness seed-0 summary is incomplete"
+                )
+            if primary_by_cell[cell].summary_digest != matching[0].digest:
+                raise ValueError(
+                    f"U2 final Selection {cell} primary/robustness summary identity mismatch"
+                )
+
+        d1 = robustness_by_scope["D1"]
+        d2 = robustness_by_scope["D2"]
+        aggregate = robustness_by_scope["D1+D2"]
+        standalone_summary_digests = {
+            (summary.training_seed, summary.cell): summary.digest
+            for gate in (d1, d2)
+            for summary in gate.summaries
+        }
+        aggregate_summary_digests = {
+            (summary.training_seed, summary.cell): summary.digest
+            for summary in aggregate.summaries
+        }
+        if aggregate_summary_digests != standalone_summary_digests:
+            raise ValueError(
+                "U2 final Selection D1+D2 aggregate summary identity mismatch"
+            )
+        expected_scope_union = tuple(
+            sorted(set(d1.scope_closure) | set(d2.scope_closure))
+        )
+        if aggregate.scope_closure != expected_scope_union:
+            raise ValueError(
+                "U2 final Selection D1+D2 aggregate scope closure mismatch"
+            )
+        expected_windows = (
+            d1.bootstrap_result.source_windows + d2.bootstrap_result.source_windows
+        )
+        expected_segment_digests = (
+            d1.bootstrap_result.segment_digests + d2.bootstrap_result.segment_digests
+        )
+        expected_block_lengths = (
+            d1.bootstrap_result.block_lengths + d2.bootstrap_result.block_lengths
+        )
+        if (
+            aggregate.bootstrap_result.source_windows != expected_windows
+            or aggregate.bootstrap_result.segment_digests != expected_segment_digests
+            or aggregate.bootstrap_result.block_lengths != expected_block_lengths
+        ):
+            raise ValueError(
+                "U2 final Selection D1+D2 aggregate bootstrap identity mismatch"
+            )
+
+        reasons = tuple(
+            [f"primary:{gate.cell}" for gate in primary if not gate.passed]
+            + [f"robustness:{gate.scope}" for gate in robustness if not gate.passed]
+        )
+        passed = not reasons
+        checkpoints = dict(self.checkpoint_closure.checkpoint_digests)
+        selected_checkpoint = (
+            checkpoints[u2_contract.U2_PRIMARY_CANDIDATE_SEED] if passed else None
+        )
+        if selected_checkpoint is not None:
+            require_sha256(
+                selected_checkpoint,
+                field="U2 final Selection selected checkpoint digest",
+            )
+        object.__setattr__(self, "rejection_reasons", reasons)
+        object.__setattr__(self, "passed", passed)
+        object.__setattr__(
+            self,
+            "selected_checkpoint_digest",
+            selected_checkpoint,
+        )
+        object.__setattr__(self, "admission_eligible", passed)
+        object.__setattr__(self, "production_eligible", False)
+
+        expected_digest = content_digest(self.to_payload(include_digest=False))
+        if self.digest:
+            require_sha256(self.digest, field="U2 Development Selection digest")
+            if self.digest != expected_digest:
+                raise ValueError("U2 Development Selection digest mismatch")
+        object.__setattr__(self, "digest", expected_digest)
+
+    @property
+    def primary_cells(self) -> tuple[str, ...]:
+        return tuple(gate.cell for gate in self.primary_cell_gates)
+
+    @property
+    def robustness_scopes(self) -> tuple[str, ...]:
+        return tuple(gate.scope for gate in self.seed_robustness_gates)
+
+    def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "u2_contract_digest": self.u2_contract.digest,
+            "base_lock_digest": self.base_lock.digest,
+            "development_lock_digest": self.development_lock.digest,
+            "checkpoint_closure_digest": self.checkpoint_closure.digest,
+            "selection_thresholds_digest": self.u2_contract.selection_thresholds_digest,
+            "robustness_thresholds_digest": content_digest(
+                _u2_cross_seed_robustness_thresholds()
+            ),
+            "primary_gate_digests": tuple(
+                gate.digest for gate in self.primary_cell_gates
+            ),
+            "robustness_gate_digests": tuple(
+                gate.digest for gate in self.seed_robustness_gates
+            ),
+            "selected_checkpoint_digest": self.selected_checkpoint_digest,
+            "admission_eligible": self.admission_eligible,
+            "production_eligible": self.production_eligible,
+            "rejection_reasons": self.rejection_reasons,
+            "passed": self.passed,
+        }
+        if include_digest:
+            payload["artifact_digest"] = self.digest
+        return payload
+
+
+def build_universal_trade_rl_u2_development_selection_evidence(
+    *,
+    u2_contract: u2_contract.UniversalTradeRLU2Contract,
+    base_lock: UniversalTradeRLU2DevelopmentLock,
+    development_lock: UniversalTradeRLU2AuthoritativeDevelopmentLock,
+    checkpoint_closure: UniversalTradeRLU2FinalCheckpointClosure,
+    primary_cell_gates: tuple[UniversalTradeRLU2PrimarySelectionCellGateEvidence, ...],
+    seed_robustness_gates: tuple[UniversalTradeRLU2SeedRobustnessEvidence, ...],
+) -> UniversalTradeRLU2DevelopmentSelectionEvidence:
+    """Build the canonical all-AND Development Selection decision artifact."""
+
+    return UniversalTradeRLU2DevelopmentSelectionEvidence(
+        u2_contract=u2_contract,
+        base_lock=base_lock,
+        development_lock=development_lock,
+        checkpoint_closure=checkpoint_closure,
+        primary_cell_gates=primary_cell_gates,
+        seed_robustness_gates=seed_robustness_gates,
+    )
+
+
 __all__ = [
+    "U2_DEVELOPMENT_SELECTION_EVIDENCE_SCHEMA",
+    "UniversalTradeRLU2DevelopmentSelectionEvidence",
+    "build_universal_trade_rl_u2_development_selection_evidence",
     "U2_SEED_ROBUSTNESS_SCHEMA",
     "U2_SEED_ROBUSTNESS_BOOTSTRAP_SCHEMA",
     "UniversalTradeRLU2SeedRobustnessBootstrapResult",

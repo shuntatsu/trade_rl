@@ -367,7 +367,9 @@ def test_u2_final_selection_rejects_development_lock_checkpoint_substitution() -
         )
 
 
-def test_u2_final_selection_rejects_robustness_without_cash_pairing_provenance() -> None:
+def test_u2_final_selection_rejects_robustness_without_cash_pairing_provenance() -> (
+    None
+):
     (
         _u2_contract,
         _base_lock,

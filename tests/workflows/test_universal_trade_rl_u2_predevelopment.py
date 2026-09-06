@@ -219,7 +219,9 @@ def test_u2_predevelopment_freezes_exact_metric_bootstrap_resume_and_exposure() 
     assert contract.selection_metric_contract_digest == content_digest(metric_payload)
     assert contract.bootstrap_panel_contract_digest == content_digest(bootstrap_payload)
     assert contract.resume_contract_digest == content_digest(resume_payload)
-    assert contract.training_exposure_contract_digest == content_digest(exposure_payload)
+    assert contract.training_exposure_contract_digest == content_digest(
+        exposure_payload
+    )
     assert contract.production_status == "NO-GO"
     assert contract.admission_status == "SEALED"
 

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from types import SimpleNamespace
 
 import pytest
 
-from tests.workflows.test_universal_trade_rl_u2_contract import _u1_contract
 from tests.workflows.test_universal_trade_rl_u2_development_closure import (
     _checkpoint_members,
     _exposure_rows,
@@ -112,7 +110,6 @@ def _authoritative_lock():
             training_exposure_evidence=exposure,
             manifest=manifest,
             u2_contract=u2_contract,
-            scope_closure=scope_closure,
         )
     )
     return (
@@ -126,13 +123,17 @@ def _authoritative_lock():
     )
 
 
-def test_u2_authoritative_lock_binds_exact_scope_and_dataset_identities() -> None:
+def test_u2_replay_authority_binds_exact_scope_and_dataset_identities() -> None:
+    from trade_rl.workflows import (
+        universal_trade_rl_u2_development_authority as authority,
+    )
+
     (
         closure,
         manifest,
         _partition,
         u2_contract,
-        _predevelopment,
+        predevelopment,
         scope_closure,
         checkpoint_closure,
         exposure,
@@ -150,14 +151,28 @@ def test_u2_authoritative_lock_binds_exact_scope_and_dataset_identities() -> Non
         evaluation_dataset_digests=tuple(wrong_dataset_mapping),
         digest="",
     )
-    with pytest.raises(ValueError, match="evaluation|dataset|digest|identity|scope"):
+    drifted_dataset_authority = (
         closure.build_authoritative_universal_trade_rl_u2_development_lock(
             base_lock=drifted_dataset_lock,
             checkpoint_closure=checkpoint_closure,
             training_exposure_evidence=exposure,
             manifest=manifest,
             u2_contract=u2_contract,
-            scope_closure=scope_closure,
+        )
+    )
+    with pytest.raises(ValueError, match="evaluation|dataset|mapping|identity"):
+        authority.require_universal_trade_rl_u2_development_lock_for_replay(
+            predevelopment_contract=predevelopment,
+            base_lock=drifted_dataset_lock,
+            development_lock=drifted_dataset_authority,
+            manifest=manifest,
+            u2_contract=u2_contract,
+            supplied_scope_closure=scope_closure,
+            source_tree_digest=drifted_dataset_lock.source_tree_digest,
+            lockfile_digest=drifted_dataset_lock.lockfile_digest,
+            evaluation_runtime_identity_digest=(
+                drifted_dataset_lock.evaluation_runtime_identity_digest
+            ),
         )
 
     drifted_scope_lock = replace(
@@ -167,14 +182,28 @@ def test_u2_authoritative_lock_binds_exact_scope_and_dataset_identities() -> Non
         ),
         digest="",
     )
-    with pytest.raises(ValueError, match="scope|closure|digest|identity"):
+    drifted_scope_authority = (
         closure.build_authoritative_universal_trade_rl_u2_development_lock(
             base_lock=drifted_scope_lock,
             checkpoint_closure=checkpoint_closure,
             training_exposure_evidence=exposure,
             manifest=manifest,
             u2_contract=u2_contract,
-            scope_closure=scope_closure,
+        )
+    )
+    with pytest.raises(ValueError, match="scope|closure|digest|identity"):
+        authority.require_universal_trade_rl_u2_development_lock_for_replay(
+            predevelopment_contract=predevelopment,
+            base_lock=drifted_scope_lock,
+            development_lock=drifted_scope_authority,
+            manifest=manifest,
+            u2_contract=u2_contract,
+            supplied_scope_closure=scope_closure,
+            source_tree_digest=drifted_scope_lock.source_tree_digest,
+            lockfile_digest=drifted_scope_lock.lockfile_digest,
+            evaluation_runtime_identity_digest=(
+                drifted_scope_lock.evaluation_runtime_identity_digest
+            ),
         )
 
 
@@ -194,23 +223,15 @@ def test_u2_authoritative_session_gate_blocks_before_numeric_delegate(
         base_lock,
         authoritative_lock,
     ) = _authoritative_lock()
-    numeric_opens: list[object] = []
     delegated: list[dict[str, object]] = []
-
-    def source_loader(locator: object):
-        numeric_opens.append(locator)
-        return object()
 
     def fake_lower_builder(**kwargs: object):
         delegated.append(dict(kwargs))
-        loader = kwargs["source_loader"]
-        assert callable(loader)
-        loader("fixture://authorized-development")
-        return object()
+        raise AssertionError("numeric replay builder must not be reached")
 
     monkeypatch.setattr(
         authority,
-        "build_universal_trade_rl_u2_development_replay_session",
+        "_build_universal_trade_rl_u2_development_replay_session_unlocked",
         fake_lower_builder,
     )
 
@@ -229,13 +250,13 @@ def test_u2_authoritative_session_gate_blocks_before_numeric_delegate(
             manifest=manifest,
             time_partition=partition,
             u2_contract=u2_contract,
-            u1_contract=SimpleNamespace(digest=u2_contract.u1_contract_digest),
+            u1_contract=object(),
             policy_contract=object(),
-            normalizer=SimpleNamespace(digest=u2_contract.u1_normalizer_digest),
+            normalizer=object(),
             supplied_scope_closure=scope_closure,
             artifact_locators={},
-            source_loader=source_loader,
-            environment_factory=lambda _dataset: object(),
+            source_loader=lambda _locator: None,
+            environment_factory=lambda _dataset: None,
             source_tree_digest=drifted_base_lock.source_tree_digest,
             lockfile_digest=drifted_base_lock.lockfile_digest,
             evaluation_runtime_identity_digest=(
@@ -244,7 +265,6 @@ def test_u2_authoritative_session_gate_blocks_before_numeric_delegate(
         )
 
     assert delegated == []
-    assert numeric_opens == []
 
 
 def test_u2_authoritative_session_gate_delegates_only_after_exact_lock(
@@ -263,25 +283,16 @@ def test_u2_authoritative_session_gate_delegates_only_after_exact_lock(
         base_lock,
         authoritative_lock,
     ) = _authoritative_lock()
-    u1_contract = _u1_contract(manifest=manifest, fit_end_ns=partition.fit_end_ns)
-    numeric_opens: list[object] = []
     delegated: list[dict[str, object]] = []
     sentinel_session = object()
 
-    def source_loader(locator: object):
-        numeric_opens.append(locator)
-        return object()
-
     def fake_lower_builder(**kwargs: object):
         delegated.append(dict(kwargs))
-        loader = kwargs["source_loader"]
-        assert callable(loader)
-        loader("fixture://authorized-development")
         return sentinel_session
 
     monkeypatch.setattr(
         authority,
-        "build_universal_trade_rl_u2_development_replay_session",
+        "_build_universal_trade_rl_u2_development_replay_session_unlocked",
         fake_lower_builder,
     )
 
@@ -293,13 +304,13 @@ def test_u2_authoritative_session_gate_delegates_only_after_exact_lock(
             manifest=manifest,
             time_partition=partition,
             u2_contract=u2_contract,
-            u1_contract=u1_contract,
+            u1_contract=object(),
             policy_contract=object(),
-            normalizer=SimpleNamespace(digest=u2_contract.u1_normalizer_digest),
+            normalizer=object(),
             supplied_scope_closure=scope_closure,
             artifact_locators={},
-            source_loader=source_loader,
-            environment_factory=lambda _dataset: object(),
+            source_loader=lambda _locator: None,
+            environment_factory=lambda _dataset: None,
             source_tree_digest=base_lock.source_tree_digest,
             lockfile_digest=base_lock.lockfile_digest,
             evaluation_runtime_identity_digest=(
@@ -310,4 +321,3 @@ def test_u2_authoritative_session_gate_delegates_only_after_exact_lock(
 
     assert result is sentinel_session
     assert len(delegated) == 1
-    assert numeric_opens == ["fixture://authorized-development"]

@@ -261,6 +261,25 @@ def _paired_scope(
     )
 
 
+def test_u2_paired_replay_scope_rejects_off_grid_decision_timestamps() -> None:
+    pair = _paired_scope(
+        seed=0,
+        source_window="development_future_1",
+        cell="D1",
+        symbol="DEV_A",
+        values=(0.01, 0.02),
+    )
+    with pytest.raises(ValueError, match="15m|grid|timestamp|period"):
+        replace(
+            pair,
+            decision_timestamps_ns=(
+                pair.decision_timestamps_ns[0],
+                pair.decision_timestamps_ns[0] + 1,
+            ),
+            digest="",
+        )
+
+
 def test_u2_pairing_reducer_binds_complete_seed_symbol_window_provenance() -> None:
     module = _module()
     symbols = ("DEV_A", "DEV_B")

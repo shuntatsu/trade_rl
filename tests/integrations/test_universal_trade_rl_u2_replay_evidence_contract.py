@@ -204,3 +204,38 @@ def test_u2_replay_evidence_retains_emergency_liquidation_execution_inputs() -> 
     assert evidence.fill_count == sum(
         step.fill_count + step.liquidation_fill_count for step in evidence.step_evidence
     )
+
+
+def test_u2_replay_evidence_binds_same_path_gross_and_net_economics() -> None:
+    fixture = _build_replay_fixture()
+    scope = _scope(fixture, cell="B")
+    evidence = fixture.session.replay(
+        UniversalTradeRLU2ReplayRequest(
+            scope_digest=scope.digest,
+            policy_variant=UniversalTradeRLU2ReplayVariant.CONSTANT_LONG,
+            evaluation_seed=0,
+            paired_candidate_checkpoint_digest=_CHECKPOINT_DIGEST,
+        )
+    )
+
+    assert len(evidence.gross_simple_returns) == evidence.observed_decision_count
+    assert len(evidence.net_simple_returns) == evidence.observed_decision_count
+    assert all(value > -1.0 for value in evidence.gross_simple_returns)
+    assert all(value > -1.0 for value in evidence.net_simple_returns)
+
+    gross_from_steps = math.prod(1.0 + value for value in evidence.gross_simple_returns)
+    net_from_steps = math.prod(1.0 + value for value in evidence.net_simple_returns)
+    assert evidence.gross_wealth_ratio == pytest.approx(gross_from_steps, abs=1e-10)
+    assert evidence.net_wealth_ratio == pytest.approx(net_from_steps, abs=1e-10)
+    assert evidence.gross_wealth_ratio >= evidence.net_wealth_ratio
+
+    payload = evidence.to_payload(include_digest=False)
+    assert payload["gross_simple_returns"] == evidence.gross_simple_returns
+    assert payload["gross_wealth_ratio"] == evidence.gross_wealth_ratio
+
+    changed_gross = (
+        evidence.gross_simple_returns[0] + 1e-6,
+        *evidence.gross_simple_returns[1:],
+    )
+    with pytest.raises(ValueError, match="gross|wealth|digest|reconcile"):
+        replace(evidence, gross_simple_returns=changed_gross)

@@ -1,6 +1,6 @@
 name: U2 Contracts
 
-# Exact-head gate for the frozen pre-Development closure and replay authority.
+# Exact-head gate for the frozen pre-Development closure, Selection, and replay authority.
 on:
   pull_request:
     paths:
@@ -43,6 +43,8 @@ jobs:
           trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
           trade_rl/workflows/universal_trade_rl_u2_development_closure.py
           trade_rl/workflows/universal_trade_rl_u2_development_authority.py
+          trade_rl/workflows/universal_trade_rl_u2_selection.py
+          trade_rl/workflows/universal_trade_rl_u2_replay.py
           tests/workflows/test_universal_trade_rl_u2_time_partition.py
           tests/workflows/test_universal_trade_rl_u2_evaluation.py
           tests/workflows/test_universal_trade_rl_u2_evaluation_dataset.py
@@ -75,15 +77,20 @@ jobs:
           trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
           trade_rl/workflows/universal_trade_rl_u2_development_closure.py
           trade_rl/workflows/universal_trade_rl_u2_development_authority.py
+          trade_rl/workflows/universal_trade_rl_u2_selection.py
+          trade_rl/workflows/universal_trade_rl_u2_replay.py
           tests/workflows/test_universal_trade_rl_u2_predevelopment.py
           tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py
           tests/workflows/test_universal_trade_rl_u2_development_closure.py
           tests/workflows/test_universal_trade_rl_u2_selection.py
+          tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
           tests/integrations/test_universal_trade_rl_u2_replay_crn.py
           && uv run mypy
           trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
           trade_rl/workflows/universal_trade_rl_u2_development_closure.py
           trade_rl/workflows/universal_trade_rl_u2_development_authority.py
+          trade_rl/workflows/universal_trade_rl_u2_selection.py
+          trade_rl/workflows/universal_trade_rl_u2_replay.py
 
       - name: U2 source FIT binding seed generation factory and Development scope contracts
         run: >-

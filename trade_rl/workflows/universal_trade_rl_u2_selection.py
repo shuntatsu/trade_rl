@@ -259,6 +259,7 @@ class UniversalTradeRLU2SelectionMetricSummary:
     """Frozen Selection metrics for one cell/scope grouping."""
 
     cell: str
+    training_seed: int
     leaf_digests: tuple[str, ...]
     symbol_metrics: tuple[UniversalTradeRLU2SelectionSymbolMetrics, ...]
     leaf_count: int
@@ -282,6 +283,12 @@ class UniversalTradeRLU2SelectionMetricSummary:
             raise ValueError("unsupported U2 Selection summary schema")
         if not isinstance(self.cell, str) or not self.cell:
             raise ValueError("U2 Selection summary cell must be non-empty")
+        if (
+            isinstance(self.training_seed, bool)
+            or not isinstance(self.training_seed, int)
+            or self.training_seed not in U2_TRAINING_SEEDS
+        ):
+            raise ValueError("U2 Selection summary training seed is not preregistered")
         leaf_digests = tuple(self.leaf_digests)
         symbols = tuple(self.symbol_metrics)
         if not leaf_digests or not symbols:
@@ -458,6 +465,7 @@ class UniversalTradeRLU2SelectionMetricSummary:
         payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "cell": self.cell,
+            "training_seed": self.training_seed,
             "leaf_digests": self.leaf_digests,
             "symbol_metric_digests": tuple(row.digest for row in self.symbol_metrics),
             "leaf_count": self.leaf_count,
@@ -553,6 +561,10 @@ def summarize_universal_trade_rl_u2_selection_metrics(
     if len(cells) != 1:
         raise ValueError("U2 Selection summary must contain one cell grouping")
     cell = next(iter(cells))
+    training_seeds = {leaf.training_seed for leaf in resolved}
+    if len(training_seeds) != 1:
+        raise ValueError("U2 Selection summary must contain one training seed")
+    training_seed = next(iter(training_seeds))
 
     ordered = tuple(sorted(resolved, key=lambda leaf: leaf.identity))
     by_symbol: dict[str, list[UniversalTradeRLU2SelectionLeafMetrics]] = defaultdict(
@@ -609,6 +621,7 @@ def summarize_universal_trade_rl_u2_selection_metrics(
 
     return UniversalTradeRLU2SelectionMetricSummary(
         cell=cell,
+        training_seed=training_seed,
         leaf_digests=tuple(leaf.digest for leaf in ordered),
         symbol_metrics=symbols,
         leaf_count=len(ordered),

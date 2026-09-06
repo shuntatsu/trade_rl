@@ -28,7 +28,7 @@ def _summary():
             meaningful_execution=True,
         ),
         _leaf(
-            training_seed=1,
+            training_seed=0,
             concrete_symbol="DEV_A",
             tile="integrity-A1",
             net_log_growth=-0.05,
@@ -46,7 +46,7 @@ def _summary():
             meaningful_execution=False,
         ),
         _leaf(
-            training_seed=1,
+            training_seed=0,
             concrete_symbol="DEV_B",
             tile="integrity-B1",
             net_log_growth=-0.10,

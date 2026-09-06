@@ -36,9 +36,10 @@ jobs:
       - name: Install contract dependencies
         run: uv sync --extra dev --extra train-sb3
 
-      - name: Verify U2 contract tests are formatted
+      - name: Verify U2 contract sources and tests are formatted
         run: >-
           uv run ruff format --check --diff
+          trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
           tests/workflows/test_universal_trade_rl_u2_time_partition.py
           tests/workflows/test_universal_trade_rl_u2_evaluation.py
           tests/workflows/test_universal_trade_rl_u2_evaluation_dataset.py
@@ -58,8 +59,17 @@ jobs:
           tests/integrations/test_universal_trade_rl_u2_replay_runtime.py
           tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
           tests/integrations/test_universal_trade_rl_u2_replay_rng_isolation.py
+          tests/integrations/test_universal_trade_rl_u2_replay_crn.py
           tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
           tests/integrations/test_universal_trade_rl_u2_timeout_bootstrap.py
+
+      - name: Verify U2 pre-development source statically
+        run: >-
+          uv run ruff check
+          trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
+          tests/workflows/test_universal_trade_rl_u2_predevelopment.py
+          tests/integrations/test_universal_trade_rl_u2_replay_crn.py
+          && uv run mypy trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
 
       - name: U2 source FIT binding seed generation factory and Development scope contracts
         run: >-
@@ -87,6 +97,7 @@ jobs:
           tests/integrations/test_universal_trade_rl_u2_replay_runtime.py
           tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
           tests/integrations/test_universal_trade_rl_u2_replay_rng_isolation.py
+          tests/integrations/test_universal_trade_rl_u2_replay_crn.py
 
       - name: U2 fixed member orchestration contracts
         run: >-

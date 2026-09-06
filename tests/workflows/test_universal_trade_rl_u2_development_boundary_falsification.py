@@ -30,7 +30,9 @@ def _mutated(artifact, field: str, value):
 
 
 def _authority_case():
-    from trade_rl.workflows import universal_trade_rl_u2_development_authority as authority
+    from trade_rl.workflows import (
+        universal_trade_rl_u2_development_authority as authority,
+    )
 
     (
         closure,
@@ -43,12 +45,14 @@ def _authority_case():
         exposure,
         base_lock,
     ) = _development_bundle()
-    development_lock = closure.build_authoritative_universal_trade_rl_u2_development_lock(
-        base_lock=base_lock,
-        checkpoint_closure=checkpoint_closure,
-        training_exposure_evidence=exposure,
-        manifest=manifest,
-        u2_contract=u2_contract,
+    development_lock = (
+        closure.build_authoritative_universal_trade_rl_u2_development_lock(
+            base_lock=base_lock,
+            checkpoint_closure=checkpoint_closure,
+            training_exposure_evidence=exposure,
+            manifest=manifest,
+            u2_contract=u2_contract,
+        )
     )
     return authority, {
         "predevelopment_contract": predevelopment,
@@ -136,14 +140,14 @@ def test_u2_replay_authority_rejects_authoritative_and_scope_identity_drift() ->
         ("u1_normalizer_digest", "authoritative.*normalizer"),
         ("replay_authority_schema", "authority.*schema"),
     ):
-        value = "drifted-authority-schema" if field == "replay_authority_schema" else _sha(
-            f"authority-{field}"
+        value = (
+            "drifted-authority-schema"
+            if field == "replay_authority_schema"
+            else _sha(f"authority-{field}")
         )
         args = {
             **canonical,
-            "development_lock": _mutated(
-                canonical["development_lock"], field, value
-            ),
+            "development_lock": _mutated(canonical["development_lock"], field, value),
         }
         with pytest.raises(ValueError, match=pattern):
             _call_authority(authority, args)
@@ -177,7 +181,8 @@ def test_u2_replay_authority_rejects_runtime_lock_and_open_state_drift() -> None
         ("development_numeric_open_count", "zero prior Development|Development opens"),
         ("admission_numeric_open_count", "zero Admission|Admission opens"),
     ):
-        args = _with_base(canonical, **{field: 1})
+        drifted_base = _mutated(canonical["base_lock"], field, 1)
+        args = {**canonical, "base_lock": drifted_base}
         with pytest.raises(ValueError, match=pattern):
             _call_authority(authority, args)
 
@@ -198,11 +203,17 @@ def test_u2_closure_helpers_reject_noncanonical_digest_and_symbol_inputs() -> No
     with pytest.raises(TypeError, match="immutable tuple"):
         module._canonical_digest_pairs(list(digests), field="test mapping")
     with pytest.raises(ValueError, match="seed/digest pairs"):
-        module._canonical_digest_pairs(((0,), (1, _sha("1")), (2, _sha("2"))), field="test mapping")
+        module._canonical_digest_pairs(
+            ((0,), (1, _sha("1")), (2, _sha("2"))), field="test mapping"
+        )
     with pytest.raises(ValueError, match="seed must be an integer"):
-        module._canonical_digest_pairs(((True, _sha("0")), (1, _sha("1")), (2, _sha("2"))), field="test mapping")
+        module._canonical_digest_pairs(
+            ((True, _sha("0")), (1, _sha("1")), (2, _sha("2"))), field="test mapping"
+        )
     with pytest.raises(ValueError, match="canonical seeds"):
-        module._canonical_digest_pairs((digests[1], digests[0], digests[2]), field="test mapping")
+        module._canonical_digest_pairs(
+            (digests[1], digests[0], digests[2]), field="test mapping"
+        )
 
     for symbols in ((), ("DEV_B", "DEV_A"), ("DEV_A", "DEV_A"), ("",)):
         with pytest.raises(ValueError, match="Train symbols"):
@@ -249,7 +260,9 @@ def test_u2_closure_rejects_predevelopment_identity_and_constructor_drift() -> N
         )
 
 
-def test_u2_final_checkpoint_closure_rejects_malformed_members_and_identity_drift() -> None:
+def test_u2_final_checkpoint_closure_rejects_malformed_members_and_identity_drift() -> (
+    None
+):
     module = __import__(
         "trade_rl.workflows.universal_trade_rl_u2_development_closure",
         fromlist=["dummy"],
@@ -293,7 +306,11 @@ def test_u2_final_checkpoint_closure_rejects_malformed_members_and_identity_drif
         module.build_universal_trade_rl_u2_final_checkpoint_closure(
             predevelopment_contract=predevelopment,
             u2_contract=u2_contract,
-            members=((members[0][0], members[0][1], "not-a-sha"), members[1], members[2]),
+            members=(
+                (members[0][0], members[0][1], "not-a-sha"),
+                members[1],
+                members[2],
+            ),
         )
 
     plan_fields = (
@@ -305,7 +322,11 @@ def test_u2_final_checkpoint_closure_rejects_malformed_members_and_identity_drif
     )
     for field, pattern in plan_fields:
         drifted_plan = _mutated(members[0][0], field, _sha(f"plan-{field}"))
-        bad_members = ((drifted_plan, members[0][1], members[0][2]), members[1], members[2])
+        bad_members = (
+            (drifted_plan, members[0][1], members[0][2]),
+            members[1],
+            members[2],
+        )
         with pytest.raises(ValueError, match=pattern):
             module.build_universal_trade_rl_u2_final_checkpoint_closure(
                 predevelopment_contract=predevelopment,
@@ -320,7 +341,11 @@ def test_u2_final_checkpoint_closure_rejects_malformed_members_and_identity_drif
         module.build_universal_trade_rl_u2_final_checkpoint_closure(
             predevelopment_contract=predevelopment,
             u2_contract=u2_contract,
-            members=(members[0], (drifted_source_plan, members[1][1], members[1][2]), members[2]),
+            members=(
+                members[0],
+                (drifted_source_plan, members[1][1], members[1][2]),
+                members[2],
+            ),
         )
 
 
@@ -340,7 +365,10 @@ def test_u2_training_exposure_artifacts_reject_invalid_rows_and_state() -> None:
         ({"worker_index": 99}, "worker"),
         ({"concrete_symbol": ""}, "symbol"),
         ({"completed_episode_count": -1}, "non-negative"),
-        ({"partial_final_episode_step_count": row.decision_step_count + 1}, "partial steps"),
+        (
+            {"partial_final_episode_step_count": row.decision_step_count + 1},
+            "partial steps",
+        ),
     ):
         with pytest.raises(ValueError, match=pattern):
             replace(row, **changes, digest="")
@@ -457,7 +485,9 @@ def test_u2_authoritative_development_lock_rejects_invalid_state_and_identity() 
         ("u1_normalizer_digest", "base-lock normalizer"),
         ("predevelopment_contract_digest", "pre-development identity"),
     ):
-        drifted_base = replace(base_lock, **{field: _sha(f"lock-base-{field}")}, digest="")
+        drifted_base = replace(
+            base_lock, **{field: _sha(f"lock-base-{field}")}, digest=""
+        )
         with pytest.raises(ValueError, match=pattern):
             module.build_authoritative_universal_trade_rl_u2_development_lock(
                 **{**canonical, "base_lock": drifted_base}
@@ -469,7 +499,9 @@ def test_u2_authoritative_development_lock_rejects_invalid_state_and_identity() 
         ("training_exposure_evidence", "universe_manifest_digest", "exposure universe"),
     ):
         artifact = replace(canonical[artifact_field])
-        object.__setattr__(artifact, target_field, _sha(f"{artifact_field}-{target_field}"))
+        object.__setattr__(
+            artifact, target_field, _sha(f"{artifact_field}-{target_field}")
+        )
         with pytest.raises(ValueError, match=pattern):
             module.build_authoritative_universal_trade_rl_u2_development_lock(
                 **{**canonical, artifact_field: artifact}
@@ -479,7 +511,7 @@ def test_u2_authoritative_development_lock_rejects_invalid_state_and_identity() 
         ("development_numeric_open_count", "zero Development opens"),
         ("admission_numeric_open_count", "zero Admission opens"),
     ):
-        drifted_base = replace(base_lock, **{field: 1}, digest="")
+        drifted_base = _mutated(base_lock, field, 1)
         with pytest.raises(ValueError, match=pattern):
             module.build_authoritative_universal_trade_rl_u2_development_lock(
                 **{**canonical, "base_lock": drifted_base}

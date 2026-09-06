@@ -222,3 +222,29 @@ def test_u2_selection_summary_digest_binds_metric_values() -> None:
     )
 
     assert changed.digest != summary.digest
+
+
+def test_u2_selection_leaf_safety_counts_are_retained_and_digest_bound() -> None:
+    module = _module()
+    leaf = module.UniversalTradeRLU2SelectionLeafMetrics(
+        training_seed=0,
+        cell="B",
+        concrete_symbol="DEV_A",
+        tile_identity=content_digest({"tile": "safety-counts"}),
+        replay_evidence_digest=content_digest({"replay": "safety-counts"}),
+        leaf_net_log_growth=0.01,
+        leaf_gross_log_growth=0.02,
+        turnover_per_day=0.5,
+        meaningful_execution=True,
+        hard_risk_violation_count=2,
+        unexplained_execution_rejection_count=3,
+    )
+
+    assert leaf.hard_risk_violation_count == 2
+    assert leaf.unexplained_execution_rejection_count == 3
+
+    changed = replace(leaf, hard_risk_violation_count=1, digest="")
+    assert changed.digest != leaf.digest
+
+    with pytest.raises(ValueError, match="non-negative|rejection|count"):
+        replace(leaf, unexplained_execution_rejection_count=-1, digest="")

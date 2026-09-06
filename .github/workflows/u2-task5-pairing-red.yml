@@ -1,0 +1,42 @@
+name: U2 Task5 Pairing RED
+
+on:
+  push:
+    branches:
+      - codex/u2-selection-task5-pairing-final
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    if: "github.event.head_commit.message == 'chore: verify U2 Task5 pairing RED'"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Static RED precheck
+        run: >-
+          uv run ruff format --check --diff
+          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          tests/workflows/test_universal_trade_rl_u2_selection_final.py
+          trade_rl/workflows/universal_trade_rl_u2_selection.py
+          && uv run ruff check
+          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          tests/workflows/test_universal_trade_rl_u2_selection_final.py
+          trade_rl/workflows/universal_trade_rl_u2_selection.py
+      - name: Execute pairing RED
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          tests/workflows/test_universal_trade_rl_u2_selection_final.py

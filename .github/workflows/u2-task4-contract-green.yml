@@ -32,6 +32,8 @@ jobs:
         run: |
           set -euo pipefail
           python .github/apply_u2_task4_contract_green.py
+          uv run ruff check --fix --select I \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py
           uv run ruff format \
             trade_rl/workflows/universal_trade_rl_u2_selection.py \
             tests/workflows/test_universal_trade_rl_u2_development_selection_evidence.py

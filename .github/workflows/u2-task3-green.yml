@@ -36,13 +36,13 @@ jobs:
           uv run ruff check trade_rl/workflows/universal_trade_rl_u2_selection.py tests/workflows/test_universal_trade_rl_u2_selection_robustness.py tests/workflows/test_universal_trade_rl_u2_selection_gate.py tests/workflows/test_universal_trade_rl_u2_selection.py
           uv run mypy trade_rl/workflows/universal_trade_rl_u2_selection.py
           uv run pytest -q tests/workflows/test_universal_trade_rl_u2_selection_robustness.py tests/workflows/test_universal_trade_rl_u2_selection_gate.py tests/workflows/test_universal_trade_rl_u2_selection.py tests/workflows/test_universal_trade_rl_u2_selection_metrics.py tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
-      - name: Commit Task3 source and tests
+      - name: Commit Task3 source only
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add trade_rl/workflows/universal_trade_rl_u2_selection.py tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
-          test "$(git diff --cached --name-only)" = $'tests/workflows/test_universal_trade_rl_u2_selection_robustness.py\ntrade_rl/workflows/universal_trade_rl_u2_selection.py'
+          git add trade_rl/workflows/universal_trade_rl_u2_selection.py
+          test "$(git diff --cached --name-only)" = "trade_rl/workflows/universal_trade_rl_u2_selection.py"
           git commit -m 'feat: enforce U2 Development seed robustness'
           git push origin HEAD:codex/u2-selection-task3-robustness

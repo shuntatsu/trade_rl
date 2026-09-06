@@ -164,7 +164,9 @@ def test_u2_paired_replay_scope_derives_training_seed_from_checkpoint_not_crn_se
     )
 
     assert paired.training_seed == training_seed
-    assert paired.paired_candidate_checkpoint_digest == _checkpoint_digest(training_seed)
+    assert paired.paired_candidate_checkpoint_digest == _checkpoint_digest(
+        training_seed
+    )
     assert paired.candidate_replay_evidence_digest == candidate_for_seed_1.digest
     assert paired.cash_replay_evidence_digest == cash_for_seed_1.digest
 

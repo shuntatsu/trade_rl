@@ -55,7 +55,7 @@ def test_u2_selection_summary_executes_frozen_metric_formulas() -> None:
             meaningful_execution=True,
         ),
         _leaf(
-            training_seed=1,
+            training_seed=0,
             concrete_symbol="DEV_A",
             tile="A1",
             net_log_growth=-0.05,
@@ -73,7 +73,7 @@ def test_u2_selection_summary_executes_frozen_metric_formulas() -> None:
             meaningful_execution=False,
         ),
         _leaf(
-            training_seed=1,
+            training_seed=0,
             concrete_symbol="DEV_B",
             tile="B1",
             net_log_growth=-0.10,
@@ -93,6 +93,7 @@ def test_u2_selection_summary_executes_frozen_metric_formulas() -> None:
     balanced_gross_log = (symbol_a_gross_log + symbol_b_gross_log) / 2.0
     symbol_net_wealth = (math.exp(symbol_a_net_log), math.exp(symbol_b_net_log))
 
+    assert summary.training_seed == 0
     assert summary.leaf_count == 4
     assert summary.symbol_count == 2
     assert summary.symbol_balanced_net_log_growth == pytest.approx(balanced_net_log)
@@ -128,6 +129,33 @@ def test_u2_selection_summary_executes_frozen_metric_formulas() -> None:
     )
     assert by_symbol["DEV_A"].meaningful_execution is True
     assert by_symbol["DEV_B"].meaningful_execution is True
+
+
+def test_u2_selection_summary_rejects_mixed_training_seeds() -> None:
+    module = _module()
+    leaves = (
+        _leaf(
+            training_seed=0,
+            concrete_symbol="DEV_A",
+            tile="seed-0",
+            net_log_growth=0.01,
+            gross_log_growth=0.02,
+            turnover_per_day=0.5,
+            meaningful_execution=True,
+        ),
+        _leaf(
+            training_seed=1,
+            concrete_symbol="DEV_A",
+            tile="seed-1",
+            net_log_growth=0.01,
+            gross_log_growth=0.02,
+            turnover_per_day=0.5,
+            meaningful_execution=True,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="seed|single|cell"):
+        module.summarize_universal_trade_rl_u2_selection_metrics(leaves=leaves)
 
 
 def test_u2_selection_retention_is_not_defined_for_nonpositive_gross_growth() -> None:

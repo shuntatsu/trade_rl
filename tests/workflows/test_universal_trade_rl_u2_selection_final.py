@@ -91,6 +91,62 @@ def _segments():
     )
 
 
+def _paired_segments(*, u2_contract, checkpoint_closure):
+    module = _module()
+    checkpoints = dict(checkpoint_closure.checkpoint_digests)
+    symbols = ("DEV_A", "DEV_B")
+    pairs = tuple(
+        module.UniversalTradeRLU2PairedReplayScopeEvidence(
+            training_seed=seed,
+            source_window=window,
+            cell=cell,
+            concrete_symbol=symbol,
+            scope_digest=content_digest(
+                {
+                    "fixture": "u2-final-selection-tile",
+                    "cell": cell,
+                    "symbol": symbol,
+                }
+            ),
+            evaluation_dataset_digest=content_digest(
+                {"fixture": "u2-final-pairing-dataset", "symbol": symbol}
+            ),
+            u2_contract_digest=u2_contract.digest,
+            time_partition_digest=u2_contract.time_partition_digest,
+            checkpoint_closure_digest=checkpoint_closure.digest,
+            paired_candidate_checkpoint_digest=checkpoints[seed],
+            candidate_replay_evidence_digest=content_digest(
+                {
+                    "fixture": "u2-final-pairing-candidate",
+                    "seed": seed,
+                    "window": window,
+                    "symbol": symbol,
+                }
+            ),
+            cash_replay_evidence_digest=content_digest(
+                {
+                    "fixture": "u2-final-pairing-cash",
+                    "seed": seed,
+                    "window": window,
+                    "symbol": symbol,
+                }
+            ),
+            decision_timestamps_ns=timestamps,
+            candidate_minus_cash_net_log_excess=(0.02, 0.02, 0.02, 0.02),
+        )
+        for seed in (0, 1, 2)
+        for window, cell, timestamps in (
+            ("development_future_1", "D1", (100, 200, 300, 400)),
+            ("development_future_2", "D2", (500, 600, 700, 800)),
+        )
+        for symbol in symbols
+    )
+    return module.reduce_universal_trade_rl_u2_paired_replay_evidence(
+        pairs=pairs,
+        expected_symbols=symbols,
+    )
+
+
 def _summary_for_seed(*, leaves, training_seed: int):
     module = _module()
     return module.summarize_universal_trade_rl_u2_selection_metrics(
@@ -98,11 +154,14 @@ def _summary_for_seed(*, leaves, training_seed: int):
     )
 
 
-def _passing_selection_children():
+def _passing_selection_children(*, u2_contract, checkpoint_closure):
     module = _module()
     d1_leaves = _cell_leaves("D1")
     d2_leaves = _cell_leaves("D2")
-    segments = _segments()
+    segments = _paired_segments(
+        u2_contract=u2_contract,
+        checkpoint_closure=checkpoint_closure,
+    )
 
     d1 = module.evaluate_universal_trade_rl_u2_seed_robustness(
         scope="D1",
@@ -166,7 +225,10 @@ def _final_fixture():
             u2_contract=u2_contract,
         )
     )
-    primary, robustness = _passing_selection_children()
+    primary, robustness = _passing_selection_children(
+        u2_contract=u2_contract,
+        checkpoint_closure=checkpoint_closure,
+    )
     return (
         u2_contract,
         base_lock,
@@ -306,10 +368,10 @@ def test_u2_final_selection_rejects_primary_d_summary_substitution() -> None:
 def test_u2_final_selection_rejects_aggregate_summary_substitution() -> None:
     module = _module()
     (
-        _u2_contract,
+        u2_contract,
         _base_lock,
         _development_lock,
-        _checkpoint_closure,
+        checkpoint_closure,
         primary,
         robustness,
     ) = _final_fixture()
@@ -331,7 +393,10 @@ def test_u2_final_selection_rejects_aggregate_summary_substitution() -> None:
     altered_d12 = module.evaluate_universal_trade_rl_u2_seed_robustness(
         scope="D1+D2",
         leaves=_cell_leaves("D1") + altered_d2_leaves,
-        segments=_segments(),
+        segments=_paired_segments(
+            u2_contract=u2_contract,
+            checkpoint_closure=checkpoint_closure,
+        ),
     )
     assert altered_d12.passed is True
 
@@ -370,14 +435,40 @@ def test_u2_final_selection_rejects_development_lock_checkpoint_substitution() -
 def test_u2_final_selection_rejects_robustness_without_cash_pairing_provenance() -> (
     None
 ):
+    module = _module()
     (
         _u2_contract,
         _base_lock,
         _development_lock,
         _checkpoint_closure,
         primary,
-        robustness,
+        _robustness,
     ) = _final_fixture()
+    d1_leaves = _cell_leaves("D1")
+    d2_leaves = _cell_leaves("D2")
+    legacy_segments = _segments()
+    legacy_robustness = (
+        module.evaluate_universal_trade_rl_u2_seed_robustness(
+            scope="D1",
+            leaves=d1_leaves,
+            segments=legacy_segments,
+        ),
+        module.evaluate_universal_trade_rl_u2_seed_robustness(
+            scope="D2",
+            leaves=d2_leaves,
+            segments=legacy_segments,
+        ),
+        module.evaluate_universal_trade_rl_u2_seed_robustness(
+            scope="D1+D2",
+            leaves=d1_leaves + d2_leaves,
+            segments=legacy_segments,
+        ),
+    )
+    assert all(gate.passed for gate in legacy_robustness)
+    assert all(
+        not gate.bootstrap_result.paired_scope_evidence_digests
+        for gate in legacy_robustness
+    )
 
     with pytest.raises(ValueError, match="cash|pair|provenance|bootstrap"):
-        _build_final(primary=primary, robustness=robustness)
+        _build_final(primary=primary, robustness=legacy_robustness)

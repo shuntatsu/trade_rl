@@ -195,6 +195,11 @@ def _paired_scope(
         evaluation_dataset_digest=content_digest(
             {"fixture": "pairing-dataset", "symbol": symbol}
         ),
+        u2_contract_digest=content_digest({"fixture": "pairing-u2-contract"}),
+        time_partition_digest=content_digest({"fixture": "pairing-time-partition"}),
+        checkpoint_closure_digest=content_digest(
+            {"fixture": "pairing-checkpoint-closure"}
+        ),
         paired_candidate_checkpoint_digest=_checkpoint_digest(seed),
         candidate_replay_evidence_digest=content_digest(
             {

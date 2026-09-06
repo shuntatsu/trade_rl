@@ -231,7 +231,6 @@ def test_u2_predevelopment_freezes_exact_metric_bootstrap_resume_and_exposure() 
 
 
 def _lock_kwargs() -> dict[str, object]:
-    module = _module()
     contract = _predevelopment_contract()
     return {
         "predevelopment_contract": contract,

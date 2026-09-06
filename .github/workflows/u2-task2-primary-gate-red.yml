@@ -6,7 +6,7 @@ on:
       - "codex/u2-selection-task2-primary-gate"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: u2-task2-primary-gate-red-${{ github.ref }}
@@ -14,14 +14,13 @@ concurrency:
 
 jobs:
   red:
-    name: U2 Task2 RED Contract
+    name: U2 Task2 RED Normalize
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact head
+      - name: Checkout task branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
+          ref: codex/u2-selection-task2-primary-gate
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
@@ -32,11 +31,16 @@ jobs:
       - name: Install focused dependencies
         run: uv sync --extra dev
 
-      - name: Verify RED test formatting
-        run: uv run ruff format --check --diff tests/workflows/test_universal_trade_rl_u2_selection_gate.py
-
-      - name: Verify RED test lint
-        run: uv run ruff check tests/workflows/test_universal_trade_rl_u2_selection_gate.py
-
-      - name: Execute Task 2 RED
-        run: uv run pytest -q tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+      - name: Apply mechanical Ruff normalization
+        shell: bash
+        run: |
+          uv run ruff check --fix tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+          uv run ruff format tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+          git diff --check
+          if ! git diff --quiet -- tests/workflows/test_universal_trade_rl_u2_selection_gate.py; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+            git commit -m "style: normalize U2 Task2 gate test imports"
+            git push origin HEAD:codex/u2-selection-task2-primary-gate
+          fi

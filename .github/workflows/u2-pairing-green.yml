@@ -1,0 +1,808 @@
+name: U2 Pairing GREEN
+
+on:
+  push:
+    branches:
+      - codex/universal-trade-rl-u2-base-ppo-implementation
+    paths:
+      - ".github/workflows/u2-pairing-green.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact trigger head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Apply pairing provenance production contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/universal_trade_rl_u2_selection.py")
+          text = path.read_text(encoding="utf-8")
+
+          old_import = '''from trade_rl.workflows.universal_trade_rl_u2_predevelopment import (
+              UniversalTradeRLU2DevelopmentLock,
+          )
+          from trade_rl.workflows.universal_trade_rl_u2_replay import (
+          '''
+          new_import = '''from trade_rl.workflows.universal_trade_rl_u2_predevelopment import (
+              UniversalTradeRLU2DevelopmentLock,
+          )
+          from trade_rl.workflows.universal_trade_rl_u2_time_partition import (
+              U2_DECISION_STEP_NS,
+              UniversalTradeRLU2TimePartition,
+          )
+          from trade_rl.workflows.universal_trade_rl_u2_replay import (
+          '''
+          if text.count(old_import) != 1:
+              raise SystemExit("pairing import anchor drifted")
+          text = text.replace(old_import, new_import, 1)
+
+          paired_anchor = '''@dataclass(frozen=True, slots=True)
+          class UniversalTradeRLU2PairedExcessPoint:
+          '''
+          if text.count(paired_anchor) != 1:
+              raise SystemExit("paired-excess anchor drifted")
+
+          paired_addition = r'''U2_PAIRED_REPLAY_SCOPE_EVIDENCE_SCHEMA: Final = (
+              "universal_trade_rl_u2_paired_replay_scope_evidence_v1"
+          )
+
+
+          @dataclass(frozen=True, slots=True)
+          class UniversalTradeRLU2PairedReplayScopeEvidence:
+              """Digest-bound candidate/cash same-scope replay pairing evidence."""
+
+              training_seed: int
+              source_window: str
+              cell: str
+              concrete_symbol: str
+              scope_digest: str
+              evaluation_dataset_digest: str
+              paired_candidate_checkpoint_digest: str
+              candidate_replay_evidence_digest: str
+              cash_replay_evidence_digest: str
+              decision_timestamps_ns: tuple[int, ...]
+              candidate_minus_cash_net_log_excess: tuple[float, ...]
+              schema_version: str = U2_PAIRED_REPLAY_SCOPE_EVIDENCE_SCHEMA
+              digest: str = ""
+
+              def __post_init__(self) -> None:
+                  if self.schema_version != U2_PAIRED_REPLAY_SCOPE_EVIDENCE_SCHEMA:
+                      raise ValueError("unsupported U2 paired replay scope schema")
+                  if (
+                      isinstance(self.training_seed, bool)
+                      or not isinstance(self.training_seed, int)
+                      or self.training_seed not in U2_TRAINING_SEEDS
+                  ):
+                      raise ValueError("U2 paired replay training seed is not preregistered")
+                  for field_name, value in (
+                      ("source window", self.source_window),
+                      ("cell", self.cell),
+                      ("concrete symbol", self.concrete_symbol),
+                  ):
+                      if not isinstance(value, str) or not value:
+                          raise ValueError(f"U2 paired replay {field_name} must be non-empty")
+                  for field_name, digest in (
+                      ("scope", self.scope_digest),
+                      ("evaluation dataset", self.evaluation_dataset_digest),
+                      ("candidate checkpoint", self.paired_candidate_checkpoint_digest),
+                      ("candidate replay", self.candidate_replay_evidence_digest),
+                      ("cash replay", self.cash_replay_evidence_digest),
+                  ):
+                      require_sha256(digest, field=f"U2 paired replay {field_name} digest")
+                  if self.candidate_replay_evidence_digest == self.cash_replay_evidence_digest:
+                      raise ValueError("U2 paired replay candidate/cash evidence must be distinct")
+
+                  timestamps = tuple(self.decision_timestamps_ns)
+                  values = tuple(
+                      _finite(value, field="U2 paired replay net-log excess")
+                      for value in self.candidate_minus_cash_net_log_excess
+                  )
+                  if not timestamps or len(timestamps) != len(values):
+                      raise ValueError("U2 paired replay timestamps/excess must be non-empty and aligned")
+                  for timestamp in timestamps:
+                      _non_negative_int(timestamp, field="U2 paired replay decision timestamp")
+                  if timestamps != tuple(sorted(set(timestamps))):
+                      raise ValueError("U2 paired replay timestamps must be sorted and unique")
+                  if len(timestamps) > 1 and any(
+                      later - earlier != U2_DECISION_STEP_NS
+                      for earlier, later in zip(timestamps, timestamps[1:], strict=True)
+                  ):
+                      raise ValueError("U2 paired replay timestamps must follow the 15m decision grid")
+                  object.__setattr__(self, "decision_timestamps_ns", timestamps)
+                  object.__setattr__(self, "candidate_minus_cash_net_log_excess", values)
+
+                  expected_digest = content_digest(self.to_payload(include_digest=False))
+                  if self.digest:
+                      require_sha256(self.digest, field="U2 paired replay scope evidence digest")
+                      if self.digest != expected_digest:
+                          raise ValueError("U2 paired replay scope evidence digest mismatch")
+                  object.__setattr__(self, "digest", expected_digest)
+
+              def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
+                  payload: dict[str, object] = {
+                      "schema_version": self.schema_version,
+                      "training_seed": self.training_seed,
+                      "source_window": self.source_window,
+                      "cell": self.cell,
+                      "concrete_symbol": self.concrete_symbol,
+                      "scope_digest": self.scope_digest,
+                      "evaluation_dataset_digest": self.evaluation_dataset_digest,
+                      "paired_candidate_checkpoint_digest": self.paired_candidate_checkpoint_digest,
+                      "candidate_replay_evidence_digest": self.candidate_replay_evidence_digest,
+                      "cash_replay_evidence_digest": self.cash_replay_evidence_digest,
+                      "decision_timestamps_ns": self.decision_timestamps_ns,
+                      "candidate_minus_cash_net_log_excess": self.candidate_minus_cash_net_log_excess,
+                  }
+                  if include_digest:
+                      payload["artifact_digest"] = self.digest
+                  return payload
+
+
+          def build_universal_trade_rl_u2_paired_replay_scope_evidence(
+              *,
+              candidate_replay: UniversalTradeRLU2ReplayEvidence,
+              cash_replay: UniversalTradeRLU2ReplayEvidence,
+              u2_contract: u2_contract.UniversalTradeRLU2Contract,
+              time_partition: UniversalTradeRLU2TimePartition,
+              checkpoint_closure: UniversalTradeRLU2FinalCheckpointClosure,
+          ) -> UniversalTradeRLU2PairedReplayScopeEvidence:
+              """Derive period-aligned net-log excess from exact candidate/cash replays."""
+
+              if not isinstance(candidate_replay, UniversalTradeRLU2ReplayEvidence):
+                  raise TypeError("U2 paired replay requires candidate replay evidence")
+              if not isinstance(cash_replay, UniversalTradeRLU2ReplayEvidence):
+                  raise TypeError("U2 paired replay requires cash replay evidence")
+              if not isinstance(u2_contract, u2_contract.__class__) and not isinstance(
+                  u2_contract, globals()["u2_contract"].UniversalTradeRLU2Contract
+              ):
+                  raise TypeError("U2 paired replay requires a U2 contract")
+              if not isinstance(time_partition, UniversalTradeRLU2TimePartition):
+                  raise TypeError("U2 paired replay requires a U2 time partition")
+              if not isinstance(checkpoint_closure, UniversalTradeRLU2FinalCheckpointClosure):
+                  raise TypeError("U2 paired replay requires final checkpoint closure")
+              if candidate_replay.policy_variant != UniversalTradeRLU2ReplayVariant.CANDIDATE.value:
+                  raise ValueError("U2 paired replay candidate evidence has the wrong variant")
+              if cash_replay.policy_variant != UniversalTradeRLU2ReplayVariant.CASH.value:
+                  raise ValueError("U2 paired replay cash evidence has the wrong variant")
+
+              contract = u2_contract
+              if time_partition.digest != contract.time_partition_digest:
+                  raise ValueError("U2 paired replay time-partition identity mismatch")
+              if checkpoint_closure.u2_contract_digest != contract.digest:
+                  raise ValueError("U2 paired replay checkpoint/U2 identity mismatch")
+              if checkpoint_closure.time_partition_digest != time_partition.digest:
+                  raise ValueError("U2 paired replay checkpoint/time-partition identity mismatch")
+              if checkpoint_closure.universe_manifest_digest != contract.universe_manifest_digest:
+                  raise ValueError("U2 paired replay checkpoint/universe identity mismatch")
+              if checkpoint_closure.u1_contract_digest != contract.u1_contract_digest:
+                  raise ValueError("U2 paired replay checkpoint/U1 identity mismatch")
+              if checkpoint_closure.normalizer_digest != contract.u1_normalizer_digest:
+                  raise ValueError("U2 paired replay checkpoint/normalizer identity mismatch")
+
+              identity_fields = (
+                  "scope_closure_digest",
+                  "scope_digest",
+                  "universe_manifest_digest",
+                  "u1_contract_digest",
+                  "u2_contract_digest",
+                  "source_dataset_digest",
+                  "evaluation_dataset_digest",
+                  "concrete_symbol",
+                  "symbol_role",
+                  "cell",
+                  "source_window",
+                  "tile_index",
+                  "evaluation_seed",
+                  "paired_candidate_checkpoint_digest",
+                  "outcome_start_bar_index",
+                  "outcome_stop_bar_index_exclusive",
+                  "evaluation_start_bar_index",
+                  "evaluation_stop_bar_index",
+                  "runtime_start_bar_index",
+                  "runtime_end_bar_index",
+                  "observed_decision_count",
+              )
+              if any(
+                  getattr(candidate_replay, field_name) != getattr(cash_replay, field_name)
+                  for field_name in identity_fields
+              ):
+                  raise ValueError("U2 candidate/cash replay pair identity or dataset drifted")
+              if candidate_replay.u2_contract_digest != contract.digest:
+                  raise ValueError("U2 paired replay evidence U2 identity mismatch")
+              if candidate_replay.universe_manifest_digest != contract.universe_manifest_digest:
+                  raise ValueError("U2 paired replay evidence universe identity mismatch")
+              if candidate_replay.u1_contract_digest != contract.u1_contract_digest:
+                  raise ValueError("U2 paired replay evidence U1 identity mismatch")
+
+              checkpoint_digest = candidate_replay.paired_candidate_checkpoint_digest
+              matching_seeds = tuple(
+                  seed
+                  for seed, digest in checkpoint_closure.checkpoint_digests
+                  if digest == checkpoint_digest
+              )
+              if len(matching_seeds) != 1:
+                  raise ValueError("U2 paired replay candidate checkpoint is outside exact closure")
+              training_seed = matching_seeds[0]
+
+              candidate_bars = tuple(
+                  step.decision_bar_index for step in candidate_replay.step_evidence
+              )
+              cash_bars = tuple(step.decision_bar_index for step in cash_replay.step_evidence)
+              if candidate_bars != cash_bars:
+                  raise ValueError("U2 candidate/cash replay period alignment drifted")
+              if len(candidate_replay.net_simple_returns) != len(cash_replay.net_simple_returns):
+                  raise ValueError("U2 candidate/cash replay return length drifted")
+
+              decision_timestamps = tuple(
+                  time_partition.common_first_timestamp_ns
+                  + decision_bar_index * U2_DECISION_STEP_NS
+                  for decision_bar_index in candidate_bars
+              )
+              net_log_excess = tuple(
+                  math.log1p(candidate_return) - math.log1p(cash_return)
+                  for candidate_return, cash_return in zip(
+                      candidate_replay.net_simple_returns,
+                      cash_replay.net_simple_returns,
+                      strict=True,
+                  )
+              )
+              return UniversalTradeRLU2PairedReplayScopeEvidence(
+                  training_seed=training_seed,
+                  source_window=candidate_replay.source_window,
+                  cell=candidate_replay.cell,
+                  concrete_symbol=candidate_replay.concrete_symbol,
+                  scope_digest=candidate_replay.scope_digest,
+                  evaluation_dataset_digest=candidate_replay.evaluation_dataset_digest,
+                  paired_candidate_checkpoint_digest=checkpoint_digest,
+                  candidate_replay_evidence_digest=candidate_replay.digest,
+                  cash_replay_evidence_digest=cash_replay.digest,
+                  decision_timestamps_ns=decision_timestamps,
+                  candidate_minus_cash_net_log_excess=net_log_excess,
+              )
+
+
+          '''
+          # Avoid shadowing the imported module in the function annotation/body by using a local alias.
+          paired_addition = paired_addition.replace(
+              '              u2_contract: u2_contract.UniversalTradeRLU2Contract,\n',
+              '              generation_contract: u2_contract.UniversalTradeRLU2Contract,\n',
+          ).replace(
+              '              if not isinstance(u2_contract, u2_contract.__class__) and not isinstance(\n                  u2_contract, globals()["u2_contract"].UniversalTradeRLU2Contract\n              ):\n                  raise TypeError("U2 paired replay requires a U2 contract")\n',
+              '              if not isinstance(\n                  generation_contract, u2_contract.UniversalTradeRLU2Contract\n              ):\n                  raise TypeError("U2 paired replay requires a U2 contract")\n',
+          ).replace(
+              '              contract = u2_contract\n',
+              '              contract = generation_contract\n',
+          )
+          text = text.replace(paired_anchor, paired_addition + paired_anchor, 1)
+
+          old_segment_fields = '''    source_window: str
+              decision_timestamps_ns: tuple[int, ...]
+              net_log_excess: tuple[float, ...]
+          '''
+          new_segment_fields = '''    source_window: str
+              decision_timestamps_ns: tuple[int, ...]
+              net_log_excess: tuple[float, ...]
+              paired_scope_evidence_digests: tuple[str, ...] = ()
+          '''
+          if text.count(old_segment_fields) != 1:
+              raise SystemExit("bootstrap segment field anchor drifted")
+          text = text.replace(old_segment_fields, new_segment_fields, 1)
+
+          segment_values_anchor = '''        values = tuple(
+              _finite(value, field="U2 bootstrap segment net-log excess")
+              for value in self.net_log_excess
+          )
+          '''
+          segment_values_replacement = segment_values_anchor + '''        pairing_digests = tuple(self.paired_scope_evidence_digests)
+              for digest in pairing_digests:
+                  require_sha256(digest, field="U2 bootstrap paired-scope evidence digest")
+              if len(set(pairing_digests)) != len(pairing_digests):
+                  raise ValueError("U2 bootstrap paired-scope evidence digests must be unique")
+          '''
+          if text.count(segment_values_anchor) != 1:
+              raise SystemExit("bootstrap segment value anchor drifted")
+          text = text.replace(segment_values_anchor, segment_values_replacement, 1)
+
+          segment_set_anchor = '''        object.__setattr__(self, "decision_timestamps_ns", timestamps)
+              object.__setattr__(self, "net_log_excess", values)
+          '''
+          segment_set_replacement = segment_set_anchor + '''        object.__setattr__(self, "paired_scope_evidence_digests", pairing_digests)
+          '''
+          if text.count(segment_set_anchor) != 1:
+              raise SystemExit("bootstrap segment set anchor drifted")
+          text = text.replace(segment_set_anchor, segment_set_replacement, 1)
+
+          digest_anchor = '''                "net_log_excess": self.net_log_excess,
+          '''
+          digest_replacement = digest_anchor + '''                "paired_scope_evidence_digests": self.paired_scope_evidence_digests,
+          '''
+          if text.count(digest_anchor) < 1:
+              raise SystemExit("bootstrap segment digest anchor missing")
+          # Only the first occurrence is the ReducedBootstrapSegment digest payload.
+          text = text.replace(digest_anchor, digest_replacement, 1)
+
+          reducer_anchor = '''def bootstrap_universal_trade_rl_u2_development_panel(
+          '''
+          if text.count(reducer_anchor) != 1:
+              raise SystemExit("pairing reducer insertion anchor drifted")
+          reducer_addition = r'''def reduce_universal_trade_rl_u2_paired_replay_evidence(
+              *,
+              pairs: tuple[UniversalTradeRLU2PairedReplayScopeEvidence, ...],
+              expected_symbols: tuple[str, ...],
+          ) -> tuple[UniversalTradeRLU2ReducedBootstrapSegment, ...]:
+              """Reduce canonical D1/D2 candidate/cash pair artifacts into bootstrap segments."""
+
+              resolved = tuple(pairs)
+              symbols = tuple(expected_symbols)
+              if not resolved:
+                  raise ValueError("U2 paired replay reducer requires evidence")
+              if any(
+                  not isinstance(pair, UniversalTradeRLU2PairedReplayScopeEvidence)
+                  for pair in resolved
+              ):
+                  raise TypeError("U2 paired replay reducer contains invalid evidence")
+              if not symbols or symbols != tuple(sorted(set(symbols))):
+                  raise ValueError("U2 paired replay expected symbols must be sorted and unique")
+              if {pair.concrete_symbol for pair in resolved} - set(symbols):
+                  raise ValueError("U2 paired replay reducer contains an unexpected symbol")
+              if {pair.source_window for pair in resolved} != set(U2_DEVELOPMENT_WINDOWS):
+                  raise ValueError("U2 paired replay reducer requires complete D1/D2 window closure")
+              expected_cells = {
+                  "development_future_1": "D1",
+                  "development_future_2": "D2",
+              }
+              if any(
+                  pair.cell != expected_cells[pair.source_window]
+                  for pair in resolved
+              ):
+                  raise ValueError("U2 paired replay reducer window/cell identity drifted")
+
+              identities = tuple(
+                  (
+                      pair.training_seed,
+                      pair.source_window,
+                      pair.concrete_symbol,
+                      pair.scope_digest,
+                  )
+                  for pair in resolved
+              )
+              if len(set(identities)) != len(identities):
+                  raise ValueError("U2 paired replay reducer contains duplicate scope identity")
+              for seed in U2_TRAINING_SEEDS:
+                  for source_window in U2_DEVELOPMENT_WINDOWS:
+                      for symbol in symbols:
+                          if not any(
+                              pair.training_seed == seed
+                              and pair.source_window == source_window
+                              and pair.concrete_symbol == symbol
+                              for pair in resolved
+                          ):
+                              raise ValueError(
+                                  "U2 paired replay reducer seed/symbol/window closure is incomplete"
+                              )
+
+              closure_by_seed = {
+                  seed: {
+                      (
+                          pair.source_window,
+                          pair.cell,
+                          pair.concrete_symbol,
+                          pair.scope_digest,
+                          pair.decision_timestamps_ns,
+                      )
+                      for pair in resolved
+                      if pair.training_seed == seed
+                  }
+                  for seed in U2_TRAINING_SEEDS
+              }
+              canonical_closure = closure_by_seed[U2_TRAINING_SEEDS[0]]
+              if not canonical_closure or any(
+                  closure_by_seed[seed] != canonical_closure
+                  for seed in U2_TRAINING_SEEDS[1:]
+              ):
+                  raise ValueError("U2 paired replay scope closure drifted across training seeds")
+              if any(
+                  len(
+                      {
+                          pair.paired_candidate_checkpoint_digest
+                          for pair in resolved
+                          if pair.training_seed == seed
+                      }
+                  )
+                  != 1
+                  for seed in U2_TRAINING_SEEDS
+              ):
+                  raise ValueError("U2 paired replay checkpoint closure drifted within a seed")
+
+              ordered = tuple(
+                  sorted(
+                      resolved,
+                      key=lambda pair: (
+                          pair.source_window,
+                          pair.training_seed,
+                          pair.concrete_symbol,
+                          pair.scope_digest,
+                      ),
+                  )
+              )
+              points = tuple(
+                  UniversalTradeRLU2PairedExcessPoint(
+                      training_seed=pair.training_seed,
+                      source_window=pair.source_window,
+                      concrete_symbol=pair.concrete_symbol,
+                      decision_timestamp_ns=timestamp,
+                      candidate_minus_cash_net_log_excess=value,
+                  )
+                  for pair in ordered
+                  for timestamp, value in zip(
+                      pair.decision_timestamps_ns,
+                      pair.candidate_minus_cash_net_log_excess,
+                      strict=True,
+                  )
+              )
+              reduced = reduce_universal_trade_rl_u2_development_panel(
+                  points=points,
+                  expected_symbols=symbols,
+              )
+              by_window_pair_digests = {
+                  source_window: tuple(
+                      pair.digest
+                      for pair in ordered
+                      if pair.source_window == source_window
+                  )
+                  for source_window in U2_DEVELOPMENT_WINDOWS
+              }
+              return tuple(
+                  UniversalTradeRLU2ReducedBootstrapSegment(
+                      source_window=segment.source_window,
+                      decision_timestamps_ns=segment.decision_timestamps_ns,
+                      net_log_excess=segment.net_log_excess,
+                      paired_scope_evidence_digests=by_window_pair_digests[
+                          segment.source_window
+                      ],
+                  )
+                  for segment in reduced
+              )
+
+
+          '''
+          text = text.replace(reducer_anchor, reducer_addition + reducer_anchor, 1)
+
+          bootstrap_field_anchor = '''    passed: bool
+              quantile_method: str = _U2_BOOTSTRAP_QUANTILE_METHOD
+          '''
+          bootstrap_field_replacement = '''    passed: bool
+              paired_scope_evidence_digests: tuple[str, ...] = ()
+              quantile_method: str = _U2_BOOTSTRAP_QUANTILE_METHOD
+          '''
+          if text.count(bootstrap_field_anchor) != 1:
+              raise SystemExit("seed bootstrap field anchor drifted")
+          text = text.replace(bootstrap_field_anchor, bootstrap_field_replacement, 1)
+
+          bootstrap_set_anchor = '''        object.__setattr__(self, "block_lengths", block_lengths)
+          '''
+          bootstrap_set_replacement = bootstrap_set_anchor + '''        pairing_digests = tuple(self.paired_scope_evidence_digests)
+              for digest in pairing_digests:
+                  require_sha256(digest, field="U2 seed-robustness paired-scope evidence digest")
+              if len(set(pairing_digests)) != len(pairing_digests):
+                  raise ValueError(
+                      "U2 seed-robustness paired-scope evidence digests must be unique"
+                  )
+              object.__setattr__(self, "paired_scope_evidence_digests", pairing_digests)
+          '''
+          # The first block_lengths setter is in the seed robustness bootstrap class after its source_windows setter.
+          occurrences = [i for i in range(len(text)) if text.startswith(bootstrap_set_anchor, i)]
+          if len(occurrences) < 1:
+              raise SystemExit("seed bootstrap setter anchor missing")
+          # Replace the last occurrence to avoid touching the earlier Development bootstrap class if present.
+          idx = occurrences[-1]
+          text = text[:idx] + bootstrap_set_replacement + text[idx + len(bootstrap_set_anchor):]
+
+          bootstrap_payload_anchor = '''            "block_lengths": self.block_lengths,
+              "observed_mean": self.observed_mean,
+          '''
+          bootstrap_payload_replacement = '''            "block_lengths": self.block_lengths,
+              "paired_scope_evidence_digests": self.paired_scope_evidence_digests,
+              "observed_mean": self.observed_mean,
+          '''
+          occurrences = [i for i in range(len(text)) if text.startswith(bootstrap_payload_anchor, i)]
+          if len(occurrences) < 1:
+              raise SystemExit("seed bootstrap payload anchor missing")
+          idx = occurrences[-1]
+          text = text[:idx] + bootstrap_payload_replacement + text[idx + len(bootstrap_payload_anchor):]
+
+          bootstrap_return_anchor = '''        block_lengths=block_lengths,
+              observed_mean=observed_mean,
+              lower_ci=lower_ci,
+          '''
+          bootstrap_return_replacement = '''        block_lengths=block_lengths,
+              paired_scope_evidence_digests=tuple(
+                  digest
+                  for segment in resolved
+                  for digest in segment.paired_scope_evidence_digests
+              ),
+              observed_mean=observed_mean,
+              lower_ci=lower_ci,
+          '''
+          occurrences = [i for i in range(len(text)) if text.startswith(bootstrap_return_anchor, i)]
+          if len(occurrences) < 1:
+              raise SystemExit("seed bootstrap return anchor missing")
+          idx = occurrences[-1]
+          text = text[:idx] + bootstrap_return_replacement + text[idx + len(bootstrap_return_anchor):]
+
+          robustness_property_anchor = '''    @property
+              def bootstrap_lower_ci(self) -> float:
+          '''
+          robustness_property_replacement = '''    @property
+              def cash_pairing_provenance_digest(self) -> str | None:
+                  digests = self.bootstrap_result.paired_scope_evidence_digests
+                  if not digests:
+                      return None
+                  return content_digest(
+                      {
+                          "schema_version": "universal_trade_rl_u2_cash_pairing_provenance_v1",
+                          "scope": self.scope,
+                          "paired_scope_evidence_digests": digests,
+                      }
+                  )
+
+              @property
+              def bootstrap_lower_ci(self) -> float:
+          '''
+          if text.count(robustness_property_anchor) != 1:
+              raise SystemExit("robustness provenance property anchor drifted")
+          text = text.replace(robustness_property_anchor, robustness_property_replacement, 1)
+
+          robustness_payload_anchor = '''            "bootstrap_result_digest": self.bootstrap_result.digest,
+              "seed_symbol_balanced_net_wealth": self.seed_symbol_balanced_net_wealth,
+          '''
+          robustness_payload_replacement = '''            "bootstrap_result_digest": self.bootstrap_result.digest,
+              "cash_pairing_provenance_digest": self.cash_pairing_provenance_digest,
+              "seed_symbol_balanced_net_wealth": self.seed_symbol_balanced_net_wealth,
+          '''
+          if text.count(robustness_payload_anchor) != 1:
+              raise SystemExit("robustness payload anchor drifted")
+          text = text.replace(robustness_payload_anchor, robustness_payload_replacement, 1)
+
+          final_bootstrap_anchor = '''        if (
+              aggregate.bootstrap_result.source_windows != expected_windows
+              or aggregate.bootstrap_result.segment_digests != expected_segment_digests
+              or aggregate.bootstrap_result.block_lengths != expected_block_lengths
+          ):
+              raise ValueError(
+                  "U2 final Selection D1+D2 aggregate bootstrap identity mismatch"
+              )
+
+          '''
+          final_bootstrap_replacement = final_bootstrap_anchor + '''        if any(
+              gate.cash_pairing_provenance_digest is None for gate in robustness
+          ):
+              raise ValueError(
+                  "U2 final Selection requires cash pairing provenance for every robustness gate"
+              )
+              expected_pairing_provenance = (
+                  d1.bootstrap_result.paired_scope_evidence_digests
+                  + d2.bootstrap_result.paired_scope_evidence_digests
+              )
+              if (
+                  aggregate.bootstrap_result.paired_scope_evidence_digests
+                  != expected_pairing_provenance
+              ):
+                  raise ValueError(
+                      "U2 final Selection D1+D2 cash pairing provenance mismatch"
+                  )
+
+          '''
+          if text.count(final_bootstrap_anchor) != 1:
+              raise SystemExit("final bootstrap closure anchor drifted")
+          text = text.replace(final_bootstrap_anchor, final_bootstrap_replacement, 1)
+
+          final_payload_anchor = '''            "robustness_gate_digests": tuple(
+              gate.digest for gate in self.seed_robustness_gates
+          ),
+          '''
+          final_payload_replacement = final_payload_anchor + '''            "cash_pairing_provenance_digests": tuple(
+              gate.cash_pairing_provenance_digest
+              for gate in self.seed_robustness_gates
+          ),
+          '''
+          if text.count(final_payload_anchor) != 1:
+              raise SystemExit("final payload provenance anchor drifted")
+          text = text.replace(final_payload_anchor, final_payload_replacement, 1)
+
+          all_anchor = '''    "UniversalTradeRLU2PairedExcessPoint",
+              "UniversalTradeRLU2ReducedBootstrapSegment",
+          '''
+          all_replacement = '''    "U2_PAIRED_REPLAY_SCOPE_EVIDENCE_SCHEMA",
+              "UniversalTradeRLU2PairedReplayScopeEvidence",
+              "build_universal_trade_rl_u2_paired_replay_scope_evidence",
+              "reduce_universal_trade_rl_u2_paired_replay_evidence",
+              "UniversalTradeRLU2PairedExcessPoint",
+              "UniversalTradeRLU2ReducedBootstrapSegment",
+          '''
+          if text.count(all_anchor) != 1:
+              raise SystemExit("__all__ pairing anchor drifted")
+          text = text.replace(all_anchor, all_replacement, 1)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Update final Selection fixture for explicit provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/workflows/test_universal_trade_rl_u2_selection_final.py")
+          text = path.read_text(encoding="utf-8")
+
+          old_segments = '''def _segments():
+              module = _module()
+              return (
+                  module.UniversalTradeRLU2ReducedBootstrapSegment(
+                      source_window="development_future_1",
+                      decision_timestamps_ns=(100, 200, 300, 400),
+                      net_log_excess=(0.02, 0.02, 0.02, 0.02),
+                  ),
+                  module.UniversalTradeRLU2ReducedBootstrapSegment(
+                      source_window="development_future_2",
+                      decision_timestamps_ns=(500, 600, 700, 800),
+                      net_log_excess=(0.02, 0.02, 0.02, 0.02),
+                  ),
+              )
+          '''
+          new_segments = '''def _segments(*, with_pairing_provenance: bool = True):
+              module = _module()
+
+              def pairing_digests(source_window: str) -> tuple[str, ...]:
+                  if not with_pairing_provenance:
+                      return ()
+                  return tuple(
+                      content_digest(
+                          {
+                              "fixture": "u2-final-pairing-provenance",
+                              "source_window": source_window,
+                              "seed": seed,
+                              "symbol": symbol,
+                          }
+                      )
+                      for seed in (0, 1, 2)
+                      for symbol in ("DEV_A", "DEV_B")
+                  )
+
+              return (
+                  module.UniversalTradeRLU2ReducedBootstrapSegment(
+                      source_window="development_future_1",
+                      decision_timestamps_ns=(100, 200, 300, 400),
+                      net_log_excess=(0.02, 0.02, 0.02, 0.02),
+                      paired_scope_evidence_digests=pairing_digests(
+                          "development_future_1"
+                      ),
+                  ),
+                  module.UniversalTradeRLU2ReducedBootstrapSegment(
+                      source_window="development_future_2",
+                      decision_timestamps_ns=(500, 600, 700, 800),
+                      net_log_excess=(0.02, 0.02, 0.02, 0.02),
+                      paired_scope_evidence_digests=pairing_digests(
+                          "development_future_2"
+                      ),
+                  ),
+              )
+          '''
+          if text.count(old_segments) != 1:
+              raise SystemExit("final fixture segment anchor drifted")
+          text = text.replace(old_segments, new_segments, 1)
+
+          old_children = '''def _passing_selection_children():
+              module = _module()
+              d1_leaves = _cell_leaves("D1")
+              d2_leaves = _cell_leaves("D2")
+              segments = _segments()
+          '''
+          new_children = '''def _passing_selection_children(*, with_pairing_provenance: bool = True):
+              module = _module()
+              d1_leaves = _cell_leaves("D1")
+              d2_leaves = _cell_leaves("D2")
+              segments = _segments(with_pairing_provenance=with_pairing_provenance)
+          '''
+          if text.count(old_children) != 1:
+              raise SystemExit("final fixture child anchor drifted")
+          text = text.replace(old_children, new_children, 1)
+
+          old_negative = '''def test_u2_final_selection_rejects_robustness_without_cash_pairing_provenance() -> (
+              None
+          ):
+              (
+                  _u2_contract,
+                  _base_lock,
+                  _development_lock,
+                  _checkpoint_closure,
+                  primary,
+                  robustness,
+              ) = _final_fixture()
+
+              with pytest.raises(ValueError, match="cash|pair|provenance|bootstrap"):
+                  _build_final(primary=primary, robustness=robustness)
+          '''
+          new_negative = '''def test_u2_final_selection_rejects_robustness_without_cash_pairing_provenance() -> (
+              None
+          ):
+              primary, robustness = _passing_selection_children(
+                  with_pairing_provenance=False
+              )
+
+              with pytest.raises(ValueError, match="cash|pair|provenance|bootstrap"):
+                  _build_final(primary=primary, robustness=robustness)
+          '''
+          if text.count(old_negative) != 1:
+              raise SystemExit("final provenance negative-test anchor drifted")
+          text = text.replace(old_negative, new_negative, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Focused GREEN verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py
+          uv run ruff format --check --diff \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          uv run ruff check \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          uv run mypy trade_rl/workflows/universal_trade_rl_u2_selection.py
+          uv run pytest -q \
+            tests/integrations/test_universal_trade_rl_u2_selection_pairing.py \
+            tests/workflows/test_universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_gate.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py
+
+      - name: Commit GREEN and remove temporary workflows
+        shell: bash
+        env:
+          BRANCH: codex/universal-trade-rl-u2-base-ppo-implementation
+        run: |
+          set -euo pipefail
+          rm .github/workflows/u2-pairing-red.yml
+          rm .github/workflows/u2-pairing-green.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            .github/workflows/u2-pairing-red.yml \
+            .github/workflows/u2-pairing-green.yml
+          git diff --cached --check
+          git commit -m "fix: bind U2 cash pairing provenance"
+          git fetch origin "$BRANCH"
+          test "$(git rev-parse origin/$BRANCH)" = "$GITHUB_SHA"
+          git push origin "HEAD:$BRANCH"

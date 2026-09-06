@@ -64,9 +64,7 @@ def _leaf(
         turnover_per_day=1.0,
         meaningful_execution=meaningful_execution,
         hard_risk_violation_count=hard_risk_violation_count,
-        unexplained_execution_rejection_count=(
-            unexplained_execution_rejection_count
-        ),
+        unexplained_execution_rejection_count=(unexplained_execution_rejection_count),
     )
 
 
@@ -149,13 +147,13 @@ def _summary_with_symbol_logs(
 
 
 @pytest.mark.parametrize("cell", ("B", "C1", "C2", "D1", "D2"))
-def test_u2_primary_cell_gate_accepts_all_mandatory_cells_at_seed_zero(cell: str) -> None:
+def test_u2_primary_cell_gate_accepts_all_mandatory_cells_at_seed_zero(
+    cell: str,
+) -> None:
     module = _module()
     summary = _base_summary(cell=cell)
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     assert evidence.cell == cell
     assert evidence.training_seed == 0
@@ -170,17 +168,18 @@ def test_u2_primary_cell_gate_binds_the_preregistered_threshold_payload() -> Non
     module = _module()
     summary = _base_summary()
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     expected_threshold_digest = content_digest(
         universal_trade_rl_u2_contract._selection_thresholds_payload()
     )
     assert evidence.selection_thresholds_digest == expected_threshold_digest
-    assert evidence.digest == module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    ).digest
+    assert (
+        evidence.digest
+        == module.evaluate_universal_trade_rl_u2_primary_cell_gate(
+            summary=summary
+        ).digest
+    )
 
 
 @pytest.mark.parametrize("training_seed", (1, 2))
@@ -217,9 +216,7 @@ def test_u2_primary_cell_gate_balanced_gross_wealth_is_strict() -> None:
         digest="",
     )
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     assert summary.symbol_balanced_gross_wealth == 1.0
     assert REASON_GROSS in evidence.rejection_reasons
@@ -240,9 +237,7 @@ def test_u2_primary_cell_gate_balanced_net_wealth_is_strict() -> None:
         digest="",
     )
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     assert summary.symbol_balanced_net_wealth == 1.0
     assert REASON_NET in evidence.rejection_reasons
@@ -262,9 +257,7 @@ def test_u2_primary_cell_gate_median_symbol_wealth_below_one_rejects() -> None:
         digest="",
     )
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     assert summary.median_symbol_net_wealth < 1.0
     assert REASON_MEDIAN in evidence.rejection_reasons
@@ -278,9 +271,7 @@ def test_u2_primary_cell_gate_minimum_symbol_wealth_below_one_rejects() -> None:
         gross_logs=(0.02, 0.02, 0.02),
     )
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     assert summary.median_symbol_net_wealth > 1.0
     assert summary.minimum_symbol_net_wealth < 1.0
@@ -303,9 +294,7 @@ def test_u2_primary_cell_gate_rejects_beyond_inclusive_numeric_boundaries(
     module = _module()
     summary = replace(_base_summary(), **mutation, digest="")
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     assert evidence.rejection_reasons == (reason,)
     assert evidence.passed is False
@@ -352,9 +341,7 @@ def test_u2_primary_cell_gate_requires_meaningful_execution_for_every_symbol() -
         )
     )
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     assert summary.meaningful_execution_symbol_fraction == 0.5
     assert evidence.rejection_reasons == (REASON_EXECUTION,)
@@ -377,9 +364,7 @@ def test_u2_primary_cell_gate_requires_zero_hard_risk_violations() -> None:
         digest="",
     )
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     assert evidence.rejection_reasons == (REASON_RISK,)
     assert evidence.passed is False
@@ -401,9 +386,7 @@ def test_u2_primary_cell_gate_requires_zero_unexplained_rejections() -> None:
         digest="",
     )
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     assert evidence.rejection_reasons == (REASON_REJECTION,)
     assert evidence.passed is False
@@ -448,9 +431,7 @@ def test_u2_primary_cell_gate_rejects_positive_gross_retention_below_half() -> N
         )
     )
 
-    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=summary
-    )
+    evidence = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
     assert summary.positive_gross_log_growth_retention is not None
     assert summary.positive_gross_log_growth_retention < 0.50
@@ -464,9 +445,7 @@ def test_u2_primary_cell_gate_inclusive_boundaries_pass_exactly() -> None:
     assert base.positive_net_scope_fraction == 0.50
     assert base.scope_net_return_cvar10 == -0.01
     assert base.turnover_per_day_p95 == 1.0
-    assert module.evaluate_universal_trade_rl_u2_primary_cell_gate(
-        summary=base
-    ).passed
+    assert module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=base).passed
 
     median_minimum_boundary = _summary_with_symbol_logs(
         net_logs=(0.0, 0.0, 0.03),

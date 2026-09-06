@@ -8,6 +8,7 @@ from typing import Final
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.domain.universal_trade_rl_universe import UniversalTradeRLSymbolRole
 from trade_rl.rl.checkpointing import CheckpointManifest
 from trade_rl.workflows.universal_trade_rl_u2_contract import (
     U2_TRAINING_SEEDS,
@@ -84,6 +85,13 @@ def _canonical_train_symbols(symbols: tuple[str, ...]) -> tuple[str, ...]:
     if symbols != tuple(sorted(set(symbols))):
         raise ValueError("U2 training exposure Train symbols must be sorted and unique")
     return symbols
+
+
+def _role_symbols(
+    manifest: UniversalTradeRLUniverseManifest,
+    role: UniversalTradeRLSymbolRole,
+) -> tuple[str, ...]:
+    return tuple(entry.symbol for entry in manifest.entries if entry.role is role)
 
 
 def _require_predevelopment_u2_identity(
@@ -459,7 +467,10 @@ def build_universal_trade_rl_u2_training_exposure_evidence(
         predevelopment_contract_digest=predevelopment_contract.digest,
         universe_manifest_digest=manifest.digest,
         u2_contract_digest=u2_contract.digest,
-        expected_train_symbols=manifest.config.train_symbols,
+        expected_train_symbols=_role_symbols(
+            manifest,
+            UniversalTradeRLSymbolRole.TRAIN,
+        ),
         rows=rows,
     )
 
@@ -604,7 +615,12 @@ def build_authoritative_universal_trade_rl_u2_development_lock(
         )
 
     expected_evaluation_symbols = tuple(
-        sorted((*manifest.config.train_symbols, *manifest.config.development_symbols))
+        sorted(
+            (
+                *_role_symbols(manifest, UniversalTradeRLSymbolRole.TRAIN),
+                *_role_symbols(manifest, UniversalTradeRLSymbolRole.DEVELOPMENT),
+            )
+        )
     )
     actual_evaluation_symbols = tuple(
         symbol for symbol, _digest in base_lock.evaluation_dataset_digests
@@ -613,7 +629,10 @@ def build_authoritative_universal_trade_rl_u2_development_lock(
         raise ValueError(
             "authoritative U2 Development evaluation dataset mapping is incomplete"
         )
-    if set(actual_evaluation_symbols) & set(manifest.config.admission_symbols):
+    admission_symbols = set(
+        _role_symbols(manifest, UniversalTradeRLSymbolRole.ADMISSION)
+    )
+    if set(actual_evaluation_symbols) & admission_symbols:
         raise ValueError(
             "authoritative U2 Development dataset mapping contains Admission"
         )

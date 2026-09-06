@@ -1,0 +1,112 @@
+name: U2 Task3 Contract GREEN
+
+on:
+  push:
+    branches:
+      - codex/u2-selection-task3-contract-final
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    if: "github.event.head_commit.message == 'chore: run U2 Task3 contract GREEN'"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact trigger head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install focused dependencies
+        run: uv sync --extra dev
+
+      - name: Apply Task3 production patch
+        run: |
+          set -euo pipefail
+          python .github/apply_u2_task3_contract_green.py
+          uv run ruff format \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
+
+      - name: Static verification
+        run: |
+          set -euo pipefail
+          uv run ruff format --check --diff \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_gate.py \
+            tests/workflows/test_universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_metrics.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
+          uv run ruff check \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_gate.py \
+            tests/workflows/test_universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_metrics.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
+          uv run mypy trade_rl/workflows/universal_trade_rl_u2_selection.py
+          git diff --check
+
+      - name: Focused Selection verification
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_gate.py \
+            tests/workflows/test_universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_metrics.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py \
+            tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+
+      - name: Verify preregistration binding and segmented bootstrap
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path("trade_rl/workflows/universal_trade_rl_u2_selection.py").read_text()
+          start = text.index("U2_SEED_ROBUSTNESS_SCHEMA: Final")
+          end = text.index("__all__ = [", start)
+          block = text[start:end]
+          required = (
+              "u2_contract._selection_thresholds_payload()",
+              '"cross_seed_robustness"',
+              '"median_seed_net_wealth_min_exclusive"',
+              '"worst_seed_net_wealth_min_inclusive"',
+              '"all_seed_turnover_p95_per_day_max_inclusive"',
+              '"paired_excess_vs_cash_bootstrap_lower_ci_min_exclusive"',
+              '"bootstrap_resamples"',
+              '"bootstrap_seed"',
+              '"bootstrap_confidence_level"',
+              '"bootstrap_block_length_rule"',
+          )
+          missing = tuple(token for token in required if token not in block)
+          if missing:
+              raise SystemExit(f"Task3 preregistration binding is incomplete: {missing}")
+          if "sampled_values" not in block or "for segment, block_length in zip" not in block:
+              raise SystemExit("Task3 bootstrap no longer preserves per-segment sampling")
+          PY
+
+      - name: Commit verified Task3 source and remove temporary helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm \
+            .github/apply_u2_task3_contract_green.py \
+            .github/workflows/u2-task3-contract-red.yml \
+            .github/workflows/u2-task3-contract-green.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/workflows/universal_trade_rl_u2_selection.py
+          git diff --cached --check
+          git commit -m 'feat: enforce U2 Development seed robustness'
+          git push origin HEAD:codex/u2-selection-task3-contract-final

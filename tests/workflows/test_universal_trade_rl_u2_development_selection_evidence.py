@@ -185,9 +185,7 @@ def test_u2_final_selection_all_pass_selects_only_primary_exact_final_checkpoint
     None
 ):
     checkpoint_closure, base_lock, authoritative_lock = _lock_bundle()
-    evidence = _build(
-        lock_bundle=(checkpoint_closure, base_lock, authoritative_lock)
-    )
+    evidence = _build(lock_bundle=(checkpoint_closure, base_lock, authoritative_lock))
 
     seed0_checkpoint = dict(checkpoint_closure.checkpoint_digests)[0]
     assert evidence.primary_cells == _MANDATORY_CELLS
@@ -292,5 +290,7 @@ def test_u2_final_selection_rejects_authoritative_lock_child_identity_drift() ->
         content_digest({"fixture": "wrong-final-checkpoint-closure"}),
     )
 
-    with pytest.raises(ValueError, match="authoritative|checkpoint|closure|digest|identity"):
+    with pytest.raises(
+        ValueError, match="authoritative|checkpoint|closure|digest|identity"
+    ):
         _build(lock_bundle=(checkpoint_closure, base_lock, authoritative_lock))

@@ -248,3 +248,33 @@ def test_u2_selection_leaf_safety_counts_are_retained_and_digest_bound() -> None
 
     with pytest.raises(ValueError, match="non-negative|rejection|count"):
         replace(leaf, unexplained_execution_rejection_count=-1, digest="")
+
+
+def test_u2_selection_summary_aggregates_leaf_safety_counts() -> None:
+    module = _module()
+    leaves = tuple(
+        module.UniversalTradeRLU2SelectionLeafMetrics(
+            training_seed=0,
+            cell="B",
+            concrete_symbol=symbol,
+            tile_identity=content_digest({"tile": f"safety-summary-{symbol}"}),
+            replay_evidence_digest=content_digest(
+                {"replay": f"safety-summary-{symbol}"}
+            ),
+            leaf_net_log_growth=0.01,
+            leaf_gross_log_growth=0.02,
+            turnover_per_day=0.5,
+            meaningful_execution=True,
+            hard_risk_violation_count=hard_risk_count,
+            unexplained_execution_rejection_count=rejection_count,
+        )
+        for symbol, hard_risk_count, rejection_count in (
+            ("DEV_A", 2, 3),
+            ("DEV_B", 1, 4),
+        )
+    )
+
+    summary = module.summarize_universal_trade_rl_u2_selection_metrics(leaves=leaves)
+
+    assert summary.hard_risk_violation_count == 3
+    assert summary.unexplained_execution_rejection_count == 7

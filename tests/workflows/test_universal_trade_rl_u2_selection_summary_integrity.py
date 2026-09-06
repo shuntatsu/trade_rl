@@ -128,3 +128,34 @@ def test_u2_selection_summary_rejects_symbol_derived_metric_drift() -> None:
             ValueError, match="Selection|symbol|retention|wealth|consistent"
         ):
             replace(summary, **mutation, digest="")
+
+
+def test_u2_selection_summary_rejects_safety_count_suppression() -> None:
+    module = _module()
+    risky_leaf = replace(
+        _leaf(
+            training_seed=0,
+            concrete_symbol="DEV_A",
+            tile="integrity-risky",
+            net_log_growth=0.01,
+            gross_log_growth=0.02,
+            turnover_per_day=0.5,
+            meaningful_execution=True,
+        ),
+        hard_risk_violation_count=2,
+        unexplained_execution_rejection_count=3,
+        digest="",
+    )
+    summary = module.summarize_universal_trade_rl_u2_selection_metrics(
+        leaves=(risky_leaf,)
+    )
+
+    assert summary.hard_risk_violation_count == 2
+    assert summary.unexplained_execution_rejection_count == 3
+
+    for mutation in (
+        {"hard_risk_violation_count": 0},
+        {"unexplained_execution_rejection_count": 0},
+    ):
+        with pytest.raises(ValueError, match="risk|rejection|symbol|inconsistent"):
+            replace(summary, **mutation, digest="")

@@ -1,0 +1,39 @@
+name: U2 Selection Failure Modes Coverage
+
+on:
+  push:
+    branches:
+      - verify/u2-selection-failure-modes-coverage
+    paths:
+      - ".github/workflows/u2-selection-failure-modes-coverage.yml"
+      - "tests/workflows/test_universal_trade_rl_u2_selection_failure_modes.py"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Verify formatting and lint
+        run: |
+          uv run ruff format --check --diff tests/workflows/test_universal_trade_rl_u2_selection_failure_modes.py
+          uv run ruff check tests/workflows/test_universal_trade_rl_u2_selection_failure_modes.py
+
+      - name: Verify failure-mode contracts
+        run: uv run pytest -q tests/workflows/test_universal_trade_rl_u2_selection_failure_modes.py

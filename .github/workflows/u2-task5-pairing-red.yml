@@ -25,6 +25,11 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3
+      - name: Apply corrected Task5 oracle fixture
+        run: |
+          set -euo pipefail
+          python .github/apply_u2_task5_oracle_fix.py
+          uv run ruff format tests/workflows/test_universal_trade_rl_u2_selection_final.py
       - name: Static RED precheck
         run: >-
           uv run ruff format --check --diff

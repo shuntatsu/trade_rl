@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from statistics import fmean, median
 from typing import Final
 
@@ -12,7 +12,11 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
-from trade_rl.workflows.universal_trade_rl_u2_contract import U2_TRAINING_SEEDS
+from trade_rl.workflows.universal_trade_rl_u2_contract import (
+    U2_PRIMARY_CANDIDATE_SEED,
+    U2_TRAINING_SEEDS,
+    _selection_thresholds_payload,
+)
 from trade_rl.workflows.universal_trade_rl_u2_replay import (
     UniversalTradeRLU2ReplayEvidence,
     UniversalTradeRLU2ReplayVariant,
@@ -25,6 +29,8 @@ U2_SELECTION_SYMBOL_METRICS_SCHEMA: Final = (
     "universal_trade_rl_u2_selection_symbol_metrics_v1"
 )
 U2_SELECTION_SUMMARY_SCHEMA: Final = "universal_trade_rl_u2_selection_summary_v1"
+U2_PRIMARY_CELL_GATE_SCHEMA: Final = "universal_trade_rl_u2_primary_cell_gate_v1"
+U2_PRIMARY_SELECTION_CELLS: Final = ("B", "C1", "C2", "D1", "D2")
 U2_DEVELOPMENT_PANEL_SCHEMA: Final = "universal_trade_rl_u2_development_panel_v1"
 U2_DEVELOPMENT_BOOTSTRAP_SCHEMA: Final = (
     "universal_trade_rl_u2_development_segmented_bootstrap_v1"
@@ -739,6 +745,165 @@ def summarize_universal_trade_rl_u2_selection_metrics(
 
 
 @dataclass(frozen=True, slots=True)
+class UniversalTradeRLU2PrimaryCellGateEvidence:
+    """Digest-bound primary-seed core-gate evidence for one mandatory U2 cell."""
+
+    summary: UniversalTradeRLU2SelectionMetricSummary
+    selection_thresholds_digest: str = field(init=False)
+    rejection_reasons: tuple[str, ...] = field(init=False)
+    passed: bool = field(init=False)
+    schema_version: str = U2_PRIMARY_CELL_GATE_SCHEMA
+    digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.summary, UniversalTradeRLU2SelectionMetricSummary):
+            raise TypeError("U2 primary cell gate requires a Selection metric summary")
+        if self.summary.training_seed != U2_PRIMARY_CANDIDATE_SEED:
+            raise ValueError("U2 primary cell gate requires primary training seed 0")
+        if self.summary.cell not in U2_PRIMARY_SELECTION_CELLS:
+            raise ValueError(
+                "U2 primary cell gate requires mandatory cell B/C1/C2/D1/D2"
+            )
+        if self.schema_version != U2_PRIMARY_CELL_GATE_SCHEMA:
+            raise ValueError("unsupported U2 primary cell gate schema")
+
+        thresholds = _selection_thresholds_payload()
+        threshold_digest = content_digest(thresholds)
+        reasons = _u2_primary_cell_gate_rejection_reasons(
+            summary=self.summary,
+            thresholds=thresholds,
+        )
+        object.__setattr__(
+            self,
+            "selection_thresholds_digest",
+            threshold_digest,
+        )
+        object.__setattr__(self, "rejection_reasons", reasons)
+        object.__setattr__(self, "passed", not reasons)
+
+        expected = content_digest(self.to_payload(include_digest=False))
+        if self.digest:
+            require_sha256(self.digest, field="U2 primary cell gate digest")
+            if self.digest != expected:
+                raise ValueError("U2 primary cell gate digest mismatch")
+        object.__setattr__(self, "digest", expected)
+
+    @property
+    def cell(self) -> str:
+        return self.summary.cell
+
+    @property
+    def training_seed(self) -> int:
+        return self.summary.training_seed
+
+    @property
+    def summary_digest(self) -> str:
+        return self.summary.digest
+
+    def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "cell": self.cell,
+            "training_seed": self.training_seed,
+            "summary_digest": self.summary_digest,
+            "selection_thresholds_digest": self.selection_thresholds_digest,
+            "rejection_reasons": self.rejection_reasons,
+            "passed": self.passed,
+        }
+        if include_digest:
+            payload["artifact_digest"] = self.digest
+        return payload
+
+
+def _u2_primary_cell_gate_rejection_reasons(
+    *,
+    summary: UniversalTradeRLU2SelectionMetricSummary,
+    thresholds: dict[str, object],
+) -> tuple[str, ...]:
+    gross_min = _finite(
+        thresholds["symbol_balanced_gross_wealth_min_exclusive"],
+        field="U2 primary gate balanced gross wealth threshold",
+    )
+    net_min = _finite(
+        thresholds["symbol_balanced_net_wealth_min_exclusive"],
+        field="U2 primary gate balanced net wealth threshold",
+    )
+    median_min = _finite(
+        thresholds["median_symbol_net_wealth_min_inclusive"],
+        field="U2 primary gate median symbol wealth threshold",
+    )
+    minimum_min = _finite(
+        thresholds["minimum_symbol_net_wealth_min_inclusive"],
+        field="U2 primary gate minimum symbol wealth threshold",
+    )
+    positive_fraction_min = _finite(
+        thresholds["positive_net_scope_fraction_min_inclusive"],
+        field="U2 primary gate positive fraction threshold",
+    )
+    cvar_min = _finite(
+        thresholds["scope_net_return_cvar10_min_inclusive"],
+        field="U2 primary gate CVaR10 threshold",
+    )
+    turnover_max = _finite(
+        thresholds["turnover_p95_per_day_max_inclusive"],
+        field="U2 primary gate turnover threshold",
+    )
+    execution_fraction_required = _finite(
+        thresholds["meaningful_execution_symbol_fraction_required"],
+        field="U2 primary gate execution fraction threshold",
+    )
+    hard_risk_required = _non_negative_int(
+        thresholds["hard_risk_violation_count_required"],
+        field="U2 primary gate hard-risk threshold",
+    )
+    unexplained_rejection_required = _non_negative_int(
+        thresholds["unexplained_execution_reject_count_required"],
+        field="U2 primary gate unexplained rejection threshold",
+    )
+    retention_min = _finite(
+        thresholds["positive_gross_log_growth_net_retention_min_inclusive"],
+        field="U2 primary gate positive-gross retention threshold",
+    )
+
+    reasons: list[str] = []
+    if summary.symbol_balanced_gross_wealth <= gross_min:
+        reasons.append("symbol_balanced_gross_wealth_not_above_minimum")
+    if summary.symbol_balanced_net_wealth <= net_min:
+        reasons.append("symbol_balanced_net_wealth_not_above_minimum")
+    if summary.median_symbol_net_wealth < median_min:
+        reasons.append("median_symbol_net_wealth_below_minimum")
+    if summary.minimum_symbol_net_wealth < minimum_min:
+        reasons.append("minimum_symbol_net_wealth_below_minimum")
+    if summary.positive_net_scope_fraction < positive_fraction_min:
+        reasons.append("positive_net_scope_fraction_below_minimum")
+    if summary.scope_net_return_cvar10 < cvar_min:
+        reasons.append("scope_net_return_cvar10_below_minimum")
+    if summary.turnover_per_day_p95 > turnover_max:
+        reasons.append("turnover_per_day_p95_above_maximum")
+    if summary.meaningful_execution_symbol_fraction != execution_fraction_required:
+        reasons.append("meaningful_execution_symbol_fraction_mismatch")
+    if summary.hard_risk_violation_count != hard_risk_required:
+        reasons.append("hard_risk_violation_count_mismatch")
+    if summary.unexplained_execution_rejection_count != unexplained_rejection_required:
+        reasons.append("unexplained_execution_rejection_count_mismatch")
+    if summary.symbol_balanced_gross_log_growth > 0.0 and (
+        summary.positive_gross_log_growth_retention is None
+        or summary.positive_gross_log_growth_retention < retention_min
+    ):
+        reasons.append("positive_gross_log_growth_retention_below_minimum")
+    return tuple(reasons)
+
+
+def evaluate_universal_trade_rl_u2_primary_cell_gate(
+    *,
+    summary: UniversalTradeRLU2SelectionMetricSummary,
+) -> UniversalTradeRLU2PrimaryCellGateEvidence:
+    """Evaluate the preregistered 11-condition primary core gate for one cell."""
+
+    return UniversalTradeRLU2PrimaryCellGateEvidence(summary=summary)
+
+
+@dataclass(frozen=True, slots=True)
 class UniversalTradeRLU2PairedExcessPoint:
     """One Development leaf after same-scope candidate/cash pairing."""
 
@@ -1048,17 +1213,21 @@ __all__ = [
     "U2_DEVELOPMENT_BOOTSTRAP_SCHEMA",
     "U2_DEVELOPMENT_PANEL_SCHEMA",
     "U2_DEVELOPMENT_WINDOWS",
+    "U2_PRIMARY_CELL_GATE_SCHEMA",
+    "U2_PRIMARY_SELECTION_CELLS",
     "U2_SELECTION_LEAF_METRICS_SCHEMA",
     "U2_SELECTION_SUMMARY_SCHEMA",
     "U2_SELECTION_SYMBOL_METRICS_SCHEMA",
     "UniversalTradeRLU2DevelopmentBootstrapResult",
     "UniversalTradeRLU2PairedExcessPoint",
+    "UniversalTradeRLU2PrimaryCellGateEvidence",
     "UniversalTradeRLU2ReducedBootstrapSegment",
     "UniversalTradeRLU2SelectionLeafMetrics",
     "UniversalTradeRLU2SelectionMetricSummary",
     "UniversalTradeRLU2SelectionSymbolMetrics",
     "bootstrap_universal_trade_rl_u2_development_panel",
     "build_universal_trade_rl_u2_selection_leaf_metrics",
+    "evaluate_universal_trade_rl_u2_primary_cell_gate",
     "reduce_universal_trade_rl_u2_development_panel",
     "summarize_universal_trade_rl_u2_selection_metrics",
 ]

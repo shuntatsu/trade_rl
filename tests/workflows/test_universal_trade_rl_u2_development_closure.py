@@ -8,7 +8,10 @@ import pytest
 
 from tests.workflows.test_universal_trade_rl_u2_contract import _u1_contract
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.domain.universal_trade_rl_universe import UniversalTradeRLUniverseConfig
+from trade_rl.domain.universal_trade_rl_universe import (
+    UniversalTradeRLSymbolRole,
+    UniversalTradeRLUniverseConfig,
+)
 from trade_rl.rl.checkpointing import CHECKPOINT_POLICY_NAME, CheckpointManifest
 from trade_rl.workflows.universal_trade_rl_data_provenance import (
     UniversalTradeRLFitPurpose,
@@ -60,6 +63,13 @@ def _symbols(prefix: str, count: int) -> tuple[str, ...]:
     return tuple(f"{prefix}{index:02d}" for index in range(1, count + 1))
 
 
+def _role_symbols(
+    manifest: UniversalTradeRLUniverseManifest,
+    role: UniversalTradeRLSymbolRole,
+) -> tuple[str, ...]:
+    return tuple(entry.symbol for entry in manifest.entries if entry.role is role)
+
+
 def _real_manifest(*, salt: str = "real") -> UniversalTradeRLUniverseManifest:
     train = tuple(sorted(("BTCUSDT", *_symbols("TRN", 8))))
     development = _symbols("DEV", 3)
@@ -96,11 +106,15 @@ def _real_u2_contract(
         manifest=resolved_manifest,
         phase=UniversalTradeRLAccessPhase.TRAIN,
     )
+    train_symbols = _role_symbols(
+        resolved_manifest,
+        UniversalTradeRLSymbolRole.TRAIN,
+    )
     provenance = build_universal_trade_rl_fit_provenance(
         manifest=resolved_manifest,
         access=access,
         purpose=UniversalTradeRLFitPurpose.RL_TRAINING,
-        source_symbols=resolved_manifest.config.train_symbols,
+        source_symbols=train_symbols,
         knowledge_cutoff=partition.fit_end_ns,
     )
     u2_contract = build_universal_trade_rl_u2_contract(
@@ -264,7 +278,7 @@ def test_u2_training_exposure_evidence_requires_complete_seed_worker_symbol_grid
 ):
     module = _module()
     manifest, u2_contract, predevelopment = _predevelopment_bundle()
-    train_symbols = manifest.config.train_symbols
+    train_symbols = _role_symbols(manifest, UniversalTradeRLSymbolRole.TRAIN)
     rows = _exposure_rows(train_symbols=train_symbols)
 
     evidence = module.build_universal_trade_rl_u2_training_exposure_evidence(
@@ -297,15 +311,18 @@ def test_u2_authoritative_development_lock_requires_validated_checkpoint_and_exp
         u2_contract=u2_contract,
         members=_checkpoint_members(u2_contract=u2_contract),
     )
+    train_symbols = _role_symbols(manifest, UniversalTradeRLSymbolRole.TRAIN)
+    development_symbols = _role_symbols(
+        manifest,
+        UniversalTradeRLSymbolRole.DEVELOPMENT,
+    )
     exposure = module.build_universal_trade_rl_u2_training_exposure_evidence(
         predevelopment_contract=predevelopment,
         manifest=manifest,
         u2_contract=u2_contract,
-        rows=_exposure_rows(train_symbols=manifest.config.train_symbols),
+        rows=_exposure_rows(train_symbols=train_symbols),
     )
-    evaluation_symbols = tuple(
-        sorted((*manifest.config.train_symbols, *manifest.config.development_symbols))
-    )
+    evaluation_symbols = tuple(sorted((*train_symbols, *development_symbols)))
     base_lock = build_universal_trade_rl_u2_development_lock(
         predevelopment_contract=predevelopment,
         u1_contract_digest=u2_contract.u1_contract_digest,

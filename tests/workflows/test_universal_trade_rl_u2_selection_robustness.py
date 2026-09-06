@@ -281,3 +281,27 @@ def test_u2_seed_robustness_evidence_rejects_pass_state_tampering() -> None:
 
     with pytest.raises(ValueError, match="pass|reason|consistent"):
         replace(result, passed=False, digest="")
+
+
+def test_u2_seed_robustness_evidence_rejects_nonpositive_wealth_tampering() -> None:
+    result = _evaluate(scope="D1", leaves=_scope_leaves("D1"))
+    transformed = (
+        math.exp(-1.0),
+        result.seed_symbol_balanced_net_wealth[1],
+        result.seed_symbol_balanced_net_wealth[2],
+    )
+
+    with pytest.raises(ValueError, match="wealth|positive|closure"):
+        replace(
+            result,
+            seed_symbol_balanced_net_wealth=(
+                -1.0,
+                result.seed_symbol_balanced_net_wealth[1],
+                result.seed_symbol_balanced_net_wealth[2],
+            ),
+            median_seed_symbol_balanced_net_wealth=float(sorted(transformed)[1]),
+            worst_seed_symbol_balanced_net_wealth=float(min(transformed)),
+            passed=False,
+            rejection_reasons=(_WORST_REASON,),
+            digest="",
+        )

@@ -618,6 +618,14 @@ def build_universal_trade_rl_u2_selection_leaf_metrics(
         UniversalTradeRLU2FinalCheckpointClosure,
     ):
         raise TypeError("U2 Selection leaf requires final checkpoint closure")
+    _require_current_artifact_digest(
+        replay_evidence,
+        field="U2 Selection leaf replay evidence",
+    )
+    _require_current_artifact_digest(
+        checkpoint_closure,
+        field="U2 Selection leaf checkpoint closure",
+    )
     if checkpoint_closure.u2_contract_digest != replay_evidence.u2_contract_digest:
         raise ValueError("U2 Selection leaf checkpoint/U2 identity mismatch")
     if (

@@ -78,6 +78,22 @@ if passing_old not in text:
     raise SystemExit("Task5 oracle passing fixture anchor missing")
 text = text.replace(passing_old, passing_new, 1)
 
+aggregate_old = '''    altered_d12 = module.evaluate_universal_trade_rl_u2_seed_robustness(
+        scope="D1+D2",
+        leaves=_cell_leaves("D1") + altered_d2_leaves,
+        segments=_segments(),
+    )
+'''
+aggregate_new = '''    altered_d12 = module.evaluate_universal_trade_rl_u2_seed_robustness(
+        scope="D1+D2",
+        leaves=_cell_leaves("D1") + altered_d2_leaves,
+        segments=_paired_segments(),
+    )
+'''
+if aggregate_old not in text:
+    raise SystemExit("Task5 oracle aggregate substitution anchor missing")
+text = text.replace(aggregate_old, aggregate_new, 1)
+
 negative_old = '''def test_u2_final_selection_rejects_robustness_without_cash_pairing_provenance() -> (
     None
 ):

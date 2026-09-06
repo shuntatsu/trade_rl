@@ -304,6 +304,8 @@ The mapping order is canonical. Missing/extra/reordered seed entries, duplicate 
 
 After Development is opened, changing any field above requires a new U2 generation.
 
+The only supported public U2 V1 numeric Development session entry is the lock-bound `build_authoritative_universal_trade_rl_u2_development_replay_session(...)`. The unlocked lower builder is an internal synthetic/integration-test helper, is not exported through `universal_trade_rl_u2_replay.__all__`, and is not an authorized real-Development API. The authoritative entry must validate the exact base lock, authoritative lock, scope closure, evaluation dataset mapping, source-tree digest, lockfile digest, evaluation-runtime identity, and zero prior Development/Admission opens before the first source-loader call.
+
 ---
 
 ## 11. Acceptance Criteria
@@ -319,6 +321,8 @@ After Development is opened, changing any field above requires a new U2 generati
 9. Development lock can be built only while Development and Admission numeric open counts are both zero.
 10. Existing U0/U1 economics, U2 PPO recipe, economic threshold values, time partition, and Admission firewall remain unchanged.
 11. Targeted, falsification, integration, static/type/architecture, full-suite/build, and exact-head CI gates pass on one final HEAD.
+12. Actual numeric Development session construction requires the exact authoritative Development lock and rejects lock/scope/dataset/source-tree/lockfile/runtime drift before any source-loader call; no unlocked builder is part of the supported public U2 V1 API.
+13. Replay evidence stores same-path gross and net simple-return series from one U1 execution path, and both series independently reconcile to their bound wealth ratios; gross economics are never obtained by rerunning a separate cost-free environment.
 
 ---
 

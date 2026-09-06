@@ -349,18 +349,19 @@ Training may save recovery checkpoints, but `selection_candidate_checkpoint()` m
 
 Reject `32768`, `262144`, or arbitrary “best” checkpoint.
 
-### Step 5 — RED: exact resume lineage
+### Step 5 — RED: interrupted-run semantics
 
-Resume must preserve:
+U2 V1 does **not** claim exact mid-episode / optimizer / vector-rollout resume. Intermediate checkpoints are recovery/debug evidence only and can never become Selection candidates.
 
-- U2 contract digest
-- seed
-- model architecture
-- U1 digest
-- source closure
-- actual timesteps
+For an interrupted real member:
 
-Wrong lineage fails before optimizer update.
+```text
+exact_mid_episode_resume_supported = false
+restart_from_timestep_zero_required = true
+seed / U2 contract / U1 / source closure remain frozen
+```
+
+A restarted member begins again at timestep zero under the same frozen generation and seed. An economically poor completed seed is not an interruption and cannot be retried for a better result. The only Selection candidate remains the exact final `524288` checkpoint.
 
 ### Step 6 — GREEN
 

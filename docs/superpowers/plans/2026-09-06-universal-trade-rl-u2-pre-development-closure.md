@@ -198,7 +198,7 @@ and mark exact mid-episode resume as unsupported/restart-from-zero.
 
 ### Task 4: Verification and falsification review
 
-**Files:** No production changes unless a defect is found.
+**Files:** No production changes unless a defect is found. Implementation-time falsification did find and close three additional defects before Development numeric opening: authoritative-lock enforcement at the numeric session boundary, same-path gross/net replay evidence, and removal of the unlocked Development builder from the supported public API.
 
 - [ ] **Step 1: Targeted tests**
 
@@ -224,6 +224,8 @@ Reconstruct from the amendment rather than implementation assumptions and explic
 - exact-resume can be claimed;
 - missing/extra/reordered checkpoints can lock Development;
 - Development/Admission numeric opens can occur before lock;
+- an unlocked numeric Development builder remains in the supported public API;
+- gross economics can be generated from a different replay than net economics;
 - an existing U0/U1 economic contract changed.
 
 Fix any reproducible issue, then rerun targeted and exact-head gates.

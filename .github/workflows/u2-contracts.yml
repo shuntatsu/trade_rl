@@ -1,5 +1,6 @@
 name: U2 Contracts
 
+# Exact-head gate for the frozen pre-Development closure and replay authority.
 on:
   pull_request:
     paths:

@@ -6,17 +6,18 @@ on:
       - verify/u2-artifact-integrity-hardening
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
+    if: "github.event.head_commit.message == 'chore: run U2 artifact integrity GREEN'"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          persist-credentials: false
+          fetch-depth: 0
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
@@ -24,6 +25,11 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3
+      - name: Apply minimal integrity hardening
+        run: |
+          set -euo pipefail
+          python .github/apply_u2_artifact_integrity_hardening.py
+          uv run ruff format trade_rl/workflows/universal_trade_rl_u2_selection.py
       - name: Static verification
         run: |
           set -euo pipefail
@@ -36,6 +42,7 @@ jobs:
             tests/workflows/test_universal_trade_rl_u2_selection_final.py \
             tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
           uv run mypy trade_rl/workflows/universal_trade_rl_u2_selection.py
+          git diff --check
       - name: Artifact-integrity and Selection verification
         run: >-
           uv run pytest -q
@@ -43,3 +50,17 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_selection_final.py
           tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
           tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
+          tests/workflows/test_universal_trade_rl_u2_selection.py
+          tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
+          tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
+          tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+          tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+      - name: Push verified production source
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/workflows/universal_trade_rl_u2_selection.py
+          git diff --cached --check
+          git commit -m 'fix: fail closed on stale U2 Selection artifacts'
+          git push origin HEAD:verify/u2-artifact-integrity-hardening

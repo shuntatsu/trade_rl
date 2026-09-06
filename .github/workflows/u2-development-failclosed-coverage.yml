@@ -1,0 +1,44 @@
+name: U2 Development Fail-Closed Coverage
+
+on:
+  push:
+    branches:
+      - verify/u2-development-failclosed-coverage
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: "github.event.head_commit.message == 'chore: run U2 fail-closed coverage verification'"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Static checks
+        run: |
+          set -euo pipefail
+          uv run ruff format --check --diff tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
+          uv run ruff check tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
+      - name: Targeted fail-closed coverage
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py \
+            tests/workflows/test_universal_trade_rl_u2_development_authority.py \
+            tests/workflows/test_universal_trade_rl_u2_development_closure.py \
+            --cov=trade_rl.workflows.universal_trade_rl_u2_development_authority \
+            --cov=trade_rl.workflows.universal_trade_rl_u2_development_closure \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-fail-under=80

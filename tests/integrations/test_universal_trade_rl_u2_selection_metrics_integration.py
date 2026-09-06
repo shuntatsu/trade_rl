@@ -87,6 +87,11 @@ def test_u2_selection_leaf_metrics_are_derived_from_one_candidate_replay(
     assert leaf.meaningful_execution is (
         evidence.executed_change_count > 0 or evidence.turnover_total > 1e-6
     )
+    assert leaf.hard_risk_violation_count == evidence.hard_risk_violation_count
+    assert (
+        leaf.unexplained_execution_rejection_count
+        == evidence.execution_rejection_count
+    )
 
 
 def test_u2_selection_leaf_metrics_reject_baseline_replay(

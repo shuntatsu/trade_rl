@@ -54,7 +54,9 @@ class UniversalTradeRLU2PairedExcessPoint:
 
     def __post_init__(self) -> None:
         if self.training_seed not in U2_TRAINING_SEEDS:
-            raise ValueError("U2 Development panel seed is outside the fixed seed closure")
+            raise ValueError(
+                "U2 Development panel seed is outside the fixed seed closure"
+            )
         if self.source_window not in U2_DEVELOPMENT_WINDOWS:
             raise ValueError("U2 Development panel source window is not D1/D2")
         if not isinstance(self.concrete_symbol, str) or not self.concrete_symbol:
@@ -98,7 +100,9 @@ class UniversalTradeRLU2ReducedBootstrapSegment:
         ):
             raise ValueError("U2 bootstrap segment timestamps are invalid")
         if timestamps != tuple(sorted(set(timestamps))):
-            raise ValueError("U2 bootstrap segment timestamps must be sorted and unique")
+            raise ValueError(
+                "U2 bootstrap segment timestamps must be sorted and unique"
+            )
         object.__setattr__(self, "decision_timestamps_ns", timestamps)
         object.__setattr__(self, "net_log_excess", values)
 
@@ -210,7 +214,10 @@ def reduce_universal_trade_rl_u2_development_panel(
         raise ValueError("U2 Development panel points must be non-empty")
     if not symbols or symbols != tuple(sorted(set(symbols))):
         raise ValueError("U2 Development expected symbols must be sorted and unique")
-    if any(not isinstance(point, UniversalTradeRLU2PairedExcessPoint) for point in resolved_points):
+    if any(
+        not isinstance(point, UniversalTradeRLU2PairedExcessPoint)
+        for point in resolved_points
+    ):
         raise TypeError("U2 Development panel contains an invalid point")
 
     identities = tuple(
@@ -291,10 +298,15 @@ def bootstrap_universal_trade_rl_u2_development_panel(
         raise TypeError("U2 Development bootstrap segment is invalid")
 
     block_lengths = tuple(
-        min(len(segment.net_log_excess), math.ceil(math.sqrt(len(segment.net_log_excess))))
+        min(
+            len(segment.net_log_excess),
+            math.ceil(math.sqrt(len(segment.net_log_excess))),
+        )
         for segment in resolved
     )
-    all_values = tuple(value for segment in resolved for value in segment.net_log_excess)
+    all_values = tuple(
+        value for segment in resolved for value in segment.net_log_excess
+    )
     observed_mean = float(fmean(all_values))
 
     rng = np.random.default_rng(_U2_BOOTSTRAP_SEED)
@@ -308,8 +320,7 @@ def bootstrap_universal_trade_rl_u2_development_panel(
             while len(sampled_indices) < segment_length:
                 start = int(rng.integers(0, segment_length))
                 sampled_indices.extend(
-                    (start + offset) % segment_length
-                    for offset in range(block_length)
+                    (start + offset) % segment_length for offset in range(block_length)
                 )
             sampled_values.extend(
                 values[index] for index in sampled_indices[:segment_length]

@@ -74,7 +74,9 @@ def require_universal_trade_rl_u2_development_lock_for_replay(
 ) -> UniversalTradeRLU2AuthoritativeDevelopmentLock:
     """Fail closed unless the exact pre-open lock authorizes this replay closure."""
 
-    if not isinstance(predevelopment_contract, UniversalTradeRLU2PreDevelopmentContract):
+    if not isinstance(
+        predevelopment_contract, UniversalTradeRLU2PreDevelopmentContract
+    ):
         raise TypeError("U2 Development replay requires a pre-development contract")
     if not isinstance(base_lock, UniversalTradeRLU2DevelopmentLock):
         raise TypeError("U2 Development replay requires a base Development lock")
@@ -101,11 +103,15 @@ def require_universal_trade_rl_u2_development_lock_for_replay(
         require_sha256(value, field=f"U2 Development replay {field_name}")
 
     if predevelopment_contract.universe_manifest_digest != manifest.digest:
-        raise ValueError("U2 Development replay pre-development universe identity mismatch")
+        raise ValueError(
+            "U2 Development replay pre-development universe identity mismatch"
+        )
     if predevelopment_contract.u2_contract_digest != u2_contract.digest:
         raise ValueError("U2 Development replay pre-development U2 identity mismatch")
     if base_lock.predevelopment_contract_digest != predevelopment_contract.digest:
-        raise ValueError("U2 Development replay base-lock pre-development identity mismatch")
+        raise ValueError(
+            "U2 Development replay base-lock pre-development identity mismatch"
+        )
     if base_lock.universe_manifest_digest != manifest.digest:
         raise ValueError("U2 Development replay base-lock universe identity mismatch")
     if base_lock.u2_contract_digest != u2_contract.digest:
@@ -116,7 +122,9 @@ def require_universal_trade_rl_u2_development_lock_for_replay(
         raise ValueError("U2 Development replay base-lock normalizer identity mismatch")
 
     if development_lock.base_lock_digest != base_lock.digest:
-        raise ValueError("U2 Development replay authoritative base-lock digest mismatch")
+        raise ValueError(
+            "U2 Development replay authoritative base-lock digest mismatch"
+        )
     if (
         development_lock.predevelopment_contract_digest
         != predevelopment_contract.digest
@@ -125,24 +133,26 @@ def require_universal_trade_rl_u2_development_lock_for_replay(
             "U2 Development replay authoritative pre-development identity mismatch"
         )
     if development_lock.universe_manifest_digest != manifest.digest:
-        raise ValueError("U2 Development replay authoritative universe identity mismatch")
+        raise ValueError(
+            "U2 Development replay authoritative universe identity mismatch"
+        )
     if development_lock.u2_contract_digest != u2_contract.digest:
         raise ValueError("U2 Development replay authoritative U2 identity mismatch")
     if development_lock.u1_contract_digest != u2_contract.u1_contract_digest:
         raise ValueError("U2 Development replay authoritative U1 identity mismatch")
     if development_lock.u1_normalizer_digest != u2_contract.u1_normalizer_digest:
         raise ValueError("U2 Development replay authoritative normalizer mismatch")
-    if development_lock.replay_authority_schema != U2_DEVELOPMENT_REPLAY_AUTHORITY_SCHEMA:
+    if (
+        development_lock.replay_authority_schema
+        != U2_DEVELOPMENT_REPLAY_AUTHORITY_SCHEMA
+    ):
         raise ValueError("U2 Development replay authority schema drifted")
 
     if supplied_scope_closure.universe_manifest_digest != manifest.digest:
         raise ValueError("U2 Development replay scope universe identity mismatch")
     if supplied_scope_closure.u2_contract_digest != u2_contract.digest:
         raise ValueError("U2 Development replay scope U2 identity mismatch")
-    if (
-        base_lock.development_scope_closure_digest
-        != supplied_scope_closure.digest
-    ):
+    if base_lock.development_scope_closure_digest != supplied_scope_closure.digest:
         raise ValueError("U2 Development replay scope closure digest mismatch")
     if base_lock.evaluation_dataset_digests != _canonical_scope_dataset_mapping(
         supplied_scope_closure
@@ -159,7 +169,9 @@ def require_universal_trade_rl_u2_development_lock_for_replay(
     ):
         raise ValueError("U2 Development replay runtime identity mismatch")
     if base_lock.development_numeric_open_count != 0:
-        raise ValueError("U2 Development replay lock requires zero prior Development opens")
+        raise ValueError(
+            "U2 Development replay lock requires zero prior Development opens"
+        )
     if base_lock.admission_numeric_open_count != 0:
         raise ValueError("U2 Development replay lock requires zero Admission opens")
 

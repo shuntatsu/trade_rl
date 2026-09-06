@@ -303,7 +303,8 @@ def _episode_sampling_contract_payload(
         "episode_hours": 720,
         "eligible_start_sampling": "uniform",
         "outcome_must_not_exceed_fit_end": True,
-        "deterministic_resumable": True,
+        "exact_mid_episode_resume_supported": False,
+        "restart_from_timestep_zero_required": True,
         "regime_oversampling": False,
         "stress_oversampling": False,
     }

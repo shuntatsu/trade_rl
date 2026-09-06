@@ -356,7 +356,13 @@ def test_u2_authoritative_development_lock_requires_validated_checkpoint_and_exp
 
     altered_base = replace(
         base_lock,
-        checkpoint_digests=tuple(reversed(base_lock.checkpoint_digests)),
+        checkpoint_digests=tuple(
+            (
+                seed,
+                content_digest({"fixture": "altered-checkpoint", "seed": seed}),
+            )
+            for seed, _digest in base_lock.checkpoint_digests
+        ),
         digest="",
     )
     with pytest.raises(ValueError, match="checkpoint|closure|mapping|identity"):

@@ -156,7 +156,7 @@ def test_u2_replay_rejects_incomplete_supplied_closure_before_numeric_loading() 
         raise AssertionError("numeric loader must not be called")
 
     with pytest.raises(ValueError, match="canonical|closure|scope"):
-        _module().build_universal_trade_rl_u2_development_replay_session(
+        _module()._build_universal_trade_rl_u2_development_replay_session_unlocked(
             manifest=fixture.manifest,
             time_partition=fixture.partition,
             u2_contract=fixture.contract,

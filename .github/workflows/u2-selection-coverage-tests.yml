@@ -33,6 +33,7 @@ jobs:
       - name: Format and verify fail-closed tests
         run: |
           set -euo pipefail
+          uv run ruff check --fix tests/workflows/test_universal_trade_rl_u2_selection_fail_closed_coverage.py
           uv run ruff format tests/workflows/test_universal_trade_rl_u2_selection_fail_closed_coverage.py
           uv run ruff format --check --diff tests/workflows/test_universal_trade_rl_u2_selection_fail_closed_coverage.py
           uv run ruff check tests/workflows/test_universal_trade_rl_u2_selection_fail_closed_coverage.py

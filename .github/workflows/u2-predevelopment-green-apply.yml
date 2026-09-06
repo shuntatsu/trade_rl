@@ -56,12 +56,6 @@ jobs:
               '''    altered_base = replace(\n        base_lock,\n        checkpoint_digests=tuple(reversed(base_lock.checkpoint_digests)),\n        digest="",\n    )''',
               '''    altered_base = replace(\n        base_lock,\n        checkpoint_digests=tuple(\n            (\n                seed,\n                content_digest({"fixture": "altered-checkpoint", "seed": seed}),\n            )\n            for seed, _digest in base_lock.checkpoint_digests\n        ),\n        digest="",\n    )''',
           )
-
-          replace_exact(
-              "tests/workflows/test_universal_trade_rl_u2_selection.py",
-              '''                sampled_indices.extend(\n                    (start + offset) % segment_length\n                    for offset in range(block_length)\n                )''',
-              '''                sampled_indices.extend(\n                    (start + offset) % segment_length for offset in range(block_length)\n                )''',
-          )
           PY
 
       - name: Format and static checks

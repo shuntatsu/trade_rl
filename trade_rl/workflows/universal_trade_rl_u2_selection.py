@@ -1311,9 +1311,7 @@ class UniversalTradeRLU2DevelopmentSeedRobustnessEvidence:
         )
 
         wealth = tuple(
-            _positive_wealth(value, field="U2 Development robustness seed wealth")
-            if value <= 0.0
-            else _finite(value, field="U2 Development robustness seed wealth")
+            _finite(value, field="U2 Development robustness seed wealth")
             for value in self.seed_symbol_balanced_net_wealth
         )
         if len(wealth) != len(U2_TRAINING_SEEDS) or any(

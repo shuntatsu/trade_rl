@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from statistics import fmean, median
 from typing import Final
 
@@ -12,6 +12,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.domain.common import require_sha256
+from trade_rl.workflows import universal_trade_rl_u2_contract as u2_contract
 from trade_rl.workflows.universal_trade_rl_u2_contract import U2_TRAINING_SEEDS
 from trade_rl.workflows.universal_trade_rl_u2_replay import (
     UniversalTradeRLU2ReplayEvidence,
@@ -741,61 +742,83 @@ def summarize_universal_trade_rl_u2_selection_metrics(
 U2_PRIMARY_SELECTION_CELL_GATE_SCHEMA: Final = (
     "universal_trade_rl_u2_primary_selection_cell_gate_v1"
 )
-_U2_PRIMARY_SELECTION_SEED: Final = 0
 _U2_PRIMARY_SELECTION_MANDATORY_CELLS: Final = ("B", "C1", "C2", "D1", "D2")
-_U2_PRIMARY_SELECTION_ALLOWED_REASONS: Final = (
-    "symbol_balanced_gross_wealth_not_above_cash",
-    "symbol_balanced_net_wealth_not_above_cash",
-    "median_symbol_net_wealth_below_cash",
-    "minimum_symbol_net_wealth_below_cash",
-    "positive_net_scope_fraction_below_0_50",
-    "scope_net_return_cvar10_below_minus_0_01",
-    "turnover_p95_per_day_above_1_0",
-    "meaningful_execution_symbol_fraction_not_complete",
-    "hard_risk_violation_count_nonzero",
-    "unexplained_execution_rejection_count_nonzero",
-    "positive_gross_log_growth_retention_below_0_50",
-)
 
 
 def _u2_primary_selection_rejection_reasons(
     *,
-    symbol_balanced_gross_wealth: float,
-    symbol_balanced_net_wealth: float,
-    median_symbol_net_wealth: float,
-    minimum_symbol_net_wealth: float,
-    positive_net_scope_fraction: float,
-    scope_net_return_cvar10: float,
-    turnover_per_day_p95: float,
-    meaningful_execution_symbol_fraction: float,
-    hard_risk_violation_count: int,
-    unexplained_execution_rejection_count: int,
-    positive_gross_log_growth_retention: float | None,
+    summary: UniversalTradeRLU2SelectionMetricSummary,
+    thresholds: dict[str, object],
 ) -> tuple[str, ...]:
+    gross_min = _finite(
+        thresholds["symbol_balanced_gross_wealth_min_exclusive"],
+        field="U2 primary gate balanced gross wealth threshold",
+    )
+    net_min = _finite(
+        thresholds["symbol_balanced_net_wealth_min_exclusive"],
+        field="U2 primary gate balanced net wealth threshold",
+    )
+    median_min = _finite(
+        thresholds["median_symbol_net_wealth_min_inclusive"],
+        field="U2 primary gate median symbol wealth threshold",
+    )
+    minimum_min = _finite(
+        thresholds["minimum_symbol_net_wealth_min_inclusive"],
+        field="U2 primary gate minimum symbol wealth threshold",
+    )
+    positive_fraction_min = _finite(
+        thresholds["positive_net_scope_fraction_min_inclusive"],
+        field="U2 primary gate positive fraction threshold",
+    )
+    cvar_min = _finite(
+        thresholds["scope_net_return_cvar10_min_inclusive"],
+        field="U2 primary gate CVaR10 threshold",
+    )
+    turnover_max = _finite(
+        thresholds["turnover_p95_per_day_max_inclusive"],
+        field="U2 primary gate turnover threshold",
+    )
+    execution_fraction_required = _finite(
+        thresholds["meaningful_execution_symbol_fraction_required"],
+        field="U2 primary gate execution fraction threshold",
+    )
+    hard_risk_required = _non_negative_int(
+        thresholds["hard_risk_violation_count_required"],
+        field="U2 primary gate hard-risk threshold",
+    )
+    unexplained_rejection_required = _non_negative_int(
+        thresholds["unexplained_execution_reject_count_required"],
+        field="U2 primary gate unexplained rejection threshold",
+    )
+    retention_min = _finite(
+        thresholds["positive_gross_log_growth_net_retention_min_inclusive"],
+        field="U2 primary gate positive-gross retention threshold",
+    )
+
     reasons: list[str] = []
-    if symbol_balanced_gross_wealth <= 1.0:
+    if summary.symbol_balanced_gross_wealth <= gross_min:
         reasons.append("symbol_balanced_gross_wealth_not_above_cash")
-    if symbol_balanced_net_wealth <= 1.0:
+    if summary.symbol_balanced_net_wealth <= net_min:
         reasons.append("symbol_balanced_net_wealth_not_above_cash")
-    if median_symbol_net_wealth < 1.0:
+    if summary.median_symbol_net_wealth < median_min:
         reasons.append("median_symbol_net_wealth_below_cash")
-    if minimum_symbol_net_wealth < 1.0:
+    if summary.minimum_symbol_net_wealth < minimum_min:
         reasons.append("minimum_symbol_net_wealth_below_cash")
-    if positive_net_scope_fraction < 0.50:
+    if summary.positive_net_scope_fraction < positive_fraction_min:
         reasons.append("positive_net_scope_fraction_below_0_50")
-    if scope_net_return_cvar10 < -0.01:
+    if summary.scope_net_return_cvar10 < cvar_min:
         reasons.append("scope_net_return_cvar10_below_minus_0_01")
-    if turnover_per_day_p95 > 1.0:
+    if summary.turnover_per_day_p95 > turnover_max:
         reasons.append("turnover_p95_per_day_above_1_0")
-    if meaningful_execution_symbol_fraction != 1.0:
+    if summary.meaningful_execution_symbol_fraction != execution_fraction_required:
         reasons.append("meaningful_execution_symbol_fraction_not_complete")
-    if hard_risk_violation_count != 0:
+    if summary.hard_risk_violation_count != hard_risk_required:
         reasons.append("hard_risk_violation_count_nonzero")
-    if unexplained_execution_rejection_count != 0:
+    if summary.unexplained_execution_rejection_count != unexplained_rejection_required:
         reasons.append("unexplained_execution_rejection_count_nonzero")
-    if symbol_balanced_gross_wealth > 1.0 and (
-        positive_gross_log_growth_retention is None
-        or positive_gross_log_growth_retention < 0.50
+    if summary.symbol_balanced_gross_log_growth > 0.0 and (
+        summary.positive_gross_log_growth_retention is None
+        or summary.positive_gross_log_growth_retention < retention_min
     ):
         reasons.append("positive_gross_log_growth_retention_below_0_50")
     return tuple(reasons)
@@ -803,110 +826,38 @@ def _u2_primary_selection_rejection_reasons(
 
 @dataclass(frozen=True, slots=True)
 class UniversalTradeRLU2PrimarySelectionCellGateEvidence:
-    """Fail-closed primary-seed evidence for one mandatory Selection cell."""
+    """Digest-bound primary-seed core-gate evidence for one mandatory U2 cell."""
 
-    cell: str
-    training_seed: int
-    summary_digest: str
-    symbol_balanced_gross_wealth: float
-    symbol_balanced_net_wealth: float
-    median_symbol_net_wealth: float
-    minimum_symbol_net_wealth: float
-    positive_net_scope_fraction: float
-    scope_net_return_cvar10: float
-    turnover_per_day_p95: float
-    meaningful_execution_symbol_fraction: float
-    hard_risk_violation_count: int
-    unexplained_execution_rejection_count: int
-    positive_gross_log_growth_retention: float | None
-    passed: bool
-    rejection_reasons: tuple[str, ...]
+    summary: UniversalTradeRLU2SelectionMetricSummary
+    selection_thresholds_digest: str = field(init=False)
+    rejection_reasons: tuple[str, ...] = field(init=False)
+    passed: bool = field(init=False)
     schema_version: str = U2_PRIMARY_SELECTION_CELL_GATE_SCHEMA
     digest: str = ""
 
     def __post_init__(self) -> None:
-        if self.schema_version != U2_PRIMARY_SELECTION_CELL_GATE_SCHEMA:
-            raise ValueError("unsupported U2 primary Selection cell gate schema")
-        if self.cell not in _U2_PRIMARY_SELECTION_MANDATORY_CELLS:
-            raise ValueError("U2 primary Selection gate requires a mandatory cell")
-        if self.training_seed != _U2_PRIMARY_SELECTION_SEED:
+        if not isinstance(self.summary, UniversalTradeRLU2SelectionMetricSummary):
+            raise TypeError("U2 primary Selection gate requires a metric summary")
+        if self.summary.training_seed != u2_contract.U2_PRIMARY_CANDIDATE_SEED:
             raise ValueError(
                 "U2 primary Selection gate requires primary training seed 0"
             )
-        require_sha256(self.summary_digest, field="U2 primary Selection summary digest")
-
-        for field_name in (
-            "symbol_balanced_gross_wealth",
-            "symbol_balanced_net_wealth",
-            "median_symbol_net_wealth",
-            "minimum_symbol_net_wealth",
-            "positive_net_scope_fraction",
-            "scope_net_return_cvar10",
-            "turnover_per_day_p95",
-            "meaningful_execution_symbol_fraction",
-        ):
-            object.__setattr__(
-                self,
-                field_name,
-                _finite(
-                    getattr(self, field_name),
-                    field=f"U2 primary Selection gate {field_name}",
-                ),
-            )
-        if self.positive_gross_log_growth_retention is not None:
-            object.__setattr__(
-                self,
-                "positive_gross_log_growth_retention",
-                _finite(
-                    self.positive_gross_log_growth_retention,
-                    field="U2 primary Selection gate retention",
-                ),
-            )
-        object.__setattr__(
-            self,
-            "hard_risk_violation_count",
-            _non_negative_int(
-                self.hard_risk_violation_count,
-                field="U2 primary Selection gate hard-risk violation count",
-            ),
-        )
-        object.__setattr__(
-            self,
-            "unexplained_execution_rejection_count",
-            _non_negative_int(
-                self.unexplained_execution_rejection_count,
-                field="U2 primary Selection gate unexplained rejection count",
-            ),
-        )
-        if not isinstance(self.passed, bool):
-            raise TypeError("U2 primary Selection gate passed flag must be boolean")
-        reasons = tuple(self.rejection_reasons)
-        if any(
-            reason not in _U2_PRIMARY_SELECTION_ALLOWED_REASONS for reason in reasons
-        ):
-            raise ValueError("U2 primary Selection gate contains an unsupported reason")
-        if len(set(reasons)) != len(reasons):
-            raise ValueError("U2 primary Selection gate reasons must be unique")
-
-        expected_reasons = _u2_primary_selection_rejection_reasons(
-            symbol_balanced_gross_wealth=self.symbol_balanced_gross_wealth,
-            symbol_balanced_net_wealth=self.symbol_balanced_net_wealth,
-            median_symbol_net_wealth=self.median_symbol_net_wealth,
-            minimum_symbol_net_wealth=self.minimum_symbol_net_wealth,
-            positive_net_scope_fraction=self.positive_net_scope_fraction,
-            scope_net_return_cvar10=self.scope_net_return_cvar10,
-            turnover_per_day_p95=self.turnover_per_day_p95,
-            meaningful_execution_symbol_fraction=self.meaningful_execution_symbol_fraction,
-            hard_risk_violation_count=self.hard_risk_violation_count,
-            unexplained_execution_rejection_count=self.unexplained_execution_rejection_count,
-            positive_gross_log_growth_retention=self.positive_gross_log_growth_retention,
-        )
-        expected_passed = not expected_reasons
-        if reasons != expected_reasons or self.passed != expected_passed:
+        if self.summary.cell not in _U2_PRIMARY_SELECTION_MANDATORY_CELLS:
             raise ValueError(
-                "U2 primary Selection gate pass/reason state is inconsistent"
+                "U2 primary Selection gate requires mandatory cell B/C1/C2/D1/D2"
             )
+        if self.schema_version != U2_PRIMARY_SELECTION_CELL_GATE_SCHEMA:
+            raise ValueError("unsupported U2 primary Selection cell gate schema")
+
+        thresholds = u2_contract._selection_thresholds_payload()
+        threshold_digest = content_digest(thresholds)
+        reasons = _u2_primary_selection_rejection_reasons(
+            summary=self.summary,
+            thresholds=thresholds,
+        )
+        object.__setattr__(self, "selection_thresholds_digest", threshold_digest)
         object.__setattr__(self, "rejection_reasons", reasons)
+        object.__setattr__(self, "passed", not reasons)
 
         expected_digest = content_digest(self.to_payload(include_digest=False))
         if self.digest:
@@ -915,25 +866,27 @@ class UniversalTradeRLU2PrimarySelectionCellGateEvidence:
                 raise ValueError("U2 primary Selection cell gate digest mismatch")
         object.__setattr__(self, "digest", expected_digest)
 
+    @property
+    def cell(self) -> str:
+        return self.summary.cell
+
+    @property
+    def training_seed(self) -> int:
+        return self.summary.training_seed
+
+    @property
+    def summary_digest(self) -> str:
+        return self.summary.digest
+
     def to_payload(self, *, include_digest: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "cell": self.cell,
             "training_seed": self.training_seed,
             "summary_digest": self.summary_digest,
-            "symbol_balanced_gross_wealth": self.symbol_balanced_gross_wealth,
-            "symbol_balanced_net_wealth": self.symbol_balanced_net_wealth,
-            "median_symbol_net_wealth": self.median_symbol_net_wealth,
-            "minimum_symbol_net_wealth": self.minimum_symbol_net_wealth,
-            "positive_net_scope_fraction": self.positive_net_scope_fraction,
-            "scope_net_return_cvar10": self.scope_net_return_cvar10,
-            "turnover_per_day_p95": self.turnover_per_day_p95,
-            "meaningful_execution_symbol_fraction": self.meaningful_execution_symbol_fraction,
-            "hard_risk_violation_count": self.hard_risk_violation_count,
-            "unexplained_execution_rejection_count": self.unexplained_execution_rejection_count,
-            "positive_gross_log_growth_retention": self.positive_gross_log_growth_retention,
-            "passed": self.passed,
+            "selection_thresholds_digest": self.selection_thresholds_digest,
             "rejection_reasons": self.rejection_reasons,
+            "passed": self.passed,
         }
         if include_digest:
             payload["artifact_digest"] = self.digest
@@ -944,46 +897,9 @@ def evaluate_universal_trade_rl_u2_primary_cell_gate(
     *,
     summary: UniversalTradeRLU2SelectionMetricSummary,
 ) -> UniversalTradeRLU2PrimarySelectionCellGateEvidence:
-    """Evaluate the frozen primary-seed core gate for one mandatory cell."""
+    """Evaluate the preregistered 11-condition primary core gate for one cell."""
 
-    if not isinstance(summary, UniversalTradeRLU2SelectionMetricSummary):
-        raise TypeError("U2 primary Selection gate requires a metric summary")
-    if summary.training_seed != _U2_PRIMARY_SELECTION_SEED:
-        raise ValueError("U2 primary Selection gate requires primary training seed 0")
-    if summary.cell not in _U2_PRIMARY_SELECTION_MANDATORY_CELLS:
-        raise ValueError("U2 primary Selection gate requires a mandatory cell")
-
-    reasons = _u2_primary_selection_rejection_reasons(
-        symbol_balanced_gross_wealth=summary.symbol_balanced_gross_wealth,
-        symbol_balanced_net_wealth=summary.symbol_balanced_net_wealth,
-        median_symbol_net_wealth=summary.median_symbol_net_wealth,
-        minimum_symbol_net_wealth=summary.minimum_symbol_net_wealth,
-        positive_net_scope_fraction=summary.positive_net_scope_fraction,
-        scope_net_return_cvar10=summary.scope_net_return_cvar10,
-        turnover_per_day_p95=summary.turnover_per_day_p95,
-        meaningful_execution_symbol_fraction=summary.meaningful_execution_symbol_fraction,
-        hard_risk_violation_count=summary.hard_risk_violation_count,
-        unexplained_execution_rejection_count=summary.unexplained_execution_rejection_count,
-        positive_gross_log_growth_retention=summary.positive_gross_log_growth_retention,
-    )
-    return UniversalTradeRLU2PrimarySelectionCellGateEvidence(
-        cell=summary.cell,
-        training_seed=summary.training_seed,
-        summary_digest=summary.digest,
-        symbol_balanced_gross_wealth=summary.symbol_balanced_gross_wealth,
-        symbol_balanced_net_wealth=summary.symbol_balanced_net_wealth,
-        median_symbol_net_wealth=summary.median_symbol_net_wealth,
-        minimum_symbol_net_wealth=summary.minimum_symbol_net_wealth,
-        positive_net_scope_fraction=summary.positive_net_scope_fraction,
-        scope_net_return_cvar10=summary.scope_net_return_cvar10,
-        turnover_per_day_p95=summary.turnover_per_day_p95,
-        meaningful_execution_symbol_fraction=summary.meaningful_execution_symbol_fraction,
-        hard_risk_violation_count=summary.hard_risk_violation_count,
-        unexplained_execution_rejection_count=summary.unexplained_execution_rejection_count,
-        positive_gross_log_growth_retention=summary.positive_gross_log_growth_retention,
-        passed=not reasons,
-        rejection_reasons=reasons,
-    )
+    return UniversalTradeRLU2PrimarySelectionCellGateEvidence(summary=summary)
 
 
 @dataclass(frozen=True, slots=True)

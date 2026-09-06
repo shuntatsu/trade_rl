@@ -503,6 +503,28 @@ def test_u2_primary_cell_gate_rejects_nonmandatory_cell(cell: str) -> None:
         module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
 
+def test_u2_primary_cell_gate_uses_preregistered_threshold_payload(
+    monkeypatch,
+) -> None:
+    from trade_rl.workflows import universal_trade_rl_u2_contract
+
+    module = _module()
+    summary = _inclusive_boundary_summary()
+    thresholds = dict(universal_trade_rl_u2_contract._selection_thresholds_payload())
+    thresholds["turnover_p95_per_day_max_inclusive"] = 0.999999
+    monkeypatch.setattr(
+        universal_trade_rl_u2_contract,
+        "_selection_thresholds_payload",
+        lambda: thresholds,
+    )
+
+    result = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
+
+    assert result.selection_thresholds_digest == content_digest(thresholds)
+    assert result.rejection_reasons == (_TURNOVER_REASON,)
+    assert result.passed is False
+
+
 def test_u2_primary_cell_gate_evidence_rejects_pass_state_tampering() -> None:
     module = _module()
     result = module.evaluate_universal_trade_rl_u2_primary_cell_gate(

@@ -157,12 +157,14 @@ def _final_fixture():
         exposure,
         base_lock,
     ) = _development_bundle()
-    development_lock = closure.build_authoritative_universal_trade_rl_u2_development_lock(
-        base_lock=base_lock,
-        checkpoint_closure=checkpoint_closure,
-        training_exposure_evidence=exposure,
-        manifest=manifest,
-        u2_contract=u2_contract,
+    development_lock = (
+        closure.build_authoritative_universal_trade_rl_u2_development_lock(
+            base_lock=base_lock,
+            checkpoint_closure=checkpoint_closure,
+            training_exposure_evidence=exposure,
+            manifest=manifest,
+            u2_contract=u2_contract,
+        )
     )
     primary, robustness = _passing_selection_children()
     return (
@@ -189,9 +191,7 @@ def _build_final(*, primary=None, robustness=None, development_lock=None):
         u2_contract=u2_contract,
         base_lock=base_lock,
         development_lock=(
-            canonical_development_lock
-            if development_lock is None
-            else development_lock
+            canonical_development_lock if development_lock is None else development_lock
         ),
         checkpoint_closure=checkpoint_closure,
         primary_cell_gates=(canonical_primary if primary is None else primary),
@@ -201,7 +201,9 @@ def _build_final(*, primary=None, robustness=None, development_lock=None):
     )
 
 
-def test_u2_final_selection_requires_all_cells_and_selects_only_seed0_exact_final() -> None:
+def test_u2_final_selection_requires_all_cells_and_selects_only_seed0_exact_final() -> (
+    None
+):
     result = _build_final()
     (
         _u2_contract,
@@ -215,9 +217,10 @@ def test_u2_final_selection_requires_all_cells_and_selects_only_seed0_exact_fina
     assert result.passed is True
     assert result.admission_eligible is True
     assert result.production_eligible is False
-    assert result.selected_checkpoint_digest == dict(
-        checkpoint_closure.checkpoint_digests
-    )[0]
+    assert (
+        result.selected_checkpoint_digest
+        == dict(checkpoint_closure.checkpoint_digests)[0]
+    )
     assert result.primary_cells == _PRIMARY_CELLS
     assert result.robustness_scopes == _ROBUSTNESS_SCOPES
 

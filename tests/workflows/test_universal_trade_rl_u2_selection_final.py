@@ -365,3 +365,17 @@ def test_u2_final_selection_rejects_development_lock_checkpoint_substitution() -
             robustness=robustness,
             development_lock=substituted_lock,
         )
+
+
+def test_u2_final_selection_rejects_robustness_without_cash_pairing_provenance() -> None:
+    (
+        _u2_contract,
+        _base_lock,
+        _development_lock,
+        _checkpoint_closure,
+        primary,
+        robustness,
+    ) = _final_fixture()
+
+    with pytest.raises(ValueError, match="cash|pair|provenance|bootstrap"):
+        _build_final(primary=primary, robustness=robustness)

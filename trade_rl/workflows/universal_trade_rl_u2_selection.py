@@ -1414,9 +1414,7 @@ def _compute_universal_trade_rl_u2_seed_robustness(
         != expected_windows
     ):
         raise ValueError("U2 seed robustness bootstrap scope is incomplete")
-    bootstrap = _bootstrap_universal_trade_rl_u2_segments(
-        segments=selected_segments
-    )
+    bootstrap = _bootstrap_universal_trade_rl_u2_segments(segments=selected_segments)
 
     seed_wealth: list[float] = []
     seed_turnover_p95: list[float] = []
@@ -1431,9 +1429,7 @@ def _compute_universal_trade_rl_u2_seed_robustness(
         for leaf in seed_leaves:
             by_symbol[leaf.concrete_symbol].append(leaf)
         symbol_log_growth = tuple(
-            math.fsum(
-                leaf.leaf_net_log_growth for leaf in by_symbol[concrete_symbol]
-            )
+            math.fsum(leaf.leaf_net_log_growth for leaf in by_symbol[concrete_symbol])
             for concrete_symbol in sorted(by_symbol)
         )
         balanced_log_growth = float(fmean(symbol_log_growth))
@@ -1452,9 +1448,7 @@ def _compute_universal_trade_rl_u2_seed_robustness(
                 )
             )
         )
-        hard_risk_count += sum(
-            leaf.hard_risk_violation_count for leaf in seed_leaves
-        )
+        hard_risk_count += sum(leaf.hard_risk_violation_count for leaf in seed_leaves)
 
     resolved_seed_wealth = tuple(seed_wealth)
     median_seed_wealth = float(median(resolved_seed_wealth))

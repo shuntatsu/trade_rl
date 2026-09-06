@@ -53,6 +53,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py
           tests/workflows/test_universal_trade_rl_u2_development_closure.py
           tests/workflows/test_universal_trade_rl_u2_development_authority.py
+          tests/workflows/test_universal_trade_rl_u2_public_api.py
           tests/workflows/test_universal_trade_rl_u2_selection.py
           tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
           tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
@@ -87,6 +88,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py
           tests/workflows/test_universal_trade_rl_u2_development_closure.py
           tests/workflows/test_universal_trade_rl_u2_development_authority.py
+          tests/workflows/test_universal_trade_rl_u2_public_api.py
           tests/workflows/test_universal_trade_rl_u2_selection.py
           tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
           tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
@@ -111,6 +113,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py
           tests/workflows/test_universal_trade_rl_u2_development_closure.py
           tests/workflows/test_universal_trade_rl_u2_development_authority.py
+          tests/workflows/test_universal_trade_rl_u2_public_api.py
           tests/workflows/test_universal_trade_rl_u2_selection.py
           tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
           tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py

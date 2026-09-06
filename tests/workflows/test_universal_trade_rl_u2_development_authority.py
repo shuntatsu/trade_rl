@@ -189,7 +189,7 @@ def test_u2_authoritative_session_gate_blocks_before_numeric_delegate(
         manifest,
         partition,
         u2_contract,
-        _predevelopment,
+        predevelopment,
         scope_closure,
         base_lock,
         authoritative_lock,
@@ -223,8 +223,9 @@ def test_u2_authoritative_session_gate_blocks_before_numeric_delegate(
     )
     with pytest.raises(ValueError, match="lock|scope|closure|digest|identity"):
         authority.build_authoritative_universal_trade_rl_u2_development_replay_session(
-            authoritative_lock=authoritative_lock,
+            predevelopment_contract=predevelopment,
             base_lock=drifted_base_lock,
+            development_lock=authoritative_lock,
             manifest=manifest,
             time_partition=partition,
             u2_contract=u2_contract,
@@ -235,6 +236,11 @@ def test_u2_authoritative_session_gate_blocks_before_numeric_delegate(
             artifact_locators={},
             source_loader=source_loader,
             environment_factory=lambda _dataset: object(),
+            source_tree_digest=drifted_base_lock.source_tree_digest,
+            lockfile_digest=drifted_base_lock.lockfile_digest,
+            evaluation_runtime_identity_digest=(
+                drifted_base_lock.evaluation_runtime_identity_digest
+            ),
         )
 
     assert delegated == []
@@ -252,7 +258,7 @@ def test_u2_authoritative_session_gate_delegates_only_after_exact_lock(
         manifest,
         partition,
         u2_contract,
-        _predevelopment,
+        predevelopment,
         scope_closure,
         base_lock,
         authoritative_lock,
@@ -281,8 +287,9 @@ def test_u2_authoritative_session_gate_delegates_only_after_exact_lock(
 
     result = (
         authority.build_authoritative_universal_trade_rl_u2_development_replay_session(
-            authoritative_lock=authoritative_lock,
+            predevelopment_contract=predevelopment,
             base_lock=base_lock,
+            development_lock=authoritative_lock,
             manifest=manifest,
             time_partition=partition,
             u2_contract=u2_contract,
@@ -293,6 +300,11 @@ def test_u2_authoritative_session_gate_delegates_only_after_exact_lock(
             artifact_locators={},
             source_loader=source_loader,
             environment_factory=lambda _dataset: object(),
+            source_tree_digest=base_lock.source_tree_digest,
+            lockfile_digest=base_lock.lockfile_digest,
+            evaluation_runtime_identity_digest=(
+                base_lock.evaluation_runtime_identity_digest
+            ),
         )
     )
 

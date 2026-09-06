@@ -1,0 +1,1 @@
+Temporary trigger for Task 5 isolated GREEN rerun after aggregate-oracle correction.

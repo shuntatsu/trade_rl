@@ -54,6 +54,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_development_closure.py
           tests/workflows/test_universal_trade_rl_u2_development_authority.py
           tests/workflows/test_universal_trade_rl_u2_selection.py
+          tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
           tests/workflows/test_universal_trade_rl_u2_training_runtime.py
@@ -69,6 +70,7 @@ jobs:
           tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
           tests/integrations/test_universal_trade_rl_u2_replay_rng_isolation.py
           tests/integrations/test_universal_trade_rl_u2_replay_crn.py
+          tests/integrations/test_universal_trade_rl_u2_selection_metrics.py
           tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
           tests/integrations/test_universal_trade_rl_u2_timeout_bootstrap.py
 
@@ -85,8 +87,10 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_development_closure.py
           tests/workflows/test_universal_trade_rl_u2_development_authority.py
           tests/workflows/test_universal_trade_rl_u2_selection.py
+          tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
           tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
           tests/integrations/test_universal_trade_rl_u2_replay_crn.py
+          tests/integrations/test_universal_trade_rl_u2_selection_metrics.py
           && uv run mypy
           trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
           trade_rl/workflows/universal_trade_rl_u2_development_closure.py
@@ -106,6 +110,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_development_closure.py
           tests/workflows/test_universal_trade_rl_u2_development_authority.py
           tests/workflows/test_universal_trade_rl_u2_selection.py
+          tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_exposes_exact_fit_indices
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
@@ -125,6 +130,7 @@ jobs:
           tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
           tests/integrations/test_universal_trade_rl_u2_replay_rng_isolation.py
           tests/integrations/test_universal_trade_rl_u2_replay_crn.py
+          tests/integrations/test_universal_trade_rl_u2_selection_metrics.py
 
       - name: U2 fixed member orchestration contracts
         run: >-

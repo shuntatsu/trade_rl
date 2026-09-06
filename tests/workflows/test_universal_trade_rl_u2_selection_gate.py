@@ -52,9 +52,7 @@ def _leaf(
         turnover_per_day=turnover_per_day,
         meaningful_execution=meaningful_execution,
         hard_risk_violation_count=hard_risk_violation_count,
-        unexplained_execution_rejection_count=(
-            unexplained_execution_rejection_count
-        ),
+        unexplained_execution_rejection_count=(unexplained_execution_rejection_count),
     )
 
 

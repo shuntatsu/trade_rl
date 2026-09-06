@@ -1,0 +1,94 @@
+name: U2 Task5 Pairing GREEN
+
+on:
+  push:
+    branches:
+      - codex/u2-selection-task5-pairing-final
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    if: "github.event.head_commit.message == 'chore: run U2 Task5 pairing GREEN'"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact trigger head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+      - name: Apply Task5 oracle and production patch
+        run: |
+          set -euo pipefail
+          python .github/apply_u2_task5_oracle_fix.py
+          python .github/apply_u2_task5_pairing_green.py
+          uv run ruff check --fix --select I trade_rl/workflows/universal_trade_rl_u2_selection.py
+          uv run ruff format \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py
+      - name: Static verification
+        run: |
+          set -euo pipefail
+          uv run ruff format --check --diff \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/integrations/test_universal_trade_rl_u2_selection_pairing.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_gate.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
+          uv run ruff check \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/integrations/test_universal_trade_rl_u2_selection_pairing.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_gate.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
+          uv run mypy trade_rl/workflows/universal_trade_rl_u2_selection.py
+          git diff --check
+      - name: Focused Task5 verification
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/integrations/test_universal_trade_rl_u2_selection_pairing.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_gate.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py \
+            tests/workflows/test_universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_metrics.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py \
+            tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+      - name: Falsification presence check
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path("trade_rl/workflows/universal_trade_rl_u2_selection.py").read_text()
+          required = (
+              "build_universal_trade_rl_u2_paired_replay_scope_evidence",
+              "reduce_universal_trade_rl_u2_paired_replay_evidence",
+              "paired_scope_evidence_digests",
+              "cash pairing provenance",
+          )
+          missing = [token for token in required if token not in source]
+          if missing:
+              raise SystemExit(f"Task5 pairing implementation missing: {missing}")
+          PY
+      - name: Push verified source and corrected oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py
+          git diff --cached --check
+          git commit -m 'feat: bind U2 candidate-cash pairing provenance'
+          git push origin HEAD:codex/u2-selection-task5-pairing-final

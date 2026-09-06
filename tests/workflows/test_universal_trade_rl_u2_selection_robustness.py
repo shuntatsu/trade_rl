@@ -189,6 +189,28 @@ def test_u2_seed_robustness_rejects_duplicate_leaf_identity() -> None:
         _evaluate(scope="D1", leaves=leaves + (leaves[0],))
 
 
+def test_u2_seed_robustness_rejects_missing_aggregate_bootstrap_segment() -> None:
+    d1_segment, _d2_segment = _segments()
+
+    with pytest.raises(ValueError, match="bootstrap|segment|D1|D2|window|scope"):
+        _evaluate(
+            scope="D1+D2",
+            leaves=_scope_leaves("D1") + _scope_leaves("D2"),
+            segments=(d1_segment,),
+        )
+
+
+def test_u2_seed_robustness_rejects_duplicate_bootstrap_window() -> None:
+    d1_segment, d2_segment = _segments()
+
+    with pytest.raises(ValueError, match="bootstrap|segment|duplicate|window|scope"):
+        _evaluate(
+            scope="D1+D2",
+            leaves=_scope_leaves("D1") + _scope_leaves("D2"),
+            segments=(d1_segment, d1_segment, d2_segment),
+        )
+
+
 def test_u2_seed_robustness_rejects_median_seed_wealth_equal_cash() -> None:
     leaves = _scope_leaves("D1", seed_logs={0: 0.0, 1: 0.0, 2: 0.02})
 
@@ -225,6 +247,66 @@ def test_u2_seed_robustness_rejects_any_seed_turnover_p95_above_one() -> None:
     assert result.all_seed_turnover_p95_per_day > 1.0
     assert result.rejection_reasons == (_TURNOVER_REASON,)
     assert result.passed is False
+
+
+def test_u2_seed_robustness_accepts_turnover_p95_exactly_one() -> None:
+    leaves = tuple(
+        replace(leaf, turnover_per_day=1.0, digest="")
+        if leaf.training_seed == 1
+        else leaf
+        for leaf in _scope_leaves("D1")
+    )
+
+    result = _evaluate(scope="D1", leaves=leaves)
+
+    assert result.all_seed_turnover_p95_per_day == pytest.approx(1.0)
+    assert result.passed is True
+    assert result.rejection_reasons == ()
+
+
+def test_u2_seed_robustness_uses_preregistered_cross_seed_thresholds(
+    monkeypatch,
+) -> None:
+    from trade_rl.workflows import universal_trade_rl_u2_contract
+
+    thresholds = universal_trade_rl_u2_contract._selection_thresholds_payload()
+    cross_seed = dict(thresholds["cross_seed_robustness"])
+    cross_seed["all_seed_turnover_p95_per_day_max_inclusive"] = 0.49
+    thresholds["cross_seed_robustness"] = cross_seed
+    monkeypatch.setattr(
+        universal_trade_rl_u2_contract,
+        "_selection_thresholds_payload",
+        lambda: thresholds,
+    )
+
+    result = _evaluate(scope="D1", leaves=_scope_leaves("D1"))
+
+    assert result.robustness_thresholds_digest == content_digest(cross_seed)
+    assert result.rejection_reasons == (_TURNOVER_REASON,)
+    assert result.passed is False
+
+
+def test_u2_seed_robustness_uses_preregistered_bootstrap_settings(monkeypatch) -> None:
+    from trade_rl.workflows import universal_trade_rl_u2_contract
+
+    thresholds = universal_trade_rl_u2_contract._selection_thresholds_payload()
+    cross_seed = dict(thresholds["cross_seed_robustness"])
+    cross_seed["bootstrap_resamples"] = 31
+    cross_seed["bootstrap_seed"] = 7
+    cross_seed["bootstrap_confidence_level"] = 0.90
+    thresholds["cross_seed_robustness"] = cross_seed
+    monkeypatch.setattr(
+        universal_trade_rl_u2_contract,
+        "_selection_thresholds_payload",
+        lambda: thresholds,
+    )
+
+    result = _evaluate(scope="D1", leaves=_scope_leaves("D1"))
+
+    assert result.bootstrap_result.resamples == 31
+    assert result.bootstrap_result.bootstrap_seed == 7
+    assert result.bootstrap_result.confidence_level == pytest.approx(0.90)
+    assert result.robustness_thresholds_digest == content_digest(cross_seed)
 
 
 def test_u2_seed_robustness_rejects_bootstrap_lower_ci_equal_zero() -> None:

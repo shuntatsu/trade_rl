@@ -53,7 +53,10 @@ class UniversalTradeRLU2PairedExcessPoint:
     candidate_minus_cash_net_log_excess: float
 
     def __post_init__(self) -> None:
-        if isinstance(self.training_seed, bool) or self.training_seed not in U2_TRAINING_SEEDS:
+        if (
+            isinstance(self.training_seed, bool)
+            or self.training_seed not in U2_TRAINING_SEEDS
+        ):
             raise ValueError(
                 "U2 Development panel seed is outside the fixed seed closure"
             )

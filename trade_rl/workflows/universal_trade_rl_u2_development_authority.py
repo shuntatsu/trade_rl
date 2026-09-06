@@ -30,7 +30,7 @@ from trade_rl.workflows.universal_trade_rl_u2_replay import (
     UniversalTradeRLU2DevelopmentReplaySession,
     UniversalTradeRLU2ReplayEvidence,
     UniversalTradeRLU2ReplayRequest,
-    build_universal_trade_rl_u2_development_replay_session,
+    _build_universal_trade_rl_u2_development_replay_session_unlocked,
 )
 from trade_rl.workflows.universal_trade_rl_u2_time_partition import (
     UniversalTradeRLU2TimePartition,
@@ -210,7 +210,7 @@ def build_authoritative_universal_trade_rl_u2_development_replay_session(
         lockfile_digest=lockfile_digest,
         evaluation_runtime_identity_digest=evaluation_runtime_identity_digest,
     )
-    return build_universal_trade_rl_u2_development_replay_session(
+    return _build_universal_trade_rl_u2_development_replay_session_unlocked(
         manifest=manifest,
         time_partition=time_partition,
         u2_contract=u2_contract,

@@ -44,7 +44,7 @@ from trade_rl.workflows.universal_trade_rl_u2_evaluation import (
 )
 from trade_rl.workflows.universal_trade_rl_u2_replay import (
     UniversalTradeRLU2DevelopmentReplaySession,
-    build_universal_trade_rl_u2_development_replay_session,
+    _build_universal_trade_rl_u2_development_replay_session_unlocked,
 )
 from trade_rl.workflows.universal_trade_rl_u2_time_partition import (
     UniversalTradeRLU2TimePartition,
@@ -242,7 +242,7 @@ def _build_replay_fixture(
             normalizer=normalizer,
         )
 
-    session = build_universal_trade_rl_u2_development_replay_session(
+    session = _build_universal_trade_rl_u2_development_replay_session_unlocked(
         manifest=manifest,
         time_partition=partition,
         u2_contract=u2_contract,

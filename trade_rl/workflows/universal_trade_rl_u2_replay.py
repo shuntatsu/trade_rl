@@ -1361,7 +1361,7 @@ def _require_runtime_generation(
         raise ValueError("U2 replay normalizer policy contract mismatch")
 
 
-def build_universal_trade_rl_u2_development_replay_session(
+def _build_universal_trade_rl_u2_development_replay_session_unlocked(
     *,
     manifest: UniversalTradeRLUniverseManifest,
     time_partition: UniversalTradeRLU2TimePartition,
@@ -1433,5 +1433,4 @@ __all__ = [
     "UniversalTradeRLU2ReplayRequest",
     "UniversalTradeRLU2ReplayStepEvidence",
     "UniversalTradeRLU2ReplayVariant",
-    "build_universal_trade_rl_u2_development_replay_session",
 ]

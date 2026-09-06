@@ -280,6 +280,61 @@ def test_u2_paired_replay_scope_rejects_off_grid_decision_timestamps() -> None:
         )
 
 
+def test_u2_seed_robustness_rejects_leaf_candidate_replay_substitution() -> None:
+    module = _module()
+    symbols = ("DEV_A",)
+    pairs = tuple(
+        _paired_scope(
+            seed=seed,
+            source_window=window,
+            cell=cell,
+            symbol="DEV_A",
+            values=(0.01, 0.02),
+        )
+        for seed in (0, 1, 2)
+        for window, cell in (
+            ("development_future_1", "D1"),
+            ("development_future_2", "D2"),
+        )
+    )
+    segments = module.reduce_universal_trade_rl_u2_paired_replay_evidence(
+        pairs=pairs,
+        expected_symbols=symbols,
+    )
+    d1_pairs = {
+        pair.training_seed: pair
+        for pair in pairs
+        if pair.source_window == "development_future_1"
+    }
+    leaves = tuple(
+        module.UniversalTradeRLU2SelectionLeafMetrics(
+            training_seed=seed,
+            cell="D1",
+            concrete_symbol="DEV_A",
+            tile_identity=d1_pairs[seed].scope_digest,
+            replay_evidence_digest=(
+                content_digest({"drift": "candidate-replay", "seed": seed})
+                if seed == 1
+                else d1_pairs[seed].candidate_replay_evidence_digest
+            ),
+            leaf_net_log_growth=0.02,
+            leaf_gross_log_growth=0.03,
+            turnover_per_day=0.5,
+            meaningful_execution=True,
+            hard_risk_violation_count=0,
+            unexplained_execution_rejection_count=0,
+        )
+        for seed in (0, 1, 2)
+    )
+
+    with pytest.raises(ValueError, match="candidate|replay|pair|identity|provenance"):
+        module.evaluate_universal_trade_rl_u2_seed_robustness(
+            scope="D1",
+            leaves=leaves,
+            segments=segments,
+        )
+
+
 def test_u2_pairing_reducer_binds_complete_seed_symbol_window_provenance() -> None:
     module = _module()
     symbols = ("DEV_A", "DEV_B")

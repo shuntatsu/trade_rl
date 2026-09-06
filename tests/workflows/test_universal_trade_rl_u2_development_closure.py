@@ -303,6 +303,9 @@ def test_u2_authoritative_development_lock_requires_validated_checkpoint_and_exp
         u2_contract=u2_contract,
         rows=_exposure_rows(train_symbols=manifest.config.train_symbols),
     )
+    evaluation_symbols = tuple(
+        sorted((*manifest.config.train_symbols, *manifest.config.development_symbols))
+    )
     base_lock = build_universal_trade_rl_u2_development_lock(
         predevelopment_contract=predevelopment,
         u1_contract_digest=u2_contract.u1_contract_digest,
@@ -311,7 +314,7 @@ def test_u2_authoritative_development_lock_requires_validated_checkpoint_and_exp
         development_scope_closure_digest=content_digest({"fixture": "scope-closure"}),
         evaluation_dataset_digests=tuple(
             (symbol, content_digest({"fixture": "eval-view", "symbol": symbol}))
-            for symbol in manifest.config.development_symbols
+            for symbol in evaluation_symbols
         ),
         source_tree_digest=content_digest({"fixture": "source-tree"}),
         lockfile_digest=content_digest({"fixture": "uv-lock"}),
@@ -324,6 +327,7 @@ def test_u2_authoritative_development_lock_requires_validated_checkpoint_and_exp
         base_lock=base_lock,
         checkpoint_closure=checkpoint_closure,
         training_exposure_evidence=exposure,
+        manifest=manifest,
         u2_contract=u2_contract,
     )
 
@@ -343,5 +347,20 @@ def test_u2_authoritative_development_lock_requires_validated_checkpoint_and_exp
             base_lock=altered_base,
             checkpoint_closure=checkpoint_closure,
             training_exposure_evidence=exposure,
+            manifest=manifest,
+            u2_contract=u2_contract,
+        )
+
+    incomplete_datasets = replace(
+        base_lock,
+        evaluation_dataset_digests=base_lock.evaluation_dataset_digests[:-1],
+        digest="",
+    )
+    with pytest.raises(ValueError, match="evaluation|dataset|complete|mapping|symbol"):
+        module.build_authoritative_universal_trade_rl_u2_development_lock(
+            base_lock=incomplete_datasets,
+            checkpoint_closure=checkpoint_closure,
+            training_exposure_evidence=exposure,
+            manifest=manifest,
             u2_contract=u2_contract,
         )

@@ -25,18 +25,17 @@ jobs:
       - name: Install
         run: uv sync --extra dev --extra train-sb3
       - name: Static verification
-        run: >-
-          uv run ruff format --check --diff
-          trade_rl/workflows/universal_trade_rl_u2_selection.py
-          tests/workflows/test_universal_trade_rl_u2_artifact_integrity_falsification.py
-          tests/workflows/test_universal_trade_rl_u2_selection_final.py
-          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
-          && uv run ruff check
-          trade_rl/workflows/universal_trade_rl_u2_selection.py
-          tests/workflows/test_universal_trade_rl_u2_artifact_integrity_falsification.py
-          tests/workflows/test_universal_trade_rl_u2_selection_final.py
-          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
-          && uv run mypy trade_rl/workflows/universal_trade_rl_u2_selection.py
+        run: |
+          set -euo pipefail
+          uv run ruff format --check --diff \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_artifact_integrity_falsification.py
+          uv run ruff check \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_artifact_integrity_falsification.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          uv run mypy trade_rl/workflows/universal_trade_rl_u2_selection.py
       - name: Artifact-integrity and Selection verification
         run: >-
           uv run pytest -q

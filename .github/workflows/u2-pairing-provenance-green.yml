@@ -6,6 +6,7 @@ on:
       - codex/universal-trade-rl-u2-base-ppo-implementation
     paths:
       - ".github/apply_u2_pairing_provenance_v2.py"
+      - ".github/fix_u2_pairing_provenance_v2.py"
       - ".github/workflows/u2-pairing-provenance-green.yml"
 
 permissions:
@@ -28,7 +29,9 @@ jobs:
       - name: Install focused dependencies
         run: uv sync --extra dev --extra train-sb3
       - name: Apply pairing provenance patch
-        run: python .github/apply_u2_pairing_provenance_v2.py
+        run: |
+          python .github/apply_u2_pairing_provenance_v2.py
+          python .github/fix_u2_pairing_provenance_v2.py
       - name: Format changed code
         run: >-
           uv run ruff format
@@ -66,6 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           rm .github/apply_u2_pairing_provenance_v2.py
+          rm .github/fix_u2_pairing_provenance_v2.py
           rm .github/workflows/u2-pairing-provenance-green.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -74,6 +78,7 @@ jobs:
             tests/workflows/test_universal_trade_rl_u2_selection_final.py \
             tests/integrations/test_universal_trade_rl_u2_selection_pairing.py \
             .github/apply_u2_pairing_provenance_v2.py \
+            .github/fix_u2_pairing_provenance_v2.py \
             .github/workflows/u2-pairing-provenance-green.yml
           git diff --cached --check
           git commit -m "feat: bind U2 robustness to exact cash pairing provenance"

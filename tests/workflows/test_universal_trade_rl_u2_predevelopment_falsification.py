@@ -133,7 +133,9 @@ def _development_lock_bundle():
 
 
 def test_u2_authoritative_replay_lock_validation_rejects_drift() -> None:
-    from trade_rl.workflows import universal_trade_rl_u2_development_authority as authority
+    from trade_rl.workflows import (
+        universal_trade_rl_u2_development_authority as authority,
+    )
 
     (
         manifest,
@@ -177,8 +179,12 @@ def test_u2_authoritative_replay_lock_validation_rejects_drift() -> None:
         )
 
 
-def test_u2_authoritative_session_checks_lock_before_numeric_builder(monkeypatch) -> None:
-    from trade_rl.workflows import universal_trade_rl_u2_development_authority as authority
+def test_u2_authoritative_session_checks_lock_before_numeric_builder(
+    monkeypatch,
+) -> None:
+    from trade_rl.workflows import (
+        universal_trade_rl_u2_development_authority as authority,
+    )
 
     (
         manifest,

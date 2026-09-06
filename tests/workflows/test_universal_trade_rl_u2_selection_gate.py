@@ -70,14 +70,14 @@ def _inclusive_boundary_summary(*, cell: str = "B", training_seed: int = 0):
             cell=cell,
             training_seed=training_seed,
             net_log_growth=-0.01,
-            gross_log_growth=0.02,
+            gross_log_growth=0.03125,
         ),
         _leaf(
             label=f"{cell}-boundary-positive",
             cell=cell,
             training_seed=training_seed,
-            net_log_growth=0.03,
-            gross_log_growth=0.02,
+            net_log_growth=0.04125,
+            gross_log_growth=0.03125,
         ),
     )
 
@@ -124,6 +124,11 @@ def _median_and_minimum_equality_summary():
 def test_u2_primary_cell_gate_accepts_all_inclusive_boundaries(cell: str) -> None:
     module = _module()
     summary = _inclusive_boundary_summary(cell=cell)
+
+    assert summary.positive_net_scope_fraction == 0.50
+    assert summary.scope_net_return_cvar10 == -0.01
+    assert summary.turnover_per_day_p95 == 1.0
+    assert summary.positive_gross_log_growth_retention == 0.50
 
     result = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
@@ -279,25 +284,25 @@ def test_u2_primary_cell_gate_rejects_positive_scope_fraction_below_half() -> No
     summary = _summary(
         _leaf(
             label="positive-fraction-negative",
-            net_log_growth=-0.005,
-            gross_log_growth=0.01,
+            net_log_growth=-0.00390625,
+            gross_log_growth=0.015625,
         ),
         _leaf(
             label="positive-fraction-zero",
             net_log_growth=0.0,
-            gross_log_growth=0.01,
+            gross_log_growth=0.015625,
         ),
         _leaf(
             label="positive-fraction-positive",
-            net_log_growth=0.030,
-            gross_log_growth=0.03,
+            net_log_growth=0.03515625,
+            gross_log_growth=0.03125,
         ),
     )
 
     assert summary.symbol_balanced_net_wealth > 1.0
     assert summary.positive_net_scope_fraction < 0.50
     assert summary.scope_net_return_cvar10 >= -0.01
-    assert summary.positive_gross_log_growth_retention == pytest.approx(0.50)
+    assert summary.positive_gross_log_growth_retention == 0.50
 
     result = module.evaluate_universal_trade_rl_u2_primary_cell_gate(summary=summary)
 
@@ -337,13 +342,13 @@ def test_u2_primary_cell_gate_rejects_turnover_above_one_per_day() -> None:
         _leaf(
             label="turnover-negative",
             net_log_growth=-0.01,
-            gross_log_growth=0.02,
+            gross_log_growth=0.03125,
             turnover_per_day=1.000001,
         ),
         _leaf(
             label="turnover-positive",
-            net_log_growth=0.03,
-            gross_log_growth=0.02,
+            net_log_growth=0.04125,
+            gross_log_growth=0.03125,
             turnover_per_day=1.000001,
         ),
     )
@@ -360,13 +365,13 @@ def test_u2_primary_cell_gate_requires_meaningful_execution_for_every_symbol() -
         _leaf(
             label="meaningful-negative",
             net_log_growth=-0.01,
-            gross_log_growth=0.02,
+            gross_log_growth=0.03125,
             meaningful_execution=False,
         ),
         _leaf(
             label="meaningful-positive",
-            net_log_growth=0.03,
-            gross_log_growth=0.02,
+            net_log_growth=0.04125,
+            gross_log_growth=0.03125,
             meaningful_execution=False,
         ),
     )
@@ -383,13 +388,13 @@ def test_u2_primary_cell_gate_rejects_any_hard_risk_violation() -> None:
         _leaf(
             label="risk-negative",
             net_log_growth=-0.01,
-            gross_log_growth=0.02,
+            gross_log_growth=0.03125,
             hard_risk_violation_count=1,
         ),
         _leaf(
             label="risk-positive",
-            net_log_growth=0.03,
-            gross_log_growth=0.02,
+            net_log_growth=0.04125,
+            gross_log_growth=0.03125,
         ),
     )
 
@@ -405,13 +410,13 @@ def test_u2_primary_cell_gate_rejects_any_unexplained_execution_rejection() -> N
         _leaf(
             label="rejection-negative",
             net_log_growth=-0.01,
-            gross_log_growth=0.02,
+            gross_log_growth=0.03125,
             unexplained_execution_rejection_count=1,
         ),
         _leaf(
             label="rejection-positive",
-            net_log_growth=0.03,
-            gross_log_growth=0.02,
+            net_log_growth=0.04125,
+            gross_log_growth=0.03125,
         ),
     )
 

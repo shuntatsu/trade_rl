@@ -208,9 +208,8 @@ def test_u2_authoritative_session_checks_lock_before_numeric_builder(
 
     monkeypatch.setattr(
         authority,
-        "build_universal_trade_rl_u2_development_replay_session",
+        "_build_universal_trade_rl_u2_development_replay_session_unlocked",
         fake_numeric_builder,
-        raising=False,
     )
 
     with pytest.raises(NumericBoundaryReached):

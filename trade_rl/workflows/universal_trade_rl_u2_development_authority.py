@@ -8,9 +8,9 @@ from trade_rl.workflows.universal_trade_rl_u2_predevelopment import (
     universal_trade_rl_u2_evaluation_seed,
 )
 from trade_rl.workflows.universal_trade_rl_u2_replay import (
+    UniversalTradeRLU2DevelopmentReplaySession,
     UniversalTradeRLU2ReplayEvidence,
     UniversalTradeRLU2ReplayRequest,
-    UniversalTradeRLU2ReplaySession,
 )
 
 U2_DEVELOPMENT_REPLAY_AUTHORITY_SCHEMA: Final = (
@@ -20,19 +20,19 @@ U2_DEVELOPMENT_REPLAY_AUTHORITY_SCHEMA: Final = (
 
 def replay_universal_trade_rl_u2_development_scope(
     *,
-    session: UniversalTradeRLU2ReplaySession,
+    session: UniversalTradeRLU2DevelopmentReplaySession,
     request: UniversalTradeRLU2ReplayRequest,
     model: Any | None = None,
 ) -> UniversalTradeRLU2ReplayEvidence:
     """Replay one scope only when its preregistered common RNG seed is used.
 
-    ``UniversalTradeRLU2ReplaySession`` remains the lower-level deterministic
-    replay engine used by synthetic diagnostics.  U2 Development Selection is
-    authoritative only through this boundary, which rejects a seed mismatch
-    before environment creation or numeric stepping.
+    ``UniversalTradeRLU2DevelopmentReplaySession`` remains the lower-level
+    deterministic replay engine used by synthetic diagnostics. U2 Development
+    Selection is authoritative only through this boundary, which rejects a
+    seed mismatch before environment creation or numeric stepping.
     """
 
-    if not isinstance(session, UniversalTradeRLU2ReplaySession):
+    if not isinstance(session, UniversalTradeRLU2DevelopmentReplaySession):
         raise TypeError("U2 Development replay authority requires a replay session")
     if not isinstance(request, UniversalTradeRLU2ReplayRequest):
         raise TypeError("U2 Development replay authority requires a replay request")

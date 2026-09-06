@@ -9,6 +9,10 @@ from tests.integrations.test_universal_trade_rl_u2_replay_runtime import (
     DeterministicModelSpy,
     _request,
 )
+from tests.integrations.test_universal_trade_rl_u2_selection_metrics_integration import (
+    _TRAINING_SEED,
+    _candidate_evidence,
+)
 from tests.integrations.test_universal_trade_rl_u2_selection_pairing import (
     _checkpoint_closure,
 )
@@ -85,6 +89,48 @@ def test_u2_pairing_rejects_source_replay_with_stale_artifact_digest(
             u2_contract=replay_fixture.u2_contract,
             time_partition=replay_fixture.partition,
             checkpoint_closure=closure,
+        )
+
+
+def test_u2_selection_leaf_rejects_source_replay_with_stale_artifact_digest(
+    replay_fixture: ReplayIntegrationFixture,
+) -> None:
+    module = _module()
+    replay_evidence = _candidate_evidence(replay_fixture)
+    checkpoint_closure = _checkpoint_closure(replay_fixture)
+    object.__setattr__(
+        replay_evidence,
+        "digest",
+        content_digest({"drift": "selection-leaf-replay-artifact-digest"}),
+    )
+    _assert_stale_digest(replay_evidence)
+
+    with pytest.raises(ValueError, match="digest|artifact|Selection|leaf|replay"):
+        module.build_universal_trade_rl_u2_selection_leaf_metrics(
+            training_seed=_TRAINING_SEED,
+            replay_evidence=replay_evidence,
+            checkpoint_closure=checkpoint_closure,
+        )
+
+
+def test_u2_selection_leaf_rejects_stale_checkpoint_closure_digest(
+    replay_fixture: ReplayIntegrationFixture,
+) -> None:
+    module = _module()
+    replay_evidence = _candidate_evidence(replay_fixture)
+    checkpoint_closure = _checkpoint_closure(replay_fixture)
+    object.__setattr__(
+        checkpoint_closure,
+        "source_closure_digest",
+        content_digest({"drift": "selection-leaf-checkpoint-source-closure"}),
+    )
+    _assert_stale_digest(checkpoint_closure)
+
+    with pytest.raises(ValueError, match="digest|artifact|checkpoint|closure"):
+        module.build_universal_trade_rl_u2_selection_leaf_metrics(
+            training_seed=_TRAINING_SEED,
+            replay_evidence=replay_evidence,
+            checkpoint_closure=checkpoint_closure,
         )
 
 

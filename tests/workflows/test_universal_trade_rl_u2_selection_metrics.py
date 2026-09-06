@@ -96,10 +96,10 @@ def test_u2_selection_summary_executes_frozen_metric_formulas() -> None:
     assert summary.leaf_count == 4
     assert summary.symbol_count == 2
     assert summary.symbol_balanced_net_log_growth == pytest.approx(balanced_net_log)
-    assert summary.symbol_balanced_gross_log_growth == pytest.approx(
-        balanced_gross_log
+    assert summary.symbol_balanced_gross_log_growth == pytest.approx(balanced_gross_log)
+    assert summary.symbol_balanced_net_wealth == pytest.approx(
+        math.exp(balanced_net_log)
     )
-    assert summary.symbol_balanced_net_wealth == pytest.approx(math.exp(balanced_net_log))
     assert summary.symbol_balanced_gross_wealth == pytest.approx(
         math.exp(balanced_gross_log)
     )

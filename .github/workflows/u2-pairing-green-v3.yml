@@ -47,115 +47,123 @@ jobs:
                   raise SystemExit(f"{label}: expected one anchor, got {count}")
               text = text.replace(old, new, 1)
 
-          grid_old = '''        if timestamps != tuple(sorted(set(timestamps))):
-              raise ValueError("U2 paired replay timestamps must be sorted and unique")
-          object.__setattr__(self, "decision_timestamps_ns", timestamps)
-          '''
-          grid_new = '''        if timestamps != tuple(sorted(set(timestamps))):
-              raise ValueError("U2 paired replay timestamps must be sorted and unique")
-          if len(timestamps) > 1 and any(
-              later - earlier != U2_DECISION_STEP_NS
-              for earlier, later in zip(timestamps, timestamps[1:], strict=True)
-          ):
-              raise ValueError(
-                  "U2 paired replay timestamps must follow the 15m decision grid"
-              )
-          object.__setattr__(self, "decision_timestamps_ns", timestamps)
-          '''
+          grid_old = (
+              "        if timestamps != tuple(sorted(set(timestamps))):\n"
+              "            raise ValueError(\"U2 paired replay timestamps must be sorted and unique\")\n"
+              "        object.__setattr__(self, \"decision_timestamps_ns\", timestamps)\n"
+          )
+          grid_new = (
+              "        if timestamps != tuple(sorted(set(timestamps))):\n"
+              "            raise ValueError(\"U2 paired replay timestamps must be sorted and unique\")\n"
+              "        if len(timestamps) > 1 and any(\n"
+              "            later - earlier != U2_DECISION_STEP_NS\n"
+              "            for earlier, later in zip(timestamps, timestamps[1:], strict=True)\n"
+              "        ):\n"
+              "            raise ValueError(\n"
+              "                \"U2 paired replay timestamps must follow the 15m decision grid\"\n"
+              "            )\n"
+              "        object.__setattr__(self, \"decision_timestamps_ns\", timestamps)\n"
+          )
           replace_once(grid_old, grid_new, "paired timestamp grid")
 
-          checkpoint_old = '''    seed = candidate_replay.evaluation_seed
-          checkpoints = dict(checkpoint_closure.checkpoint_digests)
-          if seed not in checkpoints:
-              raise ValueError("U2 paired replay checkpoint seed closure is incomplete")
-          expected_checkpoint = checkpoints[seed]
-          if (
-              candidate_replay.paired_candidate_checkpoint_digest != expected_checkpoint
-              or cash_replay.paired_candidate_checkpoint_digest != expected_checkpoint
-          ):
-              raise ValueError("U2 paired replay candidate checkpoint identity mismatch")
-          '''
-          checkpoint_new = '''    paired_checkpoint = candidate_replay.paired_candidate_checkpoint_digest
-          if cash_replay.paired_candidate_checkpoint_digest != paired_checkpoint:
-              raise ValueError("U2 paired replay candidate checkpoint identity mismatch")
-          matching_seeds = tuple(
-              seed
-              for seed, checkpoint_digest in checkpoint_closure.checkpoint_digests
-              if checkpoint_digest == paired_checkpoint
+          checkpoint_old = (
+              "    seed = candidate_replay.evaluation_seed\n"
+              "    checkpoints = dict(checkpoint_closure.checkpoint_digests)\n"
+              "    if seed not in checkpoints:\n"
+              "        raise ValueError(\"U2 paired replay checkpoint seed closure is incomplete\")\n"
+              "    expected_checkpoint = checkpoints[seed]\n"
+              "    if (\n"
+              "        candidate_replay.paired_candidate_checkpoint_digest != expected_checkpoint\n"
+              "        or cash_replay.paired_candidate_checkpoint_digest != expected_checkpoint\n"
+              "    ):\n"
+              "        raise ValueError(\"U2 paired replay candidate checkpoint identity mismatch\")\n"
           )
-          if len(matching_seeds) != 1:
-              raise ValueError(
-                  "U2 paired replay candidate checkpoint is outside exact closure"
-              )
-          training_seed = matching_seeds[0]
-          '''
+          checkpoint_new = (
+              "    paired_checkpoint = candidate_replay.paired_candidate_checkpoint_digest\n"
+              "    if cash_replay.paired_candidate_checkpoint_digest != paired_checkpoint:\n"
+              "        raise ValueError(\"U2 paired replay candidate checkpoint identity mismatch\")\n"
+              "    matching_seeds = tuple(\n"
+              "        seed\n"
+              "        for seed, checkpoint_digest in checkpoint_closure.checkpoint_digests\n"
+              "        if checkpoint_digest == paired_checkpoint\n"
+              "    )\n"
+              "    if len(matching_seeds) != 1:\n"
+              "        raise ValueError(\n"
+              "            \"U2 paired replay candidate checkpoint is outside exact closure\"\n"
+              "        )\n"
+              "    training_seed = matching_seeds[0]\n"
+          )
           replace_once(checkpoint_old, checkpoint_new, "training seed derivation")
 
-          return_old = '''    return UniversalTradeRLU2PairedReplayScopeEvidence(
-              training_seed=seed,
-              source_window=candidate_replay.source_window,
-              cell=candidate_replay.cell,
-              concrete_symbol=candidate_replay.concrete_symbol,
-              scope_digest=candidate_replay.scope_digest,
-              evaluation_dataset_digest=candidate_replay.evaluation_dataset_digest,
-              u2_contract_digest=u2_contract.digest,
-              time_partition_digest=time_partition.digest,
-              checkpoint_closure_digest=checkpoint_closure.digest,
-              paired_candidate_checkpoint_digest=expected_checkpoint,
-          '''
-          return_new = '''    return UniversalTradeRLU2PairedReplayScopeEvidence(
-              training_seed=training_seed,
-              source_window=candidate_replay.source_window,
-              cell=candidate_replay.cell,
-              concrete_symbol=candidate_replay.concrete_symbol,
-              scope_digest=candidate_replay.scope_digest,
-              evaluation_dataset_digest=candidate_replay.evaluation_dataset_digest,
-              u2_contract_digest=u2_contract.digest,
-              time_partition_digest=time_partition.digest,
-              checkpoint_closure_digest=checkpoint_closure.digest,
-              paired_candidate_checkpoint_digest=paired_checkpoint,
-          '''
+          return_old = (
+              "    return UniversalTradeRLU2PairedReplayScopeEvidence(\n"
+              "        training_seed=seed,\n"
+              "        source_window=candidate_replay.source_window,\n"
+              "        cell=candidate_replay.cell,\n"
+              "        concrete_symbol=candidate_replay.concrete_symbol,\n"
+              "        scope_digest=candidate_replay.scope_digest,\n"
+              "        evaluation_dataset_digest=candidate_replay.evaluation_dataset_digest,\n"
+              "        u2_contract_digest=u2_contract.digest,\n"
+              "        time_partition_digest=time_partition.digest,\n"
+              "        checkpoint_closure_digest=checkpoint_closure.digest,\n"
+              "        paired_candidate_checkpoint_digest=expected_checkpoint,\n"
+          )
+          return_new = (
+              "    return UniversalTradeRLU2PairedReplayScopeEvidence(\n"
+              "        training_seed=training_seed,\n"
+              "        source_window=candidate_replay.source_window,\n"
+              "        cell=candidate_replay.cell,\n"
+              "        concrete_symbol=candidate_replay.concrete_symbol,\n"
+              "        scope_digest=candidate_replay.scope_digest,\n"
+              "        evaluation_dataset_digest=candidate_replay.evaluation_dataset_digest,\n"
+              "        u2_contract_digest=u2_contract.digest,\n"
+              "        time_partition_digest=time_partition.digest,\n"
+              "        checkpoint_closure_digest=checkpoint_closure.digest,\n"
+              "        paired_candidate_checkpoint_digest=paired_checkpoint,\n"
+          )
           replace_once(return_old, return_new, "paired evidence return")
 
-          leaf_anchor = '''    selected_segments = tuple(by_window[window] for window in expected_windows)
-          if scope == "D1+D2" and set(observed_windows) != set(expected_windows):
-              raise ValueError("U2 seed-robustness aggregate bootstrap scope is invalid")
-
-          thresholds = _u2_cross_seed_robustness_thresholds()
-          '''
-          leaf_replacement = '''    selected_segments = tuple(by_window[window] for window in expected_windows)
-          if scope == "D1+D2" and set(observed_windows) != set(expected_windows):
-              raise ValueError("U2 seed-robustness aggregate bootstrap scope is invalid")
-
-          paired_scope_evidence = tuple(
-              pair
-              for segment in selected_segments
-              for pair in segment.paired_scope_evidence
+          leaf_anchor = (
+              "    selected_segments = tuple(by_window[window] for window in expected_windows)\n"
+              "    if scope == \"D1+D2\" and set(observed_windows) != set(expected_windows):\n"
+              "        raise ValueError(\"U2 seed-robustness aggregate bootstrap scope is invalid\")\n"
+              "\n"
+              "    thresholds = _u2_cross_seed_robustness_thresholds()\n"
           )
-          if paired_scope_evidence:
-              candidate_replay_by_leaf_identity = {
-                  (
-                      pair.training_seed,
-                      pair.cell,
-                      pair.concrete_symbol,
-                      pair.scope_digest,
-                  ): pair.candidate_replay_evidence_digest
-                  for pair in paired_scope_evidence
-              }
-              for leaf in resolved_leaves:
-                  expected_candidate_replay = candidate_replay_by_leaf_identity.get(
-                      leaf.identity
-                  )
-                  if (
-                      expected_candidate_replay is None
-                      or leaf.replay_evidence_digest != expected_candidate_replay
-                  ):
-                      raise ValueError(
-                          "U2 seed-robustness leaf candidate replay pairing provenance mismatch"
-                      )
-
-          thresholds = _u2_cross_seed_robustness_thresholds()
-          '''
+          leaf_replacement = (
+              "    selected_segments = tuple(by_window[window] for window in expected_windows)\n"
+              "    if scope == \"D1+D2\" and set(observed_windows) != set(expected_windows):\n"
+              "        raise ValueError(\"U2 seed-robustness aggregate bootstrap scope is invalid\")\n"
+              "\n"
+              "    paired_scope_evidence = tuple(\n"
+              "        pair\n"
+              "        for segment in selected_segments\n"
+              "        for pair in segment.paired_scope_evidence\n"
+              "    )\n"
+              "    if paired_scope_evidence:\n"
+              "        candidate_replay_by_leaf_identity = {\n"
+              "            (\n"
+              "                pair.training_seed,\n"
+              "                pair.cell,\n"
+              "                pair.concrete_symbol,\n"
+              "                pair.scope_digest,\n"
+              "            ): pair.candidate_replay_evidence_digest\n"
+              "            for pair in paired_scope_evidence\n"
+              "        }\n"
+              "        for leaf in resolved_leaves:\n"
+              "            expected_candidate_replay = candidate_replay_by_leaf_identity.get(\n"
+              "                leaf.identity\n"
+              "            )\n"
+              "            if (\n"
+              "                expected_candidate_replay is None\n"
+              "                or leaf.replay_evidence_digest != expected_candidate_replay\n"
+              "            ):\n"
+              "                raise ValueError(\n"
+              "                    \"U2 seed-robustness leaf candidate replay pairing provenance mismatch\"\n"
+              "                )\n"
+              "\n"
+              "    thresholds = _u2_cross_seed_robustness_thresholds()\n"
+          )
           replace_once(leaf_anchor, leaf_replacement, "leaf pairing provenance")
 
           path.write_text(text, encoding="utf-8")

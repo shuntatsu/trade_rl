@@ -6,7 +6,6 @@ import pytest
 
 from trade_rl.artifacts.hashing import content_digest
 
-
 REASON_GROSS = "symbol_balanced_gross_wealth_not_above_minimum"
 REASON_NET = "symbol_balanced_net_wealth_not_above_minimum"
 REASON_MEDIAN = "median_symbol_net_wealth_below_minimum"

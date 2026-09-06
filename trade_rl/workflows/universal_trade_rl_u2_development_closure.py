@@ -220,9 +220,13 @@ def build_universal_trade_rl_u2_final_checkpoint_closure(
         u2_contract=u2_contract,
     )
     if not isinstance(members, tuple) or len(members) != len(U2_TRAINING_SEEDS):
-        raise ValueError("U2 final checkpoint closure requires exactly three seed members")
+        raise ValueError(
+            "U2 final checkpoint closure requires exactly three seed members"
+        )
     if tuple(member[0].seed for member in members) != U2_TRAINING_SEEDS:
-        raise ValueError("U2 final checkpoint closure requires exact canonical seed order")
+        raise ValueError(
+            "U2 final checkpoint closure requires exact canonical seed order"
+        )
 
     source_closure_digests: set[str] = set()
     plan_digests: list[tuple[int, str]] = []
@@ -244,7 +248,9 @@ def build_universal_trade_rl_u2_final_checkpoint_closure(
         if plan.normalizer_digest != u2_contract.u1_normalizer_digest:
             raise ValueError("U2 final checkpoint training plan normalizer mismatch")
         if plan.time_partition_digest != u2_contract.time_partition_digest:
-            raise ValueError("U2 final checkpoint training plan time partition mismatch")
+            raise ValueError(
+                "U2 final checkpoint training plan time partition mismatch"
+            )
         if plan.training_config_digest != u2_contract.training_config_digest:
             raise ValueError("U2 final checkpoint training config identity mismatch")
         require_universal_trade_rl_u2_selection_checkpoint(
@@ -370,10 +376,16 @@ class UniversalTradeRLU2TrainingExposureEvidence:
             require_sha256(value, field=f"U2 training-exposure {field_name}")
         symbols = _canonical_train_symbols(self.expected_train_symbols)
         rows = tuple(self.rows)
-        if any(not isinstance(row, UniversalTradeRLU2TrainingExposureRow) for row in rows):
+        if any(
+            not isinstance(row, UniversalTradeRLU2TrainingExposureRow) for row in rows
+        ):
             raise TypeError("U2 training-exposure evidence contains an invalid row")
-        if tuple(row.identity for row in rows) != tuple(sorted(row.identity for row in rows)):
-            raise ValueError("U2 training-exposure rows must be in canonical identity order")
+        if tuple(row.identity for row in rows) != tuple(
+            sorted(row.identity for row in rows)
+        ):
+            raise ValueError(
+                "U2 training-exposure rows must be in canonical identity order"
+            )
         expected_identities = tuple(
             (seed, worker, symbol)
             for seed, worker, symbol in product(
@@ -383,7 +395,9 @@ class UniversalTradeRLU2TrainingExposureEvidence:
             )
         )
         if tuple(row.identity for row in rows) != expected_identities:
-            raise ValueError("U2 training-exposure evidence must cover the complete grid")
+            raise ValueError(
+                "U2 training-exposure evidence must cover the complete grid"
+            )
         for seed in U2_TRAINING_SEEDS:
             for worker in U2_WORKER_INDICES:
                 scoped = tuple(
@@ -484,7 +498,9 @@ class UniversalTradeRLU2AuthoritativeDevelopmentLock:
                 self.training_exposure_evidence_digest,
             ),
         ):
-            require_sha256(value, field=f"authoritative U2 Development lock {field_name}")
+            require_sha256(
+                value, field=f"authoritative U2 Development lock {field_name}"
+            )
         if self.replay_authority_schema != U2_DEVELOPMENT_REPLAY_AUTHORITY_SCHEMA:
             raise ValueError("U2 Development replay authority schema drifted")
         if self.admission_status != U2_ADMISSION_STATUS:
@@ -493,7 +509,9 @@ class UniversalTradeRLU2AuthoritativeDevelopmentLock:
             raise ValueError("Universal Trade RL U2 remains Production NO-GO")
         expected = content_digest(self.to_payload(include_digest=False))
         if self.digest:
-            require_sha256(self.digest, field="authoritative U2 Development lock digest")
+            require_sha256(
+                self.digest, field="authoritative U2 Development lock digest"
+            )
             if self.digest != expected:
                 raise ValueError("authoritative U2 Development lock digest mismatch")
         object.__setattr__(self, "digest", expected)
@@ -531,18 +549,24 @@ def build_authoritative_universal_trade_rl_u2_development_lock(
     if not isinstance(base_lock, UniversalTradeRLU2DevelopmentLock):
         raise TypeError("authoritative U2 Development closure requires a base lock")
     if not isinstance(checkpoint_closure, UniversalTradeRLU2FinalCheckpointClosure):
-        raise TypeError("authoritative U2 Development closure requires checkpoint closure")
+        raise TypeError(
+            "authoritative U2 Development closure requires checkpoint closure"
+        )
     if not isinstance(
         training_exposure_evidence,
         UniversalTradeRLU2TrainingExposureEvidence,
     ):
-        raise TypeError("authoritative U2 Development closure requires exposure evidence")
+        raise TypeError(
+            "authoritative U2 Development closure requires exposure evidence"
+        )
     if not isinstance(manifest, UniversalTradeRLUniverseManifest):
         raise TypeError("authoritative U2 Development closure requires a manifest")
     if not isinstance(u2_contract, UniversalTradeRLU2Contract):
         raise TypeError("authoritative U2 Development closure requires U2 contract")
     if manifest.digest != u2_contract.universe_manifest_digest:
-        raise ValueError("authoritative U2 Development universe manifest identity mismatch")
+        raise ValueError(
+            "authoritative U2 Development universe manifest identity mismatch"
+        )
     if base_lock.universe_manifest_digest != manifest.digest:
         raise ValueError("authoritative U2 Development base-lock universe mismatch")
     if base_lock.u2_contract_digest != u2_contract.digest:
@@ -557,7 +581,9 @@ def build_authoritative_universal_trade_rl_u2_development_lock(
         or base_lock.predevelopment_contract_digest
         != training_exposure_evidence.predevelopment_contract_digest
     ):
-        raise ValueError("authoritative U2 Development pre-development identity mismatch")
+        raise ValueError(
+            "authoritative U2 Development pre-development identity mismatch"
+        )
     if checkpoint_closure.u2_contract_digest != u2_contract.digest:
         raise ValueError("authoritative U2 Development checkpoint U2 identity mismatch")
     if training_exposure_evidence.u2_contract_digest != u2_contract.digest:
@@ -565,11 +591,17 @@ def build_authoritative_universal_trade_rl_u2_development_lock(
     if training_exposure_evidence.universe_manifest_digest != manifest.digest:
         raise ValueError("authoritative U2 Development exposure universe mismatch")
     if base_lock.checkpoint_digests != checkpoint_closure.checkpoint_digests:
-        raise ValueError("authoritative U2 Development checkpoint closure mapping mismatch")
+        raise ValueError(
+            "authoritative U2 Development checkpoint closure mapping mismatch"
+        )
     if base_lock.development_numeric_open_count != 0:
-        raise ValueError("authoritative U2 Development lock requires zero Development opens")
+        raise ValueError(
+            "authoritative U2 Development lock requires zero Development opens"
+        )
     if base_lock.admission_numeric_open_count != 0:
-        raise ValueError("authoritative U2 Development lock requires zero Admission opens")
+        raise ValueError(
+            "authoritative U2 Development lock requires zero Admission opens"
+        )
 
     expected_evaluation_symbols = tuple(
         sorted((*manifest.config.train_symbols, *manifest.config.development_symbols))
@@ -582,7 +614,9 @@ def build_authoritative_universal_trade_rl_u2_development_lock(
             "authoritative U2 Development evaluation dataset mapping is incomplete"
         )
     if set(actual_evaluation_symbols) & set(manifest.config.admission_symbols):
-        raise ValueError("authoritative U2 Development dataset mapping contains Admission")
+        raise ValueError(
+            "authoritative U2 Development dataset mapping contains Admission"
+        )
 
     return UniversalTradeRLU2AuthoritativeDevelopmentLock(
         base_lock_digest=base_lock.digest,

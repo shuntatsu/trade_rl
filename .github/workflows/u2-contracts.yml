@@ -58,6 +58,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
           tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
           tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+          tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
           tests/workflows/test_universal_trade_rl_u2_training_runtime.py
@@ -94,6 +95,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
           tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
           tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+          tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
           tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
           tests/integrations/test_universal_trade_rl_u2_replay_crn.py
           tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
@@ -120,6 +122,7 @@ jobs:
           tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
           tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
           tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+          tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid
           tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_exposes_exact_fit_indices
           tests/workflows/test_universal_trade_rl_u2_fit_dataset.py

@@ -1,5 +1,7 @@
 # Universal Trade RL U2 Development Replay Seed Amendment
 
+> **2026-09-06 supersession notice:** The seed-coupling rule in this document (`evaluation_seed = candidate training seed`) is superseded by `2026-09-06-universal-trade-rl-u2-pre-development-closure-amendment.md`. U2 V1 Development Selection now derives one **scope-common evaluation seed** from the frozen U2 contract digest and canonical scope digest, and candidate seeds 0/1/2 plus cash/long/short baselines must share that same execution RNG for a given scope. The same-scope pairing, RNG isolation, replay identity, deterministic policy inference, and no-RNG-tuning requirements below remain normative except where they depend on the superseded seed-coupling formula.
+
 ## Status
 
 This is a pre-results normative amendment for U2 Task 7C-1. It closes one ambiguity discovered while translating the deterministic Development replay design into an implementation plan.
@@ -12,24 +14,26 @@ The U2 design fixes deterministic policy inference, but the maintained U1 execut
 
 ## Normative rule
 
-For every U2 Development replay:
+**Historical rule, superseded only for seed derivation by the 2026-09-06 pre-development closure:**
 
 ```text
 evaluation_seed = candidate training seed
 ```
 
-The allowed values are exactly the preregistered U2 training seeds `(0, 1, 2)`.
+The maintained replay representation still accepts only the preregistered seed values `(0, 1, 2)`, but the authoritative U2 Development boundary must derive which one applies from immutable `(U2 contract, scope)` identity rather than from candidate training seed.
 
-The same evaluation seed is used for every policy variant paired to that candidate generation:
+The same derived evaluation seed is used for every policy variant and every training-seed candidate on that scope:
 
 ```text
-candidate
+candidate seed 0
+candidate seed 1
+candidate seed 2
 cash
 constant_long
 constant_short
 ```
 
-The U1 environment reset receives exactly that seed. A caller may not provide a different evaluation-only RNG seed.
+The U1 environment reset receives exactly that scope-common seed. A caller may not substitute a candidate-specific or result-dependent evaluation RNG seed.
 
 ## Pair identity
 
@@ -73,13 +77,13 @@ A mismatch is a contract error, not a valid paired comparison.
 
 ## Test oracles
 
-Task 7C-1 tests must prove:
+The maintained low-level replay tests continue to prove request/evidence seed identity and RNG isolation. The authoritative U2 Development boundary additionally proves:
 
 1. unregistered evaluation seeds are rejected before numeric loading;
-2. reset receives the exact evaluation seed;
-3. all four variants use the same requested seed for one paired candidate generation;
-4. changing only the evaluation seed changes replay identity;
-5. changing only the paired checkpoint digest changes replay identity;
+2. reset receives the exact scope-common evaluation seed;
+3. candidate seeds 0/1/2 and all baselines use the same derived seed for one canonical scope;
+4. changing only the scope identity may change the derived seed deterministically;
+5. changing only the paired checkpoint digest does not change the scope-common evaluation seed;
 6. no separate evaluation RNG tuning surface exists.
 
 ## Non-goals

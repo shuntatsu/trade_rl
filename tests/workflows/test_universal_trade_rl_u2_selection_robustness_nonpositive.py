@@ -14,7 +14,9 @@ _MEDIAN_REASON = "median_seed_symbol_balanced_net_wealth_not_above_cash"
 _WORST_REASON = "worst_seed_symbol_balanced_net_wealth_below_cash"
 
 
-def test_u2_seed_robustness_rejects_fully_consistent_nonpositive_wealth_tamper() -> None:
+def test_u2_seed_robustness_rejects_fully_consistent_nonpositive_wealth_tamper() -> (
+    None
+):
     result = _evaluate(scope="D1", leaves=_scope_leaves("D1"))
     transformed = (
         math.exp(-1.0),

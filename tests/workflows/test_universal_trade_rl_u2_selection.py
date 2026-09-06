@@ -101,8 +101,7 @@ def _reference_segmented_bootstrap(
             while len(sampled_indices) < segment_length:
                 start = int(rng.integers(0, segment_length))
                 sampled_indices.extend(
-                    (start + offset) % segment_length
-                    for offset in range(block_length)
+                    (start + offset) % segment_length for offset in range(block_length)
                 )
             sampled_values.extend(
                 values[index] for index in sampled_indices[:segment_length]

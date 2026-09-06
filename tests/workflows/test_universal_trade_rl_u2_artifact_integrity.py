@@ -14,7 +14,9 @@ from tests.integrations.test_universal_trade_rl_u2_selection_pairing import (
 )
 from tests.workflows.test_universal_trade_rl_u2_selection_final import _final_fixture
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.workflows import universal_trade_rl_u2_selection_pairing as pairing_module
+from trade_rl.workflows import (
+    universal_trade_rl_u2_selection_pairing as pairing_module,
+)
 from trade_rl.workflows.universal_trade_rl_u2_replay import (
     UniversalTradeRLU2ReplayVariant,
 )

@@ -130,6 +130,45 @@ def test_u2_paired_replay_scope_is_derived_from_exact_candidate_cash_evidence(
     assert paired.candidate_minus_cash_net_log_excess == pytest.approx(expected_excess)
 
 
+def test_u2_paired_replay_scope_derives_training_seed_from_checkpoint_not_crn_seed(
+    replay_fixture: ReplayIntegrationFixture,
+    candidate_cash_pair: tuple[
+        UniversalTradeRLU2ReplayEvidence,
+        UniversalTradeRLU2ReplayEvidence,
+    ],
+) -> None:
+    module = _module()
+    candidate, cash = candidate_cash_pair
+    closure = _checkpoint_closure(replay_fixture)
+    training_seed = 1
+    assert candidate.evaluation_seed == cash.evaluation_seed == 0
+    assert training_seed != candidate.evaluation_seed
+
+    candidate_for_seed_1 = replace(
+        candidate,
+        paired_candidate_checkpoint_digest=_checkpoint_digest(training_seed),
+        digest="",
+    )
+    cash_for_seed_1 = replace(
+        cash,
+        paired_candidate_checkpoint_digest=_checkpoint_digest(training_seed),
+        digest="",
+    )
+
+    paired = module.build_universal_trade_rl_u2_paired_replay_scope_evidence(
+        candidate_replay=candidate_for_seed_1,
+        cash_replay=cash_for_seed_1,
+        u2_contract=replay_fixture.u2_contract,
+        time_partition=replay_fixture.partition,
+        checkpoint_closure=closure,
+    )
+
+    assert paired.training_seed == training_seed
+    assert paired.paired_candidate_checkpoint_digest == _checkpoint_digest(training_seed)
+    assert paired.candidate_replay_evidence_digest == candidate_for_seed_1.digest
+    assert paired.cash_replay_evidence_digest == cash_for_seed_1.digest
+
+
 def test_u2_paired_replay_scope_rejects_dataset_or_checkpoint_pair_drift(
     replay_fixture: ReplayIntegrationFixture,
     candidate_cash_pair: tuple[

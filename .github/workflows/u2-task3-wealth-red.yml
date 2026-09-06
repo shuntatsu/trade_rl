@@ -5,7 +5,7 @@ on:
     branches:
       - codex/u2-selection-task3-contract-green
     paths:
-      - "tests/workflows/test_universal_trade_rl_u2_selection_robustness.py"
+      - "tests/workflows/test_universal_trade_rl_u2_selection_robustness_nonpositive.py"
       - ".github/workflows/u2-task3-wealth-red.yml"
 
 permissions:
@@ -23,5 +23,5 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev --extra train-sb3
-      - run: uv run ruff format --check --diff tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
-      - run: uv run pytest -q tests/workflows/test_universal_trade_rl_u2_selection_robustness.py::test_u2_seed_robustness_evidence_rejects_nonpositive_wealth_tampering
+      - run: uv run ruff format --check --diff tests/workflows/test_universal_trade_rl_u2_selection_robustness_nonpositive.py
+      - run: uv run pytest -q tests/workflows/test_universal_trade_rl_u2_selection_robustness_nonpositive.py

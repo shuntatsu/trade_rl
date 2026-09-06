@@ -6,7 +6,7 @@ on:
       - verify/u2-development-failclosed-coverage
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -17,7 +17,8 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          persist-credentials: false
+          fetch-depth: 0
+          persist-credentials: true
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
@@ -25,11 +26,13 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3
-      - name: Static checks
+      - name: Format and static checks
         run: |
           set -euo pipefail
+          uv run ruff format tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
           uv run ruff format --check --diff tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
           uv run ruff check tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
+          git diff --check
       - name: Targeted fail-closed coverage
         run: |
           set -euo pipefail
@@ -42,3 +45,22 @@ jobs:
             --cov-branch \
             --cov-report=term-missing \
             --cov-fail-under=80
+      - name: Commit verified formatted test
+        run: |
+          set -euo pipefail
+          branch="verify/u2-development-failclosed-coverage"
+          git fetch origin "$branch"
+          if [ "$(git rev-parse origin/$branch)" != "${GITHUB_SHA}" ]; then
+            echo "Branch moved during verification; refusing push"
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No formatting changes to commit"
+            exit 0
+          fi
+          git commit -m 'style: format U2 Development boundary falsification'
+          git push origin HEAD:"$branch"

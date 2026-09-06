@@ -318,7 +318,7 @@ class UniversalTradeRLU2ReplayStepEvidence:
 
 @dataclass(frozen=True, slots=True)
 class UniversalTradeRLU2ReplayEvidence:
-    """Content-addressed raw net-economic evidence for one U2 replay scope."""
+    """Content-addressed same-path gross/net evidence for one U2 replay scope."""
 
     scope_closure_digest: str
     scope_digest: str
@@ -351,7 +351,9 @@ class UniversalTradeRLU2ReplayEvidence:
     terminal_liquidation_cost: float
     initial_capital: float
     final_net_portfolio_value: float
+    gross_wealth_ratio: float
     net_wealth_ratio: float
+    gross_simple_returns: tuple[float, ...]
     net_simple_returns: tuple[float, ...]
     maximum_drawdown: float
     turnover_total: float
@@ -459,6 +461,7 @@ class UniversalTradeRLU2ReplayEvidence:
             ("terminal_liquidation_cost", self.terminal_liquidation_cost),
             ("initial_capital", self.initial_capital),
             ("final_net_portfolio_value", self.final_net_portfolio_value),
+            ("gross_wealth_ratio", self.gross_wealth_ratio),
             ("net_wealth_ratio", self.net_wealth_ratio),
             ("maximum_drawdown", self.maximum_drawdown),
             ("turnover_total", self.turnover_total),
@@ -470,8 +473,14 @@ class UniversalTradeRLU2ReplayEvidence:
                 raise ValueError(f"U2 replay evidence {field_name} must be finite")
         if self.initial_capital <= 0.0:
             raise ValueError("U2 replay evidence initial capital must be positive")
-        if self.final_net_portfolio_value <= 0.0 or self.net_wealth_ratio <= 0.0:
-            raise ValueError("U2 replay evidence final net wealth must stay positive")
+        if (
+            self.final_net_portfolio_value <= 0.0
+            or self.gross_wealth_ratio <= 0.0
+            or self.net_wealth_ratio <= 0.0
+        ):
+            raise ValueError(
+                "U2 replay evidence final gross/net wealth must stay positive"
+            )
         if self.terminal_liquidation_cost < 0.0:
             raise ValueError("U2 replay terminal liquidation cost cannot be negative")
         if not 0.0 <= self.maximum_drawdown <= 1.0:
@@ -491,6 +500,7 @@ class UniversalTradeRLU2ReplayEvidence:
             raise ValueError("U2 terminated replay requires a termination reason")
 
         for field_name, values in (
+            ("gross_simple_returns", self.gross_simple_returns),
             ("net_simple_returns", self.net_simple_returns),
             ("normalized_action_trace", self.normalized_action_trace),
             ("realized_exposure_trace", self.realized_exposure_trace),
@@ -507,7 +517,10 @@ class UniversalTradeRLU2ReplayEvidence:
                 )
         if any(abs(value) > 1.0 for value in self.normalized_action_trace):
             raise ValueError("U2 replay normalized action trace is outside [-1, 1]")
-        if any(value <= -1.0 for value in self.net_simple_returns):
+        if any(
+            value <= -1.0
+            for value in (*self.gross_simple_returns, *self.net_simple_returns)
+        ):
             raise ValueError("U2 replay returns violate positive-wealth U1 semantics")
 
         if not isinstance(self.step_evidence, tuple) or not all(
@@ -564,16 +577,28 @@ class UniversalTradeRLU2ReplayEvidence:
             abs_tol=1e-12,
         ):
             raise ValueError("U2 replay final wealth ratio is inconsistent")
-        wealth_from_returns = math.prod(
+        gross_wealth_from_returns = math.prod(
+            1.0 + value for value in self.gross_simple_returns
+        )
+        if not math.isclose(
+            gross_wealth_from_returns,
+            self.gross_wealth_ratio,
+            rel_tol=0.0,
+            abs_tol=1e-10,
+        ):
+            raise ValueError(
+                "U2 replay gross simple returns do not reconcile to wealth"
+            )
+        net_wealth_from_returns = math.prod(
             1.0 + value for value in self.net_simple_returns
         )
         if not math.isclose(
-            wealth_from_returns,
+            net_wealth_from_returns,
             self.net_wealth_ratio,
             rel_tol=0.0,
             abs_tol=1e-10,
         ):
-            raise ValueError("U2 replay simple returns do not reconcile to net wealth")
+            raise ValueError("U2 replay net simple returns do not reconcile to wealth")
         if self.normal_completion:
             if self.observed_decision_count != expected_decisions:
                 raise ValueError("U2 normal replay decision count is incomplete")
@@ -633,7 +658,9 @@ class UniversalTradeRLU2ReplayEvidence:
             "terminal_liquidation_cost": self.terminal_liquidation_cost,
             "initial_capital": self.initial_capital,
             "final_net_portfolio_value": self.final_net_portfolio_value,
+            "gross_wealth_ratio": self.gross_wealth_ratio,
             "net_wealth_ratio": self.net_wealth_ratio,
+            "gross_simple_returns": self.gross_simple_returns,
             "net_simple_returns": self.net_simple_returns,
             "maximum_drawdown": self.maximum_drawdown,
             "turnover_total": self.turnover_total,
@@ -1115,6 +1142,7 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                 raise RuntimeError("U2 replay reset produced non-empty return history")
 
             steps: list[UniversalTradeRLU2ReplayStepEvidence] = []
+            gross_simple_return_values: list[float] = []
             observed_decision_count = 0
             terminated = False
             truncated = False
@@ -1150,29 +1178,55 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                         runtime_exposure=runtime_exposure,
                     )
                 )
+                interval_gross_return = _finite_number(
+                    info.get("interval_gross_return"),
+                    field_name="interval gross return",
+                )
+                liquidation = info.get("hybrid_liquidation")
+                liquidation_gross_return = (
+                    0.0
+                    if liquidation is None
+                    else _finite_number(
+                        getattr(liquidation, "interval_gross_return", None),
+                        field_name="liquidation interval gross return",
+                    )
+                )
+                gross_simple_return_values.append(
+                    (1.0 + interval_gross_return) * (1.0 + liquidation_gross_return)
+                    - 1.0
+                )
                 final_info = info
 
             final_current_bar_index = base.current_index
             runtime_start_bar_index = base.start_index
             runtime_end_bar_index = base.end_index
             book = base.hybrid
+            gross_simple_returns = tuple(gross_simple_return_values)
             net_simple_returns = tuple(float(value) for value in book.returns_history)
-            if len(net_simple_returns) != observed_decision_count:
+            if (
+                len(gross_simple_returns) != observed_decision_count
+                or len(net_simple_returns) != observed_decision_count
+            ):
                 raise RuntimeError(
-                    "U2 replay return history length does not match decisions"
+                    "U2 replay gross/net return history length does not match decisions"
                 )
 
             final_net_portfolio_value = float(book.portfolio_value)
+            gross_wealth_ratio = math.prod(
+                1.0 + value for value in gross_simple_returns
+            )
             net_wealth_ratio = final_net_portfolio_value / initial_capital
-            wealth_from_returns = math.prod(1.0 + value for value in net_simple_returns)
+            net_wealth_from_returns = math.prod(
+                1.0 + value for value in net_simple_returns
+            )
             if not math.isclose(
-                wealth_from_returns,
+                net_wealth_from_returns,
                 net_wealth_ratio,
                 rel_tol=0.0,
                 abs_tol=1e-10,
             ):
                 raise RuntimeError(
-                    "U2 replay simple returns do not reconcile to wealth"
+                    "U2 replay net simple returns do not reconcile to wealth"
                 )
 
             raw_reason = final_info.get("termination_reason")
@@ -1249,7 +1303,9 @@ class UniversalTradeRLU2DevelopmentReplaySession:
                 terminal_liquidation_cost=terminal_liquidation_cost,
                 initial_capital=initial_capital,
                 final_net_portfolio_value=final_net_portfolio_value,
+                gross_wealth_ratio=gross_wealth_ratio,
                 net_wealth_ratio=net_wealth_ratio,
+                gross_simple_returns=gross_simple_returns,
                 net_simple_returns=net_simple_returns,
                 maximum_drawdown=float(book.max_drawdown),
                 turnover_total=float(book.turnover_total),

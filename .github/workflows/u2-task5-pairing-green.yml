@@ -30,6 +30,36 @@ jobs:
           set -euo pipefail
           python .github/apply_u2_task5_oracle_fix.py
           python .github/apply_u2_task5_pairing_green.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/universal_trade_rl_u2_selection.py")
+          text = path.read_text(encoding="utf-8")
+          dev_start = text.index("class UniversalTradeRLU2DevelopmentBootstrapResult:")
+          seed_start = text.index("class UniversalTradeRLU2SeedRobustnessBootstrapResult:")
+          seed_end = text.index("\ndef _bootstrap_universal_trade_rl_u2_seed_robustness(", seed_start)
+
+          dev = text[dev_start:seed_start]
+          wrong = '            "paired_scope_evidence_digests": self.paired_scope_evidence_digests,\n'
+          if dev.count(wrong) != 1:
+              raise SystemExit(f"Task5 expected one misplaced Development payload field, got {dev.count(wrong)}")
+          dev = dev.replace(wrong, "", 1)
+
+          seed = text[seed_start:seed_end]
+          if seed.count(wrong) != 0:
+              raise SystemExit("Task5 seed payload field was unexpectedly already present")
+          anchor = '            "block_lengths": self.block_lengths,\n            "observed_mean": self.observed_mean,\n'
+          if seed.count(anchor) != 1:
+              raise SystemExit(f"Task5 seed payload anchor count is {seed.count(anchor)}")
+          seed = seed.replace(
+              anchor,
+              '            "block_lengths": self.block_lengths,\n'
+              '            "paired_scope_evidence_digests": self.paired_scope_evidence_digests,\n'
+              '            "observed_mean": self.observed_mean,\n',
+              1,
+          )
+          path.write_text(text[:dev_start] + dev + seed + text[seed_end:], encoding="utf-8")
+          PY
           uv run ruff check --fix --select I trade_rl/workflows/universal_trade_rl_u2_selection.py
           uv run ruff format \
             trade_rl/workflows/universal_trade_rl_u2_selection.py \

@@ -77,6 +77,21 @@ def _positive_wealth(log_growth: float, *, field: str) -> float:
     return wealth
 
 
+def _require_current_artifact_digest(artifact: object, *, field: str) -> None:
+    """Reject a content-addressed artifact whose stored digest is stale."""
+
+    digest = getattr(artifact, "digest", None)
+    to_payload = getattr(artifact, "to_payload", None)
+    if not isinstance(digest, str) or not callable(to_payload):
+        raise TypeError(f"{field} must be a digest-bound artifact")
+    require_sha256(digest, field=f"{field} digest")
+    payload = to_payload(include_digest=False)
+    if not isinstance(payload, dict):
+        raise TypeError(f"{field} payload must be an object")
+    if digest != content_digest(payload):
+        raise ValueError(f"{field} artifact digest mismatch")
+
+
 @dataclass(frozen=True, slots=True)
 class UniversalTradeRLU2SelectionLeafMetrics:
     """One frozen Selection leaf derived from one candidate replay evidence object."""
@@ -1047,6 +1062,14 @@ def build_universal_trade_rl_u2_paired_replay_scope_evidence(
         raise TypeError("U2 paired replay candidate evidence is invalid")
     if not isinstance(cash_replay, UniversalTradeRLU2ReplayEvidence):
         raise TypeError("U2 paired replay cash evidence is invalid")
+    _require_current_artifact_digest(
+        candidate_replay,
+        field="U2 paired replay candidate evidence",
+    )
+    _require_current_artifact_digest(
+        cash_replay,
+        field="U2 paired replay cash evidence",
+    )
     if (
         candidate_replay.policy_variant
         != UniversalTradeRLU2ReplayVariant.CANDIDATE.value
@@ -2394,6 +2417,14 @@ class UniversalTradeRLU2DevelopmentSelectionEvidence:
         ):
             raise TypeError("U2 final Selection requires final checkpoint closure")
 
+        for artifact, field_name in (
+            (self.u2_contract, "U2 final Selection U2 contract"),
+            (self.base_lock, "U2 final Selection base lock"),
+            (self.development_lock, "U2 final Selection Development lock"),
+            (self.checkpoint_closure, "U2 final Selection checkpoint closure"),
+        ):
+            _require_current_artifact_digest(artifact, field=field_name)
+
         if self.base_lock.u2_contract_digest != self.u2_contract.digest:
             raise ValueError("U2 final Selection base-lock U2 identity mismatch")
         if self.development_lock.base_lock_digest != self.base_lock.digest:
@@ -2458,6 +2489,20 @@ class UniversalTradeRLU2DevelopmentSelectionEvidence:
             for gate in primary
         ):
             raise TypeError("U2 final Selection primary gate is invalid")
+        for primary_gate in primary:
+            _require_current_artifact_digest(
+                primary_gate,
+                field="U2 final Selection primary gate",
+            )
+            _require_current_artifact_digest(
+                primary_gate.summary,
+                field="U2 final Selection primary summary",
+            )
+            for symbol_metrics in primary_gate.summary.symbol_metrics:
+                _require_current_artifact_digest(
+                    symbol_metrics,
+                    field="U2 final Selection primary symbol metrics",
+                )
         if tuple(gate.cell for gate in primary) != _U2_FINAL_PRIMARY_CELLS:
             raise ValueError(
                 "U2 final Selection requires exact B/C1/C2/D1/D2 primary closure"
@@ -2481,6 +2526,30 @@ class UniversalTradeRLU2DevelopmentSelectionEvidence:
             for gate in robustness
         ):
             raise TypeError("U2 final Selection robustness gate is invalid")
+        for robustness_gate in robustness:
+            _require_current_artifact_digest(
+                robustness_gate,
+                field="U2 final Selection robustness gate",
+            )
+            _require_current_artifact_digest(
+                robustness_gate.bootstrap_result,
+                field="U2 final Selection robustness bootstrap",
+            )
+            for summary in robustness_gate.summaries:
+                _require_current_artifact_digest(
+                    summary,
+                    field="U2 final Selection robustness summary",
+                )
+                for symbol_metrics in summary.symbol_metrics:
+                    _require_current_artifact_digest(
+                        symbol_metrics,
+                        field="U2 final Selection robustness symbol metrics",
+                    )
+            for pair in robustness_gate.paired_scope_evidence:
+                _require_current_artifact_digest(
+                    pair,
+                    field="U2 final Selection paired replay evidence",
+                )
         if tuple(gate.scope for gate in robustness) != _U2_FINAL_ROBUSTNESS_SCOPES:
             raise ValueError(
                 "U2 final Selection requires exact D1/D2/D1+D2 robustness closure"

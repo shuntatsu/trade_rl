@@ -215,7 +215,9 @@ class UniversalTradeRLU2SelectionSymbolMetrics:
         if not isinstance(self.meaningful_execution, bool):
             raise TypeError("U2 Selection symbol meaningful execution must be boolean")
         _positive_wealth(self.symbol_net_log_growth, field="U2 Selection symbol net")
-        _positive_wealth(self.symbol_gross_log_growth, field="U2 Selection symbol gross")
+        _positive_wealth(
+            self.symbol_gross_log_growth, field="U2 Selection symbol gross"
+        )
 
         expected = content_digest(self.to_payload(include_digest=False))
         if self.digest:
@@ -407,7 +409,10 @@ def build_universal_trade_rl_u2_selection_leaf_metrics(
         raise ValueError("U2 Selection training seed is outside the fixed closure")
     if not isinstance(replay_evidence, UniversalTradeRLU2ReplayEvidence):
         raise TypeError("U2 Selection leaf requires replay evidence")
-    if replay_evidence.policy_variant != UniversalTradeRLU2ReplayVariant.CANDIDATE.value:
+    if (
+        replay_evidence.policy_variant
+        != UniversalTradeRLU2ReplayVariant.CANDIDATE.value
+    ):
         raise ValueError("U2 Selection leaf requires candidate policy replay evidence")
     if replay_evidence.observed_decision_count <= 0:
         raise ValueError("U2 Selection leaf requires at least one replay decision")
@@ -447,7 +452,10 @@ def summarize_universal_trade_rl_u2_selection_metrics(
     resolved = tuple(leaves)
     if not resolved:
         raise ValueError("U2 Selection summary requires at least one leaf")
-    if any(not isinstance(leaf, UniversalTradeRLU2SelectionLeafMetrics) for leaf in resolved):
+    if any(
+        not isinstance(leaf, UniversalTradeRLU2SelectionLeafMetrics)
+        for leaf in resolved
+    ):
         raise TypeError("U2 Selection summary contains an invalid leaf")
     identities = tuple(leaf.identity for leaf in resolved)
     if len(set(identities)) != len(identities):
@@ -458,7 +466,9 @@ def summarize_universal_trade_rl_u2_selection_metrics(
     cell = next(iter(cells))
 
     ordered = tuple(sorted(resolved, key=lambda leaf: leaf.identity))
-    by_symbol: dict[str, list[UniversalTradeRLU2SelectionLeafMetrics]] = defaultdict(list)
+    by_symbol: dict[str, list[UniversalTradeRLU2SelectionLeafMetrics]] = defaultdict(
+        list
+    )
     for leaf in ordered:
         by_symbol[leaf.concrete_symbol].append(leaf)
 
@@ -482,16 +492,12 @@ def summarize_universal_trade_rl_u2_selection_metrics(
         )
     symbols = tuple(symbol_rows)
 
-    balanced_net_log_growth = float(
-        fmean(row.symbol_net_log_growth for row in symbols)
-    )
+    balanced_net_log_growth = float(fmean(row.symbol_net_log_growth for row in symbols))
     balanced_gross_log_growth = float(
         fmean(row.symbol_gross_log_growth for row in symbols)
     )
     symbol_net_wealth = tuple(row.symbol_net_wealth for row in symbols)
-    positive_fraction = float(
-        fmean(leaf.leaf_net_log_growth > 0.0 for leaf in ordered)
-    )
+    positive_fraction = float(fmean(leaf.leaf_net_log_growth > 0.0 for leaf in ordered))
     cvar_count = max(1, math.ceil(0.10 * len(ordered)))
     cvar = float(
         fmean(sorted(leaf.leaf_net_log_growth for leaf in ordered)[:cvar_count])

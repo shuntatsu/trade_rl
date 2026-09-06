@@ -138,6 +138,7 @@ omit = ["trade_rl/integrations/nautilus/*"]
 show_missing = true
 skip_covered = true
 fail_under = 80
+precision = 2
 
 [tool.trade_rl.critical_coverage]
 metric = "branch"

@@ -146,7 +146,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=80 2>&1 | tee pytest.log
+          uv run pytest -q --cov=trade_rl --cov-branch --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=80 --cov-precision=2 2>&1 | tee pytest.log
+          uv run coverage report --fail-under=80 --precision=2
 
       - name: Upload pytest diagnostics
         if: always()

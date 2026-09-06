@@ -1,6 +1,6 @@
 name: U2 Contracts
 
-# Exact-head gate for the frozen pre-Development closure, Selection, replay authority, and final verification refresh.
+# Exact-head gate for the frozen pre-Development closure, Selection, replay authority, and final verification after documentation ownership repair.
 on:
   pull_request:
     paths:

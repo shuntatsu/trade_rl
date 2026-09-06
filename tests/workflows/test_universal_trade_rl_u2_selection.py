@@ -84,6 +84,22 @@ def test_u2_development_panel_fails_closed_on_incomplete_timestamp_closure() -> 
         )
 
 
+@pytest.mark.parametrize("training_seed", (False, True))
+def test_u2_paired_excess_point_rejects_boolean_training_seed(
+    training_seed: bool,
+) -> None:
+    module = _module()
+
+    with pytest.raises(ValueError, match="seed|closure"):
+        module.UniversalTradeRLU2PairedExcessPoint(
+            training_seed=training_seed,
+            source_window="development_future_1",
+            concrete_symbol="DEV_A",
+            decision_timestamp_ns=100,
+            candidate_minus_cash_net_log_excess=0.0,
+        )
+
+
 def _reference_segmented_bootstrap(
     segments: tuple[tuple[float, ...], ...],
 ) -> tuple[float, float]:

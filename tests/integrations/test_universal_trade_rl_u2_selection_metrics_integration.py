@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -100,6 +101,26 @@ def test_u2_selection_leaf_metrics_are_derived_from_one_candidate_replay(
     assert (
         leaf.unexplained_execution_rejection_count == evidence.execution_rejection_count
     )
+
+
+def test_u2_selection_leaf_rejects_noncanonical_scope_common_crn_seed(
+    selection_replay_fixture: ReplayIntegrationFixture,
+) -> None:
+    evidence = _candidate_evidence(selection_replay_fixture)
+    checkpoint_closure = _checkpoint_closure(selection_replay_fixture)
+    canonical_seed = universal_trade_rl_u2_evaluation_seed(
+        u2_contract_digest=evidence.u2_contract_digest,
+        scope_digest=evidence.scope_digest,
+    )
+    wrong_seed = next(seed for seed in (0, 1, 2) if seed != canonical_seed)
+    wrong_evidence = replace(evidence, evaluation_seed=wrong_seed, digest="")
+
+    with pytest.raises(ValueError, match="scope|common|evaluation|seed|RNG|CRN"):
+        build_universal_trade_rl_u2_selection_leaf_metrics(
+            training_seed=_TRAINING_SEED,
+            replay_evidence=wrong_evidence,
+            checkpoint_closure=checkpoint_closure,
+        )
 
 
 def test_u2_selection_leaf_rejects_training_seed_checkpoint_substitution(

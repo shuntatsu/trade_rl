@@ -27,12 +27,14 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace_exact(path: str, old: str, new: str) -> None:
+          def replace_exact(path: str, old: str, new: str, *, expected: int = 1) -> None:
               target = Path(path)
               text = target.read_text(encoding="utf-8")
               count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{path}: expected exactly one target, found {count}: {old[:100]!r}")
+              if count != expected:
+                  raise SystemExit(
+                      f"{path}: expected {expected} targets, found {count}: {old[:100]!r}"
+                  )
               target.write_text(text.replace(old, new), encoding="utf-8")
 
           spec = "docs/implementation-plans/specs/2026-09-06-universal-trade-rl-u2-pre-development-closure-amendment.md"
@@ -71,11 +73,7 @@ jobs:
               workflow,
               '''          tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py\n          tests/workflows/test_universal_trade_rl_u2_development_closure.py''',
               '''          tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py\n          tests/workflows/test_universal_trade_rl_u2_public_api.py\n          tests/workflows/test_universal_trade_rl_u2_development_closure.py''',
-          )
-          replace_exact(
-              workflow,
-              '''          tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py\n          tests/workflows/test_universal_trade_rl_u2_development_closure.py\n          tests/workflows/test_universal_trade_rl_u2_selection.py''',
-              '''          tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py\n          tests/workflows/test_universal_trade_rl_u2_public_api.py\n          tests/workflows/test_universal_trade_rl_u2_development_closure.py\n          tests/workflows/test_universal_trade_rl_u2_selection.py''',
+              expected=3,
           )
           PY
       - name: Verify documentation authority markers
@@ -85,7 +83,7 @@ jobs:
           grep -q 'only supported public U2 V1 numeric Development session entry' docs/implementation-plans/specs/2026-09-06-universal-trade-rl-u2-pre-development-closure-amendment.md
           grep -q 'restart_from_timestep_zero_required = true' docs/implementation-plans/plans/2026-09-03-universal-trade-rl-u2-base-ppo-selection.md
           grep -q 'same-path gross/net replay evidence' docs/superpowers/plans/2026-09-06-universal-trade-rl-u2-pre-development-closure.md
-          grep -q 'tests/workflows/test_universal_trade_rl_u2_public_api.py' .github/workflows/u2-contracts.yml
+          test "$(grep -c 'tests/workflows/test_universal_trade_rl_u2_public_api.py' .github/workflows/u2-contracts.yml)" -eq 3
       - name: Commit and remove one-shot workflow
         shell: bash
         run: |

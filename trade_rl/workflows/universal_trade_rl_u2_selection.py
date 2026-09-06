@@ -984,6 +984,13 @@ class UniversalTradeRLU2PairedReplayScopeEvidence:
             _non_negative_int(timestamp, field="U2 paired replay decision timestamp")
         if timestamps != tuple(sorted(set(timestamps))):
             raise ValueError("U2 paired replay timestamps must be sorted and unique")
+        if len(timestamps) > 1 and any(
+            timestamps[index] - timestamps[index - 1] != U2_DECISION_STEP_NS
+            for index in range(1, len(timestamps))
+        ):
+            raise ValueError(
+                "U2 paired replay timestamps must follow the 15m decision grid"
+            )
         object.__setattr__(self, "decision_timestamps_ns", timestamps)
         object.__setattr__(self, "candidate_minus_cash_net_log_excess", values)
 
@@ -1093,16 +1100,19 @@ def build_universal_trade_rl_u2_paired_replay_scope_evidence(
     if checkpoint_closure.time_partition_digest != time_partition.digest:
         raise ValueError("U2 paired replay checkpoint/time identity mismatch")
 
-    seed = candidate_replay.evaluation_seed
-    checkpoints = dict(checkpoint_closure.checkpoint_digests)
-    if seed not in checkpoints:
-        raise ValueError("U2 paired replay checkpoint seed closure is incomplete")
-    expected_checkpoint = checkpoints[seed]
-    if (
-        candidate_replay.paired_candidate_checkpoint_digest != expected_checkpoint
-        or cash_replay.paired_candidate_checkpoint_digest != expected_checkpoint
-    ):
+    candidate_checkpoint = candidate_replay.paired_candidate_checkpoint_digest
+    if cash_replay.paired_candidate_checkpoint_digest != candidate_checkpoint:
         raise ValueError("U2 paired replay candidate checkpoint identity mismatch")
+    matching_seeds = tuple(
+        seed
+        for seed, digest in checkpoint_closure.checkpoint_digests
+        if digest == candidate_checkpoint
+    )
+    if len(matching_seeds) != 1:
+        raise ValueError(
+            "U2 paired replay candidate checkpoint is outside exact training-seed closure"
+        )
+    training_seed = matching_seeds[0]
 
     candidate_steps = tuple(candidate_replay.step_evidence)
     cash_steps = tuple(cash_replay.step_evidence)
@@ -1137,7 +1147,7 @@ def build_universal_trade_rl_u2_paired_replay_scope_evidence(
         excess.append(math.log1p(candidate_return) - math.log1p(cash_return))
 
     return UniversalTradeRLU2PairedReplayScopeEvidence(
-        training_seed=seed,
+        training_seed=training_seed,
         source_window=candidate_replay.source_window,
         cell=candidate_replay.cell,
         concrete_symbol=candidate_replay.concrete_symbol,
@@ -1146,7 +1156,7 @@ def build_universal_trade_rl_u2_paired_replay_scope_evidence(
         u2_contract_digest=u2_contract.digest,
         time_partition_digest=time_partition.digest,
         checkpoint_closure_digest=checkpoint_closure.digest,
-        paired_candidate_checkpoint_digest=expected_checkpoint,
+        paired_candidate_checkpoint_digest=candidate_checkpoint,
         candidate_replay_evidence_digest=candidate_replay.digest,
         cash_replay_evidence_digest=cash_replay.digest,
         decision_timestamps_ns=timestamps,
@@ -2277,6 +2287,38 @@ def evaluate_universal_trade_rl_u2_seed_robustness(
     selected_segments = tuple(by_window[window] for window in expected_windows)
     if scope == "D1+D2" and set(observed_windows) != set(expected_windows):
         raise ValueError("U2 seed-robustness aggregate bootstrap scope is invalid")
+
+    paired_scope_evidence = tuple(
+        pair for segment in selected_segments for pair in segment.paired_scope_evidence
+    )
+    if paired_scope_evidence:
+        paired_candidate_replays = {
+            (
+                pair.training_seed,
+                pair.cell,
+                pair.concrete_symbol,
+                pair.scope_digest,
+            ): pair.candidate_replay_evidence_digest
+            for pair in paired_scope_evidence
+        }
+        if len(paired_candidate_replays) != len(paired_scope_evidence):
+            raise ValueError(
+                "U2 seed-robustness contains duplicate leaf pairing identity"
+            )
+        for leaf in resolved_leaves:
+            leaf_identity = (
+                leaf.training_seed,
+                leaf.cell,
+                leaf.concrete_symbol,
+                leaf.tile_identity,
+            )
+            if (
+                paired_candidate_replays.get(leaf_identity)
+                != leaf.replay_evidence_digest
+            ):
+                raise ValueError(
+                    "U2 seed-robustness leaf/candidate replay pairing provenance mismatch"
+                )
 
     thresholds = _u2_cross_seed_robustness_thresholds()
     bootstrap_result = _bootstrap_universal_trade_rl_u2_seed_robustness(

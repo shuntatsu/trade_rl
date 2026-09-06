@@ -8,6 +8,9 @@ from tests.workflows.test_universal_trade_rl_u2_development_authority import (
     _development_bundle,
 )
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.workflows.universal_trade_rl_u2_time_partition import (
+    U2_DECISION_STEP_NS,
+)
 
 _PRIMARY_CELLS = ("B", "C1", "C2", "D1", "D2")
 _ROBUSTNESS_SCOPES = ("D1", "D2", "D1+D2")
@@ -117,9 +120,9 @@ def _paired_segments(*, u2_contract, checkpoint_closure):
             paired_candidate_checkpoint_digest=checkpoints[seed],
             candidate_replay_evidence_digest=content_digest(
                 {
-                    "fixture": "u2-final-pairing-candidate",
+                    "fixture": "u2-final-selection-replay",
+                    "cell": cell,
                     "seed": seed,
-                    "window": window,
                     "symbol": symbol,
                 }
             ),
@@ -136,8 +139,16 @@ def _paired_segments(*, u2_contract, checkpoint_closure):
         )
         for seed in (0, 1, 2)
         for window, cell, timestamps in (
-            ("development_future_1", "D1", (100, 200, 300, 400)),
-            ("development_future_2", "D2", (500, 600, 700, 800)),
+            (
+                "development_future_1",
+                "D1",
+                tuple(100 + index * U2_DECISION_STEP_NS for index in range(4)),
+            ),
+            (
+                "development_future_2",
+                "D2",
+                tuple(500 + index * U2_DECISION_STEP_NS for index in range(4)),
+            ),
         )
         for symbol in symbols
     )

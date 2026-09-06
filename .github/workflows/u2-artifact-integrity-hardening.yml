@@ -29,6 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           python .github/apply_u2_artifact_integrity_hardening.py
+          python .github/apply_u2_artifact_integrity_hardening_mypy_fix.py
           uv run ruff format trade_rl/workflows/universal_trade_rl_u2_selection.py
       - name: Static verification
         run: |

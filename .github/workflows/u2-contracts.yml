@@ -76,6 +76,7 @@ jobs:
           tests/integrations/test_universal_trade_rl_u2_replay_rng_isolation.py
           tests/integrations/test_universal_trade_rl_u2_replay_crn.py
           tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
           tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
           tests/integrations/test_universal_trade_rl_u2_timeout_bootstrap.py
 
@@ -101,6 +102,7 @@ jobs:
           tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
           tests/integrations/test_universal_trade_rl_u2_replay_crn.py
           tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
           && uv run mypy
           trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
           trade_rl/workflows/universal_trade_rl_u2_development_closure.py
@@ -146,6 +148,7 @@ jobs:
           tests/integrations/test_universal_trade_rl_u2_replay_rng_isolation.py
           tests/integrations/test_universal_trade_rl_u2_replay_crn.py
           tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
 
       - name: U2 fixed member orchestration contracts
         run: >-

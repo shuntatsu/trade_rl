@@ -1,0 +1,278 @@
+name: U2 Pairing GREEN Final
+
+on:
+  push:
+    branches:
+      - codex/universal-trade-rl-u2-base-ppo-implementation
+    paths:
+      - ".github/workflows/u2-pairing-green-final.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact trigger head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Apply minimal pairing identity GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, *, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one anchor, found {count}")
+              return text.replace(old, new, 1)
+
+          selection_path = Path("trade_rl/workflows/universal_trade_rl_u2_selection.py")
+          selection = selection_path.read_text(encoding="utf-8")
+
+          selection = replace_once(
+              selection,
+              '''        if timestamps != tuple(sorted(set(timestamps))):
+              raise ValueError("U2 paired replay timestamps must be sorted and unique")
+          object.__setattr__(self, "decision_timestamps_ns", timestamps)
+          ''',
+              '''        if timestamps != tuple(sorted(set(timestamps))):
+              raise ValueError("U2 paired replay timestamps must be sorted and unique")
+          if len(timestamps) > 1 and any(
+              timestamps[index] - timestamps[index - 1] != U2_DECISION_STEP_NS
+              for index in range(1, len(timestamps))
+          ):
+              raise ValueError(
+                  "U2 paired replay timestamps must follow the 15m decision grid"
+              )
+          object.__setattr__(self, "decision_timestamps_ns", timestamps)
+          ''',
+              label="paired replay 15m grid",
+          )
+
+          selection = replace_once(
+              selection,
+              '''    seed = candidate_replay.evaluation_seed
+          checkpoints = dict(checkpoint_closure.checkpoint_digests)
+          if seed not in checkpoints:
+              raise ValueError("U2 paired replay checkpoint seed closure is incomplete")
+          expected_checkpoint = checkpoints[seed]
+          if (
+              candidate_replay.paired_candidate_checkpoint_digest != expected_checkpoint
+              or cash_replay.paired_candidate_checkpoint_digest != expected_checkpoint
+          ):
+              raise ValueError("U2 paired replay candidate checkpoint identity mismatch")
+          ''',
+              '''    candidate_checkpoint = candidate_replay.paired_candidate_checkpoint_digest
+          if cash_replay.paired_candidate_checkpoint_digest != candidate_checkpoint:
+              raise ValueError("U2 paired replay candidate checkpoint identity mismatch")
+          matching_seeds = tuple(
+              seed
+              for seed, digest in checkpoint_closure.checkpoint_digests
+              if digest == candidate_checkpoint
+          )
+          if len(matching_seeds) != 1:
+              raise ValueError(
+                  "U2 paired replay candidate checkpoint is outside exact training-seed closure"
+              )
+          training_seed = matching_seeds[0]
+          ''',
+              label="checkpoint-derived training seed",
+          )
+
+          selection = replace_once(
+              selection,
+              '''        training_seed=seed,
+          source_window=candidate_replay.source_window,
+          ''',
+              '''        training_seed=training_seed,
+          source_window=candidate_replay.source_window,
+          ''',
+              label="paired replay returned training seed",
+          )
+          selection = replace_once(
+              selection,
+              '''        paired_candidate_checkpoint_digest=expected_checkpoint,
+          candidate_replay_evidence_digest=candidate_replay.digest,
+          ''',
+              '''        paired_candidate_checkpoint_digest=candidate_checkpoint,
+          candidate_replay_evidence_digest=candidate_replay.digest,
+          ''',
+              label="paired replay returned checkpoint",
+          )
+
+          selection = replace_once(
+              selection,
+              '''    if scope == "D1+D2" and set(observed_windows) != set(expected_windows):
+              raise ValueError("U2 seed-robustness aggregate bootstrap scope is invalid")
+
+          thresholds = _u2_cross_seed_robustness_thresholds()
+          ''',
+              '''    if scope == "D1+D2" and set(observed_windows) != set(expected_windows):
+              raise ValueError("U2 seed-robustness aggregate bootstrap scope is invalid")
+
+          paired_scope_evidence = tuple(
+              pair
+              for segment in selected_segments
+              for pair in segment.paired_scope_evidence
+          )
+          if paired_scope_evidence:
+              paired_candidate_replays = {
+                  (
+                      pair.training_seed,
+                      pair.cell,
+                      pair.concrete_symbol,
+                      pair.scope_digest,
+                  ): pair.candidate_replay_evidence_digest
+                  for pair in paired_scope_evidence
+              }
+              if len(paired_candidate_replays) != len(paired_scope_evidence):
+                  raise ValueError(
+                      "U2 seed-robustness contains duplicate leaf pairing identity"
+                  )
+              for leaf in resolved_leaves:
+                  leaf_identity = (
+                      leaf.training_seed,
+                      leaf.cell,
+                      leaf.concrete_symbol,
+                      leaf.tile_identity,
+                  )
+                  if (
+                      paired_candidate_replays.get(leaf_identity)
+                      != leaf.replay_evidence_digest
+                  ):
+                      raise ValueError(
+                          "U2 seed-robustness leaf/candidate replay pairing provenance mismatch"
+                      )
+
+          thresholds = _u2_cross_seed_robustness_thresholds()
+          ''',
+              label="leaf candidate replay provenance",
+          )
+
+          selection_path.write_text(selection, encoding="utf-8")
+
+          final_path = Path("tests/workflows/test_universal_trade_rl_u2_selection_final.py")
+          final_test = final_path.read_text(encoding="utf-8")
+          final_test = replace_once(
+              final_test,
+              '''from trade_rl.artifacts.hashing import content_digest
+
+          _PRIMARY_CELLS = ("B", "C1", "C2", "D1", "D2")
+          ''',
+              '''from trade_rl.artifacts.hashing import content_digest
+          from trade_rl.workflows.universal_trade_rl_u2_time_partition import U2_DECISION_STEP_NS
+
+          _PRIMARY_CELLS = ("B", "C1", "C2", "D1", "D2")
+          ''',
+              label="final fixture decision-step import",
+          )
+          final_test = replace_once(
+              final_test,
+              '''            candidate_replay_evidence_digest=content_digest(
+                  {
+                      "fixture": "u2-final-pairing-candidate",
+                      "seed": seed,
+                      "window": window,
+                      "symbol": symbol,
+                  }
+              ),
+          ''',
+              '''            candidate_replay_evidence_digest=content_digest(
+                  {
+                      "fixture": "u2-final-selection-replay",
+                      "cell": cell,
+                      "seed": seed,
+                      "symbol": symbol,
+                  }
+              ),
+          ''',
+              label="final fixture candidate replay digest",
+          )
+          final_test = replace_once(
+              final_test,
+              '''        for window, cell, timestamps in (
+              ("development_future_1", "D1", (100, 200, 300, 400)),
+              ("development_future_2", "D2", (500, 600, 700, 800)),
+          )
+          ''',
+              '''        for window, cell, timestamps in (
+              (
+                  "development_future_1",
+                  "D1",
+                  tuple(100 + index * U2_DECISION_STEP_NS for index in range(4)),
+              ),
+              (
+                  "development_future_2",
+                  "D2",
+                  tuple(500 + index * U2_DECISION_STEP_NS for index in range(4)),
+              ),
+          )
+          ''',
+              label="final fixture 15m timestamps",
+          )
+          final_path.write_text(final_test, encoding="utf-8")
+          PY
+
+      - name: Format GREEN changes
+        run: |
+          uv run ruff format \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py
+
+      - name: Focused GREEN verification
+        run: |
+          set -euo pipefail
+          uv run ruff format --check --diff \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          uv run ruff check \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          uv run mypy trade_rl/workflows/universal_trade_rl_u2_selection.py
+          uv run pytest -q \
+            tests/integrations/test_universal_trade_rl_u2_selection_pairing.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py
+          git diff --check
+
+      - name: Commit GREEN and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="codex/universal-trade-rl-u2-base-ppo-implementation"
+          git fetch origin "$branch"
+          remote_head="$(git rev-parse "origin/$branch")"
+          if [ "$remote_head" != "$GITHUB_SHA" ]; then
+            echo "Branch advanced from trigger head: $GITHUB_SHA -> $remote_head" >&2
+            exit 1
+          fi
+          rm .github/workflows/u2-pairing-green-final.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            .github/workflows/u2-pairing-green-final.yml
+          git diff --cached --check
+          git status --short
+          git commit -m "fix: close U2 pairing identity chain"
+          git push origin "HEAD:$branch"

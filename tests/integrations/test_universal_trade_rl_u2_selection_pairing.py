@@ -181,7 +181,9 @@ def _paired_scope(
     values: tuple[float, ...],
 ):
     module = _module()
-    timestamps = tuple(1_000_000_000 + index * U2_DECISION_STEP_NS for index in range(len(values)))
+    timestamps = tuple(
+        1_000_000_000 + index * U2_DECISION_STEP_NS for index in range(len(values))
+    )
     return module.UniversalTradeRLU2PairedReplayScopeEvidence(
         training_seed=seed,
         source_window=source_window,

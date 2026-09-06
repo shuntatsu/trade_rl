@@ -47,7 +47,7 @@ def canonical_objects(final_bundle):
         "leaf": leaf,
         "symbol": primary[0].summary.symbol_metrics[0],
         "pair": robustness[0].paired_scope_evidence[0],
-        "bootstrap": robustness[0].bootstrap_result,
+        "bootstrap": robustness[2].bootstrap_result,
         "robustness": robustness[0],
         "final": final,
     }

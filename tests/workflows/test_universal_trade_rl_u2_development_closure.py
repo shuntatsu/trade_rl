@@ -171,7 +171,11 @@ def test_u2_final_checkpoint_closure_requires_three_exact_final_members() -> Non
 
     wrong_plan = members[1][0]
     wrong_checkpoint = _checkpoint(plan=wrong_plan, timestep=262_144)
-    bad_members = (members[0], (wrong_plan, wrong_checkpoint, _ENVIRONMENT_DIGEST), members[2])
+    bad_members = (
+        members[0],
+        (wrong_plan, wrong_checkpoint, _ENVIRONMENT_DIGEST),
+        members[2],
+    )
     with pytest.raises(ValueError, match="final|timestep|checkpoint"):
         module.build_universal_trade_rl_u2_final_checkpoint_closure(
             predevelopment_contract=predevelopment,
@@ -179,7 +183,9 @@ def test_u2_final_checkpoint_closure_requires_three_exact_final_members() -> Non
         )
 
 
-def test_u2_training_exposure_evidence_requires_complete_seed_worker_symbol_grid() -> None:
+def test_u2_training_exposure_evidence_requires_complete_seed_worker_symbol_grid() -> (
+    None
+):
     module = _module()
     predevelopment = _predevelopment_contract(u2_contract_digest="a" * 64)
     train_symbols = _manifest().config.train_symbols
@@ -203,7 +209,9 @@ def test_u2_training_exposure_evidence_requires_complete_seed_worker_symbol_grid
         )
 
 
-def test_u2_authoritative_development_lock_requires_validated_checkpoint_and_exposure() -> None:
+def test_u2_authoritative_development_lock_requires_validated_checkpoint_and_exposure() -> (
+    None
+):
     module = _module()
     predevelopment = _predevelopment_contract(u2_contract_digest="a" * 64)
     train_symbols = _manifest().config.train_symbols

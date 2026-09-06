@@ -196,9 +196,7 @@ def test_selection_symbol_rejects_stale_digest(canonical_objects) -> None:
         ),
     ),
 )
-def test_paired_replay_artifact_fails_closed(
-    canonical_objects, case, changes
-) -> None:
+def test_paired_replay_artifact_fails_closed(canonical_objects, case, changes) -> None:
     del case
     pair = canonical_objects["pair"]
     resolved = changes(pair) if callable(changes) else changes
@@ -221,7 +219,9 @@ def test_paired_replay_artifact_rejects_stale_digest(canonical_objects) -> None:
         ("empty-windows", {"source_windows": ()}),
         (
             "duplicate-windows",
-            lambda b: {"source_windows": (b.source_windows[0],) * len(b.source_windows)},
+            lambda b: {
+                "source_windows": (b.source_windows[0],) * len(b.source_windows)
+            },
         ),
         (
             "invalid-window",
@@ -236,9 +236,7 @@ def test_paired_replay_artifact_rejects_stale_digest(canonical_objects) -> None:
         (
             "duplicate-paired-digest",
             lambda b: {
-                "paired_scope_evidence_digests": (
-                    b.paired_scope_evidence_digests[0],
-                )
+                "paired_scope_evidence_digests": (b.paired_scope_evidence_digests[0],)
                 * 2
             },
         ),
@@ -291,7 +289,9 @@ def test_seed_robustness_bootstrap_rejects_stale_digest(canonical_objects) -> No
         (
             "bad-closure-digest",
             lambda r: {
-                "scope_closure": ((r.scope_closure[0][0], r.scope_closure[0][1], "bad"),)
+                "scope_closure": (
+                    (r.scope_closure[0][0], r.scope_closure[0][1], "bad"),
+                )
             },
         ),
         ("bootstrap-type", {"bootstrap_result": object()}),

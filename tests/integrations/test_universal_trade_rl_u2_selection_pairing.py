@@ -184,7 +184,9 @@ def test_u2_paired_replay_scope_derives_training_seed_from_checkpoint_not_crn_se
     module = _module()
     candidate, cash = candidate_cash_pair
     closure = _checkpoint_closure(replay_fixture)
-    training_seed = next(seed for seed in (0, 1, 2) if seed != candidate.evaluation_seed)
+    training_seed = next(
+        seed for seed in (0, 1, 2) if seed != candidate.evaluation_seed
+    )
 
     candidate_for_training_seed = replace(
         candidate,

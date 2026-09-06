@@ -20,21 +20,19 @@ jobs:
           ref: codex/universal-trade-rl-u2-base-ppo-implementation
           fetch-depth: 0
           persist-credentials: true
-      - name: Align normative docs and focused gate
+      - name: Align normative documents
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          def replace_exact(path: str, old: str, new: str, *, expected: int = 1) -> None:
+          def replace_exact(path: str, old: str, new: str) -> None:
               target = Path(path)
               text = target.read_text(encoding="utf-8")
               count = text.count(old)
-              if count != expected:
-                  raise SystemExit(
-                      f"{path}: expected {expected} targets, found {count}: {old[:100]!r}"
-                  )
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one target, found {count}: {old[:100]!r}")
               target.write_text(text.replace(old, new), encoding="utf-8")
 
           spec = "docs/implementation-plans/specs/2026-09-06-universal-trade-rl-u2-pre-development-closure-amendment.md"
@@ -67,14 +65,6 @@ jobs:
               '''**Files:** No production changes unless a defect is found.''',
               '''**Files:** No production changes unless a defect is found. Implementation-time falsification did find and close three additional defects before Development numeric opening: authoritative-lock enforcement at the numeric session boundary, same-path gross/net replay evidence, and removal of the unlocked Development builder from the supported public API.''',
           )
-
-          workflow = ".github/workflows/u2-contracts.yml"
-          replace_exact(
-              workflow,
-              '''          tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py\n          tests/workflows/test_universal_trade_rl_u2_development_closure.py''',
-              '''          tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py\n          tests/workflows/test_universal_trade_rl_u2_public_api.py\n          tests/workflows/test_universal_trade_rl_u2_development_closure.py''',
-              expected=3,
-          )
           PY
       - name: Verify documentation authority markers
         shell: bash
@@ -83,18 +73,15 @@ jobs:
           grep -q 'only supported public U2 V1 numeric Development session entry' docs/implementation-plans/specs/2026-09-06-universal-trade-rl-u2-pre-development-closure-amendment.md
           grep -q 'restart_from_timestep_zero_required = true' docs/implementation-plans/plans/2026-09-03-universal-trade-rl-u2-base-ppo-selection.md
           grep -q 'same-path gross/net replay evidence' docs/superpowers/plans/2026-09-06-universal-trade-rl-u2-pre-development-closure.md
-          test "$(grep -c 'tests/workflows/test_universal_trade_rl_u2_public_api.py' .github/workflows/u2-contracts.yml)" -eq 3
-      - name: Commit and remove one-shot workflow
+      - name: Commit documentation only
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/u2-predevelopment-doc-closure-apply.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             docs/implementation-plans/specs/2026-09-06-universal-trade-rl-u2-pre-development-closure-amendment.md \
             docs/implementation-plans/plans/2026-09-03-universal-trade-rl-u2-base-ppo-selection.md \
-            docs/superpowers/plans/2026-09-06-universal-trade-rl-u2-pre-development-closure.md \
-            .github/workflows/u2-contracts.yml
+            docs/superpowers/plans/2026-09-06-universal-trade-rl-u2-pre-development-closure.md
           git commit -m "docs: close U2 pre-development authority contract"
           git push origin HEAD:codex/universal-trade-rl-u2-base-ppo-implementation

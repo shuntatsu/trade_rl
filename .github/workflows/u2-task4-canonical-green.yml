@@ -1,0 +1,104 @@
+name: U2 Task4 Canonical GREEN
+
+on:
+  push:
+    branches:
+      - codex/u2-selection-task4-canonical-final
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    if: "github.event.head_commit.message == 'chore: run canonical U2 Task4 GREEN'"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact trigger head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Apply canonical Task4 source patch
+        run: |
+          set -euo pipefail
+          python .github/apply_u2_task4_canonical_green.py
+          uv run ruff check --fix --select I trade_rl/workflows/universal_trade_rl_u2_selection.py
+          uv run ruff format trade_rl/workflows/universal_trade_rl_u2_selection.py
+
+      - name: Static verification
+        run: |
+          set -euo pipefail
+          uv run ruff format --check --diff \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_gate.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py \
+            tests/workflows/test_universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_metrics.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
+          uv run ruff check \
+            trade_rl/workflows/universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_gate.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py \
+            tests/workflows/test_universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_metrics.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
+          uv run mypy trade_rl/workflows/universal_trade_rl_u2_selection.py
+          git diff --check
+
+      - name: Focused canonical final Selection verification
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/workflows/test_universal_trade_rl_u2_selection_final.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_gate.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_robustness.py \
+            tests/workflows/test_universal_trade_rl_u2_selection.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_metrics.py \
+            tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py \
+            tests/workflows/test_universal_trade_rl_u2_development_closure.py \
+            tests/workflows/test_universal_trade_rl_u2_predevelopment.py \
+            tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+
+      - name: Verify identity-closure implementation is present
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path("trade_rl/workflows/universal_trade_rl_u2_selection.py").read_text()
+          required = (
+              "aggregate_summary_digests != standalone_summary_digests",
+              "primary summary identity does not match robustness",
+              "aggregate.scope_closure != expected_aggregate_scope_closure",
+              "aggregate.bootstrap_segment_digests",
+              "development_lock.final_checkpoint_closure_digest",
+              "production_eligible",
+          )
+          missing = tuple(token for token in required if token not in text)
+          if missing:
+              raise SystemExit(f"canonical Task4 identity checks missing: {missing}")
+          PY
+
+      - name: Push verified production source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trade_rl/workflows/universal_trade_rl_u2_selection.py
+          test "$(git diff --cached --name-only)" = "trade_rl/workflows/universal_trade_rl_u2_selection.py"
+          git diff --cached --check
+          git commit -m 'feat: bind canonical U2 Development Selection evidence'
+          git push origin HEAD:codex/u2-selection-task4-canonical-final

@@ -78,6 +78,8 @@ class UniversalTradeRLU2SelectionLeafMetrics:
     leaf_gross_log_growth: float
     turnover_per_day: float
     meaningful_execution: bool
+    hard_risk_violation_count: int
+    unexplained_execution_rejection_count: int
     schema_version: str = U2_SELECTION_LEAF_METRICS_SCHEMA
     digest: str = ""
 
@@ -123,6 +125,22 @@ class UniversalTradeRLU2SelectionLeafMetrics:
         object.__setattr__(self, "turnover_per_day", turnover_per_day)
         if not isinstance(self.meaningful_execution, bool):
             raise TypeError("U2 Selection leaf meaningful execution must be boolean")
+        object.__setattr__(
+            self,
+            "hard_risk_violation_count",
+            _non_negative_int(
+                self.hard_risk_violation_count,
+                field="U2 Selection leaf hard-risk violation count",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "unexplained_execution_rejection_count",
+            _non_negative_int(
+                self.unexplained_execution_rejection_count,
+                field="U2 Selection leaf unexplained execution rejection count",
+            ),
+        )
         _positive_wealth(self.leaf_net_log_growth, field="U2 Selection leaf net")
         _positive_wealth(self.leaf_gross_log_growth, field="U2 Selection leaf gross")
 
@@ -165,6 +183,10 @@ class UniversalTradeRLU2SelectionLeafMetrics:
             "leaf_gross_log_growth": self.leaf_gross_log_growth,
             "turnover_per_day": self.turnover_per_day,
             "meaningful_execution": self.meaningful_execution,
+            "hard_risk_violation_count": self.hard_risk_violation_count,
+            "unexplained_execution_rejection_count": (
+                self.unexplained_execution_rejection_count
+            ),
         }
         if include_digest:
             payload["artifact_digest"] = self.digest
@@ -180,6 +202,8 @@ class UniversalTradeRLU2SelectionSymbolMetrics:
     symbol_net_log_growth: float
     symbol_gross_log_growth: float
     meaningful_execution: bool
+    hard_risk_violation_count: int
+    unexplained_execution_rejection_count: int
     schema_version: str = U2_SELECTION_SYMBOL_METRICS_SCHEMA
     digest: str = ""
 
@@ -214,6 +238,22 @@ class UniversalTradeRLU2SelectionSymbolMetrics:
         )
         if not isinstance(self.meaningful_execution, bool):
             raise TypeError("U2 Selection symbol meaningful execution must be boolean")
+        object.__setattr__(
+            self,
+            "hard_risk_violation_count",
+            _non_negative_int(
+                self.hard_risk_violation_count,
+                field="U2 Selection symbol hard-risk violation count",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "unexplained_execution_rejection_count",
+            _non_negative_int(
+                self.unexplained_execution_rejection_count,
+                field="U2 Selection symbol unexplained execution rejection count",
+            ),
+        )
         _positive_wealth(self.symbol_net_log_growth, field="U2 Selection symbol net")
         _positive_wealth(
             self.symbol_gross_log_growth, field="U2 Selection symbol gross"
@@ -248,6 +288,10 @@ class UniversalTradeRLU2SelectionSymbolMetrics:
             "symbol_net_log_growth": self.symbol_net_log_growth,
             "symbol_gross_log_growth": self.symbol_gross_log_growth,
             "meaningful_execution": self.meaningful_execution,
+            "hard_risk_violation_count": self.hard_risk_violation_count,
+            "unexplained_execution_rejection_count": (
+                self.unexplained_execution_rejection_count
+            ),
         }
         if include_digest:
             payload["artifact_digest"] = self.digest
@@ -274,6 +318,8 @@ class UniversalTradeRLU2SelectionMetricSummary:
     scope_net_return_cvar10: float
     turnover_per_day_p95: float
     meaningful_execution_symbol_fraction: float
+    hard_risk_violation_count: int
+    unexplained_execution_rejection_count: int
     positive_gross_log_growth_retention: float | None
     schema_version: str = U2_SELECTION_SUMMARY_SCHEMA
     digest: str = ""
@@ -345,6 +391,22 @@ class UniversalTradeRLU2SelectionMetricSummary:
                 raise ValueError(f"U2 Selection {field_name} must be within [0, 1]")
         if self.turnover_per_day_p95 < 0.0:
             raise ValueError("U2 Selection turnover p95 cannot be negative")
+        object.__setattr__(
+            self,
+            "hard_risk_violation_count",
+            _non_negative_int(
+                self.hard_risk_violation_count,
+                field="U2 Selection summary hard-risk violation count",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "unexplained_execution_rejection_count",
+            _non_negative_int(
+                self.unexplained_execution_rejection_count,
+                field="U2 Selection summary unexplained execution rejection count",
+            ),
+        )
 
         symbol_leaf_digests = tuple(
             digest for row in symbols for digest in row.leaf_digests
@@ -376,6 +438,18 @@ class UniversalTradeRLU2SelectionMetricSummary:
         expected_meaningful_fraction = float(
             fmean(row.meaningful_execution for row in symbols)
         )
+        expected_hard_risk_count = sum(row.hard_risk_violation_count for row in symbols)
+        expected_rejection_count = sum(
+            row.unexplained_execution_rejection_count for row in symbols
+        )
+        if self.hard_risk_violation_count != expected_hard_risk_count:
+            raise ValueError(
+                "U2 Selection summary hard-risk count is inconsistent with symbol metrics"
+            )
+        if self.unexplained_execution_rejection_count != expected_rejection_count:
+            raise ValueError(
+                "U2 Selection summary rejection count is inconsistent with symbol metrics"
+            )
         for field_name, observed, expected_value in (
             (
                 "symbol_balanced_net_log_growth",
@@ -482,6 +556,10 @@ class UniversalTradeRLU2SelectionMetricSummary:
             "meaningful_execution_symbol_fraction": (
                 self.meaningful_execution_symbol_fraction
             ),
+            "hard_risk_violation_count": self.hard_risk_violation_count,
+            "unexplained_execution_rejection_count": (
+                self.unexplained_execution_rejection_count
+            ),
             "positive_gross_log_growth_retention": (
                 self.positive_gross_log_growth_retention
             ),
@@ -537,6 +615,10 @@ def build_universal_trade_rl_u2_selection_leaf_metrics(
         leaf_gross_log_growth=leaf_gross_log_growth,
         turnover_per_day=turnover_per_day,
         meaningful_execution=meaningful_execution,
+        hard_risk_violation_count=replay_evidence.hard_risk_violation_count,
+        unexplained_execution_rejection_count=(
+            replay_evidence.execution_rejection_count
+        ),
     )
 
 
@@ -588,6 +670,12 @@ def summarize_universal_trade_rl_u2_selection_metrics(
                 ),
                 meaningful_execution=any(
                     leaf.meaningful_execution for leaf in symbol_leaves
+                ),
+                hard_risk_violation_count=sum(
+                    leaf.hard_risk_violation_count for leaf in symbol_leaves
+                ),
+                unexplained_execution_rejection_count=sum(
+                    leaf.unexplained_execution_rejection_count for leaf in symbol_leaves
                 ),
             )
         )
@@ -642,6 +730,10 @@ def summarize_universal_trade_rl_u2_selection_metrics(
         scope_net_return_cvar10=cvar,
         turnover_per_day_p95=turnover_p95,
         meaningful_execution_symbol_fraction=meaningful_symbol_fraction,
+        hard_risk_violation_count=sum(row.hard_risk_violation_count for row in symbols),
+        unexplained_execution_rejection_count=sum(
+            row.unexplained_execution_rejection_count for row in symbols
+        ),
         positive_gross_log_growth_retention=retention,
     )
 

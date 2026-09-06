@@ -39,6 +39,8 @@ def _leaf(
         leaf_gross_log_growth=gross_log_growth,
         turnover_per_day=turnover_per_day,
         meaningful_execution=meaningful_execution,
+        hard_risk_violation_count=0,
+        unexplained_execution_rejection_count=0,
     )
 
 

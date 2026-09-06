@@ -7,17 +7,21 @@ import pytest
 
 from tests.integrations.test_universal_trade_rl_u2_replay import (
     ReplayIntegrationFixture,
+    _scope,
 )
 from tests.integrations.test_universal_trade_rl_u2_replay_runtime import (
     DeterministicModelSpy,
-    _request,
 )
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.workflows.universal_trade_rl_u2_development_closure import (
     UniversalTradeRLU2FinalCheckpointClosure,
 )
+from trade_rl.workflows.universal_trade_rl_u2_predevelopment import (
+    universal_trade_rl_u2_evaluation_seed,
+)
 from trade_rl.workflows.universal_trade_rl_u2_replay import (
     UniversalTradeRLU2ReplayEvidence,
+    UniversalTradeRLU2ReplayRequest,
     UniversalTradeRLU2ReplayVariant,
 )
 from trade_rl.workflows.universal_trade_rl_u2_time_partition import U2_DECISION_STEP_NS
@@ -67,21 +71,28 @@ def _checkpoint_closure(
 def candidate_cash_pair(
     replay_fixture: ReplayIntegrationFixture,
 ) -> tuple[UniversalTradeRLU2ReplayEvidence, UniversalTradeRLU2ReplayEvidence]:
+    scope = _scope(replay_fixture, cell="B")
+    evaluation_seed = universal_trade_rl_u2_evaluation_seed(
+        u2_contract_digest=replay_fixture.u2_contract.digest,
+        scope_digest=scope.digest,
+    )
+    candidate_request = UniversalTradeRLU2ReplayRequest(
+        scope_digest=scope.digest,
+        policy_variant=UniversalTradeRLU2ReplayVariant.CANDIDATE,
+        evaluation_seed=evaluation_seed,
+        paired_candidate_checkpoint_digest=_checkpoint_digest(0),
+    )
+    cash_request = UniversalTradeRLU2ReplayRequest(
+        scope_digest=scope.digest,
+        policy_variant=UniversalTradeRLU2ReplayVariant.CASH,
+        evaluation_seed=evaluation_seed,
+        paired_candidate_checkpoint_digest=_checkpoint_digest(0),
+    )
     candidate = replay_fixture.session.replay(
-        _request(
-            replay_fixture,
-            variant=UniversalTradeRLU2ReplayVariant.CANDIDATE,
-            seed=0,
-        ),
+        candidate_request,
         model=DeterministicModelSpy(action=[0.0]),
     )
-    cash = replay_fixture.session.replay(
-        _request(
-            replay_fixture,
-            variant=UniversalTradeRLU2ReplayVariant.CASH,
-            seed=0,
-        )
-    )
+    cash = replay_fixture.session.replay(cash_request)
     return candidate, cash
 
 
@@ -104,6 +115,11 @@ def test_u2_paired_replay_scope_is_derived_from_exact_candidate_cash_evidence(
         checkpoint_closure=closure,
     )
 
+    expected_evaluation_seed = universal_trade_rl_u2_evaluation_seed(
+        u2_contract_digest=replay_fixture.u2_contract.digest,
+        scope_digest=candidate.scope_digest,
+    )
+    assert candidate.evaluation_seed == cash.evaluation_seed == expected_evaluation_seed
     assert paired.training_seed == 0
     assert paired.candidate_replay_evidence_digest == candidate.digest
     assert paired.cash_replay_evidence_digest == cash.digest
@@ -130,6 +146,34 @@ def test_u2_paired_replay_scope_is_derived_from_exact_candidate_cash_evidence(
     assert paired.candidate_minus_cash_net_log_excess == pytest.approx(expected_excess)
 
 
+def test_u2_paired_replay_scope_rejects_equal_but_noncanonical_crn_seed(
+    replay_fixture: ReplayIntegrationFixture,
+    candidate_cash_pair: tuple[
+        UniversalTradeRLU2ReplayEvidence,
+        UniversalTradeRLU2ReplayEvidence,
+    ],
+) -> None:
+    module = _module()
+    candidate, cash = candidate_cash_pair
+    closure = _checkpoint_closure(replay_fixture)
+    canonical_seed = universal_trade_rl_u2_evaluation_seed(
+        u2_contract_digest=replay_fixture.u2_contract.digest,
+        scope_digest=candidate.scope_digest,
+    )
+    wrong_seed = next(seed for seed in (0, 1, 2) if seed != canonical_seed)
+    wrong_candidate = replace(candidate, evaluation_seed=wrong_seed, digest="")
+    wrong_cash = replace(cash, evaluation_seed=wrong_seed, digest="")
+
+    with pytest.raises(ValueError, match="scope|common|evaluation|seed|RNG|CRN"):
+        module.build_universal_trade_rl_u2_paired_replay_scope_evidence(
+            candidate_replay=wrong_candidate,
+            cash_replay=wrong_cash,
+            u2_contract=replay_fixture.u2_contract,
+            time_partition=replay_fixture.partition,
+            checkpoint_closure=closure,
+        )
+
+
 def test_u2_paired_replay_scope_derives_training_seed_from_checkpoint_not_crn_seed(
     replay_fixture: ReplayIntegrationFixture,
     candidate_cash_pair: tuple[
@@ -140,24 +184,22 @@ def test_u2_paired_replay_scope_derives_training_seed_from_checkpoint_not_crn_se
     module = _module()
     candidate, cash = candidate_cash_pair
     closure = _checkpoint_closure(replay_fixture)
-    training_seed = 1
-    assert candidate.evaluation_seed == cash.evaluation_seed == 0
-    assert training_seed != candidate.evaluation_seed
+    training_seed = next(seed for seed in (0, 1, 2) if seed != candidate.evaluation_seed)
 
-    candidate_for_seed_1 = replace(
+    candidate_for_training_seed = replace(
         candidate,
         paired_candidate_checkpoint_digest=_checkpoint_digest(training_seed),
         digest="",
     )
-    cash_for_seed_1 = replace(
+    cash_for_training_seed = replace(
         cash,
         paired_candidate_checkpoint_digest=_checkpoint_digest(training_seed),
         digest="",
     )
 
     paired = module.build_universal_trade_rl_u2_paired_replay_scope_evidence(
-        candidate_replay=candidate_for_seed_1,
-        cash_replay=cash_for_seed_1,
+        candidate_replay=candidate_for_training_seed,
+        cash_replay=cash_for_training_seed,
         u2_contract=replay_fixture.u2_contract,
         time_partition=replay_fixture.partition,
         checkpoint_closure=closure,
@@ -167,8 +209,8 @@ def test_u2_paired_replay_scope_derives_training_seed_from_checkpoint_not_crn_se
     assert paired.paired_candidate_checkpoint_digest == _checkpoint_digest(
         training_seed
     )
-    assert paired.candidate_replay_evidence_digest == candidate_for_seed_1.digest
-    assert paired.cash_replay_evidence_digest == cash_for_seed_1.digest
+    assert paired.candidate_replay_evidence_digest == candidate_for_training_seed.digest
+    assert paired.cash_replay_evidence_digest == cash_for_training_seed.digest
 
 
 def test_u2_paired_replay_scope_rejects_dataset_or_checkpoint_pair_drift(

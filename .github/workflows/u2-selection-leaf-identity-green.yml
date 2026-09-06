@@ -1,0 +1,212 @@
+name: U2 Selection Leaf Identity GREEN
+
+on:
+  push:
+    branches:
+      - codex/universal-trade-rl-u2-base-ppo-implementation
+    paths:
+      - ".github/workflows/u2-selection-leaf-identity-green.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact trigger head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install focused dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Apply leaf and CRN identity closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/workflows/universal_trade_rl_u2_selection.py")
+          text = path.read_text(encoding="utf-8")
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one anchor, got {count}")
+              text = text.replace(old, new, 1)
+
+          import_old = '''from trade_rl.workflows.universal_trade_rl_u2_predevelopment import (
+              UniversalTradeRLU2DevelopmentLock,
+          )
+          '''
+          import_new = '''from trade_rl.workflows.universal_trade_rl_u2_predevelopment import (
+              UniversalTradeRLU2DevelopmentLock,
+              universal_trade_rl_u2_evaluation_seed,
+          )
+          '''
+          replace_once(import_old, import_new, "predevelopment import")
+
+          builder_old = '''def build_universal_trade_rl_u2_selection_leaf_metrics(
+              *,
+              training_seed: int,
+              replay_evidence: UniversalTradeRLU2ReplayEvidence,
+          ) -> UniversalTradeRLU2SelectionLeafMetrics:
+              """Derive one Selection leaf from the maintained same-path candidate replay."""
+
+              if (
+                  isinstance(training_seed, bool)
+                  or not isinstance(training_seed, int)
+                  or training_seed not in U2_TRAINING_SEEDS
+              ):
+                  raise ValueError("U2 Selection training seed is outside the fixed closure")
+              if not isinstance(replay_evidence, UniversalTradeRLU2ReplayEvidence):
+                  raise TypeError("U2 Selection leaf requires replay evidence")
+              if (
+                  replay_evidence.policy_variant
+                  != UniversalTradeRLU2ReplayVariant.CANDIDATE.value
+              ):
+                  raise ValueError("U2 Selection leaf requires candidate policy replay evidence")
+              if replay_evidence.observed_decision_count <= 0:
+                  raise ValueError("U2 Selection leaf requires at least one replay decision")
+          '''
+          builder_new = '''def build_universal_trade_rl_u2_selection_leaf_metrics(
+              *,
+              training_seed: int,
+              replay_evidence: UniversalTradeRLU2ReplayEvidence,
+              checkpoint_closure: UniversalTradeRLU2FinalCheckpointClosure,
+          ) -> UniversalTradeRLU2SelectionLeafMetrics:
+              """Derive one Selection leaf from the maintained same-path candidate replay."""
+
+              if (
+                  isinstance(training_seed, bool)
+                  or not isinstance(training_seed, int)
+                  or training_seed not in U2_TRAINING_SEEDS
+              ):
+                  raise ValueError("U2 Selection training seed is outside the fixed closure")
+              if not isinstance(replay_evidence, UniversalTradeRLU2ReplayEvidence):
+                  raise TypeError("U2 Selection leaf requires replay evidence")
+              if not isinstance(
+                  checkpoint_closure,
+                  UniversalTradeRLU2FinalCheckpointClosure,
+              ):
+                  raise TypeError("U2 Selection leaf requires final checkpoint closure")
+              _require_current_artifact_digest(
+                  replay_evidence,
+                  field="U2 Selection leaf replay evidence",
+              )
+              _require_current_artifact_digest(
+                  checkpoint_closure,
+                  field="U2 Selection leaf checkpoint closure",
+              )
+              if (
+                  replay_evidence.u2_contract_digest
+                  != checkpoint_closure.u2_contract_digest
+              ):
+                  raise ValueError("U2 Selection leaf U2 identity closure mismatch")
+              if (
+                  replay_evidence.universe_manifest_digest
+                  != checkpoint_closure.universe_manifest_digest
+              ):
+                  raise ValueError("U2 Selection leaf universe identity closure mismatch")
+              if replay_evidence.u1_contract_digest != checkpoint_closure.u1_contract_digest:
+                  raise ValueError("U2 Selection leaf U1 identity closure mismatch")
+              checkpoints = dict(checkpoint_closure.checkpoint_digests)
+              expected_checkpoint = checkpoints.get(training_seed)
+              if (
+                  expected_checkpoint is None
+                  or replay_evidence.paired_candidate_checkpoint_digest
+                  != expected_checkpoint
+              ):
+                  raise ValueError(
+                      "U2 Selection leaf training seed/checkpoint identity mismatch"
+                  )
+              expected_evaluation_seed = universal_trade_rl_u2_evaluation_seed(
+                  u2_contract_digest=replay_evidence.u2_contract_digest,
+                  scope_digest=replay_evidence.scope_digest,
+              )
+              if replay_evidence.evaluation_seed != expected_evaluation_seed:
+                  raise ValueError(
+                      "U2 Selection leaf requires canonical scope-common evaluation CRN seed"
+                  )
+              if (
+                  replay_evidence.policy_variant
+                  != UniversalTradeRLU2ReplayVariant.CANDIDATE.value
+              ):
+                  raise ValueError("U2 Selection leaf requires candidate policy replay evidence")
+              if replay_evidence.observed_decision_count <= 0:
+                  raise ValueError("U2 Selection leaf requires at least one replay decision")
+          '''
+          replace_once(builder_old, builder_new, "Selection leaf builder")
+
+          pair_seed_old = '''    if candidate_replay.evaluation_seed != cash_replay.evaluation_seed:
+              raise ValueError("U2 paired replay seed identity mismatch")
+
+              identity_fields = (
+          '''
+          pair_seed_new = '''    if candidate_replay.evaluation_seed != cash_replay.evaluation_seed:
+              raise ValueError("U2 paired replay seed identity mismatch")
+              expected_evaluation_seed = universal_trade_rl_u2_evaluation_seed(
+                  u2_contract_digest=u2_contract.digest,
+                  scope_digest=candidate_replay.scope_digest,
+              )
+              if candidate_replay.evaluation_seed != expected_evaluation_seed:
+                  raise ValueError(
+                      "U2 paired replay requires canonical scope-common evaluation CRN seed"
+                  )
+
+              identity_fields = (
+          '''
+          replace_once(pair_seed_old, pair_seed_new, "paired replay CRN identity")
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Format source
+        run: uv run ruff format trade_rl/workflows/universal_trade_rl_u2_selection.py
+
+      - name: Verify static quality
+        run: |
+          uv run ruff format --check --diff trade_rl/workflows/universal_trade_rl_u2_selection.py tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          uv run ruff check trade_rl/workflows/universal_trade_rl_u2_selection.py tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          uv run mypy trade_rl/workflows/universal_trade_rl_u2_selection.py
+
+      - name: Verify actual RED becomes GREEN
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+
+      - name: Verify Selection regressions and artifact integrity
+        run: >-
+          uv run pytest -q
+          tests/workflows/test_universal_trade_rl_u2_selection.py
+          tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
+          tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
+          tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+          tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
+          tests/workflows/test_universal_trade_rl_u2_selection_final.py
+          tests/workflows/test_universal_trade_rl_u2_artifact_integrity_falsification.py
+
+      - name: Commit clean GREEN source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/u2-selection-leaf-identity-green.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/workflows/universal_trade_rl_u2_selection.py .github/workflows/u2-selection-leaf-identity-green.yml
+          git diff --cached --check
+          git commit -m "fix: bind U2 Selection leaves to checkpoint and CRN identity"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

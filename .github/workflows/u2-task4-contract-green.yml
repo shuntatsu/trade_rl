@@ -94,7 +94,7 @@ jobs:
             tests/workflows/test_universal_trade_rl_u2_predevelopment.py \
             tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
 
-      - name: Verify focused CI contains the final gate
+      - name: Verify focused CI contains the final gate in candidate patch
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -107,19 +107,14 @@ jobs:
               raise SystemExit(f"final Selection test must be in format/lint/focused pytest lists; found {count}")
           PY
 
-      - name: Commit verified Task4 and remove temporary helpers
+      - name: Push verified production source only
         shell: bash
         run: |
           set -euo pipefail
-          git rm \
-            .github/apply_u2_task4_contract_green.py \
-            .github/workflows/u2-task4-contract-red.yml \
-            .github/workflows/u2-task4-contract-green.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
-            trade_rl/workflows/universal_trade_rl_u2_selection.py \
-            .github/workflows/u2-contracts.yml
+          git add trade_rl/workflows/universal_trade_rl_u2_selection.py
+          test "$(git diff --cached --name-only)" = "trade_rl/workflows/universal_trade_rl_u2_selection.py"
           git diff --cached --check
           git commit -m 'feat: bind final U2 Development Selection evidence'
           git push origin HEAD:codex/u2-selection-task4-contract-final

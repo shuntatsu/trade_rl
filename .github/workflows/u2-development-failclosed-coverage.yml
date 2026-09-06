@@ -26,10 +26,34 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --extra dev --extra train-sb3
-      - name: Format and static checks
+      - name: Apply oracle correction and format
         run: |
           set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py")
+          text = path.read_text(encoding="utf-8")
+          old_authority = '        args = _with_base(canonical, **{field: 1})\n'
+          new_authority = (
+              '        drifted_base = _mutated(canonical["base_lock"], field, 1)\n'
+              '        args = {**canonical, "base_lock": drifted_base}\n'
+          )
+          if text.count(old_authority) != 1:
+              raise SystemExit(f"authority zero-open anchor count={text.count(old_authority)}")
+          text = text.replace(old_authority, new_authority, 1)
+
+          old_lock = '        drifted_base = replace(base_lock, **{field: 1}, digest="")\n'
+          new_lock = '        drifted_base = _mutated(base_lock, field, 1)\n'
+          if text.count(old_lock) != 1:
+              raise SystemExit(f"lock zero-open anchor count={text.count(old_lock)}")
+          text = text.replace(old_lock, new_lock, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
           uv run ruff format tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
+      - name: Static checks
+        run: |
+          set -euo pipefail
           uv run ruff format --check --diff tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
           uv run ruff check tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
           git diff --check
@@ -45,7 +69,7 @@ jobs:
             --cov-branch \
             --cov-report=term-missing \
             --cov-fail-under=80
-      - name: Commit verified formatted test
+      - name: Commit verified test
         run: |
           set -euo pipefail
           branch="verify/u2-development-failclosed-coverage"
@@ -58,9 +82,5 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
           git diff --cached --check
-          if git diff --cached --quiet; then
-            echo "No formatting changes to commit"
-            exit 0
-          fi
-          git commit -m 'style: format U2 Development boundary falsification'
+          git commit -m 'test: cover U2 Development fail-closed boundaries'
           git push origin HEAD:"$branch"

@@ -291,10 +291,11 @@ class UniversalTradeRLU2SelectionMetricSummary:
             for row in symbols
         ):
             raise TypeError("U2 Selection summary contains invalid symbol metrics")
-        if tuple(row.concrete_symbol for row in symbols) != tuple(
-            sorted(row.concrete_symbol for row in symbols)
-        ):
-            raise ValueError("U2 Selection summary symbols must be canonical")
+        symbol_names = tuple(row.concrete_symbol for row in symbols)
+        if symbol_names != tuple(sorted(set(symbol_names))):
+            raise ValueError(
+                "U2 Selection summary symbols must be canonical and unique"
+            )
         for digest in leaf_digests:
             require_sha256(digest, field="U2 Selection summary leaf digest")
         if len(set(leaf_digests)) != len(leaf_digests):
@@ -337,6 +338,84 @@ class UniversalTradeRLU2SelectionMetricSummary:
                 raise ValueError(f"U2 Selection {field_name} must be within [0, 1]")
         if self.turnover_per_day_p95 < 0.0:
             raise ValueError("U2 Selection turnover p95 cannot be negative")
+
+        symbol_leaf_digests = tuple(
+            digest for row in symbols for digest in row.leaf_digests
+        )
+        if len(symbol_leaf_digests) != len(set(symbol_leaf_digests)) or set(
+            symbol_leaf_digests
+        ) != set(leaf_digests):
+            raise ValueError(
+                "U2 Selection summary symbol leaf-digest closure is inconsistent"
+            )
+
+        expected_net_log_growth = float(
+            fmean(row.symbol_net_log_growth for row in symbols)
+        )
+        expected_gross_log_growth = float(
+            fmean(row.symbol_gross_log_growth for row in symbols)
+        )
+        expected_net_wealth = _positive_wealth(
+            expected_net_log_growth,
+            field="U2 Selection expected balanced net",
+        )
+        expected_gross_wealth = _positive_wealth(
+            expected_gross_log_growth,
+            field="U2 Selection expected balanced gross",
+        )
+        symbol_net_wealth = tuple(row.symbol_net_wealth for row in symbols)
+        expected_median_net_wealth = float(median(symbol_net_wealth))
+        expected_minimum_net_wealth = float(min(symbol_net_wealth))
+        expected_meaningful_fraction = float(
+            fmean(row.meaningful_execution for row in symbols)
+        )
+        for field_name, observed, expected_value in (
+            (
+                "symbol_balanced_net_log_growth",
+                self.symbol_balanced_net_log_growth,
+                expected_net_log_growth,
+            ),
+            (
+                "symbol_balanced_gross_log_growth",
+                self.symbol_balanced_gross_log_growth,
+                expected_gross_log_growth,
+            ),
+            (
+                "symbol_balanced_net_wealth",
+                self.symbol_balanced_net_wealth,
+                expected_net_wealth,
+            ),
+            (
+                "symbol_balanced_gross_wealth",
+                self.symbol_balanced_gross_wealth,
+                expected_gross_wealth,
+            ),
+            (
+                "median_symbol_net_wealth",
+                self.median_symbol_net_wealth,
+                expected_median_net_wealth,
+            ),
+            (
+                "minimum_symbol_net_wealth",
+                self.minimum_symbol_net_wealth,
+                expected_minimum_net_wealth,
+            ),
+            (
+                "meaningful_execution_symbol_fraction",
+                self.meaningful_execution_symbol_fraction,
+                expected_meaningful_fraction,
+            ),
+        ):
+            if not math.isclose(
+                observed,
+                expected_value,
+                rel_tol=0.0,
+                abs_tol=1e-15,
+            ):
+                raise ValueError(
+                    f"U2 Selection summary {field_name} is inconsistent with symbol metrics"
+                )
+
         if self.positive_gross_log_growth_retention is not None:
             retention = _finite(
                 self.positive_gross_log_growth_retention,
@@ -345,6 +424,16 @@ class UniversalTradeRLU2SelectionMetricSummary:
             if self.symbol_balanced_gross_log_growth <= 0.0:
                 raise ValueError(
                     "U2 Selection retention is undefined for non-positive gross growth"
+                )
+            expected_retention = expected_net_log_growth / expected_gross_log_growth
+            if not math.isclose(
+                retention,
+                expected_retention,
+                rel_tol=0.0,
+                abs_tol=1e-15,
+            ):
+                raise ValueError(
+                    "U2 Selection summary retention is inconsistent with symbol metrics"
                 )
             object.__setattr__(
                 self,

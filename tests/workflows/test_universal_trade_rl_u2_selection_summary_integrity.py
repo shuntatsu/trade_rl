@@ -111,9 +111,7 @@ def test_u2_selection_summary_rejects_symbol_derived_metric_drift() -> None:
         {"minimum_symbol_net_wealth": summary.minimum_symbol_net_wealth + 0.1},
         {
             "meaningful_execution_symbol_fraction": (
-                0.0
-                if summary.meaningful_execution_symbol_fraction != 0.0
-                else 1.0
+                0.0 if summary.meaningful_execution_symbol_fraction != 0.0 else 1.0
             )
         },
         {
@@ -126,5 +124,7 @@ def test_u2_selection_summary_rejects_symbol_derived_metric_drift() -> None:
     )
 
     for mutation in mutations:
-        with pytest.raises(ValueError, match="Selection|symbol|retention|wealth|consistent"):
+        with pytest.raises(
+            ValueError, match="Selection|symbol|retention|wealth|consistent"
+        ):
             replace(summary, **mutation, digest="")

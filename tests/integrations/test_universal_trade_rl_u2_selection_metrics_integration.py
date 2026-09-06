@@ -89,8 +89,7 @@ def test_u2_selection_leaf_metrics_are_derived_from_one_candidate_replay(
     )
     assert leaf.hard_risk_violation_count == evidence.hard_risk_violation_count
     assert (
-        leaf.unexplained_execution_rejection_count
-        == evidence.execution_rejection_count
+        leaf.unexplained_execution_rejection_count == evidence.execution_rejection_count
     )
 
 

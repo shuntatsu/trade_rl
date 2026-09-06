@@ -13,6 +13,7 @@ def test_core_and_nautilus_coverage_have_separate_fail_closed_scopes() -> None:
     coverage = project["tool"]["coverage"]
 
     assert coverage["report"]["fail_under"] == 80
+    assert coverage["report"]["precision"] == 2
     assert coverage["run"]["branch"] is True
     assert coverage["run"]["source"] == ["trade_rl"]
     assert coverage["run"]["omit"] == ["trade_rl/integrations/nautilus/*"]
@@ -39,7 +40,9 @@ def test_core_and_nautilus_coverage_have_separate_fail_closed_scopes() -> None:
 
 def test_core_ci_explicitly_enforces_configured_global_coverage_threshold() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    fail_under = project["tool"]["coverage"]["report"]["fail_under"]
+    coverage_report = project["tool"]["coverage"]["report"]
+    fail_under = coverage_report["fail_under"]
+    precision = coverage_report["precision"]
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     coverage_step = workflow.split("      - name: Tests and coverage\n", maxsplit=1)[
         1
@@ -47,6 +50,11 @@ def test_core_ci_explicitly_enforces_configured_global_coverage_threshold() -> N
 
     assert "set -o pipefail" in coverage_step
     assert f"--cov-fail-under={fail_under}" in coverage_step
+    assert f"--cov-precision={precision}" in coverage_step
+    assert (
+        f"uv run coverage report --fail-under={fail_under} --precision={precision}"
+        in coverage_step
+    )
 
 
 def test_nautilus_capability_keeps_native_probes_isolated_under_coverage() -> None:

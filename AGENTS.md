@@ -5,11 +5,11 @@
 ## Documentation bootstrap
 
 1. 変更対象のcurrent contractが明らかな場合は、そのcanonical documentを先に読む。
-2. 明らかでない場合は次を実行する。
+2. 明らかでない場合は次を実行する。Docs toolingは`dev` extraのPyYAMLを使うため、fresh cloneでも再現できるよう`--extra dev`を明示する。
 
 ```bash
-python scripts/docs/context.py --path trade_rl/path/to/changed_file.py
-python scripts/docs/context.py --topic universal-rl
+uv run --extra dev python scripts/docs/context.py --path trade_rl/path/to/changed_file.py
+uv run --extra dev python scripts/docs/context.py --topic universal-rl
 ```
 
 3. 出力された`CANONICAL CURRENT`相当の文書を実装前に確認する。
@@ -66,9 +66,9 @@ Public/current contractを変えた場合は、対応する`source_of_truth_for`
 Documentationまたはgoverned sourceを変更した場合、少なくとも次を実行し、実結果を確認します。
 
 ```bash
-uv run pytest -q tests/docs
-uv run python scripts/docs/validate.py
-uv run python scripts/docs/generate.py
+uv run --extra dev pytest -q tests/docs
+uv run --extra dev python scripts/docs/validate.py
+uv run --extra dev python scripts/docs/generate.py
 uvx --from zensical==0.0.59 zensical build --strict
 ```
 

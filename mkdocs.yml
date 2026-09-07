@@ -1,0 +1,88 @@
+site_name: Trade RL Documentation
+site_description: Agent-readable reference, research, operations, evidence, and history for Trade RL.
+site_url: https://shuntatsu.github.io/trade_rl/
+repo_url: https://github.com/shuntatsu/trade_rl
+repo_name: shuntatsu/trade_rl
+edit_uri: edit/main/docs/
+docs_dir: .docs-build/site-src
+site_dir: site
+strict: true
+
+copyright: Trade RL documentation — current contracts remain distinct from research evidence and Production authorization.
+
+theme:
+  variant: modern
+  language: ja
+  features:
+    - navigation.indexes
+    - navigation.path
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: lucide/sun
+        name: ダークモードへ切替
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: lucide/moon
+        name: ライトモードへ切替
+
+plugins:
+  - search
+  - meta
+  - tags
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Overview: getting-started/index.md
+      - Quickstart: getting-started/quickstart.md
+  - Guides:
+      - Overview: guides/index.md
+      - Binance Public Data: guides/binance-data.md
+  - Reference:
+      - Overview: reference/index.md
+      - Architecture: reference/architecture.md
+      - Configuration: reference/configuration.md
+      - Single Symbol: reference/single-symbol.md
+      - Universal Trade RL: reference/universal-trade-rl.md
+      - Universal Training: reference/universal-training.md
+      - Reward Objective: reference/reward-objective.md
+      - Execution Robustness: reference/execution-robustness.md
+      - Run Reporting: reference/run-reporting.md
+      - Nautilus Migration: reference/nautilus-migration.md
+  - Research:
+      - Overview: research/index.md
+      - Current Status: research/status.md
+      - Multi-Timeframe Research: research/multi-timeframe.md
+  - Operations:
+      - Overview: operations/index.md
+      - Docker GPU Full Training: operations/docker-gpu-full-training.md
+      - Causal Scenario C3: operations/causal-scenario-c3-execution.md
+  - Performance:
+      - Overview: performance/index.md
+      - 4070 Ti SUPER Full Training: performance/4070ti-super-full-training.md
+  - Legal:
+      - Overview: legal/index.md
+      - Licensing: legal/licensing.md
+      - Licensing Provenance: legal/licensing-provenance.md
+  - Generated:
+      - Topics: generated/topics.md
+      - Canonical Authority: generated/authority.md
+  - History: history/index.md

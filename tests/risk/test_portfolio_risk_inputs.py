@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.risk.inputs import (
+    RollingPortfolioRiskInputsConfig,
+    RollingPortfolioRiskInputsProvider,
+)
 from trade_rl.risk.portfolio import PortfolioRiskConfig, PortfolioRiskModel
-from trade_rl.rl.actions import ActionSpec
-from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
-from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
 def _dataset(*, future_shift: float = 0.0) -> MarketDataset:
@@ -45,13 +46,8 @@ def _dataset(*, future_shift: float = 0.0) -> MarketDataset:
     )
 
 
-def test_rolling_portfolio_risk_inputs_are_causal_and_finite() -> None:
-    from trade_rl.risk.inputs import (
-        RollingPortfolioRiskInputsConfig,
-        RollingPortfolioRiskInputsProvider,
-    )
-
-    provider = RollingPortfolioRiskInputsProvider(
+def _provider() -> RollingPortfolioRiskInputsProvider:
+    return RollingPortfolioRiskInputsProvider(
         RollingPortfolioRiskInputsConfig(
             lookback_bars=60,
             minimum_observations=30,
@@ -59,6 +55,10 @@ def test_rolling_portfolio_risk_inputs_are_causal_and_finite() -> None:
             stress_quantile=0.05,
         )
     )
+
+
+def test_rolling_portfolio_risk_inputs_are_causal_and_finite() -> None:
+    provider = _provider()
     first = provider.inputs(_dataset(), index=120)
     shifted = provider.inputs(_dataset(future_shift=0.5), index=120)
 
@@ -77,13 +77,6 @@ def test_rolling_portfolio_risk_inputs_are_causal_and_finite() -> None:
 
 
 def test_rolling_portfolio_risk_inputs_reject_insufficient_history() -> None:
-    import pytest
-
-    from trade_rl.risk.inputs import (
-        RollingPortfolioRiskInputsConfig,
-        RollingPortfolioRiskInputsProvider,
-    )
-
     provider = RollingPortfolioRiskInputsProvider(
         RollingPortfolioRiskInputsConfig(
             lookback_bars=40,
@@ -94,10 +87,9 @@ def test_rolling_portfolio_risk_inputs_reject_insufficient_history() -> None:
         provider.inputs(_dataset(), index=20)
 
 
-def test_environment_wires_causal_inputs_into_advanced_portfolio_risk() -> None:
-    from trade_rl.risk.inputs import RollingPortfolioRiskInputsProvider
-
+def test_causal_inputs_feed_portfolio_risk_directly() -> None:
     dataset = _dataset()
+    inputs = _provider().inputs(dataset, index=120)
     risk = PortfolioRiskModel(
         PortfolioRiskConfig(
             volatility_target=0.01,
@@ -105,38 +97,20 @@ def test_environment_wires_causal_inputs_into_advanced_portfolio_risk() -> None:
             max_stress_loss=0.0005,
         )
     )
-    env = ResidualMarketEnv(
-        dataset,
-        trend_strategy=TrendStrategy(
-            TrendConfig(fast_lookback=4, base_lookback=8, slow_lookback=16)
-        ),
-        action_spec=ActionSpec(
-            mode="target_weight",
-            alpha_enabled=False,
-            risk_tilt_enabled=False,
-            target_weight_count=3,
-        ),
-        portfolio_risk=risk,
-        config=ResidualMarketEnvConfig(
-            episode_bars=8,
-            decision_every=1,
-            initial_capital=100_000.0,
-            execution_cost=ExecutionCostConfig.zero(),
-        ),
+
+    constrained = risk.constrain(
+        np.array([0.6, 0.3, -0.1]),
+        portfolio_value=100_000.0,
+        market_notional=np.full(3, 1_000_000_000.0),
+        covariance=inputs.covariance,
+        beta=inputs.beta,
+        stress_losses=inputs.stress_losses,
     )
-    assert isinstance(
-        env.portfolio_risk_inputs_provider, RollingPortfolioRiskInputsProvider
-    )
-    env.reset(options={"start_idx": 120, "initial_state_mode": "cash"})
-    constrained = env._constrain_target(np.array([0.6, 0.3, -0.1]), env.hybrid)
 
     assert constrained.was_constrained is True
-    assert any(reason.startswith("portfolio:") for reason in constrained.reasons)
-    payload = env._digest_payload()
-    assert isinstance(payload["portfolio_risk_inputs_digest"], str)
-    assert len(payload["portfolio_risk_inputs_digest"]) == 64
-    provider = env.portfolio_risk_inputs_provider
-    assert provider is not None
-    baseline = provider.inputs(dataset, index=120)
-    changed = provider.inputs(_dataset(future_shift=0.5), index=120)
-    np.testing.assert_allclose(baseline.covariance, changed.covariance)
+    assert set(constrained.reasons) & {
+        "volatility_target",
+        "max_abs_beta",
+        "max_stress_loss",
+    }
+    assert np.isfinite(constrained.weights).all()

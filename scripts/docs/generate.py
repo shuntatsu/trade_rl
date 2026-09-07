@@ -18,22 +18,59 @@ _REPOSITORY_URL = "https://github.com/shuntatsu/trade_rl"
 _LINK_PATTERN = re.compile(r"(\[[^\]]+\]\()([^)]+)(\))")
 
 
-def _rewrite_history_links(text: str, source: Path, docs_root: Path) -> str:
+def _github_repository_url(root: Path, resolved: Path) -> str:
+    relative = resolved.relative_to(root).as_posix()
+    view = "tree" if resolved.is_dir() else "blob"
+    return f"{_REPOSITORY_URL}/{view}/main/{relative}"
+
+
+def _rewrite_site_links(
+    text: str,
+    *,
+    source: Path,
+    docs_root: Path,
+    root: Path,
+) -> str:
+    """Keep current-doc links local and route non-site repository links to GitHub."""
+
+    root = root.resolve()
+    docs_root = docs_root.resolve()
+    history_root = (docs_root / "history").resolve()
+
     def replace(match: re.Match[str]) -> str:
         raw_target = match.group(2)
         if raw_target.startswith(("http://", "https://", "mailto:", "#")):
             return match.group(0)
+
         path_part, separator, anchor = raw_target.partition("#")
+        if not path_part:
+            return match.group(0)
         resolved = (source.parent / path_part).resolve()
-        history_root = (docs_root / "history").resolve()
+
         try:
-            relative = resolved.relative_to(history_root)
+            resolved.relative_to(root)
         except ValueError:
             return match.group(0)
-        url = f"{_REPOSITORY_URL}/blob/main/docs/history/{relative.as_posix()}"
-        if separator:
-            url = f"{url}#{anchor}"
-        return f"{match.group(1)}{url}{match.group(3)}"
+
+        try:
+            resolved.relative_to(history_root)
+        except ValueError:
+            pass
+        else:
+            url = _github_repository_url(root, resolved)
+            if separator:
+                url = f"{url}#{anchor}"
+            return f"{match.group(1)}{url}{match.group(3)}"
+
+        try:
+            resolved.relative_to(docs_root)
+        except ValueError:
+            url = _github_repository_url(root, resolved)
+            if separator:
+                url = f"{url}#{anchor}"
+            return f"{match.group(1)}{url}{match.group(3)}"
+
+        return match.group(0)
 
     return _LINK_PATTERN.sub(replace, text)
 
@@ -41,16 +78,19 @@ def _rewrite_history_links(text: str, source: Path, docs_root: Path) -> str:
 def _copy_current_source(root: Path, site_src: Path) -> None:
     docs_root = root / "docs"
     documents = discover_documents(docs_root)
-    current_paths = {document.path for document in documents if document.lifecycle == "current"}
+    current_paths = {
+        document.path for document in documents if document.lifecycle == "current"
+    }
 
     for relative in sorted(current_paths, key=lambda path: path.as_posix()):
         source = docs_root / relative
         target = site_src / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        text = _rewrite_history_links(
+        text = _rewrite_site_links(
             source.read_text(encoding="utf-8"),
-            source,
-            docs_root,
+            source=source,
+            docs_root=docs_root,
+            root=root,
         )
         target.write_text(text, encoding="utf-8")
 
@@ -162,7 +202,9 @@ def write_build_outputs(root: Path, output_root: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Generate Trade RL documentation build inputs")
+    parser = argparse.ArgumentParser(
+        description="Generate Trade RL documentation build inputs"
+    )
     parser.add_argument("root", nargs="?", default=".")
     parser.add_argument("--output", default=".docs-build")
     args = parser.parse_args(argv)

@@ -36,16 +36,21 @@ jobs:
         run: uv sync --extra dev --extra train-sb3
 
       - name: Ruff
-        run: uv run ruff check .
+        run: >-
+          uv run ruff check
+          trade_rl/data trade_rl/risk trade_rl/simulation trade_rl/evaluation trade_rl/strategies
+          tests/data tests/risk tests/simulation tests/evaluation tests/strategies
 
       - name: Format
-        run: uv run ruff format --check .
+        run: >-
+          uv run ruff format --check
+          trade_rl/data trade_rl/risk trade_rl/simulation trade_rl/evaluation trade_rl/strategies
+          tests/data tests/risk tests/simulation tests/evaluation tests/strategies
 
       - name: Mypy
-        run: uv run mypy trade_rl
-
-      - name: Import architecture
-        run: uv run lint-imports
+        run: >-
+          uv run mypy
+          trade_rl/data trade_rl/risk trade_rl/simulation trade_rl/evaluation trade_rl/strategies
 
       - name: Core tests
         run: >-

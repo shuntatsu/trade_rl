@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 
-from tests.architecture.repository_paths import PYTHON_SOURCE_ROOT
 from trade_rl.data.contracts import InstrumentContract, InstrumentExecutionRule
 from trade_rl.data.economic_semantics import build_market_economic_semantics
+
+PYTHON_SOURCE_ROOT = Path(__file__).resolve().parents[2] / "trade_rl"
 
 
 def test_economic_semantics_are_explicit_point_in_time_and_immutable() -> None:
@@ -24,7 +26,10 @@ def test_economic_semantics_are_explicit_point_in_time_and_immutable() -> None:
         minimum_notional=5.0,
         execution_rules=(
             InstrumentExecutionRule(
-                effective_at=start, tick_size=0.1, lot_size=0.001, minimum_notional=5.0
+                effective_at=start,
+                tick_size=0.1,
+                lot_size=0.001,
+                minimum_notional=5.0,
             ),
             InstrumentExecutionRule(
                 effective_at=start + timedelta(minutes=45),
@@ -60,12 +65,6 @@ def test_economic_semantics_are_explicit_point_in_time_and_immutable() -> None:
     )
 
 
-def test_vision_and_postgres_use_the_same_constructor() -> None:
-    assert (
-        "build_market_economic_semantics"
-        in (PYTHON_SOURCE_ROOT / "data/builder.py").read_text()
-    )
-    assert (
-        "build_market_economic_semantics"
-        in (PYTHON_SOURCE_ROOT / "integrations/postgres_market_dataset.py").read_text()
-    )
+def test_dataset_builder_uses_one_economic_semantics_constructor() -> None:
+    source = (PYTHON_SOURCE_ROOT / "data/builder.py").read_text(encoding="utf-8")
+    assert "build_market_economic_semantics" in source

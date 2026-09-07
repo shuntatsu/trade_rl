@@ -14,6 +14,8 @@ on:
       - "tests/docs/**"
       - "tests/test_current_documentation_contract.py"
       - "tests/test_causal_alpha_v3_documentation_contract.py"
+      - "pyproject.toml"
+      - "uv.lock"
       - "mkdocs.yml"
       - ".github/workflows/docs.yml"
   push:
@@ -29,6 +31,8 @@ on:
       - "tests/docs/**"
       - "tests/test_current_documentation_contract.py"
       - "tests/test_causal_alpha_v3_documentation_contract.py"
+      - "pyproject.toml"
+      - "uv.lock"
       - "mkdocs.yml"
       - ".github/workflows/docs.yml"
 

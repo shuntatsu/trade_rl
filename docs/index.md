@@ -38,11 +38,11 @@ Source/Testとcurrent canonical documentが矛盾する場合は、都合の良�
 
 ## Agent routing
 
-Repository変更前はroot [`AGENTS.md`](../AGENTS.md)を読み、必要な文書が明らかでない場合は次を使います。
+Repository変更前はroot [`AGENTS.md`](../AGENTS.md)を読み、必要な文書が明らかでない場合は次を使います。Docs toolingは`dev` extraのPyYAMLを使うため、fresh cloneでも再現できるよう`--extra dev`を明示します。
 
 ```bash
-python scripts/docs/context.py --path trade_rl/path/to/file.py
-python scripts/docs/context.py --topic universal-rl
+uv run --extra dev python scripts/docs/context.py --path trade_rl/path/to/file.py
+uv run --extra dev python scripts/docs/context.py --topic universal-rl
 ```
 
 Historyは既定では返りません。設計経緯を調査するときだけ`--include-history`を明示します。

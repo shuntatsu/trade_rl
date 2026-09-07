@@ -84,9 +84,7 @@ def test_emergency_exit_bypasses_ordinary_turnover_limit() -> None:
     monitor = CausalEmergencyRiskMonitor(
         EmergencyRiskConfig(stop_loss_return=0.03, stop_loss_hours=1.0)
     )
-    emergency = monitor.assess(
-        dataset, index=dataset.n_bars - 1, weights=current
-    )
+    emergency = monitor.assess(dataset, index=dataset.n_bars - 1, weights=current)
     risk = PreTradeRisk(
         PreTradeRiskConfig(
             max_turnover=0.0,

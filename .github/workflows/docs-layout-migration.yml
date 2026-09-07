@@ -1,0 +1,65 @@
+name: One-time documentation layout migration
+
+on:
+  push:
+    branches:
+      - docs/full-governance-site
+    paths:
+      - "scripts/docs/migrate_layout_references.py"
+      - "tests/docs/test_layout_reference_migration.py"
+      - ".github/workflows/docs-layout-migration.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: docs/full-governance-site
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install development dependencies
+        run: uv sync --extra dev
+
+      - name: Verify migration contract before applying
+        run: uv run pytest -q tests/docs/test_layout_reference_migration.py
+
+      - name: Apply explicit reference migration
+        run: uv run python scripts/docs/migrate_layout_references.py
+
+      - name: Validate migrated current documentation
+        run: uv run python scripts/docs/validate.py
+
+      - name: Remove one-time migration machinery
+        run: |
+          git rm .github/workflows/docs-layout-migration.yml
+          git rm scripts/docs/migrate_layout_references.py
+          git rm tests/docs/test_layout_reference_migration.py
+
+      - name: Verify migration diff
+        run: |
+          git diff --check
+          git status --short
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "Migration produced no changes" >&2
+            exit 1
+          fi
+
+      - name: Commit and push migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: apply governed layout reference migration"
+          git push origin HEAD:docs/full-governance-site

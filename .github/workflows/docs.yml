@@ -35,12 +35,14 @@ permissions:
 
 concurrency:
   group: docs-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  governance-contract:
-    name: Documentation governance contract
+  build:
+    name: Documentation build and governance
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout exact head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -57,5 +59,40 @@ jobs:
       - name: Install documentation test dependencies
         run: uv sync --extra dev
 
-      - name: Documentation governance RED/GREEN contracts
+      - name: Documentation governance contracts
         run: uv run pytest -q tests/docs
+
+      - name: Validate documentation authority and links
+        run: uv run python scripts/docs/validate.py
+
+      - name: Generate manifest and site staging
+        run: uv run python scripts/docs/generate.py
+
+      - name: Build strict Zensical site
+        run: uvx --from zensical==0.0.59 zensical build --strict
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
+        with:
+          path: site
+          retention-days: 1
+
+  deploy:
+    name: Deploy documentation to GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
+
+      - name: Deploy GitHub Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e

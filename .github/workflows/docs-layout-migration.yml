@@ -43,9 +43,9 @@ jobs:
 
       - name: Remove one-time migration machinery
         run: |
-          git rm .github/workflows/docs-layout-migration.yml
-          git rm scripts/docs/migrate_layout_references.py
-          git rm tests/docs/test_layout_reference_migration.py
+          git rm -f .github/workflows/docs-layout-migration.yml
+          git rm -f scripts/docs/migrate_layout_references.py
+          git rm -f tests/docs/test_layout_reference_migration.py
 
       - name: Verify migration diff
         run: |

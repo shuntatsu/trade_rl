@@ -35,6 +35,7 @@ FOLDER_TYPES = {
     "legal": "legal",
     "history": "history",
 }
+_AGENT_INSTRUCTION_NAME = "AGENTS.md"
 _LINK_PATTERN = re.compile(r"\[[^\]]+\]\((?!https?://|mailto:|#)([^)]+)\)")
 
 
@@ -42,7 +43,7 @@ def _load_documents(docs_root: Path) -> tuple[tuple[DocumentMetadata, ...], tupl
     documents: list[DocumentMetadata] = []
     errors: list[str] = []
     for path in sorted(docs_root.rglob("*.md"), key=lambda item: item.as_posix()):
-        if not path.is_file():
+        if not path.is_file() or path.name == _AGENT_INSTRUCTION_NAME:
             continue
         try:
             documents.append(load_effective_metadata(path, docs_root))

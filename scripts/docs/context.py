@@ -44,7 +44,9 @@ def documents_for_path(
         document
         for document in documents
         if (include_history or document.lifecycle != "historical")
-        and any(_matches_path(pattern, changed_path) for pattern in document.related_code)
+        and any(
+            _matches_path(pattern, changed_path) for pattern in document.related_code
+        )
     ]
     return tuple(sorted(matches, key=_sort_key))
 
@@ -78,7 +80,9 @@ def _print_documents(documents: tuple[DocumentMetadata, ...]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Resolve Trade RL documentation context")
+    parser = argparse.ArgumentParser(
+        description="Resolve Trade RL documentation context"
+    )
     selector = parser.add_mutually_exclusive_group(required=True)
     selector.add_argument("--path", dest="changed_path")
     selector.add_argument("--topic")

@@ -7,7 +7,9 @@ from pathlib import Path
 
 def test_universal_trade_rl_u0_documentation_matches_phase_firewall() -> None:
     root = Path(__file__).resolve().parents[2]
-    documentation = (root / "docs/reference/universal-trade-rl.md").read_text(encoding="utf-8")
+    documentation = (root / "docs/reference/universal-trade-rl.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "TRAIN\n  evaluate = none\n  fit      = Train" in documentation
     assert "DEVELOPMENT\n  evaluate = Development\n  fit      = Train" in documentation

@@ -21,5 +21,7 @@ def test_agent_context_commands_use_declared_docs_dependencies() -> None:
     required = "uv run --extra dev python scripts/docs/context.py"
     root_agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     docs_agents = (ROOT / "docs" / "AGENTS.md").read_text(encoding="utf-8")
+    docs_portal = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
     assert required in root_agents
     assert required in docs_agents
+    assert required in docs_portal

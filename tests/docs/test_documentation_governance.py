@@ -63,6 +63,25 @@ def test_obsolete_mixed_authority_document_roots_are_removed() -> None:
     assert remaining == []
 
 
+def test_current_docs_do_not_reference_obsolete_history_roots() -> None:
+    from scripts.docs.metadata import discover_documents
+
+    obsolete = (
+        "docs/implementation/",
+        "docs/implementation-plans/",
+        "docs/architecture/",
+    )
+    offenders: list[str] = []
+    for document in discover_documents(ROOT / "docs"):
+        if document.lifecycle != "current":
+            continue
+        text = (ROOT / "docs" / document.path).read_text(encoding="utf-8")
+        for marker in obsolete:
+            if marker in text:
+                offenders.append(f"docs/{document.path.as_posix()}: {marker}")
+    assert offenders == []
+
+
 def test_generated_documentation_outputs_are_gitignored() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
     ignored = {line.strip() for line in gitignore.splitlines()}

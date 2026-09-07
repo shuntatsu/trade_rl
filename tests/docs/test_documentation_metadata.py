@@ -22,7 +22,9 @@ def _require_tooling() -> None:
         ROOT / "scripts" / "docs" / "validate.py",
         ROOT / "scripts" / "docs" / "context.py",
     )
-    missing = [path.relative_to(ROOT).as_posix() for path in required if not path.is_file()]
+    missing = [
+        path.relative_to(ROOT).as_posix() for path in required if not path.is_file()
+    ]
     assert missing == []
 
 

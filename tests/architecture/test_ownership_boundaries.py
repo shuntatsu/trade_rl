@@ -226,7 +226,9 @@ def test_market_walk_forward_has_no_dynamic_core_facade() -> None:
 
 def test_documentation_and_ci_match_the_maintained_contracts() -> None:
     architecture = (ROOT / "docs/reference/architecture.md").read_text(encoding="utf-8")
-    configuration = (ROOT / "docs/reference/configuration.md").read_text(encoding="utf-8")
+    configuration = (ROOT / "docs/reference/configuration.md").read_text(
+        encoding="utf-8"
+    )
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     for text in (architecture, configuration):
         assert "sb3_policy_identity_v4" in text

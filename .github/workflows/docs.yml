@@ -1,0 +1,61 @@
+name: Documentation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "AGENTS.md"
+      - "README.md"
+      - "START.md"
+      - "docs/**"
+      - "scripts/docs/**"
+      - "tests/docs/**"
+      - "tests/test_current_documentation_contract.py"
+      - "tests/test_causal_alpha_v3_documentation_contract.py"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "AGENTS.md"
+      - "README.md"
+      - "START.md"
+      - "docs/**"
+      - "scripts/docs/**"
+      - "tests/docs/**"
+      - "tests/test_current_documentation_contract.py"
+      - "tests/test_causal_alpha_v3_documentation_contract.py"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  governance-contract:
+    name: Documentation governance contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install documentation test dependencies
+        run: uv sync --extra dev
+
+      - name: Documentation governance RED/GREEN contract
+        run: uv run pytest -q tests/docs/test_documentation_governance.py

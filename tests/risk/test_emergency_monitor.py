@@ -7,10 +7,6 @@ import numpy as np
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk.emergency import CausalEmergencyRiskMonitor, EmergencyRiskConfig
 from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
-from trade_rl.rl.environment import ResidualMarketEnv, ResidualMarketEnvConfig
-from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.strategies.trend import TrendConfig, TrendStrategy
 
 
 def market_with_last_bar_shock() -> MarketDataset:
@@ -82,36 +78,30 @@ def test_gap_and_untradable_checks_are_symbol_local() -> None:
     assert set(result.reasons) == {"untradable:BTC", "gap:ETH"}
 
 
-def test_environment_emergency_exit_bypasses_ordinary_turnover_limit() -> None:
+def test_emergency_exit_bypasses_ordinary_turnover_limit() -> None:
     dataset = market_with_last_bar_shock()
-    env = ResidualMarketEnv(
-        dataset,
-        trend_strategy=TrendStrategy(
-            TrendConfig(fast_lookback=2, base_lookback=4, slow_lookback=8)
-        ),
-        pre_trade_risk=PreTradeRisk(
-            PreTradeRiskConfig(max_turnover=0.0, max_abs_weight=1.0)
-        ),
-        config=ResidualMarketEnvConfig(
-            initial_capital=100_000.0,
-            episode_bars=4,
-            decision_every=1,
-            emergency_risk=EmergencyRiskConfig(
-                stop_loss_return=0.03,
-                stop_loss_hours=1.0,
-            ),
-            execution_cost=ExecutionCostConfig.zero(),
-        ),
+    current = np.array([0.40, 0.0])
+    monitor = CausalEmergencyRiskMonitor(
+        EmergencyRiskConfig(stop_loss_return=0.03, stop_loss_hours=1.0)
     )
-    env.current_index = dataset.n_bars - 1
-    book = BookState.from_weights(
-        weights=np.array([0.40, 0.0]),
-        capital=100_000.0,
-        prices=dataset.close[-1],
+    emergency = monitor.assess(
+        dataset, index=dataset.n_bars - 1, weights=current
+    )
+    risk = PreTradeRisk(
+        PreTradeRiskConfig(
+            max_turnover=0.0,
+            max_abs_weight=1.0,
+            max_gross=1.0,
+        )
     )
 
-    result = env._constrain_target(np.array([0.40, 0.0]), book)
+    result = risk.constrain(
+        current,
+        current=current,
+        drawdown=0.0,
+        emergency_flatten_mask=emergency.flatten_mask,
+    )
 
     np.testing.assert_array_equal(result.weights, np.zeros(2))
-    assert "stop_loss:BTC" in result.reasons
+    assert "emergency_flatten" in result.reasons
     assert result.turnover_overridden is True

@@ -365,8 +365,10 @@ def test_ci_explicitly_runs_recovery_and_structured_serving_smokes() -> None:
 
 
 def test_architecture_docs_state_current_research_and_runtime_boundaries() -> None:
-    architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
-    research = (ROOT / "docs" / "MULTITIMEFRAME_RESEARCH.md").read_text(
+    architecture = (ROOT / "docs" / "reference" / "architecture.md").read_text(
+        encoding="utf-8"
+    )
+    research = (ROOT / "docs" / "research" / "multi-timeframe.md").read_text(
         encoding="utf-8"
     )
     runbook = (ROOT / "docs" / "operations" / "docker-gpu-full-training.md").read_text(

@@ -53,7 +53,7 @@ Page固有のgovernance metadataは、内容を散らさず管理できる場合
 
 ## Updating existing docs
 
-実装変更時は`python scripts/docs/context.py --path ...`でcandidate ownerを確認します。Document移動時はcurrent relative links、root `README.md` / `START.md`、tests、workflows、Agent instructionsも検索してください。
+実装変更時は`uv run --extra dev python scripts/docs/context.py --path ...`でcandidate ownerを確認します。Document移動時はcurrent relative links、root `README.md` / `START.md`、tests、workflows、Agent instructionsも検索してください。
 
 `docs/index.md`は全current sectionへのportalです。各section `index.md`はそのsectionの全current content pageへlinkします。Current pageを追加してindexへ載せ忘れるとorphan contractがfailします。
 
@@ -71,9 +71,9 @@ Generated outputを手編集してSource of Truthにしないでください。
 ## Required checks
 
 ```bash
-uv run pytest -q tests/docs
-uv run python scripts/docs/validate.py
-uv run python scripts/docs/generate.py
+uv run --extra dev pytest -q tests/docs
+uv run --extra dev python scripts/docs/validate.py
+uv run --extra dev python scripts/docs/generate.py
 uvx --from zensical==0.0.59 zensical build --strict
 ```
 

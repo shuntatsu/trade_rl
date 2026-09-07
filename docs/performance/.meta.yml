@@ -1,4 +1,7 @@
 doc_type: performance
 authority: evidence
-topics:
-  - performance
+topics: [performance]
+pages:
+  4070ti-super-full-training.md:
+    topics: [performance, gpu, 4070ti-super, training]
+    related_code: [docker/]

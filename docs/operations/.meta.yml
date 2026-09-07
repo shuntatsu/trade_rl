@@ -1,3 +1,15 @@
 doc_type: runbook
-topics:
-  - operations
+topics: [operations]
+pages:
+  docker-gpu-full-training.md:
+    authority: canonical
+    topics: [operations, docker, gpu, training]
+    source_of_truth_for: [operations-docker-gpu-training]
+    related_code: [docker/]
+    agent_read_when: [changing training images or GPU compose workflows]
+  causal-scenario-c3-execution.md:
+    authority: canonical
+    topics: [operations, causal-scenario, c3]
+    source_of_truth_for: [operations-causal-scenario-c3]
+    related_code: [scripts/]
+    agent_read_when: [changing C3 research execution scripts or workflow]

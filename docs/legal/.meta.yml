@@ -1,3 +1,15 @@
 doc_type: legal
-topics:
-  - legal
+topics: [legal]
+pages:
+  licensing.md:
+    authority: canonical
+    topics: [legal, licensing]
+    source_of_truth_for: [licensing]
+    related_code: [LICENSE]
+    agent_read_when: [changing repository license terms or notices]
+  licensing-provenance.md:
+    authority: canonical
+    topics: [legal, licensing, provenance]
+    source_of_truth_for: [licensing-provenance]
+    related_code: [LICENSES/]
+    agent_read_when: [changing license provenance or third-party notices]

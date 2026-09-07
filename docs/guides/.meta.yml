@@ -1,3 +1,9 @@
 doc_type: guide
-topics:
-  - guides
+topics: [guides]
+pages:
+  binance-data.md:
+    authority: canonical
+    topics: [guides, binance, market-data]
+    source_of_truth_for: [binance-public-data]
+    related_code: [trade_rl/data/]
+    agent_read_when: [changing Binance public data ingestion or dataset materialization]

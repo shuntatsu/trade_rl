@@ -1,3 +1,15 @@
 doc_type: research
-topics:
-  - research
+topics: [research]
+pages:
+  status.md:
+    authority: canonical
+    topics: [research, status, production-gate, evidence]
+    source_of_truth_for: [research-status]
+    related_code: [trade_rl/evaluation/, trade_rl/release/]
+    agent_read_when: [changing research stage states, promotion gates or release evidence]
+  multi-timeframe.md:
+    authority: canonical
+    topics: [research, multi-timeframe, sealed-evaluation]
+    source_of_truth_for: [multi-timeframe-research-boundary]
+    related_code: [trade_rl/data/, trade_rl/evaluation/]
+    agent_read_when: [changing multi-timeframe research phases or sealed evaluation boundaries]

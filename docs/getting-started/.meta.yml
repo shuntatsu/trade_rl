@@ -1,3 +1,9 @@
 doc_type: tutorial
-topics:
-  - getting-started
+topics: [getting-started]
+pages:
+  quickstart.md:
+    authority: canonical
+    topics: [getting-started, quickstart, training]
+    source_of_truth_for: [quickstart-workflow]
+    related_code: [examples/quickstart/, trade_rl/cli/]
+    agent_read_when: [changing quickstart examples, changing training CLI entry points]

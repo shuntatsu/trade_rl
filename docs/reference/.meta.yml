@@ -1,3 +1,57 @@
 doc_type: reference
-topics:
-  - reference
+topics: [reference]
+pages:
+  architecture.md:
+    authority: canonical
+    topics: [architecture, identity, boundaries]
+    source_of_truth_for: [runtime-architecture]
+    related_code: [trade_rl/domain/, trade_rl/artifacts/, trade_rl/catalog/, trade_rl/serving/]
+    agent_read_when: [changing package responsibilities, changing artifact or serving boundaries]
+  configuration.md:
+    authority: canonical
+    topics: [configuration, schema, compatibility]
+    source_of_truth_for: [training-configuration]
+    related_code: [trade_rl/cli/, examples/]
+    agent_read_when: [changing configuration schemas, changing maintained example configs]
+  single-symbol.md:
+    authority: canonical
+    topics: [single-symbol, action, identity]
+    source_of_truth_for: [single-symbol-contract]
+    related_code: [trade_rl/rl/]
+    agent_read_when: [changing maintained single-instrument action or environment contracts]
+  universal-trade-rl.md:
+    authority: canonical
+    topics: [universal-rl, u0, u1, u2]
+    source_of_truth_for: [universal-trade-rl-contract]
+    related_code: [trade_rl/workflows/]
+    agent_read_when: [changing U0 U1 U2 universe or development contracts]
+  universal-training.md:
+    authority: canonical
+    topics: [universal-rl, training, causal-teacher, u3, u4, u5, u6]
+    source_of_truth_for: [universal-training-contract]
+    related_code: [trade_rl/learning/, trade_rl/workflows/]
+    agent_read_when: [changing universal training, causal teacher, holdout admission, BC or warm start]
+  reward-objective.md:
+    authority: canonical
+    topics: [reward, risk, objective]
+    source_of_truth_for: [reward-semantics]
+    related_code: [trade_rl/risk/, trade_rl/rl/]
+    agent_read_when: [changing reward calculation or constraint cost semantics]
+  execution-robustness.md:
+    authority: canonical
+    topics: [execution, simulation, fills, robustness]
+    source_of_truth_for: [execution-model]
+    related_code: [trade_rl/simulation/, trade_rl/strategies/]
+    agent_read_when: [changing execution simulation, fill semantics or robustness assumptions]
+  run-reporting.md:
+    authority: canonical
+    topics: [reporting, artifacts, evidence]
+    source_of_truth_for: [run-reporting-contract]
+    related_code: [trade_rl/reporting/]
+    agent_read_when: [changing machine run reports or persisted reporting artifacts]
+  nautilus-migration.md:
+    authority: canonical
+    topics: [nautilus, compatibility, integration]
+    source_of_truth_for: [nautilus-compatibility]
+    related_code: [trade_rl/integrations/]
+    agent_read_when: [changing Nautilus integration or compatibility boundaries]

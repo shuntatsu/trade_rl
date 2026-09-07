@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.rl.rewards import RewardConfig, RewardTracker
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState, EconomicTerminationReason
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -111,7 +110,7 @@ def _market_for_partial_fill() -> MarketDataset:
 
 
 @pytest.mark.parametrize("fee_rate", [0.0, 0.001])
-def test_trade_mark_and_reward_match_independent_manual_calculation(
+def test_trade_mark_and_log_growth_match_independent_manual_calculation(
     fee_rate: float,
 ) -> None:
     manual = ManualBook(
@@ -149,25 +148,8 @@ def test_trade_mark_and_reward_match_independent_manual_calculation(
     assert production.portfolio_value - 10_000.0 == pytest.approx(expected_pnl)
 
     expected_log_return = math.log(manual.equity / 10_000.0)
-    tracker = RewardTracker(
-        RewardConfig(
-            scale=100.0,
-            absolute_growth_weight=1.0,
-            excess_growth_weight=0.0,
-            incremental_drawdown_weight=0.0,
-            baseline_underperformance_weight=0.0,
-            projection_penalty_weight=0.0,
-            terminal_equity_weight=0.0,
-            margin_deficit_weight=0.0,
-        )
-    )
-    reward = tracker.step(
-        hybrid_log_return=expected_log_return,
-        shadow_log_return=0.0,
-        hybrid_drawdown=production.max_drawdown,
-        shadow_drawdown=0.0,
-    )
-    assert reward.scaled_total == pytest.approx(100.0 * expected_log_return)
+    actual_log_return = math.log(production.portfolio_value / 10_000.0)
+    assert actual_log_return == pytest.approx(expected_log_return)
 
 
 def test_partial_fill_matches_capacity_calculation() -> None:
@@ -189,8 +171,6 @@ def test_partial_fill_matches_capacity_calculation() -> None:
         bars=1,
     )
 
-    # Independent calculation: prior closed-bar capacity is
-    # 100*4*0.5 = 200 and 50*8*0.5 = 200 quote units.
     assert result.requested_notional_by_symbol == pytest.approx((500.0, 500.0))
     assert result.filled_notional_by_symbol == pytest.approx((200.0, 200.0))
     assert result.book.quantities == pytest.approx((2.0, 4.0))

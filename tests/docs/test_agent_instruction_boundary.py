@@ -15,3 +15,11 @@ def test_docs_scoped_agent_instructions_are_not_site_documents() -> None:
 
     documents = discover_documents(ROOT / "docs")
     assert "AGENTS.md" not in {document.path.as_posix() for document in documents}
+
+
+def test_agent_context_commands_use_declared_docs_dependencies() -> None:
+    required = "uv run --extra dev python scripts/docs/context.py"
+    root_agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    docs_agents = (ROOT / "docs" / "AGENTS.md").read_text(encoding="utf-8")
+    assert required in root_agents
+    assert required in docs_agents

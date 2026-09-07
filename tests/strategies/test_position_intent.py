@@ -6,9 +6,13 @@ from trade_rl.strategies.position_intent import PositionIntent, target_weight_fo
 
 
 def test_position_intent_maps_to_one_symmetric_budget() -> None:
-    assert target_weight_for_intent(PositionIntent.SHORT, gross_budget=0.10) == pytest.approx(-0.10)
+    assert target_weight_for_intent(
+        PositionIntent.SHORT, gross_budget=0.10
+    ) == pytest.approx(-0.10)
     assert target_weight_for_intent(PositionIntent.FLAT, gross_budget=0.10) == 0.0
-    assert target_weight_for_intent(PositionIntent.LONG, gross_budget=0.10) == pytest.approx(0.10)
+    assert target_weight_for_intent(
+        PositionIntent.LONG, gross_budget=0.10
+    ) == pytest.approx(0.10)
 
 
 def test_position_intent_rejects_invalid_budget() -> None:

@@ -39,7 +39,9 @@ _AGENT_INSTRUCTION_NAME = "AGENTS.md"
 _LINK_PATTERN = re.compile(r"\[[^\]]+\]\((?!https?://|mailto:|#)([^)]+)\)")
 
 
-def _load_documents(docs_root: Path) -> tuple[tuple[DocumentMetadata, ...], tuple[str, ...]]:
+def _load_documents(
+    docs_root: Path,
+) -> tuple[tuple[DocumentMetadata, ...], tuple[str, ...]]:
     documents: list[DocumentMetadata] = []
     errors: list[str] = []
     for path in sorted(docs_root.rglob("*.md"), key=lambda item: item.as_posix()):
@@ -186,7 +188,9 @@ def validate_documents(root: Path) -> tuple[str, ...]:
                         f"invalid related_code for {document.path.as_posix()}: {related}"
                     )
 
-    current = tuple(document for document in documents if document.lifecycle == "current")
+    current = tuple(
+        document for document in documents if document.lifecycle == "current"
+    )
     owners: dict[str, list[str]] = defaultdict(list)
     for document in current:
         if document.authority != "canonical":
@@ -219,7 +223,9 @@ def validate_documents(root: Path) -> tuple[str, ...]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Validate Trade RL documentation governance")
+    parser = argparse.ArgumentParser(
+        description="Validate Trade RL documentation governance"
+    )
     parser.add_argument("root", nargs="?", default=".")
     args = parser.parse_args(argv)
     errors = validate_documents(Path(args.root))

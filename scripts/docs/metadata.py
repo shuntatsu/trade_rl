@@ -8,6 +8,8 @@ import yaml
 
 from scripts.docs.model import DocumentMetadata
 
+_AGENT_INSTRUCTION_NAME = "AGENTS.md"
+
 
 def _mapping(value: object, *, source: Path) -> dict[str, object]:
     if value is None:
@@ -137,7 +139,9 @@ def discover_documents(docs_root: Path) -> tuple[DocumentMetadata, ...]:
         (
             path
             for path in docs_root.rglob("*.md")
-            if path.is_file() and ".docs-build" not in path.parts
+            if path.is_file()
+            and path.name != _AGENT_INSTRUCTION_NAME
+            and ".docs-build" not in path.parts
         ),
         key=lambda path: path.relative_to(docs_root).as_posix(),
     )

@@ -17,10 +17,6 @@ def target_weight_for_intent(
 ) -> float:
     if not isinstance(intent, PositionIntent):
         raise TypeError("intent must be PositionIntent")
-    if (
-        not math.isfinite(gross_budget)
-        or gross_budget <= 0.0
-        or gross_budget > 1.0
-    ):
+    if not math.isfinite(gross_budget) or gross_budget <= 0.0 or gross_budget > 1.0:
         raise ValueError("gross_budget must be finite and within (0, 1]")
     return float(intent) * gross_budget

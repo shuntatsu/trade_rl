@@ -31,11 +31,8 @@ def build_manifest(root: Path) -> dict[str, object]:
         "schema_version": "trade_rl_docs_manifest_v1",
         "documents": records,
         "canonical_owners": dict(sorted(canonical_owners.items())),
-        "topics": {
-            topic: sorted(paths) for topic, paths in sorted(topics.items())
-        },
+        "topics": {topic: sorted(paths) for topic, paths in sorted(topics.items())},
         "related_code": {
-            pattern: sorted(paths)
-            for pattern, paths in sorted(related_code.items())
+            pattern: sorted(paths) for pattern, paths in sorted(related_code.items())
         },
     }

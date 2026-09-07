@@ -33,7 +33,7 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev --extra train-sb3
+        run: uv sync --extra dev
 
       - name: Ruff
         run: >-

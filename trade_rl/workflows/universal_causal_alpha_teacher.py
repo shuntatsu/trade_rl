@@ -95,9 +95,7 @@ def _selection_rejection_progress_payload(
     """Mark rejection without replaying the last completed metric."""
 
     payload = {
-        key: value
-        for key, value in latest_progress.items()
-        if key != "episode_metric"
+        key: value for key, value in latest_progress.items() if key != "episode_metric"
     }
     payload.update(
         {

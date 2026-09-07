@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trade-rl"
 dynamic = ["version"]
-description = "Baseline-anchored residual reinforcement learning for portfolio research"
+description = "Lean causal trading research core"
 readme = "README.md"
 license = "LGPL-3.0-or-later"
 license-files = ["LICENSE", "LICENSES/*"]
@@ -18,24 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-studio = [
-    "fastapi>=0.128,<0.140",
-    "uvicorn>=0.48,<0.52",
-]
 train-sb3 = [
     "stable-baselines3==2.3.2",
-    "sb3-contrib==2.3.0",
     "torch==2.4.1",
-    "tensorboard>=2.17,<3",
-]
-postgres = [
-    "psycopg[binary]>=3.2,<4",
-]
-oracle = [
-    "scipy>=1.14,<1.18",
-]
-nautilus = [
-    "nautilus_trader==1.230.0",
 ]
 dev = [
     "pytest>=8.3.0",
@@ -43,22 +28,8 @@ dev = [
     "ruff>=0.15.0",
     "mypy>=1.14.0",
     "hypothesis>=6.120.0",
-    "import-linter>=2.1",
-    "vulture>=2.14",
-    "PyYAML==6.0.3",
-    "httpx2>=2.7,<3",
     "scipy>=1.14,<1.18",
-    "fastapi>=0.128,<0.140",
-    "uvicorn>=0.48,<0.52",
 ]
-export = [
-    "onnx==1.16.2",
-    "onnxruntime==1.18.1",
-]
-
-[project.scripts]
-trade-rl = "trade_rl.cli:main"
-trade-rl-universe = "trade_rl.workflows.universal_trade_rl_universe_runner:cli_main"
 
 [tool.setuptools.dynamic]
 version = {attr = "trade_rl._version.__version__"}
@@ -66,9 +37,6 @@ version = {attr = "trade_rl._version.__version__"}
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["trade_rl*"]
-
-[tool.setuptools.package-data]
-"trade_rl.catalog.sql" = ["*.sql"]
 
 [tool.uv]
 required-version = "==0.10.0"
@@ -87,11 +55,7 @@ known-first-party = ["trade_rl", "tests"]
 [tool.mypy]
 python_version = "3.12"
 files = ["trade_rl"]
-exclude = [
-    "^tests/",
-    "^examples/",
-    "^frontend/",
-]
+exclude = ["^tests/", "^examples/"]
 check_untyped_defs = true
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
@@ -107,13 +71,7 @@ pretty = true
 module = [
     "gymnasium.*",
     "stable_baselines3.*",
-    "sb3_contrib.*",
-    "onnx.*",
-    "onnxruntime.*",
     "torch.*",
-    "tensorboard.*",
-    "psycopg.*",
-    "nautilus_trader.*",
 ]
 ignore_missing_imports = true
 
@@ -121,326 +79,13 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "--strict-markers --strict-config"
-markers = [
-    "postgres: requires a live PostgreSQL test database",
-    "nautilus: requires the exact optional NautilusTrader runtime",
-]
 
 [tool.coverage.run]
 source = ["trade_rl"]
 branch = true
-omit = ["trade_rl/integrations/nautilus/*"]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
 fail_under = 80
 precision = 2
-
-[tool.trade_rl.critical_coverage]
-metric = "branch"
-target = 90.0
-
-[tool.trade_rl.critical_coverage.files]
-"trade_rl/simulation/accounting.py" = 93.0
-"trade_rl/simulation/execution.py" = 90.0
-"trade_rl/risk/pretrade.py" = 90.0
-"trade_rl/rl/rewards.py" = 97.0
-"trade_rl/evaluation/gates.py" = 100.0
-"trade_rl/evaluation/perfect_information_bound.py" = 100.0
-"trade_rl/evaluation/_perfect_information_lp.py" = 100.0
-"trade_rl/telemetry/_indexed_storage.py" = 72.1
-"trade_rl/rl/training_telemetry.py" = 78.5
-"trade_rl/rl/environment.py" = 85.0
-"trade_rl/rl/environment_observation_contract.py" = 100.0
-"trade_rl/rl/environment_provider_contract.py" = 100.0
-"trade_rl/rl/environment_runtime_services.py" = 100.0
-"trade_rl/rl/environment_portfolio_risk_contract.py" = 100.0
-"trade_rl/rl/environment_policy_schedule_contract.py" = 100.0
-"trade_rl/rl/environment_initial_state.py" = 100.0
-"trade_rl/rl/environment_reward_execution_resources.py" = 100.0
-"trade_rl/workflows/release_packaging.py" = 90.0
-"trade_rl/serving/training_environment.py" = 100.0
-
-[tool.trade_rl.critical_coverage.groups.artifacts]
-minimum = 90.0
-paths = [
-    "trade_rl/artifacts/codec.py",
-    "trade_rl/artifacts/run_manifest.py",
-    "trade_rl/artifacts/signals.py",
-    "trade_rl/artifacts/store.py",
-]
-
-[tool.trade_rl.critical_coverage.groups.serving]
-minimum = 90.0
-paths = [
-    "trade_rl/serving/bundle.py",
-    "trade_rl/serving/registry.py",
-    "trade_rl/serving/runtime.py",
-]
-
-[tool.trade_rl.critical_coverage.groups.environment_runtime]
-minimum = 64.0
-paths = [
-    "trade_rl/rl/environment_episode.py",
-    "trade_rl/rl/environment_execution.py",
-    "trade_rl/rl/environment_observation.py",
-    "trade_rl/rl/environment_transition.py",
-]
-
-[tool.trade_rl.critical_coverage.groups.environment_step_services]
-minimum = 86.8
-paths = [
-    "trade_rl/rl/environment_decision.py",
-    "trade_rl/rl/environment_risk.py",
-    "trade_rl/rl/environment_reward.py",
-    "trade_rl/rl/environment_info.py",
-]
-
-[tool.trade_rl.critical_coverage.groups.stateful_execution_services]
-minimum = 93.0
-paths = [
-    "trade_rl/simulation/stateful_runtime.py",
-    "trade_rl/simulation/stateful_bar_lifecycle.py",
-    "trade_rl/simulation/stateful_order_transitions.py",
-    "trade_rl/simulation/stateful_symbol_fills.py",
-]
-
-[tool.importlinter]
-root_package = "trade_rl"
-include_external_packages = true
-
-[[tool.importlinter.contracts]]
-id = "layers"
-name = "Trade RL responsibility layers"
-type = "layers"
-layers = [
-    "trade_rl.cli",
-    "trade_rl.operations",
-    "trade_rl.studio",
-    "trade_rl.reporting",
-    "trade_rl.workflows",
-    "trade_rl.integrations",
-    "trade_rl.serving",
-    "trade_rl.learning",
-    "trade_rl.rl",
-    "trade_rl.risk",
-    "trade_rl.simulation",
-    "trade_rl.strategies",
-    "trade_rl.data",
-    "trade_rl.catalog",
-    "trade_rl.evaluation",
-    "trade_rl.release",
-    "trade_rl.artifacts",
-    "trade_rl.telemetry",
-    "trade_rl.domain",
-]
-
-[[tool.importlinter.contracts]]
-id = "domain"
-name = "Domain remains standard-library only"
-type = "forbidden"
-source_modules = [
-    "trade_rl.domain",
-]
-forbidden_modules = [
-    "numpy",
-    "gymnasium",
-    "stable_baselines3",
-    "torch",
-    "trade_rl.telemetry",
-    "trade_rl.artifacts",
-    "trade_rl.release",
-    "trade_rl.evaluation",
-    "trade_rl.data",
-    "trade_rl.strategies",
-    "trade_rl.simulation",
-    "trade_rl.risk",
-    "trade_rl.rl",
-    "trade_rl.learning",
-    "trade_rl.serving",
-    "trade_rl.integrations",
-    "trade_rl.workflows",
-    "trade_rl.studio",
-    "trade_rl.operations",
-    "trade_rl.cli",
-]
-
-[[tool.importlinter.contracts]]
-id = "telemetry"
-name = "Telemetry remains diagnostic and standard-library only"
-type = "forbidden"
-source_modules = [
-    "trade_rl.telemetry",
-]
-forbidden_modules = [
-    "numpy",
-    "gymnasium",
-    "stable_baselines3",
-    "sb3_contrib",
-    "torch",
-    "psycopg",
-    "trade_rl.artifacts",
-    "trade_rl.release",
-    "trade_rl.evaluation",
-    "trade_rl.catalog",
-    "trade_rl.data",
-    "trade_rl.strategies",
-    "trade_rl.simulation",
-    "trade_rl.risk",
-    "trade_rl.rl",
-    "trade_rl.learning",
-    "trade_rl.serving",
-    "trade_rl.integrations",
-    "trade_rl.workflows",
-    "trade_rl.studio",
-    "trade_rl.operations",
-    "trade_rl.cli",
-]
-
-[[tool.importlinter.contracts]]
-id = "serving"
-name = "Serving cannot import training or workflows"
-type = "forbidden"
-source_modules = [
-    "trade_rl.serving",
-]
-forbidden_modules = [
-    "trade_rl.rl.training",
-    "trade_rl.workflows",
-    "trade_rl.integrations",
-    "stable_baselines3",
-]
-
-[[tool.importlinter.contracts]]
-id = "studio-workflows"
-name = "Studio cannot import workflow implementations"
-type = "forbidden"
-source_modules = [
-    "trade_rl.studio",
-]
-forbidden_modules = [
-    "trade_rl.workflows",
-]
-
-[[tool.importlinter.contracts]]
-id = "serving-export-implementation"
-name = "Serving cannot import the RL structured export implementation"
-type = "forbidden"
-source_modules = [
-    "trade_rl.serving",
-]
-forbidden_modules = [
-    "trade_rl.rl.structured_export",
-]
-
-[[tool.importlinter.contracts]]
-id = "release"
-name = "Release remains verification-only and below serving"
-type = "forbidden"
-source_modules = [
-    "trade_rl.release",
-]
-forbidden_modules = [
-    "trade_rl.evaluation",
-    "trade_rl.data",
-    "trade_rl.strategies",
-    "trade_rl.simulation",
-    "trade_rl.risk",
-    "trade_rl.rl",
-    "trade_rl.learning",
-    "trade_rl.serving",
-    "trade_rl.integrations",
-    "trade_rl.workflows",
-    "trade_rl.studio",
-    "trade_rl.operations",
-    "trade_rl.cli",
-    "stable_baselines3",
-    "sb3_contrib",
-    "torch",
-]
-
-[[tool.importlinter.contracts]]
-id = "learning-frameworks"
-name = "Learning contracts cannot depend on SB3 frameworks"
-type = "forbidden"
-source_modules = [
-    "trade_rl.learning",
-]
-forbidden_modules = [
-    "stable_baselines3",
-    "sb3_contrib",
-    "torch",
-]
-
-[[tool.importlinter.contracts]]
-id = "workflow-frameworks"
-name = "Workflows cannot directly import model frameworks"
-type = "forbidden"
-allow_indirect_imports = true
-source_modules = [
-    "trade_rl.workflows",
-]
-forbidden_modules = [
-    "stable_baselines3",
-    "sb3_contrib",
-    "torch",
-]
-
-[[tool.importlinter.contracts]]
-id = "training-core"
-name = "Training core remains framework independent"
-type = "forbidden"
-source_modules = [
-    "trade_rl.rl.training",
-]
-forbidden_modules = [
-    "gymnasium",
-    "stable_baselines3",
-    "sb3_contrib",
-    "torch",
-]
-
-[[tool.importlinter.contracts]]
-id = "offline-signers"
-name = "Runtime and training paths cannot import offline signers"
-type = "forbidden"
-source_modules = [
-    "trade_rl.serving",
-    "trade_rl.integrations",
-    "trade_rl.studio",
-    "trade_rl.operations",
-    "trade_rl.rl",
-    "trade_rl.workflows.training_run",
-    "trade_rl.workflows.market_walk_forward",
-]
-forbidden_modules = [
-    "trade_rl.release.offline_signing",
-    "trade_rl.release.offline_keys",
-    "trade_rl.release.offline_approval",
-    "trade_rl.evaluation.offline_confirmation",
-    "trade_rl.workflows.offline_selection_approval",
-]
-
-[[tool.importlinter.contracts]]
-id = "catalog-contracts"
-name = "Catalog contracts remain framework and adapter independent"
-type = "forbidden"
-source_modules = [
-    "trade_rl.catalog.contracts",
-]
-forbidden_modules = [
-    "numpy",
-    "gymnasium",
-    "stable_baselines3",
-    "sb3_contrib",
-    "torch",
-    "psycopg",
-    "trade_rl.data",
-    "trade_rl.rl",
-    "trade_rl.learning",
-    "trade_rl.integrations",
-    "trade_rl.workflows",
-    "trade_rl.operations",
-    "trade_rl.cli",
-]

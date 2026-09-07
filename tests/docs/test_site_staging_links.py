@@ -46,9 +46,7 @@ def test_site_staging_rewrites_repository_links_outside_docs_to_github(
     staged_page = (output / "site-src" / "reference" / "page.md").read_text(
         encoding="utf-8"
     )
-    assert (
-        "https://github.com/shuntatsu/trade_rl/blob/main/AGENTS.md" in staged_index
-    )
+    assert "https://github.com/shuntatsu/trade_rl/blob/main/AGENTS.md" in staged_index
     assert (
         "https://github.com/shuntatsu/trade_rl/blob/main/examples/demo.json"
         in staged_page

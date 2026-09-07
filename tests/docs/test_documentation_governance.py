@@ -63,6 +63,13 @@ def test_obsolete_mixed_authority_document_roots_are_removed() -> None:
     assert remaining == []
 
 
+def test_generated_documentation_outputs_are_gitignored() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    ignored = {line.strip() for line in gitignore.splitlines()}
+    assert "/site" in ignored
+    assert "/.docs-build/" in ignored
+
+
 def test_agent_bootstrap_routes_to_governed_documentation() -> None:
     agents = ROOT / "AGENTS.md"
     assert agents.is_file()

@@ -10,30 +10,38 @@ from tests.architecture.import_linter_config import (
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_SOURCE_ROOT = ROOT / "trade_rl"
 FRONTEND_ROOT = ROOT / "frontend"
+DOCS_ROOT = ROOT / "docs"
+
+ARCHITECTURE_DOCUMENT = DOCS_ROOT / "reference" / "architecture.md"
+CONFIGURATION_DOCUMENT = DOCS_ROOT / "reference" / "configuration.md"
+SINGLE_SYMBOL_DOCUMENT = DOCS_ROOT / "reference" / "single-symbol.md"
+UNIVERSAL_TRAINING_DOCUMENT = DOCS_ROOT / "reference" / "universal-training.md"
+RESEARCH_STATUS_DOCUMENT = DOCS_ROOT / "research" / "status.md"
 
 CURRENT_OPERATION_RUNBOOKS = (
-    ROOT / "docs" / "operations" / "causal-scenario-c3-execution.md",
-    ROOT / "docs" / "operations" / "docker-gpu-full-training.md",
+    DOCS_ROOT / "operations" / "causal-scenario-c3-execution.md",
+    DOCS_ROOT / "operations" / "docker-gpu-full-training.md",
 )
+OPERATIONS_INDEX = DOCS_ROOT / "operations" / "index.md"
 
 MAINTAINED_DOCUMENTS = (
     ROOT / "README.md",
     ROOT / "START.md",
-    ROOT / "docs" / "README.md",
-    ROOT / "docs" / "SINGLE_SYMBOL.md",
-    ROOT / "docs" / "UNIVERSAL_TRAINING.md",
-    ROOT / "docs" / "ARCHITECTURE.md",
-    ROOT / "docs" / "CONFIGURATION.md",
-    ROOT / "docs" / "RESEARCH_STATUS.md",
-    ROOT / "docs" / "REWARD_OBJECTIVE.md",
-    ROOT / "docs" / "EXECUTION_ROBUSTNESS.md",
-    ROOT / "docs" / "MULTITIMEFRAME_RESEARCH.md",
-    ROOT / "docs" / "BINANCE.md",
-    ROOT / "docs" / "NAUTILUS_MIGRATION.md",
-    ROOT / "docs" / "LICENSING.md",
-    ROOT / "docs" / "LICENSING_PROVENANCE.md",
+    DOCS_ROOT / "index.md",
+    SINGLE_SYMBOL_DOCUMENT,
+    UNIVERSAL_TRAINING_DOCUMENT,
+    ARCHITECTURE_DOCUMENT,
+    CONFIGURATION_DOCUMENT,
+    RESEARCH_STATUS_DOCUMENT,
+    DOCS_ROOT / "reference" / "reward-objective.md",
+    DOCS_ROOT / "reference" / "execution-robustness.md",
+    DOCS_ROOT / "research" / "multi-timeframe.md",
+    DOCS_ROOT / "guides" / "binance-data.md",
+    DOCS_ROOT / "reference" / "nautilus-migration.md",
+    DOCS_ROOT / "legal" / "licensing.md",
+    DOCS_ROOT / "legal" / "licensing-provenance.md",
     *CURRENT_OPERATION_RUNBOOKS,
-    ROOT / "docs" / "performance" / "4070ti-super-full-training.md",
+    DOCS_ROOT / "performance" / "4070ti-super-full-training.md",
     FRONTEND_ROOT / "README.md",
 )
 
@@ -52,12 +60,17 @@ def _configured_layers() -> tuple[str, ...]:
     return import_linter_layers()
 
 
-def _all_markdown() -> tuple[Path, ...]:
+def _all_current_markdown() -> tuple[Path, ...]:
+    current_docs = {
+        path
+        for path in DOCS_ROOT.rglob("*.md")
+        if "history" not in path.relative_to(DOCS_ROOT).parts
+    }
     paths = {
         ROOT / "README.md",
         ROOT / "START.md",
         FRONTEND_ROOT / "README.md",
-        *ROOT.joinpath("docs").rglob("*.md"),
+        *current_docs,
     }
     return tuple(sorted((path for path in paths if path.is_file()), key=str))
 
@@ -71,9 +84,10 @@ def test_maintained_documents_exist() -> None:
     assert missing == []
 
 
-def test_operations_directory_contains_only_current_runbooks() -> None:
-    actual = tuple(sorted((ROOT / "docs" / "operations").glob("*.md"), key=str))
-    assert actual == tuple(sorted(CURRENT_OPERATION_RUNBOOKS, key=str))
+def test_operations_directory_contains_index_and_only_current_runbooks() -> None:
+    actual = tuple(sorted((DOCS_ROOT / "operations").glob("*.md"), key=str))
+    expected = (*CURRENT_OPERATION_RUNBOOKS, OPERATIONS_INDEX)
+    assert actual == tuple(sorted(expected, key=str))
 
 
 def test_current_schema_contracts_are_documented() -> None:
@@ -83,9 +97,9 @@ def test_current_schema_contracts_are_documented() -> None:
     bundle_schema = _constant(
         PYTHON_SOURCE_ROOT / "serving" / "bundle.py", "SERVING_BUNDLE_SCHEMA"
     )
-    architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
-    configuration = _text(ROOT / "docs" / "CONFIGURATION.md")
-    single_symbol = _text(ROOT / "docs" / "SINGLE_SYMBOL.md")
+    architecture = _text(ARCHITECTURE_DOCUMENT)
+    configuration = _text(CONFIGURATION_DOCUMENT)
+    single_symbol = _text(SINGLE_SYMBOL_DOCUMENT)
     for value in (observation_schema, bundle_schema):
         assert value in architecture
     for value in (
@@ -153,7 +167,7 @@ def test_maintained_reference_docs_do_not_depend_on_transient_pr_numbers() -> No
 
 
 def test_universal_training_documents_checkpoint_generator_identity() -> None:
-    universal = _text(ROOT / "docs" / "UNIVERSAL_TRAINING.md")
+    universal = _text(UNIVERSAL_TRAINING_DOCUMENT)
     for phrase in (
         "generator_code_digest",
         "grid_digest",
@@ -166,7 +180,7 @@ def test_universal_training_documents_checkpoint_generator_identity() -> None:
 def test_operator_runbooks_use_current_training_schema() -> None:
     for path in (
         ROOT / "START.md",
-        ROOT / "docs" / "operations" / "docker-gpu-full-training.md",
+        DOCS_ROOT / "operations" / "docker-gpu-full-training.md",
     ):
         text = _text(path)
         assert "training_run_config_v4" in text
@@ -179,7 +193,7 @@ def test_operator_runbooks_use_current_training_schema() -> None:
 
 
 def test_research_status_has_timeless_heading_and_explicit_stage_boundaries() -> None:
-    research_status = _text(ROOT / "docs" / "RESEARCH_STATUS.md")
+    research_status = _text(RESEARCH_STATUS_DOCUMENT)
     assert "## Current status\n" in research_status
     assert "## Current status —" not in research_status
     for boundary in (
@@ -191,7 +205,7 @@ def test_research_status_has_timeless_heading_and_explicit_stage_boundaries() ->
 
 
 def test_legacy_settings_are_only_documented_as_rejected_inputs() -> None:
-    configuration = _text(ROOT / "docs" / "CONFIGURATION.md")
+    configuration = _text(CONFIGURATION_DOCUMENT)
     for legacy in (
         "training_run_config_v1",
         "sequence_encoder",
@@ -202,7 +216,7 @@ def test_legacy_settings_are_only_documented_as_rejected_inputs() -> None:
         assert legacy in configuration
     assert "自動変換しません" in configuration
     for path in MAINTAINED_DOCUMENTS:
-        if path.name == "CONFIGURATION.md":
+        if path == CONFIGURATION_DOCUMENT:
             continue
         text = _text(path)
         assert "sequence_encoder" not in text
@@ -212,7 +226,7 @@ def test_legacy_settings_are_only_documented_as_rejected_inputs() -> None:
 
 
 def test_architecture_layer_order_matches_import_linter() -> None:
-    architecture = _text(ROOT / "docs" / "ARCHITECTURE.md")
+    architecture = _text(ARCHITECTURE_DOCUMENT)
     configured = tuple(
         layer.removeprefix("trade_rl.") for layer in _configured_layers()
     )
@@ -252,7 +266,7 @@ def test_postgres_is_described_as_metadata_catalog() -> None:
         _text(path)
         for path in (
             ROOT / "README.md",
-            ROOT / "docs" / "ARCHITECTURE.md",
+            ARCHITECTURE_DOCUMENT,
         )
     ).lower()
     assert "metadata catalog" in combined
@@ -275,12 +289,12 @@ def test_readme_is_a_bounded_entry_point() -> None:
     assert "[ドキュメント一覧](docs/index.md)" in readme
 
 
-def test_internal_markdown_links_resolve() -> None:
+def test_current_internal_markdown_links_resolve() -> None:
     link_pattern = re.compile(
         r"\[[^\]]+\]\((?!https?://|#|mailto:)([^)#]+)(?:#[^)]+)?\)"
     )
     broken: list[str] = []
-    for document in _all_markdown():
+    for document in _all_current_markdown():
         text = _text(document)
         for target in link_pattern.findall(text):
             resolved = (document.parent / target).resolve()

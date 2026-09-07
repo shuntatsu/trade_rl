@@ -1,0 +1,20 @@
+{
+  "schema_version": "universal_trade_rl_universe_config_v1",
+  "train_symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+  ],
+  "development_symbols": [
+    "LINKUSDT"
+  ],
+  "admission_symbols": [
+    "AVAXUSDT"
+  ],
+  "excluded_symbols": [
+    {
+      "symbol": "LUNA2USDT",
+      "reason": "insufficient_contiguous_history"
+    }
+  ]
+}

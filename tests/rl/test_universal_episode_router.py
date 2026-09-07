@@ -24,8 +24,11 @@ def _router(*, environment_index: int = 0) -> DeterministicBalancedInstrumentRou
     )
 
 
-def test_router_uses_every_symbol_once_before_repetition() -> None:
-    router = _router()
+@pytest.mark.parametrize("environment_index", [0, 1, 7])
+def test_router_uses_every_symbol_once_before_repetition(
+    environment_index: int,
+) -> None:
+    router = _router(environment_index=environment_index)
     count = len(router.train_symbols)
 
     first_cycle = tuple(router.route(index) for index in range(count))

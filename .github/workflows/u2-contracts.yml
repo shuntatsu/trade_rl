@@ -1,0 +1,179 @@
+name: U2 Contracts
+
+# Exact-head gate for the frozen pre-Development closure, Selection, replay authority, and final verification after documentation ownership repair.
+on:
+  pull_request:
+    paths:
+      - "trade_rl/workflows/universal_trade_rl_u2_*.py"
+      - "tests/rl/test_universal_trade_u2_*.py"
+      - "tests/workflows/test_universal_trade_rl_u2_*.py"
+      - "tests/integrations/test_universal_trade_rl_u2_*.py"
+      - ".github/workflows/u2-contracts.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: u2-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: U2 Contract Regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install contract dependencies
+        run: uv sync --extra dev --extra train-sb3
+
+      - name: Verify U2 contract sources and tests are formatted
+        run: >-
+          uv run ruff format --check --diff
+          trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
+          trade_rl/workflows/universal_trade_rl_u2_development_closure.py
+          trade_rl/workflows/universal_trade_rl_u2_development_authority.py
+          trade_rl/workflows/universal_trade_rl_u2_selection.py
+          trade_rl/workflows/universal_trade_rl_u2_replay.py
+          tests/workflows/test_universal_trade_rl_u2_time_partition.py
+          tests/workflows/test_universal_trade_rl_u2_evaluation.py
+          tests/workflows/test_universal_trade_rl_u2_evaluation_dataset.py
+          tests/workflows/test_universal_trade_rl_u2_replay_contract.py
+          tests/workflows/test_universal_trade_rl_u2_predevelopment.py
+          tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py
+          tests/workflows/test_universal_trade_rl_u2_development_closure.py
+          tests/workflows/test_universal_trade_rl_u2_development_authority.py
+          tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
+          tests/workflows/test_universal_trade_rl_u2_public_api.py
+          tests/workflows/test_universal_trade_rl_u2_selection.py
+          tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
+          tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
+          tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+          tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
+          tests/workflows/test_universal_trade_rl_u2_selection_final.py
+          tests/workflows/test_universal_trade_rl_u2_selection_failure_modes.py
+          tests/workflows/test_universal_trade_rl_u2_artifact_integrity_falsification.py
+          tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py
+          tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
+          tests/workflows/test_universal_trade_rl_u2_training_runtime.py
+          tests/rl/test_universal_trade_u2_binding_derivation.py
+          tests/rl/test_universal_trade_u2_seed_contract.py
+          tests/rl/test_universal_trade_u2_generation_identity.py
+          tests/rl/test_universal_trade_u2_shared_environment_identity.py
+          tests/rl/test_universal_trade_u2_environment.py
+          tests/rl/test_universal_trade_u2_environment_factory.py
+          tests/rl/test_universal_trade_u2_factory_lineage.py
+          tests/integrations/test_universal_trade_rl_u2_replay.py
+          tests/integrations/test_universal_trade_rl_u2_replay_runtime.py
+          tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
+          tests/integrations/test_universal_trade_rl_u2_replay_rng_isolation.py
+          tests/integrations/test_universal_trade_rl_u2_replay_crn.py
+          tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
+          tests/integrations/test_universal_trade_rl_u2_timeout_bootstrap.py
+
+      - name: Verify U2 pre-development source statically
+        run: >-
+          uv run ruff check
+          trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
+          trade_rl/workflows/universal_trade_rl_u2_development_closure.py
+          trade_rl/workflows/universal_trade_rl_u2_development_authority.py
+          trade_rl/workflows/universal_trade_rl_u2_selection.py
+          trade_rl/workflows/universal_trade_rl_u2_replay.py
+          tests/workflows/test_universal_trade_rl_u2_predevelopment.py
+          tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py
+          tests/workflows/test_universal_trade_rl_u2_development_closure.py
+          tests/workflows/test_universal_trade_rl_u2_development_authority.py
+          tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
+          tests/workflows/test_universal_trade_rl_u2_public_api.py
+          tests/workflows/test_universal_trade_rl_u2_selection.py
+          tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
+          tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
+          tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+          tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
+          tests/workflows/test_universal_trade_rl_u2_selection_final.py
+          tests/workflows/test_universal_trade_rl_u2_selection_failure_modes.py
+          tests/workflows/test_universal_trade_rl_u2_artifact_integrity_falsification.py
+          tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
+          tests/integrations/test_universal_trade_rl_u2_replay_crn.py
+          tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+          && uv run mypy
+          trade_rl/workflows/universal_trade_rl_u2_predevelopment.py
+          trade_rl/workflows/universal_trade_rl_u2_development_closure.py
+          trade_rl/workflows/universal_trade_rl_u2_development_authority.py
+          trade_rl/workflows/universal_trade_rl_u2_selection.py
+          trade_rl/workflows/universal_trade_rl_u2_replay.py
+
+      - name: U2 source FIT binding seed generation factory and Development scope contracts
+        run: >-
+          uv run pytest -q
+          tests/workflows/test_universal_trade_rl_u2_time_partition.py
+          tests/workflows/test_universal_trade_rl_u2_evaluation.py
+          tests/workflows/test_universal_trade_rl_u2_evaluation_dataset.py
+          tests/workflows/test_universal_trade_rl_u2_replay_contract.py
+          tests/workflows/test_universal_trade_rl_u2_predevelopment.py
+          tests/workflows/test_universal_trade_rl_u2_predevelopment_falsification.py
+          tests/workflows/test_universal_trade_rl_u2_development_closure.py
+          tests/workflows/test_universal_trade_rl_u2_development_authority.py
+          tests/workflows/test_universal_trade_rl_u2_development_boundary_falsification.py
+          tests/workflows/test_universal_trade_rl_u2_public_api.py
+          tests/workflows/test_universal_trade_rl_u2_selection.py
+          tests/workflows/test_universal_trade_rl_u2_selection_metrics.py
+          tests/workflows/test_universal_trade_rl_u2_selection_summary_integrity.py
+          tests/workflows/test_universal_trade_rl_u2_selection_gate.py
+          tests/workflows/test_universal_trade_rl_u2_selection_robustness.py
+          tests/workflows/test_universal_trade_rl_u2_selection_final.py
+          tests/workflows/test_universal_trade_rl_u2_selection_failure_modes.py
+          tests/workflows/test_universal_trade_rl_u2_artifact_integrity_falsification.py
+          tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_rejects_fit_grid_not_aligned_to_source_grid
+          tests/workflows/test_universal_trade_rl_u2_preflight_falsification.py::test_u2_training_source_exposes_exact_fit_indices
+          tests/workflows/test_universal_trade_rl_u2_fit_dataset.py
+          tests/rl/test_universal_trade_u2_binding_derivation.py
+          tests/rl/test_universal_trade_u2_seed_contract.py
+          tests/rl/test_universal_trade_u2_generation_identity.py
+          tests/rl/test_universal_trade_u2_shared_environment_identity.py
+          tests/rl/test_universal_trade_u2_environment.py
+          tests/rl/test_universal_trade_u2_environment_factory.py
+          tests/rl/test_universal_trade_u2_factory_lineage.py
+
+      - name: U2 deterministic Development replay integration
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_universal_trade_rl_u2_replay.py
+          tests/integrations/test_universal_trade_rl_u2_replay_runtime.py
+          tests/integrations/test_universal_trade_rl_u2_replay_evidence_contract.py
+          tests/integrations/test_universal_trade_rl_u2_replay_rng_isolation.py
+          tests/integrations/test_universal_trade_rl_u2_replay_crn.py
+          tests/integrations/test_universal_trade_rl_u2_selection_metrics_integration.py
+          tests/integrations/test_universal_trade_rl_u2_selection_pairing.py
+
+      - name: U2 fixed member orchestration contracts
+        run: >-
+          uv run pytest -q
+          tests/workflows/test_universal_trade_rl_u2_training.py
+          tests/workflows/test_universal_trade_rl_u2_training_runtime.py
+
+      - name: U2 maintained SB3 vector integration
+        run: >-
+          uv run pytest -q
+          tests/integrations/test_sb3_indexed_environment_factory.py
+          tests/integrations/test_universal_trade_rl_u2_vector_runtime.py
+          tests/integrations/test_universal_trade_rl_u2_timeout_bootstrap.py
+
+      - name: Generic router regressions
+        run: >-
+          uv run pytest -q
+          tests/rl/test_universal_episode_router.py
+          tests/rl/test_universal_training_contract_binding.py

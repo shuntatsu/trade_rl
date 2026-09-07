@@ -1,0 +1,47 @@
+{
+  "schema_version": "universal_trade_rl_source_catalog_v1",
+  "symbols": [
+    {
+      "symbol": "AVAXUSDT",
+      "dataset_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "first_timestamp_ns": 1704067200000000000,
+      "last_timestamp_ns": 1788134399000000000,
+      "row_count": 250000
+    },
+    {
+      "symbol": "BTCUSDT",
+      "dataset_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "first_timestamp_ns": 1704067200000000000,
+      "last_timestamp_ns": 1788134399000000000,
+      "row_count": 250000
+    },
+    {
+      "symbol": "ETHUSDT",
+      "dataset_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "first_timestamp_ns": 1704067200000000000,
+      "last_timestamp_ns": 1788134399000000000,
+      "row_count": 250000
+    },
+    {
+      "symbol": "LINKUSDT",
+      "dataset_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "first_timestamp_ns": 1704067200000000000,
+      "last_timestamp_ns": 1788134399000000000,
+      "row_count": 250000
+    },
+    {
+      "symbol": "LUNA2USDT",
+      "dataset_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "first_timestamp_ns": 1704067200000000000,
+      "last_timestamp_ns": 1788134399000000000,
+      "row_count": 250000
+    },
+    {
+      "symbol": "SOLUSDT",
+      "dataset_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "first_timestamp_ns": 1704067200000000000,
+      "last_timestamp_ns": 1788134399000000000,
+      "row_count": 250000
+    }
+  ]
+}

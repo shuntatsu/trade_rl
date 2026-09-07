@@ -7,6 +7,7 @@ import pytest
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.workflows.universal_causal_alpha_teacher import (
+    _selection_rejection_progress_payload,
     build_chronological_episode_partition,
     latest_complete_episode_split,
     validate_universal_causal_alpha_partitions,
@@ -120,3 +121,23 @@ def test_universal_scope_requires_one_partition_for_each_train_symbol() -> None:
             train_symbols=("AAAUSDT", "BBBUSDT"),
             partitions={"AAAUSDT": first},
         )
+
+
+def test_rejection_progress_does_not_replay_last_episode_metric() -> None:
+    payload = _selection_rejection_progress_payload(
+        {
+            "candidate_digest": "candidate",
+            "completed_replays": 12,
+            "episode_metric": {"artifact_digest": "metric"},
+            "symbol": "XRPUSDT",
+        },
+        "rejection",
+    )
+
+    assert payload == {
+        "candidate_digest": "candidate",
+        "completed_replays": 12,
+        "phase": "causal_teacher_selection_rejected",
+        "selection_rejection_digest": "rejection",
+        "symbol": "XRPUSDT",
+    }

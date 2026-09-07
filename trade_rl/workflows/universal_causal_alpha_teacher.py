@@ -89,6 +89,25 @@ def persist_causal_alpha_selection_rejection(
     )
 
 
+def _selection_rejection_progress_payload(
+    latest_progress: Mapping[str, object], rejection_digest: str
+) -> dict[str, object]:
+    """Mark rejection without replaying the last completed metric."""
+
+    payload = {
+        key: value
+        for key, value in latest_progress.items()
+        if key != "episode_metric"
+    }
+    payload.update(
+        {
+            "phase": "causal_teacher_selection_rejected",
+            "selection_rejection_digest": rejection_digest,
+        }
+    )
+    return payload
+
+
 def _selection_checkpoint_payload(
     metric: CausalAlphaCandidateEpisodeMetrics,
 ) -> dict[str, object]:
@@ -892,11 +911,7 @@ def build_universal_causal_alpha_teacher_package(
         )
         persist_causal_alpha_selection_rejection(rejection_path, rejection)
         persist_selection_progress(
-            {
-                **latest_progress,
-                "phase": "causal_teacher_selection_rejected",
-                "selection_rejection_digest": rejection.digest,
-            }
+            _selection_rejection_progress_payload(latest_progress, rejection.digest)
         )
         raise
     atomic_write_bytes(

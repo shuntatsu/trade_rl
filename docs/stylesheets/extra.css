@@ -1,0 +1,27 @@
+:root {
+  --trade-rl-content-width: 78rem;
+}
+
+.md-grid {
+  max-width: var(--trade-rl-content-width);
+}
+
+.md-typeset table:not([class]) {
+  display: table;
+  width: 100%;
+}
+
+.md-typeset pre > code {
+  white-space: pre;
+}
+
+.md-typeset blockquote {
+  border-inline-start-width: 0.2rem;
+}
+
+@media (max-width: 44.984375em) {
+  .md-typeset table:not([class]) {
+    display: block;
+    overflow-x: auto;
+  }
+}

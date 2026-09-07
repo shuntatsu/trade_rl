@@ -23,7 +23,11 @@ def _front_matter(path: Path) -> dict[str, object]:
     if not lines or lines[0].strip() != "---":
         return {}
     try:
-        end = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---")
+        end = next(
+            index
+            for index, line in enumerate(lines[1:], start=1)
+            if line.strip() == "---"
+        )
     except StopIteration as exc:
         raise ValueError(f"unterminated YAML front matter: {path}") from exc
     payload = yaml.safe_load("\n".join(lines[1:end]))
@@ -35,6 +39,22 @@ def _folder_metadata(path: Path) -> dict[str, object]:
         return {}
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     return _mapping(payload, source=path)
+
+
+def _page_metadata(
+    folder_metadata: dict[str, object],
+    *,
+    metadata_path: Path,
+    page_path: Path,
+) -> dict[str, object]:
+    pages_raw = folder_metadata.get("pages")
+    if pages_raw is None:
+        return {}
+    pages = _mapping(pages_raw, source=metadata_path)
+    page_raw = pages.get(page_path.name)
+    if page_raw is None:
+        return {}
+    return _mapping(page_raw, source=metadata_path)
 
 
 def _as_strings(value: object) -> tuple[str, ...]:
@@ -73,13 +93,22 @@ def _metadata_chain(path: Path, docs_root: Path) -> tuple[Path, ...]:
 
 
 def load_effective_metadata(path: Path, docs_root: Path) -> DocumentMetadata:
-    """Load inherited folder metadata and page front matter deterministically."""
+    """Load folder defaults, page-map metadata, then page front matter."""
 
     path = path.resolve()
     docs_root = docs_root.resolve()
     merged: dict[str, object] = {}
     for metadata_path in _metadata_chain(path, docs_root):
-        merged.update(_folder_metadata(metadata_path))
+        folder = _folder_metadata(metadata_path)
+        merged.update({key: value for key, value in folder.items() if key != "pages"})
+        if metadata_path.parent.resolve() == path.parent.resolve():
+            merged.update(
+                _page_metadata(
+                    folder,
+                    metadata_path=metadata_path,
+                    page_path=path,
+                )
+            )
     merged.update(_front_matter(path))
 
     nav_order_raw = merged.get("nav_order", 100)

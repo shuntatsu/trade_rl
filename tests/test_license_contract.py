@@ -37,8 +37,10 @@ def test_package_metadata_uses_same_spdx_license() -> None:
 
 
 def test_license_transition_has_provenance_and_notice_documents() -> None:
-    licensing = (ROOT / "docs" / "LICENSING.md").read_text(encoding="utf-8")
-    provenance = (ROOT / "docs" / "LICENSING_PROVENANCE.md").read_text(encoding="utf-8")
+    licensing = (ROOT / "docs" / "legal" / "licensing.md").read_text(encoding="utf-8")
+    provenance = (ROOT / "docs" / "legal" / "licensing-provenance.md").read_text(
+        encoding="utf-8"
+    )
     notices = (ROOT / "LICENSES" / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
 
     assert SPDX_ID in licensing

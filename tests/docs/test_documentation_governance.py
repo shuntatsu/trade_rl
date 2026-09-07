@@ -15,7 +15,9 @@ def test_documentation_governance_infrastructure_exists() -> None:
         ROOT / "scripts" / "docs" / "validate.py",
         ROOT / "scripts" / "docs" / "context.py",
     )
-    missing = [path.relative_to(ROOT).as_posix() for path in required if not path.is_file()]
+    missing = [
+        path.relative_to(ROOT).as_posix() for path in required if not path.is_file()
+    ]
     assert missing == []
 
 
@@ -39,7 +41,9 @@ def test_current_documentation_uses_intent_and_authority_layout() -> None:
         ROOT / "docs" / "legal" / "licensing-provenance.md",
         ROOT / "docs" / "history" / "index.md",
     )
-    missing = [path.relative_to(ROOT).as_posix() for path in required if not path.is_file()]
+    missing = [
+        path.relative_to(ROOT).as_posix() for path in required if not path.is_file()
+    ]
     assert missing == []
 
 
@@ -53,7 +57,9 @@ def test_obsolete_mixed_authority_document_roots_are_removed() -> None:
         ROOT / "docs" / "RESEARCH_STATUS.md",
         ROOT / "docs" / "UNIVERSAL_TRAINING.md",
     )
-    remaining = [path.relative_to(ROOT).as_posix() for path in obsolete if path.exists()]
+    remaining = [
+        path.relative_to(ROOT).as_posix() for path in obsolete if path.exists()
+    ]
     assert remaining == []
 
 

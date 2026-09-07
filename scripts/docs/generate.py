@@ -7,15 +7,31 @@ import shutil
 import sys
 from pathlib import Path
 
+import yaml
+
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.docs.manifest import build_manifest
 from scripts.docs.metadata import discover_documents
+from scripts.docs.model import DocumentMetadata
 from scripts.docs.validate import validate_documents
 
 _REPOSITORY_URL = "https://github.com/shuntatsu/trade_rl"
 _LINK_PATTERN = re.compile(r"(\[[^\]]+\]\()([^)]+)(\))")
+_FRONT_MATTER_PATTERN = re.compile(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n)?", re.DOTALL)
+_GOVERNANCE_FRONT_MATTER_KEYS = frozenset(
+    {
+        "doc_type",
+        "lifecycle",
+        "authority",
+        "topics",
+        "source_of_truth_for",
+        "related_code",
+        "agent_read_when",
+        "nav_order",
+    }
+)
 
 
 def _github_repository_url(root: Path, resolved: Path) -> str:
@@ -75,14 +91,53 @@ def _rewrite_site_links(
     return _LINK_PATTERN.sub(replace, text)
 
 
+def _split_front_matter(text: str) -> tuple[dict[str, object], str]:
+    match = _FRONT_MATTER_PATTERN.match(text)
+    if match is None:
+        return {}, text
+    payload = yaml.safe_load(match.group(1))
+    if payload is None:
+        metadata: dict[str, object] = {}
+    elif isinstance(payload, dict):
+        metadata = {str(key): value for key, value in payload.items()}
+    else:
+        raise ValueError("page front matter must be a mapping")
+    return metadata, text[match.end() :]
+
+
+def _site_markdown(text: str, document: DocumentMetadata) -> str:
+    """Convert governance metadata into presentation-only site front matter."""
+
+    source_metadata, body = _split_front_matter(text)
+    presentation = {
+        key: value
+        for key, value in source_metadata.items()
+        if key not in _GOVERNANCE_FRONT_MATTER_KEYS and key != "tags"
+    }
+    presentation["title"] = document.title
+    if document.description:
+        presentation["description"] = document.description
+    presentation["tags"] = list(document.topics)
+
+    encoded = yaml.safe_dump(
+        presentation,
+        allow_unicode=True,
+        sort_keys=False,
+    ).rstrip()
+    return f"---\n{encoded}\n---\n\n{body.lstrip()}"
+
+
 def _copy_current_source(root: Path, site_src: Path) -> None:
     docs_root = root / "docs"
     documents = discover_documents(docs_root)
-    current_paths = {
-        document.path for document in documents if document.lifecycle == "current"
+    current = {
+        document.path: document
+        for document in documents
+        if document.lifecycle == "current"
     }
 
-    for relative in sorted(current_paths, key=lambda path: path.as_posix()):
+    for relative in sorted(current, key=lambda path: path.as_posix()):
+        document = current[relative]
         source = docs_root / relative
         target = site_src / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -92,10 +147,12 @@ def _copy_current_source(root: Path, site_src: Path) -> None:
             docs_root=docs_root,
             root=root,
         )
-        target.write_text(text, encoding="utf-8")
+        target.write_text(_site_markdown(text, document), encoding="utf-8")
 
     for source in sorted(docs_root.rglob("*"), key=lambda path: path.as_posix()):
         if not source.is_file() or source.suffix == ".md":
+            continue
+        if source.name == ".meta.yml":
             continue
         relative = source.relative_to(docs_root)
         if relative.parts and relative.parts[0] == "history":
@@ -115,6 +172,8 @@ def _history_catalog(root: Path) -> str:
         "---",
         "title: History catalog",
         "description: Historical design and verification archive; not current runtime authority.",
+        "tags:",
+        "  - history",
         "---",
         "",
         "# History catalog",
@@ -133,7 +192,17 @@ def _history_catalog(root: Path) -> str:
 def _topic_index(manifest: dict[str, object]) -> str:
     topics = manifest.get("topics", {})
     assert isinstance(topics, dict)
-    lines = ["# Topic index", ""]
+    lines = [
+        "---",
+        "title: Topic index",
+        "tags:",
+        "  - documentation",
+        "  - topics",
+        "---",
+        "",
+        "# Topic index",
+        "",
+    ]
     for topic, paths in sorted(topics.items()):
         lines.extend((f"## {topic}", ""))
         assert isinstance(paths, list)
@@ -152,7 +221,17 @@ def _topic_index(manifest: dict[str, object]) -> str:
 def _authority_index(manifest: dict[str, object]) -> str:
     owners = manifest.get("canonical_owners", {})
     assert isinstance(owners, dict)
-    lines = ["# Canonical authority index", ""]
+    lines = [
+        "---",
+        "title: Canonical authority index",
+        "tags:",
+        "  - documentation",
+        "  - authority",
+        "---",
+        "",
+        "# Canonical authority index",
+        "",
+    ]
     for key, path in sorted(owners.items()):
         lines.append(f"- `{key}` → [{path}](../{path})")
     lines.append("")

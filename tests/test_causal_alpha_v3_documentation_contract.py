@@ -91,9 +91,11 @@ def test_v3_docs_distinguish_authoritative_records_from_diagnostics_and_legacy_j
 
 def test_v3_docs_define_deterministic_machine_run_report_contract() -> None:
     reporting = _text("docs/reference/run-reporting.md").lower()
-    index = _text("docs/index.md").lower()
+    portal = _text("docs/index.md").lower()
+    reference_index = _text("docs/reference/index.md").lower()
 
-    assert "run_reporting.md" in index
+    assert "reference/index.md" in portal
+    assert "run-reporting.md" in reference_index
     for phrase in (
         "build_run_report.py",
         "machine run report",

@@ -84,7 +84,7 @@ boundary contract.
 
 Prior multi-asset artifacts remain immutable and readable. They are not
 silently converted, resumed or transferred into the maintained one-action
-policy. See `docs/implementation/legacy-multi-asset-inventory.md` for the
+policy. See `docs/history/legacy/implementation/legacy-multi-asset-inventory.md` for the
 classification of retained legacy code.
 
 Existing generations remain bound to their recorded source, image, configuration

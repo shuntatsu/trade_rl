@@ -246,7 +246,7 @@ policy_value = clip(z, -10.0, +10.0)
 
 を適用します。`normalizer_clip_value = 10.0`はstatic/precommittedで、Development / Admission結果を見て調整するparameterではありません。clip valueはnormalizer statistics identityとU1 artifact identityへbindします。
 
-Normative amendment: `docs/implementation-plans/specs/2026-09-03-universal-trade-rl-u1-normalization-clip-amendment.md`。
+Normative amendment: `docs/history/specs/2026-09-03-universal-trade-rl-u1-normalization-clip-amendment.md`。
 
 ## 14. U1 Reward contract
 

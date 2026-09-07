@@ -299,4 +299,4 @@ CI PASS
 - [Multi-Timeframe research](../research/multi-timeframe.md)
 - [Docker GPU full training](../operations/docker-gpu-full-training.md)
 
-`docs/implementation-plans/`配下は設計・実装時点の履歴資料です。現在の運用契約や正本としては、この文書と上記の現行文書を使用してください。
+`docs/history/`配下は設計・実装時点の履歴資料です。現在の運用契約や正本としては、この文書と上記の現行文書を使用してください。

@@ -291,12 +291,12 @@ CI PASS
 
 ## 12. 関連文書
 
-- [学習クイックスタート](../START.md)
-- [設定リファレンス](CONFIGURATION.md)
-- [アーキテクチャ](ARCHITECTURE.md)
-- [研究状態](RESEARCH_STATUS.md)
-- [Reward objective](REWARD_OBJECTIVE.md)
-- [Multi-Timeframe research](MULTITIMEFRAME_RESEARCH.md)
-- [Docker GPU full training](operations/docker-gpu-full-training.md)
+- [学習クイックスタート](../getting-started/quickstart.md)
+- [設定リファレンス](configuration.md)
+- [アーキテクチャ](architecture.md)
+- [研究状態](../research/status.md)
+- [Reward objective](reward-objective.md)
+- [Multi-Timeframe research](../research/multi-timeframe.md)
+- [Docker GPU full training](../operations/docker-gpu-full-training.md)
 
 `docs/implementation-plans/`配下は設計・実装時点の履歴資料です。現在の運用契約や正本としては、この文書と上記の現行文書を使用してください。

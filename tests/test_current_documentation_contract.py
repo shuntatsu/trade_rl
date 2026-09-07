@@ -272,7 +272,7 @@ def test_readme_is_a_bounded_entry_point() -> None:
     assert len(lines) <= 230
     assert len(level_two_headings) <= 12
     assert "[START.md](START.md)" in readme
-    assert "[ドキュメント一覧](docs/README.md)" in readme
+    assert "[ドキュメント一覧](docs/index.md)" in readme
 
 
 def test_internal_markdown_links_resolve() -> None:

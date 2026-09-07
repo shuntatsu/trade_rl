@@ -21,13 +21,13 @@ one maintained run
   = one checkpoint and evidence chain
 ```
 
-維持対象の学習設定Schemaは`training_run_config_v4`、Rewardは**Reward schema v4**です。Fieldと意味の正本は[CONFIGURATION.md](docs/CONFIGURATION.md)と[REWARD_OBJECTIVE.md](docs/REWARD_OBJECTIVE.md)に置き、READMEには詳細を複製しません。
+維持対象の学習設定Schemaは`training_run_config_v4`、Rewardは**Reward schema v4**です。Fieldと意味の正本は[CONFIGURATION.md](docs/reference/configuration.md)と[REWARD_OBJECTIVE.md](docs/reference/reward-objective.md)に置き、READMEには詳細を複製しません。
 
-初期Maintained presetはBinance USDS-M perpetualの`BTCUSDT`です。複数銘柄へ資金を配分するときは、銘柄ごとに独立RunとBudgetを作り、Repository外のCapital allocatorで配分します。Maintained single-symbol contractの詳細は[SINGLE_SYMBOL.md](docs/SINGLE_SYMBOL.md)を参照してください。
+初期Maintained presetはBinance USDS-M perpetualの`BTCUSDT`です。複数銘柄へ資金を配分するときは、銘柄ごとに独立RunとBudgetを作り、Repository外のCapital allocatorで配分します。Maintained single-symbol contractの詳細は[SINGLE_SYMBOL.md](docs/reference/single-symbol.md)を参照してください。
 
-Universal U3-U6は別の**研究用共有Policy学習経路**です。複数のtrain symbolから1つのPolicyを学習しますが、各episodeと推論対象は常に1つのconcrete instrumentです。BTC・ETH・BNBなどを同時にportfolio配分するPolicyではありません。現行契約は[UNIVERSAL_TRAINING.md](docs/UNIVERSAL_TRAINING.md)を参照してください。
+Universal U3-U6は別の**研究用共有Policy学習経路**です。複数のtrain symbolから1つのPolicyを学習しますが、各episodeと推論対象は常に1つのconcrete instrumentです。BTC・ETH・BNBなどを同時にportfolio配分するPolicyではありません。現行契約は[UNIVERSAL_TRAINING.md](docs/reference/universal-training.md)を参照してください。
 
-Universal Trade RL U0は、将来のzero-shot-first共有Policy研究に入る前の**Universe isolation契約**です。Train / Development / Admission / Excludedをsource-data identityと一緒に固定し、fitをTrainだけに限定します。U0自体はRLを学習せず、収益性もProduction可否も証明しません。詳細と再現可能なmaterialization commandは[UNIVERSAL_TRADE_RL.md](docs/UNIVERSAL_TRADE_RL.md)を参照してください。
+Universal Trade RL U0は、将来のzero-shot-first共有Policy研究に入る前の**Universe isolation契約**です。Train / Development / Admission / Excludedをsource-data identityと一緒に固定し、fitをTrainだけに限定します。U0自体はRLを学習せず、収益性もProduction可否も証明しません。詳細と再現可能なmaterialization commandは[UNIVERSAL_TRADE_RL.md](docs/reference/universal-trade-rl.md)を参照してください。
 
 ## 最短で試す
 
@@ -75,9 +75,9 @@ uv run trade-rl train run \
   -> Read-only Paper Serving
 ```
 
-行`t`の判断には行`t`のBar closeまでに利用可能な情報だけを使い、注文処理は最短でも`t + 1`のOpen以降です。Normalizer、Teacher、Checkpoint、Evaluation、Servingの詳細な因果・Identity契約は[ARCHITECTURE.md](docs/ARCHITECTURE.md)、[CONFIGURATION.md](docs/CONFIGURATION.md)、[UNIVERSAL_TRAINING.md](docs/UNIVERSAL_TRAINING.md)が正本です。
+行`t`の判断には行`t`のBar closeまでに利用可能な情報だけを使い、注文処理は最短でも`t + 1`のOpen以降です。Normalizer、Teacher、Checkpoint、Evaluation、Servingの詳細な因果・Identity契約は[ARCHITECTURE.md](docs/reference/architecture.md)、[CONFIGURATION.md](docs/reference/configuration.md)、[UNIVERSAL_TRAINING.md](docs/reference/universal-training.md)が正本です。
 
-約定EngineはLatency、Partial fill、Time in Force、Cancel/Replace、Gap、Funding、Borrow、Margin、Liquidationを扱いますが、OHLCVからQueue position、Hidden liquidity、Auction、L2 depthを復元することはできません。制約と限界は[EXECUTION_ROBUSTNESS.md](docs/EXECUTION_ROBUSTNESS.md)を参照してください。
+約定EngineはLatency、Partial fill、Time in Force、Cancel/Replace、Gap、Funding、Borrow、Margin、Liquidationを扱いますが、OHLCVからQueue position、Hidden liquidity、Auction、L2 depthを復元することはできません。制約と限界は[EXECUTION_ROBUSTNESS.md](docs/reference/execution-robustness.md)を参照してください。
 
 ## Studioと診断
 
@@ -105,24 +105,24 @@ docker/          Training imageとCompose定義
 LICENSES/        Third-party notice等のライセンス資料
 ```
 
-文書の正本と履歴資料の区別は[ドキュメント一覧](docs/README.md)に集約しています。
+文書の正本と履歴資料の区別は[ドキュメント一覧](docs/index.md)に集約しています。
 
 ## 主要ドキュメント
 
-- [ドキュメント一覧](docs/README.md)
+- [ドキュメント一覧](docs/index.md)
 - [最初の学習](START.md)
-- [Maintained single-symbol workflow](docs/SINGLE_SYMBOL.md)
-- [Universal U3-U6 training](docs/UNIVERSAL_TRAINING.md)
-- [Universal Trade RL U0 universe isolation](docs/UNIVERSAL_TRADE_RL.md)
-- [アーキテクチャ](docs/ARCHITECTURE.md)
-- [設定リファレンス](docs/CONFIGURATION.md)
-- [研究状態とProduction gate](docs/RESEARCH_STATUS.md)
-- [Reward objective](docs/REWARD_OBJECTIVE.md)
-- [Execution robustness](docs/EXECUTION_ROBUSTNESS.md)
-- [Binance Public Data](docs/BINANCE.md)
+- [Maintained single-symbol workflow](docs/reference/single-symbol.md)
+- [Universal U3-U6 training](docs/reference/universal-training.md)
+- [Universal Trade RL U0 universe isolation](docs/reference/universal-trade-rl.md)
+- [アーキテクチャ](docs/reference/architecture.md)
+- [設定リファレンス](docs/reference/configuration.md)
+- [研究状態とProduction gate](docs/research/status.md)
+- [Reward objective](docs/reference/reward-objective.md)
+- [Execution robustness](docs/reference/execution-robustness.md)
+- [Binance Public Data](docs/guides/binance-data.md)
 - [Docker GPU運用](docs/operations/docker-gpu-full-training.md)
-- [Licensing](docs/LICENSING.md)
-- [Licensing provenance](docs/LICENSING_PROVENANCE.md)
+- [Licensing](docs/legal/licensing.md)
+- [Licensing provenance](docs/legal/licensing-provenance.md)
 
 ## 品質確認
 
@@ -142,6 +142,6 @@ Repositoryの標準品質ゲートには、Pythonのlint/format/type/import境�
 
 ## License
 
-Maintained Trade RL source at and after the license transition is distributed under `LGPL-3.0-or-later`. Historical revisions already distributed under MIT keep their historical MIT grant. Exact boundaries and notices are documented in [docs/LICENSING.md](docs/LICENSING.md), [docs/LICENSING_PROVENANCE.md](docs/LICENSING_PROVENANCE.md), `LICENSE`, `LICENSES/`, and `LICENSES/THIRD_PARTY_NOTICES.md`.
+Maintained Trade RL source at and after the license transition is distributed under `LGPL-3.0-or-later`. Historical revisions already distributed under MIT keep their historical MIT grant. Exact boundaries and notices are documented in [docs/legal/licensing.md](docs/legal/licensing.md), [docs/legal/licensing-provenance.md](docs/legal/licensing-provenance.md), `LICENSE`, `LICENSES/`, and `LICENSES/THIRD_PARTY_NOTICES.md`.
 
 NautilusTrader is an external upstream dependency developed by Nautech Systems. Trade RL is an independent project and is not affiliated with, endorsed by, sponsored by, or an official work of Nautech Systems.

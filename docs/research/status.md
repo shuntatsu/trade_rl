@@ -62,7 +62,7 @@ Software contractは次を実装済みです。
 - teacher admission failure時にBC、critic warm start、PPOへ進まないfail-closed順序
 - teacher build progressと経済telemetryのread-only monitoring
 
-詳細な現行契約は[UNIVERSAL_TRAINING.md](UNIVERSAL_TRAINING.md)を参照してください。
+詳細な現行契約は[../reference/universal-training.md](../reference/universal-training.md)を参照してください。
 
 ### Causal Alpha V3 research lane
 

@@ -4,7 +4,7 @@ from tests.architecture.repository_paths import REPOSITORY_ROOT
 
 
 def test_universal_training_documents_causal_alpha_v3_manual_control_contract() -> None:
-    document = (REPOSITORY_ROOT / "docs/UNIVERSAL_TRAINING.md").read_text(
+    document = (REPOSITORY_ROOT / "docs/reference/universal-training.md").read_text(
         encoding="utf-8"
     )
 

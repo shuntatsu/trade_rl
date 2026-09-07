@@ -66,17 +66,17 @@ Raw cacheを削除すると再Downloadが必要ですが、Published dataset art
 
 ## Target-weight growth profiles
 
-長期複利成長の比較では、報酬、action space、BC、encoder、執行条件を同時に変更しません。次の3設定はすべてtarget-weight action、同一Oracle BC、同一Transformer、同一hard-risk条件を使用します。報酬とEpisode境界の正本契約は[`REWARD_OBJECTIVE.md`](REWARD_OBJECTIVE.md)です。
+長期複利成長の比較では、報酬、action space、BC、encoder、執行条件を同時に変更しません。次の3設定はすべてtarget-weight action、同一Oracle BC、同一Transformer、同一hard-risk条件を使用します。報酬とEpisode境界の正本契約は[`../reference/reward-objective.md`](../reference/reward-objective.md)です。
 
 | Profile | 役割 | Objective |
 |---|---|---|
-| [`training-target-weight-growth-ppo.json`](../examples/binance-multitimeframe/training-target-weight-growth-ppo.json) | 必須対照群 | `gamma=1.0`、有限720時間、実コスト控除後net log growth、通常PPO |
-| [`training-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth.json) | 本命候補 | 同じ有限期間growth objective、Lagrangian PPOでsoft constraint予算を管理 |
-| [`training-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/training-target-weight-constrained-growth-discounted.json) | 時間選好アブレーション | 168時間half-lifeのdiscounted continuing objective |
+| [`training-target-weight-growth-ppo.json`](../../examples/binance-multitimeframe/training-target-weight-growth-ppo.json) | 必須対照群 | `gamma=1.0`、有限720時間、実コスト控除後net log growth、通常PPO |
+| [`training-target-weight-constrained-growth.json`](../../examples/binance-multitimeframe/training-target-weight-constrained-growth.json) | 本命候補 | 同じ有限期間growth objective、Lagrangian PPOでsoft constraint予算を管理 |
+| [`training-target-weight-constrained-growth-discounted.json`](../../examples/binance-multitimeframe/training-target-weight-constrained-growth-discounted.json) | 時間選好アブレーション | 168時間half-lifeのdiscounted continuing objective |
 
-既定の6-fold比較は[`walk-forward-target-weight-constrained-growth.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)を使用し、gamma-one PPOとgamma-one Lagrangianだけを同じcandidate setで比較します。Discounted continuing ablationはenvironment dynamicsが異なるため、[`walk-forward-target-weight-constrained-growth-discounted.json`](../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth-discounted.json)で独立に評価します。各workflowは`run_file`でstandalone profileを参照し、埋め込みコピーによる設定ドリフトを防ぎます。
+既定の6-fold比較は[`walk-forward-target-weight-constrained-growth.json`](../../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth.json)を使用し、gamma-one PPOとgamma-one Lagrangianだけを同じcandidate setで比較します。Discounted continuing ablationはenvironment dynamicsが異なるため、[`walk-forward-target-weight-constrained-growth-discounted.json`](../../examples/binance-multitimeframe/walk-forward-target-weight-constrained-growth-discounted.json)で独立に評価します。各workflowは`run_file`でstandalone profileを参照し、埋め込みコピーによる設定ドリフトを防ぎます。
 
-[`training-full.json`](../examples/binance-multitimeframe/training-full.json)は、baseline、drawdown、excess growth、時間割引を混合したlegacy shaping比較として維持します。Production defaultではありません。明示的な`--training-template training-full.json`指定がない限り選択されず、`walk-forward-full.json`は歴史的再現用に残します。
+[`training-full.json`](../../examples/binance-multitimeframe/training-full.json)は、baseline、drawdown、excess growth、時間割引を混合したlegacy shaping比較として維持します。Production defaultではありません。明示的な`--training-template training-full.json`指定がない限り選択されず、`walk-forward-full.json`は歴史的再現用に残します。
 
 Hard safetyは学習成功へ依存させません。`max_abs_weight`、`max_gross`、drawdown stop、minimum equity、証拠金、取引所ルールは環境とpre-trade riskが常に強制します。Lagrangianはdrawdown excess、turnover、execution costなどのsoft budgetだけを調整します。
 

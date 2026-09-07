@@ -8,8 +8,8 @@ def _text(path: str) -> str:
 
 
 def test_causal_alpha_v3_is_documented_as_non_promotable_research_lane() -> None:
-    universal = _text("docs/UNIVERSAL_TRAINING.md")
-    research = _text("docs/RESEARCH_STATUS.md")
+    universal = _text("docs/reference/universal-training.md")
+    research = _text("docs/research/status.md")
     combined = f"{universal}\n{research}".lower()
 
     for phrase in (
@@ -31,7 +31,7 @@ def test_causal_alpha_v3_is_documented_as_non_promotable_research_lane() -> None
 
 
 def test_v3_docs_preserve_reward_and_holdout_invariants() -> None:
-    universal = _text("docs/UNIVERSAL_TRAINING.md").lower()
+    universal = _text("docs/reference/universal-training.md").lower()
 
     for phrase in (
         "pure net-log-growth",
@@ -43,8 +43,8 @@ def test_v3_docs_preserve_reward_and_holdout_invariants() -> None:
 
 
 def test_v3_runner_docs_close_the_deterministic_research_workflow() -> None:
-    universal = _text("docs/UNIVERSAL_TRAINING.md").lower()
-    research = _text("docs/RESEARCH_STATUS.md").lower()
+    universal = _text("docs/reference/universal-training.md").lower()
+    research = _text("docs/research/status.md").lower()
     combined = f"{universal}\n{research}"
 
     for phrase in (
@@ -71,8 +71,8 @@ def test_v3_runner_docs_close_the_deterministic_research_workflow() -> None:
 def test_v3_docs_distinguish_authoritative_records_from_diagnostics_and_legacy_jsonl() -> (
     None
 ):
-    universal = _text("docs/UNIVERSAL_TRAINING.md").lower()
-    research = _text("docs/RESEARCH_STATUS.md").lower()
+    universal = _text("docs/reference/universal-training.md").lower()
+    research = _text("docs/research/status.md").lower()
     combined = f"{universal}\n{research}"
 
     for phrase in (
@@ -90,8 +90,8 @@ def test_v3_docs_distinguish_authoritative_records_from_diagnostics_and_legacy_j
 
 
 def test_v3_docs_define_deterministic_machine_run_report_contract() -> None:
-    reporting = _text("docs/RUN_REPORTING.md").lower()
-    index = _text("docs/README.md").lower()
+    reporting = _text("docs/reference/run-reporting.md").lower()
+    index = _text("docs/index.md").lower()
 
     assert "run_reporting.md" in index
     for phrase in (

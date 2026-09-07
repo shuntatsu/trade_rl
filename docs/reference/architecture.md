@@ -15,7 +15,7 @@ one maintained run
   = one checkpoint and evidence chain
 ```
 
-初期Maintained presetはBinance USDS-M perpetualの`BTCUSDT`です。複数Run間のCapital allocationは本Repository外の責務です。詳細は[SINGLE_SYMBOL.md](SINGLE_SYMBOL.md)を参照してください。
+初期Maintained presetはBinance USDS-M perpetualの`BTCUSDT`です。複数Run間のCapital allocationは本Repository外の責務です。詳細は[single-symbol.md](single-symbol.md)を参照してください。
 
 ## Responsibility map
 

@@ -1,6 +1,6 @@
 # Multi-Timeframe Research Lifecycle
 
-この文書は、15m・1h・4h・1dを使う維持対象Research workflowのPhase分離だけを説明します。Model構造は[ARCHITECTURE.md](ARCHITECTURE.md)、設定値は[CONFIGURATION.md](CONFIGURATION.md)を参照してください。
+この文書は、15m・1h・4h・1dを使う維持対象Research workflowのPhase分離だけを説明します。Model構造は[../reference/architecture.md](../reference/architecture.md)、設定値は[../reference/configuration.md](../reference/configuration.md)を参照してください。
 
 > Production status remains `NO-GO`。Waiting stateは承認待ちであり、収益性やRelease承認を意味しません。
 
@@ -26,4 +26,4 @@ Selected-final完了後のFresh confirmationとPaper reconciliationを検証し�
 - Research rejection: Candidate非昇格
 - Integrity、Identity、Infrastructure failure: 非ゼロ失敗
 
-Phaseを跨ぐ値は、PathではなくDigestと署名済みIdentityで結合します。詳しいGPU操作は[Docker GPU Runbook](operations/docker-gpu-full-training.md)を参照してください。
+Phaseを跨ぐ値は、PathではなくDigestと署名済みIdentityで結合します。詳しいGPU操作は[Docker GPU Runbook](../operations/docker-gpu-full-training.md)を参照してください。

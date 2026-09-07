@@ -155,7 +155,7 @@ Quickstartの既定は`asset_set`です。系列Policyを使う場合は、`trai
 }
 ```
 
-設定全体をこの断片で置換せず、既存JSONの対応Sectionだけを変更してください。詳しくは[設定リファレンス](docs/CONFIGURATION.md)を参照してください。
+設定全体をこの断片で置換せず、既存JSONの対応Sectionだけを変更してください。詳しくは[設定リファレンス](docs/reference/configuration.md)を参照してください。
 
 ## 7. BCからPPOへ進む
 
@@ -172,7 +172,7 @@ PPO-familyでは、`behavior_cloning_epochs`を正数にすると、同じFeatur
 }
 ```
 
-この`oracle`例はgeneric / single-symbol BCの説明用です。Universal U6のcanonical teacherはtrain-only fitted `causal_alpha_ridge`であり、Oracle/Trendは診断・互換経路として保持します。Universalのholdout、teacher admission、shared packageの契約は[Universal Training](docs/UNIVERSAL_TRAINING.md)を参照してください。
+この`oracle`例はgeneric / single-symbol BCの説明用です。Universal U6のcanonical teacherはtrain-only fitted `causal_alpha_ridge`であり、Oracle/Trendは診断・互換経路として保持します。Universalのholdout、teacher admission、shared packageの契約は[Universal Training](docs/reference/universal-training.md)を参照してください。
 
 BC、PPO、CostCriticPPO、LagrangianPPOは、組み立て済みPolicyのArchitecture identityを共有します。異なる構造のCheckpointはResume時に拒否されます。
 
@@ -222,7 +222,7 @@ Dockerによる完全実行は[GPU運用手順](docs/operations/docker-gpu-full-
 - Fee、Spread、Participation、Tick/Lot、Funding、BorrowをIdentityへ含める
 - Sequence window、Reward pre-roll、Episode、評価Rangeに必要な履歴を用意する
 
-Public Binance経路は[docs/BINANCE.md](docs/BINANCE.md)を参照してください。
+Public Binance経路は[docs/guides/binance-data.md](docs/guides/binance-data.md)を参照してください。
 
 ## 11. よくあるエラー
 
@@ -238,7 +238,7 @@ uv sync --extra dev --extra train-sb3
 
 ### Training config schemaの移行が必要
 
-設定の`schema_version`を`training_run_config_v4`へ変更し、旧Encoder Booleanを`observation_encoder`へ置き換えてください。必要なv4 Fieldは[設定リファレンス](docs/CONFIGURATION.md)で確認してください。
+設定の`schema_version`を`training_run_config_v4`へ変更し、旧Encoder Booleanを`observation_encoder`へ置き換えてください。必要なv4 Fieldは[設定リファレンス](docs/reference/configuration.md)で確認してください。
 
 ### `dataset digest mismatch`
 
@@ -264,7 +264,7 @@ uv run trade-rl walk-forward run \
   --run-id binance-wf-001
 ```
 
-最終判断には、複数Seed、複数Fold、複数AUM、保守的Execution、未使用Outer test、Fresh confirmation、Paper reconciliationが必要です。[研究状態](docs/RESEARCH_STATUS.md)を参照してください。
+最終判断には、複数Seed、複数Fold、複数AUM、保守的Execution、未使用Outer test、Fresh confirmation、Paper reconciliationが必要です。[研究状態](docs/research/status.md)を参照してください。
 
 ## 13. Universal U3-U6 full-research trainingを実行する
 
@@ -304,4 +304,4 @@ uv run python scripts/monitor_universal_training.py \
 
 学習完了時は`universal-full-research-training.json`が生成されます。この時点の`research_success=false`は意図した状態です。Training完走はSoftware successであり、Research successではありません。実データteacher admission、U5 validation selection、一度だけのsealed unseen-symbol test、paired baseline evidence、bootstrap lower bound、worst-symbol/worst-seed/pass-fraction gate、hard-safety violation=0がそろうまでは`NO-GO`を維持してください。
 
-U5/U6の評価・状態遷移には既存の`StageAZeroShotEvaluationOrchestrator`、`UniversalResearchManifest`、`scripts/run_full_research_experiment.py`を使います。sealed evidenceを作る前に`zero_shot_gate_passed=true`を手動で偽装しないでください。Universal teacherの詳細な因果・holdout・artifact契約は[Universal Training](docs/UNIVERSAL_TRAINING.md)を正本とします。
+U5/U6の評価・状態遷移には既存の`StageAZeroShotEvaluationOrchestrator`、`UniversalResearchManifest`、`scripts/run_full_research_experiment.py`を使います。sealed evidenceを作る前に`zero_shot_gate_passed=true`を手動で偽装しないでください。Universal teacherの詳細な因果・holdout・artifact契約は[Universal Training](docs/reference/universal-training.md)を正本とします。

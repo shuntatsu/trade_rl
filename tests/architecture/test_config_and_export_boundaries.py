@@ -157,10 +157,10 @@ def test_structured_policy_contract_is_neutral_and_serving_owned() -> None:
 
 
 def test_future_stage_b_market_roles_are_explicit_but_not_claimed_complete() -> None:
-    architecture = (REPOSITORY_ROOT / "docs/ARCHITECTURE.md").read_text(
+    architecture = (REPOSITORY_ROOT / "docs/reference/architecture.md").read_text(
         encoding="utf-8"
     )
-    status = (REPOSITORY_ROOT / "docs/RESEARCH_STATUS.md").read_text(encoding="utf-8")
+    status = (REPOSITORY_ROOT / "docs/research/status.md").read_text(encoding="utf-8")
 
     for text in (architecture, status):
         assert "SpotLongBook: FUTURE_LONG_ONLY_ROLE" in text

@@ -46,11 +46,11 @@
 
 完全な維持対象Example:
 
-- [Quickstart](../examples/quickstart/training.json)
-- [Binance single-symbol full training](../examples/binance-multitimeframe/training-full.json)
-- [Binance single-symbol walk-forward](../examples/binance-multitimeframe/walk-forward-full.json)
+- [Quickstart](../../examples/quickstart/training.json)
+- [Binance single-symbol full training](../../examples/binance-multitimeframe/training-full.json)
+- [Binance single-symbol walk-forward](../../examples/binance-multitimeframe/walk-forward-full.json)
 
-Maintained Binance契約は[Single-symbol workflow](SINGLE_SYMBOL.md)を正本とし、`BTCUSDT`、`target_weight_count: 1`、Action name `target_weight:BTCUSDT`を使用します。
+Maintained Binance契約は[Single-symbol workflow](single-symbol.md)を正本とし、`BTCUSDT`、`target_weight_count: 1`、Action name `target_weight:BTCUSDT`を使用します。
 
 ## Legacy設定
 

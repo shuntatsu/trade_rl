@@ -9,9 +9,9 @@ from tests.support.training_config import complete_execution_config
 def test_docs_match_maintained_schemas_and_boundaries() -> None:
     root = Path(__file__).resolve().parents[1]
     readme = (root / "README.md").read_text()
-    architecture = (root / "docs/ARCHITECTURE.md").read_text()
-    configuration = (root / "docs/CONFIGURATION.md").read_text()
-    binance = (root / "docs/BINANCE.md").read_text()
+    architecture = (root / "docs/reference/architecture.md").read_text()
+    configuration = (root / "docs/reference/configuration.md").read_text()
+    binance = (root / "docs/guides/binance-data.md").read_text()
     assert "training_run_config_v4" in readme
     assert "training_run_config_v3" not in readme
     assert "structured_policy_export_v1" not in readme
@@ -30,7 +30,7 @@ def test_docs_match_maintained_schemas_and_boundaries() -> None:
 
 def test_configuration_example_is_valid_explicit_v4_json() -> None:
     root = Path(__file__).resolve().parents[1]
-    configuration = (root / "docs/CONFIGURATION.md").read_text()
+    configuration = (root / "docs/reference/configuration.md").read_text()
     start = configuration.index("```json\n") + len("```json\n")
     end = configuration.index("\n```", start)
 

@@ -62,7 +62,7 @@ def test_environment_terminal_helpers_live_in_transition_module() -> None:
 def test_maintained_docs_reference_reward_schema_v4() -> None:
     for path in (
         ROOT / "README.md",
-        ROOT / "docs/ARCHITECTURE.md",
+        ROOT / "docs/reference/architecture.md",
     ):
         text = path.read_text(encoding="utf-8").lower()
         assert "reward schema v3" not in text

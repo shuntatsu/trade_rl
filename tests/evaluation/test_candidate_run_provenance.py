@@ -53,10 +53,14 @@ def test_implementation_manifest_changes_with_source_bytes_not_absolute_root(
     (second / "module.py").write_text("VALUE = 2\n", encoding="utf-8")
     changed_manifest = provenance_module._implementation_manifest(second)
     assert changed_manifest != first_manifest
-    assert provenance_module._implementation_digest(changed_manifest) != first_digest
+    assert (
+        provenance_module._implementation_digest(changed_manifest) != first_digest
+    )
 
 
-def test_implementation_manifest_hashes_only_relative_python_sources(tmp_path: Path) -> None:
+def test_implementation_manifest_hashes_only_relative_python_sources(
+    tmp_path: Path,
+) -> None:
     package = _fake_package(tmp_path)
     manifest = provenance_module._implementation_manifest(package)
 

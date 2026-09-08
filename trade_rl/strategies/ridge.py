@@ -46,7 +46,11 @@ class RidgeForecastModel:
             for index in indices
         ):
             raise ValueError("feature_indices must contain non-negative integers")
-        if mean.shape != expected or scale.shape != expected or coefficients.shape != expected:
+        if (
+            mean.shape != expected
+            or scale.shape != expected
+            or coefficients.shape != expected
+        ):
             raise ValueError("Ridge arrays must match feature_indices")
         if (
             not np.isfinite(mean).all()
@@ -160,7 +164,10 @@ def fit_ridge_forecast(
     weighted_x = standardized * sqrt_weights[:, None]
     weighted_y = centered_y * sqrt_weights
     gram = weighted_x.T @ weighted_x
-    regularized = gram + alpha * np.eye(len(training.feature_indices), dtype=np.float64)
+    regularized = gram + alpha * np.eye(
+        len(training.feature_indices),
+        dtype=np.float64,
+    )
     coefficients = np.linalg.solve(regularized, weighted_x.T @ weighted_y)
 
     return RidgeForecastModel(

@@ -2,23 +2,31 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.artifacts.codec import canonical_json_bytes as artifact_json
-from trade_rl.domain.canonical_json import canonical_json_bytes as domain_json
+from trade_rl.artifacts.canonical import canonical_json_bytes
 
 
 @pytest.mark.parametrize(
-    "value",
+    ("value", "expected"),
     (
-        {"unicode": "日本語", "nested": {"b": 2, "a": 1}},
-        {"sequence": (1, 2, {"x": True})},
-        {"float": 0.125, "none": None},
+        (
+            {"unicode": "日本語", "nested": {"b": 2, "a": 1}},
+            '{"nested":{"a":1,"b":2},"unicode":"日本語"}'.encode("utf-8"),
+        ),
+        (
+            {"sequence": (1, 2, {"x": True})},
+            b'{"sequence":[1,2,{"x":true}]}',
+        ),
+        (
+            {"float": 0.125, "none": None},
+            b'{"float":0.125,"none":null}',
+        ),
     ),
 )
-def test_artifact_and_domain_encoders_are_identical(value: object) -> None:
-    assert artifact_json(value) == domain_json(value)
+def test_canonical_json_bytes_are_stable(value: object, expected: bytes) -> None:
+    assert canonical_json_bytes(value) == expected
 
 
 @pytest.mark.parametrize("value", (float("nan"), float("inf"), float("-inf")))
-def test_shared_canonical_json_rejects_non_finite_values(value: float) -> None:
+def test_canonical_json_rejects_non_finite_values(value: float) -> None:
     with pytest.raises(ValueError, match="finite"):
-        domain_json({"value": value})
+        canonical_json_bytes({"value": value})

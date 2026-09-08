@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from typing import cast
 
-from trade_rl.artifacts.codec import canonical_json_bytes
-from trade_rl.domain.common import require_sha256
+from trade_rl._validation import require_sha256
+from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.simulation.runtime_performance import (
     RuntimePerformanceApprovalPolicy,
     RuntimePerformanceEvidence,

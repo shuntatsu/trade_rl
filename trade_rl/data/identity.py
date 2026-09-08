@@ -8,7 +8,7 @@ from collections.abc import Iterable, Mapping
 
 import numpy as np
 
-from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes
 
 MARKET_DATASET_IDENTITY_SCHEMA = "market_dataset_identity_v6"
 

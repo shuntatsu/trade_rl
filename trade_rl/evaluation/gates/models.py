@@ -1,4 +1,4 @@
-"""Evaluation and evidence-bound mandatory gate domain records."""
+"""Evidence-bound evaluation gate records."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from trade_rl.domain.common import (
+from trade_rl._validation import (
     require_aware_datetime,
     require_non_empty,
     require_sha256,
@@ -145,3 +145,6 @@ class GateDecision:
         return tuple(
             check for check in self.checks if check.mandatory and not check.passed
         )
+
+
+__all__ = ["Comparator", "GateCheck", "GateDecision"]

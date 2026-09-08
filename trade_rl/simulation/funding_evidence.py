@@ -8,8 +8,8 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from trade_rl.artifacts.codec import canonical_json_bytes
-from trade_rl.domain.common import require_sha256
+from trade_rl._validation import require_sha256
+from trade_rl.artifacts.canonical import canonical_json_bytes
 
 FUNDING_BOUNDARY_ARTIFACT_SCHEMA = "execution_funding_boundary_artifact_v1"
 

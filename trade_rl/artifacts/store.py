@@ -13,7 +13,7 @@ from trade_rl.artifacts.atomic_pointer import (
     AtomicReplaceDurabilityError,
     atomic_replace_bytes,
 )
-from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes
 
 _RUN_ID_RE: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from trade_rl._validation import require_non_empty, require_sha256
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.domain.common import require_non_empty, require_sha256
 from trade_rl.evaluation.walk_forward.folds import IndexRange
 
 

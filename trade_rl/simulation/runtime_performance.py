@@ -7,8 +7,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import cast
 
+from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.domain.common import require_sha256
 
 RUNTIME_PERFORMANCE_EVIDENCE_SCHEMA = "execution_runtime_performance_evidence_v1"
 RUNTIME_PERFORMANCE_POLICY_SCHEMA = "execution_runtime_performance_policy_v1"

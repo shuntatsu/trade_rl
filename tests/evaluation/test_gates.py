@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from trade_rl.domain.evaluation import GateCheck
-from trade_rl.evaluation.gates import resolve_gate
+from trade_rl.evaluation.gates import GateCheck, resolve_gate
 
 DATASET_ID = "a" * 64
 EVALUATION_DIGEST = "b" * 64
+
+
+def test_resolve_gate_remains_exported_from_evaluation_package() -> None:
+    from trade_rl import evaluation
+
+    assert evaluation.resolve_gate is resolve_gate
 
 
 def test_optional_failure_does_not_block_gate() -> None:

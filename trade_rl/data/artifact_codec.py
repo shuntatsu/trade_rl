@@ -15,7 +15,7 @@ from typing import Any, Final
 
 import numpy as np
 
-from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.market import MarketDataset
 

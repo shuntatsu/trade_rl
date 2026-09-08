@@ -8,8 +8,8 @@ from typing import Protocol
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.domain.common import require_sha256
 
 
 class PortfolioRiskDataset(Protocol):

@@ -83,7 +83,9 @@ class EvidenceSet:
             isinstance(seed, bool) or not isinstance(seed, int) or seed < 0
             for seed in self.ppo_seeds
         ):
-            raise ArtifactIntegrityError("EvidenceSet seeds must be non-negative integers")
+            raise ArtifactIntegrityError(
+                "EvidenceSet seeds must be non-negative integers"
+            )
         if tuple(seed for seed, _ in self.run_digests) != self.ppo_seeds:
             raise ArtifactIntegrityError(
                 "EvidenceSet run digests must follow the seed roster"
@@ -367,7 +369,10 @@ def execute_evidence_set(
                 raise ArtifactIntegrityError(
                     "Study implementation provenance changed during EvidenceSet"
                 )
-            if before.get("runtime_environment_digest") != plan.runtime_environment_digest:
+            if (
+                before.get("runtime_environment_digest")
+                != plan.runtime_environment_digest
+            ):
                 raise ArtifactIntegrityError(
                     "Study runtime provenance changed during EvidenceSet"
                 )
@@ -525,7 +530,10 @@ def load_evidence_set(root: str | Path) -> LoadedEvidenceSet:
             raise ArtifactIntegrityError(str(error)) from error
         if identity.artifact_digest != expected_digests[seed]:
             raise ArtifactIntegrityError("EvidenceSet Run artifact digest mismatch")
-        if loaded.provenance.get("research_context_digest") != evidence.research_context_digest:
+        if (
+            loaded.provenance.get("research_context_digest")
+            != evidence.research_context_digest
+        ):
             raise ArtifactIntegrityError("EvidenceSet Run research context mismatch")
         if _run_summary_seed(loaded) != seed:
             raise ArtifactIntegrityError("EvidenceSet Run seed mismatch")

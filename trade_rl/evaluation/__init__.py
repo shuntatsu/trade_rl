@@ -44,7 +44,10 @@ from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.evaluation.strategy_comparison import (
     StrategyComparison,
     StrategyComparisonEntry,
+    SymbolStrategyComparison,
+    UniversalStrategyComparison,
     compare_strategies,
+    compare_strategies_by_symbol,
 )
 
 __all__ = [
@@ -70,8 +73,11 @@ __all__ = [
     "SingleSymbolReplayResult",
     "StrategyComparison",
     "StrategyComparisonEntry",
+    "SymbolStrategyComparison",
+    "UniversalStrategyComparison",
     "compare_paired_returns",
     "compare_strategies",
+    "compare_strategies_by_symbol",
     "compound_return",
     "evaluate_capacity_grid",
     "evaluate_performance",

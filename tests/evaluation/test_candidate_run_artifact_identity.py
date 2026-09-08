@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.runs.artifact import inspect_candidate_run_artifact
 
 
@@ -40,15 +41,17 @@ def _summary() -> dict[str, object]:
 
 
 def _provenance() -> dict[str, object]:
+    implementation: dict[str, object] = {
+        "schema_version": "candidate_run_implementation_v1",
+        "files": [],
+    }
+    runtime: dict[str, object] = {"schema_version": "candidate_run_runtime_v1"}
     return {
         "schema_version": "candidate_run_provenance_v1",
-        "implementation": {
-            "schema_version": "candidate_run_implementation_v1",
-            "files": [],
-        },
-        "implementation_digest": "a" * 64,
-        "runtime_environment": {"schema_version": "candidate_run_runtime_v1"},
-        "runtime_environment_digest": "c" * 64,
+        "implementation": implementation,
+        "implementation_digest": content_digest(implementation),
+        "runtime_environment": runtime,
+        "runtime_environment_digest": content_digest(runtime),
         "research_context_digest": None,
     }
 
@@ -177,6 +180,19 @@ def test_candidate_artifact_rejects_unsupported_provenance_schema(
     (root / "provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
 
     with pytest.raises(ValueError, match="candidate provenance schema"):
+        inspect_candidate_run_artifact(root)
+
+
+def test_candidate_artifact_rejects_inconsistent_provenance_digest(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "artifact"
+    _write_root(root, compressed=True)
+    provenance = _provenance()
+    provenance["implementation_digest"] = "0" * 64
+    (root / "provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="implementation digest"):
         inspect_candidate_run_artifact(root)
 
 

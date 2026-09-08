@@ -21,6 +21,15 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
       - name: Fetch exact Phase 4A logical base
         run: git fetch --no-tags --depth=1 origin 21efa93ddc6073fbd31c7000461801a699797254
 
@@ -68,8 +77,20 @@ jobs:
               ["git", "show", f"{BASE}:docs/specs/2026-09-08-lean-package-boundaries-design.md"],
               text=True,
           )
-          assert len(old_redesign) > 10000
-          assert len(old_spec) > 20000
+          for marker in (
+              "# Trade RL：Lean Redesign 2026-09-08",
+              "## 6. Causality / Data contract",
+              "## 7. Execution / Accounting contract",
+              "## 9. M1 / M2 / M3の現在地",
+          ):
+              assert marker in old_redesign, marker
+          for marker in (
+              "# Lean Package Boundaries Cleanup Design",
+              "## 5. Quality contract",
+              "## 8. Target package layout",
+              "## 9. Explicit removals and migrations",
+          ):
+              assert marker in old_spec, marker
 
           required_contracts = {
               "strategy intents": ("SHORT", "FLAT", "LONG", "quantity hold"),
@@ -77,8 +98,16 @@ jobs:
                   "feature_available_time <= decision_time",
                   "label_end_time < fit_cutoff",
               ),
-              "accounting authority": ("MarketExecutor", "BookState", "single execution/accounting authority"),
-              "fit/evaluation separation": ("fit_symbol_names", "evaluation scope", "independently"),
+              "accounting authority": (
+                  "MarketExecutor",
+                  "BookState",
+                  "single execution/accounting authority",
+              ),
+              "fit/evaluation separation": (
+                  "fit_symbol_names",
+                  "evaluation scope",
+                  "independently",
+              ),
               "candidate set": (
                   "`trend`",
                   "`mean_reversion`",
@@ -116,7 +145,13 @@ jobs:
                   "evaluation/robustness/",
                   "evaluation/runs/",
               ),
-              "documentation lifecycle": ("docs/specs/", "docs/plans/", "Git history", "docs/history/", "docs/archive/"),
+              "documentation lifecycle": (
+                  "docs/specs/",
+                  "docs/plans/",
+                  "Git history",
+                  "docs/history/",
+                  "docs/archive/",
+              ),
           }
           missing: list[tuple[str, str]] = []
           for group, tokens in required_contracts.items():
@@ -125,7 +160,6 @@ jobs:
                       missing.append((group, token))
           assert missing == [], missing
 
-          # Guard against current-state inflation or accidental reintroduction of transient/history authority.
           assert "real-data development comparison: **complete**" not in combined
           assert "Profitability claim: **proven**" not in combined
           assert "Production/live order routing: **authorized**" not in combined
@@ -133,7 +167,9 @@ jobs:
           assert re.search(r"\b[0-9a-f]{40}\b", combined) is None
 
           docs_root = ROOT / "docs"
-          observed = sorted(str(path.relative_to(docs_root)) for path in docs_root.rglob("*.md"))
+          observed = sorted(
+              str(path.relative_to(docs_root)) for path in docs_root.rglob("*.md")
+          )
           expected = sorted(
               [
                   "AGENTS.md",
@@ -149,7 +185,6 @@ jobs:
           assert not (docs_root / "history").exists()
           assert not (docs_root / "archive").exists()
 
-          # Current docs must not route to removed chronology or a retired CLI.
           assert "trade_rl_lean_redesign_20260908.md" not in combined
           assert "trade_rl.evaluation.candidate_run" not in combined
           assert "python -m trade_rl.evaluation.runs.candidate" in combined
@@ -160,4 +195,4 @@ jobs:
           PY
 
       - name: Re-run documentation contract
-        run: python -m pytest -q tests/architecture/test_current_documentation_contract.py
+        run: uv run pytest -q tests/architecture/test_current_documentation_contract.py

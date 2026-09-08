@@ -1,0 +1,81 @@
+name: CEL Workflow Dataset Param
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-workflow-dataset-param.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Bind definitions to canonical dataset artifact
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path("tests/evaluation/experiments/test_workflow.py")
+          text = workflow.read_text(encoding="utf-8")
+          text = text.replace(
+              "root, _, snapshot = _with_baseline(\n",
+              "root, dataset_root, snapshot = _with_baseline(\n",
+          )
+          marker = "define_experiment(\n            root,\n"
+          text = text.replace(
+              marker,
+              "define_experiment(\n            root,\n            dataset_root=dataset_root,\n",
+          )
+          marker = "definition = define_experiment(\n        root,\n"
+          text = text.replace(
+              marker,
+              "definition = define_experiment(\n        root,\n        dataset_root=dataset_root,\n",
+          )
+          marker = "define_experiment(\n        root,\n"
+          text = text.replace(
+              marker,
+              "define_experiment(\n        root,\n        dataset_root=dataset_root,\n",
+          )
+          workflow.write_text(text, encoding="utf-8")
+
+          lineage = Path("tests/evaluation/experiments/test_lineage.py")
+          text = lineage.read_text(encoding="utf-8")
+          text = text.replace(
+              "define_experiment(\n        root,\n",
+              "define_experiment(\n        root,\n        dataset_root=dataset_root,\n",
+          )
+          text = text.replace(
+              "root, _, snapshot, candidate, _ = _decided_first_experiment(\n",
+              "root, dataset_root, snapshot, candidate, _ = _decided_first_experiment(\n",
+          )
+          text = text.replace(
+              "root, _, snapshot = _with_baseline(tmp_path, monkeypatch)\n",
+              "root, dataset_root, snapshot = _with_baseline(tmp_path, monkeypatch)\n",
+          )
+          lineage.write_text(text, encoding="utf-8")
+          PY
+          uv run ruff check --fix tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py
+          uv run ruff format tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py
+          uv run ruff check trade_rl tests
+          uv run ruff format --check trade_rl tests
+      - name: Commit contract refinement and remove helper
+        run: |
+          rm .github/workflows/cel-workflow-dataset-param.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py .github/workflows/cel-workflow-dataset-param.yml
+          git diff --cached --check
+          git commit -m "test: bind experiment definitions to dataset artifact"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

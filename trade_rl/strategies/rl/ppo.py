@@ -13,14 +13,14 @@ from gymnasium import spaces
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
+from trade_rl.strategies.forecasts.supervised import (
+    validated_feature_indices,
+    validated_symbol_indices,
+)
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import (
     PositionIntent,
     target_weight_for_intent,
-)
-from trade_rl.strategies.supervised import (
-    validated_feature_indices,
-    validated_symbol_indices,
 )
 
 

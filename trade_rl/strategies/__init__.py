@@ -1,29 +1,36 @@
 """Lean single-symbol strategy contracts."""
 
 from trade_rl.strategies.controls import ConstantIntentStrategy
-from trade_rl.strategies.forecast import ForecastIntentConfig, ForecastIntentController
-from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
-from trade_rl.strategies.lightgbm import (
+from trade_rl.strategies.forecasts.controller import (
+    ForecastIntentConfig,
+    ForecastIntentController,
+)
+from trade_rl.strategies.forecasts.lightgbm import (
     LightGBMForecastModel,
     LightGBMForecastStrategy,
     fit_lightgbm_forecast,
 )
-from trade_rl.strategies.mean_reversion import (
-    MeanReversionIntentConfig,
-    MeanReversionIntentStrategy,
-)
-from trade_rl.strategies.position_intent import PositionIntent, target_weight_for_intent
-from trade_rl.strategies.ppo import PPOIntentStrategy, PPOTradingEnv, fit_ppo_strategy
-from trade_rl.strategies.ridge import (
+from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastModel,
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
-from trade_rl.strategies.supervised import (
+from trade_rl.strategies.forecasts.supervised import (
     CausalForecastTrainingSet,
     build_causal_forecast_training_set,
 )
-from trade_rl.strategies.trend import TrendIntentConfig, TrendIntentStrategy
+from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
+from trade_rl.strategies.position_intent import PositionIntent, target_weight_for_intent
+from trade_rl.strategies.rl.ppo import (
+    PPOIntentStrategy,
+    PPOTradingEnv,
+    fit_ppo_strategy,
+)
+from trade_rl.strategies.rules.mean_reversion import (
+    MeanReversionIntentConfig,
+    MeanReversionIntentStrategy,
+)
+from trade_rl.strategies.rules.trend import TrendIntentConfig, TrendIntentStrategy
 
 __all__ = [
     "CausalForecastTrainingSet",

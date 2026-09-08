@@ -4,7 +4,10 @@ import math
 
 import pytest
 
-from trade_rl.strategies.forecast import ForecastIntentConfig, ForecastIntentController
+from trade_rl.strategies.forecasts.controller import (
+    ForecastIntentConfig,
+    ForecastIntentController,
+)
 from trade_rl.strategies.position_intent import PositionIntent
 
 

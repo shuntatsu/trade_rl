@@ -29,12 +29,13 @@ def validated_feature_indices(
 
 @dataclass(frozen=True, slots=True)
 class CausalForecastTrainingSet:
-    """Frozen fit-prefix rows with complete forward labels."""
+    """Frozen fit-prefix rows with complete forward labels and fit-only weights."""
 
     feature_indices: tuple[int, ...]
     features: np.ndarray
     labels: np.ndarray
     label_end_times: np.ndarray
+    sample_weights: np.ndarray
     fit_cutoff: np.datetime64
     horizon_hours: int
 
@@ -45,6 +46,9 @@ class CausalForecastTrainingSet:
         label_end_times = (
             np.asarray(self.label_end_times, dtype="datetime64[ns]").reshape(-1).copy()
         )
+        sample_weights = (
+            np.asarray(self.sample_weights, dtype=np.float64).reshape(-1).copy()
+        )
         cutoff = np.datetime64(self.fit_cutoff, "ns")
         if features.ndim != 2 or features.shape[0] == 0:
             raise ValueError("features must be a non-empty two-dimensional array")
@@ -54,8 +58,12 @@ class CausalForecastTrainingSet:
             raise ValueError("labels must match training rows")
         if label_end_times.shape != labels.shape:
             raise ValueError("label_end_times must match training rows")
+        if sample_weights.shape != labels.shape:
+            raise ValueError("sample_weights must match training rows")
         if not np.isfinite(features).all() or not np.isfinite(labels).all():
             raise ValueError("training features and labels must be finite")
+        if not np.isfinite(sample_weights).all() or np.any(sample_weights <= 0.0):
+            raise ValueError("sample_weights must be finite and positive")
         if np.any(label_end_times >= cutoff):
             raise ValueError("all label_end_times must be strictly before fit_cutoff")
         if (
@@ -67,10 +75,12 @@ class CausalForecastTrainingSet:
         features.setflags(write=False)
         labels.setflags(write=False)
         label_end_times.setflags(write=False)
+        sample_weights.setflags(write=False)
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "features", features)
         object.__setattr__(self, "labels", labels)
         object.__setattr__(self, "label_end_times", label_end_times)
+        object.__setattr__(self, "sample_weights", sample_weights)
         object.__setattr__(self, "fit_cutoff", cutoff)
 
     @property
@@ -85,10 +95,8 @@ def build_causal_forecast_training_set(
     fit_cutoff: np.datetime64,
     horizon_hours: int = 24,
 ) -> CausalForecastTrainingSet:
-    """Build exact-horizon rows whose label ends strictly before the fit cutoff."""
+    """Pool exact-horizon rows without adding symbol identity to model features."""
 
-    if dataset.n_symbols != 1:
-        raise ValueError("forecast fitting requires exactly one symbol")
     indices = validated_feature_indices(dataset, feature_indices)
     if (
         isinstance(horizon_hours, bool)
@@ -105,50 +113,76 @@ def build_causal_forecast_training_set(
         np.timedelta64(horizon_hours, "h").astype("timedelta64[ns]").astype(np.int64)
     )
     time_to_index = {int(value): index for index, value in enumerate(timestamps_ns)}
-    close = np.asarray(dataset.close[:, 0], dtype=np.float64)
-    availability = np.asarray(dataset.feature_available[:, 0], dtype=np.bool_)
 
-    rows: list[np.ndarray] = []
-    labels: list[float] = []
-    label_end_times: list[np.datetime64] = []
-    for start_index, start_ns in enumerate(timestamps_ns):
-        end_ns = int(start_ns) + horizon_ns
-        if end_ns >= cutoff_ns:
-            continue
-        end_index = time_to_index.get(end_ns)
-        if end_index is None or end_index <= start_index:
-            continue
-        if not bool(np.all(availability[start_index, list(indices)])):
-            continue
-        selected = np.asarray(
-            dataset.features[start_index, 0, list(indices)],
-            dtype=np.float64,
+    rows_by_symbol: list[list[np.ndarray]] = []
+    labels_by_symbol: list[list[float]] = []
+    ends_by_symbol: list[list[np.datetime64]] = []
+    for symbol_index in range(dataset.n_symbols):
+        close = np.asarray(dataset.close[:, symbol_index], dtype=np.float64)
+        availability = np.asarray(
+            dataset.feature_available[:, symbol_index],
+            dtype=np.bool_,
         )
-        if not np.isfinite(selected).all():
-            continue
-        start_price = float(close[start_index])
-        end_price = float(close[end_index])
-        if (
-            not math.isfinite(start_price)
-            or not math.isfinite(end_price)
-            or start_price <= 0.0
-            or end_price <= 0.0
-        ):
-            continue
-        rows.append(selected)
-        labels.append(math.log(end_price / start_price))
-        label_end_times.append(timestamps[end_index])
+        symbol_rows: list[np.ndarray] = []
+        symbol_labels: list[float] = []
+        symbol_ends: list[np.datetime64] = []
+        for start_index, start_ns in enumerate(timestamps_ns):
+            end_ns = int(start_ns) + horizon_ns
+            if end_ns >= cutoff_ns:
+                continue
+            end_index = time_to_index.get(end_ns)
+            if end_index is None or end_index <= start_index:
+                continue
+            if not bool(np.all(availability[start_index, list(indices)])):
+                continue
+            selected = np.asarray(
+                dataset.features[start_index, symbol_index, list(indices)],
+                dtype=np.float64,
+            )
+            if not np.isfinite(selected).all():
+                continue
+            start_price = float(close[start_index])
+            end_price = float(close[end_index])
+            if (
+                not math.isfinite(start_price)
+                or not math.isfinite(end_price)
+                or start_price <= 0.0
+                or end_price <= 0.0
+            ):
+                continue
+            symbol_rows.append(selected)
+            symbol_labels.append(math.log(end_price / start_price))
+            symbol_ends.append(timestamps[end_index])
+        rows_by_symbol.append(symbol_rows)
+        labels_by_symbol.append(symbol_labels)
+        ends_by_symbol.append(symbol_ends)
 
-    if len(rows) < 2:
+    active_symbols = [index for index, rows in enumerate(rows_by_symbol) if rows]
+    total_rows = sum(len(rows_by_symbol[index]) for index in active_symbols)
+    if total_rows < 2:
         raise ValueError(
             "forecast fitting requires at least two eligible training rows"
         )
+
+    per_symbol_weight = total_rows / len(active_symbols)
+    rows: list[np.ndarray] = []
+    labels: list[float] = []
+    label_end_times: list[np.datetime64] = []
+    sample_weights: list[float] = []
+    for symbol_index in active_symbols:
+        symbol_rows = rows_by_symbol[symbol_index]
+        row_weight = per_symbol_weight / len(symbol_rows)
+        rows.extend(symbol_rows)
+        labels.extend(labels_by_symbol[symbol_index])
+        label_end_times.extend(ends_by_symbol[symbol_index])
+        sample_weights.extend([row_weight] * len(symbol_rows))
 
     return CausalForecastTrainingSet(
         feature_indices=indices,
         features=np.stack(rows, axis=0),
         labels=np.asarray(labels, dtype=np.float64),
         label_end_times=np.asarray(label_end_times, dtype="datetime64[ns]"),
+        sample_weights=np.asarray(sample_weights, dtype=np.float64),
         fit_cutoff=cutoff,
         horizon_hours=horizon_hours,
     )

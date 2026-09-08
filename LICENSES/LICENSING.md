@@ -2,7 +2,7 @@
 
 Trade RL source code in revisions at and after the LGPL transition is licensed under `LGPL-3.0-or-later`, except where a file or bundled third-party material states a different license.
 
-The canonical repository license text is `LICENSE`; SPDX-named copies are stored under `LICENSES/`. The GNU LGPL v3 incorporates the GNU GPL v3 terms, so the corresponding GPL text is bundled as well.
+The canonical repository license text is `LICENSE`; SPDX-named copies are stored under `LICENSES/`. The GNU LGPL v3 incorporates the GNU GPL v3 terms, so the corresponding GPL text is bundled as well. Maintained licensing policy and provenance records also live under `LICENSES/` so the lean `docs/` tree can remain focused on system design without discarding legal history.
 
 ## Historical MIT revisions
 

@@ -22,6 +22,36 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
+      - name: Make AST extraction decorator-aware
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/phase2b_migrate_binance.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    for node in tree.body:
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                      segment = ast.get_source_segment(source, node)
+                      if segment is None:
+                          raise RuntimeError(f"could not extract {node.name} from {path}")
+                      result[node.name] = segment
+          '''
+          new = '''    lines = source.splitlines(keepends=True)
+              for node in tree.body:
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                      start_line = min(
+                          [node.lineno, *(decorator.lineno for decorator in node.decorator_list)]
+                      )
+                      segment = "".join(lines[start_line - 1 : node.end_lineno]).rstrip("\\n")
+                      result[node.name] = segment
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("decorator-aware extraction patch did not match exactly once")
+          path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+
       - name: Apply exhaustive Binance split
         run: python scripts/phase2b_migrate_binance.py
 

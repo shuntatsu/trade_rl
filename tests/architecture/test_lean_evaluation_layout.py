@@ -109,7 +109,9 @@ def test_phase4a_one_shot_helpers_are_absent() -> None:
         / "workflows"
         / "phase4a-evaluation-semantic-falsification.yml",
     )
-    surviving = [str(path.relative_to(ROOT)) for path in retired_helpers if path.exists()]
+    surviving = [
+        str(path.relative_to(ROOT)) for path in retired_helpers if path.exists()
+    ]
     assert surviving == []
     assert not (PACKAGE / "experiments").exists()
 

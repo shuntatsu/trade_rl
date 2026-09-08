@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from trade_rl.data.contracts import InstrumentContract, InstrumentExecutionRule
-from trade_rl.data.economic_semantics import build_market_economic_semantics
+from trade_rl.data.features.economic import build_market_economic_semantics
 
 PYTHON_SOURCE_ROOT = Path(__file__).resolve().parents[2] / "trade_rl"
 
@@ -66,5 +66,5 @@ def test_economic_semantics_are_explicit_point_in_time_and_immutable() -> None:
 
 
 def test_dataset_builder_uses_one_economic_semantics_constructor() -> None:
-    source = (PYTHON_SOURCE_ROOT / "data/builder.py").read_text(encoding="utf-8")
+    source = (PYTHON_SOURCE_ROOT / "data/build/builder.py").read_text(encoding="utf-8")
     assert "build_market_economic_semantics" in source

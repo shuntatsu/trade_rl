@@ -112,6 +112,9 @@ Aggregate P&Lだけを成功判定の正本にしない。ある銘柄の利益�
 - Canonical JSON/digestのauthorityは `trade_rl.artifacts` に置く。
 - Market dataset artifactのcodec/publicationは `trade_rl.data.artifacts` が持つ。
 - Candidate/evaluation runはimmutable filesystem artifactとして残す。
+- Candidate Runはresolved result `summary.json`、raw interval return `returns.npz`、implementation/runtime/research-context evidence `provenance.json` の3ファイルを一体としてpublishする。
+- Candidate Runは実行前後でimplementation/runtime provenanceが一致する場合だけpublishする。実行中にsource/runtime provenanceが変化したRunを正当なevidenceとして残さない。
+- Candidate artifact identityはNPZのZIP圧縮表現そのものではなく、summary/provenanceと検証済みreturn arrayのsemantic contentへbindする。一方、各fileのraw SHA-256/sizeもtamper検出用evidenceとして保持できる。
 - 同じ入力・設定・identityからはdeterministicなidentityを得る。
 - resultを見た後にevidence条件やthresholdを都合よく変更しない。
 

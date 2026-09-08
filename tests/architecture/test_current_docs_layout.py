@@ -85,7 +85,7 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         "artifacts / data / integrations / risk / simulation / strategies / evaluation",
         "_validation -> standard library only",
         "evaluation/experiments/",
-        "private path",
+        "private module path",
     ):
         assert required in package_boundaries
 

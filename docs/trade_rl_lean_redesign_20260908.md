@@ -137,7 +137,7 @@ intentが変化した場合だけ新しいtarget quantityを決め、その後�
 
 ### Ridge / LightGBM
 
-supervised training rowは全銘柄からpoolする。
+supervised training rowは事前登録した`fit_symbol_names`の銘柄だけからpoolする。fit scope外の銘柄は学習行へ入れず、評価対象symbolはfit対象と独立に扱う。
 
 各銘柄のeligible row数が異なっても、一つの銘柄が行数だけで学習を支配しないよう、**各銘柄の総sample weightを等しくする**。
 
@@ -156,7 +156,7 @@ current weight
 
 symbol IDは入れない。
 
-training episodeはdatasetの銘柄をround-robinで巡回し、各episodeでは一つのactive symbolだけを売買する。これにより一つのpolicyを全銘柄へ共有する。
+training episodeは`fit_symbol_names`で指定した銘柄だけをround-robinで巡回し、各episodeでは一つのactive symbolだけを売買する。fit scope外の銘柄は学習episodeへ入れず、同じ凍結policyを評価時に全対象銘柄へ適用する。
 
 ---
 
@@ -303,6 +303,7 @@ M2で候補が決まった後だけ進む。
 {
   "signal_name": "<rule signal feature name>",
   "feature_names": ["<feature A>", "<feature B>"],
+  "fit_symbol_names": ["BTCUSDT", "ETHUSDT"],
   "fit_cutoff": "2026-01-01T00:00:00",
   "evaluation_start": "2026-01-01T00:00:00",
   "evaluation_stop_exclusive": "2026-02-01T00:00:00",

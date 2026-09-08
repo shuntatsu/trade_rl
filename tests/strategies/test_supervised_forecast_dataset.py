@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.supervised import build_causal_forecast_training_set
@@ -128,3 +129,31 @@ def test_explicit_fit_symbol_scope_excludes_unseen_symbol_rows() -> None:
     assert training.n_samples == 6
     np.testing.assert_array_equal(training.features[:, 0], np.arange(6))
     np.testing.assert_array_equal(training.sample_weights, np.ones(6))
+
+
+@pytest.mark.parametrize(
+    "fit_symbol_indices",
+    ((), (0, 0), (-1,), (2,)),
+)
+def test_fit_symbol_scope_rejects_empty_duplicate_or_out_of_range_indices(
+    fit_symbol_indices: tuple[int, ...],
+) -> None:
+    with pytest.raises(ValueError, match="symbol"):
+        build_causal_forecast_training_set(
+            pooled_market(),
+            feature_indices=(0, 1),
+            fit_symbol_indices=fit_symbol_indices,
+            fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+            horizon_hours=2,
+        )
+
+
+def test_explicit_fit_scope_rejects_a_symbol_with_no_eligible_rows() -> None:
+    with pytest.raises(ValueError, match="fit symbol.*eligible training rows"):
+        build_causal_forecast_training_set(
+            pooled_market(),
+            feature_indices=(0, 1),
+            fit_symbol_indices=(0, 1),
+            fit_cutoff=np.datetime64("2026-01-01T04:00:00", "ns"),
+            horizon_hours=2,
+        )

@@ -27,6 +27,27 @@ def validated_feature_indices(
     return indices
 
 
+def validated_symbol_indices(
+    dataset: MarketDataset,
+    symbol_indices: tuple[int, ...] | None,
+) -> tuple[int, ...]:
+    """Resolve an optional fit scope while rejecting ambiguous symbol indices."""
+
+    if symbol_indices is None:
+        return tuple(range(dataset.n_symbols))
+    indices = tuple(symbol_indices)
+    if not indices or len(set(indices)) != len(indices):
+        raise ValueError("symbol_indices must be non-empty and unique")
+    if any(
+        isinstance(index, bool) or not isinstance(index, int) or index < 0
+        for index in indices
+    ):
+        raise ValueError("symbol_indices must contain non-negative integers")
+    if max(indices) >= dataset.n_symbols:
+        raise ValueError("symbol index is outside dataset symbols")
+    return indices
+
+
 @dataclass(frozen=True, slots=True)
 class CausalForecastTrainingSet:
     """Frozen fit-prefix rows with complete forward labels and fit-only weights."""
@@ -92,12 +113,14 @@ def build_causal_forecast_training_set(
     dataset: MarketDataset,
     *,
     feature_indices: tuple[int, ...],
+    fit_symbol_indices: tuple[int, ...] | None = None,
     fit_cutoff: np.datetime64,
     horizon_hours: int = 24,
 ) -> CausalForecastTrainingSet:
     """Pool exact-horizon rows without adding symbol identity to model features."""
 
     indices = validated_feature_indices(dataset, feature_indices)
+    symbols = validated_symbol_indices(dataset, fit_symbol_indices)
     if (
         isinstance(horizon_hours, bool)
         or not isinstance(horizon_hours, int)
@@ -114,10 +137,10 @@ def build_causal_forecast_training_set(
     )
     time_to_index = {int(value): index for index, value in enumerate(timestamps_ns)}
 
-    rows_by_symbol: list[list[np.ndarray]] = []
-    labels_by_symbol: list[list[float]] = []
-    ends_by_symbol: list[list[np.datetime64]] = []
-    for symbol_index in range(dataset.n_symbols):
+    rows_by_symbol: list[list[np.ndarray]] = [[] for _ in range(dataset.n_symbols)]
+    labels_by_symbol: list[list[float]] = [[] for _ in range(dataset.n_symbols)]
+    ends_by_symbol: list[list[np.datetime64]] = [[] for _ in range(dataset.n_symbols)]
+    for symbol_index in symbols:
         close = np.asarray(dataset.close[:, symbol_index], dtype=np.float64)
         availability = np.asarray(
             dataset.feature_available[:, symbol_index],
@@ -153,11 +176,17 @@ def build_causal_forecast_training_set(
             symbol_rows.append(selected)
             symbol_labels.append(math.log(end_price / start_price))
             symbol_ends.append(timestamps[end_index])
-        rows_by_symbol.append(symbol_rows)
-        labels_by_symbol.append(symbol_labels)
-        ends_by_symbol.append(symbol_ends)
+        rows_by_symbol[symbol_index] = symbol_rows
+        labels_by_symbol[symbol_index] = symbol_labels
+        ends_by_symbol[symbol_index] = symbol_ends
 
-    active_symbols = [index for index, rows in enumerate(rows_by_symbol) if rows]
+    if fit_symbol_indices is not None:
+        missing_symbols = [index for index in symbols if not rows_by_symbol[index]]
+        if missing_symbols:
+            names = ", ".join(dataset.symbols[index] for index in missing_symbols)
+            raise ValueError(f"fit symbol has no eligible training rows: {names}")
+
+    active_symbols = [index for index in symbols if rows_by_symbol[index]]
     total_rows = sum(len(rows_by_symbol[index]) for index in active_symbols)
     if total_rows < 2:
         raise ValueError(
@@ -192,4 +221,5 @@ __all__ = [
     "CausalForecastTrainingSet",
     "build_causal_forecast_training_set",
     "validated_feature_indices",
+    "validated_symbol_indices",
 ]

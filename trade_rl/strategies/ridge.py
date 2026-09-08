@@ -131,6 +131,7 @@ def fit_ridge_forecast(
     dataset: MarketDataset,
     *,
     feature_indices: tuple[int, ...],
+    fit_symbol_indices: tuple[int, ...] | None = None,
     fit_cutoff: np.datetime64,
     horizon_hours: int = 24,
     alpha: float = 1.0,
@@ -142,6 +143,7 @@ def fit_ridge_forecast(
     training = build_causal_forecast_training_set(
         dataset,
         feature_indices=feature_indices,
+        fit_symbol_indices=fit_symbol_indices,
         fit_cutoff=fit_cutoff,
         horizon_hours=horizon_hours,
     )

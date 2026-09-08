@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.simulation.target_exposure_controller import (
+from trade_rl.simulation.targets.exposure_controller import (
     ControllerPhase,
     TargetExposureController,
     TargetExposureInput,

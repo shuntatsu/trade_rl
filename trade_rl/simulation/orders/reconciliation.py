@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.orders import (
+from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
     OrderType,

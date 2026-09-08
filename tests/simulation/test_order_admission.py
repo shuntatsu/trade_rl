@@ -4,11 +4,11 @@ import numpy as np
 import pytest
 
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.order_admission import (
+from trade_rl.simulation.orders.admission import (
     OrderAdmissionError,
     OrderAdmissionPolicy,
 )
-from trade_rl.simulation.orders import (
+from trade_rl.simulation.orders.model import (
     OrderIntent,
     OrderType,
     TimeInForce,

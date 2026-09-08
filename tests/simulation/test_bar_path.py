@@ -10,7 +10,7 @@ from trade_rl.simulation.bar_path import (
     select_bar_path,
     volume_fraction_for_segment,
 )
-from trade_rl.simulation.orders import (
+from trade_rl.simulation.orders.model import (
     OrderIntent,
     OrderStatus,
     OrderType,

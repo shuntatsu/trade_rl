@@ -14,18 +14,18 @@ from trade_rl.simulation.accounting import (
     BookState,
     EconomicTerminationReason,
 )
-from trade_rl.simulation.orders import (
+from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
 )
-from trade_rl.simulation.orders import (
+from trade_rl.simulation.orders.model import (
     execution_policy_digest as calculate_execution_policy_digest,
 )
-from trade_rl.simulation.stateful_execution import (
+from trade_rl.simulation.stateful.execution import (
     StatefulExecutionResult,
     execute_stateful_orders,
 )
-from trade_rl.simulation.target_execution import execute_target_statefully
+from trade_rl.simulation.targets.execution import execute_target_statefully
 
 _TOLERANCE = 1e-12
 _ATTEMPT_EVENT_TYPES = frozenset(

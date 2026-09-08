@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 
-from trade_rl.simulation.orders import OrderStatus, OrderType, PendingOrder
+from trade_rl.simulation.orders.model import OrderStatus, OrderType, PendingOrder
 
 
 class BarPathError(ValueError):

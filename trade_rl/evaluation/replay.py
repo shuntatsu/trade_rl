@@ -10,6 +10,7 @@ import numpy as np
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import (
     BookState,
     EconomicTerminationReason,
@@ -54,6 +55,31 @@ def _weight_for_desired_quantity(book: BookState, desired_quantity: float) -> fl
     )
 
 
+def _default_replay_risk(executor: MarketExecutor) -> PreTradeRisk:
+    hard_limit = min(1.0, float(executor.cost.max_leverage))
+    return PreTradeRisk(
+        PreTradeRiskConfig(
+            max_gross=hard_limit,
+            max_abs_weight=hard_limit,
+            max_turnover=None,
+            drawdown_start=1.0,
+            drawdown_stop=1.0,
+        )
+    )
+
+
+def _validate_risk_execution_compatibility(
+    risk: PreTradeRisk,
+    executor: MarketExecutor,
+) -> None:
+    execution_limit = float(executor.cost.max_leverage)
+    if (
+        risk.config.max_gross > execution_limit
+        or risk.config.max_abs_weight > execution_limit
+    ):
+        raise ValueError("risk exposure limits must not exceed execution max_leverage")
+
+
 def _observation(
     dataset: MarketDataset,
     *,
@@ -85,11 +111,14 @@ def run_single_symbol_replay(
     gross_budget: float,
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
+    risk: PreTradeRisk | None = None,
 ) -> SingleSymbolReplayResult:
-    """Replay one symbol with one-bar decisions and quantity-preserving holds.
+    """Replay one symbol with quantity-preserving holds and hard risk limits.
 
     ``stop_index`` is exclusive. Every decision uses row ``t`` and executes over
-    the following bar through the canonical ``MarketExecutor``.
+    the following bar through the canonical ``MarketExecutor``. When no explicit
+    risk controller is supplied, replay installs only an execution-aligned hard
+    exposure guard; stricter drawdown or turnover constraints must be explicit.
     """
 
     if dataset.n_symbols != 1:
@@ -114,6 +143,8 @@ def run_single_symbol_replay(
         contract_multipliers=dataset.contract_multipliers,
     )
     executor = MarketExecutor(dataset, execution_cost or ExecutionCostConfig.zero())
+    risk_controller = risk or _default_replay_risk(executor)
+    _validate_risk_execution_compatibility(risk_controller, executor)
     current_intent = PositionIntent.FLAT
     desired_quantity = 0.0
     decisions: list[ReplayDecision] = []
@@ -132,12 +163,22 @@ def run_single_symbol_replay(
             raise TypeError("strategy.decide must return PositionIntent")
         changed_intent = intent is not current_intent
         if changed_intent:
-            target_weight = target_weight_for_intent(
+            proposal_weight = target_weight_for_intent(
                 intent,
                 gross_budget=gross_budget,
             )
+            desired_quantity = _desired_quantity_from_weight(book, proposal_weight)
+        proposal_weight = _weight_for_desired_quantity(book, desired_quantity)
+        constrained = risk_controller.constrain(
+            np.asarray([proposal_weight], dtype=np.float64),
+            current=book.weights,
+            drawdown=book.max_drawdown,
+        )
+        target_weight = float(constrained.weights[0])
+        if constrained.was_constrained and any(
+            reason != "max_turnover" for reason in constrained.reasons
+        ):
             desired_quantity = _desired_quantity_from_weight(book, target_weight)
-        target_weight = _weight_for_desired_quantity(book, desired_quantity)
         decisions.append(
             ReplayDecision(
                 index=index,

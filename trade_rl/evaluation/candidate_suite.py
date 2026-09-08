@@ -15,19 +15,22 @@ from trade_rl.evaluation.strategy_comparison import (
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
-from trade_rl.strategies.interface import SingleSymbolStrategy
-from trade_rl.strategies.lightgbm import (
+from trade_rl.strategies.forecasts.lightgbm import (
     LightGBMForecastStrategy,
     fit_lightgbm_forecast,
 )
-from trade_rl.strategies.mean_reversion import (
+from trade_rl.strategies.forecasts.ridge import (
+    RidgeForecastStrategy,
+    fit_ridge_forecast,
+)
+from trade_rl.strategies.interface import SingleSymbolStrategy
+from trade_rl.strategies.position_intent import PositionIntent
+from trade_rl.strategies.rl.ppo import fit_ppo_strategy
+from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentConfig,
     MeanReversionIntentStrategy,
 )
-from trade_rl.strategies.position_intent import PositionIntent
-from trade_rl.strategies.ppo import fit_ppo_strategy
-from trade_rl.strategies.ridge import RidgeForecastStrategy, fit_ridge_forecast
-from trade_rl.strategies.trend import TrendIntentConfig, TrendIntentStrategy
+from trade_rl.strategies.rules.trend import TrendIntentConfig, TrendIntentStrategy
 
 
 @dataclass(frozen=True, slots=True)

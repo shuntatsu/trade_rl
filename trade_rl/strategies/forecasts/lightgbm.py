@@ -10,13 +10,13 @@ from typing import Protocol, cast
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.strategies.forecast import (
+from trade_rl.strategies.forecasts.controller import (
     ForecastIntentConfig,
     ForecastIntentController,
 )
+from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
-from trade_rl.strategies.supervised import build_causal_forecast_training_set
 
 
 class _RegressorPredictor(Protocol):

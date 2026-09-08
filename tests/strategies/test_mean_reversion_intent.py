@@ -4,11 +4,11 @@ import numpy as np
 import pytest
 
 from trade_rl.strategies.interface import StrategyObservation
-from trade_rl.strategies.mean_reversion import (
+from trade_rl.strategies.position_intent import PositionIntent
+from trade_rl.strategies.rules.mean_reversion import (
     MeanReversionIntentConfig,
     MeanReversionIntentStrategy,
 )
-from trade_rl.strategies.position_intent import PositionIntent
 
 
 def observation(

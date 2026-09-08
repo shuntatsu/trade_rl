@@ -5,7 +5,7 @@ import pytest
 
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
-from trade_rl.strategies.trend import TrendIntentConfig, TrendIntentStrategy
+from trade_rl.strategies.rules.trend import TrendIntentConfig, TrendIntentStrategy
 
 
 def observation(

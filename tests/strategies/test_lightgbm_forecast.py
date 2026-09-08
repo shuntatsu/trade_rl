@@ -6,12 +6,12 @@ from types import SimpleNamespace
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.strategies.interface import StrategyObservation
-from trade_rl.strategies.lightgbm import (
+from trade_rl.strategies.forecasts.lightgbm import (
     LightGBMForecastModel,
     LightGBMForecastStrategy,
     fit_lightgbm_forecast,
 )
+from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 
 

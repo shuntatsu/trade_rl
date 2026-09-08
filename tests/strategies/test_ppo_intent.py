@@ -12,7 +12,7 @@ from trade_rl.evaluation.replay import run_single_symbol_replay
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
-from trade_rl.strategies.ppo import (
+from trade_rl.strategies.rl.ppo import (
     PPOIntentStrategy,
     PPOTradingEnv,
     fit_ppo_strategy,

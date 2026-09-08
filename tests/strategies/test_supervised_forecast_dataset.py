@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.strategies.supervised import build_causal_forecast_training_set
+from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 
 
 def market(*, future_multiplier: float = 1.0) -> MarketDataset:

@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import numpy as np
 
-import trade_rl.strategies.ridge as ridge_module
+import trade_rl.strategies.forecasts.ridge as ridge_module
 from trade_rl.data.market import MarketDataset
-from trade_rl.strategies.interface import StrategyObservation
-from trade_rl.strategies.position_intent import PositionIntent
-from trade_rl.strategies.ridge import (
+from trade_rl.strategies.forecasts.ridge import (
     RidgeForecastModel,
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
-from trade_rl.strategies.supervised import CausalForecastTrainingSet
+from trade_rl.strategies.forecasts.supervised import CausalForecastTrainingSet
+from trade_rl.strategies.interface import StrategyObservation
+from trade_rl.strategies.position_intent import PositionIntent
 
 
 def market(*, terminal_multiplier: float = 1.0) -> MarketDataset:

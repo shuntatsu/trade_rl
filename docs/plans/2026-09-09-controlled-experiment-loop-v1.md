@@ -70,7 +70,7 @@ class ControlledFactor(Enum):
 
 - [ ] **Step 1: Architecture RED**
 
-Require `experiments/__init__.py`, `errors.py`, `contracts/{__init__,study,experiment,decision}.py`, `store.py`, `evidence.py`, `delta.py`, `analysis.py`, `workflow.py`. Replace PR1's `assert not (PACKAGE / "experiments").exists()` with required layout.
+For Task 1, require only `experiments/__init__.py`, `errors.py`, and `contracts/{__init__,study,experiment,decision}.py`; later tasks extend the required-layout tuple as each permanent owner is implemented, and Task 7 requires the complete final package. Replace PR1's `assert not (PACKAGE / "experiments").exists()` with this incremental contract.
 
 Add AST dependency assertion that any module below `trade_rl.evaluation.experiments` importing the sealed-test authorization module/path is an offender.
 
@@ -220,11 +220,22 @@ def execute_evidence_set(
 ) -> EvidenceSet: ...
 ```
 
-The execution seam calls PR1 Run Core functions; tests monkeypatch `execute_candidate_run` only, not the evidence/digest/publication logic.
+The execution seam calls PR1 Run Core functions; tests monkeypatch `execute_candidate_run` only, not the evidence/digest/publication logic. Evidence loading is explicit:
 
-- [ ] **Step 1: Study pre-resolution RED**
+```python
+@dataclass(frozen=True, slots=True)
+class LoadedEvidenceSet:
+    evidence: EvidenceSet
+    resolved_config: dict[str, object]
+    runs: Mapping[int, LoadedCandidateRun]
+    analysis: dict[str, object]
 
-Create a test that patches/records PR1 `resolve_candidate_run_spec` and proves Study creation uses it for the initial baseline rather than duplicating name/timestamp resolution.
+def load_evidence_set(root: str | Path) -> LoadedEvidenceSet: ...
+```
+
+- [ ] **Step 1: Shared Run Core resolution RED**
+
+Patch/record PR1 `resolve_candidate_run_spec` inside EvidenceSet generation and prove every seed is resolved through the shared Run Core; CEL must not resolve feature/symbol/timestamps independently. Study creation pre-resolution is tested in Task 6 where `create_study()` exists.
 
 - [ ] **Step 2: Multi-seed RED**
 
@@ -362,8 +373,8 @@ def verify_controlled_delta(
     *,
     plan: StudyPlan,
     definition: ExperimentDefinition,
-    baseline: EvidenceSetView,
-    candidate: EvidenceSetView,
+    baseline: LoadedEvidenceSet,
+    candidate: LoadedEvidenceSet,
 ) -> ControlledVerification: ...
 ```
 
@@ -591,3 +602,11 @@ git commit -m "docs: finalize controlled experiment contracts"
 - [ ] **Step 12: Exact-head CI gate**
 
 Update/open Draft PR2 against PR1, ensure CI checks out exact final PR2 HEAD, and require Ruff / Format / Mypy / full tests / package identity success. Do not merge to main without explicit user authorization.
+
+
+## Plan self-review result
+
+- Spec coverage: every PR2 acceptance criterion maps to Tasks 1-7; Study creation pre-resolution is explicitly owned by Task 6 and multi-seed per-run resolution by Task 3.
+- Placeholder scan: no TBD/TODO/"implement later" step remains.
+- Type consistency: delta/workflow consume the `LoadedEvidenceSet` produced by Task 3; no undefined `EvidenceSetView` remains.
+- Incremental architecture testing: each task can return its targeted layer to Green; Task 7 alone requires the complete final `evaluation/experiments` layout.

@@ -27,6 +27,108 @@ jobs:
       - name: Apply deterministic evaluation relocation
         run: python scripts/phase4a_evaluation_migrate.py
 
+      - name: Rewrite package-member module imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import ast
+          from pathlib import Path
+
+          ROOT = Path.cwd()
+          MEMBERS = {
+              "_perfect_information_lp": (
+                  "trade_rl.evaluation.robustness.perfect_information",
+                  "solver",
+              ),
+              "bootstrap": ("trade_rl.evaluation.comparison", "bootstrap"),
+              "candidate_run": ("trade_rl.evaluation.runs", "candidate"),
+              "candidate_suite": ("trade_rl.evaluation.runs", "candidate_suite"),
+              "capacity": ("trade_rl.evaluation.robustness", "capacity"),
+              "closed_trades": ("trade_rl.evaluation.robustness", "closed_trades"),
+              "comparisons": ("trade_rl.evaluation.comparison", "paired"),
+              "fold_metrics": ("trade_rl.evaluation.robustness", "fold_metrics"),
+              "perfect_information_bound": (
+                  "trade_rl.evaluation.robustness.perfect_information",
+                  "bound",
+              ),
+              "seed_robustness": (
+                  "trade_rl.evaluation.comparison",
+                  "seed_robustness",
+              ),
+              "strategy_comparison": (
+                  "trade_rl.evaluation.comparison",
+                  "strategies",
+              ),
+              "walk_forward": ("trade_rl.evaluation.robustness", "walk_forward"),
+          }
+
+          def rewrite(path: Path) -> int:
+              text = path.read_text(encoding="utf-8")
+              tree = ast.parse(text, filename=str(path))
+              lines = text.splitlines(keepends=True)
+              edits: list[tuple[int, int, str]] = []
+              for node in ast.walk(tree):
+                  if not isinstance(node, ast.ImportFrom):
+                      continue
+                  if node.level != 0 or node.module != "trade_rl.evaluation":
+                      continue
+                  moved = [alias for alias in node.names if alias.name in MEMBERS]
+                  if not moved:
+                      continue
+                  if len(node.names) != 1 or len(moved) != 1:
+                      raise RuntimeError(
+                          f"mixed moved/public evaluation import requires manual review: {path}:{node.lineno}"
+                      )
+                  alias = moved[0]
+                  target_module, target_name = MEMBERS[alias.name]
+                  start = node.lineno - 1
+                  end = (node.end_lineno or node.lineno)
+                  original = "".join(lines[start:end])
+                  if "#" in original:
+                      raise RuntimeError(
+                          f"commented moved evaluation import requires manual review: {path}:{node.lineno}"
+                      )
+                  first_line = lines[start]
+                  indent = first_line[: len(first_line) - len(first_line.lstrip())]
+                  local_name = alias.asname
+                  if local_name is None and target_name != alias.name:
+                      local_name = alias.name
+                  replacement = f"{indent}from {target_module} import {target_name}"
+                  if local_name is not None:
+                      replacement += f" as {local_name}"
+                  replacement += "\n"
+                  edits.append((start, end, replacement))
+              for start, end, replacement in sorted(edits, reverse=True):
+                  lines[start:end] = [replacement]
+              if edits:
+                  path.write_text("".join(lines), encoding="utf-8")
+              return len(edits)
+
+          rewritten = 0
+          for root_name in ("trade_rl", "tests"):
+              for path in (ROOT / root_name).rglob("*.py"):
+                  rewritten += rewrite(path)
+
+          offenders: list[str] = []
+          for root_name in ("trade_rl", "tests"):
+              for path in (ROOT / root_name).rglob("*.py"):
+                  tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                  for node in ast.walk(tree):
+                      if (
+                          isinstance(node, ast.ImportFrom)
+                          and node.level == 0
+                          and node.module == "trade_rl.evaluation"
+                          and any(alias.name in MEMBERS for alias in node.names)
+                      ):
+                          offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+          if offenders:
+              raise RuntimeError(f"retired evaluation package-member imports remain: {offenders}")
+          print(f"Rewrote moved evaluation package-member imports: {rewritten}")
+          PY
+
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
@@ -39,8 +141,8 @@ jobs:
       - name: Fix import order only
         run: uv run ruff check --fix --select I001 trade_rl tests
 
-      - name: Format affected long import only
-        run: uv run ruff format tests/evaluation/test_perfect_information_bound_contracts.py
+      - name: Format migrated Python tree
+        run: uv run ruff format trade_rl tests
 
       - name: Ruff
         run: uv run ruff check trade_rl tests

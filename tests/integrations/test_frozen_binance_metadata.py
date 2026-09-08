@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from trade_rl.integrations.binance import BinanceMarket
-from trade_rl.integrations.frozen_binance_metadata import (
+from trade_rl.integrations.binance.metadata import (
     FrozenBinanceExchangeInfoTransport,
 )
 

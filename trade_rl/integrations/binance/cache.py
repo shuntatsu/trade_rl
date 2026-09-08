@@ -1,24 +1,66 @@
-"""Deterministic planning and synchronization for shared Binance Vision archives."""
+"""Deterministic Binance Vision cache planning, validation, and synchronization."""
 
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from trade_rl.integrations.binance import (
+from trade_rl.integrations.binance.types import (
     BinanceMarket,
-    BinancePublicTransport,
     BinanceTransportError,
+    _aware_utc,
+)
+from trade_rl.integrations.binance.vision import (
     plan_vision_kline_urls,
-    validate_cached_vision_payload,
     vision_funding_url,
 )
 
 _VISION_PREFIX = "https://data.binance.vision/data/"
+
+
+def validate_cached_vision_payload(url: str, cache_path: Path) -> bytes:
+    """Load one Vision archive only when its sidecar proves exact content."""
+
+    evidence_path = cache_path.with_suffix(".json")
+    if not evidence_path.is_file():
+        raise BinanceTransportError(
+            f"cached Binance Vision archive lacks content evidence: {cache_path}"
+        )
+    try:
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BinanceTransportError(
+            "cached Binance Vision evidence is invalid"
+        ) from error
+    expected = {
+        "acquired_at",
+        "downloader",
+        "etag",
+        "last_modified",
+        "schema_version",
+        "sha256",
+        "size_bytes",
+        "url",
+    }
+    if not isinstance(evidence, dict) or set(evidence) != expected:
+        raise BinanceTransportError("cached Binance Vision evidence fields are invalid")
+    payload = cache_path.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    if (
+        evidence.get("schema_version") != "binance_vision_raw_cache_v1"
+        or evidence.get("url") != url
+        or evidence.get("size_bytes") != len(payload)
+        or evidence.get("sha256") != digest
+    ):
+        raise BinanceTransportError(
+            f"cached Binance Vision archive content digest or size mismatch: {cache_path}"
+        )
+    return payload
 
 
 class _VisionArchiveTransport(Protocol):
@@ -72,12 +114,6 @@ class BinanceVisionCacheReport:
             "missing_count": len(self.missing_urls),
             "planned_count": self.planned_count,
         }
-
-
-def _aware_utc(value: datetime, *, field: str) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError(f"{field} must be timezone-aware")
-    return value.astimezone(UTC)
 
 
 def _ordered_nonempty(values: Sequence[str], *, field: str) -> tuple[str, ...]:
@@ -220,7 +256,7 @@ def require_complete_binance_vision_cache(
 def sync_binance_vision_urls(
     urls: Sequence[str],
     *,
-    transport: _VisionArchiveTransport | BinancePublicTransport,
+    transport: _VisionArchiveTransport,
 ) -> BinanceVisionCacheReport:
     """Synchronize only missing/invalid members of an official authored URL set."""
 
@@ -266,7 +302,7 @@ def sync_binance_vision_urls(
 def sync_binance_vision_cache(
     plan: BinanceVisionCachePlan,
     *,
-    transport: _VisionArchiveTransport | BinancePublicTransport,
+    transport: _VisionArchiveTransport,
 ) -> BinanceVisionCacheReport:
     """Download only absent or empty archives into the transport cache root."""
 

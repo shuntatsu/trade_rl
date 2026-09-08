@@ -1,0 +1,737 @@
+"""Binance row conversion, market-data source, and dataset assembly."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+import numpy as np
+
+from trade_rl.data.build.builder import MarketDatasetBuilder
+from trade_rl.data.contracts import (
+    FeatureAlignment,
+    FeatureKind,
+    FeatureSpec,
+    InstrumentExecutionRule,
+    MarketBuildConfig,
+    VolumeUnit,
+)
+from trade_rl.data.market import MarketDataset
+from trade_rl.data.source import MarketDataSource, RawMarketSeries
+from trade_rl.integrations.binance.metadata import (
+    BinanceInstrumentMetadata,
+    _metadata_from_exchange_info,
+)
+from trade_rl.integrations.binance.transport import BinancePublicTransport
+from trade_rl.integrations.binance.types import (
+    BinanceMarket,
+    BinanceTransportMode,
+    BinanceUnsupportedContractError,
+    _aware_utc,
+    _finite_float,
+    _market,
+    _mode,
+)
+from trade_rl.integrations.binance.vision import (
+    _epoch_ms,
+    _interval_ms,
+    _normalize_epoch_ms,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class BinanceDatasetBuildResult:
+    dataset: MarketDataset
+    metadata: tuple[BinanceInstrumentMetadata, ...]
+    sources_used: tuple[str, ...]
+    feature_timeframes: tuple[str, ...] = ()
+
+
+def _parse_kline_rows(
+    rows: Sequence[Sequence[object]],
+    *,
+    interval_ms: int,
+    start_ms: int,
+    end_ms: int,
+) -> tuple[np.ndarray, ...]:
+    parsed: list[tuple[int, float, float, float, float, float]] = []
+    for row in rows:
+        if len(row) < 8:
+            raise ValueError("Binance kline row must contain at least eight fields")
+        open_ms = _normalize_epoch_ms(row[0])
+        if not start_ms <= open_ms < end_ms:
+            continue
+        close_ms = open_ms + interval_ms
+        if close_ms > end_ms:
+            continue
+        open_price = _finite_float(row[1], field="open")
+        high = _finite_float(row[2], field="high")
+        low = _finite_float(row[3], field="low")
+        close = _finite_float(row[4], field="close")
+        quote_volume = _finite_float(row[7], field="quote volume")
+        parsed.append((close_ms, open_price, high, low, close, quote_volume))
+    if len(parsed) < 2:
+        raise ValueError("Binance range must contain at least two closed bars")
+    timestamps = np.asarray([item[0] for item in parsed], dtype=np.int64)
+    if np.any(np.diff(timestamps) <= 0):
+        raise ValueError("Binance kline timestamps must be strictly increasing")
+    if np.any(np.diff(timestamps) != interval_ms):
+        raise ValueError("Binance kline range must be complete and exactly regular")
+    return (
+        timestamps.astype("datetime64[ms]").astype("datetime64[ns]"),
+        np.asarray([item[1] for item in parsed], dtype=np.float64),
+        np.asarray([item[2] for item in parsed], dtype=np.float64),
+        np.asarray([item[3] for item in parsed], dtype=np.float64),
+        np.asarray([item[4] for item in parsed], dtype=np.float64),
+        np.asarray([item[5] for item in parsed], dtype=np.float64),
+    )
+
+
+def _align_funding(
+    timestamps: np.ndarray,
+    events: Sequence[tuple[int, float]],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Aggregate every funding event into its completed native bar."""
+
+    timestamp_ms = timestamps.astype("datetime64[ms]").astype(np.int64)
+    if timestamp_ms.size < 2:
+        raise ValueError("funding alignment requires at least two native bars")
+    intervals = np.diff(timestamp_ms)
+    if np.any(intervals <= 0) or np.any(intervals != intervals[0]):
+        raise ValueError("funding alignment requires a regular native clock")
+    interval_ms = int(intervals[0])
+    funding = np.zeros(len(timestamps), dtype=np.float64)
+    counts = np.zeros(len(timestamps), dtype=np.int32)
+    previous: int | None = None
+    for raw_timestamp, raw_rate in sorted(events):
+        timestamp = _normalize_epoch_ms(raw_timestamp)
+        if previous is not None and timestamp == previous:
+            raise ValueError("Binance funding timestamps must be unique")
+        previous = timestamp
+        index = int(np.searchsorted(timestamp_ms, timestamp, side="left"))
+        if index >= len(timestamp_ms):
+            continue
+        if timestamp <= int(timestamp_ms[index]) - interval_ms:
+            continue
+        funding[index] += _finite_float(raw_rate, field="funding rate")
+        counts[index] += 1
+    return funding, counts > 0, counts
+
+
+class BinanceMarketDataSource(MarketDataSource):
+    """Load one fixed Binance range on one or more causal native clocks."""
+
+    def __init__(
+        self,
+        *,
+        market: BinanceMarket | str,
+        interval: str,
+        start_time: datetime,
+        end_time: datetime,
+        transport_mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
+        transport: Any | None = None,
+    ) -> None:
+        self.market = _market(market)
+        self.interval = interval
+        self.interval_ms = _interval_ms(interval)
+        self.start_time = _aware_utc(start_time, field="start_time")
+        self.end_time = _aware_utc(end_time, field="end_time")
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be later than start_time")
+        start_ms = _epoch_ms(self.start_time)
+        end_ms = _epoch_ms(self.end_time)
+        if start_ms % self.interval_ms != 0 or end_ms % self.interval_ms != 0:
+            raise ValueError("Binance range boundaries must align to the interval")
+        self.transport_mode = _mode(transport_mode)
+        self.transport = transport or BinancePublicTransport()
+        self._sources_used: set[str] = set()
+        self._series_cache: dict[tuple[str, str], RawMarketSeries] = {}
+        self._funding_cache: dict[str, tuple[list[tuple[int, float]], object]] = {}
+
+    @property
+    def sources_used(self) -> tuple[str, ...]:
+        return tuple(sorted(self._sources_used))
+
+    def _record_source(self, source: object) -> None:
+        if isinstance(source, str):
+            self._sources_used.add(source)
+            return
+        if isinstance(source, Sequence):
+            self._sources_used.update(str(item) for item in source)
+            return
+        self._sources_used.add(str(source))
+
+    def _funding_events(self, symbol: str) -> list[tuple[int, float]]:
+        cached = self._funding_cache.get(symbol)
+        if cached is None:
+            events, funding_source = self.transport.load_funding_rates(
+                market=self.market,
+                symbol=symbol,
+                start_ms=_epoch_ms(self.start_time),
+                end_ms=_epoch_ms(self.end_time),
+                mode=self.transport_mode,
+            )
+            cached = (list(events), funding_source)
+            self._funding_cache[symbol] = cached
+            self._record_source(funding_source)
+        return cached[0]
+
+    def load(self, symbol: str) -> RawMarketSeries:
+        return self.load_timeframe(symbol, self.interval)
+
+    def load_timeframe(self, symbol: str, timeframe: str) -> RawMarketSeries:
+        if not symbol:
+            raise ValueError("Binance symbol must not be empty")
+        interval_ms = _interval_ms(timeframe)
+        start_ms = _epoch_ms(self.start_time)
+        end_ms = _epoch_ms(self.end_time)
+        if start_ms % interval_ms != 0 or end_ms % interval_ms != 0:
+            raise ValueError(
+                f"Binance range boundaries must align to native timeframe {timeframe}"
+            )
+        key = (symbol, timeframe)
+        cached = self._series_cache.get(key)
+        if cached is not None:
+            return cached
+        rows, kline_source = self.transport.load_klines(
+            market=self.market,
+            symbol=symbol,
+            interval=timeframe,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            mode=self.transport_mode,
+        )
+        self._record_source(kline_source)
+        timestamps, open_price, high, low, close, volume = _parse_kline_rows(
+            rows,
+            interval_ms=interval_ms,
+            start_ms=start_ms,
+            end_ms=end_ms,
+        )
+        funding, funding_available, funding_event_count = _align_funding(
+            timestamps,
+            self._funding_events(symbol),
+        )
+        series = RawMarketSeries(
+            timestamps=timestamps,
+            available_at=timestamps,
+            open=open_price,
+            high=high,
+            low=low,
+            close=close,
+            volume=volume,
+            funding_rate=funding,
+            funding_available=funding_available,
+            funding_event_count=funding_event_count,
+            tradable=np.ones(len(timestamps), dtype=np.bool_),
+        )
+        self._series_cache[key] = series
+        return series
+
+
+def _optional_values(
+    values: Sequence[float] | None,
+    *,
+    symbols: tuple[str, ...],
+    field: str,
+) -> tuple[float, ...] | None:
+    if values is None or len(values) == 0:
+        return None
+    result = tuple(float(value) for value in values)
+    if len(result) != len(symbols):
+        raise ValueError(f"{field} must be provided once per Binance symbol")
+    return result
+
+
+def _optional_datetimes(
+    values: Sequence[datetime] | None,
+    *,
+    symbols: tuple[str, ...],
+) -> tuple[datetime, ...] | None:
+    if values is None or len(values) == 0:
+        return None
+    result = tuple(_aware_utc(value, field="listed_at") for value in values)
+    if len(result) != len(symbols):
+        raise ValueError("listed_at must be provided once per Binance symbol")
+    return result
+
+
+def _extended_timeframe_feature_definitions(
+    timeframe: str,
+) -> tuple[tuple[str, FeatureKind, int, int], ...]:
+    """Return the ordered, role-specific feature contract for one native clock."""
+
+    common = (
+        ("log_return_1bar", FeatureKind.LOG_RETURN, 1, 1),
+        ("log_return_4bar", FeatureKind.LOG_RETURN, 4, 1),
+        ("log_return_24bar", FeatureKind.LOG_RETURN, 24, 1),
+        ("realized_volatility_4bar", FeatureKind.REALIZED_VOLATILITY, 4, 1),
+        ("realized_volatility_24bar", FeatureKind.REALIZED_VOLATILITY, 24, 1),
+        ("volume_zscore_24bar", FeatureKind.VOLUME_ZSCORE, 24, 24),
+        ("funding_bps", FeatureKind.FUNDING_BPS, 1, 1),
+        ("rsi_14bar", FeatureKind.RSI, 14, 1),
+        ("macd_line_12_26", FeatureKind.MACD_LINE, 26, 1),
+        ("macd_signal_12_26_9", FeatureKind.MACD_SIGNAL, 35, 1),
+        ("macd_histogram_12_26_9", FeatureKind.MACD_HISTOGRAM, 35, 1),
+        (
+            "bollinger_percent_b_centered_20_2",
+            FeatureKind.BOLLINGER_POSITION,
+            20,
+            1,
+        ),
+        ("bollinger_bandwidth_20_2", FeatureKind.BOLLINGER_BANDWIDTH, 20, 1),
+        ("atr_pct_14bar", FeatureKind.ATR_PCT, 14, 1),
+        ("adx_14bar", FeatureKind.ADX, 14, 1),
+        ("stochastic_k_14bar", FeatureKind.STOCHASTIC_K, 14, 1),
+        ("stochastic_d_14_3", FeatureKind.STOCHASTIC_D, 14, 1),
+        ("cci_20bar", FeatureKind.CCI, 20, 1),
+        ("williams_r_14bar", FeatureKind.WILLIAMS_R, 14, 1),
+        ("obv_slope_24bar", FeatureKind.OBV_SLOPE, 24, 1),
+        ("ichimoku_tenkan_distance_9bar", FeatureKind.ICHIMOKU_TENKAN_DISTANCE, 9, 1),
+        ("ichimoku_kijun_distance_26bar", FeatureKind.ICHIMOKU_KIJUN_DISTANCE, 26, 1),
+        ("ichimoku_cloud_position_9_26_52", FeatureKind.ICHIMOKU_CLOUD_POSITION, 52, 1),
+        (
+            "ichimoku_cloud_thickness_9_26_52",
+            FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+            52,
+            1,
+        ),
+    )
+    candle_by_timeframe = {
+        "15m": (
+            ("body_return", FeatureKind.BODY_RETURN, 1, 1),
+            ("high_low_range_pct", FeatureKind.HIGH_LOW_RANGE, 1, 1),
+            ("upper_wick_ratio", FeatureKind.UPPER_WICK_RATIO, 1, 1),
+            ("lower_wick_ratio", FeatureKind.LOWER_WICK_RATIO, 1, 1),
+            ("close_location_value", FeatureKind.CLOSE_LOCATION_VALUE, 1, 1),
+            ("gap_return", FeatureKind.GAP_RETURN, 1, 1),
+            ("volume_log_change", FeatureKind.VOLUME_LOG_CHANGE, 1, 1),
+        ),
+        "1h": (
+            ("body_return", FeatureKind.BODY_RETURN, 1, 1),
+            ("high_low_range_pct", FeatureKind.HIGH_LOW_RANGE, 1, 1),
+            ("upper_wick_ratio", FeatureKind.UPPER_WICK_RATIO, 1, 1),
+            ("lower_wick_ratio", FeatureKind.LOWER_WICK_RATIO, 1, 1),
+            ("close_location_value", FeatureKind.CLOSE_LOCATION_VALUE, 1, 1),
+            ("gap_return", FeatureKind.GAP_RETURN, 1, 1),
+            ("volume_log_change", FeatureKind.VOLUME_LOG_CHANGE, 1, 1),
+        ),
+        "4h": (
+            ("body_return", FeatureKind.BODY_RETURN, 1, 1),
+            ("high_low_range_pct", FeatureKind.HIGH_LOW_RANGE, 1, 1),
+            ("close_location_value", FeatureKind.CLOSE_LOCATION_VALUE, 1, 1),
+            ("gap_return", FeatureKind.GAP_RETURN, 1, 1),
+            ("volume_log_change", FeatureKind.VOLUME_LOG_CHANGE, 1, 1),
+        ),
+        "1d": (
+            ("body_return", FeatureKind.BODY_RETURN, 1, 1),
+            ("high_low_range_pct", FeatureKind.HIGH_LOW_RANGE, 1, 1),
+            ("close_location_value", FeatureKind.CLOSE_LOCATION_VALUE, 1, 1),
+            ("volume_log_change", FeatureKind.VOLUME_LOG_CHANGE, 1, 1),
+        ),
+    }
+    role_window = {"15m": 32, "1h": 24, "4h": 18, "1d": 20}[timeframe]
+    volatility = (
+        (
+            f"parkinson_volatility_{role_window}bar",
+            FeatureKind.PARKINSON_VOLATILITY,
+            role_window,
+            1,
+        ),
+        (
+            f"garman_klass_volatility_{role_window}bar",
+            FeatureKind.GARMAN_KLASS_VOLATILITY,
+            role_window,
+            1,
+        ),
+        (
+            f"downside_volatility_{role_window}bar",
+            FeatureKind.DOWNSIDE_VOLATILITY,
+            role_window,
+            1,
+        ),
+        (
+            f"upside_volatility_{role_window}bar",
+            FeatureKind.UPSIDE_VOLATILITY,
+            role_window,
+            1,
+        ),
+        (
+            f"volatility_of_volatility_{role_window}bar",
+            FeatureKind.VOLATILITY_OF_VOLATILITY,
+            role_window,
+            1,
+        ),
+        (
+            f"range_expansion_{role_window}bar",
+            FeatureKind.RANGE_EXPANSION,
+            role_window,
+            1,
+        ),
+        ("atr_change_14bar", FeatureKind.ATR_CHANGE, 14, 1),
+    )
+    trend = (
+        ("plus_di_14bar", FeatureKind.PLUS_DI, 14, 1),
+        ("minus_di_14bar", FeatureKind.MINUS_DI, 14, 1),
+        ("di_spread_14bar", FeatureKind.DI_SPREAD, 14, 1),
+        ("ema_distance_13_26", FeatureKind.EMA_DISTANCE, 26, 1),
+        ("ema_slope_26", FeatureKind.EMA_SLOPE, 26, 1),
+        (
+            f"linear_regression_slope_{role_window}bar",
+            FeatureKind.LINEAR_REGRESSION_SLOPE,
+            role_window,
+            1,
+        ),
+        (f"trend_r2_{role_window}bar", FeatureKind.TREND_R2, role_window, 1),
+    )
+    full_flow = (
+        (f"mfi_{role_window}bar", FeatureKind.MFI, role_window, 1),
+        (f"cmf_{role_window}bar", FeatureKind.CMF, role_window, 1),
+        (f"vwap_distance_{role_window}bar", FeatureKind.VWAP_DISTANCE, role_window, 1),
+        (
+            f"price_volume_correlation_{role_window}bar",
+            FeatureKind.PRICE_VOLUME_CORRELATION,
+            role_window,
+            1,
+        ),
+        (f"obv_change_{role_window}bar", FeatureKind.OBV_CHANGE, role_window, 1),
+        (
+            f"obv_acceleration_{role_window}bar",
+            FeatureKind.OBV_ACCELERATION,
+            role_window,
+            1,
+        ),
+        (
+            f"relative_volume_{role_window}bar",
+            FeatureKind.RELATIVE_VOLUME,
+            role_window,
+            1,
+        ),
+    )
+    flow_count = {"15m": 7, "1h": 7, "4h": 5, "1d": 4}[timeframe]
+    flow = full_flow[:flow_count]
+    funding = (
+        ("funding_change_bps", FeatureKind.FUNDING_CHANGE, 2, 1),
+        ("funding_zscore_12events", FeatureKind.FUNDING_ZSCORE, 12, 4),
+    )
+    cross_asset = (
+        ("relative_return_to_btc_1bar", FeatureKind.RELATIVE_RETURN_TO_BTC, 1, 1),
+        (
+            "rolling_correlation_to_btc_24bar",
+            FeatureKind.ROLLING_CORRELATION_TO_BTC,
+            24,
+            8,
+        ),
+        ("rolling_beta_to_btc_24bar", FeatureKind.ROLLING_BETA_TO_BTC, 24, 8),
+        (
+            "cross_sectional_momentum_rank_24bar",
+            FeatureKind.CROSS_SECTIONAL_MOMENTUM_RANK,
+            24,
+            8,
+        ),
+        ("cross_asset_dispersion_1bar", FeatureKind.CROSS_ASSET_DISPERSION, 1, 1),
+    )
+    return (
+        *common,
+        *candle_by_timeframe[timeframe],
+        *volatility,
+        *trend,
+        *flow,
+        *funding,
+        *cross_asset,
+    )
+
+
+def binance_multitimeframe_feature_specs(
+    *,
+    base_timeframe: str,
+    feature_timeframes: Sequence[str],
+) -> tuple[FeatureSpec, ...]:
+    """Return the maintained role-specific extended contract on every clock."""
+
+    _interval_ms(base_timeframe)
+    resolved = tuple(feature_timeframes)
+    if len(set(resolved)) != len(resolved):
+        raise ValueError("duplicate Binance feature timeframes are not allowed")
+    if base_timeframe in resolved:
+        raise ValueError("base timeframe must not be repeated as a feature timeframe")
+    for timeframe in resolved:
+        _interval_ms(timeframe)
+    ordered = tuple(sorted((*resolved, base_timeframe), key=_interval_ms))
+    maintained = {"15m", "1h", "4h", "1d"}
+    if not set(ordered).issubset(maintained):
+        raise ValueError(
+            "extended Binance feature preset supports only 15m, 1h, 4h, and 1d"
+        )
+
+    features: list[FeatureSpec] = []
+    for timeframe in ordered:
+        native = None if timeframe == base_timeframe else timeframe
+        native_hours = _interval_ms(timeframe) / 3_600_000.0
+        staleness = max(native_hours * 2.0, 1.0 if native is None else native_hours)
+        for (
+            suffix,
+            kind,
+            lookback,
+            min_periods,
+        ) in _extended_timeframe_feature_definitions(timeframe):
+            features.append(
+                FeatureSpec(
+                    name=f"{timeframe}__{suffix}",
+                    kind=kind,
+                    timeframe=native,
+                    alignment=(
+                        FeatureAlignment.UNSHIFTED_DECISION_TIME
+                        if kind
+                        in {
+                            FeatureKind.ICHIMOKU_TENKAN_DISTANCE,
+                            FeatureKind.ICHIMOKU_KIJUN_DISTANCE,
+                            FeatureKind.ICHIMOKU_CLOUD_POSITION,
+                            FeatureKind.ICHIMOKU_CLOUD_THICKNESS,
+                        }
+                        else None
+                    ),
+                    lookback=lookback,
+                    min_periods=min_periods,
+                    max_staleness_hours=(
+                        8.0
+                        if kind
+                        in {
+                            FeatureKind.FUNDING_BPS,
+                            FeatureKind.FUNDING_CHANGE,
+                            FeatureKind.FUNDING_ZSCORE,
+                        }
+                        else staleness
+                    ),
+                )
+            )
+    return tuple(features)
+
+
+def _default_features(interval: str) -> tuple[FeatureSpec, ...]:
+    bar_hours = _interval_ms(interval) / 3_600_000.0
+    one_day = max(1, int(round(24.0 / bar_hours)))
+    return (
+        FeatureSpec(
+            name="log_return_1bar",
+            kind=FeatureKind.LOG_RETURN,
+            lookback=1,
+            max_staleness_hours=max(bar_hours * 2.0, 1.0),
+        ),
+        FeatureSpec(
+            name="log_return_1d",
+            kind=FeatureKind.LOG_RETURN,
+            lookback=one_day,
+            max_staleness_hours=max(bar_hours * 2.0, 1.0),
+        ),
+        FeatureSpec(
+            name="realized_volatility_1d",
+            kind=FeatureKind.REALIZED_VOLATILITY,
+            lookback=one_day,
+            max_staleness_hours=max(bar_hours * 2.0, 1.0),
+        ),
+        FeatureSpec(
+            name="volume_zscore_1d",
+            kind=FeatureKind.VOLUME_ZSCORE,
+            lookback=one_day,
+            min_periods=min(one_day, 2),
+            max_staleness_hours=max(bar_hours * 2.0, 1.0),
+        ),
+        FeatureSpec(
+            name="funding_bps",
+            kind=FeatureKind.FUNDING_BPS,
+            lookback=1,
+            max_staleness_hours=8.0,
+        ),
+    )
+
+
+def build_binance_market_dataset(
+    *,
+    market: BinanceMarket | str,
+    symbols: Sequence[str],
+    interval: str,
+    start_time: datetime,
+    end_time: datetime,
+    transport_mode: BinanceTransportMode | str = BinanceTransportMode.AUTO,
+    transport: Any | None = None,
+    tick_sizes: Sequence[float] | None = None,
+    lot_sizes: Sequence[float] | None = None,
+    minimum_notionals: Sequence[float] | None = None,
+    listed_ats: Sequence[datetime] | None = None,
+    feature_timeframes: Sequence[str] | None = None,
+    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]
+    | None = None,
+    metadata_evidence: Mapping[str, object] | None = None,
+) -> BinanceDatasetBuildResult:
+    """Build one deterministic linear-product dataset from public Binance data."""
+
+    resolved_market = _market(market)
+    if resolved_market is BinanceMarket.COIN_M:
+        raise BinanceUnsupportedContractError(
+            "Binance COIN-M uses inverse contract value and PnL; the current linear "
+            "BookState cannot represent it safely"
+        )
+    resolved_symbols = tuple(symbols)
+    if not resolved_symbols or any(not symbol for symbol in resolved_symbols):
+        raise ValueError("Binance symbols must not be empty")
+    if len(set(resolved_symbols)) != len(resolved_symbols):
+        raise ValueError("Binance symbols must be unique")
+    resolved_mode = _mode(transport_mode)
+    requested_feature_timeframes = tuple(feature_timeframes or ())
+    resolved_features = (
+        _default_features(interval)
+        if not requested_feature_timeframes
+        else binance_multitimeframe_feature_specs(
+            base_timeframe=interval,
+            feature_timeframes=requested_feature_timeframes,
+        )
+    )
+    resolved_tick = _optional_values(
+        tick_sizes,
+        symbols=resolved_symbols,
+        field="tick-size",
+    )
+    resolved_lot = _optional_values(
+        lot_sizes,
+        symbols=resolved_symbols,
+        field="lot-size",
+    )
+    resolved_minimum = _optional_values(
+        minimum_notionals,
+        symbols=resolved_symbols,
+        field="minimum-notional",
+    )
+    resolved_listed = _optional_datetimes(listed_ats, symbols=resolved_symbols)
+    client = transport or BinancePublicTransport()
+    metadata_source: str | None = None
+    if all(
+        value is not None
+        for value in (resolved_tick, resolved_lot, resolved_minimum, resolved_listed)
+    ):
+        assert resolved_tick is not None
+        assert resolved_lot is not None
+        assert resolved_minimum is not None
+        assert resolved_listed is not None
+        metadata = tuple(
+            BinanceInstrumentMetadata(
+                symbol=symbol,
+                listed_at=listed_at,
+                tick_size=tick,
+                lot_size=lot,
+                minimum_notional=minimum,
+                volume_unit=VolumeUnit.QUOTE_NOTIONAL,
+            )
+            for symbol, listed_at, tick, lot, minimum in zip(
+                resolved_symbols,
+                resolved_listed,
+                resolved_tick,
+                resolved_lot,
+                resolved_minimum,
+                strict=True,
+            )
+        )
+    else:
+        payload, metadata_source = client.load_exchange_information(
+            market=resolved_market,
+            mode=resolved_mode,
+        )
+        metadata = _metadata_from_exchange_info(
+            payload,
+            market=resolved_market,
+            symbols=resolved_symbols,
+        )
+        metadata = tuple(
+            BinanceInstrumentMetadata(
+                symbol=item.symbol,
+                listed_at=(
+                    item.listed_at
+                    if resolved_listed is None
+                    else resolved_listed[index]
+                ),
+                tick_size=(
+                    item.tick_size if resolved_tick is None else resolved_tick[index]
+                ),
+                lot_size=item.lot_size if resolved_lot is None else resolved_lot[index],
+                minimum_notional=(
+                    item.minimum_notional
+                    if resolved_minimum is None
+                    else resolved_minimum[index]
+                ),
+                volume_unit=item.volume_unit,
+                contract_multiplier=item.contract_multiplier,
+            )
+            for index, item in enumerate(metadata)
+        )
+    if execution_rule_histories is not None:
+        unknown = set(execution_rule_histories) - set(resolved_symbols)
+        if unknown:
+            raise ValueError(
+                f"execution rule histories contain unknown symbols: {sorted(unknown)}"
+            )
+        missing = set(resolved_symbols) - set(execution_rule_histories)
+        if missing:
+            raise ValueError(
+                f"execution rule histories are missing symbols: {sorted(missing)}"
+            )
+        metadata = tuple(
+            BinanceInstrumentMetadata(
+                symbol=item.symbol,
+                listed_at=item.listed_at,
+                tick_size=item.tick_size,
+                lot_size=item.lot_size,
+                minimum_notional=item.minimum_notional,
+                volume_unit=item.volume_unit,
+                contract_multiplier=item.contract_multiplier,
+                execution_rules=tuple(execution_rule_histories[item.symbol]),
+            )
+            for item in metadata
+        )
+
+    source = BinanceMarketDataSource(
+        market=resolved_market,
+        interval=interval,
+        start_time=start_time,
+        end_time=end_time,
+        transport_mode=resolved_mode,
+        transport=client,
+    )
+    dataset = MarketDatasetBuilder(
+        MarketBuildConfig(
+            base_timeframe=interval,
+            features=resolved_features,
+            cross_asset_reference_symbol=(
+                "BTCUSDT"
+                if "BTCUSDT" in tuple(item.symbol for item in metadata)
+                else None
+            ),
+        )
+    ).build(
+        source,
+        tuple(item.to_contract() for item in metadata),
+        identity_provenance=metadata_evidence,
+    )
+    sources = set(source.sources_used)
+    if metadata_source is not None:
+        sources.add(metadata_source)
+    return BinanceDatasetBuildResult(
+        dataset=dataset,
+        metadata=metadata,
+        sources_used=tuple(sorted(sources)),
+        feature_timeframes=tuple(
+            sorted(
+                {spec.resolved_timeframe(interval) for spec in resolved_features},
+                key=_interval_ms,
+            )
+        ),
+    )
+
+
+__all__ = [
+    "BinanceDatasetBuildResult",
+    "BinanceMarketDataSource",
+    "binance_multitimeframe_feature_specs",
+    "build_binance_market_dataset",
+]

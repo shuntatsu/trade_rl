@@ -22,6 +22,12 @@ from trade_rl.evaluation.experiments.errors import (
     StudyFrozenError,
     UncontrolledDeltaError,
 )
+from trade_rl.evaluation.experiments.evidence import (
+    EvidenceSet,
+    LoadedEvidenceSet,
+    execute_evidence_set,
+    load_evidence_set,
+)
 
 __all__ = [
     "ArtifactIntegrityError",
@@ -30,16 +36,20 @@ __all__ = [
     "ContractViolationError",
     "ControlledExperimentError",
     "ControlledFactor",
+    "EvidenceSet",
     "ExperimentBudgetExceededError",
     "ExperimentDecision",
     "ExperimentDecisionKind",
     "ExperimentDefinition",
     "ExperimentFailure",
     "InvalidExperimentStateError",
+    "LoadedEvidenceSet",
     "ResolvedRunConfig",
     "StudyFreeze",
     "StudyFrozenError",
     "StudyOutcome",
     "StudyPlan",
     "UncontrolledDeltaError",
+    "execute_evidence_set",
+    "load_evidence_set",
 ]

@@ -21,6 +21,9 @@ _RESULT_SCHEMA = "lean_candidate_result_v1"
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
 _REQUIRED_FILES = frozenset({"summary.json", "returns.npz", "provenance.json"})
 
+FileEvidence = tuple[str, int]
+ArtifactFileEvidence = tuple[FileEvidence, FileEvidence, FileEvidence]
+
 
 @dataclass(frozen=True, slots=True)
 class LoadedCandidateRun:
@@ -64,15 +67,15 @@ def _validate_root(root: Path) -> tuple[Path, Path, Path]:
             "candidate artifact root must contain exactly "
             "summary.json, returns.npz, provenance.json"
         )
-    paths = tuple(
-        root / name for name in ("summary.json", "returns.npz", "provenance.json")
-    )
-    for path in paths:
+    summary_path = root / "summary.json"
+    returns_path = root / "returns.npz"
+    provenance_path = root / "provenance.json"
+    for path in (summary_path, returns_path, provenance_path):
         if not path.is_file():
             raise ValueError(
                 f"candidate artifact {path.name} must be a regular file, not a symlink"
             )
-    return paths[0], paths[1], paths[2]
+    return summary_path, returns_path, provenance_path
 
 
 def _verified_bytes(path: Path, *, label: str) -> tuple[bytes, str, int]:
@@ -186,21 +189,17 @@ def _semantic_returns_payload(
 
 def _load_with_evidence(
     root: str | Path,
-) -> tuple[
-    LoadedCandidateRun,
-    tuple[tuple[str, int], tuple[str, int], tuple[str, int]],
-]:
+) -> tuple[LoadedCandidateRun, ArtifactFileEvidence]:
     artifact_root = Path(root)
     summary_path, returns_path, provenance_path = _validate_root(artifact_root)
-    summary_bytes, summary_hash, summary_size = _verified_bytes(
-        summary_path, label="summary"
-    )
-    returns_bytes, returns_hash, returns_size = _verified_bytes(
-        returns_path, label="returns"
-    )
-    provenance_bytes, provenance_hash, provenance_size = _verified_bytes(
-        provenance_path, label="provenance"
-    )
+
+    summary_evidence = _verified_bytes(summary_path, label="summary")
+    returns_evidence = _verified_bytes(returns_path, label="returns")
+    provenance_evidence = _verified_bytes(provenance_path, label="provenance")
+    summary_bytes, summary_hash, summary_size = summary_evidence
+    returns_bytes, returns_hash, returns_size = returns_evidence
+    provenance_bytes, provenance_hash, provenance_size = provenance_evidence
+
     summary = _read_json_object(summary_bytes, label="summary")
     if summary.get("schema_version") != _RESULT_SCHEMA:
         raise ValueError("unsupported candidate result schema")
@@ -219,11 +218,12 @@ def _load_with_evidence(
         returns=returns,
         provenance=provenance,
     )
-    return loaded, (
+    evidence: ArtifactFileEvidence = (
         (summary_hash, summary_size),
         (returns_hash, returns_size),
         (provenance_hash, provenance_size),
     )
+    return loaded, evidence
 
 
 def load_candidate_run_artifact(root: str | Path) -> LoadedCandidateRun:
@@ -237,10 +237,10 @@ def inspect_candidate_run_artifact(root: str | Path) -> CandidateRunArtifactIden
     """Return stable semantic identity plus raw file digests/sizes."""
 
     loaded, evidence = _load_with_evidence(root)
-    (summary_hash, summary_size), (returns_hash, returns_size), (
-        provenance_hash,
-        provenance_size,
-    ) = evidence
+    summary_evidence, returns_evidence, provenance_evidence = evidence
+    summary_hash, summary_size = summary_evidence
+    returns_hash, returns_size = returns_evidence
+    provenance_hash, provenance_size = provenance_evidence
     semantic_payload = {
         "schema_version": _ARTIFACT_IDENTITY_SCHEMA,
         "summary": loaded.summary,

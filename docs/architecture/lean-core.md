@@ -32,7 +32,7 @@ metrics / comparison / robustness / immutable run artifact
 
 必須条件:
 
-- featureのinformation/availability timeはdecision timeを越えない。
+- `feature_available_time <= decision_time` を満たす。featureのinformation/availability timeはdecision timeを越えない。
 - supervised labelはfit cutoffの内側だけで完結する。
 - scaler、normalization、imputation、feature selectionにfuture情報を混ぜない。
 - developmentやfinal futureをthreshold/model選択へ戻さない。

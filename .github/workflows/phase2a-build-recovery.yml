@@ -1,0 +1,120 @@
+name: Phase 2A Build Recovery
+
+on:
+  push:
+    branches:
+      - refactor/lean-data-binance-boundaries
+
+permissions:
+  contents: write
+
+concurrency:
+  group: phase2a-build-recovery
+  cancel-in-progress: true
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head with Phase 1 history
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Recover ignored source package from verified Phase 1 base
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >> .gitignore <<'EOF'
+
+          # Source package named "build"; override the generic packaging-output rule above.
+          !trade_rl/data/build/
+          !trade_rl/data/build/*.py
+          EOF
+          mkdir -p trade_rl/data/build
+          git show e347f9838e3b1ed972bedabd322d09dee2a902ce:trade_rl/data/builder.py > trade_rl/data/build/builder.py
+          git show e347f9838e3b1ed972bedabd322d09dee2a902ce:trade_rl/data/config.py > trade_rl/data/build/config.py
+          cat > trade_rl/data/build/__init__.py <<'PY'
+          """Market-dataset build configuration and deterministic construction."""
+
+          from trade_rl.data.build.builder import MarketDatasetBuilder
+          from trade_rl.data.build.config import MarketDatasetBuildRequest, load_market_build_request
+
+          __all__ = ["MarketDatasetBuildRequest", "MarketDatasetBuilder", "load_market_build_request"]
+          PY
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/data/build/builder.py")
+          text = path.read_text(encoding="utf-8")
+          replacements = {
+              "trade_rl.data.cross_asset_features": "trade_rl.data.features.cross_asset",
+              "trade_rl.data.economic_semantics": "trade_rl.data.features.economic",
+              "trade_rl.data.features": "trade_rl.data.features.core",
+              "trade_rl.data.multitimeframe": "trade_rl.data.features.multitimeframe",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f"expected builder import missing: {old}")
+              text = text.replace(old, new)
+          path.write_text(text, encoding="utf-8")
+          PY
+          test -f trade_rl/data/build/__init__.py
+          test -f trade_rl/data/build/builder.py
+          test -f trade_rl/data/build/config.py
+          if git check-ignore -q trade_rl/data/build/builder.py; then
+            echo "trade_rl/data/build/builder.py is still ignored" >&2
+            exit 1
+          fi
+
+      - name: Remove recovery workflow from final tree
+        run: rm .github/workflows/phase2a-build-recovery.yml
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Fix import order only
+        run: uv run ruff check --fix --select I001 trade_rl tests
+
+      - name: Ruff
+        run: uv run ruff check trade_rl tests
+
+      - name: Format
+        run: uv run ruff format --check trade_rl tests
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Tests
+        run: uv run pytest -q tests
+
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+      - name: Commit only verified recovery
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --name-status
+          git commit -m "fix: track lean data build package"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

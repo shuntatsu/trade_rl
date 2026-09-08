@@ -87,15 +87,35 @@ jobs:
           for path in forecast.py supervised.py ridge.py lightgbm.py trend.py mean_reversion.py ppo.py; do
             test ! -e "trade_rl/strategies/$path"
           done
-          ! grep -R --line-number --include='*.py' \
-            -e 'trade_rl.strategies.forecast' \
-            -e 'trade_rl.strategies.supervised' \
-            -e 'trade_rl.strategies.ridge' \
-            -e 'trade_rl.strategies.lightgbm' \
-            -e 'trade_rl.strategies.trend' \
-            -e 'trade_rl.strategies.mean_reversion' \
-            -e 'trade_rl.strategies.ppo' \
-            trade_rl tests
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          stale = {
+              "trade_rl.strategies.forecast",
+              "trade_rl.strategies.supervised",
+              "trade_rl.strategies.ridge",
+              "trade_rl.strategies.lightgbm",
+              "trade_rl.strategies.trend",
+              "trade_rl.strategies.mean_reversion",
+              "trade_rl.strategies.ppo",
+          }
+          offenders = []
+          for root_name in ("trade_rl", "tests"):
+              for path in Path(root_name).rglob("*.py"):
+                  tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                  modules = set()
+                  for node in ast.walk(tree):
+                      if isinstance(node, ast.Import):
+                          modules.update(alias.name for alias in node.names)
+                      elif isinstance(node, ast.ImportFrom) and node.module:
+                          modules.add(node.module)
+                  found = sorted(modules & stale)
+                  if found:
+                      offenders.append((str(path), found))
+          if offenders:
+              raise SystemExit(f"stale flat strategy imports remain: {offenders}")
+          PY
           git diff --check
 
       - name: Commit verified migration and remove one-shot helpers

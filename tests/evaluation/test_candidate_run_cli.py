@@ -19,7 +19,9 @@ def _provenance(
     }
 
 
-def test_run_candidate_artifact_delegates_through_run_core(monkeypatch, tmp_path) -> None:
+def test_run_candidate_artifact_delegates_through_run_core(
+    monkeypatch, tmp_path
+) -> None:
     from trade_rl.evaluation.runs import candidate
 
     dataset = SimpleNamespace(dataset_id="d" * 64)

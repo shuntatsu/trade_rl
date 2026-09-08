@@ -203,6 +203,26 @@ def test_pooled_env_cycles_symbols_without_symbol_identity_in_observation() -> N
     assert env.active_symbol_index == 0
 
 
+def test_pooled_env_cycles_only_explicit_fit_symbols() -> None:
+    env = PPOTradingEnv(
+        pooled_market(),
+        feature_indices=(0,),
+        symbol_indices=(1,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+
+    observation, info = env.reset(seed=3)
+    assert env.active_symbol_index == 1
+    assert observation.shape == (4,)
+    assert info["symbol"] == "ETHUSDT"
+    env.reset()
+    assert env.active_symbol_index == 1
+
+
 def test_fit_uses_small_teacher_free_standard_ppo(monkeypatch) -> None:
     monkeypatch.setitem(
         sys.modules,

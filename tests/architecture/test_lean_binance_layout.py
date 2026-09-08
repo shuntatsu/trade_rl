@@ -84,7 +84,9 @@ def test_integrations_package_preserves_public_api() -> None:
 
 def test_binance_types_are_dependency_neutral() -> None:
     imports = _imports(BINANCE / "types.py")
-    assert not any(name.startswith("trade_rl.integrations.binance.") for name in imports)
+    assert not any(
+        name.startswith("trade_rl.integrations.binance.") for name in imports
+    )
 
 
 def test_binance_vision_has_no_upward_adapter_dependency() -> None:

@@ -178,7 +178,7 @@ def test_analysis_reuses_seed_robustness_for_ppo_vs_ridge24() -> None:
 
     expected = summarize_seed_robustness(
         evaluation_label="BTCUSDT:ppo_vs_ridge24",
-        seeds=(
+        seeds=tuple(
             SeedEvaluation(
                 seed=seed,
                 returns=_series(tuple(run.returns["symbol_0_strategy_7"])),

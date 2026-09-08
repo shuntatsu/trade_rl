@@ -338,7 +338,9 @@ def compare_evidence_sets(
                         seed=bootstrap_seed + seed,
                     )
                     by_seed[str(seed)] = paired
-                    excesses.append(float(paired["excess_total_return"]))
+                    excesses.append(
+                        _require_metric_number(paired, "excess_total_return")
+                    )
                     candidate_cells.append(candidate_cell)
                 aggregate = {
                     "positive_seed_count": sum(value > 0.0 for value in excesses),
@@ -368,7 +370,9 @@ def compare_evidence_sets(
                     "candidate_metrics": candidate_cell.metrics,
                     "paired": paired,
                 }
-                cross_inputs[strategy][0].append(float(paired["excess_total_return"]))
+                cross_inputs[strategy][0].append(
+                    _require_metric_number(paired, "excess_total_return")
+                )
                 cross_inputs[strategy][1].append(candidate_cell)
         by_symbol[symbol] = {"strategies": strategy_payloads}
 

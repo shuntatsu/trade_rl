@@ -5,13 +5,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs"
 
-EXPECTED_DOC_FILES = {
+REQUIRED_DOC_FILES = {
     "AGENTS.md",
     "README.md",
     "architecture/lean-core.md",
     "architecture/package-boundaries.md",
     "research/current-status.md",
 }
+EPHEMERAL_DOC_ROOTS = {"plans", "specs"}
 
 
 def _doc_files() -> set[str]:
@@ -22,12 +23,19 @@ def _doc_files() -> set[str]:
     return result
 
 
-def test_docs_tree_contains_only_current_authorities() -> None:
-    assert _doc_files() == EXPECTED_DOC_FILES
+def test_docs_tree_contains_current_authorities_and_only_active_ephemeral_docs() -> None:
+    files = _doc_files()
+    assert REQUIRED_DOC_FILES <= files
+
+    for relative in sorted(files - REQUIRED_DOC_FILES):
+        path = Path(relative)
+        assert path.parts[0] in EPHEMERAL_DOC_ROOTS, relative
+        assert path.suffix == ".md", relative
+        text = (DOCS / path).read_text(encoding="utf-8")
+        assert "Status: Active" in text, relative
+
     assert not (DOCS / "history").exists()
     assert not (DOCS / "archive").exists()
-    assert not (DOCS / "plans").exists()
-    assert not (DOCS / "specs").exists()
 
 
 def test_root_agent_entry_routes_to_docs_contract() -> None:
@@ -58,6 +66,7 @@ def test_agent_contract_defines_update_and_retention_policy() -> None:
         "research/",
         "specs/",
         "plans/",
+        "Status: Active",
         "docs/history",
         "docs/archive",
     ):

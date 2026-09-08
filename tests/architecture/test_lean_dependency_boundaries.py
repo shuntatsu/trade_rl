@@ -88,15 +88,21 @@ def test_simulation_does_not_depend_on_strategy_or_evaluation() -> None:
 
 
 def test_candidate_runs_do_not_depend_on_controlled_experiments() -> None:
-    assert _offenders(
-        PACKAGE / "evaluation" / "runs",
-        ("trade_rl.evaluation.experiments",),
-    ) == []
+    assert (
+        _offenders(
+            PACKAGE / "evaluation" / "runs",
+            ("trade_rl.evaluation.experiments",),
+        )
+        == []
+    )
 
 
 def test_controlled_experiments_cannot_reach_sealed_final_test() -> None:
     experiments = PACKAGE / "evaluation" / "experiments"
-    assert _offenders(
-        experiments,
-        ("trade_rl.evaluation.robustness.walk_forward.sealed_test",),
-    ) == []
+    assert (
+        _offenders(
+            experiments,
+            ("trade_rl.evaluation.robustness.walk_forward.sealed_test",),
+        )
+        == []
+    )

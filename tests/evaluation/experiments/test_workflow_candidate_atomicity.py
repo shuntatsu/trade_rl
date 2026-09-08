@@ -32,6 +32,8 @@ def test_candidate_analysis_failure_keeps_definition_but_no_partial_candidate(
         baseline_evidence_digest=snapshot.baseline.fingerprint,
     )
 
+    original_analysis = workflow_module.analyze_evidence_set
+
     def fail_analysis(*args, **kwargs):
         del args, kwargs
         raise RuntimeError("synthetic candidate analysis failure")
@@ -44,4 +46,6 @@ def test_candidate_analysis_failure_keeps_definition_but_no_partial_candidate(
     experiment_root = root / "experiments" / "0001"
     assert (experiment_root / "definition.json").is_file()
     assert not (experiment_root / "candidate").exists()
+
+    monkeypatch.setattr(workflow_module, "analyze_evidence_set", original_analysis)
     assert inspect_study(root).experiment_sequences == (1,)

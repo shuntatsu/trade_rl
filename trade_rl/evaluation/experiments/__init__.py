@@ -35,6 +35,18 @@ from trade_rl.evaluation.experiments.evidence import (
     execute_evidence_set,
     load_evidence_set,
 )
+from trade_rl.evaluation.experiments.workflow import (
+    ExperimentComparison,
+    StudySnapshot,
+    compare_experiment,
+    create_study,
+    decide_experiment,
+    define_experiment,
+    inspect_study,
+    run_baseline,
+    run_experiment,
+    verify_experiment,
+)
 
 __all__ = [
     "ArtifactIntegrityError",
@@ -47,6 +59,7 @@ __all__ = [
     "ControlledVerificationStatus",
     "EvidenceSet",
     "ExperimentBudgetExceededError",
+    "ExperimentComparison",
     "ExperimentDecision",
     "ExperimentDecisionKind",
     "ExperimentDefinition",
@@ -60,8 +73,17 @@ __all__ = [
     "StudyFrozenError",
     "StudyOutcome",
     "StudyPlan",
+    "StudySnapshot",
     "UncontrolledDeltaError",
+    "compare_experiment",
+    "create_study",
+    "decide_experiment",
+    "define_experiment",
     "execute_evidence_set",
+    "inspect_study",
     "load_evidence_set",
+    "run_baseline",
+    "run_experiment",
     "verify_controlled_delta",
+    "verify_experiment",
 ]

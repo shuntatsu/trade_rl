@@ -223,7 +223,9 @@ def _resolved_from_payload(value: object) -> ResolvedRunConfig:
             signal_name=_text(raw.get("signal_name"), field="signal_name"),
             signal_index=_integer(raw.get("signal_index"), field="signal_index"),
             feature_names=_texts(raw.get("feature_names"), field="feature_names"),
-            feature_indices=_integers(raw.get("feature_indices"), field="feature_indices"),
+            feature_indices=_integers(
+                raw.get("feature_indices"), field="feature_indices"
+            ),
             fit_symbol_names=_texts(
                 raw.get("fit_symbol_names"), field="fit_symbol_names"
             ),
@@ -299,9 +301,7 @@ def _candidate_from_resolved(config: ResolvedRunConfig) -> CandidateRunConfig:
         fit_symbol_names=config.fit_symbol_names,
         fit_cutoff=np.datetime64(config.fit_cutoff, "ns"),
         evaluation_start=np.datetime64(config.evaluation_start, "ns"),
-        evaluation_stop_exclusive=np.datetime64(
-            config.evaluation_stop_exclusive, "ns"
-        ),
+        evaluation_stop_exclusive=np.datetime64(config.evaluation_stop_exclusive, "ns"),
         rule_entry_threshold=config.rule_entry_threshold,
         rule_exit_threshold=config.rule_exit_threshold,
         forecast_entry_threshold=config.forecast_entry_threshold,
@@ -354,16 +354,21 @@ def _plan_from_payload(raw: Mapping[str, object]) -> StudyPlan:
     _exact_keys(raw, expected, field="Study plan")
     factors_raw = _list(raw.get("allowed_factors"), field="allowed_factors")
     try:
-        factors = tuple(ControlledFactor(_text(item, field="allowed factor")) for item in factors_raw)
+        factors = tuple(
+            ControlledFactor(_text(item, field="allowed factor"))
+            for item in factors_raw
+        )
     except ValueError as error:
         raise ArtifactIntegrityError("Study allowed factor is unsupported") from error
-    if _texts(
-        raw.get("candidate_strategy_names"), field="candidate_strategy_names"
-    ) != CANDIDATE_STRATEGY_NAMES:
+    if (
+        _texts(raw.get("candidate_strategy_names"), field="candidate_strategy_names")
+        != CANDIDATE_STRATEGY_NAMES
+    ):
         raise ArtifactIntegrityError("Study candidate strategy roster mismatch")
-    if _texts(
-        raw.get("control_strategy_names"), field="control_strategy_names"
-    ) != CONTROL_STRATEGY_NAMES:
+    if (
+        _texts(raw.get("control_strategy_names"), field="control_strategy_names")
+        != CONTROL_STRATEGY_NAMES
+    ):
         raise ArtifactIntegrityError("Study control strategy roster mismatch")
     try:
         return StudyPlan(
@@ -385,9 +390,7 @@ def _plan_from_payload(raw: Mapping[str, object]) -> StudyPlan:
                 raw.get("max_experiments"), field="max_experiments"
             ),
             n_bootstrap=_integer(raw.get("n_bootstrap"), field="n_bootstrap"),
-            bootstrap_seed=_integer(
-                raw.get("bootstrap_seed"), field="bootstrap_seed"
-            ),
+            bootstrap_seed=_integer(raw.get("bootstrap_seed"), field="bootstrap_seed"),
             implementation_digest=_text(
                 raw.get("implementation_digest"), field="implementation_digest"
             ),
@@ -652,7 +655,9 @@ def _publish_bundle(
 
     store.publish_directory_once(target, builder)
     if completed is None:
-        raise ArtifactIntegrityError("Study evidence bundle publication did not complete")
+        raise ArtifactIntegrityError(
+            "Study evidence bundle publication did not complete"
+        )
     return completed
 
 
@@ -661,7 +666,9 @@ def _experiment_dirs(root: Path) -> tuple[int, ...]:
     if not experiments_root.exists():
         return ()
     if experiments_root.is_symlink() or not experiments_root.is_dir():
-        raise ArtifactIntegrityError("Study experiments root must be a regular directory")
+        raise ArtifactIntegrityError(
+            "Study experiments root must be a regular directory"
+        )
     sequences: list[int] = []
     for entry in experiments_root.iterdir():
         if entry.is_symlink() or not entry.is_dir():
@@ -695,8 +702,13 @@ def _reconstruct(store: StudyStore) -> _StudyState:
             expected_context_digest=_baseline_context_digest(plan),
             label="baseline",
         )
-        if baseline_loaded.evidence.semantic_config_digest != plan.baseline_config.digest:
-            raise ArtifactIntegrityError("baseline semantic config differs from Study plan")
+        if (
+            baseline_loaded.evidence.semantic_config_digest
+            != plan.baseline_config.digest
+        ):
+            raise ArtifactIntegrityError(
+                "baseline semantic config differs from Study plan"
+            )
         evidence_by_digest[baseline_loaded.evidence.fingerprint] = baseline_loaded
         lineage.append(baseline_loaded.evidence.fingerprint)
 
@@ -725,7 +737,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
         if definition.study_digest != plan.digest or definition.sequence != sequence:
             raise ArtifactIntegrityError("Experiment definition identity mismatch")
         if definition.baseline_evidence_digest not in lineage:
-            raise ArtifactIntegrityError("Experiment baseline is not reachable in lineage")
+            raise ArtifactIntegrityError(
+                "Experiment baseline is not reachable in lineage"
+            )
 
         candidate: LoadedEvidenceSet | None = None
         candidate_root = experiment_root / "candidate"
@@ -748,7 +762,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
             )
             baseline = evidence_by_digest.get(definition.baseline_evidence_digest)
             if baseline is None:
-                raise ArtifactIntegrityError("verification baseline evidence is missing")
+                raise ArtifactIntegrityError(
+                    "verification baseline evidence is missing"
+                )
             expected_verification = verify_controlled_delta(
                 plan=plan,
                 definition=definition,
@@ -764,7 +780,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
             if verification is None:
                 raise ArtifactIntegrityError("comparison requires verification")
             if verification.status is not ControlledVerificationStatus.CONTROLLED:
-                raise ArtifactIntegrityError("INVALID verification cannot have comparison")
+                raise ArtifactIntegrityError(
+                    "INVALID verification cannot have comparison"
+                )
             if candidate is None:
                 raise ArtifactIntegrityError("comparison requires candidate evidence")
             comparison = _comparison_from_payload(
@@ -807,7 +825,10 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                 if candidate.evidence.fingerprint not in lineage:
                     lineage.append(candidate.evidence.fingerprint)
 
-        if verification is not None and verification.status is ControlledVerificationStatus.INVALID:
+        if (
+            verification is not None
+            and verification.status is ControlledVerificationStatus.INVALID
+        ):
             if comparison is not None or decision is not None:
                 raise ArtifactIntegrityError("INVALID attempt must be terminal")
         experiments[sequence] = _ExperimentState(
@@ -942,7 +963,9 @@ def define_experiment(
         if len(state.snapshot.experiment_sequences) >= plan.max_experiments:
             raise ExperimentBudgetExceededError("Study Experiment budget is exhausted")
         if baseline_evidence_digest not in state.snapshot.lineage_evidence_digests:
-            raise InvalidExperimentStateError("baseline evidence is not reachable in lineage")
+            raise InvalidExperimentStateError(
+                "baseline evidence is not reachable in lineage"
+            )
         artifact, dataset = _check_dataset(plan, dataset_root)
         spec = resolve_candidate_run_spec(
             dataset,
@@ -1009,7 +1032,9 @@ def verify_experiment(root: str | Path, sequence: int) -> ControlledVerification
         if experiment is None:
             raise InvalidExperimentStateError("Experiment definition does not exist")
         if experiment.candidate is None:
-            raise InvalidExperimentStateError("verification requires candidate evidence")
+            raise InvalidExperimentStateError(
+                "verification requires candidate evidence"
+            )
         if experiment.verification is not None:
             raise InvalidExperimentStateError("Experiment verification already exists")
         baseline = state.evidence_by_digest.get(
@@ -1041,8 +1066,13 @@ def compare_experiment(root: str | Path, sequence: int) -> ExperimentComparison:
             raise InvalidExperimentStateError("Experiment definition does not exist")
         if experiment.verification is None:
             raise InvalidExperimentStateError("comparison requires verification")
-        if experiment.verification.status is not ControlledVerificationStatus.CONTROLLED:
-            raise InvalidExperimentStateError("comparison requires CONTROLLED verification; attempt is INVALID")
+        if (
+            experiment.verification.status
+            is not ControlledVerificationStatus.CONTROLLED
+        ):
+            raise InvalidExperimentStateError(
+                "comparison requires CONTROLLED verification; attempt is INVALID"
+            )
         if experiment.comparison is not None:
             raise InvalidExperimentStateError("Experiment comparison already exists")
         if experiment.candidate is None:

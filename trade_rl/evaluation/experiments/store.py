@@ -127,7 +127,9 @@ class StudyStore:
                 raise ArtifactIntegrityError("Study root must be a regular directory")
             lock_path = self.root / _LOCK_NAME
             if lock_path.is_symlink():
-                raise ArtifactIntegrityError("Study mutation lock must not be a symlink")
+                raise ArtifactIntegrityError(
+                    "Study mutation lock must not be a symlink"
+                )
             with lock_path.open("a+b") as handle:
                 _lock_file(handle)
                 self._lock_depth = 1

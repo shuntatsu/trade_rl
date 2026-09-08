@@ -450,7 +450,7 @@ def verify_controlled_delta(
     # frozen definition binds the exact baseline EvidenceSet fingerprint, so a
     # prior ACCEPT_CANDIDATE may legitimately differ from StudyPlan.baseline_config.
     defined_candidate = _without_seed(definition.candidate_config.to_payload())
-    if candidate.semantic_config != defined_candidate:
+    if _without_seed(candidate.semantic_config) != defined_candidate:
         violations.append("candidate evidence does not match the frozen definition")
 
     violations.extend(

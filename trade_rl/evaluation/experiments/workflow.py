@@ -591,7 +591,8 @@ def _read_analysis(path: Path, *, expected: dict[str, object], field: str) -> No
         raise ArtifactIntegrityError(f"{field} is malformed") from error
     payload = _mapping(raw, field=field)
     _verify_derived_payload(payload, field=field)
-    if payload != expected:
+    _verify_derived_payload(expected, field=f"reconstructed {field}")
+    if canonical_json_bytes(payload) != canonical_json_bytes(expected):
         raise ArtifactIntegrityError(f"{field} does not match reconstructed evidence")
 
 

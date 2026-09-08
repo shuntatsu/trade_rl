@@ -1,0 +1,29 @@
+name: CEL Evidence Test Preview
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-evidence-test-preview.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Exact lint diff
+        run: uv run ruff check --fix --diff tests/evaluation/experiments/test_evidence.py || true
+      - name: Exact format diff
+        run: uv run ruff format --diff tests/evaluation/experiments/test_evidence.py || true

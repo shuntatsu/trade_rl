@@ -37,7 +37,9 @@ class RidgeForecastModel:
         indices = tuple(self.feature_indices)
         mean = np.asarray(self.feature_mean, dtype=np.float64).reshape(-1).copy()
         scale = np.asarray(self.feature_scale, dtype=np.float64).reshape(-1).copy()
-        coefficients = np.asarray(self.coefficients, dtype=np.float64).reshape(-1).copy()
+        coefficients = (
+            np.asarray(self.coefficients, dtype=np.float64).reshape(-1).copy()
+        )
         expected = (len(indices),)
         if not indices or len(set(indices)) != len(indices):
             raise ValueError("feature_indices must be non-empty and unique")
@@ -150,10 +152,13 @@ def fit_ridge_forecast(
 
     feature_mean = np.sum(x * weights[:, None], axis=0) / weight_sum
     centered_x = x - feature_mean
-    weighted_variance = np.sum(
-        centered_x**2 * weights[:, None],
-        axis=0,
-    ) / weight_sum
+    weighted_variance = (
+        np.sum(
+            centered_x**2 * weights[:, None],
+            axis=0,
+        )
+        / weight_sum
+    )
     raw_scale = np.sqrt(weighted_variance)
     feature_scale = np.where(raw_scale > _SCALE_FLOOR, raw_scale, 1.0)
     standardized = centered_x / feature_scale

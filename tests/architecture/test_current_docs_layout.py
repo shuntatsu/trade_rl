@@ -15,11 +15,11 @@ EXPECTED_DOC_FILES = {
 
 
 def _doc_files() -> set[str]:
-    return {
-        path.relative_to(DOCS).as_posix()
-        for path in DOCS.rglob("*")
-        if path.is_file()
-    }
+    result: set[str] = set()
+    for path in DOCS.rglob("*"):
+        if path.is_file():
+            result.add(path.relative_to(DOCS).as_posix())
+    return result
 
 
 def test_docs_tree_contains_only_current_authorities() -> None:

@@ -16,7 +16,10 @@ from typing import cast
 import numpy as np
 
 from trade_rl.artifacts.atomic_write import atomic_write_bytes
-from trade_rl.data import load_market_dataset_artifact
+from trade_rl.data import (
+    inspect_published_market_dataset_artifact,
+    load_market_dataset_artifact,
+)
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.candidate_suite import (
     LeanCandidateConfig,
@@ -26,6 +29,23 @@ from trade_rl.evaluation.metrics import PerformanceMetrics
 from trade_rl.evaluation.strategy_comparison import UniversalStrategyComparison
 
 _RESULT_SCHEMA = "lean_candidate_result_v1"
+_ALLOWED_CONFIG_KEYS = frozenset(
+    {
+        "signal_name",
+        "feature_names",
+        "fit_cutoff",
+        "evaluation_start",
+        "evaluation_stop_exclusive",
+        "rule_entry_threshold",
+        "rule_exit_threshold",
+        "forecast_entry_threshold",
+        "forecast_exit_threshold",
+        "ppo_total_timesteps",
+        "ppo_seed",
+        "gross_budget",
+        "initial_capital",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +62,11 @@ def _read_json_object(path: str | Path) -> dict[str, object]:
     raw = cast(object, json.loads(source.read_text(encoding="utf-8")))
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
         raise ValueError("candidate run config must be a JSON object")
-    return cast(dict[str, object], raw)
+    resolved = cast(dict[str, object], raw)
+    unknown = sorted(set(resolved) - _ALLOWED_CONFIG_KEYS)
+    if unknown:
+        raise ValueError(f"unknown config keys: {', '.join(unknown)}")
+    return resolved
 
 
 def _required_string(config: dict[str, object], name: str) -> str:
@@ -167,6 +191,8 @@ def _comparison_payload(
     dataset: MarketDataset,
     comparison: UniversalStrategyComparison,
     *,
+    dataset_artifact_schema: str,
+    dataset_artifact_digest: str,
     config: LeanCandidateConfig,
     start_index: int,
     stop_index: int,
@@ -215,15 +241,33 @@ def _comparison_payload(
     summary: dict[str, object] = {
         "schema_version": _RESULT_SCHEMA,
         "dataset_id": dataset.dataset_id,
+        "dataset_artifact": {
+            "schema_version": dataset_artifact_schema,
+            "artifact_digest": dataset_artifact_digest,
+        },
         "symbols": list(dataset.symbols),
-        "signal_index": config.signal_index,
-        "feature_indices": list(config.feature_indices),
-        "fit_cutoff": str(config.fit_cutoff),
-        "evaluation_start": str(dataset.timestamps[start_index]),
-        "evaluation_stop_exclusive": str(dataset.timestamps[stop_index]),
-        "gross_budget": gross_budget,
-        "initial_capital": initial_capital,
-        "execution_overlay": "zero_overlay_dataset_fields_authoritative",
+        "candidate_config": {
+            "signal_name": dataset.feature_names[config.signal_index],
+            "signal_index": config.signal_index,
+            "feature_names": [
+                dataset.feature_names[index] for index in config.feature_indices
+            ],
+            "feature_indices": list(config.feature_indices),
+            "fit_cutoff": str(config.fit_cutoff),
+            "rule_entry_threshold": config.rule_entry_threshold,
+            "rule_exit_threshold": config.rule_exit_threshold,
+            "forecast_entry_threshold": config.forecast_entry_threshold,
+            "forecast_exit_threshold": config.forecast_exit_threshold,
+            "ppo_total_timesteps": config.ppo_total_timesteps,
+            "ppo_seed": config.ppo_seed,
+        },
+        "evaluation": {
+            "start": str(dataset.timestamps[start_index]),
+            "stop_exclusive": str(dataset.timestamps[stop_index]),
+            "gross_budget": gross_budget,
+            "initial_capital": initial_capital,
+            "execution_overlay": "zero_overlay_dataset_fields_authoritative",
+        },
         "by_symbol": symbols_payload,
     }
     return summary, returns
@@ -276,6 +320,7 @@ def run_candidate_artifact(
     output = Path(output_root)
     if output.exists():
         raise FileExistsError(f"candidate run destination already exists: {output}")
+    artifact = inspect_published_market_dataset_artifact(dataset_root)
     dataset = load_market_dataset_artifact(dataset_root)
     raw = _read_json_object(config_path)
     config, start_index, stop_index, gross_budget, initial_capital = (
@@ -294,6 +339,8 @@ def run_candidate_artifact(
     summary, returns = _comparison_payload(
         dataset,
         comparison,
+        dataset_artifact_schema=artifact.schema_version,
+        dataset_artifact_digest=artifact.artifact_digest,
         config=config,
         start_index=start_index,
         stop_index=stop_index,

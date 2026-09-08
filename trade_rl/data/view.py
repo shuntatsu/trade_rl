@@ -1,27 +1,16 @@
-"""Canonical market-dataset loading and range-scoped immutable views."""
+"""Immutable range-scoped views over a canonical market dataset."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
-from pathlib import Path
 from typing import Any, Final
 
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.data.artifact_codec import (
-    DATASET_ARRAYS_NAME,
-    DATASET_ARTIFACT_SCHEMA,
-    DATASET_MANIFEST_NAME,
-    load_dataset_files,
-)
 from trade_rl.data.market import MarketDataset
 
 DATASET_VIEW_SCHEMA: Final = "market_dataset_view_v1"
-
-
-def load_market_dataset_artifact(root: Path) -> MarketDataset:
-    return load_dataset_files(Path(root))
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +58,6 @@ class MarketDatasetView:
             if item.name == "dataset_id":
                 kwargs[item.name] = self.identity
             elif item.name == "identity_payload_json":
-                # A range view has a different identity from the source artifact.
                 kwargs[item.name] = None
             elif isinstance(value, np.ndarray) and value.shape[:1] == (
                 self.dataset.n_bars,
@@ -80,11 +68,4 @@ class MarketDatasetView:
         return MarketDataset(**kwargs)
 
 
-__all__ = [
-    "DATASET_ARRAYS_NAME",
-    "DATASET_ARTIFACT_SCHEMA",
-    "DATASET_MANIFEST_NAME",
-    "DATASET_VIEW_SCHEMA",
-    "MarketDatasetView",
-    "load_market_dataset_artifact",
-]
+__all__ = ["DATASET_VIEW_SCHEMA", "MarketDatasetView"]

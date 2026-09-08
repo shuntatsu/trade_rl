@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data import load_market_dataset_artifact, publish_market_dataset_artifact
-from trade_rl.data.builder import MarketDatasetBuilder
+from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,
     FeatureSpec,

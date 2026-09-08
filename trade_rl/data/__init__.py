@@ -1,13 +1,11 @@
 """Market data contracts, artifacts and validation."""
 
-from trade_rl.data.artifact import (
+from trade_rl.data.artifacts import (
+    DatasetArtifactFiles,
     PublishedDatasetArtifact,
     inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
     publish_market_dataset_artifact,
-)
-from trade_rl.data.artifact_codec import (
-    DatasetArtifactFiles,
     write_market_dataset_files,
 )
 from trade_rl.data.contracts import InstrumentExecutionRule

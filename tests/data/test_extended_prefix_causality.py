@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from trade_rl.data.builder import MarketDatasetBuilder
+from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,
     FeatureSpec,

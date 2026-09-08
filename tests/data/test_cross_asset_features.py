@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.contracts import FeatureKind, FeatureSpec
-from trade_rl.data.cross_asset_features import calculate_cross_asset_feature_events
+from trade_rl.data.features.cross_asset import calculate_cross_asset_feature_events
 
 
 def _spec(kind: FeatureKind, *, lookback: int = 4, min_periods: int = 2) -> FeatureSpec:

@@ -12,18 +12,18 @@ from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
 )
-from trade_rl.data.cross_asset_features import (
+from trade_rl.data.features.core import calculate_feature_events
+from trade_rl.data.features.cross_asset import (
     CROSS_ASSET_FEATURE_KINDS,
     calculate_cross_asset_feature_events,
 )
-from trade_rl.data.economic_semantics import build_market_economic_semantics
-from trade_rl.data.features import calculate_feature_events
+from trade_rl.data.features.economic import build_market_economic_semantics
+from trade_rl.data.features.multitimeframe import align_native_feature
 from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
     content_and_arrays_digest,
 )
 from trade_rl.data.market import MarketDataset
-from trade_rl.data.multitimeframe import align_native_feature
 from trade_rl.data.source import (
     MarketDataSource,
     MultiTimeframeMarketDataSource,

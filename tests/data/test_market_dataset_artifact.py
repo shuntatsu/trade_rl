@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from trade_rl.data import load_market_dataset_artifact, write_market_dataset_files
-from trade_rl.data.artifacts import MarketDatasetView
 from trade_rl.data.market import MarketDataset
+from trade_rl.data.view import MarketDatasetView
 
 
 def _dataset() -> MarketDataset:
@@ -103,8 +103,6 @@ def test_market_dataset_view_rejects_escape_and_materializes_range() -> None:
 
 
 def test_write_market_dataset_files_returns_typed_result(tmp_path: Path) -> None:
-    from trade_rl.data import write_market_dataset_files
-
     result = write_market_dataset_files(tmp_path, _dataset())
 
     assert result.manifest_path == tmp_path / "manifest.json"
@@ -112,7 +110,6 @@ def test_write_market_dataset_files_returns_typed_result(tmp_path: Path) -> None
     assert len(result.artifact_digest) == 64
 
 
-def test_legacy_direct_writer_is_not_exported() -> None:
-    from trade_rl.data import artifacts as artifacts_module
-
-    assert not hasattr(artifacts_module, "write_market_dataset_artifact")
+def test_legacy_data_artifacts_module_is_removed() -> None:
+    root = Path(__file__).resolve().parents[2]
+    assert not (root / "trade_rl" / "data" / "artifacts.py").exists()

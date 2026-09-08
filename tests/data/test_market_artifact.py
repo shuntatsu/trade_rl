@@ -11,7 +11,7 @@ import pytest
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import load_market_dataset_artifact, publish_market_dataset_artifact
-from trade_rl.data.builder import MarketDatasetBuilder
+from trade_rl.data.build import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,
     FeatureSpec,
@@ -94,7 +94,7 @@ def test_failed_staging_is_removed_without_publishing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from trade_rl.data import artifact as artifact_module
+    from trade_rl.data.artifacts import publication as artifact_module
 
     root = tmp_path / "artifact"
 
@@ -112,8 +112,6 @@ def test_failed_staging_is_removed_without_publishing(
 
 
 def test_publish_market_dataset_artifact_returns_typed_result(tmp_path: Path) -> None:
-    from trade_rl.data import publish_market_dataset_artifact
-
     root = tmp_path / "artifact"
     result = publish_market_dataset_artifact(root, _dataset())
 
@@ -123,13 +121,7 @@ def test_publish_market_dataset_artifact_returns_typed_result(tmp_path: Path) ->
     assert len(result.artifact_digest) == 64
 
 
-def test_legacy_atomic_writer_warns_and_preserves_digest_return(tmp_path: Path) -> None:
-    from trade_rl.data import artifact as artifact_module
+def test_deprecated_direct_dataset_writer_is_removed() -> None:
+    import trade_rl.data as data
 
-    with pytest.warns(DeprecationWarning, match="publish_market_dataset_artifact"):
-        result = artifact_module.write_market_dataset_artifact(
-            tmp_path / "artifact", _dataset()
-        )
-
-    assert isinstance(result, str)
-    assert len(result) == 64
+    assert not hasattr(data, "write_market_dataset_artifact")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from trade_rl.data.config import load_market_build_request
+from trade_rl.data.build.config import load_market_build_request
 
 
 def test_market_build_request_accepts_session_calendar(tmp_path: Path) -> None:

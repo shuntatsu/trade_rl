@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from trade_rl.data.builder import _calculate_one_bar_returns
+from trade_rl.data.build.builder import _calculate_one_bar_returns
 
 
 def test_one_bar_returns_are_vectorized_and_require_contiguous_rows() -> None:

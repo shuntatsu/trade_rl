@@ -171,9 +171,13 @@ def _run_return_map(
             name = strategy.get("name")
             return_key = strategy.get("return_key")
             if not isinstance(name, str) or not isinstance(return_key, str):
-                raise ArtifactIntegrityError("EvidenceSet strategy evidence is malformed")
+                raise ArtifactIntegrityError(
+                    "EvidenceSet strategy evidence is malformed"
+                )
             if name in names:
-                raise ArtifactIntegrityError("EvidenceSet strategy roster has duplicates")
+                raise ArtifactIntegrityError(
+                    "EvidenceSet strategy roster has duplicates"
+                )
             names.add(name)
             if return_key not in run.returns:
                 raise ArtifactIntegrityError("EvidenceSet return key is missing")
@@ -198,7 +202,10 @@ def _verify_seed_invariance(
         if run.provenance.get("research_context_digest") != research_context_digest:
             raise ArtifactIntegrityError("EvidenceSet research context mismatch")
         candidate_config = run.summary.get("candidate_config")
-        if not isinstance(candidate_config, dict) or candidate_config.get("ppo_seed") != seed:
+        if (
+            not isinstance(candidate_config, dict)
+            or candidate_config.get("ppo_seed") != seed
+        ):
             raise ArtifactIntegrityError("EvidenceSet PPO seed evidence mismatch")
         current_map = _run_return_map(run, expected_symbols=symbols)
         if seed == first_seed:
@@ -246,7 +253,9 @@ def _identity_payload(
     }
 
 
-def _manifest_payload(evidence: EvidenceSet, resolved_config: ResolvedRunConfig) -> dict[str, object]:
+def _manifest_payload(
+    evidence: EvidenceSet, resolved_config: ResolvedRunConfig
+) -> dict[str, object]:
     payload = _identity_payload(
         study_digest=evidence.study_digest,
         research_context_digest=evidence.research_context_digest,
@@ -400,10 +409,14 @@ def _resolved_from_payload(payload: object) -> ResolvedRunConfig:
             gross_budget=cast(float, payload["gross_budget"]),
             initial_capital=cast(float, payload["initial_capital"]),
             execution_overlay=cast(str, payload["execution_overlay"]),
-            schema_version=cast(str, payload.get("schema_version", "resolved_run_config_v1")),
+            schema_version=cast(
+                str, payload.get("schema_version", "resolved_run_config_v1")
+            ),
         )
     except (KeyError, TypeError, ValueError) as error:
-        raise ArtifactIntegrityError("EvidenceSet semantic config is malformed") from error
+        raise ArtifactIntegrityError(
+            "EvidenceSet semantic config is malformed"
+        ) from error
 
 
 def load_evidence_set(root: str | Path) -> LoadedEvidenceSet:

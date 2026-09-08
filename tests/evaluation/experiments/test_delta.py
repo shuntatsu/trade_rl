@@ -66,9 +66,7 @@ EXPECTED_RULES = {
         ),
     ),
     ControlledFactor.FORECAST_THRESHOLDS: (
-        frozenset(
-            {("forecast_entry_threshold",), ("forecast_exit_threshold",)}
-        ),
+        frozenset({("forecast_entry_threshold",), ("forecast_exit_threshold",)}),
         frozenset(
             {
                 "cash",

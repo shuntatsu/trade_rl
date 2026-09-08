@@ -13,6 +13,13 @@ from trade_rl.evaluation.experiments.contracts import (
     StudyOutcome,
     StudyPlan,
 )
+from trade_rl.evaluation.experiments.delta import (
+    FACTOR_RULES,
+    ControlledVerification,
+    ControlledVerificationStatus,
+    FactorRule,
+    verify_controlled_delta,
+)
 from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     ContractViolationError,
@@ -36,12 +43,16 @@ __all__ = [
     "ContractViolationError",
     "ControlledExperimentError",
     "ControlledFactor",
+    "ControlledVerification",
+    "ControlledVerificationStatus",
     "EvidenceSet",
     "ExperimentBudgetExceededError",
     "ExperimentDecision",
     "ExperimentDecisionKind",
     "ExperimentDefinition",
     "ExperimentFailure",
+    "FACTOR_RULES",
+    "FactorRule",
     "InvalidExperimentStateError",
     "LoadedEvidenceSet",
     "ResolvedRunConfig",
@@ -52,4 +63,5 @@ __all__ = [
     "UncontrolledDeltaError",
     "execute_evidence_set",
     "load_evidence_set",
+    "verify_controlled_delta",
 ]

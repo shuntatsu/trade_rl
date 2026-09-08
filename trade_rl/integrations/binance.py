@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from trade_rl.data.builder import MarketDatasetBuilder
+from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureAlignment,
     FeatureKind,

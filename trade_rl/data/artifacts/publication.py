@@ -5,20 +5,19 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
-from trade_rl.data.artifact_codec import (
+from trade_rl.data.artifacts.codec import (
     DATASET_ARRAYS_NAME as MARKET_ARTIFACT_ARRAYS,
 )
-from trade_rl.data.artifact_codec import (
+from trade_rl.data.artifacts.codec import (
     DATASET_ARTIFACT_SCHEMA as MARKET_ARTIFACT_SCHEMA,
 )
-from trade_rl.data.artifact_codec import (
+from trade_rl.data.artifacts.codec import (
     DATASET_MANIFEST_NAME as MARKET_ARTIFACT_MANIFEST,
 )
-from trade_rl.data.artifact_codec import (
+from trade_rl.data.artifacts.codec import (
     DatasetArtifactFiles,
     load_dataset_files,
     write_market_dataset_files,
@@ -94,18 +93,6 @@ def publish_market_dataset_artifact(
     )
 
 
-def write_market_dataset_artifact(root: str | Path, dataset: MarketDataset) -> str:
-    """Deprecated compatibility wrapper returning only the artifact digest."""
-
-    warnings.warn(
-        "write_market_dataset_artifact is deprecated; use "
-        "publish_market_dataset_artifact",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return publish_market_dataset_artifact(root, dataset).artifact_digest
-
-
 def load_market_dataset_artifact(root: str | Path) -> MarketDataset:
     return load_dataset_files(Path(root))
 
@@ -118,5 +105,4 @@ __all__ = [
     "inspect_published_market_dataset_artifact",
     "load_market_dataset_artifact",
     "publish_market_dataset_artifact",
-    "write_market_dataset_artifact",
 ]

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 
-from trade_rl.data.builder import MarketDatasetBuilder
+from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import InstrumentContract, MarketBuildConfig
 from trade_rl.data.source import RawMarketSeries
 from trade_rl.integrations.binance import binance_multitimeframe_feature_specs

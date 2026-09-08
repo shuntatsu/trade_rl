@@ -1,0 +1,38 @@
+name: CEL Delta Test Format
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-delta-test-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Format Task 5 tests
+        run: |
+          uv run ruff format tests/evaluation/experiments/test_delta.py tests/property/test_controlled_experiment_delta_properties.py
+          uv run ruff check trade_rl tests
+          uv run ruff format --check trade_rl tests
+      - name: Commit formatted tests and remove helper
+        run: |
+          rm .github/workflows/cel-delta-test-format.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/evaluation/experiments/test_delta.py tests/property/test_controlled_experiment_delta_properties.py .github/workflows/cel-delta-test-format.yml
+          git diff --cached --check
+          git commit -m "style: format controlled delta tests"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

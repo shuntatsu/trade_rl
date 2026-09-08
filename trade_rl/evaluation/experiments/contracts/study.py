@@ -19,6 +19,7 @@ from trade_rl.evaluation.experiments.contracts._common import (
     contract_unique_enum_tuple,
     contract_unique_texts,
 )
+from trade_rl.evaluation.experiments.contracts.experiment import ControlledFactor
 from trade_rl.evaluation.experiments.contracts.run import ResolvedRunConfig
 from trade_rl.evaluation.experiments.errors import ContractViolationError
 
@@ -61,8 +62,6 @@ class StudyPlan:
     schema_version: str = "controlled_study_plan_v1"
 
     def __post_init__(self) -> None:
-        from trade_rl.evaluation.experiments.contracts.experiment import ControlledFactor
-
         research_question = contract_text(
             self.research_question,
             field="research_question",

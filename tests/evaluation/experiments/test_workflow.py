@@ -146,6 +146,7 @@ def test_definition_must_precede_execution_and_consumes_sequence(
 
     definition = define_experiment(
         root,
+        dataset_root=dataset_root,
         hypothesis="More PPO training changes only PPO evidence.",
         factor=ControlledFactor.PPO_TRAINING_BUDGET,
         candidate_config=replace(_config(), ppo_total_timesteps=64),
@@ -163,7 +164,7 @@ def test_sequence_budget_and_gap_are_fail_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    root, _, snapshot = _with_baseline(
+    root, dataset_root, snapshot = _with_baseline(
         tmp_path,
         monkeypatch,
         max_experiments=2,
@@ -173,6 +174,7 @@ def test_sequence_budget_and_gap_are_fail_closed(
     for timesteps in (64, 96):
         define_experiment(
             root,
+            dataset_root=dataset_root,
             hypothesis=f"Registered attempt for {timesteps} PPO steps.",
             factor=ControlledFactor.PPO_TRAINING_BUDGET,
             candidate_config=replace(_config(), ppo_total_timesteps=timesteps),
@@ -183,6 +185,7 @@ def test_sequence_budget_and_gap_are_fail_closed(
     with pytest.raises(ExperimentBudgetExceededError):
         define_experiment(
             root,
+            dataset_root=dataset_root,
             hypothesis="Budget must be exhausted.",
             factor=ControlledFactor.PPO_TRAINING_BUDGET,
             candidate_config=replace(_config(), ppo_total_timesteps=128),
@@ -208,6 +211,7 @@ def test_invalid_verification_is_terminal_visible_and_budgeted(
     assert snapshot.baseline is not None
     define_experiment(
         root,
+        dataset_root=dataset_root,
         hypothesis="Deliberately declare the wrong factor to prove INVALID visibility.",
         factor=ControlledFactor.PPO_TRAINING_BUDGET,
         candidate_config=replace(_config(), rule_entry_threshold=0.20),
@@ -224,6 +228,7 @@ def test_invalid_verification_is_terminal_visible_and_budgeted(
     with pytest.raises(ExperimentBudgetExceededError):
         define_experiment(
             root,
+            dataset_root=dataset_root,
             hypothesis="INVALID still consumes the attempt.",
             factor=ControlledFactor.PPO_TRAINING_BUDGET,
             candidate_config=replace(_config(), ppo_total_timesteps=96),
@@ -241,6 +246,7 @@ def test_operational_integrity_failure_does_not_publish_invalid_verification(
     assert snapshot.baseline is not None
     define_experiment(
         root,
+        dataset_root=dataset_root,
         hypothesis="Operational failures are not research INVALID evidence.",
         factor=ControlledFactor.PPO_TRAINING_BUDGET,
         candidate_config=replace(_config(), ppo_total_timesteps=64),
@@ -266,6 +272,7 @@ def test_comparison_and_decision_ordering_are_one_shot(
     assert snapshot.baseline is not None
     define_experiment(
         root,
+        dataset_root=dataset_root,
         hypothesis="More PPO training is one controlled factor.",
         factor=ControlledFactor.PPO_TRAINING_BUDGET,
         candidate_config=replace(_config(), ppo_total_timesteps=64),

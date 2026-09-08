@@ -31,6 +31,7 @@ def _decided_first_experiment(
     assert snapshot.baseline is not None
     define_experiment(
         root,
+        dataset_root=dataset_root,
         hypothesis="Create one candidate EvidenceSet for lineage testing.",
         factor=ControlledFactor.PPO_TRAINING_BUDGET,
         candidate_config=replace(_config(), ppo_total_timesteps=64),
@@ -55,7 +56,7 @@ def test_accept_candidate_enters_reachable_lineage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    root, _, snapshot, candidate, _ = _decided_first_experiment(
+    root, dataset_root, snapshot, candidate, _ = _decided_first_experiment(
         tmp_path,
         monkeypatch,
         decision=ExperimentDecisionKind.ACCEPT_CANDIDATE,
@@ -69,6 +70,7 @@ def test_accept_candidate_enters_reachable_lineage(
     )
     definition = define_experiment(
         root,
+        dataset_root=dataset_root,
         hypothesis="Continue from the accepted candidate with one more registered step.",
         factor=ControlledFactor.PPO_TRAINING_BUDGET,
         candidate_config=replace(_config(), ppo_total_timesteps=96),
@@ -90,7 +92,7 @@ def test_nonaccepted_decision_candidate_never_enters_lineage(
     monkeypatch: pytest.MonkeyPatch,
     decision: ExperimentDecisionKind,
 ) -> None:
-    root, _, snapshot, candidate, _ = _decided_first_experiment(
+    root, dataset_root, snapshot, candidate, _ = _decided_first_experiment(
         tmp_path,
         monkeypatch,
         decision=decision,
@@ -103,6 +105,7 @@ def test_nonaccepted_decision_candidate_never_enters_lineage(
     with pytest.raises(InvalidExperimentStateError, match="lineage"):
         define_experiment(
             root,
+            dataset_root=dataset_root,
             hypothesis="Rejected lineage must not be resurrected.",
             factor=ControlledFactor.PPO_TRAINING_BUDGET,
             candidate_config=replace(_config(), ppo_total_timesteps=96),
@@ -118,6 +121,7 @@ def test_invalid_candidate_never_enters_lineage(
     assert snapshot.baseline is not None
     define_experiment(
         root,
+        dataset_root=dataset_root,
         hypothesis="Declare wrong factor so the attempt becomes INVALID.",
         factor=ControlledFactor.PPO_TRAINING_BUDGET,
         candidate_config=replace(_config(), rule_entry_threshold=0.20),
@@ -133,6 +137,7 @@ def test_invalid_candidate_never_enters_lineage(
     with pytest.raises(InvalidExperimentStateError, match="lineage"):
         define_experiment(
             root,
+            dataset_root=dataset_root,
             hypothesis="INVALID evidence cannot be a baseline.",
             factor=ControlledFactor.PPO_TRAINING_BUDGET,
             candidate_config=replace(_config(), ppo_total_timesteps=96),

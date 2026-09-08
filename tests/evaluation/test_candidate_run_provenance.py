@@ -30,9 +30,7 @@ def test_candidate_run_provenance_digest_binds_implementation_and_runtime() -> N
     payload = build_candidate_run_provenance()
 
     assert payload["schema_version"] == PROVENANCE_SCHEMA
-    assert payload["implementation_digest"] == content_digest(
-        payload["implementation"]
-    )
+    assert payload["implementation_digest"] == content_digest(payload["implementation"])
     assert payload["runtime_environment_digest"] == content_digest(
         payload["runtime_environment"]
     )

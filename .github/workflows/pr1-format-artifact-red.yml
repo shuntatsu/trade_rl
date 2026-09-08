@@ -1,0 +1,32 @@
+name: Format PR1 artifact RED
+
+on:
+  push:
+    branches: [refactor/candidate-run-core-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: refactor/candidate-run-core-v1
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Format only artifact RED test and remove helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff format tests/evaluation/test_candidate_run_artifact_identity.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/pr1-format-artifact-red.yml
+          git add tests/evaluation/test_candidate_run_artifact_identity.py
+          git commit -m "style: format candidate artifact RED"
+          git push origin HEAD:refactor/candidate-run-core-v1

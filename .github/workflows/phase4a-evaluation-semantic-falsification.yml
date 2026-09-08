@@ -1,0 +1,218 @@
+name: Phase 4A evaluation semantic falsification
+
+on:
+  push:
+    branches:
+      - refactor/lean-evaluation-boundaries
+    paths:
+      - ".github/workflows/phase4a-evaluation-semantic-falsification.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch exact Phase 3B logical base
+        run: git fetch --no-tags --depth=1 origin 006278933f1ce499900d0f5019cbd5b92fb18fed
+
+      - name: Compare normalized evaluation production AST
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import ast
+          import subprocess
+          from pathlib import Path
+
+          BASE = "006278933f1ce499900d0f5019cbd5b92fb18fed"
+          ROOT = Path.cwd()
+          OWNER_MAP = {
+              "trade_rl.evaluation._perfect_information_lp": "trade_rl.evaluation.robustness.perfect_information.solver",
+              "trade_rl.evaluation.bootstrap": "trade_rl.evaluation.comparison.bootstrap",
+              "trade_rl.evaluation.candidate_run": "trade_rl.evaluation.runs.candidate",
+              "trade_rl.evaluation.candidate_suite": "trade_rl.evaluation.runs.candidate_suite",
+              "trade_rl.evaluation.capacity": "trade_rl.evaluation.robustness.capacity",
+              "trade_rl.evaluation.closed_trades": "trade_rl.evaluation.robustness.closed_trades",
+              "trade_rl.evaluation.comparisons": "trade_rl.evaluation.comparison.paired",
+              "trade_rl.evaluation.fold_metrics": "trade_rl.evaluation.robustness.fold_metrics",
+              "trade_rl.evaluation.perfect_information_bound": "trade_rl.evaluation.robustness.perfect_information.bound",
+              "trade_rl.evaluation.seed_robustness": "trade_rl.evaluation.comparison.seed_robustness",
+              "trade_rl.evaluation.strategy_comparison": "trade_rl.evaluation.comparison.strategies",
+              "trade_rl.evaluation.walk_forward": "trade_rl.evaluation.robustness.walk_forward",
+          }
+          PACKAGE_MEMBERS = {
+              "_perfect_information_lp": ("trade_rl.evaluation.robustness.perfect_information", "solver"),
+              "bootstrap": ("trade_rl.evaluation.comparison", "bootstrap"),
+              "candidate_run": ("trade_rl.evaluation.runs", "candidate"),
+              "candidate_suite": ("trade_rl.evaluation.runs", "candidate_suite"),
+              "capacity": ("trade_rl.evaluation.robustness", "capacity"),
+              "closed_trades": ("trade_rl.evaluation.robustness", "closed_trades"),
+              "comparisons": ("trade_rl.evaluation.comparison", "paired"),
+              "fold_metrics": ("trade_rl.evaluation.robustness", "fold_metrics"),
+              "perfect_information_bound": ("trade_rl.evaluation.robustness.perfect_information", "bound"),
+              "seed_robustness": ("trade_rl.evaluation.comparison", "seed_robustness"),
+              "strategy_comparison": ("trade_rl.evaluation.comparison", "strategies"),
+              "walk_forward": ("trade_rl.evaluation.robustness", "walk_forward"),
+          }
+          MOVES = {
+              "trade_rl/evaluation/_perfect_information_lp.py": "trade_rl/evaluation/robustness/perfect_information/solver.py",
+              "trade_rl/evaluation/bootstrap.py": "trade_rl/evaluation/comparison/bootstrap.py",
+              "trade_rl/evaluation/candidate_run.py": "trade_rl/evaluation/runs/candidate.py",
+              "trade_rl/evaluation/candidate_suite.py": "trade_rl/evaluation/runs/candidate_suite.py",
+              "trade_rl/evaluation/capacity.py": "trade_rl/evaluation/robustness/capacity.py",
+              "trade_rl/evaluation/closed_trades.py": "trade_rl/evaluation/robustness/closed_trades.py",
+              "trade_rl/evaluation/comparisons.py": "trade_rl/evaluation/comparison/paired.py",
+              "trade_rl/evaluation/fold_metrics.py": "trade_rl/evaluation/robustness/fold_metrics.py",
+              "trade_rl/evaluation/perfect_information_bound.py": "trade_rl/evaluation/robustness/perfect_information/bound.py",
+              "trade_rl/evaluation/seed_robustness.py": "trade_rl/evaluation/comparison/seed_robustness.py",
+              "trade_rl/evaluation/strategy_comparison.py": "trade_rl/evaluation/comparison/strategies.py",
+              "trade_rl/evaluation/walk_forward/__init__.py": "trade_rl/evaluation/robustness/walk_forward/__init__.py",
+              "trade_rl/evaluation/walk_forward/capabilities.py": "trade_rl/evaluation/robustness/walk_forward/capabilities.py",
+              "trade_rl/evaluation/walk_forward/folds.py": "trade_rl/evaluation/robustness/walk_forward/folds.py",
+              "trade_rl/evaluation/walk_forward/sealed_test.py": "trade_rl/evaluation/robustness/walk_forward/sealed_test.py",
+              "trade_rl/evaluation/walk_forward/stitching.py": "trade_rl/evaluation/robustness/walk_forward/stitching.py",
+          }
+          KEEP_CHANGED = (
+              "trade_rl/evaluation/__init__.py",
+              "trade_rl/evaluation/evidence.py",
+          )
+
+          def old_text(path: str) -> str:
+              return subprocess.check_output(["git", "show", f"{BASE}:{path}"], text=True)
+
+          def parse_text(text: str, path: str) -> ast.Module:
+              return ast.parse(text, filename=path)
+
+          def current(path: str) -> ast.Module:
+              return parse_text((ROOT / path).read_text(encoding="utf-8"), path)
+
+          def canonical_imports(tree: ast.Module, *, normalize_old: bool) -> tuple[tuple[str, ...], ...]:
+              rows: list[tuple[str, ...]] = []
+              for node in tree.body:
+                  if isinstance(node, ast.Import):
+                      for alias in node.names:
+                          module = OWNER_MAP.get(alias.name, alias.name) if normalize_old else alias.name
+                          rows.append(("import", module, alias.asname or ""))
+                  elif isinstance(node, ast.ImportFrom):
+                      module = node.module or ""
+                      for alias in node.names:
+                          name = alias.name
+                          asname = alias.asname or ""
+                          if normalize_old and node.level == 0:
+                              if module in OWNER_MAP:
+                                  module_for_alias = OWNER_MAP[module]
+                              elif module == "trade_rl.evaluation" and name in PACKAGE_MEMBERS:
+                                  module_for_alias, target_name = PACKAGE_MEMBERS[name]
+                                  if not asname and target_name != name:
+                                      asname = name
+                                  name = target_name
+                              else:
+                                  module_for_alias = module
+                          else:
+                              module_for_alias = module
+                          rows.append(("from", str(node.level), module_for_alias, name, asname))
+              return tuple(sorted(rows))
+
+          def non_import_signature(tree: ast.Module) -> tuple[str, ...]:
+              return tuple(
+                  ast.dump(node, include_attributes=False)
+                  for node in tree.body
+                  if not isinstance(node, (ast.Import, ast.ImportFrom))
+              )
+
+          def assert_import_only(old_path: str, new_path: str) -> None:
+              old_tree = parse_text(old_text(old_path), old_path)
+              new_tree = current(new_path)
+              assert canonical_imports(old_tree, normalize_old=True) == canonical_imports(
+                  new_tree, normalize_old=False
+              ), f"import membership changed: {old_path} -> {new_path}"
+              assert non_import_signature(old_tree) == non_import_signature(new_tree), (
+                  f"non-import semantic diff: {old_path} -> {new_path}"
+              )
+
+          compared = 0
+          for old_path, new_path in MOVES.items():
+              assert_import_only(old_path, new_path)
+              compared += 1
+          for path in KEEP_CHANGED:
+              assert_import_only(path, path)
+              compared += 1
+          assert compared == 18
+
+          def exported(tree: ast.Module) -> tuple[str, ...]:
+              for node in tree.body:
+                  if isinstance(node, ast.Assign) and any(
+                      isinstance(target, ast.Name) and target.id == "__all__"
+                      for target in node.targets
+                  ):
+                      return tuple(ast.literal_eval(node.value))
+              raise AssertionError("missing __all__")
+
+          old_facade = parse_text(old_text("trade_rl/evaluation/__init__.py"), "old-init")
+          new_facade = current("trade_rl/evaluation/__init__.py")
+          assert exported(old_facade) == exported(new_facade)
+
+          retired = set(OWNER_MAP)
+          package_member_offenders: list[str] = []
+          module_offenders: list[str] = []
+          evaluation_root = ROOT / "trade_rl" / "evaluation"
+          for path in evaluation_root.rglob("*.py"):
+              tree = current(str(path.relative_to(ROOT)))
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Import):
+                      for alias in node.names:
+                          if alias.name in retired:
+                              module_offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}:{alias.name}")
+                  elif isinstance(node, ast.ImportFrom):
+                      if node.module in retired:
+                          module_offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}:{node.module}")
+                      if (
+                          node.level == 0
+                          and node.module == "trade_rl.evaluation"
+                          and any(alias.name in PACKAGE_MEMBERS for alias in node.names)
+                      ):
+                          package_member_offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+          assert module_offenders == [], module_offenders
+          assert package_member_offenders == [], package_member_offenders
+
+          readme = (ROOT / "README.md").read_text(encoding="utf-8")
+          redesign = (ROOT / "docs" / "trade_rl_lean_redesign_20260908.md").read_text(encoding="utf-8")
+          old_cli = "python -m trade_rl.evaluation.candidate_run"
+          new_cli = "python -m trade_rl.evaluation.runs.candidate"
+          assert old_cli not in readme and old_cli not in redesign
+          assert new_cli in readme and new_cli in redesign
+
+          assert not (evaluation_root / "experiments").exists()
+          assert (evaluation_root / "series.py").is_file()
+
+          print(f"Evaluation production modules import-only equivalent: {compared}/18")
+          print("Import membership exact after authorized owner/package-member normalization")
+          print("Non-import top-level AST exact and order-preserved")
+          print("Exact evaluation.__all__ preserved")
+          print("No retired module/package-member imports remain")
+          print("Maintained candidate CLI references migrated; series.py retained")
+          PY
+
+      - name: Reject retired paths and one-shot helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            _perfect_information_lp.py bootstrap.py candidate_run.py candidate_suite.py \
+            capacity.py closed_trades.py comparisons.py fold_metrics.py \
+            perfect_information_bound.py seed_robustness.py strategy_comparison.py walk_forward; do
+            test ! -e "trade_rl/evaluation/$path"
+          done
+          test ! -e scripts/phase4a_evaluation_migrate.py
+          test ! -e .github/workflows/phase4a-evaluation-migrate.yml

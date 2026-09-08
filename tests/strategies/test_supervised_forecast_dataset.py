@@ -113,3 +113,18 @@ def test_multi_symbol_rows_use_no_symbol_feature_and_equal_symbol_weight() -> No
     assert training.sample_weights[6:].sum() == 4.5
     assert training.sample_weights.sum() == 9.0
     assert training.label_end_times.max() < training.fit_cutoff
+
+
+def test_explicit_fit_symbol_scope_excludes_unseen_symbol_rows() -> None:
+    training = build_causal_forecast_training_set(
+        pooled_market(),
+        feature_indices=(0, 1),
+        fit_symbol_indices=(0,),
+        fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
+        horizon_hours=2,
+    )
+
+    assert training.features.shape == (6, 2)
+    assert training.n_samples == 6
+    np.testing.assert_array_equal(training.features[:, 0], np.arange(6))
+    np.testing.assert_array_equal(training.sample_weights, np.ones(6))

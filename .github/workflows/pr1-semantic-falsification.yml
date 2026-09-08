@@ -1,0 +1,104 @@
+name: PR1 semantic falsification
+
+on:
+  push:
+    branches:
+      - refactor/candidate-run-core-v1
+    paths:
+      - .github/workflows/pr1-semantic-falsification.yml
+
+permissions:
+  contents: read
+
+jobs:
+  falsify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Prove legacy/new candidate payload equivalence
+        run: |
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import subprocess
+          import types
+          import numpy as np
+
+          from tests.evaluation.test_candidate_run_artifact import market, run_config
+          from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
+          from trade_rl.evaluation.runs.artifact import _result_payload
+          from trade_rl.evaluation.runs.config import parse_candidate_run_config, resolve_candidate_run_spec
+          from trade_rl.evaluation.runs.execute import CandidateRunResult
+          from trade_rl.strategies.controls import ConstantIntentStrategy
+          from trade_rl.strategies.position_intent import PositionIntent
+
+          dataset = market()
+          comparison = compare_strategies_by_symbol(
+              dataset,
+              {
+                  "cash": ConstantIntentStrategy(PositionIntent.FLAT),
+                  "long": ConstantIntentStrategy(PositionIntent.LONG),
+              },
+              start_index=4,
+              stop_index=7,
+              gross_budget=0.5,
+              initial_capital=1000.0,
+          )
+          config = parse_candidate_run_config(run_config())
+          spec = resolve_candidate_run_spec(
+              dataset,
+              dataset_artifact_schema="market_dataset_artifact_v3",
+              dataset_artifact_digest="d" * 64,
+              config=config,
+          )
+          result = CandidateRunResult(spec=spec, symbols=dataset.symbols, comparison=comparison)
+          new_summary, new_returns = _result_payload(result)
+
+          source = subprocess.check_output(
+              ["git", "show", "main:trade_rl/evaluation/runs/candidate.py"],
+              text=True,
+          )
+          legacy = types.ModuleType("legacy_candidate")
+          legacy.__dict__["__name__"] = "legacy_candidate"
+          exec(compile(source, "legacy_candidate.py", "exec"), legacy.__dict__)
+          old_summary, old_returns = legacy._comparison_payload(
+              dataset,
+              comparison,
+              dataset_artifact_schema="market_dataset_artifact_v3",
+              dataset_artifact_digest="d" * 64,
+              config=spec.lean_config,
+              start_index=spec.evaluation_start_index,
+              stop_index=spec.evaluation_stop_index,
+              gross_budget=spec.config.gross_budget,
+              initial_capital=spec.config.initial_capital,
+          )
+
+          assert new_summary == old_summary
+          assert set(new_returns) == set(old_returns)
+          for key in sorted(old_returns):
+              np.testing.assert_array_equal(new_returns[key], old_returns[key])
+              assert new_returns[key].dtype == old_returns[key].dtype
+          print(f"semantic payload equivalent: {len(new_returns)} return arrays")
+          PY
+      - name: Prove candidate suite computation authority unchanged
+        run: git diff --exit-code main...HEAD -- trade_rl/evaluation/runs/candidate_suite.py
+      - name: Run Run Core adversarial contracts
+        run: >-
+          uv run pytest -q
+          tests/evaluation/test_candidate_run_config.py
+          tests/evaluation/test_candidate_run_execute.py
+          tests/evaluation/test_candidate_run_provenance.py
+          tests/evaluation/test_candidate_run_artifact.py
+          tests/evaluation/test_candidate_run_artifact_identity.py
+          tests/evaluation/test_candidate_run_cli.py
+      - name: Prove PR1 scope
+        run: |
+          test ! -e trade_rl/evaluation/experiments
+          test ! -e scripts/pr1_candidate_run_core.py

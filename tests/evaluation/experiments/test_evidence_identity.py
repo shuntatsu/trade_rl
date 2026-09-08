@@ -27,6 +27,7 @@ def test_evidence_set_identity_binds_seed_normalized_semantic_config(
     artifact = publish_market_dataset_artifact(dataset_root, dataset)
     plan = _plan(dataset, artifact)
     monkeypatch.setattr(evidence_module, "execute_candidate_run", _fake_execute())
+    context = content_digest({"kind": "baseline", "study": plan.digest})
 
     result = execute_evidence_set(
         store=StudyStore(tmp_path / "study"),
@@ -34,7 +35,7 @@ def test_evidence_set_identity_binds_seed_normalized_semantic_config(
         dataset_root=dataset_root,
         plan=plan,
         config=_config(),
-        research_context_digest=content_digest({"kind": "baseline", "study": plan.digest}),
+        research_context_digest=context,
     )
 
     assert result.semantic_config_digest == plan.baseline_config.digest

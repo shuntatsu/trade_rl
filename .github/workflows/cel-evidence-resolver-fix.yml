@@ -1,0 +1,65 @@
+name: CEL Evidence Resolver Fix
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-evidence-resolver-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Reuse the pre-resolved first seed
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/evidence.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''        for seed in plan.ppo_seeds:
+              seed_config = replace(config, ppo_seed=seed)
+              spec = resolve_candidate_run_spec(
+                  dataset,
+                  dataset_artifact_schema=artifact.schema_version,
+                  dataset_artifact_digest=artifact.artifact_digest,
+                  config=seed_config,
+              )
+          '''
+          new = '''        first_seed = plan.ppo_seeds[0]
+              for seed in plan.ppo_seeds:
+                  if seed == first_seed:
+                      spec = normalized_spec
+                  else:
+                      seed_config = replace(config, ppo_seed=seed)
+                      spec = resolve_candidate_run_spec(
+                          dataset,
+                          dataset_artifact_schema=artifact.schema_version,
+                          dataset_artifact_digest=artifact.artifact_digest,
+                          config=seed_config,
+                      )
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("expected EvidenceSet resolver block exactly once")
+          path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+          uv run ruff format trade_rl/evaluation/experiments/evidence.py
+      - name: Commit TDD fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/evidence.py
+          git commit -m "fix: resolve each EvidenceSet seed once"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

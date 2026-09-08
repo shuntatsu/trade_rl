@@ -71,10 +71,10 @@ trade_rl/
     │   ├── fold_metrics.py
     │   ├── perfect_information/{bound.py,solver.py}
     │   └── walk_forward/{capabilities.py,folds.py,sealed_test.py,stitching.py}
-    └── runs/{candidate.py,candidate_suite.py}
+    └── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py}
 ```
 
-`evaluation/experiments/` は現時点では存在しない。将来のControlled Experiment Loopは、単一runとは別のhigher-level conceptとして独立設計する。
+`evaluation/experiments/` は現時点では存在しない。Controlled Experiment Loopは、単一Runとは別のhigher-level conceptとしてActive design/planで定義中である。
 
 ## Ownership
 
@@ -104,7 +104,18 @@ small strategy interfaceとlogical intent、controls、rule、forecast、teacher
 
 ### `evaluation`
 
-lower layerを利用してReplay・metrics・gate・comparison・robustness・concrete runを構成する。`runs/` は1回の計算/immutable result publicationであり、将来のexperiment contractとは分離する。
+lower layerを利用してReplay・metrics・gate・comparison・robustness・concrete runを構成する。
+
+`evaluation/runs/` の責務は一回の計算とimmutable Run evidenceである。
+
+- `candidate_suite.py`: 5 candidates + 3 controlsのfit/replay構成。
+- `config.py`: Run JSONの単一parse/resolution authority。
+- `execute.py`: resolved specから既存candidate suiteを一度実行するin-memory seam。
+- `provenance.py`: implementation/runtime/research-context provenance生成。
+- `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。
+- `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
+
+`runs` はhigher-level experiment lifecycleを知らない。将来の `evaluation/experiments` はこのRun Coreを利用してよいが、`evaluation/runs -> evaluation/experiments` の逆依存は作らない。
 
 ## Dependency direction
 

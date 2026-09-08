@@ -18,7 +18,10 @@ from trade_rl.strategies.position_intent import (
     PositionIntent,
     target_weight_for_intent,
 )
-from trade_rl.strategies.supervised import validated_feature_indices
+from trade_rl.strategies.supervised import (
+    validated_feature_indices,
+    validated_symbol_indices,
+)
 
 
 class _PredictPolicy(Protocol):
@@ -151,6 +154,7 @@ class PPOTradingEnv(gym.Env):
         dataset: MarketDataset,
         *,
         feature_indices: tuple[int, ...],
+        symbol_indices: tuple[int, ...] | None = None,
         start_index: int,
         stop_index: int,
         gross_budget: float,
@@ -176,6 +180,7 @@ class PPOTradingEnv(gym.Env):
 
         self.dataset = dataset
         self.feature_indices = validated_feature_indices(dataset, feature_indices)
+        self.symbol_indices = validated_symbol_indices(dataset, symbol_indices)
         self.start_index = start_index
         self.stop_index = stop_index
         self.gross_budget = gross_budget
@@ -192,6 +197,7 @@ class PPOTradingEnv(gym.Env):
         self.action_space = spaces.Discrete(3)
 
         self.active_symbol_index = -1
+        self._active_symbol_offset = -1
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         self.risk = _default_risk(self.executor)
         self.book = self._initial_book()
@@ -241,9 +247,10 @@ class PPOTradingEnv(gym.Env):
     ) -> tuple[np.ndarray, dict[str, object]]:
         del options
         super().reset(seed=seed)
-        self.active_symbol_index = (
-            self.active_symbol_index + 1
-        ) % self.dataset.n_symbols
+        self._active_symbol_offset = (self._active_symbol_offset + 1) % len(
+            self.symbol_indices
+        )
+        self.active_symbol_index = self.symbol_indices[self._active_symbol_offset]
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         if seed is not None:
             self.executor.reset_random_state(seed)
@@ -334,6 +341,7 @@ def fit_ppo_strategy(
     dataset: MarketDataset,
     *,
     feature_indices: tuple[int, ...],
+    fit_symbol_indices: tuple[int, ...] | None = None,
     start_index: int,
     stop_index: int,
     gross_budget: float,
@@ -357,6 +365,7 @@ def fit_ppo_strategy(
     env = PPOTradingEnv(
         dataset,
         feature_indices=indices,
+        symbol_indices=fit_symbol_indices,
         start_index=start_index,
         stop_index=stop_index,
         gross_budget=gross_budget,

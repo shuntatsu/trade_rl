@@ -33,6 +33,7 @@ _ALLOWED_CONFIG_KEYS = frozenset(
     {
         "signal_name",
         "feature_names",
+        "fit_symbol_names",
         "fit_cutoff",
         "evaluation_start",
         "evaluation_stop_exclusive",
@@ -123,6 +124,13 @@ def _feature_index(dataset: MarketDataset, name: str) -> int:
         raise ValueError(f"unknown feature name: {name}") from error
 
 
+def _fit_symbol_index(dataset: MarketDataset, name: str) -> int:
+    try:
+        return dataset.symbols.index(name)
+    except ValueError as error:
+        raise ValueError(f"unknown fit symbol name: {name}") from error
+
+
 def _exact_timestamp_index(
     dataset: MarketDataset,
     timestamp: np.datetime64,
@@ -143,6 +151,10 @@ def _resolved_run_config(
     signal_name = _required_string(raw, "signal_name")
     feature_names = _required_string_tuple(raw, "feature_names")
     feature_indices = tuple(_feature_index(dataset, name) for name in feature_names)
+    fit_symbol_names = _required_string_tuple(raw, "fit_symbol_names")
+    fit_symbol_indices = tuple(
+        _fit_symbol_index(dataset, name) for name in fit_symbol_names
+    )
     fit_cutoff = _timestamp(raw, "fit_cutoff")
     start_time = _timestamp(raw, "evaluation_start")
     stop_time = _timestamp(raw, "evaluation_stop_exclusive")
@@ -155,6 +167,7 @@ def _resolved_run_config(
     config = LeanCandidateConfig(
         signal_index=_feature_index(dataset, signal_name),
         feature_indices=feature_indices,
+        fit_symbol_indices=fit_symbol_indices,
         fit_cutoff=fit_cutoff,
         rule_entry_threshold=_required_float(raw, "rule_entry_threshold"),
         rule_exit_threshold=_required_float(raw, "rule_exit_threshold"),
@@ -253,6 +266,10 @@ def _comparison_payload(
                 dataset.feature_names[index] for index in config.feature_indices
             ],
             "feature_indices": list(config.feature_indices),
+            "fit_symbol_names": [
+                dataset.symbols[index] for index in config.fit_symbol_indices
+            ],
+            "fit_symbol_indices": list(config.fit_symbol_indices),
             "fit_cutoff": str(config.fit_cutoff),
             "rule_entry_threshold": config.rule_entry_threshold,
             "rule_exit_threshold": config.rule_exit_threshold,

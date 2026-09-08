@@ -40,7 +40,9 @@ def _series(values: tuple[float, ...]) -> ReturnSeries:
     )
 
 
-def _metrics(values: tuple[float, ...], *, turnover: float, cost: float) -> dict[str, object]:
+def _metrics(
+    values: tuple[float, ...], *, turnover: float, cost: float
+) -> dict[str, object]:
     metrics = evaluate_performance(
         _series(values),
         turnover_total=turnover,
@@ -88,7 +90,9 @@ def _run(seed: int, *, candidate_shift: float = 0.0) -> LoadedCandidateRun:
         symbol_scale = 1.0 if symbol_index == 0 else 0.5
         for strategy_index, name in enumerate(STRATEGIES):
             values = tuple(
-                float(value * symbol_scale + (candidate_shift if name != "cash" else 0.0))
+                float(
+                    value * symbol_scale + (candidate_shift if name != "cash" else 0.0)
+                )
                 for value in base[name]
             )
             key = f"symbol_{symbol_index}_strategy_{strategy_index}"
@@ -179,10 +183,14 @@ def test_analysis_reuses_seed_robustness_for_ppo_vs_ridge24() -> None:
                 seed=seed,
                 returns=_series(tuple(run.returns["symbol_0_strategy_7"])),
                 turnover_total=float(
-                    run.summary["by_symbol"][0]["strategies"][7]["metrics"]["turnover_total"]  # type: ignore[index]
+                    run.summary["by_symbol"][0]["strategies"][7]["metrics"][
+                        "turnover_total"
+                    ]  # type: ignore[index]
                 ),
                 total_cost=float(
-                    run.summary["by_symbol"][0]["strategies"][7]["metrics"]["total_cost"]  # type: ignore[index]
+                    run.summary["by_symbol"][0]["strategies"][7]["metrics"][
+                        "total_cost"
+                    ]  # type: ignore[index]
                 ),
             )
             for seed, run in runs.items()
@@ -191,7 +199,9 @@ def test_analysis_reuses_seed_robustness_for_ppo_vs_ridge24() -> None:
         n_bootstrap=100,
         bootstrap_seed=7,
     )
-    assert payload["by_symbol"]["BTCUSDT"]["ppo_seed_robustness_vs_ridge24"] == asdict(expected)  # type: ignore[index]
+    assert payload["by_symbol"]["BTCUSDT"]["ppo_seed_robustness_vs_ridge24"] == asdict(
+        expected
+    )  # type: ignore[index]
 
 
 def test_compare_evidence_sets_matches_ppo_by_seed_without_combined_p_value() -> None:

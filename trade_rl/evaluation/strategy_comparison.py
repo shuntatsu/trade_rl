@@ -7,7 +7,10 @@ from dataclasses import dataclass
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.metrics import PerformanceMetrics, evaluate_performance
-from trade_rl.evaluation.replay import SingleSymbolReplayResult, run_single_symbol_replay
+from trade_rl.evaluation.replay import (
+    SingleSymbolReplayResult,
+    run_single_symbol_replay,
+)
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.interface import SingleSymbolStrategy
 

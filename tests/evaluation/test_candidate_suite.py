@@ -6,59 +6,61 @@ import numpy as np
 
 import trade_rl.evaluation.candidate_suite as candidate_suite
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.strategy_comparison import StrategyComparison
+from trade_rl.evaluation.strategy_comparison import UniversalStrategyComparison
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
 
 
 def market() -> MarketDataset:
     n = 60
-    close = np.linspace(100.0, 130.0, n).reshape(n, 1)
+    base = np.linspace(100.0, 130.0, n)
+    close = np.stack((base, base * 1.5), axis=1)
+    signal = np.linspace(-0.2, 0.2, n, dtype=np.float32)
+    features = np.stack((signal, -signal), axis=1).reshape(n, 2, 1)
     return MarketDataset(
         dataset_id="5" * 64,
-        symbols=("BTCUSDT",),
+        symbols=("BTCUSDT", "ETHUSDT"),
         timestamps=np.datetime64("2026-01-01", "ns")
         + np.arange(n) * np.timedelta64(1, "h"),
-        features=np.linspace(-0.2, 0.2, n, dtype=np.float32).reshape(
-            n,
-            1,
-            1,
-        ),
+        features=features,
         global_features=np.zeros((n, 1), dtype=np.float32),
         open=close.copy(),
         high=close.copy(),
         low=close.copy(),
         close=close,
-        volume=np.full((n, 1), 1_000_000.0),
-        funding_rate=np.zeros((n, 1)),
-        tradable=np.ones((n, 1), dtype=np.bool_),
-        feature_available=np.ones((n, 1, 1), dtype=np.bool_),
+        volume=np.full((n, 2), 1_000_000.0),
+        funding_rate=np.zeros((n, 2)),
+        tradable=np.ones((n, 2), dtype=np.bool_),
+        feature_available=np.ones((n, 2, 1), dtype=np.bool_),
         feature_names=("signal",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
     )
 
 
-def test_suite_builds_fixed_candidates_and_delegates_one_comparison(
+def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     monkeypatch,
 ) -> None:
-    calls: dict[str, object] = {}
+    calls: dict[str, object] = {"ridge": 0, "lightgbm": 0, "ppo": 0}
 
-    monkeypatch.setattr(
-        candidate_suite,
-        "fit_ridge_forecast",
-        lambda *args, **kwargs: SimpleNamespace(feature_indices=(0,)),
-    )
-    monkeypatch.setattr(
-        candidate_suite,
-        "fit_lightgbm_forecast",
-        lambda *args, **kwargs: SimpleNamespace(feature_indices=(0,)),
-    )
-    monkeypatch.setattr(
-        candidate_suite,
-        "fit_ppo_strategy",
-        lambda *args, **kwargs: ConstantIntentStrategy(PositionIntent.FLAT),
-    )
+    def fake_ridge(*args, **kwargs):
+        calls["ridge"] = int(calls["ridge"]) + 1
+        calls["ridge_dataset"] = args[0]
+        return SimpleNamespace(feature_indices=(0,))
+
+    def fake_lightgbm(*args, **kwargs):
+        calls["lightgbm"] = int(calls["lightgbm"]) + 1
+        calls["lightgbm_dataset"] = args[0]
+        return SimpleNamespace(feature_indices=(0,))
+
+    def fake_ppo(*args, **kwargs):
+        calls["ppo"] = int(calls["ppo"]) + 1
+        calls["ppo_dataset"] = args[0]
+        return ConstantIntentStrategy(PositionIntent.FLAT)
+
+    monkeypatch.setattr(candidate_suite, "fit_ridge_forecast", fake_ridge)
+    monkeypatch.setattr(candidate_suite, "fit_lightgbm_forecast", fake_lightgbm)
+    monkeypatch.setattr(candidate_suite, "fit_ppo_strategy", fake_ppo)
     monkeypatch.setattr(
         candidate_suite,
         "RidgeForecastStrategy",
@@ -71,12 +73,12 @@ def test_suite_builds_fixed_candidates_and_delegates_one_comparison(
     )
 
     def fake_compare(dataset, strategies, **kwargs):
-        calls["dataset"] = dataset
+        calls["comparison_dataset"] = dataset
         calls["names"] = tuple(strategies)
         calls["kwargs"] = kwargs
-        return StrategyComparison(entries=())
+        return UniversalStrategyComparison(by_symbol=())
 
-    monkeypatch.setattr(candidate_suite, "compare_strategies", fake_compare)
+    monkeypatch.setattr(candidate_suite, "compare_strategies_by_symbol", fake_compare)
     dataset = market()
     config = candidate_suite.LeanCandidateConfig(
         signal_index=0,
@@ -99,8 +101,14 @@ def test_suite_builds_fixed_candidates_and_delegates_one_comparison(
         initial_capital=1_000.0,
     )
 
-    assert result.entries == ()
-    assert calls["dataset"] is dataset
+    assert result.by_symbol == ()
+    assert calls["ridge"] == 1
+    assert calls["lightgbm"] == 1
+    assert calls["ppo"] == 1
+    assert calls["ridge_dataset"] is dataset
+    assert calls["lightgbm_dataset"] is dataset
+    assert calls["ppo_dataset"] is dataset
+    assert calls["comparison_dataset"] is dataset
     assert calls["names"] == (
         "cash",
         "constant_long",

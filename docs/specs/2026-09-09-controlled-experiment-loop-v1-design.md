@@ -10,27 +10,28 @@ What is missing is the research unit that explains **why one run differs from an
 
 Controlled Experiment Loop v1 adds that layer.
 
-Its primary correctness property is not convenience. It is:
+Its primary correctness property is:
 
-> An uncontrolled, tampered, provenance-mismatched, or selectively omitted development attempt cannot be recorded as a valid controlled experiment or selected through the winner lineage.
+> An uncontrolled, tampered, provenance-mismatched, selectively omitted, or lineage-invalid development attempt cannot be recorded as a valid controlled experiment or selected as the Study winner.
 
-## 2. Scope decision
+## 2. Scope
 
 v1 ends at the development-study freeze boundary.
 
 It manages:
 
 1. a frozen development Study plan;
-2. Study-wide implementation/runtime provenance;
-3. immutable baseline run evidence;
-4. sequential controlled Experiments;
-5. candidate run evidence snapshots;
-6. actual resolved baseline/candidate delta verification;
-7. paired comparison evidence;
-8. immutable Experiment decisions;
-9. accepted-baseline lineage;
-10. Study-level experiment budget;
-11. final `WINNER` or `NO_WINNER` freeze.
+2. Study-wide code/runtime provenance;
+3. a pre-resolved initial baseline configuration;
+4. immutable baseline run evidence;
+5. sequential controlled Experiments;
+6. candidate run evidence snapshots;
+7. actual resolved baseline/candidate delta verification;
+8. paired comparison evidence;
+9. immutable Experiment decisions;
+10. accepted-baseline lineage;
+11. Study-level experiment budget;
+12. final `WINNER` or `NO_WINNER` freeze.
 
 It does **not** open unused future data or execute the final sealed test.
 
@@ -50,52 +51,51 @@ separate future subsystem
         -> final evaluation / pre-registered stress
 ```
 
-`trade_rl.evaluation.experiments` must not import or invoke the sealed outer-test authorization API.
+`trade_rl.evaluation.experiments` must not import or invoke sealed outer-test authorization.
 
 ## 3. Non-goals
 
-v1 deliberately does not add:
+v1 does not add:
 
 - final unused-future execution;
 - final stress orchestration;
-- Ridge / LightGBM / PPO model serialization;
+- fitted Ridge / LightGBM / PPO serialization;
 - a frozen trained-policy artifact;
 - automatic hyperparameter search;
 - automatic winner selection;
-- distributed execution;
-- database persistence;
-- web UI or dashboard;
-- experiment search service;
-- new strategy families;
-- new replay, accounting, risk, or execution semantics;
 - code changes as an Experiment factor;
 - dependency/runtime changes as an Experiment factor;
-- LLM-authored autonomous research decisions.
+- distributed execution;
+- database persistence;
+- web UI/dashboard;
+- new strategy families;
+- new replay/accounting/risk/execution semantics;
+- autonomous LLM research decisions.
 
-The existing candidate runner remains the authority for fitting and replaying one candidate suite run. v1 may strengthen that runner's **evidence metadata** without changing fitting, replay, accounting, or strategy semantics.
+The existing candidate runner remains the authority for fitting and replaying one suite Run. v1 may strengthen its **evidence metadata** without changing computation semantics.
 
 ## 4. Core terminology
 
-### 4.1 Run
+### Run
 
-A **Run** is one computation performed by the existing candidate runner.
+A **Run** is one computation performed by the current candidate runner.
 
-The current run artifact contains:
+The current artifact has:
 
 ```text
 summary.json
 returns.npz
 ```
 
-v1 adds one evidence-only companion file:
+v1 adds an evidence-only companion:
 
 ```text
 provenance.json
 ```
 
-A Run does not know why it was executed.
+A Run does not encode the research reason for executing it.
 
-### 4.2 Experiment
+### Experiment
 
 An **Experiment** binds:
 
@@ -109,69 +109,24 @@ one explicit hypothesis
 + one immutable decision
 ```
 
-An Experiment may be valid (`CONTROLLED`) or terminally invalid (`INVALID`). Invalid attempts remain part of Study history and consume the Study experiment budget.
+A trustworthy attempt is either `CONTROLLED` or terminal `INVALID`. INVALID attempts remain in Study history and consume budget.
 
-### 4.3 Study
+### Study
 
-A **Study** is a bounded sequence of Experiments answering one research question under Study-level fixed controls and one fixed code/runtime provenance contract.
-
-A Study owns:
-
-- the development data/evaluation contract;
-- implementation/runtime provenance;
-- initial baseline;
-- allowed factor types;
-- maximum Experiment attempts;
-- contiguous Experiment sequence;
-- accepted-baseline lineage;
-- final `WINNER` or `NO_WINNER` freeze.
+A **Study** is a bounded sequence of Experiments answering one research question under one fixed development data/evaluation/provenance contract.
 
 ## 5. Design principles
 
-### 5.1 One Experiment changes one semantic research factor
+1. **One semantic factor per Experiment.** A factor may map to multiple resolved fields but unrelated factors cannot be mixed.
+2. **Resolved evidence is authoritative.** Requested JSON alone cannot prove control.
+3. **Code/runtime provenance is fixed for the Study.** A production-code or relevant runtime change requires a new Study.
+4. **Study evidence is self-contained.** External Run paths are untrusted registration inputs, not durable references.
+5. **Append-only state.** No mutable `state.json` or rewritten Experiment artifact.
+6. **INVALID remains visible.** A trustworthy failed-control attempt cannot disappear from budget/history.
+7. **Fail closed.** Unknown factor, provenance drift, undeclared delta, evidence tampering, broken lineage, sequence gap, concurrency conflict, or post-freeze write is not tolerated.
+8. **Existing lower authorities remain authoritative.** Do not reimplement candidate fitting, replay, accounting, or paired bootstrap.
 
-The controlled unit is not "one JSON field". One semantic factor may map to multiple resolved fields.
-
-For example, changing a feature set can change both `feature_names` and `feature_indices`, but it may not also change `fit_cutoff` or `gross_budget`.
-
-### 5.2 Actual resolved evidence is authoritative
-
-Requested config files are insufficient evidence. Controlled-delta verification compares the **resolved immutable run summaries**.
-
-### 5.3 Code/runtime provenance is a Study-level fixed control
-
-Two runs produced by different production source trees or different supported runtime environments are not a valid v1 controlled pair.
-
-A code change, Python/runtime change, or relevant dependency-version change requires a new Study.
-
-### 5.4 Study evidence is self-contained
-
-External run paths are untrusted inputs to registration, not durable Study references.
-
-Registration copies a verified byte-exact snapshot of the run evidence into a content-addressed Study evidence store. Later verification/comparison reads only that Study-owned snapshot.
-
-### 5.5 Append-only artifacts, no mutable state file
-
-There is no mutable `experiment.json` or `state.json` repeatedly rewritten.
-
-State is derived from immutable artifact existence and digest references.
-
-### 5.6 Fail closed
-
-Unknown factors, undeclared deltas, provenance drift, mismatched dataset identity, tampered evidence, unsupported state transitions, broken lineage, sequence gaps, or post-freeze writes fail rather than being tolerated.
-
-### 5.7 Existing research primitives remain authoritative
-
-The subsystem reuses:
-
-- canonical JSON and content digests from `trade_rl.artifacts`;
-- verified regular-file boundaries from `trade_rl.artifacts`;
-- current candidate-run computation from `trade_rl.evaluation.runs`;
-- current paired-return comparison from `trade_rl.evaluation.comparison`.
-
-It does not duplicate fitting, replay, P&L, or paired-bootstrap implementations.
-
-## 6. Proposed package boundary
+## 6. Package boundary
 
 ```text
 trade_rl/evaluation/experiments/
@@ -213,13 +168,9 @@ workflow
 existing lower evaluation/artifact primitives
 ```
 
-`contracts` must not depend on `workflow` or filesystem storage.
+`contracts` does not depend on workflow/filesystem storage. `experiments` does not depend on final sealed-test authorization.
 
-`experiments` must not depend on final sealed-test authorization.
-
-## 7. Filesystem Study artifact
-
-A Study is append-only and self-contained:
+## 7. Study filesystem artifact
 
 ```text
 <study-root>/
@@ -227,13 +178,11 @@ A Study is append-only and self-contained:
 ├── baseline-evidence.json
 ├── evidence/
 │   └── runs/
-│       ├── <run-fingerprint-A>/
-│       │   ├── manifest.json
-│       │   ├── summary.json
-│       │   ├── returns.npz
-│       │   └── provenance.json
-│       └── <run-fingerprint-B>/
-│           └── ...
+│       └── <run-fingerprint>/
+│           ├── manifest.json
+│           ├── summary.json
+│           ├── returns.npz
+│           └── provenance.json
 ├── experiments/
 │   ├── 0001/
 │   │   ├── definition.json
@@ -241,40 +190,36 @@ A Study is append-only and self-contained:
 │   │   ├── verification.json
 │   │   ├── comparison.json
 │   │   └── decision.json
-│   ├── 0002/
-│   │   └── ...
 │   └── ...
 └── freeze.json
 ```
 
-No published file is overwritten.
+Published files are never overwritten.
 
-Experiment directory names are exactly four decimal digits from `0001` through `9999`.
-
-Therefore v1 requires:
+Experiment names are exactly four decimal digits. v1 therefore enforces:
 
 ```text
 1 <= max_experiments <= 9999
 ```
 
-The sequence must be contiguous from `0001` through the highest attempt.
+Sequences are contiguous from `0001` to the highest attempt.
 
-## 8. Canonical identity
+## 8. Identity
 
-All contract identities use the existing canonical JSON conversion and `content_digest()` SHA-256 authority.
+All contract identities use existing canonical JSON + `content_digest()`.
 
-### 8.1 Identity rules
+Rules:
 
-- Study plan identity is the digest of canonical `StudyPlan` content.
-- Experiment identity is the digest of canonical immutable `ExperimentDefinition` content.
-- Verification, comparison, decision, and freeze identities are content digests of their canonical payloads.
-- Time metadata is not inserted into Study-plan or Experiment-definition identity merely to make an object unique.
+- Study identity = canonical StudyPlan digest.
+- Experiment identity = canonical ExperimentDefinition digest.
+- Verification/comparison/decision/freeze identities = canonical content digests.
 - Filesystem paths are never research identity.
-- Run-file evidence uses SHA-256 + exact byte size.
+- Run file evidence binds SHA-256 + exact byte size.
+- timestamps are not added to Study/Experiment identity just to create uniqueness.
 
-### 8.2 Run fingerprint
+### Run fingerprint
 
-A Run fingerprint is the canonical digest of the immutable evidence identity payload, including at least:
+The Run fingerprint digests an immutable identity payload containing at least:
 
 ```text
 summary SHA-256 + size
@@ -284,112 +229,88 @@ resolved dataset identity
 resolved dataset artifact identity
 resolved candidate configuration identity
 resolved evaluation scope identity
+strategy roster identity
 implementation digest
 runtime environment digest
 ```
 
-The input source path used during registration is **not persisted as research identity**.
+External source paths are excluded. Experiment lineage binds Run fingerprints.
 
-Experiment definitions and lineage bind to the Run fingerprint, not an external path.
+## 9. Candidate-run provenance prerequisite
 
-## 9. Run provenance prerequisite
+Without generation-time provenance, two results produced by different code/runtime environments cannot be proven controlled.
 
-Controlled Experiment Loop cannot prove a comparison is controlled if code/runtime provenance is absent. Therefore v1 requires a small evidence-schema extension to the candidate runner.
+The candidate runner therefore keeps `summary.json` / `returns.npz` semantics and additionally publishes `provenance.json`.
 
-The candidate runner continues to publish `summary.json` and `returns.npz` with their existing semantic contents and additionally writes:
+### Implementation digest
 
-```text
-provenance.json
-```
+Use a conservative production source-tree digest:
 
-### 9.1 Provenance payload
-
-`provenance.json` contains at least:
-
-```text
-schema_version
-implementation_digest
-runtime_environment_digest
-implementation manifest
-runtime environment manifest
-```
-
-### 9.2 Implementation digest
-
-v1 deliberately uses a conservative source-tree identity.
-
-The implementation manifest is derived from the importable `trade_rl` production Python source tree:
-
-1. enumerate all runtime `.py` files under the installed/imported `trade_rl` package root;
-2. exclude `__pycache__`, `.pyc`, temporary/generated files, tests, docs, and filesystem absolute paths;
+1. enumerate runtime `.py` files under the imported `trade_rl` package root;
+2. exclude `__pycache__`, bytecode, tests, docs, absolute paths, temporary/generated debris;
 3. record normalized relative POSIX path + SHA-256 of exact source bytes;
 4. sort by relative path;
-5. compute a canonical content digest over a versioned manifest.
+5. canonical-digest a versioned manifest.
 
-Any production Python source change therefore changes `implementation_digest` and requires a new Study.
+Any production Python source change changes the digest and requires a new Study. This strictness is intentional.
 
-This is intentionally stricter than attempting to guess which source file influenced a Run.
+### Runtime environment digest
 
-### 9.3 Runtime environment digest
+A versioned canonical manifest binds at least:
 
-The runtime environment manifest binds at least:
-
-- Python implementation and full version;
-- operating-system family/release;
+- Python implementation/full version;
+- OS family/release;
 - machine architecture;
-- `trade-rl` package version;
-- NumPy version;
-- Gymnasium version;
-- LightGBM version when used by the fixed candidate suite;
-- Stable-Baselines3 version when used;
-- Torch version when used;
-- other direct runtime package versions that the implementation plan confirms materially participate in candidate-run computation.
+- `trade-rl` version;
+- NumPy;
+- Gymnasium;
+- LightGBM;
+- Stable-Baselines3;
+- Torch;
+- any additional direct runtime package the implementation review proves participates materially in the fixed suite.
 
-The exact package list is fixed in implementation code/tests, not discovered ad hoc per Run.
+The package list is fixed in code/tests, not discovered differently per Run.
 
-The canonical digest of this manifest is `runtime_environment_digest`.
+`create_study()` freezes expected implementation/runtime digests before baseline registration. Every registered Run must match. Code/runtime changes are not Experiment factors in v1.
 
-### 9.4 Study provenance rule
+## 10. Study-owned Run evidence registration
 
-`create_study()` freezes the expected implementation/runtime digests before baseline registration.
-
-Every baseline/candidate Run registered into that Study must contain identical provenance digests.
-
-A mismatch is not a valid Experiment factor in v1; registration or verification fails closed and the researcher must start a new Study.
-
-## 10. Evidence snapshot registration
-
-External Run artifacts are untrusted inputs.
+External Run directories are untrusted inputs.
 
 `register_run_evidence()`:
 
-1. opens `summary.json`, `returns.npz`, and `provenance.json` through the existing regular-file/no-final-symlink boundary;
-2. computes exact digest + size from the opened snapshots;
-3. validates supported summary/provenance schema;
+1. verifies `summary.json`, `returns.npz`, `provenance.json` as non-symlink regular files;
+2. reads a stable snapshot and computes exact digest/size;
+3. validates supported summary/provenance schemas;
 4. validates Study provenance compatibility;
-5. constructs the Run fingerprint;
-6. stages byte-exact copies under `evidence/runs/<run-fingerprint>/`;
-7. writes a canonical `manifest.json` binding filenames, sizes, digests, resolved identities, and provenance digests;
-8. atomically publishes the completed evidence directory.
+5. validates resolved dataset/evaluation compatibility;
+6. builds the Run fingerprint;
+7. stages byte-exact copies under `evidence/runs/<run-fingerprint>/`;
+8. writes canonical `manifest.json`;
+9. atomically publishes the complete evidence directory.
 
-Unsafe deserialization of NPZ evidence must occur only from a verified private/snapshotted file with `allow_pickle=False`.
+Unsafe NPZ reading happens only from a verified Study-owned/private snapshot and uses `allow_pickle=False`.
 
-If the exact Run fingerprint already exists, registration is idempotent only after verifying the stored manifest/files are byte-identical to the requested Run fingerprint. Otherwise it fails as an integrity conflict.
+If an identical Run fingerprint already exists, registration is idempotent only after re-verifying all stored bytes/manifest. A conflicting existing directory is an integrity failure.
 
-The Study never relies on the original external path after successful registration.
+After successful registration the Study never depends on the original external Run path.
 
 ## 11. StudyPlan contract
 
-`StudyPlan` is immutable and created before development iteration.
+StudyPlan is created before baseline results are admitted into the Study.
 
-It contains at least:
+Creation inputs include a canonical dataset artifact and the initial baseline run configuration. Study creation uses the **same configuration-resolution authority as the candidate runner** to validate/resolve names, timestamps, scopes, and numeric fields without fitting models.
+
+If necessary, implementation may extract the current private run-config resolution into one shared lower helper; it must not create two independent resolution implementations.
+
+StudyPlan contains at least:
 
 ```text
 schema_version
 research_question
 dataset_id
 dataset_artifact_digest
-evaluation symbol contract
+evaluation symbol set
 fit_cutoff
 evaluation_start
 evaluation_stop_exclusive
@@ -400,31 +321,52 @@ implementation_digest
 runtime_environment_digest
 max_experiments
 allowed_factor_types
-initial baseline requested-config identity
+initial_baseline_resolved_config
+candidate_strategy_names
+control_strategy_names
 ```
 
-Study-level hard-fixed fields in v1:
+The initial baseline Run later registered must resolve exactly to `initial_baseline_resolved_config` and the Study fixed controls.
 
-- dataset identity;
-- dataset artifact identity;
-- evaluation symbol set;
-- development evaluation window;
+### Study-fixed fields
+
+- dataset identity/artifact identity;
+- evaluation symbol set/window;
 - fit cutoff;
 - execution contract;
 - initial capital;
 - PPO seed policy;
 - implementation digest;
-- runtime environment digest.
+- runtime environment digest;
+- strategy/control roster contract.
 
-Changing any of them means starting a new Study.
+Changing them requires a new Study.
 
-`fit_symbol_scope` may be an Experiment factor only if the Study explicitly permits it; the evaluation scope still remains fixed.
+`fit_symbol_scope` can be an Experiment factor only when explicitly allowed; evaluation scope remains fixed.
+
+### Candidate/control roster
+
+v1 preserves the current research distinction:
+
+```text
+candidates:
+  trend
+  mean_reversion
+  ridge24
+  lightgbm24
+  ppo
+
+controls:
+  cash
+  constant_long
+  constant_short
+```
+
+The implementation plan must verify this roster against the current candidate-suite authority before coding. Strategy roster drift inside one Study is invalid.
 
 ## 12. Controlled factor registry
 
-v1 uses typed controlled factors, not arbitrary free-form path whitelists.
-
-Supported factors:
+Supported semantic factors:
 
 ```text
 FEATURE_SET
@@ -436,48 +378,40 @@ PPO_TRAINING_BUDGET
 GROSS_BUDGET
 ```
 
-A Study may allow only a subset.
+A Study permits only an explicit subset.
 
 Each factor defines:
 
-1. which resolved fields may differ;
-2. which resolved fields must remain equal;
-3. which strategies may be affected;
-4. which strategies must remain exactly unchanged at raw-return level when the current architecture makes that invariant valid.
+1. resolved fields allowed to differ;
+2. Study/factor fields required equal;
+3. strategies permitted to be affected;
+4. strategies required exactly invariant at raw-return level where the current code/dataflow makes this a valid oracle.
 
-Unknown factor types are rejected.
+Unknown factors fail closed.
 
-### 12.1 Initial semantic delta map
+The implementation plan derives exact JSON paths from the current resolved run summary.
 
-The implementation plan must derive exact JSON paths from the current resolved candidate-run summary schema.
-
-Conceptually:
+Conceptual mapping:
 
 | Factor | Allowed semantic delta |
 |---|---|
-| `FEATURE_SET` | selected feature names/indices only |
-| `RULE_SIGNAL` | rule signal name/index only |
-| `RULE_THRESHOLDS` | rule entry/exit threshold pair only |
-| `FORECAST_THRESHOLDS` | forecast entry/exit threshold pair only |
-| `FIT_SYMBOL_SCOPE` | fit symbol names/indices only |
-| `PPO_TRAINING_BUDGET` | PPO total timesteps only |
-| `GROSS_BUDGET` | gross budget fields currently bound by candidate Run evidence |
+| `FEATURE_SET` | feature names/indices |
+| `RULE_SIGNAL` | rule signal name/index |
+| `RULE_THRESHOLDS` | rule entry/exit threshold pair |
+| `FORECAST_THRESHOLDS` | forecast entry/exit threshold pair |
+| `FIT_SYMBOL_SCOPE` | fit symbol names/indices |
+| `PPO_TRAINING_BUDGET` | PPO total timesteps |
+| `GROSS_BUDGET` | currently evidence-bound gross budget fields |
 
-If the current summary schema cannot represent a proposed factor unambiguously, that factor must not be implemented until the evidence schema is deliberately improved.
+If current evidence cannot express a factor unambiguously, that factor is not implemented until the evidence schema is intentionally improved.
 
-### 12.2 Non-empty actual factor change
+A declared factor must produce a **non-empty actual resolved delta**. A no-op candidate becomes terminal INVALID once trustworthy evidence proves no allowed field actually changed.
 
-A candidate that resolves identically to the baseline is not a successful controlled Experiment merely because a factor was declared.
+## 13. ExperimentDefinition
 
-A valid `CONTROLLED` verification requires at least one actual resolved delta within the declared factor's allowed field set.
+Published before candidate evidence is admitted.
 
-No-op candidate definitions become terminal `INVALID` once trustworthy evidence proves the declared factor produced no resolved change.
-
-## 13. ExperimentDefinition contract
-
-An Experiment is defined before candidate evidence is observed.
-
-`ExperimentDefinition` contains at least:
+Contains at least:
 
 ```text
 schema_version
@@ -491,163 +425,120 @@ candidate requested configuration
 
 Requirements:
 
-- sequence is exactly the next Study attempt number;
-- hypothesis is non-empty;
-- factor is permitted by StudyPlan;
-- baseline fingerprint exists and is lineage-eligible;
-- candidate requested config is complete enough for the existing runner;
-- Study is not frozen;
-- Study budget remains.
+- exact next sequence;
+- non-empty hypothesis;
+- Study-permitted factor;
+- existing lineage-eligible baseline;
+- candidate config valid enough for current runner;
+- Study not frozen;
+- budget remains.
 
-The definition is immutable once published.
+Definition publication is immutable.
 
 ## 14. Derived Experiment state
 
-No mutable status artifact exists.
+No mutable status file.
 
 ```text
-definition.json only
-    = DEFINED
+definition.json                              -> DEFINED
++ candidate-evidence.json                   -> EVIDENCE_BOUND
++ verification.json(status=CONTROLLED)      -> VERIFIED
++ comparison.json                           -> COMPARED
++ decision.json                             -> DECIDED
 
-+ candidate-evidence.json
-    = EVIDENCE_BOUND
-
-+ verification.json with CONTROLLED
-    = VERIFIED
-
-+ comparison.json
-    = COMPARED
-
-+ decision.json
-    = DECIDED
+verification.json(status=INVALID)           -> INVALID (terminal)
 ```
 
-A `verification.json` with `INVALID` is terminal:
+INVALID has no comparison/decision artifact. Workflow stages cannot be skipped.
 
-```text
-INVALID
-```
+## 15. Baseline/candidate binding
 
-An INVALID Experiment has no comparison or decision artifact.
+`baseline-evidence.json` binds the Study to its initial Run fingerprint.
 
-No workflow operation may skip a required prior stage.
+The initial baseline must match StudyPlan's resolved baseline config, fixed controls, candidate/control roster, and provenance.
 
-## 15. Baseline and candidate evidence bindings
+Each `candidate-evidence.json` binds one Experiment to one registered Run fingerprint after evidence-store re-verification.
 
-`baseline-evidence.json` binds the Study to the initial Run fingerprint.
+Binding does not yet claim the candidate is controlled.
 
-Each `candidate-evidence.json` binds one Experiment to exactly one registered candidate Run fingerprint.
+## 16. Controlled-delta verification
 
-Binding validates:
+`verify_experiment()` compares **Study-owned registered evidence**.
 
-- the Run fingerprint exists in the Study evidence store;
-- its manifest/files pass digest + size re-verification;
-- its dataset/evaluation/provenance matches StudyPlan;
-- a candidate binding is not already published for the Experiment.
-
-Binding does not claim the candidate is controlled.
-
-## 16. Actual controlled-delta verification
-
-`verify_experiment()` compares the resolved baseline and candidate summaries from the **Study-owned evidence snapshots**.
-
-Checks include at least:
+Checks include:
 
 ```text
 run evidence integrity
-study identity binding
-implementation provenance equality
-runtime provenance equality
-dataset identity equality
-dataset artifact identity equality
-evaluation symbol roster equality
-evaluation window equality
+Study identity binding
+implementation/runtime provenance equality
+dataset/artifact identity equality
+evaluation symbol roster/window equality
 fit cutoff equality
 other Study-fixed controls equality
-strategy roster equality
+strategy/control roster equality
 non-empty declared-factor actual delta only
-unaffected-strategy raw return invariance where required
+unaffected-strategy raw-return invariance where required
 ```
 
-### 16.1 CONTROLLED
+### CONTROLLED
 
-If all required checks pass, publish `verification.json` with status `CONTROLLED`.
+All mandatory checks pass -> publish immutable `verification.json` with `CONTROLLED`.
 
-### 16.2 INVALID
+### INVALID
 
-If trustworthy evidence exists and proves the controlled contract was violated, publish terminal `verification.json` with status `INVALID` and explicit failed checks.
+Trustworthy evidence proves a controlled-contract violation -> publish terminal `INVALID` with explicit failed checks.
 
 Examples:
 
-- `FEATURE_SET` also changed `fit_cutoff`;
-- dataset identity drifted;
-- implementation/runtime provenance changed;
-- evaluation window drifted;
-- strategy roster changed;
-- declared factor produced no resolved change;
-- an unaffected strategy return series changed.
+- undeclared `fit_cutoff` change;
+- provenance drift;
+- dataset/window drift;
+- strategy roster drift;
+- declared factor is a no-op;
+- supposedly unaffected strategy returns changed.
 
-INVALID consumes one Study attempt.
+INVALID consumes the attempt.
 
-### 16.3 Operation failure versus INVALID result
+### Operation failure vs INVALID
 
-Use an exception and publish no verification artifact when trustworthy evidence cannot be established, for example:
-
-- evidence file missing;
-- digest/size mismatch;
-- malformed unsupported artifact;
-- unsafe snapshot failure;
-- filesystem publication failure.
-
-Use INVALID only when trustworthy registered evidence exists and proves the Experiment contract was violated.
+Do **not** publish INVALID when trustworthy evidence cannot be established (missing file, digest mismatch, malformed unsupported artifact, unsafe snapshot failure, filesystem publication failure). Raise an operational integrity/state error and leave verification unpublished.
 
 ## 17. Unaffected-strategy falsification oracle
 
-The factor registry identifies strategies that should be invariant to a factor under the current architecture.
+For factors where the current architecture proves some strategies independent of the changed factor, their raw return arrays must match exactly baseline vs candidate.
 
-When a strategy is declared unaffected, baseline/candidate raw return arrays and any required immutable replay evidence must match exactly.
+Mismatch implies hidden-condition drift or semantic regression -> INVALID.
 
-A mismatch is evidence of hidden-condition drift or semantic regression and makes the Experiment INVALID.
+The implementation plan derives exact affected/unaffected sets from current code/dataflow and contract tests. Names alone are insufficient evidence.
 
-The implementation plan must derive the exact affected/unaffected sets from current code/data flow and contract tests. They may not be guessed from strategy names.
+## 18. Comparison
 
-## 18. Comparison contract
+Only CONTROLLED Experiments can compare.
 
-Only a CONTROLLED Experiment can be compared.
+Reuse existing return-series/paired-comparison primitives.
 
-Comparison reuses the existing return-series and paired-comparison primitives.
+For every expected `symbol × strategy` cell record at least:
 
-Evidence is stored for every expected:
-
-```text
-symbol × strategy
-```
-
-At minimum `ExperimentComparison` records:
-
-- baseline/candidate performance metrics;
+- baseline/candidate metrics;
 - total-return delta;
 - Sharpe delta;
-- maximum-drawdown delta;
+- max-drawdown delta;
 - turnover delta;
-- total execution-cost delta;
-- funding P&L delta;
-- borrow-cost delta;
-- paired excess total return;
-- paired excess log return;
-- moving-block bootstrap confidence interval;
-- bootstrap p-value;
-- block size;
+- execution-cost delta;
+- funding delta;
+- borrow delta;
+- paired excess total/log return;
+- moving-block bootstrap CI/p-value/block size;
 - baseline/candidate Run fingerprints;
 - verification digest.
 
-The complete expected symbol × strategy Cartesian product is required. Missing, duplicate, or extra cells fail closed.
+Missing, duplicate, or extra symbol×strategy cells fail closed.
 
-A statistical threshold does not automatically determine the research decision.
+No p-value or aggregate metric automatically determines the decision.
 
-## 19. Experiment decision contract
+## 19. Experiment decision
 
-Experiment decisions are exactly:
+Exactly:
 
 ```text
 ACCEPT_CANDIDATE
@@ -655,9 +546,9 @@ KEEP_BASELINE
 INCONCLUSIVE
 ```
 
-There is no mutable `RETEST` decision. A retest is a new Experiment and consumes another attempt.
+A retest is a new Experiment and budget attempt.
 
-`ExperimentDecision` contains at least:
+Decision binds:
 
 ```text
 schema_version
@@ -671,51 +562,57 @@ decided_by
 decided_at
 ```
 
-`rationale` and `decided_by` are non-empty. `decided_at` is timezone-aware.
-
-The decision artifact is immutable and published once.
-
-The subsystem does not automatically decide from p-values or one aggregate metric.
+`rationale`/`decided_by` are non-empty; `decided_at` is timezone-aware. Decision is immutable and published once.
 
 ## 20. Accepted-baseline lineage
 
-A later Experiment baseline is eligible only if it is:
+A later baseline is eligible only if it is:
 
 1. the initial Study baseline; or
 2. a candidate Run from a prior `ACCEPT_CANDIDATE` decision reachable from the initial baseline.
 
-Candidates from `KEEP_BASELINE`, `INCONCLUSIVE`, or `INVALID` Experiments are not lineage eligible.
+KEEP_BASELINE, INCONCLUSIVE, and INVALID candidates never become lineage eligible.
 
-This prevents rejected candidates from being silently resurrected later as the winner path.
+## 21. Budget and sequence
 
-## 21. Experiment budget and sequence integrity
+Every Experiment definition consumes one attempt, including eventual INVALID attempts.
 
-Every Experiment definition consumes one Study attempt, including INVALID attempts.
+- contiguous sequence starting at 1;
+- four-digit directory names;
+- no overwrite/reuse/renumber;
+- gaps make Study inconsistent and block freeze;
+- `max_experiments` fixed in `[1, 9999]`;
+- attempt `max_experiments + 1` raises `ExperimentBudgetExceededError`.
 
-Rules:
+This bounds adaptive reuse of one development window; individual control does not eliminate Study-level overfitting.
 
-- sequence is contiguous from 1;
-- directories are exactly `0001` through `9999`;
-- existing sequences cannot be overwritten;
-- a deleted/gapped sequence makes the Study inconsistent and prevents freeze;
-- public API cannot renumber a sequence;
-- `max_experiments` is fixed in StudyPlan;
-- defining `max_experiments + 1` raises `ExperimentBudgetExceededError`.
+## 22. Concurrency model
 
-The budget bounds adaptive reuse of the same development window. Individually controlled Experiments do not eliminate Study-level development overfitting.
+v1 is **single-writer, multi-reader** at the Study mutation boundary.
 
-## 22. Study freeze
+Every mutating public operation (`create/register/define/bind/verify/compare/decide/freeze`) is serialized by a StudyStore exclusive filesystem mutation lock. The exact cross-platform mechanism is an implementation-plan concern, but it must be process-safe for supported platforms and release automatically on process termination rather than relying on a permanently stale sentinel.
 
-A Study freeze is terminal and immutable.
+Readers inspect immutable published artifacts without taking the mutation lock when safe.
 
-Allowed outcomes:
+Concurrent mutation must never allow:
+
+- two Experiments to claim the same sequence;
+- a candidate binding after freeze;
+- freeze to publish while another mutation is partially staged;
+- overwrite of an already published artifact.
+
+Race tests are required.
+
+## 23. Study freeze
+
+Terminal outcomes:
 
 ```text
 WINNER
 NO_WINNER
 ```
 
-### 22.1 WINNER
+### WINNER
 
 Requires:
 
@@ -725,52 +622,49 @@ selected_strategy
 rationale
 ```
 
-The selected Run must be reachable through ACCEPT lineage and the selected strategy must exist in that Run.
+The Run must be ACCEPT-lineage reachable. `selected_strategy` must belong to `candidate_strategy_names`, **never** `control_strategy_names`.
 
-### 22.2 NO_WINNER
+If controls dominate and no research candidate is supportable, the correct outcome is `NO_WINNER`, not a control labeled as winner.
 
-Must not contain a selected Run or selected strategy.
+### NO_WINNER
 
-### 22.3 Freeze preconditions
+Forbids selected Run/strategy fields.
 
-Before `freeze.json` publication verify:
+### Freeze reconstruction
 
-- StudyPlan integrity;
-- Study provenance contract;
-- baseline evidence integrity;
-- all content-addressed Run evidence integrity;
-- contiguous Experiment sequence;
-- attempts <= budget;
-- every Experiment terminal (`DECIDED` or `INVALID`);
+Before publication verify from disk:
+
+- StudyPlan/provenance integrity;
+- baseline/evidence store integrity;
+- contiguous sequence and budget;
+- every Experiment terminal DECIDED or INVALID;
 - all digest/fingerprint references resolve;
-- selected winner Run, if any, is ACCEPT-lineage eligible;
-- selected strategy exists;
-- no invalid/rejected candidate was resurrected;
-- no existing freeze artifact.
+- selected winner Run is ACCEPT-lineage eligible;
+- selected strategy is an existing candidate, not a control;
+- no rejected/invalid candidate resurrection;
+- no existing freeze.
 
-After freeze, all mutating Study operations reject with `StudyFrozenError`.
+After freeze every mutating operation raises `StudyFrozenError`.
 
-## 23. StudyStore responsibility
+## 24. StudyStore
 
-`StudyStore` is the only stateful helper class proposed for v1.
+The only stateful helper class in v1. Filesystem mechanics only:
 
-It owns filesystem mechanics only:
+- path validation;
+- exclusive mutation lock;
+- regular-file verification;
+- verified snapshot copy;
+- content-addressed placement;
+- staging/atomic publication;
+- immutable reads;
+- existence/integrity checks;
+- failed-staging cleanup.
 
-- validated path resolution;
-- exclusive creation;
-- verified snapshot copying;
-- content-addressed evidence placement;
-- staging;
-- atomic publication;
-- verified reads;
-- artifact existence checks;
-- failed staging cleanup.
+It does not own research decisions, factor semantics, statistics, or mutable in-memory Study state.
 
-It must not own research decisions, factor semantics, comparison policy, or mutable Study state.
+## 25. Public API
 
-## 24. Public API
-
-High-level package surface:
+High-level surface:
 
 ```text
 create_study
@@ -784,7 +678,7 @@ freeze_study
 inspect_study
 ```
 
-Public immutable contracts:
+Immutable public contracts:
 
 ```text
 StudyPlan
@@ -798,261 +692,214 @@ StudyFreeze
 StudySnapshot
 ```
 
-Private codecs, provenance builders, field maps, filesystem helpers, and adapters are not package-root exports by default.
+Private codecs/provenance builders/field maps/store internals are not package-root exports by default.
 
-No public API mutates fields on an in-memory Study object.
-
-## 25. Error model
-
-All subsystem-specific operational errors derive from:
+## 26. Error model
 
 ```text
 ControlledExperimentError
+├── ContractViolationError
+├── ArtifactIntegrityError
+├── InvalidExperimentStateError
+├── UncontrolledDeltaError
+├── ExperimentBudgetExceededError
+└── StudyFrozenError
 ```
 
-Required subclasses:
+- `ContractViolationError`: malformed/unsupported contract input.
+- `ArtifactIntegrityError`: digest/size/symlink/malformed/provenance/evidence-store conflict.
+- `InvalidExperimentStateError`: wrong workflow state or concurrent/state conflict.
+- `UncontrolledDeltaError`: domain-level undeclared/no-op delta; workflow normally materializes trustworthy violations as INVALID.
+- `ExperimentBudgetExceededError`: Study attempt budget exhausted.
+- `StudyFrozenError`: mutation after freeze.
 
-```text
-ContractViolationError
-ArtifactIntegrityError
-InvalidExperimentStateError
-UncontrolledDeltaError
-ExperimentBudgetExceededError
-StudyFrozenError
-```
-
-Semantics:
-
-- `ContractViolationError`: invalid contract input or unsupported factor.
-- `ArtifactIntegrityError`: digest, size, symlink, malformed, missing, provenance, or evidence-store conflict failure.
-- `InvalidExperimentStateError`: operation attempted before required prior artifact or after a terminal state.
-- `UncontrolledDeltaError`: domain-level undeclared/no-op factor delta; workflow verification normally materializes trustworthy violations as terminal INVALID evidence.
-- `ExperimentBudgetExceededError`: attempt exceeds frozen Study budget.
-- `StudyFrozenError`: mutation attempted after freeze.
-
-The implementation must preserve the distinction between evidence proving an Experiment INVALID and an operation failing before trustworthy verification is possible.
-
-## 26. Integrity boundary
-
-Research evidence is untrusted until registered into the Study-owned content-addressed store.
-
-The implementation must account for:
-
-- symlink substitution;
-- file replacement during registration;
-- size/digest mismatch;
-- malformed JSON;
-- malformed/unsafe NPZ;
-- missing NPZ keys;
-- duplicate/missing symbol-strategy cells;
-- source/runtime provenance drift;
-- partial filesystem publication;
-- overwrite attempts;
-- evidence fingerprint collision/conflict;
-- sequence directory collision;
-- post-freeze mutation.
-
-No final-test dataset accessor, sealed-test ledger call, or unused-future opening capability belongs in this package.
+Trustworthy INVALID evidence is distinct from an operation that failed before verification could be trusted.
 
 ## 27. Quality contract
 
 ### Objective
 
-Create a development-only Controlled Experiment Loop that can prove what changed between baseline and candidate Runs, prove they share the Study's code/runtime/data/evaluation controls, retain self-contained immutable evidence, compare complete symbol-level results, record decisions, enforce bounded accepted lineage, and freeze a winner/no-winner outcome without opening final unused data.
-
-### Non-goals
-
-Section 3 is binding and must not expand silently during implementation.
+Create a development-only Controlled Experiment Loop that proves what changed between Runs, proves Study-wide code/runtime/data/evaluation controls, retains self-contained immutable evidence, compares complete symbol-level outcomes, records decisions, enforces bounded accepted lineage, and freezes winner/no-winner without opening final unused data.
 
 ### Invariants
 
-1. Existing candidate fitting/replay semantics remain unchanged.
-2. Existing `MarketExecutor + BookState` economic authority remains unchanged.
-3. Study hard-fixed data/evaluation/provenance controls cannot drift.
-4. One Experiment changes one declared semantic factor only.
-5. The declared factor must produce a non-empty actual resolved delta.
-6. Actual resolved evidence, not requested config alone, determines control validity.
-7. Registered evidence is byte-exact, Study-owned, content-addressed, and immutable.
-8. INVALID attempts remain visible and consume budget.
-9. Experiment definitions and terminal artifacts are immutable.
+1. Existing fitting/replay/accounting semantics remain unchanged.
+2. `MarketExecutor + BookState` remains economic authority.
+3. Study data/evaluation/provenance controls cannot drift.
+4. Initial baseline Run matches pre-resolved Study baseline config.
+5. One Experiment changes one declared semantic factor.
+6. Declared factor produces non-empty actual resolved delta.
+7. Study-owned evidence is byte-exact, content-addressed, immutable.
+8. INVALID remains visible and budgeted.
+9. Definitions/terminal artifacts are immutable.
 10. Rejected/inconclusive/invalid candidates are not winner-lineage eligible.
-11. Study freeze is terminal.
-12. Experiment Loop cannot open final unused data.
+11. Control strategies cannot be Study winner.
+12. Study freeze is terminal.
+13. Final unused data is unreachable from this package.
 
 ### Failure modes
 
 At minimum:
 
-- malformed Study plan;
-- unsupported/duplicate factor settings;
-- wrong next sequence;
+- malformed plan/baseline config;
+- baseline Run does not match planned resolved config;
+- unsupported factor;
+- wrong/concurrent sequence;
 - budget exhaustion;
-- missing baseline;
-- broken baseline lineage;
-- source evidence tampering during registration;
-- Study evidence tampering after registration;
+- broken lineage;
+- source or Study evidence tampering;
 - symlink evidence;
-- implementation digest drift;
-- runtime environment drift;
-- dataset drift;
-- evaluation-window drift;
-- fit-cutoff drift;
-- symbol roster drift;
-- strategy roster drift;
-- undeclared resolved delta;
-- no-op declared factor;
+- code/runtime provenance drift;
+- dataset/window/fit-cutoff drift;
+- symbol or strategy roster drift;
+- undeclared/no-op delta;
 - unaffected-strategy return drift;
-- incomplete/duplicate/extra symbol × strategy comparison;
+- incomplete/duplicate/extra comparison cells;
 - compare-before-verify;
 - decide-before-compare;
-- second decision publication;
+- second decision;
+- race between mutation/freeze;
 - open Experiment at freeze;
-- sequence gap at freeze;
-- rejected candidate selected as winner;
-- invalid WINNER/NO_WINNER field combination;
+- sequence gap;
+- rejected candidate or control selected as winner;
+- invalid WINNER/NO_WINNER fields;
 - mutation after freeze;
-- partial publication / cleanup failure.
+- partial publication/cleanup failure.
 
 ### Risk
 
-High. A false-positive validity result can make research conclusions depend on an uncontrolled or adaptively cherry-picked development comparison. Integrity, provenance, lineage, and state-transition violations are fail-closed.
+High. False-positive control can produce invalid research conclusions. Integrity, provenance, lineage, concurrency, and state violations fail closed.
 
 ### Test Oracle
 
-Correctness is observed through:
-
-- canonical content digest equality;
-- source/runtime provenance digest equality;
-- exact file SHA-256 and byte size;
-- byte equality between verified input snapshot and Study evidence copy;
-- filesystem state transitions;
-- immutable/exclusive publication;
-- resolved baseline/candidate delta classification;
+- canonical digest equality;
+- provenance digest equality;
+- exact file digest/size and snapshot byte equality;
+- filesystem publication state;
+- resolved delta classification;
 - unaffected-strategy raw-return equality;
-- complete symbol × strategy comparison coverage;
-- deterministic paired-comparison evidence under fixed seed;
-- Experiment sequence and budget accounting;
-- accepted-baseline graph reachability;
-- freeze precondition reconstruction from disk;
-- static absence of final-test dependency.
+- complete symbol×strategy comparison coverage;
+- deterministic paired evidence under fixed seed;
+- sequence/budget accounting;
+- lineage reachability;
+- freeze reconstruction;
+- static absence of final-test dependency;
+- concurrent mutation exclusion.
 
 ### Required Test Layers
 
 - architecture/static dependency tests;
 - contract unit tests;
 - provenance unit/property tests;
-- property tests for canonical identity and allowed/unallowed delta partitioning;
-- artifact integration tests with real temporary files;
-- filesystem race/failure/cleanup tests;
-- existing candidate-run compatibility/regression tests;
+- property tests for identity and delta partitioning;
+- real temporary-filesystem artifact integration tests;
+- race/failure/cleanup tests;
+- candidate-run compatibility/regression tests;
 - paired comparison tests;
-- workflow/state-transition tests;
+- workflow/state tests;
 - lineage/freeze tests;
 - tamper/symlink/security regression tests;
-- Ruff;
-- format check;
-- Mypy;
-- full repository pytest suite;
-- package identity check;
+- Ruff / format / Mypy;
+- full pytest suite;
+- package identity;
 - exact-head GitHub CI;
 - requirements-first falsification review.
 
 ## 28. TDD strategy
 
-Implementation uses RED -> GREEN -> Refactor.
+RED before production changes for at least:
 
-The first production change must be preceded by failing contract/architecture tests for:
+1. `evaluation/experiments` boundary;
+2. forbidden sealed-final-test dependency;
+3. StudyPlan/baseline/factor/budget invariants;
+4. candidate-run provenance evidence;
+5. content-addressed evidence registration;
+6. controlled-delta classification;
+7. state ordering;
+8. lineage;
+9. concurrency/freeze rules.
 
-1. required `evaluation/experiments` boundary;
-2. forbidden dependency on sealed final-test authorization;
-3. StudyPlan/factor/budget invariants;
-4. candidate-run provenance evidence requirement;
-5. content-addressed evidence snapshot binding;
-6. actual controlled-delta classification;
-7. state-transition ordering;
-8. accepted-baseline lineage;
-9. Study freeze rules.
-
-Tests are not weakened to accommodate shortcuts.
+No assertion weakening to reach Green.
 
 ## 29. Acceptance criteria
 
-v1 is specification-complete only when all are true:
+v1 is complete only when all are true:
 
-1. `trade_rl.evaluation.experiments` exists as a distinct responsibility boundary.
-2. Experiment code has no dependency on sealed final-test authorization.
-3. StudyPlan has deterministic canonical identity and immutable publication.
-4. StudyPlan freezes implementation and runtime environment digests before baseline registration.
-5. Candidate runner publishes evidence-only provenance without changing fitting/replay/accounting semantics.
-6. Run registration verifies and snapshots summary/returns/provenance bytes into the Study evidence store.
-7. Run fingerprint is independent of external source path.
-8. Symlink/tampered/missing/malformed evidence is rejected fail closed.
-9. Evidence-store reuse is allowed only for an identical verified Run fingerprint.
-10. ExperimentDefinition is immutable and bound to Study, sequence, hypothesis, factor, and baseline Run fingerprint.
-11. Exactly one registered semantic factor governs allowed resolved delta.
-12. Verification compares actual resolved registered evidence rather than requested config only.
-13. Study-fixed data/evaluation/provenance controls cannot drift inside a valid Experiment.
-14. Undeclared delta cannot produce CONTROLLED verification.
-15. A declared factor that produces no resolved change cannot produce CONTROLLED verification.
-16. Unaffected-strategy drift is detected wherever the factor contract declares invariance.
-17. Trustworthy uncontrolled evidence produces terminal INVALID history rather than disappearing.
-18. INVALID attempts consume Study budget.
-19. Experiment sequence is contiguous, four-digit, and cannot be overwritten/reused.
-20. `max_experiments` is fixed in `[1, 9999]` and cannot increase after creation.
-21. Only CONTROLLED Experiments can produce comparison evidence.
-22. Comparison covers the complete expected symbol × strategy matrix with no missing/duplicate/extra cell.
-23. Comparison reuses existing paired-return/statistical primitives.
-24. ExperimentDecision is immutable and bound to verification + comparison identities.
-25. Decisions are limited to ACCEPT_CANDIDATE / KEEP_BASELINE / INCONCLUSIVE.
-26. Only the initial baseline or ACCEPT_CANDIDATE lineage can serve as future baseline.
-27. Rejected/inconclusive/invalid candidates cannot be selected through winner lineage.
-28. Study freeze validates all terminal attempts, Run evidence, provenance, lineage, and references before publication.
-29. WINNER requires a valid accepted Run + existing strategy; NO_WINNER forbids them.
-30. Freeze makes the Study terminal against further mutation.
-31. Existing candidate runner computation semantics and existing evaluation package APIs remain compatible.
-32. No final-unused-data or final stress execution is introduced.
-33. Current architecture/research docs are updated if the implemented evidence/public boundary changes them.
-34. Targeted tests, full tests, Ruff, format, Mypy, package identity, and exact-head CI pass.
-35. Final diff contains no temporary migration/debug workflow or generated output.
-36. Independent/falsification review finds no unresolved Critical or High contract violation.
+1. `trade_rl.evaluation.experiments` is a distinct boundary.
+2. It cannot depend on sealed final-test authorization.
+3. StudyPlan identity/publication is deterministic and immutable.
+4. Study creation pre-resolves and freezes the initial baseline config via shared run-config resolution.
+5. Study freezes implementation/runtime digests before baseline registration.
+6. Candidate runner emits evidence-only provenance without changing computation semantics.
+7. Run registration verifies and snapshots summary/returns/provenance into Study storage.
+8. Run fingerprint is independent of external path.
+9. Symlink/tampered/missing/malformed evidence fails closed.
+10. Existing evidence fingerprint reuse requires exact verified identity.
+11. Initial baseline evidence matches planned resolved config and fixed controls.
+12. ExperimentDefinition is immutable and binds Study/sequence/hypothesis/factor/baseline fingerprint.
+13. Exactly one semantic factor governs allowed delta.
+14. Verification uses resolved registered evidence, not requested config alone.
+15. Study-fixed controls/provenance cannot drift in CONTROLLED Experiment.
+16. Undeclared or no-op delta cannot become CONTROLLED.
+17. Unaffected-strategy drift is detected where contractually valid.
+18. Trustworthy uncontrolled attempts become terminal INVALID.
+19. INVALID attempts consume budget.
+20. Sequence is contiguous/four-digit/non-overwritable.
+21. `max_experiments` is immutable in `[1,9999]`.
+22. Only CONTROLLED Experiment can compare.
+23. Comparison has exact complete symbol×strategy matrix and reuses existing paired primitives.
+24. Decision is immutable, evidence-bound, and one of ACCEPT_CANDIDATE / KEEP_BASELINE / INCONCLUSIVE.
+25. Only initial baseline or ACCEPT lineage can serve as later baseline.
+26. Rejected/inconclusive/invalid candidates cannot enter winner lineage.
+27. Mutations are process-serialized so sequence/freeze races cannot violate append-only state.
+28. Freeze reconstructs and verifies all terminal attempts/evidence/provenance/lineage.
+29. WINNER requires accepted Run + existing non-control candidate strategy.
+30. A control cannot be labeled Study winner; control dominance yields NO_WINNER unless another candidate is independently justified.
+31. NO_WINNER forbids selected Run/strategy.
+32. Freeze prevents subsequent mutation.
+33. Existing candidate computation semantics/evaluation public APIs remain compatible.
+34. No final-unused-data or final stress execution is introduced.
+35. Current architecture/research docs are updated for implemented evidence/public-boundary changes.
+36. Targeted/full tests, Ruff, format, Mypy, package identity, exact-head CI all pass.
+37. Final diff contains no temporary/debug/generated debris.
+38. Independent/falsification review finds no unresolved Critical/High violation.
 
 ## 30. Follow-up sub-projects
 
-### 30.1 Frozen Strategy Artifact
+### Frozen Strategy Artifact
 
-The candidate runner records configuration/development evidence but does not persist the fitted Ridge/LightGBM/PPO object as the reusable trained-policy identity.
+A later design must persist the exact fitted Ridge/LightGBM/PPO winner identity before claiming the same trained policy is carried unchanged into unused-future evaluation.
 
-A later sub-project must define a safe, versioned, immutable frozen-strategy artifact before claiming that the exact fitted winner can be carried unchanged into unused-future evaluation.
+### Sealed final evaluation
 
-### 30.2 Sealed final evaluation
-
-After a Study is frozen and a frozen-strategy artifact exists, a separate design cycle may bind Study/frozen-strategy identity to the existing one-shot sealed-test authorization and pre-registered stress protocol.
-
-That subsystem is intentionally outside v1.
+After Study freeze + frozen-strategy artifact, a separate cycle may bind them to existing one-shot sealed-test authorization and pre-registered stress. This is outside v1.
 
 ## 31. Resolved design decisions
 
-The following choices are normative for v1 unless this Active spec is explicitly revised before implementation:
+Normative choices for v1:
 
-- development-only scope through Study freeze;
-- Study / Experiment / Run as separate concepts;
-- one semantic controlled factor per Experiment;
+- development-only through Study freeze;
+- Study / Experiment / Run separated;
+- one semantic factor per Experiment;
 - typed factor registry;
-- append-only immutable state artifacts;
-- Study-owned content-addressed Run evidence snapshots;
-- candidate-run `provenance.json` evidence companion;
-- full production Python source-tree digest as conservative implementation identity;
-- fixed canonical runtime-environment digest;
-- code/runtime changes require a new Study;
-- actual resolved summary delta as authority;
-- non-empty actual factor delta required;
-- raw unaffected-strategy evidence as adversarial oracle where valid;
-- INVALID attempts retained and budgeted;
-- `1 <= max_experiments <= 9999`;
-- contiguous four-digit sequence numbers;
+- Study creation pre-resolves initial baseline config;
+- append-only immutable artifacts;
+- self-contained content-addressed Run snapshots;
+- candidate-run `provenance.json`;
+- conservative full production source-tree implementation digest;
+- fixed runtime-environment digest;
+- code/runtime changes require new Study;
+- actual resolved delta authority;
+- non-empty actual factor delta;
+- unaffected-strategy adversarial oracle where valid;
+- INVALID retained/budgeted;
+- `[1,9999]` bounded attempts;
+- contiguous four-digit sequence;
+- single-writer mutation serialization;
 - accepted-baseline lineage;
-- no automatic winner selection;
 - exactly three Experiment decisions;
-- WINNER / NO_WINNER Study outcomes;
-- no final-test access from the package;
-- frozen trained-strategy serialization deferred to a separate sub-project.
+- controls are benchmarks, never Study winner;
+- WINNER / NO_WINNER outcomes;
+- no automatic winner selection;
+- no final-test access;
+- frozen trained-strategy serialization deferred.

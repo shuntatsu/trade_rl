@@ -1,10 +1,13 @@
-"""Immutable candidate-run artifact loading and semantic identity."""
+"""Immutable candidate-run publication, loading, and semantic identity."""
 
 from __future__ import annotations
 
 import io
 import json
+import shutil
+import tempfile
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -13,8 +16,11 @@ from typing import cast
 import numpy as np
 
 from trade_rl._validation import require_sha256
+from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.artifacts.verified_file import file_digest_and_size, read_verified_bytes
+from trade_rl.evaluation.metrics import PerformanceMetrics
+from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
 
 _RESULT_SCHEMA = "lean_candidate_result_v1"
@@ -23,6 +29,16 @@ _REQUIRED_FILES = frozenset({"summary.json", "returns.npz", "provenance.json"})
 
 FileEvidence = tuple[str, int]
 ArtifactFileEvidence = tuple[FileEvidence, FileEvidence, FileEvidence]
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedCandidateRun:
+    """Paths of one immutably published candidate comparison run."""
+
+    root: Path
+    summary_path: Path
+    returns_path: Path
+    provenance_path: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +64,149 @@ class CandidateRunArtifactIdentity:
     returns_file_size: int
     provenance_file_sha256: str
     provenance_file_size: int
+
+
+def _metrics_payload(metrics: PerformanceMetrics) -> dict[str, object]:
+    return {
+        "total_return": metrics.total_return,
+        "sharpe": metrics.sharpe,
+        "sortino": metrics.sortino,
+        "max_drawdown": metrics.max_drawdown,
+        "turnover_total": metrics.turnover_total,
+        "total_cost": metrics.total_cost,
+        "funding_pnl": metrics.funding_pnl,
+        "borrow_cost": metrics.borrow_cost,
+        "n_trades": metrics.n_trades,
+        "rebalance_events": metrics.rebalance_events,
+        "termination_count": metrics.termination_count,
+        "n_periods": metrics.n_periods,
+        "return_kind": metrics.return_kind.value,
+        "periods_per_year": metrics.periods_per_year,
+    }
+
+
+def _result_payload(
+    result: CandidateRunResult,
+) -> tuple[dict[str, object], dict[str, np.ndarray]]:
+    spec = result.spec
+    config = spec.config
+    lean_config = spec.lean_config
+    returns: dict[str, np.ndarray] = {}
+    symbols_payload: list[dict[str, object]] = []
+    for symbol_result in result.comparison.by_symbol:
+        strategies_payload: list[dict[str, object]] = []
+        for strategy_index, entry in enumerate(symbol_result.comparison.entries):
+            return_key = (
+                f"symbol_{symbol_result.symbol_index}_strategy_{strategy_index}"
+            )
+            returns[return_key] = np.asarray(
+                entry.replay.returns.values,
+                dtype=np.float64,
+            )
+            diagnostics = entry.replay.diagnostics
+            strategies_payload.append(
+                {
+                    "name": entry.name,
+                    "return_key": return_key,
+                    "metrics": _metrics_payload(entry.metrics),
+                    "diagnostics": {
+                        "turnover_total": diagnostics.turnover_total,
+                        "total_cost": diagnostics.total_cost,
+                        "funding_pnl": diagnostics.funding_pnl,
+                        "borrow_cost": diagnostics.borrow_cost,
+                        "n_trades": diagnostics.n_trades,
+                        "rebalance_events": diagnostics.rebalance_events,
+                        "termination_reasons": list(diagnostics.termination_reasons),
+                    },
+                    "final_portfolio_value": entry.replay.book.portfolio_value,
+                    "fill_count": entry.replay.book.fill_count,
+                }
+            )
+        symbols_payload.append(
+            {
+                "symbol_index": symbol_result.symbol_index,
+                "symbol": symbol_result.symbol,
+                "strategies": strategies_payload,
+            }
+        )
+
+    summary: dict[str, object] = {
+        "schema_version": _RESULT_SCHEMA,
+        "dataset_id": spec.dataset_id,
+        "dataset_artifact": {
+            "schema_version": spec.dataset_artifact_schema,
+            "artifact_digest": spec.dataset_artifact_digest,
+        },
+        "symbols": list(result.symbols),
+        "candidate_config": {
+            "signal_name": config.signal_name,
+            "signal_index": lean_config.signal_index,
+            "feature_names": list(config.feature_names),
+            "feature_indices": list(lean_config.feature_indices),
+            "fit_symbol_names": list(config.fit_symbol_names),
+            "fit_symbol_indices": list(lean_config.fit_symbol_indices),
+            "fit_cutoff": str(lean_config.fit_cutoff),
+            "rule_entry_threshold": lean_config.rule_entry_threshold,
+            "rule_exit_threshold": lean_config.rule_exit_threshold,
+            "forecast_entry_threshold": lean_config.forecast_entry_threshold,
+            "forecast_exit_threshold": lean_config.forecast_exit_threshold,
+            "ppo_total_timesteps": lean_config.ppo_total_timesteps,
+            "ppo_seed": lean_config.ppo_seed,
+        },
+        "evaluation": {
+            "start": str(config.evaluation_start),
+            "stop_exclusive": str(config.evaluation_stop_exclusive),
+            "gross_budget": config.gross_budget,
+            "initial_capital": config.initial_capital,
+            "execution_overlay": "zero_overlay_dataset_fields_authoritative",
+        },
+        "by_symbol": symbols_payload,
+    }
+    return summary, returns
+
+
+def _json_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        indent=2,
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def publish_candidate_run(
+    output_root: str | Path,
+    result: CandidateRunResult,
+    provenance: Mapping[str, object],
+) -> PublishedCandidateRun:
+    """Publish one exact three-file candidate artifact without overwriting."""
+
+    output = Path(output_root)
+    if output.exists():
+        raise FileExistsError(f"candidate run destination already exists: {output}")
+    provenance_payload = dict(provenance)
+    _validate_provenance(provenance_payload)
+    summary, returns = _result_payload(result)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(
+        tempfile.mkdtemp(prefix=f".{output.name}.staging-", dir=str(output.parent))
+    )
+    try:
+        atomic_write_bytes(staging / "summary.json", _json_bytes(summary))
+        buffer = io.BytesIO()
+        np.savez_compressed(buffer, **returns)
+        atomic_write_bytes(staging / "returns.npz", buffer.getvalue())
+        atomic_write_bytes(staging / "provenance.json", _json_bytes(provenance_payload))
+        staging.rename(output)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return PublishedCandidateRun(
+        root=output,
+        summary_path=output / "summary.json",
+        returns_path=output / "returns.npz",
+        provenance_path=output / "provenance.json",
+    )
 
 
 def _validate_root(root: Path) -> tuple[Path, Path, Path]:
@@ -265,6 +424,8 @@ def inspect_candidate_run_artifact(root: str | Path) -> CandidateRunArtifactIden
 __all__ = [
     "CandidateRunArtifactIdentity",
     "LoadedCandidateRun",
+    "PublishedCandidateRun",
     "inspect_candidate_run_artifact",
     "load_candidate_run_artifact",
+    "publish_candidate_run",
 ]

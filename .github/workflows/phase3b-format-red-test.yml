@@ -1,0 +1,43 @@
+name: Phase 3B format RED contract
+
+on:
+  push:
+    branches:
+      - refactor/lean-simulation-boundaries
+    paths:
+      - ".github/workflows/phase3b-format-red-test.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: refactor/lean-simulation-boundaries
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Format exact RED test
+        run: uv run ruff format tests/architecture/test_lean_simulation_layout.py
+      - name: Commit only formatter output
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/architecture/test_lean_simulation_layout.py
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Ruff produced no diff"
+          else
+            git commit -m "style: apply Ruff format to simulation RED contract"
+            git push origin HEAD:refactor/lean-simulation-boundaries
+          fi

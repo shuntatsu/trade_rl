@@ -1,40 +1,60 @@
 # Trade RL
 
-Trade RL is being rebuilt as a lean research system for evaluating independent long/short trading strategies under causal market data, realistic execution, hard risk constraints, and unused-data evaluation.
+Trade RL is a lean research system for testing one symbol-agnostic long/short strategy across multiple markets under causal data, one execution/accounting ledger, hard risk constraints, and unused-data evaluation.
 
-The current design source of truth is:
+The current design and execution contract is:
 
 - `docs/trade_rl_lean_redesign_20260908.md`
 
-## Current direction
+## Current status
 
-The repository is removing the accumulated U-series / Causal Alpha generation stack and the mandatory `teacher -> admission -> BC -> RL` pipeline.
+- M1 lean core: **complete**
+- M2 universal comparison infrastructure: **complete**
+- M2 real-data development comparison: **not run yet**
+- M3 frozen final evaluation / stress / deletion: **not started**
+- Profitability claim: **none**
+- Production/live order routing: **not authorized**
 
-The retained core is intentionally small:
+The old U-series / Causal Alpha generation stack and mandatory `teacher -> admission -> BC -> RL` route are not the current architecture.
 
-1. point-in-time market data and deterministic features
-2. one fill-based execution and accounting ledger
-3. hard safety and execution feasibility
-4. a replaceable strategy interface
-5. shared walk-forward, unseen-data, and execution-stress evaluation
+## What is compared
 
-Three strategy families will be compared on the same core:
+One shared setup compares five candidates and three controls:
 
-- simple rules
-- forecast + controller
-- teacher-free PPO
+- `trend`
+- `mean_reversion`
+- `ridge24`
+- `lightgbm24`
+- `ppo`
+- `cash`
+- `constant_long`
+- `constant_short`
 
-Unsupported families are removed instead of being kept as permanent compatibility layers.
+Ridge, LightGBM, and PPO are trained as universal models/policies without symbol identity features. The same frozen strategy is replayed independently for every symbol; per-symbol results are retained instead of being hidden by aggregate P&L.
 
-## Status
+## Run a development comparison
 
-- Research redesign: active
-- Legacy generation cleanup: in progress
-- Profitability claim: none
-- Production/live order routing: not authorized
+A canonical filesystem market dataset artifact and one JSON run config are required. Market-data artifacts are not committed to this repository.
 
-Software correctness, backtest evidence, generalization evidence, and production authorization are separate states.
+```bash
+uv run --extra forecast-gbm --extra train-sb3 \
+  python -m trade_rl.evaluation.candidate_run \
+  --dataset <dataset-artifact-dir> \
+  --config <run-config.json> \
+  --output <new-result-dir>
+```
 
-## Development principle
+The output directory is immutable and contains:
 
-Keep only mechanisms that are required to answer the research question correctly. Do not weaken causal timing, execution accounting, hard risk, or unused-data evaluation to make a strategy pass.
+```text
+summary.json
+returns.npz
+```
+
+`summary.json` records the dataset artifact identity, complete resolved candidate configuration, evaluation scope, and every symbol × strategy metric/diagnostic. `returns.npz` preserves the raw interval-return series for later paired or block-bootstrap analysis.
+
+See `docs/trade_rl_lean_redesign_20260908.md` for the exact config schema, evaluation rules, and next-step decision process.
+
+## Research rule
+
+Do not add model complexity to make a result pass. First verify causality, data quality, execution accounting, costs, symbol-level robustness, and unused-data evidence. A correct `no winner` result is preferable to an overfit winner.

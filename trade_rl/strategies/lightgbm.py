@@ -1,9 +1,11 @@
-"""Small causal Ridge forecaster for single-symbol return prediction."""
+"""Optional shallow LightGBM return forecast candidate."""
 
 from __future__ import annotations
 
+import importlib
 import math
 from dataclasses import dataclass
+from typing import Protocol, cast
 
 import numpy as np
 
@@ -16,28 +18,22 @@ from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.supervised import build_causal_forecast_training_set
 
-_SCALE_FLOOR = 1e-12
+
+class _RegressorPredictor(Protocol):
+    def predict(self, features: np.ndarray) -> np.ndarray: ...
 
 
-def _readonly_vector(value: np.ndarray, *, field: str) -> np.ndarray:
-    vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
-    if vector.size == 0 or not np.isfinite(vector).all():
-        raise ValueError(f"{field} must be a non-empty finite vector")
-    vector.setflags(write=False)
-    return vector
+class _TrainableRegressor(_RegressorPredictor, Protocol):
+    def fit(self, features: np.ndarray, labels: np.ndarray) -> object: ...
 
 
 @dataclass(frozen=True, slots=True)
-class RidgeForecastModel:
-    """Frozen standardized linear return forecast."""
+class LightGBMForecastModel:
+    """Frozen metadata around one fitted shallow LightGBM predictor."""
 
     feature_indices: tuple[int, ...]
-    feature_mean: np.ndarray
-    feature_scale: np.ndarray
-    coefficients: np.ndarray
-    intercept: float
+    predictor: _RegressorPredictor
     horizon_hours: int
-    alpha: float
     n_samples: int
     fit_cutoff: np.datetime64
 
@@ -50,36 +46,21 @@ class RidgeForecastModel:
             for index in indices
         ):
             raise ValueError("feature_indices must contain non-negative integers")
-        mean = _readonly_vector(self.feature_mean, field="feature_mean")
-        scale = _readonly_vector(self.feature_scale, field="feature_scale")
-        coefficients = _readonly_vector(self.coefficients, field="coefficients")
-        if mean.size != len(indices) or scale.size != len(indices):
-            raise ValueError("feature statistics must match feature_indices")
-        if coefficients.size != len(indices):
-            raise ValueError("coefficients must match feature_indices")
-        if np.any(scale <= 0.0):
-            raise ValueError("feature_scale must be positive")
-        if not math.isfinite(self.intercept):
-            raise ValueError("intercept must be finite")
+        if not callable(getattr(self.predictor, "predict", None)):
+            raise TypeError("predictor must provide predict")
         if (
             isinstance(self.horizon_hours, bool)
             or not isinstance(self.horizon_hours, int)
             or self.horizon_hours <= 0
         ):
             raise ValueError("horizon_hours must be a positive integer")
-        if not math.isfinite(self.alpha) or self.alpha <= 0.0:
-            raise ValueError("alpha must be finite and positive")
         if (
             isinstance(self.n_samples, bool)
             or not isinstance(self.n_samples, int)
             or self.n_samples <= 0
         ):
             raise ValueError("n_samples must be a positive integer")
-
         object.__setattr__(self, "feature_indices", indices)
-        object.__setattr__(self, "feature_mean", mean)
-        object.__setattr__(self, "feature_scale", scale)
-        object.__setattr__(self, "coefficients", coefficients)
         object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
 
     def predict(self, features: np.ndarray) -> float:
@@ -89,16 +70,21 @@ class RidgeForecastModel:
         selected = vector[list(self.feature_indices)]
         if not np.isfinite(selected).all():
             raise ValueError("forecast features must be finite")
-        standardized = (selected - self.feature_mean) / self.feature_scale
-        return float(self.intercept + standardized @ self.coefficients)
+        prediction = np.asarray(
+            self.predictor.predict(selected.reshape(1, -1)),
+            dtype=np.float64,
+        ).reshape(-1)
+        if prediction.size != 1 or not np.isfinite(prediction[0]):
+            raise ValueError("predictor must return one finite forecast")
+        return float(prediction[0])
 
 
-class RidgeForecastStrategy:
-    """Apply one frozen Ridge forecast through the shared intent controller."""
+class LightGBMForecastStrategy:
+    """Apply one fitted shallow LightGBM model through the shared controller."""
 
     def __init__(
         self,
-        model: RidgeForecastModel,
+        model: LightGBMForecastModel,
         *,
         entry_threshold: float,
         exit_threshold: float,
@@ -124,47 +110,67 @@ class RidgeForecastStrategy:
         return self.controller.decide(forecast, current=observation.current_intent)
 
 
-def fit_ridge_forecast(
+def _lightgbm_regressor_class() -> type[object]:
+    try:
+        module = importlib.import_module("lightgbm")
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "LightGBM fitting requires the optional 'forecast-gbm' dependency"
+        ) from exc
+    regressor_class = getattr(module, "LGBMRegressor", None)
+    if regressor_class is None or not callable(regressor_class):
+        raise RuntimeError("lightgbm.LGBMRegressor is unavailable")
+    return cast(type[object], regressor_class)
+
+
+def fit_lightgbm_forecast(
     dataset: MarketDataset,
     *,
     feature_indices: tuple[int, ...],
     fit_cutoff: np.datetime64,
     horizon_hours: int = 24,
-    alpha: float = 1.0,
-) -> RidgeForecastModel:
-    """Fit Ridge on the shared strict-cutoff causal forecast rows."""
+    random_state: int = 0,
+) -> LightGBMForecastModel:
+    """Fit one fixed shallow LightGBM configuration on shared causal rows."""
 
-    if not math.isfinite(alpha) or alpha <= 0.0:
-        raise ValueError("alpha must be finite and positive")
+    if isinstance(random_state, bool) or not isinstance(random_state, int):
+        raise ValueError("random_state must be an integer")
     training = build_causal_forecast_training_set(
         dataset,
         feature_indices=feature_indices,
         fit_cutoff=fit_cutoff,
         horizon_hours=horizon_hours,
     )
-    x = training.features
-    y = training.labels
-    feature_mean = x.mean(axis=0)
-    raw_scale = x.std(axis=0)
-    feature_scale = np.where(raw_scale > _SCALE_FLOOR, raw_scale, 1.0)
-    standardized = (x - feature_mean) / feature_scale
-    intercept = float(y.mean())
-    centered_y = y - intercept
-    gram = standardized.T @ standardized
-    regularized = gram + alpha * np.eye(len(training.feature_indices), dtype=np.float64)
-    coefficients = np.linalg.solve(regularized, standardized.T @ centered_y)
-
-    return RidgeForecastModel(
+    regressor_class = _lightgbm_regressor_class()
+    predictor = cast(
+        _TrainableRegressor,
+        regressor_class(
+            objective="regression",
+            n_estimators=64,
+            learning_rate=0.05,
+            num_leaves=7,
+            max_depth=3,
+            min_child_samples=20,
+            subsample=1.0,
+            colsample_bytree=1.0,
+            reg_lambda=1.0,
+            random_state=random_state,
+            n_jobs=1,
+            verbosity=-1,
+        ),
+    )
+    predictor.fit(training.features, training.labels)
+    return LightGBMForecastModel(
         feature_indices=training.feature_indices,
-        feature_mean=feature_mean,
-        feature_scale=feature_scale,
-        coefficients=coefficients,
-        intercept=intercept,
+        predictor=predictor,
         horizon_hours=horizon_hours,
-        alpha=alpha,
         n_samples=training.n_samples,
         fit_cutoff=training.fit_cutoff,
     )
 
 
-__all__ = ["RidgeForecastModel", "RidgeForecastStrategy", "fit_ridge_forecast"]
+__all__ = [
+    "LightGBMForecastModel",
+    "LightGBMForecastStrategy",
+    "fit_lightgbm_forecast",
+]

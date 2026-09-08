@@ -1,3 +1,5 @@
+"""Current documentation layout, routing, retention, and compliance contract."""
+
 from __future__ import annotations
 
 import hashlib

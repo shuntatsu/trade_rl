@@ -125,7 +125,9 @@ class StudyStore:
         target = self._checked_target(relative)
         self._mkdir_checked_parents(target)
         if target.exists() or target.is_symlink():
-            raise InvalidExperimentStateError(f"Study artifact already exists: {relative}")
+            raise InvalidExperimentStateError(
+                f"Study artifact already exists: {relative}"
+            )
 
         staging = target.with_name(f".{target.name}.staging-{uuid.uuid4().hex}")
         try:
@@ -167,7 +169,9 @@ class StudyStore:
         target = self._checked_target(relative)
         self._mkdir_checked_parents(target)
         if target.exists() or target.is_symlink():
-            raise InvalidExperimentStateError(f"Study artifact already exists: {relative}")
+            raise InvalidExperimentStateError(
+                f"Study artifact already exists: {relative}"
+            )
 
         staging = target.with_name(f".{target.name}.staging-{uuid.uuid4().hex}")
         staging.mkdir()

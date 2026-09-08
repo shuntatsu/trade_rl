@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+import pytest
 
 import trade_rl.evaluation as evaluation
 from trade_rl.data.market import MarketDataset
@@ -46,6 +47,43 @@ def _rising_market() -> MarketDataset:
         funding_rate=np.zeros((n_bars, 1)),
         tradable=np.ones((n_bars, 1), dtype=np.bool_),
         feature_available=np.ones((n_bars, 1, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+
+
+def _two_symbol_market() -> MarketDataset:
+    close = np.asarray(
+        [
+            [100.0, 200.0],
+            [100.0, 200.0],
+            [110.0, 190.0],
+            [120.0, 180.0],
+            [130.0, 170.0],
+            [140.0, 160.0],
+        ]
+    )
+    open_price = np.vstack((close[0], close[:-1]))
+    n_bars = close.shape[0]
+    features = np.zeros((n_bars, 2, 1), dtype=np.float32)
+    features[:, 0, 0] = np.arange(n_bars)
+    features[:, 1, 0] = -np.arange(n_bars)
+    return MarketDataset(
+        dataset_id="b" * 64,
+        symbols=("BTCUSDT", "ETHUSDT"),
+        timestamps=np.datetime64("2026-01-01T00:00:00", "ns")
+        + np.arange(n_bars) * np.timedelta64(1, "h"),
+        features=features,
+        global_features=np.zeros((n_bars, 1), dtype=np.float32),
+        open=open_price,
+        high=np.maximum(open_price, close),
+        low=np.minimum(open_price, close),
+        close=close,
+        volume=np.full((n_bars, 2), 1_000_000.0),
+        funding_rate=np.zeros((n_bars, 2)),
+        tradable=np.ones((n_bars, 2), dtype=np.bool_),
+        feature_available=np.ones((n_bars, 2, 1), dtype=np.bool_),
         feature_names=("signal",),
         global_feature_names=("regime",),
         periods_per_year=8_760,
@@ -99,3 +137,35 @@ def test_adverse_short_drift_is_hard_deleveraged_instead_of_crashing() -> None:
     assert all(
         abs(decision.target_weight) <= 1.0 + 1e-10 for decision in result.decisions
     )
+
+
+def test_pooled_dataset_replays_only_selected_symbol() -> None:
+    strategy = AlwaysLong()
+    result = evaluation.run_single_symbol_replay(
+        _two_symbol_market(),
+        strategy,
+        symbol_index=1,
+        start_index=0,
+        stop_index=5,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+    )
+
+    np.testing.assert_array_equal(result.book.quantities[[0]], np.zeros(1))
+    assert result.book.quantities[1] == pytest.approx(2.5)
+    assert result.book.portfolio_value == pytest.approx(900.0)
+    first_observation = strategy.observations[0]
+    assert getattr(first_observation, "symbol") == "ETHUSDT"
+    assert getattr(first_observation, "features")[0] == 0.0
+
+
+def test_replay_rejects_invalid_symbol_index() -> None:
+    with pytest.raises(ValueError, match="symbol_index"):
+        evaluation.run_single_symbol_replay(
+            _two_symbol_market(),
+            AlwaysLong(),
+            symbol_index=2,
+            start_index=0,
+            stop_index=5,
+            gross_budget=0.5,
+        )

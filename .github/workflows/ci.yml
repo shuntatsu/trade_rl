@@ -43,6 +43,11 @@ jobs:
           tests/data tests/risk tests/simulation tests/evaluation
           tests/strategies tests/integrations
 
+      - name: Format diff
+        run: >-
+          uv run ruff format --diff
+          trade_rl/evaluation/replay.py
+
       - name: Format
         run: >-
           uv run ruff format --check

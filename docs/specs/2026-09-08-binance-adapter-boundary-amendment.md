@@ -25,9 +25,9 @@ trade_rl/integrations/binance/
 
 ## Ownership
 
-- `types.py`: shared enums and adapter errors only; no network/filesystem IO.
+- `types.py`: shared enums, adapter errors, and dependency-neutral coercion/validation helpers required by multiple Binance submodules; no network/filesystem IO and no import of another Binance submodule.
 - `vision.py`: Binance Vision URL planning and archive/CSV parsing.
-- `cache.py`: Vision cache pathing, digest/evidence validation, cache planning/inspection/synchronization.
+- `cache.py`: cache paths/evidence validation, and cache planning/inspection/synchronization.
 - `metadata.py`: exchange-info snapshot value objects, instrument metadata parsing/contract conversion, and frozen exchange-info transport wrapper through a local protocol.
 - `transport.py`: bounded public HTTP/REST/Vision transport, retry behavior, REST query construction, and source retrieval orchestration.
 - `dataset.py`: kline/funding conversion into market series, `BinanceMarketDataSource`, feature preset construction, and final `MarketDataset` assembly.

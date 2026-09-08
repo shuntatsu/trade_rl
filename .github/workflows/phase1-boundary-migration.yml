@@ -1,0 +1,69 @@
+name: Phase 1 Boundary Migration
+
+on:
+  push:
+    branches:
+      - refactor/lean-package-boundaries-foundation
+
+permissions:
+  contents: write
+
+concurrency:
+  group: phase1-boundary-migration
+  cancel-in-progress: true
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Apply deterministic migration
+        run: python scripts/phase1_migrate_boundaries.py
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Ruff
+        run: uv run ruff check trade_rl tests
+
+      - name: Format
+        run: uv run ruff format --check trade_rl tests
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Tests
+        run: uv run pytest -q tests
+
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+      - name: Commit verified migration
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "refactor: establish lean boundary foundation"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

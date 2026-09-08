@@ -23,7 +23,9 @@ def _doc_files() -> set[str]:
     return result
 
 
-def test_docs_tree_contains_current_authorities_and_only_active_ephemeral_docs() -> None:
+def test_docs_tree_contains_current_authorities_and_only_active_ephemeral_docs() -> (
+    None
+):
     files = _doc_files()
     assert REQUIRED_DOC_FILES <= files
 
@@ -36,6 +38,11 @@ def test_docs_tree_contains_current_authorities_and_only_active_ephemeral_docs()
 
     assert not (DOCS / "history").exists()
     assert not (DOCS / "archive").exists()
+
+
+def test_phase4b_preview_workflow_is_absent() -> None:
+    path = ROOT / ".github" / "workflows" / "phase4b-format-preview.yml"
+    assert not path.exists()
 
 
 def test_root_agent_entry_routes_to_docs_contract() -> None:

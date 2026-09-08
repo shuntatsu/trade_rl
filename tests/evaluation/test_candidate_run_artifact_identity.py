@@ -42,7 +42,10 @@ def _summary() -> dict[str, object]:
 def _provenance() -> dict[str, object]:
     return {
         "schema_version": "candidate_run_provenance_v1",
-        "implementation": {"schema_version": "candidate_run_implementation_v1", "files": []},
+        "implementation": {
+            "schema_version": "candidate_run_implementation_v1",
+            "files": [],
+        },
         "implementation_digest": "a" * 64,
         "runtime_environment": {"schema_version": "candidate_run_runtime_v1"},
         "runtime_environment_digest": "c" * 64,
@@ -68,7 +71,9 @@ def _write_root(
     writer(root / "returns.npz", symbol_0_strategy_0=value)
 
 
-def test_candidate_artifact_semantic_digest_survives_npz_repacking(tmp_path: Path) -> None:
+def test_candidate_artifact_semantic_digest_survives_npz_repacking(
+    tmp_path: Path,
+) -> None:
     first_root = tmp_path / "first"
     second_root = tmp_path / "second"
     _write_root(first_root, compressed=True)
@@ -85,12 +90,16 @@ def test_candidate_artifact_semantic_digest_survives_npz_repacking(tmp_path: Pat
 
 
 @pytest.mark.parametrize("extra_name", ["extra.json", "notes.txt"])
-def test_candidate_artifact_rejects_extra_files(tmp_path: Path, extra_name: str) -> None:
+def test_candidate_artifact_rejects_extra_files(
+    tmp_path: Path, extra_name: str
+) -> None:
     root = tmp_path / "artifact"
     _write_root(root, compressed=True)
     (root / extra_name).write_text("extra", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="exactly summary.json, returns.npz, provenance.json"):
+    with pytest.raises(
+        ValueError, match="exactly summary.json, returns.npz, provenance.json"
+    ):
         inspect_candidate_run_artifact(root)
 
 
@@ -99,7 +108,9 @@ def test_candidate_artifact_rejects_missing_provenance(tmp_path: Path) -> None:
     _write_root(root, compressed=True)
     (root / "provenance.json").unlink()
 
-    with pytest.raises(ValueError, match="exactly summary.json, returns.npz, provenance.json"):
+    with pytest.raises(
+        ValueError, match="exactly summary.json, returns.npz, provenance.json"
+    ):
         inspect_candidate_run_artifact(root)
 
 
@@ -124,7 +135,9 @@ def test_candidate_artifact_rejects_invalid_return_arrays(
         inspect_candidate_run_artifact(root)
 
 
-def test_candidate_artifact_rejects_object_array_without_pickle_loading(tmp_path: Path) -> None:
+def test_candidate_artifact_rejects_object_array_without_pickle_loading(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "artifact"
     _write_root(root, compressed=True, array=np.asarray([object()], dtype=object))
 

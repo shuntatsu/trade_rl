@@ -1,0 +1,35 @@
+name: Apply CEL spec self-review amendments
+
+on:
+  push:
+    branches: [design/controlled-experiment-loop-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  amend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: design/controlled-experiment-loop-v1
+      - name: Append normative self-review amendments and remove helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('docs/specs/2026-09-09-controlled-experiment-loop-v1-design.md')
+          text = path.read_text(encoding='utf-8')
+          marker = '## 40. Self-review amendments (normative)'
+          if marker not in text:
+              text += '''\n\n## 40. Self-review amendments (normative)\n\nThe following decisions close ambiguities found in the pre-plan self-review. They are normative and override any earlier wording that could be read differently.\n\n### 40.1 Candidate artifact exact file contract\n\nA published Candidate Run root contains exactly `summary.json`, `returns.npz`, and `provenance.json`. Each must be a non-symlink regular file. Inspection rejects missing, extra, symlink, non-regular, malformed, pickle/object, non-1-D, or non-finite evidence. `CandidateRunArtifactIdentity` records raw SHA-256 **and byte size** for all three files in addition to the semantic artifact digest.\n\n### 40.2 Analysis policy is Study-fixed\n\n`StudyPlan` includes immutable `n_bootstrap` and `bootstrap_seed`. `n_bootstrap` is a positive integer and `bootstrap_seed` is a non-negative integer. v1 intentionally uses the existing deterministic automatic block-size rule from `moving_block_mean_test`; CEL does not add a second block-size policy or change existing comparison primitive defaults. The effective block size returned by existing primitives is stored in evidence.\n\n### 40.3 PPO Experiment factor-effect comparison is seed-matched\n\nBaseline-vs-candidate Experiment comparison never selects one lucky PPO seed. For PPO, CEL compares baseline and candidate **for every identical pre-registered seed** using `compare_paired_returns()` on the same symbol and same seed. The comparison artifact stores all seed-wise paired results plus descriptive `positive_seed_count`, `negative_seed_count`, `median_excess_total_return`, and `worst_excess_total_return`. It does not combine seed p-values into a new significance test. Deterministic strategies are compared once after the EvidenceSet seed-invariance oracle proves their returns are identical across seeds.\n\n### 40.4 Within-suite PPO evidence\n\nWithin an EvidenceSet, no primary PPO seed is used as winner evidence. PPO-vs-deterministic evidence is `SeedRobustnessSummary` against each deterministic baseline. Deterministic candidate-vs-control and deterministic candidate-vs-candidate evidence continues to use direct paired comparison.\n\n### 40.5 Study-owned execution only in v1\n\nExternal Run import/registration is not part of v1. `run_baseline()` and `run_experiment()` always create Study-owned Candidate Run artifacts through PR1 Run Core. A later external-evidence import feature requires a separate design/security review.\n\n### 40.6 Recovery and idempotency\n\nResearch artifacts remain append-only. A mutation may be retried only when its final target artifact/directory was never published; stale staging directories from a failed attempt are cleaned under the Study mutation lock before retry. If the final target already exists, the operation does not overwrite it and instead validates state/integrity or raises the appropriate state/integrity error.\n\n### 40.7 PR scope boundary\n\nPR1 contains only Run Core refactor/provenance/artifact identity plus directly required docs/tests. `evaluation/experiments` is still absent in PR1. PR2 introduces `evaluation/experiments` and may make only backward-compatible lower comparison helper changes if independently required by the approved CEL contract.\n'''
+              path.write_text(text, encoding='utf-8')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/cel-spec-self-review-amend.yml
+          git add docs/specs/2026-09-09-controlled-experiment-loop-v1-design.md
+          git commit -m "docs: apply CEL design self-review" || true
+          git push origin HEAD:design/controlled-experiment-loop-v1

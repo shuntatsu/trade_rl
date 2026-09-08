@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+import trade_rl.strategies.ridge as ridge_module
 from trade_rl.data.market import MarketDataset
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
@@ -10,6 +11,7 @@ from trade_rl.strategies.ridge import (
     RidgeForecastStrategy,
     fit_ridge_forecast,
 )
+from trade_rl.strategies.supervised import CausalForecastTrainingSet
 
 
 def market(*, terminal_multiplier: float = 1.0) -> MarketDataset:
@@ -62,6 +64,41 @@ def test_fit_cutoff_excludes_labels_ending_at_or_after_cutoff() -> None:
     np.testing.assert_allclose(baseline.feature_mean, mutated_future.feature_mean)
     np.testing.assert_allclose(baseline.feature_scale, mutated_future.feature_scale)
     assert baseline.intercept == mutated_future.intercept
+
+
+def test_fit_uses_training_sample_weights(monkeypatch) -> None:
+    cutoff = np.datetime64("2026-01-01T08:00:00", "ns")
+    training = CausalForecastTrainingSet(
+        feature_indices=(0,),
+        features=np.zeros((3, 1), dtype=np.float64),
+        labels=np.asarray([0.0, 0.0, 1.0], dtype=np.float64),
+        label_end_times=np.asarray(
+            [
+                np.datetime64("2026-01-01T01:00:00", "ns"),
+                np.datetime64("2026-01-01T02:00:00", "ns"),
+                np.datetime64("2026-01-01T03:00:00", "ns"),
+            ]
+        ),
+        sample_weights=np.asarray([0.5, 0.5, 2.0], dtype=np.float64),
+        fit_cutoff=cutoff,
+        horizon_hours=2,
+    )
+    monkeypatch.setattr(
+        ridge_module,
+        "build_causal_forecast_training_set",
+        lambda *args, **kwargs: training,
+    )
+
+    model = fit_ridge_forecast(
+        market(),
+        feature_indices=(0,),
+        fit_cutoff=cutoff,
+        horizon_hours=2,
+        alpha=1.0,
+    )
+
+    assert model.intercept == 2.0 / 3.0
+    np.testing.assert_array_equal(model.coefficients, np.zeros(1))
 
 
 def test_fitted_scaler_and_model_arrays_are_read_only() -> None:

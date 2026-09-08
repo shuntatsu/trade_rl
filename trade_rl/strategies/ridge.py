@@ -8,7 +8,10 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.strategies.forecast import ForecastIntentConfig, ForecastIntentController
+from trade_rl.strategies.forecast import (
+    ForecastIntentConfig,
+    ForecastIntentController,
+)
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 
@@ -162,7 +165,11 @@ def fit_ridge_forecast(
     cutoff = np.datetime64(fit_cutoff, "ns")
     cutoff_ns = int(cutoff.astype(np.int64))
     timestamps_ns = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
-    horizon_ns = int(np.timedelta64(horizon_hours, "h").astype("timedelta64[ns]").astype(np.int64))
+    horizon_ns = int(
+        np.timedelta64(horizon_hours, "h")
+        .astype("timedelta64[ns]")
+        .astype(np.int64)
+    )
     time_to_index = {int(value): index for index, value in enumerate(timestamps_ns)}
     close = np.asarray(dataset.close[:, 0], dtype=np.float64)
     feature_available = np.asarray(dataset.feature_available[:, 0], dtype=np.bool_)

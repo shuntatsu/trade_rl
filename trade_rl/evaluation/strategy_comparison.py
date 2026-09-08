@@ -11,6 +11,7 @@ from trade_rl.evaluation.replay import (
     SingleSymbolReplayResult,
     run_single_symbol_replay,
 )
+from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.interface import SingleSymbolStrategy
 
@@ -40,6 +41,7 @@ def compare_strategies(
     gross_budget: float,
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
+    risk: PreTradeRisk | None = None,
 ) -> StrategyComparison:
     """Evaluate named strategies with identical replay and metric semantics."""
 
@@ -58,6 +60,7 @@ def compare_strategies(
             gross_budget=gross_budget,
             initial_capital=initial_capital,
             execution_cost=execution_cost,
+            risk=risk,
         )
         diagnostics = replay.diagnostics
         metrics = evaluate_performance(

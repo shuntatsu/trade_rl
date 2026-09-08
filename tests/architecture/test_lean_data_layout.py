@@ -22,6 +22,12 @@ def test_data_lifecycle_packages_exist() -> None:
         assert (DATA / relative).is_file(), relative
 
 
+def test_source_build_package_is_explicitly_unignored() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "!trade_rl/data/build/" in gitignore
+    assert "!trade_rl/data/build/*.py" in gitignore
+
+
 def test_flat_legacy_data_modules_are_absent() -> None:
     for name in (
         "artifact.py",

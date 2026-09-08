@@ -154,7 +154,9 @@ class PPOTradingEnv(gym.Env):
             or not isinstance(stop_index, int)
             or not 0 <= start_index < stop_index < dataset.n_bars
         ):
-            raise ValueError("environment range must satisfy 0 <= start < stop < n_bars")
+            raise ValueError(
+                "environment range must satisfy 0 <= start < stop < n_bars"
+            )
         if not math.isfinite(initial_capital) or initial_capital <= 0.0:
             raise ValueError("initial_capital must be finite and positive")
         target_weight_for_intent(PositionIntent.LONG, gross_budget=gross_budget)

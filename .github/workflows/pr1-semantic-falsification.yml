@@ -28,6 +28,7 @@ jobs:
           from __future__ import annotations
 
           import subprocess
+          import sys
           import types
           import numpy as np
 
@@ -66,7 +67,7 @@ jobs:
               text=True,
           )
           legacy = types.ModuleType("legacy_candidate")
-          legacy.__dict__["__name__"] = "legacy_candidate"
+          sys.modules["legacy_candidate"] = legacy
           exec(compile(source, "legacy_candidate.py", "exec"), legacy.__dict__)
           old_summary, old_returns = legacy._comparison_payload(
               dataset,

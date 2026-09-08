@@ -1,0 +1,47 @@
+name: Apply CEL plan self-review amendments
+
+on:
+  push:
+    branches: [design/controlled-experiment-loop-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  amend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: design/controlled-experiment-loop-v1
+      - name: Apply plan corrections and remove helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('docs/plans/2026-09-09-controlled-experiment-loop-v1.md')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'Require `experiments/__init__.py`, `errors.py`, `contracts/{__init__,study,experiment,decision}.py`, `store.py`, `evidence.py`, `delta.py`, `analysis.py`, `workflow.py`. Replace PR1\'s `assert not (PACKAGE / "experiments").exists()` with required layout.\n\nAdd AST dependency assertion that any module below `trade_rl.evaluation.experiments` importing the sealed-test authorization module/path is an offender.',
+              'For Task 1, require only `experiments/__init__.py`, `errors.py`, and `contracts/{__init__,study,experiment,decision}.py`; later tasks extend the required-layout tuple as each permanent owner is implemented, and Task 7 requires the complete final package. Replace PR1\'s `assert not (PACKAGE / "experiments").exists()` with this incremental contract.\n\nAdd AST dependency assertion that any module below `trade_rl.evaluation.experiments` importing the sealed-test authorization module/path is an offender.'
+          )
+          text = text.replace(
+              'The execution seam calls PR1 Run Core functions; tests monkeypatch `execute_candidate_run` only, not the evidence/digest/publication logic.\n\n- [ ] **Step 1: Study pre-resolution RED**\n\nCreate a test that patches/records PR1 `resolve_candidate_run_spec` and proves Study creation uses it for the initial baseline rather than duplicating name/timestamp resolution.\n\n- [ ] **Step 2: Multi-seed RED**',
+              'The execution seam calls PR1 Run Core functions; tests monkeypatch `execute_candidate_run` only, not the evidence/digest/publication logic. Evidence loading is explicit:\n\n```python\n@dataclass(frozen=True, slots=True)\nclass LoadedEvidenceSet:\n    evidence: EvidenceSet\n    resolved_config: dict[str, object]\n    runs: Mapping[int, LoadedCandidateRun]\n    analysis: dict[str, object]\n\ndef load_evidence_set(root: str | Path) -> LoadedEvidenceSet: ...\n```\n\n- [ ] **Step 1: Shared Run Core resolution RED**\n\nPatch/record PR1 `resolve_candidate_run_spec` inside EvidenceSet generation and prove every seed is resolved through the shared Run Core; CEL must not resolve feature/symbol/timestamps independently. Study creation pre-resolution is tested in Task 6 where `create_study()` exists.\n\n- [ ] **Step 2: Multi-seed RED**'
+          )
+          text = text.replace(
+              '    baseline: EvidenceSetView,\n    candidate: EvidenceSetView,',
+              '    baseline: LoadedEvidenceSet,\n    candidate: LoadedEvidenceSet,'
+          )
+          marker = '## Plan self-review result'
+          if marker not in text:
+              text += '''\n\n## Plan self-review result\n\n- Spec coverage: every PR2 acceptance criterion maps to Tasks 1-7; Study creation pre-resolution is explicitly owned by Task 6 and multi-seed per-run resolution by Task 3.\n- Placeholder scan: no TBD/TODO/"implement later" step remains.\n- Type consistency: delta/workflow consume the `LoadedEvidenceSet` produced by Task 3; no undefined `EvidenceSetView` remains.\n- Incremental architecture testing: each task can return its targeted layer to Green; Task 7 alone requires the complete final `evaluation/experiments` layout.\n'''
+          path.write_text(text, encoding='utf-8')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/cel-plan-self-review-amend.yml
+          git add docs/plans/2026-09-09-controlled-experiment-loop-v1.md
+          git commit -m "docs: self-review CEL implementation plan" || true
+          git push origin HEAD:design/controlled-experiment-loop-v1

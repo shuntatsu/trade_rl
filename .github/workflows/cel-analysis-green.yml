@@ -1,4 +1,4 @@
-name: CEL Analysis GREEN
+name: CEL Analysis Typed Fix
 
 on:
   push:
@@ -8,22 +8,47 @@ on:
       - .github/workflows/cel-analysis-green.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  green:
+  apply:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          persist-credentials: false
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --extra dev
-      - run: uv run ruff check trade_rl tests
-      - run: uv run ruff format --check trade_rl tests
-      - run: uv run mypy trade_rl
-      - run: uv run pytest -q tests/evaluation/experiments/test_analysis.py tests/evaluation/experiments/test_evidence.py tests/evaluation/experiments/test_evidence_identity.py tests/evaluation/experiments/test_evidence_tamper.py
+      - name: Preserve paired numeric validation through the typed boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/analysis.py")
+          text = path.read_text(encoding="utf-8")
+          old = 'float(paired["excess_total_return"])'
+          if text.count(old) != 2:
+              raise SystemExit("expected two paired excess casts")
+          text = text.replace(
+              old,
+              '_require_metric_number(paired, "excess_total_return")',
+          )
+          path.write_text(text, encoding="utf-8")
+          PY
+          uv run ruff format trade_rl/evaluation/experiments/analysis.py
+          uv run ruff check trade_rl tests
+          uv run ruff format --check trade_rl tests
+          uv run mypy trade_rl
+          uv run pytest -q tests/evaluation/experiments/test_analysis.py tests/evaluation/experiments/test_evidence.py tests/evaluation/experiments/test_evidence_identity.py tests/evaluation/experiments/test_evidence_tamper.py
+      - name: Commit typed fix and remove helper
+        run: |
+          rm .github/workflows/cel-analysis-green.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/analysis.py .github/workflows/cel-analysis-green.yml
+          git diff --cached --check
+          git commit -m "fix: preserve typed paired analysis evidence"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

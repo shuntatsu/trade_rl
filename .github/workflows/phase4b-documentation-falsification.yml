@@ -1,0 +1,163 @@
+name: Phase 4B documentation falsification
+
+on:
+  push:
+    branches:
+      - docs/lean-current-documentation-routing
+    paths:
+      - ".github/workflows/phase4b-documentation-falsification.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch exact Phase 4A logical base
+        run: git fetch --no-tags --depth=1 origin 21efa93ddc6073fbd31c7000461801a699797254
+
+      - name: Reject production and compliance drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=21efa93ddc6073fbd31c7000461801a699797254
+          git diff --exit-code "$base" -- trade_rl pyproject.toml uv.lock .github/workflows/ci.yml
+          git diff --exit-code "$base" -- LICENSE LICENSES
+          changed_production="$(git diff --name-only "$base" -- trade_rl)"
+          test -z "$changed_production"
+          echo "Production code diff: 0 files"
+          echo "Compliance diff: 0 files"
+
+      - name: Falsify durable-content preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import re
+          import subprocess
+          from pathlib import Path
+
+          BASE = "21efa93ddc6073fbd31c7000461801a699797254"
+          ROOT = Path.cwd()
+          CURRENT = (
+              ROOT / "README.md",
+              ROOT / "AGENTS.md",
+              ROOT / "docs" / "README.md",
+              ROOT / "docs" / "AGENTS.md",
+              ROOT / "docs" / "architecture" / "lean-core.md",
+              ROOT / "docs" / "architecture" / "package-boundaries.md",
+              ROOT / "docs" / "research" / "current-status.md",
+          )
+          combined = "\n".join(path.read_text(encoding="utf-8") for path in CURRENT)
+
+          old_redesign = subprocess.check_output(
+              ["git", "show", f"{BASE}:docs/trade_rl_lean_redesign_20260908.md"],
+              text=True,
+          )
+          old_spec = subprocess.check_output(
+              ["git", "show", f"{BASE}:docs/specs/2026-09-08-lean-package-boundaries-design.md"],
+              text=True,
+          )
+          assert len(old_redesign) > 10000
+          assert len(old_spec) > 20000
+
+          required_contracts = {
+              "strategy intents": ("SHORT", "FLAT", "LONG", "quantity hold"),
+              "causality": (
+                  "feature_available_time <= decision_time",
+                  "label_end_time < fit_cutoff",
+              ),
+              "accounting authority": ("MarketExecutor", "BookState", "single execution/accounting authority"),
+              "fit/evaluation separation": ("fit_symbol_names", "evaluation scope", "independently"),
+              "candidate set": (
+                  "`trend`",
+                  "`mean_reversion`",
+                  "`ridge24`",
+                  "`lightgbm24`",
+                  "`ppo`",
+                  "`cash`",
+                  "`constant_long`",
+                  "`constant_short`",
+              ),
+              "evidence outputs": ("summary.json", "returns.npz", "immutable"),
+              "research state": (
+                  "M1 lean core: **complete**",
+                  "M2 comparison infrastructure: **complete**",
+                  "M2 real-data development comparison: **not run yet**",
+                  "M3 frozen final evaluation / stress / deletion: **not started**",
+                  "Profitability claim: **none**",
+                  "Production/live order routing: **not authorized**",
+              ),
+              "decision discipline": ("no winner", "per-symbol", "unused-data"),
+              "package ownership": (
+                  "data/artifacts/",
+                  "data/build/",
+                  "data/features/",
+                  "integrations/binance/",
+                  "strategies/rules/",
+                  "strategies/forecasts/",
+                  "strategies/rl/",
+                  "simulation/orders/",
+                  "simulation/stateful/",
+                  "simulation/targets/",
+                  "simulation/diagnostics/",
+                  "evaluation/gates/",
+                  "evaluation/comparison/",
+                  "evaluation/robustness/",
+                  "evaluation/runs/",
+              ),
+              "documentation lifecycle": ("docs/specs/", "docs/plans/", "Git history", "docs/history/", "docs/archive/"),
+          }
+          missing: list[tuple[str, str]] = []
+          for group, tokens in required_contracts.items():
+              for token in tokens:
+                  if token.lower() not in combined.lower():
+                      missing.append((group, token))
+          assert missing == [], missing
+
+          # Guard against current-state inflation or accidental reintroduction of transient/history authority.
+          assert "real-data development comparison: **complete**" not in combined
+          assert "Profitability claim: **proven**" not in combined
+          assert "Production/live order routing: **authorized**" not in combined
+          assert re.search(r"\b(?:PR|pull request)\s*#\d+\b", combined, re.IGNORECASE) is None
+          assert re.search(r"\b[0-9a-f]{40}\b", combined) is None
+
+          docs_root = ROOT / "docs"
+          observed = sorted(str(path.relative_to(docs_root)) for path in docs_root.rglob("*.md"))
+          expected = sorted(
+              [
+                  "AGENTS.md",
+                  "README.md",
+                  "architecture/lean-core.md",
+                  "architecture/package-boundaries.md",
+                  "research/current-status.md",
+              ]
+          )
+          assert observed == expected, observed
+          assert not (docs_root / "plans").exists()
+          assert not (docs_root / "specs").exists()
+          assert not (docs_root / "history").exists()
+          assert not (docs_root / "archive").exists()
+
+          # Current docs must not route to removed chronology or a retired CLI.
+          assert "trade_rl_lean_redesign_20260908.md" not in combined
+          assert "trade_rl.evaluation.candidate_run" not in combined
+          assert "python -m trade_rl.evaluation.runs.candidate" in combined
+
+          print("Durable contract groups preserved:", len(required_contracts))
+          print("Current docs tree exact:", len(observed), "files")
+          print("No status inflation, transient PR/SHA authority, or retired CLI detected")
+          PY
+
+      - name: Re-run documentation contract
+        run: python -m pytest -q tests/architecture/test_current_documentation_contract.py

@@ -96,7 +96,9 @@ def test_simulation_root_contains_only_core_economic_owners_and_subpackages() ->
     assert observed_files == EXPECTED_ROOT_FILES
 
     observed_directories = {
-        path.name for path in SIMULATION.iterdir() if path.is_dir() and path.name != "__pycache__"
+        path.name
+        for path in SIMULATION.iterdir()
+        if path.is_dir() and path.name != "__pycache__"
     }
     assert observed_directories == set(EXPECTED_PACKAGE_FILES)
 

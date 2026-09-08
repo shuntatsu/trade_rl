@@ -1083,3 +1083,36 @@ PR2完了時、durable contractsを:
 4. PR2 exact-head verification
 5. main mergeは別途explicit authorization
 6. M3へ進む前にFrozen Strategy Artifactを別設計する
+
+
+## 40. Self-review amendments (normative)
+
+The following decisions close ambiguities found in the pre-plan self-review. They are normative and override any earlier wording that could be read differently.
+
+### 40.1 Candidate artifact exact file contract
+
+A published Candidate Run root contains exactly `summary.json`, `returns.npz`, and `provenance.json`. Each must be a non-symlink regular file. Inspection rejects missing, extra, symlink, non-regular, malformed, pickle/object, non-1-D, or non-finite evidence. `CandidateRunArtifactIdentity` records raw SHA-256 **and byte size** for all three files in addition to the semantic artifact digest.
+
+### 40.2 Analysis policy is Study-fixed
+
+`StudyPlan` includes immutable `n_bootstrap` and `bootstrap_seed`. `n_bootstrap` is a positive integer and `bootstrap_seed` is a non-negative integer. v1 intentionally uses the existing deterministic automatic block-size rule from `moving_block_mean_test`; CEL does not add a second block-size policy or change existing comparison primitive defaults. The effective block size returned by existing primitives is stored in evidence.
+
+### 40.3 PPO Experiment factor-effect comparison is seed-matched
+
+Baseline-vs-candidate Experiment comparison never selects one lucky PPO seed. For PPO, CEL compares baseline and candidate **for every identical pre-registered seed** using `compare_paired_returns()` on the same symbol and same seed. The comparison artifact stores all seed-wise paired results plus descriptive `positive_seed_count`, `negative_seed_count`, `median_excess_total_return`, and `worst_excess_total_return`. It does not combine seed p-values into a new significance test. Deterministic strategies are compared once after the EvidenceSet seed-invariance oracle proves their returns are identical across seeds.
+
+### 40.4 Within-suite PPO evidence
+
+Within an EvidenceSet, no primary PPO seed is used as winner evidence. PPO-vs-deterministic evidence is `SeedRobustnessSummary` against each deterministic baseline. Deterministic candidate-vs-control and deterministic candidate-vs-candidate evidence continues to use direct paired comparison.
+
+### 40.5 Study-owned execution only in v1
+
+External Run import/registration is not part of v1. `run_baseline()` and `run_experiment()` always create Study-owned Candidate Run artifacts through PR1 Run Core. A later external-evidence import feature requires a separate design/security review.
+
+### 40.6 Recovery and idempotency
+
+Research artifacts remain append-only. A mutation may be retried only when its final target artifact/directory was never published; stale staging directories from a failed attempt are cleaned under the Study mutation lock before retry. If the final target already exists, the operation does not overwrite it and instead validates state/integrity or raises the appropriate state/integrity error.
+
+### 40.7 PR scope boundary
+
+PR1 contains only Run Core refactor/provenance/artifact identity plus directly required docs/tests. `evaluation/experiments` is still absent in PR1. PR2 introduces `evaluation/experiments` and may make only backward-compatible lower comparison helper changes if independently required by the approved CEL contract.

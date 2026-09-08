@@ -1,0 +1,126 @@
+name: Phase 3B simulation migration
+
+on:
+  push:
+    branches:
+      - refactor/lean-simulation-boundaries
+    paths:
+      - ".github/workflows/phase3b-simulation-migrate.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: refactor/lean-simulation-boundaries
+          persist-credentials: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Baseline simulation behavior
+        run: uv run pytest -q tests/simulation
+
+      - name: Apply simulation ownership relocation
+        run: uv run python scripts/phase3b_simulation_migrate.py
+
+      - name: Normalize import ordering and formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check --fix --select I trade_rl tests
+          uv run ruff format trade_rl tests
+
+      - name: Focused simulation verification
+        run: >-
+          uv run pytest -q
+          tests/simulation
+          tests/architecture/test_lean_simulation_layout.py
+
+      - name: Economic and ordering oracles
+        run: >-
+          uv run pytest -q
+          tests/simulation/test_golden_ledger_fixtures.py
+          tests/simulation/test_independent_accounting_oracle.py
+          tests/simulation/test_orders.py
+          tests/simulation/test_order_admission.py
+          tests/simulation/test_order_admission_partial.py
+          tests/simulation/test_order_reconciliation.py
+          tests/simulation/test_stateful_active_remainder_expiry.py
+          tests/simulation/test_stateful_execution.py
+          tests/simulation/test_stateful_execution_adapter.py
+          tests/simulation/test_stateful_execution_characterization.py
+          tests/simulation/test_stateful_execution_services.py
+          tests/simulation/test_stateful_terminal_event_reason.py
+          tests/simulation/test_funding_boundary_evidence.py
+          tests/simulation/test_funding_evidence_artifact.py
+          tests/simulation/test_funding_mark_price.py
+          tests/simulation/test_target_exposure_controller.py
+
+      - name: Ruff
+        run: uv run ruff check trade_rl tests
+
+      - name: Format
+        run: uv run ruff format --check trade_rl tests
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Full tests
+        run: uv run pytest -q tests
+
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+      - name: Verify final simulation tree before commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in accounting.py bar_path.py execution.py liquidity.py; do
+            test -f "trade_rl/simulation/$path"
+          done
+          for path in \
+            orders/__init__.py orders/model.py orders/admission.py orders/reconciliation.py \
+            stateful/__init__.py stateful/runtime.py stateful/execution.py \
+            stateful/bar_lifecycle.py stateful/order_transitions.py stateful/symbol_fills.py \
+            targets/__init__.py targets/execution.py targets/exposure_controller.py \
+            diagnostics/__init__.py diagnostics/execution_stress.py diagnostics/funding.py \
+            diagnostics/runtime_performance.py diagnostics/runtime_performance_io.py; do
+            test -f "trade_rl/simulation/$path"
+          done
+          for path in \
+            orders.py order_admission.py order_reconciliation.py \
+            stateful_runtime.py stateful_execution.py stateful_bar_lifecycle.py \
+            stateful_order_transitions.py stateful_symbol_fills.py \
+            target_execution.py target_exposure_controller.py execution_stress.py \
+            funding_evidence.py runtime_performance.py runtime_performance_io.py; do
+            test ! -e "trade_rl/simulation/$path"
+          done
+          git diff --check
+
+      - name: Commit verified migration and remove one-shot helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/phase3b-simulation-migrate.yml scripts/phase3b_simulation_migrate.py
+          git add -A
+          git diff --cached --check
+          git commit -m "refactor: organize lean simulation ownership boundaries"
+          git push origin HEAD:refactor/lean-simulation-boundaries

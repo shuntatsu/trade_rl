@@ -15,6 +15,7 @@ from trade_rl.evaluation.strategy_comparison import (
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.controls import ConstantIntentStrategy
+from trade_rl.strategies.interface import SingleSymbolStrategy
 from trade_rl.strategies.lightgbm import (
     LightGBMForecastStrategy,
     fit_lightgbm_forecast,
@@ -148,7 +149,7 @@ def run_lean_candidate_suite(
         execution_cost=execution_cost,
     )
 
-    strategies = {
+    strategies: dict[str, SingleSymbolStrategy] = {
         "cash": ConstantIntentStrategy(PositionIntent.FLAT),
         "constant_long": ConstantIntentStrategy(PositionIntent.LONG),
         "constant_short": ConstantIntentStrategy(PositionIntent.SHORT),

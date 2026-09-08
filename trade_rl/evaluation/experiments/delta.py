@@ -16,9 +16,18 @@ from trade_rl.evaluation.experiments.contracts import (
     ExperimentDefinition,
     StudyPlan,
 )
-from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
+from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
 from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
+
+_STUDY_FIXED_CONFIG_PATHS = (
+    "fit_cutoff",
+    "evaluation_start",
+    "evaluation_stop_exclusive",
+    "initial_capital",
+    "execution_overlay",
+)
+
 
 _STRATEGIES = (
     "cash",
@@ -196,7 +205,9 @@ class ControlledVerification:
         if any(not violation for violation in self.violations):
             raise ArtifactIntegrityError("verification violations must be non-empty")
         if self.status is ControlledVerificationStatus.CONTROLLED and self.violations:
-            raise ArtifactIntegrityError("CONTROLLED verification cannot contain violations")
+            raise ArtifactIntegrityError(
+                "CONTROLLED verification cannot contain violations"
+            )
         if self.status is ControlledVerificationStatus.INVALID and not self.violations:
             raise ArtifactIntegrityError("INVALID verification requires violations")
 
@@ -250,6 +261,25 @@ def _without_seed(payload: Mapping[str, object]) -> dict[str, object]:
     normalized = dict(payload)
     normalized.pop("ppo_seed", None)
     return normalized
+
+
+def _fixed_config_violations(
+    *,
+    plan: StudyPlan,
+    evidence: LoadedEvidenceSet,
+    label: str,
+) -> list[str]:
+    plan_semantic = _without_seed(plan.baseline_config.to_payload())
+    violations: list[str] = []
+    for field in _STUDY_FIXED_CONFIG_PATHS:
+        if field not in evidence.semantic_config or (
+            _canonical_value(evidence.semantic_config[field])
+            != _canonical_value(plan_semantic[field])
+        ):
+            violations.append(
+                f"{label} fixed resolved field differs from frozen Study plan: {field}"
+            )
+    return violations
 
 
 def _strategy_matrix(
@@ -417,6 +447,13 @@ def verify_controlled_delta(
     defined_candidate = _without_seed(definition.candidate_config.to_payload())
     if candidate.semantic_config != defined_candidate:
         violations.append("candidate evidence does not match the frozen definition")
+
+    violations.extend(
+        _fixed_config_violations(plan=plan, evidence=baseline, label="baseline")
+    )
+    violations.extend(
+        _fixed_config_violations(plan=plan, evidence=candidate, label="candidate")
+    )
 
     baseline_violations, baseline_matrices = _evidence_violations(
         plan=plan,

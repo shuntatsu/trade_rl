@@ -6,6 +6,7 @@ on:
       - refactor/lean-simulation-boundaries
     paths:
       - ".github/workflows/phase3b-simulation-migrate.yml"
+      - "scripts/phase3b_simulation_migrate.py"
 
 permissions:
   contents: write

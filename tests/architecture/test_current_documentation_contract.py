@@ -95,14 +95,18 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_current_documentation_tree_is_minimal_and_has_no_working_tree_archive() -> None:
+def test_current_documentation_tree_is_minimal_and_has_no_working_tree_archive() -> (
+    None
+):
     observed_files = {
         str(path.relative_to(DOCS)) for path in DOCS.rglob("*.md") if path.is_file()
     }
     assert observed_files == EXPECTED_DOC_FILES
 
     observed_directories = {
-        path.name for path in DOCS.iterdir() if path.is_dir() and path.name != "__pycache__"
+        path.name
+        for path in DOCS.iterdir()
+        if path.is_dir() and path.name != "__pycache__"
     }
     assert observed_directories == EXPECTED_DOC_DIRECTORIES
 
@@ -174,7 +178,9 @@ def test_package_boundary_document_matches_paths_that_exist_in_source_tree() -> 
     assert "not part of the current cleanup/runtime path" in package_doc
 
 
-def test_lean_core_preserves_causality_accounting_and_independent_replay_contracts() -> None:
+def test_lean_core_preserves_causality_accounting_and_independent_replay_contracts() -> (
+    None
+):
     lean_core = _read(DOCS / "architecture" / "lean-core.md")
     for contract in (
         "feature_available_time <= decision_time",
@@ -191,7 +197,9 @@ def test_lean_core_preserves_causality_accounting_and_independent_replay_contrac
         assert contract in lean_core
 
 
-def test_research_status_is_explicit_about_what_has_and_has_not_been_validated() -> None:
+def test_research_status_is_explicit_about_what_has_and_has_not_been_validated() -> (
+    None
+):
     status = _read(DOCS / "research" / "current-status.md")
     for statement in (
         "M1 lean core: **complete**",
@@ -220,7 +228,9 @@ def test_research_status_is_explicit_about_what_has_and_has_not_been_validated()
     assert "no winner" in status.lower()
 
 
-def test_current_authority_docs_do_not_use_retired_paths_or_transient_pr_sha_refs() -> None:
+def test_current_authority_docs_do_not_use_retired_paths_or_transient_pr_sha_refs() -> (
+    None
+):
     for path in CURRENT_AUTHORITY_DOCS:
         text = _read(path)
         for retired in OLD_CURRENT_PATHS:
@@ -243,7 +253,9 @@ def test_all_current_relative_markdown_links_resolve() -> None:
             assert resolved.exists(), (path.relative_to(ROOT), target)
 
 
-def test_permanent_license_and_provenance_material_is_byte_identical_to_phase4a_base() -> None:
+def test_permanent_license_and_provenance_material_is_byte_identical_to_phase4a_base() -> (
+    None
+):
     for relative_path, expected_blob_sha in COMPLIANCE_GIT_BLOBS.items():
         path = ROOT / relative_path
         assert path.is_file(), relative_path

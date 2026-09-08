@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -64,6 +65,8 @@ class StudyStore:
         self.root.mkdir(parents=True, exist_ok=True)
         if self.root.is_symlink():
             raise ArtifactIntegrityError("Study root must not be a symlink")
+        self._thread_lock = threading.RLock()
+        self._lock_depth = 0
 
     def _relative_path(self, relative: str | Path) -> Path:
         value = Path(relative)
@@ -109,19 +112,30 @@ class StudyStore:
 
     @contextmanager
     def mutation_lock(self) -> Iterator[None]:
-        """Serialize Study mutation across processes using an OS advisory lock."""
+        """Serialize Study mutation across processes and support same-store nesting."""
 
-        if self.root.is_symlink() or not self.root.is_dir():
-            raise ArtifactIntegrityError("Study root must be a regular directory")
-        lock_path = self.root / _LOCK_NAME
-        if lock_path.is_symlink():
-            raise ArtifactIntegrityError("Study mutation lock must not be a symlink")
-        with lock_path.open("a+b") as handle:
-            _lock_file(handle)
-            try:
-                yield
-            finally:
-                _unlock_file(handle)
+        with self._thread_lock:
+            if self._lock_depth > 0:
+                self._lock_depth += 1
+                try:
+                    yield
+                finally:
+                    self._lock_depth -= 1
+                return
+
+            if self.root.is_symlink() or not self.root.is_dir():
+                raise ArtifactIntegrityError("Study root must be a regular directory")
+            lock_path = self.root / _LOCK_NAME
+            if lock_path.is_symlink():
+                raise ArtifactIntegrityError("Study mutation lock must not be a symlink")
+            with lock_path.open("a+b") as handle:
+                _lock_file(handle)
+                self._lock_depth = 1
+                try:
+                    yield
+                finally:
+                    self._lock_depth = 0
+                    _unlock_file(handle)
 
     def publish_json_once(self, relative: str | Path, value: object) -> Path:
         """Atomically publish canonical JSON without replacing existing evidence."""

@@ -10,7 +10,12 @@ import numpy as np
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
-from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
+from trade_rl.simulation import (
+    BookState,
+    EconomicTerminationReason,
+    ExecutionCostConfig,
+    MarketExecutor,
+)
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
 from trade_rl.strategies.position_intent import (
     PositionIntent,
@@ -156,9 +161,13 @@ def run_single_symbol_replay(
         if book.termination_reason is not None:
             break
 
-    termination_reasons = (
-        () if book.termination_reason is None else (str(book.termination_reason.value),)
-    )
+    termination_reasons: tuple[str, ...] = ()
+    reason = book.termination_reason
+    if reason is not None:
+        reason_value = (
+            reason.value if isinstance(reason, EconomicTerminationReason) else reason
+        )
+        termination_reasons = (reason_value,)
     diagnostics = ExecutionDiagnostics(
         turnover_total=book.turnover_total,
         total_cost=book.total_cost,

@@ -22,11 +22,21 @@ class FakeRegressor:
         self.params = params
         self.features: np.ndarray | None = None
         self.labels: np.ndarray | None = None
+        self.sample_weights: np.ndarray | None = None
         FakeRegressor.last = self
 
-    def fit(self, features: np.ndarray, labels: np.ndarray) -> FakeRegressor:
+    def fit(
+        self,
+        features: np.ndarray,
+        labels: np.ndarray,
+        *,
+        sample_weight: np.ndarray | None = None,
+    ) -> FakeRegressor:
         self.features = np.asarray(features).copy()
         self.labels = np.asarray(labels).copy()
+        self.sample_weights = (
+            None if sample_weight is None else np.asarray(sample_weight).copy()
+        )
         return self
 
     def predict(self, features: np.ndarray) -> np.ndarray:
@@ -91,8 +101,10 @@ def test_fit_uses_shared_causal_rows_and_one_shallow_configuration(monkeypatch) 
     assert regressor is not None
     assert regressor.features is not None
     assert regressor.labels is not None
+    assert regressor.sample_weights is not None
     assert regressor.features.shape == (6, 2)
     assert regressor.labels.shape == (6,)
+    np.testing.assert_array_equal(regressor.sample_weights, np.ones(6))
     assert regressor.params["n_estimators"] == 64
     assert regressor.params["max_depth"] == 3
     assert regressor.params["num_leaves"] == 7

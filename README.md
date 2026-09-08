@@ -2,9 +2,16 @@
 
 Trade RL is a lean research system for testing one symbol-agnostic long/short strategy across multiple markets under causal data, one execution/accounting ledger, hard risk constraints, and unused-data evaluation.
 
-The current design and execution contract is:
+## Documentation
 
-- `docs/trade_rl_lean_redesign_20260908.md`
+Start from:
+
+- `docs/README.md` — current documentation index
+- `docs/architecture/lean-core.md` — causal data, strategy/risk, execution/accounting, artifact invariants
+- `docs/architecture/package-boundaries.md` — current package ownership and dependency direction
+- `docs/research/current-status.md` — research status, candidate comparison, development/final protocol
+
+Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes.
 
 ## Current status
 
@@ -51,9 +58,7 @@ summary.json
 returns.npz
 ```
 
-`summary.json` records the dataset artifact identity, complete resolved candidate configuration, evaluation scope, and every symbol × strategy metric/diagnostic. `returns.npz` preserves the raw interval-return series for later paired or block-bootstrap analysis.
-
-See `docs/trade_rl_lean_redesign_20260908.md` for the exact config schema, evaluation rules, and next-step decision process.
+See `docs/research/current-status.md` for the accepted config keys, fit/evaluation rules, evidence outputs, and next-step decision process.
 
 ## Research rule
 

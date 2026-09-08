@@ -215,6 +215,38 @@ def test_run_candidate_artifact_rejects_unknown_config_keys(
         )
 
 
+def test_run_candidate_artifact_rejects_unknown_fit_symbol(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from trade_rl.evaluation import candidate_run
+
+    monkeypatch.setattr(
+        candidate_run,
+        "inspect_published_market_dataset_artifact",
+        lambda path: SimpleNamespace(
+            schema_version="market_dataset_artifact_v3",
+            artifact_digest="d" * 64,
+        ),
+    )
+    monkeypatch.setattr(
+        candidate_run,
+        "load_market_dataset_artifact",
+        lambda path: market(),
+    )
+    raw = run_config()
+    raw["fit_symbol_names"] = ["UNKNOWN"]
+    config_path = tmp_path / "run.json"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unknown fit symbol name: UNKNOWN"):
+        candidate_run.run_candidate_artifact(
+            dataset_root=tmp_path / "dataset",
+            config_path=config_path,
+            output_root=tmp_path / "result",
+        )
+
+
 def test_run_candidate_artifact_refuses_overwrite(tmp_path, monkeypatch) -> None:
     from trade_rl.evaluation import candidate_run
 

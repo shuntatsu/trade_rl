@@ -267,9 +267,7 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
                 raw["evaluation_stop_exclusive"],
                 field=f"{field}.evaluation_stop_exclusive",
             ),
-            gross_budget=_as_float(
-                raw["gross_budget"], field=f"{field}.gross_budget"
-            ),
+            gross_budget=_as_float(raw["gross_budget"], field=f"{field}.gross_budget"),
             initial_capital=_as_float(
                 raw["initial_capital"], field=f"{field}.initial_capital"
             ),
@@ -281,7 +279,9 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
             ),
         )
     except ContractViolationError as error:
-        raise ArtifactIntegrityError(f"{field} violates resolved-run contract") from error
+        raise ArtifactIntegrityError(
+            f"{field} violates resolved-run contract"
+        ) from error
 
 
 def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
@@ -320,7 +320,9 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
         try:
             factors.append(ControlledFactor(_as_string(value, field="allowed_factors")))
         except ValueError as error:
-            raise ArtifactIntegrityError("Study contains unsupported controlled factor") from error
+            raise ArtifactIntegrityError(
+                "Study contains unsupported controlled factor"
+            ) from error
     try:
         return StudyPlan(
             research_question=_as_string(
@@ -343,9 +345,7 @@ def _study_plan_from_payload(payload: dict[str, object]) -> StudyPlan:
                 payload["max_experiments"], field="max_experiments"
             ),
             n_bootstrap=_as_int(payload["n_bootstrap"], field="n_bootstrap"),
-            bootstrap_seed=_as_int(
-                payload["bootstrap_seed"], field="bootstrap_seed"
-            ),
+            bootstrap_seed=_as_int(payload["bootstrap_seed"], field="bootstrap_seed"),
             implementation_digest=_as_string(
                 payload["implementation_digest"], field="implementation_digest"
             ),
@@ -670,7 +670,9 @@ def _freeze_from_payload(payload: dict[str, object]) -> StudyFreeze:
             ),
         )
     except (ContractViolationError, ValueError) as error:
-        raise ArtifactIntegrityError("freeze.json violates StudyFreeze contract") from error
+        raise ArtifactIntegrityError(
+            "freeze.json violates StudyFreeze contract"
+        ) from error
 
 
 def _resolved_contract(spec: ResolvedCandidateRunSpec) -> ResolvedRunConfig:
@@ -726,7 +728,9 @@ def _validate_dataset_root(
         artifact = inspect_published_market_dataset_artifact(dataset_root)
         dataset = load_market_dataset_artifact(dataset_root)
     except ValueError as error:
-        raise ArtifactIntegrityError("Study dataset artifact cannot be trusted") from error
+        raise ArtifactIntegrityError(
+            "Study dataset artifact cannot be trusted"
+        ) from error
     if dataset.dataset_id != plan.dataset_id:
         raise ArtifactIntegrityError("Study dataset id differs from frozen plan")
     if (
@@ -735,7 +739,9 @@ def _validate_dataset_root(
     ):
         raise ArtifactIntegrityError("Study dataset artifact differs from frozen plan")
     if tuple(dataset.symbols) != plan.symbols:
-        raise ArtifactIntegrityError("Study dataset symbol roster differs from frozen plan")
+        raise ArtifactIntegrityError(
+            "Study dataset symbol roster differs from frozen plan"
+        )
     provenance = build_candidate_run_provenance()
     if provenance.get("implementation_digest") != plan.implementation_digest:
         raise ArtifactIntegrityError(
@@ -959,7 +965,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
             if entry.is_symlink() or not entry.is_dir():
                 raise ArtifactIntegrityError("experiments may contain only directories")
             if len(entry.name) != 4 or not entry.name.isdigit() or entry.name == "0000":
-                raise ArtifactIntegrityError("experiment directory sequence is malformed")
+                raise ArtifactIntegrityError(
+                    "experiment directory sequence is malformed"
+                )
             sequence_dirs.append((int(entry.name), entry))
         sequence_dirs.sort()
         actual = tuple(sequence for sequence, _ in sequence_dirs)
@@ -967,7 +975,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
         if actual != expected:
             raise ArtifactIntegrityError("experiment sequence must be contiguous")
         if len(sequence_dirs) > plan.max_experiments:
-            raise ArtifactIntegrityError("persisted experiment count exceeds Study budget")
+            raise ArtifactIntegrityError(
+                "persisted experiment count exceeds Study budget"
+            )
     if sequence_dirs and baseline is None:
         raise ArtifactIntegrityError("Study experiments require a published baseline")
 
@@ -1002,7 +1012,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
         candidate: LoadedEvidenceSet | None = None
         candidate_analysis: _AnalysisBinding | None = None
         if "candidate" in names:
-            candidate, candidate_analysis = _load_evidence_node(store, base / "candidate")
+            candidate, candidate_analysis = _load_evidence_node(
+                store, base / "candidate"
+            )
             if candidate.semantic_config != _semantic_without_seed(
                 definition.candidate_config
             ):
@@ -1010,7 +1022,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                     "candidate EvidenceSet differs from ExperimentDefinition"
                 )
             if candidate.evidence.research_context_digest != definition.digest:
-                raise ArtifactIntegrityError("candidate EvidenceSet context digest mismatch")
+                raise ArtifactIntegrityError(
+                    "candidate EvidenceSet context digest mismatch"
+                )
             evidence_by_digest[candidate.evidence.fingerprint] = candidate
             analysis_by_digest[candidate.evidence.fingerprint] = candidate_analysis
 
@@ -1025,7 +1039,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
             else None
         )
         if candidate is not None and failure is not None:
-            raise ArtifactIntegrityError("FAILED experiment cannot contain candidate evidence")
+            raise ArtifactIntegrityError(
+                "FAILED experiment cannot contain candidate evidence"
+            )
         if verification is not None:
             if candidate is None:
                 raise ArtifactIntegrityError("verification requires candidate evidence")
@@ -1033,7 +1049,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                 definition.baseline_evidence_digest
             )
             if baseline_for_verification is None:
-                raise ArtifactIntegrityError("verification baseline evidence is missing")
+                raise ArtifactIntegrityError(
+                    "verification baseline evidence is missing"
+                )
             expected_verification = verify_controlled_delta(
                 plan=plan,
                 definition=definition,
@@ -1052,14 +1070,19 @@ def _reconstruct(store: StudyStore) -> _StudyState:
             if verification is None or candidate is None or candidate_analysis is None:
                 raise ArtifactIntegrityError("comparison requires controlled evidence")
             if verification.status is not ControlledVerificationStatus.CONTROLLED:
-                raise ArtifactIntegrityError("INVALID experiment cannot contain comparison")
+                raise ArtifactIntegrityError(
+                    "INVALID experiment cannot contain comparison"
+                )
             baseline_for_comparison = evidence_by_digest.get(
                 definition.baseline_evidence_digest
             )
             baseline_analysis_for_comparison = analysis_by_digest.get(
                 definition.baseline_evidence_digest
             )
-            if baseline_for_comparison is None or baseline_analysis_for_comparison is None:
+            if (
+                baseline_for_comparison is None
+                or baseline_analysis_for_comparison is None
+            ):
                 raise ArtifactIntegrityError("comparison baseline evidence is missing")
             factor_effect = compare_evidence_sets(
                 baseline_for_comparison.runs,
@@ -1099,29 +1122,39 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                 or decision.verification_digest != verification.digest
                 or decision.comparison_digest != comparison.digest
             ):
-                raise ArtifactIntegrityError("decision digest references are inconsistent")
+                raise ArtifactIntegrityError(
+                    "decision digest references are inconsistent"
+                )
 
         if failure is not None:
             if any(item is not None for item in (verification, comparison, decision)):
-                raise ArtifactIntegrityError("FAILED experiment contains later-state artifacts")
+                raise ArtifactIntegrityError(
+                    "FAILED experiment contains later-state artifacts"
+                )
             if (
                 failure.study_digest != plan.digest
                 or failure.experiment_digest != definition.digest
             ):
-                raise ArtifactIntegrityError("failure digest references are inconsistent")
+                raise ArtifactIntegrityError(
+                    "failure digest references are inconsistent"
+                )
             terminal.append(sequence)
         elif (
             verification is not None
             and verification.status is ControlledVerificationStatus.INVALID
         ):
             if comparison is not None or decision is not None:
-                raise ArtifactIntegrityError("INVALID experiment has post-verification artifacts")
+                raise ArtifactIntegrityError(
+                    "INVALID experiment has post-verification artifacts"
+                )
             terminal.append(sequence)
         elif decision is not None:
             terminal.append(sequence)
             if decision.decision is ExperimentDecisionKind.ACCEPT_CANDIDATE:
                 if candidate is None:
-                    raise ArtifactIntegrityError("accepted decision lacks candidate evidence")
+                    raise ArtifactIntegrityError(
+                        "accepted decision lacks candidate evidence"
+                    )
                 lineage.append(candidate.evidence.fingerprint)
 
         experiment_states.append(
@@ -1213,7 +1246,9 @@ def create_study(
             artifact = inspect_published_market_dataset_artifact(dataset_root)
             dataset = load_market_dataset_artifact(dataset_root)
         except ValueError as error:
-            raise ArtifactIntegrityError("dataset artifact cannot be trusted") from error
+            raise ArtifactIntegrityError(
+                "dataset artifact cannot be trusted"
+            ) from error
         spec = resolve_candidate_run_spec(
             dataset,
             dataset_artifact_schema=artifact.schema_version,
@@ -1313,7 +1348,9 @@ def define_experiment(
                 "baseline EvidenceSet is not reachable accepted lineage"
             )
         if factor not in state.plan.allowed_factors:
-            raise ContractViolationError("controlled factor is not allowed by StudyPlan")
+            raise ContractViolationError(
+                "controlled factor is not allowed by StudyPlan"
+            )
         sequence = len(state.experiments) + 1
         if sequence > state.plan.max_experiments:
             raise ExperimentBudgetExceededError("Study Experiment budget is exhausted")
@@ -1363,9 +1400,10 @@ def run_experiment(
         experiment = _experiment_state(state, sequence)
         if experiment.failure is not None:
             raise InvalidExperimentStateError("FAILED experiment cannot be executed")
-        if experiment.candidate is not None or (
-            store.root / _experiment_dir(sequence) / "candidate"
-        ).exists():
+        if (
+            experiment.candidate is not None
+            or (store.root / _experiment_dir(sequence) / "candidate").exists()
+        ):
             raise InvalidExperimentStateError("candidate evidence is already published")
         _validate_dataset_root(dataset_root, state.plan)
         config = _candidate_config_from_resolved(experiment.definition.candidate_config)
@@ -1441,14 +1479,19 @@ def compare_experiment(
             raise InvalidExperimentStateError(
                 "verification is required before comparison"
             )
-        if experiment.verification.status is not ControlledVerificationStatus.CONTROLLED:
+        if (
+            experiment.verification.status
+            is not ControlledVerificationStatus.CONTROLLED
+        ):
             raise InvalidExperimentStateError(
                 "comparison requires CONTROLLED verification; INVALID is terminal"
             )
         if experiment.comparison is not None:
             raise InvalidExperimentStateError("comparison is already published")
         if experiment.candidate is None or experiment.candidate_analysis is None:
-            raise ArtifactIntegrityError("CONTROLLED experiment lacks candidate evidence")
+            raise ArtifactIntegrityError(
+                "CONTROLLED experiment lacks candidate evidence"
+            )
         baseline, baseline_analysis = _find_evidence(
             state, experiment.definition.baseline_evidence_digest
         )

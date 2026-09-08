@@ -39,7 +39,9 @@ def test_failure_is_terminal_budgeted_and_does_not_enter_lineage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    root, dataset_root, snapshot, definition = _defined_experiment(tmp_path, monkeypatch)
+    root, dataset_root, snapshot, definition = _defined_experiment(
+        tmp_path, monkeypatch
+    )
     assert snapshot.baseline is not None
 
     failure = record_experiment_failure(

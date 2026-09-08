@@ -12,7 +12,10 @@ from trade_rl.evaluation.evidence import ExecutionDiagnostics
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
 from trade_rl.strategies.interface import SingleSymbolStrategy, StrategyObservation
-from trade_rl.strategies.position_intent import PositionIntent, target_weight_for_intent
+from trade_rl.strategies.position_intent import (
+    PositionIntent,
+    target_weight_for_intent,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,9 +160,7 @@ def run_single_symbol_replay(
             break
 
     termination_reasons = (
-        ()
-        if book.termination_reason is None
-        else (str(book.termination_reason.value),)
+        () if book.termination_reason is None else (str(book.termination_reason.value),)
     )
     diagnostics = ExecutionDiagnostics(
         turnover_total=book.turnover_total,

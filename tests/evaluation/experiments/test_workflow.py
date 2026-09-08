@@ -16,6 +16,7 @@ from trade_rl.evaluation.experiments import (
     ExperimentBudgetExceededError,
     ExperimentDecisionKind,
     InvalidExperimentStateError,
+    compare_experiment,
     create_study,
     decide_experiment,
     define_experiment,
@@ -23,7 +24,6 @@ from trade_rl.evaluation.experiments import (
     run_baseline,
     run_experiment,
     verify_experiment,
-    compare_experiment,
 )
 
 
@@ -87,7 +87,9 @@ def test_create_study_pre_resolves_and_publishes_only_plan(
         seen.append(spec.config.ppo_seed)
         return spec
 
-    monkeypatch.setattr(workflow_module, "resolve_candidate_run_spec", recording_resolve)
+    monkeypatch.setattr(
+        workflow_module, "resolve_candidate_run_spec", recording_resolve
+    )
     root = tmp_path / "study"
     snapshot = create_study(
         root,

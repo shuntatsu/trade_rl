@@ -36,29 +36,13 @@ jobs:
         run: uv sync --extra dev
 
       - name: Ruff
-        run: >-
-          uv run ruff check
-          trade_rl/artifacts trade_rl/domain trade_rl/data trade_rl/risk
-          trade_rl/simulation trade_rl/evaluation trade_rl/strategies
-          trade_rl/integrations
-          tests/artifacts tests/data tests/risk tests/simulation
-          tests/evaluation tests/strategies tests/integrations
+        run: uv run ruff check trade_rl tests
 
       - name: Format
-        run: >-
-          uv run ruff format --check
-          trade_rl/artifacts trade_rl/domain trade_rl/data trade_rl/risk
-          trade_rl/simulation trade_rl/evaluation trade_rl/strategies
-          trade_rl/integrations
-          tests/artifacts tests/data tests/risk tests/simulation
-          tests/evaluation tests/strategies tests/integrations
+        run: uv run ruff format --check trade_rl tests
 
       - name: Mypy
-        run: >-
-          uv run mypy
-          trade_rl/artifacts trade_rl/domain trade_rl/data trade_rl/risk
-          trade_rl/simulation trade_rl/evaluation trade_rl/strategies
-          trade_rl/integrations
+        run: uv run mypy trade_rl
 
       - name: Core tests
         run: uv run pytest -q tests

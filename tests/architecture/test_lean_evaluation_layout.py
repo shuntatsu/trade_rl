@@ -100,6 +100,20 @@ def test_retired_evaluation_private_paths_are_absent() -> None:
     assert surviving == []
 
 
+def test_phase4a_one_shot_helpers_are_absent() -> None:
+    retired_helpers = (
+        ROOT / "scripts" / "phase4a_evaluation_migrate.py",
+        ROOT / ".github" / "workflows" / "phase4a-evaluation-migrate.yml",
+        ROOT
+        / ".github"
+        / "workflows"
+        / "phase4a-evaluation-semantic-falsification.yml",
+    )
+    surviving = [str(path.relative_to(ROOT)) for path in retired_helpers if path.exists()]
+    assert surviving == []
+    assert not (PACKAGE / "experiments").exists()
+
+
 def test_evaluation_package_public_api_is_exactly_preserved() -> None:
     assert tuple(evaluation.__all__) == EXPECTED_PUBLIC_API
     for name in EXPECTED_PUBLIC_API:

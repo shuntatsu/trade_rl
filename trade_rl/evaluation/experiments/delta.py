@@ -16,8 +16,8 @@ from trade_rl.evaluation.experiments.contracts import (
     ExperimentDefinition,
     StudyPlan,
 )
-from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
+from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
 
 _STRATEGIES = (
@@ -196,9 +196,7 @@ class ControlledVerification:
         if any(not violation for violation in self.violations):
             raise ArtifactIntegrityError("verification violations must be non-empty")
         if self.status is ControlledVerificationStatus.CONTROLLED and self.violations:
-            raise ArtifactIntegrityError(
-                "CONTROLLED verification cannot contain violations"
-            )
+            raise ArtifactIntegrityError("CONTROLLED verification cannot contain violations")
         if self.status is ControlledVerificationStatus.INVALID and not self.violations:
             raise ArtifactIntegrityError("INVALID verification requires violations")
 
@@ -413,9 +411,9 @@ def verify_controlled_delta(
     if definition.candidate_config.ppo_seed != plan.ppo_seeds[0]:
         violations.append("frozen definition seed does not match the Study seed policy")
 
-    baseline_semantic = _without_seed(plan.baseline_config.to_payload())
-    if baseline.semantic_config != baseline_semantic:
-        violations.append("baseline evidence does not match the frozen Study baseline")
+    # Baseline lineage eligibility is owned by the workflow state machine. The
+    # frozen definition binds the exact baseline EvidenceSet fingerprint, so a
+    # prior ACCEPT_CANDIDATE may legitimately differ from StudyPlan.baseline_config.
     defined_candidate = _without_seed(definition.candidate_config.to_payload())
     if candidate.semantic_config != defined_candidate:
         violations.append("candidate evidence does not match the frozen definition")

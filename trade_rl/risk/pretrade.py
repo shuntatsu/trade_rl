@@ -1,4 +1,4 @@
-"""Pure pre-trade portfolio constraints applied before market execution."""
+"""Hard pre-trade portfolio constraints applied before market execution."""
 
 from __future__ import annotations
 
@@ -22,9 +22,6 @@ class PreTradeRiskConfig:
     max_gross: float = 1.0
     max_abs_weight: float = 0.40
     max_turnover: float | None = 1.0
-    entry_threshold: float = 0.0
-    exit_threshold: float = 0.0
-    no_trade_band: float = 0.0
     drawdown_start: float = 0.10
     drawdown_stop: float = 0.20
     emergency_turnover_override: bool = True
@@ -34,9 +31,6 @@ class PreTradeRiskConfig:
         for field_name, value in (
             ("max_gross", self.max_gross),
             ("max_abs_weight", self.max_abs_weight),
-            ("entry_threshold", self.entry_threshold),
-            ("exit_threshold", self.exit_threshold),
-            ("no_trade_band", self.no_trade_band),
             ("drawdown_start", self.drawdown_start),
             ("drawdown_stop", self.drawdown_stop),
             ("fail_closed_tolerance", self.fail_closed_tolerance),
@@ -51,12 +45,6 @@ class PreTradeRiskConfig:
             0.0 <= self.max_turnover <= 2.0 * self.max_gross
         ):
             raise ValueError("max_turnover must be null or within [0, 2 * max_gross]")
-        if not 0.0 <= self.entry_threshold <= self.max_abs_weight:
-            raise ValueError("entry_threshold must be within [0, max_abs_weight]")
-        if not 0.0 <= self.exit_threshold <= self.entry_threshold:
-            raise ValueError("exit_threshold must be within [0, entry_threshold]")
-        if not 0.0 <= self.no_trade_band <= 2.0 * self.max_abs_weight:
-            raise ValueError("no_trade_band must be within [0, 2 * max_abs_weight]")
         if not 0.0 <= self.drawdown_start <= 1.0:
             raise ValueError("drawdown_start must be within [0, 1]")
         if not 0.0 <= self.drawdown_stop <= 1.0:
@@ -122,7 +110,7 @@ class RiskConstrainedTarget:
 
 
 class PreTradeRisk:
-    """Apply soft trading limits followed by non-negotiable hard limits."""
+    """Apply hard exposure, drawdown, emergency and order-safety constraints."""
 
     def __init__(self, config: PreTradeRiskConfig | None = None) -> None:
         self.config = config or PreTradeRiskConfig()
@@ -178,7 +166,7 @@ class PreTradeRisk:
         if risk_scale == 0.0 and np.any(np.abs(weights) > tolerance):
             raise RuntimeError("emergency drawdown stop did not flatten target")
 
-    def _apply_rebalance_controls(
+    def _apply_order_safety_controls(
         self,
         requested: np.ndarray,
         existing: np.ndarray,
@@ -187,13 +175,7 @@ class PreTradeRisk:
         emergency_mask: np.ndarray,
         reduce_only_mask: np.ndarray,
     ) -> np.ndarray:
-        """Suppress low-confidence entries and uneconomic target adjustments."""
-
         controlled = requested.copy()
-        entry_changed = False
-        hold_changed = False
-        exit_changed = False
-        reversal_changed = False
         reduce_only_satisfied = False
         for index, (target, current) in enumerate(
             zip(requested, existing, strict=True)
@@ -201,58 +183,19 @@ class PreTradeRisk:
             if emergency_mask[index]:
                 controlled[index] = 0.0
                 continue
-            if reduce_only_mask[index]:
-                if abs(current) <= _TOLERANCE:
-                    controlled[index] = 0.0
-                    reduce_only_satisfied = True
-                    continue
-                if target * current < -_TOLERANCE:
-                    raise ValueError("reduce-only target cannot change sign")
-                if abs(target) >= abs(current) - _TOLERANCE:
-                    controlled[index] = current
-                    reduce_only_satisfied = True
+            if not reduce_only_mask[index]:
                 continue
             if abs(current) <= _TOLERANCE:
-                if abs(target) < self.config.entry_threshold:
-                    controlled[index] = 0.0
-                    entry_changed |= abs(target) > _TOLERANCE
-                continue
-            same_direction = target * current > 0.0
-            if same_direction:
-                if abs(target) <= self.config.exit_threshold:
-                    controlled[index] = 0.0
-                    exit_changed = True
-                elif abs(target) < self.config.entry_threshold:
-                    controlled[index] = current
-                    hold_changed |= not math.isclose(target, current)
-            elif abs(target) < self.config.entry_threshold:
                 controlled[index] = 0.0
-                reversal_changed = True
-        if entry_changed:
-            reasons.append("entry_hysteresis")
-        if hold_changed:
-            reasons.append("hold_hysteresis")
-        if exit_changed:
-            reasons.append("exit_hysteresis")
-        if reversal_changed:
-            reasons.append("reversal_hysteresis")
+                reduce_only_satisfied = True
+                continue
+            if target * current < -_TOLERANCE:
+                raise ValueError("reduce-only target cannot change sign")
+            if abs(target) >= abs(current) - _TOLERANCE:
+                controlled[index] = current
+                reduce_only_satisfied = True
         if reduce_only_satisfied:
             reasons.append("reduce_only_satisfied")
-
-        small_changes = (
-            (np.abs(controlled - existing) < self.config.no_trade_band)
-            & ~emergency_mask
-            & ~reduce_only_mask
-        )
-        changed_by_band = small_changes & ~np.isclose(
-            controlled,
-            existing,
-            atol=_TOLERANCE,
-            rtol=0.0,
-        )
-        if np.any(changed_by_band):
-            controlled[small_changes] = existing[small_changes]
-            reasons.append("no_trade_band")
         return controlled
 
     def constrain(
@@ -271,6 +214,7 @@ class PreTradeRisk:
         if not np.isfinite(requested).all() or not np.isfinite(existing).all():
             raise ValueError("target and current weights must be finite")
         proposal_weights = requested.copy()
+
         if reduce_only_mask is None:
             reduce_mask = np.zeros(requested.shape, dtype=np.bool_)
         else:
@@ -280,6 +224,7 @@ class PreTradeRisk:
             reduce_mask = raw_reduce_mask.reshape(-1).copy()
             if reduce_mask.shape != requested.shape:
                 raise ValueError("reduce_only_mask must match target weights")
+
         emergency_mask = (
             np.zeros(requested.shape, dtype=np.bool_)
             if emergency_flatten_mask is None
@@ -287,16 +232,19 @@ class PreTradeRisk:
         )
         if emergency_mask.shape != requested.shape:
             raise ValueError("emergency flatten mask must match target weights")
+
         scale = self.risk_scale(drawdown)
         reasons: list[str] = []
         if np.any(reduce_mask):
             reasons.append("reduce_only")
         requested_turnover = float(np.abs(requested - existing).sum())
+
         if np.any(emergency_mask):
             requested = requested.copy()
             requested[emergency_mask] = 0.0
             reasons.append("emergency_flatten")
-        controlled = self._apply_rebalance_controls(
+
+        controlled = self._apply_order_safety_controls(
             requested,
             existing,
             reasons=reasons,
@@ -308,8 +256,6 @@ class PreTradeRisk:
             np.abs(controlled[ordinary_mask] - existing[ordinary_mask]).sum()
         )
 
-        # Turnover is a soft operational limit. It is applied before hard risk limits
-        # so that an already-invalid current portfolio cannot block deleveraging.
         weights = controlled.copy()
         if (
             self.config.max_turnover is not None
@@ -335,8 +281,9 @@ class PreTradeRisk:
             atol=_TOLERANCE,
             rtol=0.0,
         )
-        turnover_overridden = False
         constrained_turnover = float(np.abs(weights - existing).sum())
+        turnover_overridden = False
+
         emergency_turnover = float(
             np.abs(weights[emergency_mask] - existing[emergency_mask]).sum()
         )

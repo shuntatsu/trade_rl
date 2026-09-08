@@ -10,7 +10,12 @@ import pytest
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import publish_market_dataset_artifact
 from trade_rl.data.build import MarketDatasetBuilder
-from trade_rl.data.contracts import FeatureKind, FeatureSpec, InstrumentContract, MarketBuildConfig
+from trade_rl.data.contracts import (
+    FeatureKind,
+    FeatureSpec,
+    InstrumentContract,
+    MarketBuildConfig,
+)
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
 from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
 from trade_rl.evaluation.experiments.contracts import (
@@ -19,9 +24,15 @@ from trade_rl.evaluation.experiments.contracts import (
     StudyPlan,
 )
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
-from trade_rl.evaluation.experiments.evidence import execute_evidence_set, load_evidence_set
+from trade_rl.evaluation.experiments.evidence import (
+    execute_evidence_set,
+    load_evidence_set,
+)
 from trade_rl.evaluation.experiments.store import StudyStore
-from trade_rl.evaluation.runs.config import CandidateRunConfig, resolve_candidate_run_spec
+from trade_rl.evaluation.runs.config import (
+    CandidateRunConfig,
+    resolve_candidate_run_spec,
+)
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 from trade_rl.strategies.controls import ConstantIntentStrategy
@@ -134,9 +145,7 @@ def _fake_execute(*, drift_trend: bool = False, fail_seed: int | None = None):
         if seed == fail_seed:
             raise RuntimeError(f"seed failed: {seed}")
         trend_intent = (
-            PositionIntent.SHORT
-            if drift_trend and seed == 5
-            else PositionIntent.LONG
+            PositionIntent.SHORT if drift_trend and seed == 5 else PositionIntent.LONG
         )
         ppo_intent = PositionIntent.LONG if seed % 2 == 0 else PositionIntent.SHORT
         strategies = {
@@ -185,7 +194,9 @@ def test_evidence_set_executes_every_seed_through_shared_resolution(
         seen.append(spec.config.ppo_seed)
         return spec
 
-    monkeypatch.setattr(evidence_module, "resolve_candidate_run_spec", recording_resolve)
+    monkeypatch.setattr(
+        evidence_module, "resolve_candidate_run_spec", recording_resolve
+    )
     monkeypatch.setattr(
         evidence_module,
         "execute_candidate_run",

@@ -9,8 +9,8 @@ import numpy as np
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.strategy_comparison import (
-    StrategyComparison,
-    compare_strategies,
+    UniversalStrategyComparison,
+    compare_strategies_by_symbol,
 )
 from trade_rl.risk import PreTradeRisk
 from trade_rl.simulation.execution import ExecutionCostConfig
@@ -109,11 +109,9 @@ def run_lean_candidate_suite(
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
     risk: PreTradeRisk | None = None,
-) -> StrategyComparison:
-    """Fit and compare the five initial candidates plus three controls."""
+) -> UniversalStrategyComparison:
+    """Fit one universal candidate set and compare it independently by symbol."""
 
-    if dataset.n_symbols != 1:
-        raise ValueError("lean candidate suite requires exactly one symbol")
     if config.signal_index >= dataset.n_features:
         raise ValueError("signal_index is outside dataset features")
     if max(config.feature_indices) >= dataset.n_features:
@@ -179,7 +177,7 @@ def run_lean_candidate_suite(
         ),
         "ppo": ppo_strategy,
     }
-    return compare_strategies(
+    return compare_strategies_by_symbol(
         dataset,
         strategies,
         start_index=start_index,

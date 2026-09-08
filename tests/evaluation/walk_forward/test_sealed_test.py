@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.evaluation.walk_forward.folds import IndexRange
-from trade_rl.evaluation.walk_forward.sealed_test import SealedTestLedger
+from trade_rl.evaluation.robustness.walk_forward.folds import IndexRange
+from trade_rl.evaluation.robustness.walk_forward.sealed_test import SealedTestLedger
 
 
 def test_sealed_test_ledger_authorizes_each_plan_once() -> None:

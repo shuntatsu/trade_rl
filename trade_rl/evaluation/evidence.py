@@ -6,7 +6,7 @@ import math
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from trade_rl.evaluation.closed_trades import ClosedTradeDiagnostics
+from trade_rl.evaluation.robustness.closed_trades import ClosedTradeDiagnostics
 
 
 @dataclass(frozen=True, slots=True)

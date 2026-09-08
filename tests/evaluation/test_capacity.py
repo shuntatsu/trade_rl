@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from trade_rl.evaluation.capacity import (
+from trade_rl.evaluation.robustness.capacity import (
     CapacityCurve,
     CapacityPoint,
     evaluate_capacity_grid,

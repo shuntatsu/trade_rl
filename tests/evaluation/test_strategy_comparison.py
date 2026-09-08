@@ -5,7 +5,7 @@ import pytest
 
 import trade_rl.evaluation as evaluation
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.strategy_comparison import (
+from trade_rl.evaluation.comparison.strategies import (
     UniversalStrategyComparison,
     compare_strategies,
     compare_strategies_by_symbol,

@@ -1,0 +1,1 @@
+"""Perfect-information bound ownership."""

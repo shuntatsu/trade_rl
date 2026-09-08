@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from statistics import fmean
 
-from trade_rl.evaluation.bootstrap import moving_block_mean_test
+from trade_rl.evaluation.comparison.bootstrap import moving_block_mean_test
 from trade_rl.evaluation.metrics import compound_return
 from trade_rl.evaluation.series import ReturnSeries
 

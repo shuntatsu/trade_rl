@@ -10,7 +10,7 @@ from numbers import Real
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.evaluation._perfect_information_lp import (
+from trade_rl.evaluation.robustness.perfect_information.solver import (
     solve_lexicographic_linear_program,
 )
 

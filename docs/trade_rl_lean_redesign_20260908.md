@@ -324,7 +324,7 @@ M2で候補が決まった後だけ進む。
 
 ```bash
 uv run --extra forecast-gbm --extra train-sb3 \
-  python -m trade_rl.evaluation.candidate_run \
+  python -m trade_rl.evaluation.runs.candidate \
   --dataset <dataset-artifact-dir> \
   --config <run-config.json> \
   --output <new-result-dir>

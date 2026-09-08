@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from statistics import fmean, median
 
 from trade_rl.evaluation.metrics import compound_return
-from trade_rl.evaluation.walk_forward.stitching import FoldOOSResult
+from trade_rl.evaluation.robustness.walk_forward.stitching import FoldOOSResult
 
 
 @dataclass(frozen=True, slots=True)

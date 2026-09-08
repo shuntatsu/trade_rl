@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.evaluation.closed_trades import (
+from trade_rl.evaluation.robustness.closed_trades import (
     ClosedTradeDiagnostics,
     ClosedTradeTracker,
 )

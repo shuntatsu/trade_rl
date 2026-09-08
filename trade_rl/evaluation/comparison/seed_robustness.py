@@ -8,7 +8,7 @@ from statistics import median
 
 import numpy as np
 
-from trade_rl.evaluation.bootstrap import moving_block_mean_test
+from trade_rl.evaluation.comparison.bootstrap import moving_block_mean_test
 from trade_rl.evaluation.metrics import compound_return, evaluate_performance
 from trade_rl.evaluation.series import ReturnSeries
 

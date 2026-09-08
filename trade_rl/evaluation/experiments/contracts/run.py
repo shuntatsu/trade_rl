@@ -50,7 +50,9 @@ class ResolvedRunConfig:
 
     def __post_init__(self) -> None:
         signal_name = contract_text(self.signal_name, field="signal_name")
-        signal_index = contract_non_negative_int(self.signal_index, field="signal_index")
+        signal_index = contract_non_negative_int(
+            self.signal_index, field="signal_index"
+        )
         feature_names = contract_unique_texts(self.feature_names, field="feature_names")
         feature_indices = _index_tuple(self.feature_indices, field="feature_indices")
         fit_symbol_names = contract_unique_texts(

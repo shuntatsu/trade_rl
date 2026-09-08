@@ -40,9 +40,7 @@ def test_publish_directory_once_removes_failed_staging(tmp_path: Path) -> None:
 
     assert not (tmp_path / "study" / "evidence" / "baseline").exists()
     leftovers = [
-        path
-        for path in (tmp_path / "study").rglob("*")
-        if ".staging-" in path.name
+        path for path in (tmp_path / "study").rglob("*") if ".staging-" in path.name
     ]
     assert leftovers == []
 

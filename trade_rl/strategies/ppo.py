@@ -241,7 +241,9 @@ class PPOTradingEnv(gym.Env):
     ) -> tuple[np.ndarray, dict[str, object]]:
         del options
         super().reset(seed=seed)
-        self.active_symbol_index = (self.active_symbol_index + 1) % self.dataset.n_symbols
+        self.active_symbol_index = (
+            self.active_symbol_index + 1
+        ) % self.dataset.n_symbols
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         if seed is not None:
             self.executor.reset_random_state(seed)

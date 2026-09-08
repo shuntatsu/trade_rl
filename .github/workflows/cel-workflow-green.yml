@@ -1,0 +1,41 @@
+name: CEL Workflow Green
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-workflow-green.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Format and verify Task 6
+        run: |
+          uv run ruff format trade_rl/evaluation/experiments/workflow.py
+          uv run ruff check trade_rl tests
+          uv run ruff format --check trade_rl tests
+          uv run mypy trade_rl
+          uv run pytest -q tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py tests/evaluation/experiments/test_workflow_atomicity.py tests/evaluation/experiments/test_workflow_candidate_atomicity.py
+          uv run pytest -q tests
+      - name: Commit verified Task 6 and remove helper
+        run: |
+          rm .github/workflows/cel-workflow-green.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/workflow.py .github/workflows/cel-workflow-green.yml
+          git diff --cached --check
+          git commit -m "fix: normalize controlled study workflow"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

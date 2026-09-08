@@ -16,8 +16,8 @@ from trade_rl.evaluation.experiments.contracts import (
     ExperimentDefinition,
     StudyPlan,
 )
-from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
+from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
 from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
 
 _STRATEGIES = (
@@ -196,7 +196,9 @@ class ControlledVerification:
         if any(not violation for violation in self.violations):
             raise ArtifactIntegrityError("verification violations must be non-empty")
         if self.status is ControlledVerificationStatus.CONTROLLED and self.violations:
-            raise ArtifactIntegrityError("CONTROLLED verification cannot contain violations")
+            raise ArtifactIntegrityError(
+                "CONTROLLED verification cannot contain violations"
+            )
         if self.status is ControlledVerificationStatus.INVALID and not self.violations:
             raise ArtifactIntegrityError("INVALID verification requires violations")
 
@@ -306,7 +308,10 @@ def _evidence_violations(
     violations: list[str] = []
     if evidence.evidence.ppo_seeds != plan.ppo_seeds:
         violations.append(f"{label} PPO seed roster differs from frozen Study plan")
-    if content_digest(evidence.semantic_config) != evidence.evidence.semantic_config_digest:
+    if (
+        content_digest(evidence.semantic_config)
+        != evidence.evidence.semantic_config_digest
+    ):
         violations.append(f"{label} semantic config digest does not match evidence")
     if set(evidence.runs) != set(evidence.evidence.ppo_seeds):
         violations.append(f"{label} Run seed roster does not match EvidenceSet")
@@ -317,15 +322,21 @@ def _evidence_violations(
         if run is None:
             continue
         if run.summary.get("dataset_id") != plan.dataset_id:
-            violations.append(f"{label} dataset identity differs from frozen Study plan")
+            violations.append(
+                f"{label} dataset identity differs from frozen Study plan"
+            )
         dataset_artifact = run.summary.get("dataset_artifact")
         if not isinstance(dataset_artifact, dict):
-            raise ArtifactIntegrityError(f"{label} dataset artifact evidence is malformed")
+            raise ArtifactIntegrityError(
+                f"{label} dataset artifact evidence is malformed"
+            )
         if (
             dataset_artifact.get("schema_version") != plan.dataset_artifact_schema
             or dataset_artifact.get("artifact_digest") != plan.dataset_artifact_digest
         ):
-            violations.append(f"{label} dataset artifact differs from frozen Study plan")
+            violations.append(
+                f"{label} dataset artifact differs from frozen Study plan"
+            )
         symbols = run.summary.get("symbols")
         if symbols != list(plan.symbols):
             violations.append(f"{label} symbol roster differs from frozen Study plan")
@@ -347,7 +358,9 @@ def _evidence_violations(
         )
         matrices[seed] = matrix
         if roster != _STRATEGIES:
-            violations.append(f"{label} strategy roster differs from frozen Study roster")
+            violations.append(
+                f"{label} strategy roster differs from frozen Study roster"
+            )
     return violations, matrices
 
 

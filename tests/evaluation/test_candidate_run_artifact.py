@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -48,6 +49,24 @@ def market() -> MarketDataset:
     )
 
 
+def run_config() -> dict[str, object]:
+    return {
+        "signal_name": "signal",
+        "feature_names": ["signal"],
+        "fit_cutoff": "2026-01-01T04:00:00",
+        "evaluation_start": "2026-01-01T04:00:00",
+        "evaluation_stop_exclusive": "2026-01-01T07:00:00",
+        "rule_entry_threshold": 0.10,
+        "rule_exit_threshold": 0.02,
+        "forecast_entry_threshold": 0.01,
+        "forecast_exit_threshold": 0.002,
+        "ppo_total_timesteps": 256,
+        "ppo_seed": 7,
+        "gross_budget": 0.5,
+        "initial_capital": 1000.0,
+    }
+
+
 def test_run_candidate_artifact_writes_summary_and_raw_returns(
     tmp_path,
     monkeypatch,
@@ -70,6 +89,14 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
 
     monkeypatch.setattr(
         candidate_run,
+        "inspect_published_market_dataset_artifact",
+        lambda path: SimpleNamespace(
+            schema_version="market_dataset_artifact_v3",
+            artifact_digest="d" * 64,
+        ),
+    )
+    monkeypatch.setattr(
+        candidate_run,
         "load_market_dataset_artifact",
         lambda path: dataset,
     )
@@ -83,26 +110,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     monkeypatch.setattr(candidate_run, "run_lean_candidate_suite", fake_suite)
 
     config_path = tmp_path / "run.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "signal_name": "signal",
-                "feature_names": ["signal"],
-                "fit_cutoff": "2026-01-01T04:00:00",
-                "evaluation_start": "2026-01-01T04:00:00",
-                "evaluation_stop_exclusive": "2026-01-01T07:00:00",
-                "rule_entry_threshold": 0.10,
-                "rule_exit_threshold": 0.02,
-                "forecast_entry_threshold": 0.01,
-                "forecast_exit_threshold": 0.002,
-                "ppo_total_timesteps": 256,
-                "ppo_seed": 7,
-                "gross_budget": 0.5,
-                "initial_capital": 1000.0,
-            }
-        ),
-        encoding="utf-8",
-    )
+    config_path.write_text(json.dumps(run_config()), encoding="utf-8")
     output = tmp_path / "result"
 
     artifact = candidate_run.run_candidate_artifact(
@@ -117,7 +125,31 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
     assert summary["schema_version"] == "lean_candidate_result_v1"
     assert summary["dataset_id"] == dataset.dataset_id
+    assert summary["dataset_artifact"] == {
+        "schema_version": "market_dataset_artifact_v3",
+        "artifact_digest": "d" * 64,
+    }
     assert summary["symbols"] == ["BTCUSDT", "ETHUSDT"]
+    assert summary["candidate_config"] == {
+        "signal_name": "signal",
+        "signal_index": 0,
+        "feature_names": ["signal"],
+        "feature_indices": [0],
+        "fit_cutoff": "2026-01-01T04:00:00.000000000",
+        "rule_entry_threshold": 0.10,
+        "rule_exit_threshold": 0.02,
+        "forecast_entry_threshold": 0.01,
+        "forecast_exit_threshold": 0.002,
+        "ppo_total_timesteps": 256,
+        "ppo_seed": 7,
+    }
+    assert summary["evaluation"] == {
+        "start": "2026-01-01T04:00:00.000000000",
+        "stop_exclusive": "2026-01-01T07:00:00.000000000",
+        "gross_budget": 0.5,
+        "initial_capital": 1_000.0,
+        "execution_overlay": "zero_overlay_dataset_fields_authoritative",
+    }
     assert [item["symbol"] for item in summary["by_symbol"]] == [
         "BTCUSDT",
         "ETHUSDT",
@@ -145,6 +177,38 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "execution_cost": None,
         "risk": None,
     }
+
+
+def test_run_candidate_artifact_rejects_unknown_config_keys(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from trade_rl.evaluation import candidate_run
+
+    monkeypatch.setattr(
+        candidate_run,
+        "inspect_published_market_dataset_artifact",
+        lambda path: SimpleNamespace(
+            schema_version="market_dataset_artifact_v3",
+            artifact_digest="d" * 64,
+        ),
+    )
+    monkeypatch.setattr(
+        candidate_run,
+        "load_market_dataset_artifact",
+        lambda path: market(),
+    )
+    raw = run_config()
+    raw["hidden_override"] = 1
+    config_path = tmp_path / "run.json"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unknown config keys"):
+        candidate_run.run_candidate_artifact(
+            dataset_root=tmp_path / "dataset",
+            config_path=config_path,
+            output_root=tmp_path / "result",
+        )
 
 
 def test_run_candidate_artifact_refuses_overwrite(tmp_path, monkeypatch) -> None:

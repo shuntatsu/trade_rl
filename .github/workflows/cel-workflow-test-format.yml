@@ -1,0 +1,39 @@
+name: CEL Workflow Test Format
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-workflow-test-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Normalize Task 6 tests
+        run: |
+          uv run ruff check --fix tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py
+          uv run ruff format tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py
+          uv run ruff check trade_rl tests
+          uv run ruff format --check trade_rl tests
+      - name: Commit tests and remove helper
+        run: |
+          rm .github/workflows/cel-workflow-test-format.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py .github/workflows/cel-workflow-test-format.yml
+          git diff --cached --check
+          git commit -m "style: format controlled workflow tests"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

@@ -34,7 +34,11 @@ class StrategyObservation:
     current_weight: float
 
     def __post_init__(self) -> None:
-        if isinstance(self.index, bool) or not isinstance(self.index, int) or self.index < 0:
+        if (
+            isinstance(self.index, bool)
+            or not isinstance(self.index, int)
+            or self.index < 0
+        ):
             raise ValueError("index must be a non-negative integer")
         if not isinstance(self.symbol, str) or not self.symbol:
             raise ValueError("symbol must be non-empty")
@@ -44,15 +48,21 @@ class StrategyObservation:
             raise ValueError("current_weight must be finite")
 
         features = _readonly_vector(self.features, field="features")
-        feature_available = np.asarray(self.feature_available, dtype=np.bool_).reshape(-1).copy()
+        feature_available = (
+            np.asarray(self.feature_available, dtype=np.bool_).reshape(-1).copy()
+        )
         global_features = _readonly_vector(
             self.global_features,
             field="global_features",
         )
-        global_feature_available = np.asarray(
-            self.global_feature_available,
-            dtype=np.bool_,
-        ).reshape(-1).copy()
+        global_feature_available = (
+            np.asarray(
+                self.global_feature_available,
+                dtype=np.bool_,
+            )
+            .reshape(-1)
+            .copy()
+        )
         if feature_available.shape != features.shape:
             raise ValueError("feature_available must match features")
         if global_feature_available.shape != global_features.shape:

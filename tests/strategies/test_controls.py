@@ -25,7 +25,9 @@ def observation() -> StrategyObservation:
 @pytest.mark.parametrize(
     "intent", (PositionIntent.FLAT, PositionIntent.LONG, PositionIntent.SHORT)
 )
-def test_constant_intent_control_ignores_market_features(intent: PositionIntent) -> None:
+def test_constant_intent_control_ignores_market_features(
+    intent: PositionIntent,
+) -> None:
     assert ConstantIntentStrategy(intent).decide(observation()) is intent
 
 

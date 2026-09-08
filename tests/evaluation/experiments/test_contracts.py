@@ -168,7 +168,9 @@ def test_experiment_definition_rejects_empty_hypothesis() -> None:
         )
 
 
-def test_decision_is_immutable_and_requires_aware_time_and_non_empty_audit_fields() -> None:
+def test_decision_is_immutable_and_requires_aware_time_and_non_empty_audit_fields() -> (
+    None
+):
     decision = ExperimentDecision(
         study_digest="a" * 64,
         experiment_digest="b" * 64,

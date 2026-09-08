@@ -59,9 +59,7 @@ class ExperimentDefinition:
             field="candidate_requested_config_digest",
         )
         if not isinstance(self.candidate_config, ResolvedRunConfig):
-            raise ContractViolationError(
-                "candidate_config must be a ResolvedRunConfig"
-            )
+            raise ContractViolationError("candidate_config must be a ResolvedRunConfig")
         schema_version = contract_text(self.schema_version, field="schema_version")
 
         object.__setattr__(self, "study_digest", study_digest)

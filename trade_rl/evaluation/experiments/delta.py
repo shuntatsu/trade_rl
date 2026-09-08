@@ -204,10 +204,15 @@ class ControlledVerification:
             raise ArtifactIntegrityError("verification changed paths are not canonical")
         if any(not violation for violation in self.violations):
             raise ArtifactIntegrityError("verification violations must be non-empty")
-        if self.status is ControlledVerificationStatus.CONTROLLED and self.violations:
-            raise ArtifactIntegrityError(
-                "CONTROLLED verification cannot contain violations"
-            )
+        if self.status is ControlledVerificationStatus.CONTROLLED:
+            if not self.changed_paths:
+                raise ArtifactIntegrityError(
+                    "CONTROLLED verification requires a non-empty resolved delta"
+                )
+            if self.violations:
+                raise ArtifactIntegrityError(
+                    "CONTROLLED verification cannot contain violations"
+                )
         if self.status is ControlledVerificationStatus.INVALID and not self.violations:
             raise ArtifactIntegrityError("INVALID verification requires violations")
 

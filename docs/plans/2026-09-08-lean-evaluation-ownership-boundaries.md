@@ -173,3 +173,17 @@ Package identity PASS
 ```
 
 Keep the PR Draft. Do not merge without explicit user authorization.
+
+---
+
+## Execution Evidence — 2026-09-08
+
+Formal RED was observed on exact head `85214372249644e6dfd2d3ecd72c5682ed14a25a`: Ruff and Format passed, Mypy reported `0 issues in 101 source files`, and full tests were `2 failed / 636 passed`. Both failures were limited to the intended missing evaluation ownership layout; the package-level public API contract was already Green.
+
+The fail-closed migration run `34234725781` checked out exact pre-migration head `b1d5c0fa00ce01440ea930dd4c866af8a8ecff0a`, performed the deterministic relocation plus safe package-member import rewriting, and passed Ruff, Format (`227 files already formatted` after one migration-tree format normalization), Mypy (`0 issues in 105 source files`), targeted evaluation/architecture tests (`158 passed`), full tests (`638 passed`), package identity, and `python -m trade_rl.evaluation.runs.candidate --help`. Only after those checks did it produce commit `0febb43209ac2f6b979ca3a6cb15215efea2da2b` and remove its migration workflow/script.
+
+Source-level falsification initially failed on `fold_metrics.py` because the verifier normalized `trade_rl.evaluation.walk_forward` but not its child modules such as `.stitching`. Comparing the exact old/new source showed the executable body was identical and only the approved owner prefix changed. The verifier was corrected to normalize exact approved owner prefixes while leaving non-import AST equality strict.
+
+Falsification run `34235378008` then passed on head `2bb214e01043c1ee6197ee83d1749e980c10dd57`: all `18/18` affected production modules were import-only equivalent after approved owner/package-member normalization; every non-import top-level AST node was exact and order-preserved; `evaluation.__all__` was exact; retired imports were absent; the maintained CLI references were migrated; `series.py` remained; and `evaluation/experiments` remained absent.
+
+The one-shot falsification workflow was removed before the final exact-head CI gate. Final normal CI evidence is intentionally not recorded here until it has actually run on the helper-free post-verification HEAD.

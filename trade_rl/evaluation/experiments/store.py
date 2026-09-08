@@ -29,7 +29,9 @@ def _lock_file(handle: BinaryIO) -> None:
             handle.write(b"\0")
             handle.flush()
         handle.seek(0)
-        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        locking = getattr(msvcrt, "locking")
+        lock_mode = getattr(msvcrt, "LK_LOCK")
+        locking(handle.fileno(), lock_mode, 1)
         return
 
     import fcntl
@@ -42,7 +44,9 @@ def _unlock_file(handle: BinaryIO) -> None:
         import msvcrt
 
         handle.seek(0)
-        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        locking = getattr(msvcrt, "locking")
+        unlock_mode = getattr(msvcrt, "LK_UNLCK")
+        locking(handle.fileno(), unlock_mode, 1)
         return
 
     import fcntl

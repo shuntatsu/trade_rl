@@ -38,28 +38,32 @@ jobs:
       - name: Ruff
         run: >-
           uv run ruff check
-          trade_rl/data trade_rl/risk trade_rl/simulation trade_rl/evaluation
-          trade_rl/strategies trade_rl/integrations
-          tests/data tests/risk tests/simulation tests/evaluation
-          tests/strategies tests/integrations
+          trade_rl/artifacts trade_rl/domain trade_rl/data trade_rl/risk
+          trade_rl/simulation trade_rl/evaluation trade_rl/strategies
+          trade_rl/integrations
+          tests/artifacts tests/data tests/risk tests/simulation
+          tests/evaluation tests/strategies tests/integrations
 
       - name: Format
         run: >-
           uv run ruff format --check
-          trade_rl/data trade_rl/risk trade_rl/simulation trade_rl/evaluation
-          trade_rl/strategies trade_rl/integrations
-          tests/data tests/risk tests/simulation tests/evaluation
-          tests/strategies tests/integrations
+          trade_rl/artifacts trade_rl/domain trade_rl/data trade_rl/risk
+          trade_rl/simulation trade_rl/evaluation trade_rl/strategies
+          trade_rl/integrations
+          tests/artifacts tests/data tests/risk tests/simulation
+          tests/evaluation tests/strategies tests/integrations
 
       - name: Mypy
         run: >-
           uv run mypy
-          trade_rl/data trade_rl/risk trade_rl/simulation trade_rl/evaluation
-          trade_rl/strategies trade_rl/integrations
+          trade_rl/artifacts trade_rl/domain trade_rl/data trade_rl/risk
+          trade_rl/simulation trade_rl/evaluation trade_rl/strategies
+          trade_rl/integrations
 
       - name: Core tests
         run: >-
           uv run pytest -q
+          tests/artifacts
           tests/data
           tests/risk
           tests/simulation

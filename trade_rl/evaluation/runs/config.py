@@ -11,7 +11,7 @@ from typing import cast
 
 import numpy as np
 
-from trade_rl._validation import require_non_empty, require_sha256
+from trade_rl._validation import require_sha256
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.runs.candidate_suite import LeanCandidateConfig
 
@@ -55,7 +55,7 @@ class CandidateRunConfig:
     initial_capital: float
 
     def __post_init__(self) -> None:
-        signal_name = require_non_empty(self.signal_name, field="signal_name")
+        signal_name = _validated_text(self.signal_name, field="signal_name")
         feature_names = _validated_names(self.feature_names, field="feature_names")
         fit_symbol_names = _validated_names(
             self.fit_symbol_names,
@@ -103,8 +103,11 @@ class CandidateRunConfig:
             or self.ppo_seed < 0
         ):
             raise ValueError("ppo_seed must be a non-negative integer")
-        _require_finite(self.gross_budget, field="gross_budget")
-        _require_finite(self.initial_capital, field="initial_capital")
+        gross_budget = _require_finite(self.gross_budget, field="gross_budget")
+        initial_capital = _require_finite(
+            self.initial_capital,
+            field="initial_capital",
+        )
 
         object.__setattr__(self, "signal_name", signal_name)
         object.__setattr__(self, "feature_names", feature_names)
@@ -112,6 +115,8 @@ class CandidateRunConfig:
         object.__setattr__(self, "fit_cutoff", fit_cutoff)
         object.__setattr__(self, "evaluation_start", evaluation_start)
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
+        object.__setattr__(self, "gross_budget", gross_budget)
+        object.__setattr__(self, "initial_capital", initial_capital)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,28 +132,27 @@ class ResolvedCandidateRunSpec:
     evaluation_stop_index: int
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "dataset_artifact_schema",
-            require_non_empty(
-                self.dataset_artifact_schema,
-                field="dataset_artifact_schema",
-            ),
+        require_sha256(self.dataset_id, field="dataset_id")
+        if not self.dataset_artifact_schema:
+            raise ValueError("dataset_artifact_schema must be non-empty")
+        require_sha256(
+            self.dataset_artifact_digest,
+            field="dataset_artifact_digest",
         )
-        object.__setattr__(
-            self,
-            "dataset_artifact_digest",
-            require_sha256(
-                self.dataset_artifact_digest,
-                field="dataset_artifact_digest",
-            ),
-        )
+
+
+def _validated_text(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field} must be a non-empty string")
+    return value
 
 
 def _validated_names(values: tuple[str, ...], *, field: str) -> tuple[str, ...]:
     if not values:
         raise ValueError(f"{field} must be a non-empty string array")
-    normalized = tuple(require_non_empty(value, field=field) for value in values)
+    if any(not isinstance(value, str) or not value for value in values):
+        raise ValueError(f"{field} must be a non-empty string array")
+    normalized = tuple(values)
     if len(set(normalized)) != len(normalized):
         raise ValueError(f"{field} must not contain duplicates")
     return normalized
@@ -192,10 +196,7 @@ def _require_non_negative_finite(value: object, *, field: str) -> float:
 
 
 def _required_string(raw: Mapping[str, object], name: str) -> str:
-    value = raw.get(name)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{name} must be a non-empty string")
-    return value
+    return _validated_text(raw.get(name), field=name)
 
 
 def _required_float(raw: Mapping[str, object], name: str) -> float:

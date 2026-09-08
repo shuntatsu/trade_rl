@@ -19,7 +19,11 @@ def market() -> MarketDataset:
         symbols=("BTCUSDT",),
         timestamps=np.datetime64("2026-01-01", "ns")
         + np.arange(n) * np.timedelta64(1, "h"),
-        features=np.linspace(-0.2, 0.2, n, dtype=np.float32).reshape(n, 1, 1),
+        features=np.linspace(-0.2, 0.2, n, dtype=np.float32).reshape(
+            n,
+            1,
+            1,
+        ),
         global_features=np.zeros((n, 1), dtype=np.float32),
         open=close.copy(),
         high=close.copy(),
@@ -35,7 +39,9 @@ def market() -> MarketDataset:
     )
 
 
-def test_suite_builds_fixed_candidates_and_delegates_one_comparison(monkeypatch) -> None:
+def test_suite_builds_fixed_candidates_and_delegates_one_comparison(
+    monkeypatch,
+) -> None:
     calls: dict[str, object] = {}
 
     monkeypatch.setattr(

@@ -166,9 +166,7 @@ def fit_ridge_forecast(
     cutoff_ns = int(cutoff.astype(np.int64))
     timestamps_ns = dataset.timestamps.astype("datetime64[ns]").astype(np.int64)
     horizon_ns = int(
-        np.timedelta64(horizon_hours, "h")
-        .astype("timedelta64[ns]")
-        .astype(np.int64)
+        np.timedelta64(horizon_hours, "h").astype("timedelta64[ns]").astype(np.int64)
     )
     time_to_index = {int(value): index for index, value in enumerate(timestamps_ns)}
     close = np.asarray(dataset.close[:, 0], dtype=np.float64)

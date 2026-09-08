@@ -95,15 +95,18 @@ def observation() -> StrategyObservation:
 
 
 def test_policy_action_mapping_is_short_flat_long() -> None:
-    assert PPOIntentStrategy(FakePolicy(0), feature_indices=(0,)).decide(
-        observation()
-    ) is PositionIntent.SHORT
-    assert PPOIntentStrategy(FakePolicy(1), feature_indices=(0,)).decide(
-        observation()
-    ) is PositionIntent.FLAT
-    assert PPOIntentStrategy(FakePolicy(2), feature_indices=(0,)).decide(
-        observation()
-    ) is PositionIntent.LONG
+    assert (
+        PPOIntentStrategy(FakePolicy(0), feature_indices=(0,)).decide(observation())
+        is PositionIntent.SHORT
+    )
+    assert (
+        PPOIntentStrategy(FakePolicy(1), feature_indices=(0,)).decide(observation())
+        is PositionIntent.FLAT
+    )
+    assert (
+        PPOIntentStrategy(FakePolicy(2), feature_indices=(0,)).decide(observation())
+        is PositionIntent.LONG
+    )
 
 
 def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:
@@ -142,7 +145,11 @@ def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:
 
 
 def test_fit_uses_small_teacher_free_standard_ppo(monkeypatch) -> None:
-    monkeypatch.setitem(sys.modules, "stable_baselines3", SimpleNamespace(PPO=FakePPO))
+    monkeypatch.setitem(
+        sys.modules,
+        "stable_baselines3",
+        SimpleNamespace(PPO=FakePPO),
+    )
     strategy = fit_ppo_strategy(
         market(),
         feature_indices=(0,),

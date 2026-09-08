@@ -1,5 +1,6 @@
 """Immutable contracts for controlled development experiments."""
 
+from trade_rl.evaluation.experiments.contracts.comparison import ExperimentComparison
 from trade_rl.evaluation.experiments.contracts.decision import (
     ExperimentDecision,
     ExperimentDecisionKind,
@@ -22,6 +23,7 @@ __all__ = [
     "CANDIDATE_STRATEGY_NAMES",
     "CONTROL_STRATEGY_NAMES",
     "ControlledFactor",
+    "ExperimentComparison",
     "ExperimentDecision",
     "ExperimentDecisionKind",
     "ExperimentDefinition",

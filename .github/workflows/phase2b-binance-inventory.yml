@@ -1,0 +1,43 @@
+name: Phase 2B Binance Inventory
+
+on:
+  push:
+    branches:
+      - refactor/lean-binance-adapter-boundaries
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Print exhaustive top-level definitions
+        shell: bash
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          for source in (
+              Path("trade_rl/integrations/binance.py"),
+              Path("trade_rl/integrations/binance_cache.py"),
+              Path("trade_rl/integrations/frozen_binance_metadata.py"),
+          ):
+              print(f"=== {source} ===")
+              tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+              for node in tree.body:
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                      print(f"{node.lineno:04d}-{node.end_lineno:04d} {type(node).__name__:<12} {node.name}")
+              for node in tree.body:
+                  if isinstance(node, ast.Assign):
+                      for target in node.targets:
+                          if isinstance(target, ast.Name) and target.id == "__all__":
+                              print("__all__:", ast.literal_eval(node.value))
+          PY

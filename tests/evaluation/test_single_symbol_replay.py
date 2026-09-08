@@ -96,4 +96,6 @@ def test_adverse_short_drift_is_hard_deleveraged_instead_of_crashing() -> None:
     assert len(result.returns.values) == 5
     assert result.book.fill_count > 1
     assert result.book.quantities[0] > -10.0
-    assert all(abs(decision.target_weight) <= 1.0 + 1e-10 for decision in result.decisions)
+    assert all(
+        abs(decision.target_weight) <= 1.0 + 1e-10 for decision in result.decisions
+    )

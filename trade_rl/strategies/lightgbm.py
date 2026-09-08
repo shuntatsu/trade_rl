@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, cast
 
@@ -109,7 +110,7 @@ class LightGBMForecastStrategy:
         return self.controller.decide(forecast, current=observation.current_intent)
 
 
-def _lightgbm_regressor_class() -> type[object]:
+def _lightgbm_regressor_factory() -> Callable[..., object]:
     try:
         module = importlib.import_module("lightgbm")
     except ModuleNotFoundError as exc:
@@ -119,7 +120,7 @@ def _lightgbm_regressor_class() -> type[object]:
     regressor_class = getattr(module, "LGBMRegressor", None)
     if regressor_class is None or not callable(regressor_class):
         raise RuntimeError("lightgbm.LGBMRegressor is unavailable")
-    return cast(type[object], regressor_class)
+    return cast(Callable[..., object], regressor_class)
 
 
 def fit_lightgbm_forecast(
@@ -140,10 +141,10 @@ def fit_lightgbm_forecast(
         fit_cutoff=fit_cutoff,
         horizon_hours=horizon_hours,
     )
-    regressor_class = _lightgbm_regressor_class()
+    regressor_factory = _lightgbm_regressor_factory()
     predictor = cast(
         _TrainableRegressor,
-        regressor_class(
+        regressor_factory(
             objective="regression",
             n_estimators=64,
             learning_rate=0.05,

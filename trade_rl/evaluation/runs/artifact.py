@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -70,7 +71,9 @@ def _validate_root(root: Path) -> tuple[Path, Path, Path]:
     for name in ("summary.json", "returns.npz", "provenance.json"):
         path = root / name
         if path.is_symlink() or not path.is_file():
-            raise ValueError(f"candidate artifact {name} must be a regular file, not a symlink")
+            raise ValueError(
+                f"candidate artifact {name} must be a regular file, not a symlink"
+            )
         resolved.append(path)
     return resolved[0], resolved[1], resolved[2]
 
@@ -119,7 +122,7 @@ def _load_returns(path: Path, *, expected_keys: frozenset[str]) -> dict[str, np.
                 if not np.isfinite(value).all():
                     raise ValueError("candidate return arrays must be finite")
                 loaded[key] = np.ascontiguousarray(value).copy()
-    except (OSError, EOFError, zipfile.BadZipFile) as error:  # type: ignore[name-defined]
+    except (OSError, EOFError, zipfile.BadZipFile) as error:
         raise ValueError("malformed candidate returns archive") from error
     return loaded
 

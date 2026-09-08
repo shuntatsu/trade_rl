@@ -198,9 +198,7 @@ def _comparison_payload(
                         "borrow_cost": diagnostics.borrow_cost,
                         "n_trades": diagnostics.n_trades,
                         "rebalance_events": diagnostics.rebalance_events,
-                        "termination_reasons": list(
-                            diagnostics.termination_reasons
-                        ),
+                        "termination_reasons": list(diagnostics.termination_reasons),
                     },
                     "final_portfolio_value": entry.replay.book.portfolio_value,
                     "fill_count": entry.replay.book.fill_count,

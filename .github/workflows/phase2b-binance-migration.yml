@@ -25,6 +25,31 @@ jobs:
       - name: Apply exhaustive Binance split
         run: python scripts/phase2b_migrate_binance.py
 
+      - name: Close generated import gaps
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          metadata = Path("trade_rl/integrations/binance/metadata.py")
+          text = metadata.read_text(encoding="utf-8")
+          old = "import json\nimport os\n"
+          if text.count(old) != 1:
+              raise SystemExit("metadata import insertion point did not match exactly once")
+          metadata.write_text(text.replace(old, "import json\nimport math\nimport os\n"), encoding="utf-8")
+
+          dataset = Path("trade_rl/integrations/binance/dataset.py")
+          text = dataset.read_text(encoding="utf-8")
+          old = "    _finite_float,\n    _market,\n)"
+          if text.count(old) != 1:
+              raise SystemExit("dataset _mode insertion point did not match exactly once")
+          dataset.write_text(
+              text.replace(old, "    _finite_float,\n    _market,\n    _mode,\n)"),
+              encoding="utf-8",
+          )
+          PY
+
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:

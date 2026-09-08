@@ -1,4 +1,4 @@
-"""Teacher-free PPO adapter for the lean single-symbol strategy contract."""
+"""Teacher-free PPO adapter for the lean per-symbol strategy contract."""
 
 from __future__ import annotations
 
@@ -82,18 +82,31 @@ def _intent_from_action(action: object) -> PositionIntent:
     return PositionIntent(value - 1)
 
 
-def _desired_quantity_from_weight(book: BookState, target_weight: float) -> float:
+def _desired_quantity_from_weight(
+    book: BookState,
+    target_weight: float,
+    *,
+    symbol_index: int,
+) -> float:
     multipliers = np.asarray(book.contract_multipliers, dtype=np.float64)
-    denominator = float(book.mark_prices[0] * multipliers[0])
+    denominator = float(book.mark_prices[symbol_index] * multipliers[symbol_index])
     return float(target_weight * book.portfolio_value / denominator)
 
 
-def _weight_for_desired_quantity(book: BookState, desired_quantity: float) -> float:
+def _weight_for_desired_quantity(
+    book: BookState,
+    desired_quantity: float,
+    *,
+    symbol_index: int,
+) -> float:
     if book.portfolio_value <= 0.0:
         return 0.0
     multipliers = np.asarray(book.contract_multipliers, dtype=np.float64)
     return float(
-        desired_quantity * book.mark_prices[0] * multipliers[0] / book.portfolio_value
+        desired_quantity
+        * book.mark_prices[symbol_index]
+        * multipliers[symbol_index]
+        / book.portfolio_value
     )
 
 
@@ -129,7 +142,7 @@ class PPOIntentStrategy:
 
 
 class PPOTradingEnv(gym.Env):
-    """Gym environment sharing the canonical lean replay economics."""
+    """Per-symbol episodes sharing one policy and one observation schema."""
 
     metadata = {"render_modes": []}
 
@@ -145,8 +158,8 @@ class PPOTradingEnv(gym.Env):
         execution_cost: ExecutionCostConfig | None = None,
     ) -> None:
         super().__init__()
-        if dataset.n_symbols != 1:
-            raise ValueError("PPOTradingEnv requires exactly one symbol")
+        if dataset.n_symbols <= 0:
+            raise ValueError("PPOTradingEnv requires at least one symbol")
         if (
             isinstance(start_index, bool)
             or not isinstance(start_index, int)
@@ -178,6 +191,7 @@ class PPOTradingEnv(gym.Env):
         )
         self.action_space = spaces.Discrete(3)
 
+        self.active_symbol_index = -1
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         self.risk = _default_risk(self.executor)
         self.book = self._initial_book()
@@ -189,25 +203,28 @@ class PPOTradingEnv(gym.Env):
     def _initial_book(self) -> BookState:
         initial_prices = self.dataset.resolved_array("mark_price")[self.start_index]
         return BookState.zero(
-            1,
+            self.dataset.n_symbols,
             self.initial_capital,
             initial_prices,
             contract_multipliers=self.dataset.contract_multipliers,
         )
 
     def _strategy_observation(self) -> StrategyObservation:
+        if self.active_symbol_index < 0:
+            raise RuntimeError("PPOTradingEnv must be reset before observation")
+        symbol_index = self.active_symbol_index
         return StrategyObservation(
             index=self.index,
             timestamp=self.dataset.timestamps[self.index],
-            symbol=self.dataset.symbols[0],
-            features=self.dataset.features[self.index, 0],
-            feature_available=self.dataset.feature_available[self.index, 0],
+            symbol=self.dataset.symbols[symbol_index],
+            features=self.dataset.features[self.index, symbol_index],
+            feature_available=self.dataset.feature_available[self.index, symbol_index],
             global_features=self.dataset.global_features[self.index],
             global_feature_available=self.dataset.resolved_array(
                 "global_feature_available"
             )[self.index],
             current_intent=self.current_intent,
-            current_weight=float(self.book.weights[0]),
+            current_weight=float(self.book.weights[symbol_index]),
         )
 
     def _encoded_observation(self) -> np.ndarray:
@@ -224,6 +241,7 @@ class PPOTradingEnv(gym.Env):
     ) -> tuple[np.ndarray, dict[str, object]]:
         del options
         super().reset(seed=seed)
+        self.active_symbol_index = (self.active_symbol_index + 1) % self.dataset.n_symbols
         self.executor = MarketExecutor(self.dataset, self.execution_cost)
         if seed is not None:
             self.executor.reset_random_state(seed)
@@ -233,7 +251,10 @@ class PPOTradingEnv(gym.Env):
         self.desired_quantity = 0.0
         self.index = self.start_index
         self._terminated = False
-        return self._encoded_observation(), {}
+        return self._encoded_observation(), {
+            "symbol_index": self.active_symbol_index,
+            "symbol": self.dataset.symbols[self.active_symbol_index],
+        }
 
     def step(
         self,
@@ -241,7 +262,10 @@ class PPOTradingEnv(gym.Env):
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, object]]:
         if self._terminated:
             raise RuntimeError("cannot step a terminated PPOTradingEnv")
+        if self.active_symbol_index < 0:
+            raise RuntimeError("PPOTradingEnv must be reset before stepping")
 
+        symbol_index = self.active_symbol_index
         intent = _intent_from_action(action)
         changed_intent = intent is not self.current_intent
         if changed_intent:
@@ -252,29 +276,34 @@ class PPOTradingEnv(gym.Env):
             self.desired_quantity = _desired_quantity_from_weight(
                 self.book,
                 proposal_weight,
+                symbol_index=symbol_index,
             )
 
         proposal_weight = _weight_for_desired_quantity(
             self.book,
             self.desired_quantity,
+            symbol_index=symbol_index,
         )
+        proposal_weights = np.zeros(self.dataset.n_symbols, dtype=np.float64)
+        proposal_weights[symbol_index] = proposal_weight
         constrained = self.risk.constrain(
-            np.asarray([proposal_weight], dtype=np.float64),
+            proposal_weights,
             current=self.book.weights,
             drawdown=self.book.max_drawdown,
         )
-        target_weight = float(constrained.weights[0])
+        target_weight = float(constrained.weights[symbol_index])
         if constrained.was_constrained and any(
             reason != "max_turnover" for reason in constrained.reasons
         ):
             self.desired_quantity = _desired_quantity_from_weight(
                 self.book,
                 target_weight,
+                symbol_index=symbol_index,
             )
 
         execution = self.executor.execute_interval(
             self.book,
-            np.asarray([target_weight], dtype=np.float64),
+            constrained.weights,
             start_index=self.index,
             bars=1,
         )
@@ -290,6 +319,8 @@ class PPOTradingEnv(gym.Env):
         )
         observation = self._encoded_observation()
         info: dict[str, object] = {
+            "symbol_index": symbol_index,
+            "symbol": self.dataset.symbols[symbol_index],
             "intent": intent,
             "target_weight": target_weight,
             "interval_net_return": execution.interval_net_return,
@@ -309,7 +340,7 @@ def fit_ppo_strategy(
     initial_capital: float = 100_000.0,
     execution_cost: ExecutionCostConfig | None = None,
 ) -> PPOIntentStrategy:
-    """Fit the one supported teacher-free PPO candidate and return its adapter."""
+    """Fit one teacher-free policy across equal round-robin symbol episodes."""
 
     if (
         isinstance(total_timesteps, bool)

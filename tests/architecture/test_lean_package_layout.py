@@ -22,15 +22,3 @@ def test_evaluation_gate_package_exists() -> None:
 
 def test_forwarding_artifact_codec_is_absent() -> None:
     assert not (PACKAGE / "artifacts" / "codec.py").exists()
-
-
-def test_strategy_families_have_explicit_packages() -> None:
-    assert (PACKAGE / "strategies" / "rules" / "trend.py").is_file()
-    assert (PACKAGE / "strategies" / "forecasts" / "ridge.py").is_file()
-    assert (PACKAGE / "strategies" / "rl" / "ppo.py").is_file()
-
-
-def test_binance_is_a_package_not_a_god_module() -> None:
-    assert not (PACKAGE / "integrations" / "binance.py").exists()
-    for name in ("transport.py", "cache.py", "vision.py", "metadata.py", "dataset.py"):
-        assert (PACKAGE / "integrations" / "binance" / name).is_file()

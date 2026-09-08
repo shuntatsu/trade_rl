@@ -45,7 +45,13 @@ jobs:
           tests/evaluation tests/strategies tests/integrations
 
       - name: Format
-        run: uv run ruff format --diff trade_rl/strategies/ridge.py
+        run: >-
+          uv run ruff format --check
+          trade_rl/artifacts trade_rl/domain trade_rl/data trade_rl/risk
+          trade_rl/simulation trade_rl/evaluation trade_rl/strategies
+          trade_rl/integrations
+          tests/artifacts tests/data tests/risk tests/simulation
+          tests/evaluation tests/strategies tests/integrations
 
       - name: Mypy
         run: >-

@@ -18,6 +18,15 @@ class AlwaysLong:
         return PositionIntent.LONG
 
 
+@dataclass
+class AlwaysShort:
+    observations: list[object] = field(default_factory=list)
+
+    def decide(self, observation: object) -> PositionIntent:
+        self.observations.append(observation)
+        return PositionIntent.SHORT
+
+
 def _rising_market() -> MarketDataset:
     close = np.asarray([[100.0], [100.0], [110.0], [120.0], [130.0], [140.0]])
     open_price = np.vstack((close[0], close[:-1]))
@@ -72,3 +81,19 @@ def test_repeated_long_intent_holds_quantity_instead_of_rebalancing_weight() -> 
     assert getattr(first_observation, "index") == 0
     features = getattr(first_observation, "features")
     assert features.flags.writeable is False
+
+
+def test_adverse_short_drift_is_hard_deleveraged_instead_of_crashing() -> None:
+    result = evaluation.run_single_symbol_replay(
+        _rising_market(),
+        AlwaysShort(),
+        start_index=0,
+        stop_index=5,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+    )
+
+    assert len(result.returns.values) == 5
+    assert result.book.fill_count > 1
+    assert result.book.quantities[0] > -10.0
+    assert all(abs(decision.target_weight) <= 1.0 + 1e-10 for decision in result.decisions)

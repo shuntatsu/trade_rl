@@ -9,7 +9,7 @@ from enum import StrEnum
 
 import numpy as np
 
-from trade_rl.domain.common import require_aware_datetime, require_non_empty
+from trade_rl._validation import require_aware_datetime, require_non_empty
 
 
 class VolumeUnit(StrEnum):

@@ -9,13 +9,13 @@ from enum import Enum
 
 import numpy as np
 
+from trade_rl._validation import require_sha256, require_unique_non_empty
 from trade_rl.data.contracts import VolumeUnit
 from trade_rl.data.identity import (
     canonical_identity_json,
     compute_market_dataset_id,
     parse_identity_json,
 )
-from trade_rl.domain.common import require_sha256, require_unique_non_empty
 
 _HOURS_PER_YEAR = 365.0 * 24.0
 _NS_PER_HOUR = 3_600_000_000_000

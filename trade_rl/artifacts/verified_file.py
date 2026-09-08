@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO
 
-from trade_rl.domain.common import require_sha256
+from trade_rl._validation import require_sha256
 
 
 def file_digest_and_size(

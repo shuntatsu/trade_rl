@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from trade_rl.domain.evaluation import GateCheck
-from trade_rl.evaluation.gates import resolve_gate
+from trade_rl.evaluation.gates import GateCheck, resolve_gate
 
 DATASET_ID = "a" * 64
 EVALUATION_DIGEST = "b" * 64

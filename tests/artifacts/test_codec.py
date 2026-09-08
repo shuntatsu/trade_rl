@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 
 

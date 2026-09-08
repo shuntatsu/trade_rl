@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 
-from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes
 
 
 def content_digest(value: object) -> str:

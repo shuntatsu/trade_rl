@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-import trade_rl.artifacts.codec as codec
+import trade_rl.artifacts.canonical as codec
 from trade_rl.artifacts.store import ArtifactStore
 
 

@@ -5,7 +5,7 @@ import hashlib
 import numpy as np
 import pytest
 
-from trade_rl.artifacts.codec import canonical_json_bytes
+from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.simulation.orders import (
     OrderBookState,
     OrderDomainError,

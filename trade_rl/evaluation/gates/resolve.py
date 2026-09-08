@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from trade_rl.domain.evaluation import GateCheck, GateDecision
+from trade_rl.evaluation.gates.models import GateCheck, GateDecision
 
 
 def resolve_gate(
@@ -31,3 +31,6 @@ def resolve_gate(
         checks=checks,
         decided_at=decided_at,
     )
+
+
+__all__ = ["resolve_gate"]

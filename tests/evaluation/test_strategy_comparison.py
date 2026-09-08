@@ -3,8 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import trade_rl.evaluation as evaluation
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.strategy_comparison import (
+    UniversalStrategyComparison,
     compare_strategies,
     compare_strategies_by_symbol,
 )
@@ -116,6 +118,11 @@ def test_comparison_keeps_each_symbol_result_separate() -> None:
     assert btc.metrics.total_return > 0.0
     assert eth.metrics.total_return < 0.0
     assert btc.name == eth.name == "long"
+
+
+def test_universal_comparison_is_exposed_from_evaluation_public_api() -> None:
+    assert evaluation.UniversalStrategyComparison is UniversalStrategyComparison
+    assert evaluation.compare_strategies_by_symbol is compare_strategies_by_symbol
 
 
 def test_comparison_rejects_empty_or_invalid_strategy_names() -> None:

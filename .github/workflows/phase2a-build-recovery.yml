@@ -84,6 +84,9 @@ jobs:
       - name: Fix import order only
         run: uv run ruff check --fix --select I001 trade_rl tests
 
+      - name: Format generated build package only
+        run: uv run ruff format trade_rl/data/build/__init__.py
+
       - name: Ruff
         run: uv run ruff check trade_rl tests
 

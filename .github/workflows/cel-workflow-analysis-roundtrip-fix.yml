@@ -1,0 +1,51 @@
+name: Fix Workflow Analysis Roundtrip
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-workflow-analysis-roundtrip-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Apply canonical analysis comparison
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/workflow.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    payload = _mapping(raw, field=field)\n    _verify_derived_payload(payload, field=field)\n    if payload != expected:\n        raise ArtifactIntegrityError(f"{field} does not match reconstructed evidence")\n'''
+          new = '''    payload = _mapping(raw, field=field)\n    _verify_derived_payload(payload, field=field)\n    _verify_derived_payload(expected, field=f"reconstructed {field}")\n    if canonical_json_bytes(payload) != canonical_json_bytes(expected):\n        raise ArtifactIntegrityError(f"{field} does not match reconstructed evidence")\n'''
+          if text.count(old) != 1:
+              raise SystemExit("analysis roundtrip comparison block mismatch")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          uv run ruff check --fix trade_rl/evaluation/experiments/workflow.py
+          uv run ruff format trade_rl/evaluation/experiments/workflow.py
+          uv run pytest -q tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py tests/evaluation/experiments/test_workflow_atomicity.py tests/evaluation/experiments/test_workflow_candidate_atomicity.py
+          uv run mypy trade_rl/evaluation/experiments/workflow.py
+      - name: Commit and remove helper
+        run: |
+          rm .github/workflows/cel-workflow-analysis-roundtrip-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/workflow.py .github/workflows/cel-workflow-analysis-roundtrip-fix.yml
+          git diff --cached --check
+          git commit -m "fix: compare reconstructed analysis canonically"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import math
 from dataclasses import dataclass
 from typing import Protocol, cast
 

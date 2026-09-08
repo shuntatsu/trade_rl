@@ -80,6 +80,39 @@ def market() -> MarketDataset:
     )
 
 
+def pooled_market() -> MarketDataset:
+    close = np.asarray(
+        [
+            [100.0, 200.0],
+            [100.0, 200.0],
+            [110.0, 190.0],
+            [121.0, 180.0],
+        ]
+    )
+    features = np.zeros((4, 2, 1), dtype=np.float32)
+    features[:, 0, 0] = np.arange(4, dtype=np.float32)
+    features[:, 1, 0] = 100.0 + np.arange(4, dtype=np.float32)
+    return MarketDataset(
+        dataset_id="5" * 64,
+        symbols=("BTCUSDT", "ETHUSDT"),
+        timestamps=np.datetime64("2026-01-01", "ns")
+        + np.arange(4) * np.timedelta64(1, "h"),
+        features=features,
+        global_features=np.zeros((4, 1), dtype=np.float32),
+        open=close.copy(),
+        high=close.copy(),
+        low=close.copy(),
+        close=close,
+        volume=np.full((4, 2), 1_000_000.0),
+        funding_rate=np.zeros((4, 2)),
+        tradable=np.ones((4, 2), dtype=np.bool_),
+        feature_available=np.ones((4, 2, 1), dtype=np.bool_),
+        feature_names=("signal",),
+        global_feature_names=("regime",),
+        periods_per_year=8_760,
+    )
+
+
 def observation() -> StrategyObservation:
     return StrategyObservation(
         index=0,
@@ -142,6 +175,32 @@ def test_env_reward_and_quantity_hold_match_canonical_replay() -> None:
     np.testing.assert_allclose(rewards, expected_rewards)
     assert env.book.quantities == replay.book.quantities
     assert env.book.portfolio_value == replay.book.portfolio_value
+
+
+def test_pooled_env_cycles_symbols_without_symbol_identity_in_observation() -> None:
+    env = PPOTradingEnv(
+        pooled_market(),
+        feature_indices=(0,),
+        start_index=0,
+        stop_index=3,
+        gross_budget=0.5,
+        initial_capital=1_000.0,
+        execution_cost=ExecutionCostConfig.zero(),
+    )
+
+    first_observation, _ = env.reset(seed=3)
+    assert env.active_symbol_index == 0
+    assert first_observation.shape == (4,)
+
+    second_observation, _ = env.reset()
+    assert env.active_symbol_index == 1
+    assert second_observation.shape == (4,)
+    _, _, _, _, _ = env.step(2)
+    assert env.book.quantities[0] == 0.0
+    assert env.book.quantities[1] > 0.0
+
+    env.reset()
+    assert env.active_symbol_index == 0
 
 
 def test_fit_uses_small_teacher_free_standard_ppo(monkeypatch) -> None:

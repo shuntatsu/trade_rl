@@ -146,3 +146,14 @@ def test_fit_symbol_scope_rejects_empty_duplicate_or_out_of_range_indices(
             fit_cutoff=np.datetime64("2026-01-01T08:00:00", "ns"),
             horizon_hours=2,
         )
+
+
+def test_explicit_fit_scope_rejects_a_symbol_with_no_eligible_rows() -> None:
+    with pytest.raises(ValueError, match="fit symbol.*eligible training rows"):
+        build_causal_forecast_training_set(
+            pooled_market(),
+            feature_indices=(0, 1),
+            fit_symbol_indices=(0, 1),
+            fit_cutoff=np.datetime64("2026-01-01T04:00:00", "ns"),
+            horizon_hours=2,
+        )

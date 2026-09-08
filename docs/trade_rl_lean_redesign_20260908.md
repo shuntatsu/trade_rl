@@ -1,78 +1,56 @@
 # Trade RL：Lean Redesign 2026-09-08
 
-作成日: 2026-09-08 (JST)
-状態: 現行の再設計方針。旧世代の研究構造を継承するための文書ではない。
-基準: `main`。過去の実験結果そのものはGit履歴・report artifactの事実として保持するが、旧設計を現行契約として維持しない。
+作成日: 2026-09-08 (JST)  
+状態: 現行設計・実装契約  
+基準: `main`
 
 ## 0. 結論
 
-Trade RLは、旧U系・Causal Alpha世代・teacher→admission→BC→RLの多段研究構造を積み増す方針をやめる。
+Trade RLは、旧U系・Causal Alpha世代・teacher → admission → BC → RLの多段構造を現行研究基盤として維持しない。
 
-現行の目的は一つだけとする。
+現在の目的は一つだけである。
 
-> 同じ市場情報と同じ実行条件の下で、各銘柄を独立にlong/shortし、現実的なコスト控除後の資産成長を、未使用データで再現可能に確認する。
+> **銘柄IDに依存しない一つの共通戦略を学習し、各銘柄を独立にlong / shortし、point-in-time情報と同一の約定・会計条件の下で、コスト控除後の資産成長が未使用データでも再現するかを検証する。**
 
-この目的に直接必要でない機能は削除候補とする。残す核は次の5点だけである。
+現mainでは、この目的に必要なlean coreとM2比較基盤まで実装済みである。
 
-1. causal / point-in-time data
-2. 一つの約定・会計ledger
-3. hard safety / execution feasibility
-4. 差し替え可能な小さなstrategy interface
-5. walk-forward / unseen / stressを含む共通評価
+- causal / point-in-time `MarketDataset`
+- 一つの`MarketExecutor` / `BookState`会計経路
+- hard risk / execution feasibility
+- `SHORT / FLAT / LONG`の小さなstrategy interface
+- quantity-preserving hold
+- trend / mean reversion / Ridge24 / LightGBM24 / teacher-free PPO
+- cash / constant long / constant short controls
+- 銘柄IDを特徴へ入れないuniversal supervised fit
+- 銘柄ごとの学習寄与を均等化したRidge / LightGBM
+- 銘柄をround-robinするuniversal PPO training
+- 同じ凍結strategyを全銘柄へ独立Replayする評価
+- filesystem dataset artifactから比較を実行し、immutable result artifactを保存するrunner
 
-戦略は最初から一つの学習方式へ固定しない。`rule`、`forecast + controller`、`teacher-free PPO`の3系統を同じ本体で比較し、支持されなかった系統は現行コードから削除する。
-
-収益性、研究上の支持、Production認可は別である。ソフトウェアが動くこと、backtestが正になること、将来利益が保証されることを混同しない。
-
----
-
-## 1. 何を捨てるか
-
-旧構造は互換性維持を目的に残さない。削除はGit履歴からの復元可能性を確認したうえで行う。
-
-### 削除・切離し対象
-
-- `causal_alpha_v*`のような世代別アルゴリズム本体、世代別workflow、runner、configの積み増し
-- teacher selection → admission → BC → critic warm-start → PPOを必須にする直列経路
-- BC / DAgger / critic warm-startを「まず必要」とする契約
-- PPO、Lagrangian、discounted、CostCritic、SAC、TD3、TQC等を同時に維持する初期研究面
-- 大型sequence encoder、hierarchical gate、asset/timeframe attention等の未証明の複雑性
-- 研究UIを学習・評価の必須依存にする構造
-- PostgreSQL catalogを研究実行の必須依存にする構造
-- offline研究に不要なserving、署名、release、live-order関連依存
-- 古い世代だけを守るREADME、docs、Actions、coverage requirement、compatibility adapter
-
-### 残すもの
-
-- source data identity / timestamp / availability
-- deterministic feature generation
-- fillベースのfee、spread、impact、funding、borrow、mark-to-market
-- partial fill、latency、capacity、minimum notional、tick、lot
-- max exposure、leverage、margin、drawdown stop等のhard safety
-- immutable run configと結果
-- train / development / final evaluationの分離
-
-削除した機能のためだけのtestは一緒に削除してよい。一方、因果性、会計、hard-risk、未来情報漏洩を検出するtestは残す。
+**ただし、収益性はまだ証明されていない。** ここからの主作業は、新しいarchitectureをさらに増やすことではなく、実データdevelopment runを実行し、5候補+3 controlsの証拠を比較することである。
 
 ---
 
-## 2. 新しい最小アーキテクチャ
+## 1. 現行の最小構造
 
 ```text
 trade_rl/
-  data/          point-in-time market data / features
-  simulation/    one execution + accounting ledger
-  risk/          hard safety + feasibility only
-  strategies/    rule / forecast / ppo adapters
-  evaluation/    walk-forward / metrics / stress
-  cli/           run / evaluate
+  data/          point-in-time market dataset / artifact
+  simulation/    execution + accounting ledger
+  risk/          hard safety / feasibility
+  strategies/    rule / forecast / teacher-free PPO
+  evaluation/    replay / metrics / comparison / candidate run
 ```
 
-新しい汎用plugin framework、研究DB、UI schedulerは作らない。
+研究DB、UI、teacher generations、世代別runner、複数RL algorithm群を必須経路に戻さない。
 
-各strategyは同じinterfaceで、decision時点で観測可能なstateだけを受け取り、logical position intentを返す。
+Git履歴は旧コードの保存場所として扱い、現mainを旧architectureの博物館にしない。
 
-初回actionは次の3値を基本とする。
+---
+
+## 2. Strategy contract
+
+各strategyはdecision時点で観測可能なstateだけを受け取り、次のlogical intentを返す。
 
 ```text
 SHORT
@@ -80,247 +58,383 @@ FLAT
 LONG
 ```
 
-既にLONGで次もLONGなら、原則として新規注文ではなく保有継続である。価格変動によるweight driftを毎decisionで元weightへ戻すことを標準挙動にしない。
+### 保有継続
 
-注文intent、projected position、realized positionは分ける。未約定注文を約定済みpositionとしてstate更新しない。
+既にLONGで次もLONG、または既にSHORTで次もSHORTなら、価格変動によるweight driftを毎decisionで元weightへ戻さない。
+
+標準挙動は**quantity hold**である。
+
+intentが変化した場合だけ新しいtarget quantityを決め、その後はhard riskが必要な場合だけde-riskする。
+
+これにより、同じ売買判断なのに毎bar不要なrebalance costを発生させる構造を避ける。
 
 ---
 
-## 3. StrategyとRiskの責任を分ける
+## 3. StrategyとRiskの責任分離
 
-旧構造ではstrategy/controllerと`PreTradeRisk`の双方にentry/exit/no-trade判断が入り得た。新構造では、経済的な売買判断をstrategy側へ一元化する。
+### Strategy
 
-### Strategy側
+- entry
+- hold
+- exit
+- reversal
+- signal / forecastに基づく経済判断
 
-- entry / hold / exit / reversal
-- signal confidence
-- turnoverを払って変更する価値
-- 通常のdecision cadence
+### Risk / Execution
 
-### Risk / Execution側
-
-- max exposure / max leverage
+- max gross exposure
+- max absolute weight
+- max leverage
 - margin / insolvency
 - drawdown emergency
 - liquidity / participation capacity
-- tick / lot / minimum notional
-- inactive / untradable状態
-- invalid / non-finite stateのfail closed
+- minimum notional
+- tick / lot
+- inactive / untradable
+- invalid stateのfail closed
 
-取引所minimum notionalは削除しない。削除するのは、同じentry判断を複数層で重ねる不要なsoft ruleである。
+同じentry判断をstrategyとriskの双方へ重複実装しない。
 
 ---
 
-## 4. 比較する戦略は最初の5候補だけ
+## 4. 初回比較対象は5候補 + 3 controlsに固定
 
-同じtrain scope、features、cost、risk、reset、evaluationで以下を比較する。
-
-| ID | 系統 | 初回内容 |
+| 名前 | 系統 | 内容 |
 |---|---|---|
-| T | rule | 共通パラメータのtrend |
-| M | rule | 共通パラメータのmean reversion |
-| R24 | forecast | 小さなRidgeによる24h予測 + 単一controller |
-| G24 | forecast | 浅いLightGBMによる24h予測 + 同一controller |
-| P | RL | teacher-freeの小型PPO |
+| `trend` | rule | 単一signalのtrend + hysteresis |
+| `mean_reversion` | rule | 単一signalのmean reversion + hysteresis |
+| `ridge24` | forecast | universal Ridge 24h forecast + 共通controller |
+| `lightgbm24` | forecast | universal shallow LightGBM 24h forecast + 共通controller |
+| `ppo` | RL | universal teacher-free PPO、64×64 actor / critic |
+| `cash` | control | 常時FLAT |
+| `constant_long` | control | 常時LONG |
+| `constant_short` | control | 常時SHORT |
 
-対照として`cash`、`constant long`、`constant short`を必ず出す。
+初回からTransformer、SAC、TD3、TQC、複数horizon ensemble、大規模hyperparameter gridを追加しない。
 
-初回から24h/72h混合、複数LightGBM grid、Transformer、SAC/TQC等を並べない。多方面を検討することと、候補数を無制限に増やすことは分ける。
-
-### 選択原則
+### 採用原則
 
 - ruleが同等以上ならruleを優先
-- forecastが優位でPPOが上乗せしないならforecastだけ残す
-- teacher-free PPOが未使用データでも安定して優位ならPPOを残す
-- 差が不明ならより単純なものを残す
-- 全候補が弱い場合、無理にwinnerを作らない
+- forecastが明確に優位でPPOが上乗せしないならforecastを優先
+- PPOは未使用データでも安定して上乗せするときだけ残す
+- 差が不明ならより単純な候補を残す
+- 全候補が弱ければ**no winner**を正しい結論とする
 
 ---
 
-## 5. Data設計
+## 5. Universal model contract
 
-15分barの行数を独立経験数と見なさない。24h予測では隣接labelが大きく重複し、複数銘柄も同じmarket shockを共有する。
+最終目的は「銘柄ごとに別モデルを作る」ことではない。
 
-### 必須ルール
+### 共通ルール
+
+- symbol IDをmodel featureへ入れない
+- symbol-specific coefficient / embeddingを初期modelへ入れない
+- 同じfeature schemaを使う
+- 同じfit cutoffを使う
+- 同じ凍結model / policyを全銘柄へ適用する
+- 評価時は各銘柄を独立portfolioとしてReplayする
+
+### Ridge / LightGBM
+
+supervised training rowは全銘柄からpoolする。
+
+各銘柄のeligible row数が異なっても、一つの銘柄が行数だけで学習を支配しないよう、**各銘柄の総sample weightを等しくする**。
+
+Ridgeではweighted mean / variance / intercept / normal equationを使用する。LightGBMでは同じweightを`sample_weight`としてfitへ渡す。
+
+### PPO
+
+PPOの観測は次だけである。
+
+```text
+selected features
+feature availability
+current intent
+current weight
+```
+
+symbol IDは入れない。
+
+training episodeはdatasetの銘柄をround-robinで巡回し、各episodeでは一つのactive symbolだけを売買する。これにより一つのpolicyを全銘柄へ共有する。
+
+---
+
+## 6. Causality / Data contract
+
+必須条件:
 
 - `feature_available_time <= decision_time`
-- training rowは`label_end_time < fit_cutoff`
-- normalizer / scaler / imputation statisticsもfit prefixだけで計算
-- future / admission / final testをfeature選択、threshold選択、early stoppingへ戻さない
-- 同じcalendar blockの複数銘柄を独立標本として水増ししない
+- supervised labelは`label_end_time < fit_cutoff`
+- scaler / normalization / imputation statisticsをfutureから計算しない
+- development / final futureをfeature選択やthreshold調整へ戻さない
+- 15分barの行数を独立標本数と解釈しない
+- 同calendar shockを受けた複数銘柄を統計上の完全独立標本として扱わない
 
-### 初回feature family
-
-特徴量は意味のある少数familyへ縮約する。
+### 初期feature family
 
 - multi-horizon returns
 - realized volatility / range / candle geometry
-- trend distance / moving-average distance
+- trend / moving-average distance
 - volume activity
-- point-in-timeで検証できるfunding / basis / mark-index information
+- point-in-timeで検証可能なfunding / basis / mark-index情報
 
-目安は20〜40列程度だが、列数自体を目標にしない。大量の相関指標を重複投入しない。
-
-全候補が弱い場合、次に増やすのはmodel sizeではなく、情報源、期間、horizon、market-regime仮説を優先する。
+モデルサイズより先に、情報の因果性と有効性を疑う。
 
 ---
 
-## 6. Execution / Accountingは一つにする
+## 7. Execution / Accounting contract
 
-P&Lの正本は一つのledgerだけにする。
+P&Lの正本は`MarketExecutor` + `BookState`の一経路だけにする。
 
-必須照合:
+必須:
 
-- order submissionとfillを区別
-- feeはfillで一度だけ計上
-- spread / impactをfill priceへ反映した場合の二重控除を禁止
-- partial fill後のpositionはfill quantityで更新
-- fundingは対象時刻・符号・position quantityに対して一度だけ計上
-- borrow、mark-to-market、liquidationを別channelで照合
-- episode終端のmark-to-marketとforced closeを混同しない
+- submissionとfillを分離
+- feeはfill時に一度だけ計上
+- spread / impactの二重控除を禁止
+- partial fill後はrealized fill quantityでposition更新
+- fundingは対象時刻・符号・quantityに対して一度だけ計上
+- borrow / mark-to-market / liquidationを別channelで追跡
+- terminal mark-to-marketとforced closeを混同しない
 
-OHLCVだけからqueue positionやhidden liquidityを復元したとは主張しない。初回はmarket orderを基本とし、根拠のないmaker optimizationを追加しない。
+candidate runnerの初期execution overlayはzeroである。ただしこれは「取引コストゼロ」を意味しない。dataset内のpoint-in-time `fee_rate`、venue fee、spread等のexecution fieldは`MarketExecutor`でそのまま使用される。
 
-### golden fixtures
-
-本体置換前に最低限次を手計算で照合する。
-
-1. cash
-2. constant long
-3. constant short
-4. one entry + one exit
-5. partial fill
-6. no fill
-7. funding payment
-8. funding receipt
-9. drawdown emergency reduction
-10. terminal mark-to-market
-
-この10件が正しくない状態でstrategy比較へ進まない。
+OHLCVからqueue positionやhidden liquidityを復元したとは主張しない。
 
 ---
 
-## 7. PPOは小さく、独立に評価する
+## 8. 銘柄別評価を正本にする
 
-teacherが黒字であることをteacher-free PPOの研究開始条件にしない。
-
-初回は標準PPO + 小型MLPを使う。目安としてactor / critic各64x64程度から始める。巨大encoder、独自gate、DAgger、critic warm-startは入れない。
-
-rewardは原則として実コスト控除後のinterval net log growthとする。
+同じstrategy objectを各銘柄へ独立Replayする。
 
 ```text
-reward_t = scale * log(E_after / E_before)
+universal frozen strategy
+  ├─ BTCUSDT independent replay
+  ├─ ETHUSDT independent replay
+  ├─ ...
+  └─ each symbol retained separately
 ```
 
-flat罰、trade bonus、既にledgerへ入ったfeeの二重penaltyを追加しない。
+**aggregate P&Lを正本にしない。**
 
-ただし、短期rolloutと長期保有利益の整合はsynthetic taskで先に検査する。即時costがあり、数時間〜数日holdすれば利益になるtoy marketを標準PPOが学習できない場合、実市場での敗因と混同せず、rollout、GAE、episode boundary、state/action semanticsを調べる。
+BTCの利益でETHの損失を相殺し、「全銘柄で成功した」ように見せることを禁止する。
+
+`UniversalStrategyComparison.by_symbol`が主要な比較結果である。
+
+各銘柄×strategyについて最低限以下を保持する。
+
+- total return
+- Sharpe
+- Sortino
+- maximum drawdown
+- turnover
+- total execution cost
+- funding P&L
+- borrow cost
+- trade count
+- rebalance count
+- termination
+- raw interval returns
 
 ---
 
-## 8. 評価契約
+## 9. M1 / M2 / M3の現在地
 
-評価は三段階に分ける。
+### M1: Lean core — 完了
 
-### Development
+実装済み:
 
-仮説・実装の比較。ここで何度も見た期間は未使用testではない。
+- filesystem `MarketDataset` artifact
+- canonical execution / accounting
+- hard-risk projection
+- quantity-preserving replay
+- single-symbol / selected-symbol independent replay
+- DB / UI / teacher pipelineを必要としないcore CI
 
-### Frozen final evaluation
+M1の完了条件:
 
-候補、features、hyperparameters、seed policy、cost/riskをfreezeした後に一度だけ開く。
+> DB・UI・teacher pipelineなしで、同一ledgerによる正しい独立symbol replayを実行できること。
 
-### Stress
+現mainはこの条件を満たす。
 
-採用候補に対し、事前固定した条件で以下を確認する。
+### M2: Common comparison — 基盤完了、実データ比較未実施
 
-- fee / spread / impact adverse
+実装済み:
+
+- 5候補 + 3 controls
+- universal Ridge / LightGBM / PPO fit
+- symbol-balanced supervised training
+- symbol-ID-free PPO
+- 全銘柄独立comparison
+- filesystem candidate runner
+- immutable result artifact
+
+未完了:
+
+1. 実データdevelopment artifactを選ぶ
+2. feature名・fit cutoff・development windowをfreezeする
+3. 8候補を実行する
+4. 全銘柄結果を完全報告する
+5. winnerをfreezeする、またはno-winnerと判断する
+
+### M3: Finalize and delete — 未着手
+
+M2で候補が決まった後だけ進む。
+
+1. frozen candidateを未使用future / zero-shotで評価
+2. pre-registered stressを実行
+3. 支持されなかったstrategy familyを削除
+4. README / config / CI / testsを採用構成へさらに縮約
+5. Production認可は研究結果とは別に扱う
+
+---
+
+## 10. 実データdevelopment runの実行方法
+
+必要なのは次の3つだけである。
+
+1. canonical filesystem dataset artifact
+2. 一つのJSON config
+3. 新規のoutput directory名
+
+### JSON config
+
+```json
+{
+  "signal_name": "<rule signal feature name>",
+  "feature_names": ["<feature A>", "<feature B>"],
+  "fit_cutoff": "2026-01-01T00:00:00",
+  "evaluation_start": "2026-01-01T00:00:00",
+  "evaluation_stop_exclusive": "2026-02-01T00:00:00",
+  "rule_entry_threshold": 0.10,
+  "rule_exit_threshold": 0.02,
+  "forecast_entry_threshold": 0.01,
+  "forecast_exit_threshold": 0.002,
+  "ppo_total_timesteps": 100000,
+  "ppo_seed": 0,
+  "gross_budget": 0.5,
+  "initial_capital": 100000.0
+}
+```
+
+時刻はdataset timestampへ**exact match**する必要がある。
+
+### 実行
+
+```bash
+uv run --extra forecast-gbm --extra train-sb3 \
+  python -m trade_rl.evaluation.candidate_run \
+  --dataset <dataset-artifact-dir> \
+  --config <run-config.json> \
+  --output <new-result-dir>
+```
+
+既存output directoryへの上書きは拒否する。
+
+### 出力
+
+```text
+<new-result-dir>/
+  summary.json
+  returns.npz
+```
+
+`summary.json`:
+
+- dataset identity
+- symbols
+- fit / evaluation scope
+- 各symbol × 各strategyのmetrics
+- execution diagnostics
+- final portfolio value
+- fill count
+- raw return arrayへのkey
+
+`returns.npz`:
+
+- 各symbol × 各strategyのinterval return series
+- paired comparison / block bootstrap等の後段解析に再利用可能
+
+このartifactをdevelopment evidenceの正本とする。
+
+---
+
+## 11. Development後の判断手順
+
+結果を見たら、architectureを増やす前に次の順で判断する。
+
+1. controlsより本当に上か
+2. 全銘柄で符号・drawdown・costが許容可能か
+3. 特定一銘柄だけが利益を作っていないか
+4. turnover / costでgross edgeが消えていないか
+5. ruleとforecastの差は十分大きいか
+6. PPOが単純候補へ本当に上乗せしているか
+7. raw returnsで時間block依存・regime依存が強すぎないか
+8. 差が弱ければ単純側を残す
+9. 全て弱ければno-winner
+
+no-winnerの場合に最初に増やす候補はmodel sizeではない。
+
+優先順位:
+
+1. 情報源
+2. feature causality / quality
+3. prediction horizon
+4. market regime仮説
+5. 対象期間
+6. その後にmodel complexity
+
+---
+
+## 12. Final evaluation / Stress contract
+
+Developmentで何度も見た期間はfinal testではない。
+
+候補、feature、threshold、seed policy、cost/riskをfreezeした後、未使用futureを一度だけ開く。
+
+採用候補には事前固定したstressをかける。
+
+- fee adverse
+- spread adverse
+- impact adverse
 - +1 decision latency
 - capacity reduction
 - initial capital sensitivity
-- funding / borrow coverageが必要な期間
+- funding / borrow coverage確認
 
 stress結果を見てから合格thresholdを変更しない。
 
-### 指標
-
-最低限、次を同じscopeで報告する。
-
-- net log growth
-- gross P&L
-- execution cost decomposition
-- maximum drawdown
-- realized exposure
-- turnover
-- trade/fill count
-- worst time block
-- symbol別結果
-- seed dispersion
-- runtime / memory
-
-`positive episode fraction >= 0.5`のように資産成長から直接導けない条件は、原則diagnosticへ移す。hard risk、損失上限、turnover budget等、実際の制約として根拠を説明できるものだけをgateにする。
-
-全銘柄での成立という最終目標は残す。ただし、開発途中の診断で一部銘柄の不振原因を調査することまで禁止しない。結果後に銘柄を削除して「全銘柄成功」とは呼ばない。
-
 ---
 
-## 9. 実装順序
+## 13. 削除ルール
 
-### M1: Lean core
+Git履歴が残るため、現mainへ旧世代を残すことを「保存」と定義しない。
 
-1. 現mainと必要artifactの復元点を固定
-2. data / execution / accounting / hard-riskの必要部分を抽出
-3. golden fixturesを通す
-4. DB / UI / teacher generations / old runnersへの依存を外す
-5. 単一symbol replayをfilesystem artifactだけで実行可能にする
+削除前に守るもの:
 
-M1の完了条件は「旧世代が全部再実行できる」ではない。
-
-> DB・UI・teacher pipelineなしで、正しい単一symbol replayとledgerを生成できること。
-
-### M2: Common comparison
-
-1. 5候補 + 3 controlsを同一条件で実行
-2. development dataで全候補を完全報告
-3. 不要な複雑性を追加せず、原因別に一変更だけ試す
-4. 候補を一つにfreeze、またはno-winnerで終了
-
-### M3: Finalize and delete
-
-1. frozen candidateを未使用future / zero-shotで評価
-2. stressを実行
-3. 支持されなかったstrategy familyを削除
-4. 現行README / config / CI / testsを採用構成だけに整理
-5. Productionは別認可として維持
-
----
-
-## 10. 削除の運用ルール
-
-Git履歴が保存されているため、現mainに旧世代を残すことを「保存」と定義しない。
-
-ただし次は削除前に退避・確認する。
-
-- source data / non-regenerable raw artifacts
+- source data / non-regenerable raw artifact
 - 未記録の実験結果
-- 正確な再現に必要なlock / config / commit
-- 稼働中runの結果
-- licensing notice等の法的に必要な情報
+- exact reproductionに必要なcommit / lock / config
+- licensing notice
 
-世代別コードを削除するときは、import graph、CLI entry point、config reader、CI、docs、testを同時に整理し、dead adapterだけを残さない。
+候補選定後は、支持されなかったstrategy family、その専用test、不要extra、dead adapterを一緒に削除する。
 
-削除率やファイル数をKPIにしない。KPIは、同じ研究目的をより少ない責務・依存・分岐で正しく実行できることである。
+削除率やファイル数をKPIにしない。
+
+KPIは、**同じ研究目的をより少ない責務・依存・分岐で、因果的かつ再現可能に検証できること**である。
 
 ---
 
-## 11. 現時点の判断
+## 14. 現時点の判断
 
-2026-09-07の実データrunはteacher selectionでrejectされ、BC/RLは実行されていない。この事実は旧teacher経路を見直す十分な理由だが、teacher-free PPO、単純rule、別forecast familyの収益性を確定する証拠ではない。
+2026-09-07の旧実データrunがteacher selectionでrejectされた事実は、旧teacher必須経路を捨てる理由にはなる。しかし、それ自体はtrend、mean reversion、Ridge、LightGBM、teacher-free PPOのどれが利益を出すかを示さない。
 
-よって次の実装は、旧teacherを合格させるためのV14/V15追加ではない。
+現在はarchitecture再設計の主要部分が実装された段階であり、次の本質的な問いはコードではなくデータで答える。
 
-> 一つのlean replay/accounting coreを作り、rule / forecast / teacher-free PPOを同じ条件で比較する。
+> **同じuniversal model / policyを全銘柄へ独立適用したとき、どの候補がcontrolsを超え、コスト控除後でも未使用データへ持続するのか。**
 
-この比較の後、最も単純で未使用データ上の根拠が強い構成だけを残す。全候補が不合格なら、不合格を正しく結論とし、データ・情報・horizonの次仮説へ進む。
+次に実施すべき作業は、V14/V15のような新世代追加ではない。
 
-以上を、Trade RLの現行再設計方針とする。
+> **canonical実データartifactを一つ選び、development windowをfreezeし、5候補+3 controlsを一回通して完全比較する。**
+
+そこでwinnerがなければ、no-winnerを結論として受け入れ、次の情報・feature・horizon仮説へ進む。

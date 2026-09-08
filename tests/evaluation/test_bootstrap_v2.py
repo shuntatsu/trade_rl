@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from trade_rl.evaluation.bootstrap import moving_block_mean_test
+from trade_rl.evaluation.comparison.bootstrap import moving_block_mean_test
 
 
 def test_bootstrap_p_value_has_finite_sample_floor() -> None:

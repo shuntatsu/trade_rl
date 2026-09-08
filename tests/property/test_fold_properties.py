@@ -3,7 +3,7 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from trade_rl.evaluation.walk_forward.folds import build_folds
+from trade_rl.evaluation.robustness.walk_forward.folds import build_folds
 
 
 @settings(max_examples=100, deadline=None)

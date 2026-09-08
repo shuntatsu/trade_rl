@@ -21,12 +21,12 @@ from trade_rl.data import (
     load_market_dataset_artifact,
 )
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.candidate_suite import (
+from trade_rl.evaluation.comparison.strategies import UniversalStrategyComparison
+from trade_rl.evaluation.metrics import PerformanceMetrics
+from trade_rl.evaluation.runs.candidate_suite import (
     LeanCandidateConfig,
     run_lean_candidate_suite,
 )
-from trade_rl.evaluation.metrics import PerformanceMetrics
-from trade_rl.evaluation.strategy_comparison import UniversalStrategyComparison
 
 _RESULT_SCHEMA = "lean_candidate_result_v1"
 _ALLOWED_CONFIG_KEYS = frozenset(

@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
-from trade_rl.evaluation.fold_metrics import summarize_independent_folds
+from trade_rl.evaluation.robustness.fold_metrics import summarize_independent_folds
+from trade_rl.evaluation.robustness.walk_forward.stitching import FoldOOSResult
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
-from trade_rl.evaluation.walk_forward.stitching import FoldOOSResult
 
 
 def _fold(

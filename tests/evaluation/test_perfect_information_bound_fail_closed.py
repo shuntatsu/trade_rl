@@ -5,12 +5,16 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from trade_rl.evaluation import _perfect_information_lp
-from trade_rl.evaluation import perfect_information_bound as bound_module
-from trade_rl.evaluation._perfect_information_lp import LinearProgramSolution
-from trade_rl.evaluation.perfect_information_bound import (
+from trade_rl.evaluation.robustness.perfect_information import bound as bound_module
+from trade_rl.evaluation.robustness.perfect_information import (
+    solver as _perfect_information_lp,
+)
+from trade_rl.evaluation.robustness.perfect_information.bound import (
     PerfectInformationBoundConfig,
     solve_perfect_information_bound,
+)
+from trade_rl.evaluation.robustness.perfect_information.solver import (
+    LinearProgramSolution,
 )
 
 

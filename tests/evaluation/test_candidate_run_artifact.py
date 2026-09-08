@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.strategy_comparison import compare_strategies_by_symbol
+from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
 
@@ -72,7 +72,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from trade_rl.evaluation import candidate_run
+    from trade_rl.evaluation.runs import candidate as candidate_run
 
     dataset = market()
     comparison = compare_strategies_by_symbol(
@@ -187,7 +187,7 @@ def test_run_candidate_artifact_rejects_unknown_config_keys(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from trade_rl.evaluation import candidate_run
+    from trade_rl.evaluation.runs import candidate as candidate_run
 
     monkeypatch.setattr(
         candidate_run,
@@ -219,7 +219,7 @@ def test_run_candidate_artifact_rejects_unknown_fit_symbol(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from trade_rl.evaluation import candidate_run
+    from trade_rl.evaluation.runs import candidate as candidate_run
 
     monkeypatch.setattr(
         candidate_run,
@@ -248,7 +248,7 @@ def test_run_candidate_artifact_rejects_unknown_fit_symbol(
 
 
 def test_run_candidate_artifact_refuses_overwrite(tmp_path, monkeypatch) -> None:
-    from trade_rl.evaluation import candidate_run
+    from trade_rl.evaluation.runs import candidate as candidate_run
 
     output = tmp_path / "result"
     output.mkdir()

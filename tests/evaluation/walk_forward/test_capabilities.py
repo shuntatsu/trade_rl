@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.evaluation.walk_forward.capabilities import RangeCapability
-from trade_rl.evaluation.walk_forward.folds import IndexRange
+from trade_rl.evaluation.robustness.walk_forward.capabilities import RangeCapability
+from trade_rl.evaluation.robustness.walk_forward.folds import IndexRange
 
 
 def test_range_capability_rejects_escape_and_hides_parent() -> None:

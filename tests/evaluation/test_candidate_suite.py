@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-import trade_rl.evaluation.candidate_suite as candidate_suite
+import trade_rl.evaluation.runs.candidate_suite as candidate_suite
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.strategy_comparison import UniversalStrategyComparison
+from trade_rl.evaluation.comparison.strategies import UniversalStrategyComparison
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
 

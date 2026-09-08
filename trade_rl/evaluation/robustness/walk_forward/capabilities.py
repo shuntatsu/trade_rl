@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from trade_rl._validation import require_non_empty, require_sha256
-from trade_rl.evaluation.walk_forward.folds import IndexRange
+from trade_rl.evaluation.robustness.walk_forward.folds import IndexRange
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.evaluation.series import ReturnKind, ReturnSeries
-from trade_rl.evaluation.walk_forward.stitching import (
+from trade_rl.evaluation.robustness.walk_forward.stitching import (
     FoldOOSResult,
     StitchMode,
     stitch_oos,
 )
+from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 
 
 def oos(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.evaluation.walk_forward.folds import (
+from trade_rl.evaluation.robustness.walk_forward.folds import (
     IndexRange,
     WalkForwardFold,
     build_folds,

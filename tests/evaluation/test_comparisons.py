@@ -5,7 +5,7 @@ from statistics import fmean
 
 import pytest
 
-from trade_rl.evaluation.comparisons import compare_paired_returns
+from trade_rl.evaluation.comparison.paired import compare_paired_returns
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 
 

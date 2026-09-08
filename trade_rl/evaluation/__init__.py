@@ -1,47 +1,20 @@
 """Lean evaluation primitives for trading research."""
 
-from trade_rl.evaluation.bootstrap import BootstrapResult, moving_block_mean_test
-from trade_rl.evaluation.candidate_suite import (
-    LeanCandidateConfig,
-    run_lean_candidate_suite,
+from trade_rl.evaluation.comparison.bootstrap import (
+    BootstrapResult,
+    moving_block_mean_test,
 )
-from trade_rl.evaluation.capacity import (
-    CapacityCurve,
-    CapacityPoint,
-    evaluate_capacity_grid,
+from trade_rl.evaluation.comparison.paired import (
+    PairedComparison,
+    compare_paired_returns,
 )
-from trade_rl.evaluation.closed_trades import ClosedTradeDiagnostics, ClosedTradeTracker
-from trade_rl.evaluation.comparisons import PairedComparison, compare_paired_returns
-from trade_rl.evaluation.evidence import ExecutionDiagnostics
-from trade_rl.evaluation.fold_metrics import (
-    IndependentFoldSummary,
-    summarize_independent_folds,
-)
-from trade_rl.evaluation.gates import resolve_gate
-from trade_rl.evaluation.metrics import (
-    PerformanceMetrics,
-    compound_return,
-    evaluate_performance,
-)
-from trade_rl.evaluation.perfect_information_bound import (
-    PERFECT_INFORMATION_BOUND_SCHEMA,
-    PerfectInformationBoundConfig,
-    PerfectInformationBoundResult,
-    solve_perfect_information_bound,
-)
-from trade_rl.evaluation.replay import (
-    ReplayDecision,
-    SingleSymbolReplayResult,
-    run_single_symbol_replay,
-)
-from trade_rl.evaluation.seed_robustness import (
+from trade_rl.evaluation.comparison.seed_robustness import (
     SeedEvaluation,
     SeedResult,
     SeedRobustnessSummary,
     summarize_seed_robustness,
 )
-from trade_rl.evaluation.series import ReturnKind, ReturnSeries
-from trade_rl.evaluation.strategy_comparison import (
+from trade_rl.evaluation.comparison.strategies import (
     StrategyComparison,
     StrategyComparisonEntry,
     SymbolStrategyComparison,
@@ -49,6 +22,42 @@ from trade_rl.evaluation.strategy_comparison import (
     compare_strategies,
     compare_strategies_by_symbol,
 )
+from trade_rl.evaluation.evidence import ExecutionDiagnostics
+from trade_rl.evaluation.gates import resolve_gate
+from trade_rl.evaluation.metrics import (
+    PerformanceMetrics,
+    compound_return,
+    evaluate_performance,
+)
+from trade_rl.evaluation.replay import (
+    ReplayDecision,
+    SingleSymbolReplayResult,
+    run_single_symbol_replay,
+)
+from trade_rl.evaluation.robustness.capacity import (
+    CapacityCurve,
+    CapacityPoint,
+    evaluate_capacity_grid,
+)
+from trade_rl.evaluation.robustness.closed_trades import (
+    ClosedTradeDiagnostics,
+    ClosedTradeTracker,
+)
+from trade_rl.evaluation.robustness.fold_metrics import (
+    IndependentFoldSummary,
+    summarize_independent_folds,
+)
+from trade_rl.evaluation.robustness.perfect_information.bound import (
+    PERFECT_INFORMATION_BOUND_SCHEMA,
+    PerfectInformationBoundConfig,
+    PerfectInformationBoundResult,
+    solve_perfect_information_bound,
+)
+from trade_rl.evaluation.runs.candidate_suite import (
+    LeanCandidateConfig,
+    run_lean_candidate_suite,
+)
+from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 
 __all__ = [
     "BootstrapResult",

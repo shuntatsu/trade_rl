@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from trade_rl.evaluation.seed_robustness import (
+from trade_rl.evaluation.comparison.seed_robustness import (
     SeedEvaluation,
     summarize_seed_robustness,
 )

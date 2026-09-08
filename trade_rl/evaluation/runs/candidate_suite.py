@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
-from trade_rl.evaluation.strategy_comparison import (
+from trade_rl.evaluation.comparison.strategies import (
     UniversalStrategyComparison,
     compare_strategies_by_symbol,
 )

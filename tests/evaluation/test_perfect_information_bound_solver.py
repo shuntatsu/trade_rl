@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from trade_rl.evaluation.perfect_information_bound import (
+from trade_rl.evaluation.robustness.perfect_information.bound import (
     PerfectInformationBoundConfig,
     PerfectInformationBoundResult,
     solve_perfect_information_bound,

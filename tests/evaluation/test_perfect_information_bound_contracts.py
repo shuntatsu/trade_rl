@@ -6,7 +6,7 @@ import math
 import numpy as np
 import pytest
 
-from trade_rl.evaluation.perfect_information_bound import (
+from trade_rl.evaluation.robustness.perfect_information.bound import (
     PERFECT_INFORMATION_BOUND_SCHEMA,
     PerfectInformationBoundConfig,
     PerfectInformationBoundResult,
@@ -16,7 +16,9 @@ from trade_rl.evaluation.perfect_information_bound import (
 
 def test_perfect_information_bound_module_exists() -> None:
     assert (
-        importlib.util.find_spec("trade_rl.evaluation.perfect_information_bound")
+        importlib.util.find_spec(
+            "trade_rl.evaluation.robustness.perfect_information.bound"
+        )
         is not None
     )
 
@@ -181,8 +183,10 @@ def test_config_rejects_initial_weight_above_net_limit() -> None:
 def test_result_normalizes_signed_zero_for_stable_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from trade_rl.evaluation import perfect_information_bound as module
-    from trade_rl.evaluation._perfect_information_lp import LinearProgramSolution
+    from trade_rl.evaluation.robustness.perfect_information import bound as module
+    from trade_rl.evaluation.robustness.perfect_information.solver import (
+        LinearProgramSolution,
+    )
 
     def solution(weight: float, objective: float) -> LinearProgramSolution:
         return LinearProgramSolution(
@@ -223,8 +227,10 @@ def test_result_normalizes_signed_zero_for_stable_identity(
 def test_large_log_return_omits_unrepresentable_simple_return(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from trade_rl.evaluation import perfect_information_bound as module
-    from trade_rl.evaluation._perfect_information_lp import LinearProgramSolution
+    from trade_rl.evaluation.robustness.perfect_information import bound as module
+    from trade_rl.evaluation.robustness.perfect_information.solver import (
+        LinearProgramSolution,
+    )
 
     steps = 2_000
     weights = np.full((steps, 1), 0.45, dtype=np.float64)

@@ -36,6 +36,7 @@ class LeanCandidateConfig:
 
     signal_index: int
     feature_indices: tuple[int, ...]
+    fit_symbol_indices: tuple[int, ...]
     fit_cutoff: np.datetime64
     rule_entry_threshold: float
     rule_exit_threshold: float
@@ -59,6 +60,14 @@ class LeanCandidateConfig:
             for index in indices
         ):
             raise ValueError("feature_indices must contain non-negative integers")
+        fit_symbols = tuple(self.fit_symbol_indices)
+        if not fit_symbols or len(set(fit_symbols)) != len(fit_symbols):
+            raise ValueError("fit_symbol_indices must be non-empty and unique")
+        if any(
+            isinstance(index, bool) or not isinstance(index, int) or index < 0
+            for index in fit_symbols
+        ):
+            raise ValueError("fit_symbol_indices must contain non-negative integers")
         for field_name, value in (
             ("rule_entry_threshold", self.rule_entry_threshold),
             ("forecast_entry_threshold", self.forecast_entry_threshold),
@@ -86,6 +95,7 @@ class LeanCandidateConfig:
         if self.ppo_seed < 0:
             raise ValueError("ppo_seed must be a non-negative integer")
         object.__setattr__(self, "feature_indices", indices)
+        object.__setattr__(self, "fit_symbol_indices", fit_symbols)
         object.__setattr__(self, "fit_cutoff", np.datetime64(self.fit_cutoff, "ns"))
 
 
@@ -116,6 +126,8 @@ def run_lean_candidate_suite(
         raise ValueError("signal_index is outside dataset features")
     if max(config.feature_indices) >= dataset.n_features:
         raise ValueError("feature index is outside dataset features")
+    if max(config.fit_symbol_indices) >= dataset.n_symbols:
+        raise ValueError("fit symbol index is outside dataset symbols")
     if not 0 <= start_index < stop_index < dataset.n_bars:
         raise ValueError("evaluation range must satisfy 0 <= start < stop < n_bars")
     if dataset.timestamps[start_index] < config.fit_cutoff:
@@ -124,6 +136,7 @@ def run_lean_candidate_suite(
     ridge_model = fit_ridge_forecast(
         dataset,
         feature_indices=config.feature_indices,
+        fit_symbol_indices=config.fit_symbol_indices,
         fit_cutoff=config.fit_cutoff,
         horizon_hours=24,
         alpha=1.0,
@@ -131,6 +144,7 @@ def run_lean_candidate_suite(
     lightgbm_model = fit_lightgbm_forecast(
         dataset,
         feature_indices=config.feature_indices,
+        fit_symbol_indices=config.fit_symbol_indices,
         fit_cutoff=config.fit_cutoff,
         horizon_hours=24,
         random_state=0,
@@ -138,6 +152,7 @@ def run_lean_candidate_suite(
     ppo_strategy = fit_ppo_strategy(
         dataset,
         feature_indices=config.feature_indices,
+        fit_symbol_indices=config.fit_symbol_indices,
         start_index=0,
         stop_index=_ppo_training_stop_index(dataset, config.fit_cutoff),
         gross_budget=gross_budget,

@@ -45,6 +45,41 @@ jobs:
           path.write_text(text.replace(old, new), encoding="utf-8")
           PY
           python scripts/phase1_migrate_boundaries.py
+          rmdir trade_rl/domain
+          cat > tests/artifacts/test_canonical_json_shared.py <<'PY'
+          from __future__ import annotations
+
+          import pytest
+
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+
+
+          @pytest.mark.parametrize(
+              ("value", "expected"),
+              (
+                  (
+                      {"unicode": "日本語", "nested": {"b": 2, "a": 1}},
+                      '{"nested":{"a":1,"b":2},"unicode":"日本語"}'.encode("utf-8"),
+                  ),
+                  (
+                      {"sequence": (1, 2, {"x": True})},
+                      b'{"sequence":[1,2,{"x":true}]}',
+                  ),
+                  (
+                      {"float": 0.125, "none": None},
+                      b'{"float":0.125,"none":null}',
+                  ),
+              ),
+          )
+          def test_canonical_json_bytes_are_stable(value: object, expected: bytes) -> None:
+              assert canonical_json_bytes(value) == expected
+
+
+          @pytest.mark.parametrize("value", (float("nan"), float("inf"), float("-inf")))
+          def test_canonical_json_rejects_non_finite_values(value: float) -> None:
+              with pytest.raises(ValueError, match="finite"):
+                  canonical_json_bytes({"value": value})
+          PY
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86

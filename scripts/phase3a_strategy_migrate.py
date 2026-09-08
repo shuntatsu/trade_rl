@@ -169,14 +169,25 @@ def _verify_public_facade_source() -> None:
         raise RuntimeError(f"strategy public facade changed: {exported}")
 
 
+def _imported_modules(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module)
+    return modules
+
+
 def _assert_no_stale_private_imports() -> None:
-    stale = tuple(IMPORT_REPLACEMENTS)
-    offenders: list[str] = []
+    stale = set(IMPORT_REPLACEMENTS)
+    offenders: list[tuple[str, list[str]]] = []
     for root_name in ("trade_rl", "tests"):
         for path in (ROOT / root_name).rglob("*.py"):
-            text = path.read_text(encoding="utf-8")
-            if any(value in text for value in stale):
-                offenders.append(str(path.relative_to(ROOT)))
+            found = sorted(_imported_modules(path) & stale)
+            if found:
+                offenders.append((str(path.relative_to(ROOT)), found))
     if offenders:
         raise RuntimeError(f"stale flat strategy imports remain: {offenders}")
 

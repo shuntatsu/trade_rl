@@ -42,7 +42,9 @@ class _Cell:
     metrics: dict[str, object]
 
 
-def _paired_payload(candidate: ReturnSeries, baseline: ReturnSeries, *, n_bootstrap: int, seed: int) -> dict[str, object]:
+def _paired_payload(
+    candidate: ReturnSeries, baseline: ReturnSeries, *, n_bootstrap: int, seed: int
+) -> dict[str, object]:
     paired = compare_paired_returns(
         candidate,
         baseline,
@@ -103,7 +105,9 @@ def _return_series(
     )
 
 
-def _run_matrix(run: LoadedCandidateRun) -> tuple[tuple[str, ...], dict[tuple[str, str], _Cell]]:
+def _run_matrix(
+    run: LoadedCandidateRun,
+) -> tuple[tuple[str, ...], dict[tuple[str, str], _Cell]]:
     symbols_raw = run.summary.get("symbols")
     by_symbol = run.summary.get("by_symbol")
     if not isinstance(symbols_raw, list) or any(
@@ -129,7 +133,9 @@ def _run_matrix(run: LoadedCandidateRun) -> tuple[tuple[str, ...], dict[tuple[st
             raise ArtifactIntegrityError("candidate symbol index mismatch")
         strategies = symbol_entry.get("strategies")
         if not isinstance(strategies, list) or len(strategies) != len(_STRATEGIES):
-            raise ArtifactIntegrityError("candidate symbol × strategy matrix is incomplete")
+            raise ArtifactIntegrityError(
+                "candidate symbol × strategy matrix is incomplete"
+            )
         names: list[str] = []
         for strategy in strategies:
             if not isinstance(strategy, dict):
@@ -152,7 +158,9 @@ def _run_matrix(run: LoadedCandidateRun) -> tuple[tuple[str, ...], dict[tuple[st
                 raise ArtifactIntegrityError("candidate return evidence is missing")
             key = (expected_symbol, name)
             if key in matrix:
-                raise ArtifactIntegrityError("candidate symbol × strategy cell is duplicated")
+                raise ArtifactIntegrityError(
+                    "candidate symbol × strategy cell is duplicated"
+                )
             metrics = cast(dict[str, object], metrics_raw)
             matrix[key] = _Cell(
                 symbol=expected_symbol,
@@ -174,7 +182,10 @@ def _validate_runs(
     if len(loaded_runs) < 2:
         raise ArtifactIntegrityError("analysis requires at least two seed Runs")
     seeds = tuple(sorted(loaded_runs))
-    if any(isinstance(seed, bool) or not isinstance(seed, int) or seed < 0 for seed in seeds):
+    if any(
+        isinstance(seed, bool) or not isinstance(seed, int) or seed < 0
+        for seed in seeds
+    ):
         raise ArtifactIntegrityError("analysis seed roster is malformed")
     matrices: dict[int, dict[tuple[str, str], _Cell]] = {}
     expected_symbols: tuple[str, ...] | None = None
@@ -270,9 +281,7 @@ def _candidate_metrics_summary(
     candidate_returns = [
         _require_metric_number(cell.metrics, "total_return") for cell in cells
     ]
-    drawdowns = [
-        _require_metric_number(cell.metrics, "max_drawdown") for cell in cells
-    ]
+    drawdowns = [_require_metric_number(cell.metrics, "max_drawdown") for cell in cells]
     turnovers = [
         _require_metric_number(cell.metrics, "turnover_total") for cell in cells
     ]

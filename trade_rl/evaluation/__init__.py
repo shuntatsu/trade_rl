@@ -1,11 +1,7 @@
 """Lean evaluation primitives for trading research."""
 
 from trade_rl.evaluation.bootstrap import BootstrapResult, moving_block_mean_test
-from trade_rl.evaluation.capacity import (
-    CapacityCurve,
-    CapacityPoint,
-    evaluate_capacity_grid,
-)
+from trade_rl.evaluation.capacity import CapacityCurve, CapacityPoint, evaluate_capacity_grid
 from trade_rl.evaluation.closed_trades import ClosedTradeDiagnostics, ClosedTradeTracker
 from trade_rl.evaluation.comparisons import PairedComparison, compare_paired_returns
 from trade_rl.evaluation.evidence import ExecutionDiagnostics
@@ -37,6 +33,11 @@ from trade_rl.evaluation.seed_robustness import (
     summarize_seed_robustness,
 )
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
+from trade_rl.evaluation.strategy_comparison import (
+    StrategyComparison,
+    StrategyComparisonEntry,
+    compare_strategies,
+)
 
 __all__ = [
     "BootstrapResult",
@@ -58,7 +59,10 @@ __all__ = [
     "SeedResult",
     "SeedRobustnessSummary",
     "SingleSymbolReplayResult",
+    "StrategyComparison",
+    "StrategyComparisonEntry",
     "compare_paired_returns",
+    "compare_strategies",
     "compound_return",
     "evaluate_capacity_grid",
     "evaluate_performance",

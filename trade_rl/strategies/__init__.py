@@ -13,6 +13,7 @@ from trade_rl.strategies.mean_reversion import (
     MeanReversionIntentStrategy,
 )
 from trade_rl.strategies.position_intent import PositionIntent, target_weight_for_intent
+from trade_rl.strategies.ppo import PPOIntentStrategy, PPOTradingEnv, fit_ppo_strategy
 from trade_rl.strategies.ridge import (
     RidgeForecastModel,
     RidgeForecastStrategy,
@@ -33,6 +34,8 @@ __all__ = [
     "LightGBMForecastStrategy",
     "MeanReversionIntentConfig",
     "MeanReversionIntentStrategy",
+    "PPOIntentStrategy",
+    "PPOTradingEnv",
     "PositionIntent",
     "RidgeForecastModel",
     "RidgeForecastStrategy",
@@ -42,6 +45,7 @@ __all__ = [
     "TrendIntentStrategy",
     "build_causal_forecast_training_set",
     "fit_lightgbm_forecast",
+    "fit_ppo_strategy",
     "fit_ridge_forecast",
     "target_weight_for_intent",
 ]

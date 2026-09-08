@@ -1,0 +1,54 @@
+name: Type Controlled Workflow Dataset Helper
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-workflow-mypy-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Apply exact type annotation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/workflow.py")
+          text = path.read_text(encoding="utf-8")
+          old_import = '''from trade_rl.data import (\n    inspect_published_market_dataset_artifact,\n    load_market_dataset_artifact,\n)\n'''
+          new_import = '''from trade_rl.data import (\n    MarketDataset,\n    PublishedDatasetArtifact,\n    inspect_published_market_dataset_artifact,\n    load_market_dataset_artifact,\n)\n'''
+          old_def = '''def _check_dataset(plan: StudyPlan, dataset_root: str | Path):\n'''
+          new_def = '''def _check_dataset(\n    plan: StudyPlan,\n    dataset_root: str | Path,\n) -> tuple[PublishedDatasetArtifact, MarketDataset]:\n'''
+          if text.count(old_import) != 1 or text.count(old_def) != 1:
+              raise SystemExit("workflow dataset helper shape changed")
+          text = text.replace(old_import, new_import, 1)
+          text = text.replace(old_def, new_def, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+          uv run ruff check --fix trade_rl/evaluation/experiments/workflow.py
+          uv run ruff format trade_rl/evaluation/experiments/workflow.py
+          uv run mypy trade_rl/evaluation/experiments/workflow.py
+      - name: Commit and remove helper
+        run: |
+          rm .github/workflows/cel-workflow-mypy-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/workflow.py .github/workflows/cel-workflow-mypy-fix.yml
+          git diff --cached --check
+          git commit -m "fix: type workflow dataset resolution"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

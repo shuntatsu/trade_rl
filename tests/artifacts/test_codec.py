@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
 
 from trade_rl.artifacts.codec import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
-from trade_rl.domain.datasets import DatasetManifest
+
+
+@dataclass(frozen=True)
+class ExampleManifest:
+    dataset_id: str
+    symbols: tuple[str, ...]
+    created_at: datetime
 
 
 def test_canonical_json_is_stable_for_mapping_order() -> None:
@@ -18,12 +25,10 @@ def test_canonical_json_is_stable_for_mapping_order() -> None:
     assert content_digest(left) == content_digest(right)
 
 
-def test_canonical_json_serializes_domain_dataclass_and_utc_timestamp() -> None:
-    manifest = DatasetManifest(
+def test_canonical_json_serializes_dataclass_and_utc_timestamp() -> None:
+    manifest = ExampleManifest(
         dataset_id="a" * 64,
         symbols=("BTCUSDT", "ETHUSDT"),
-        feature_names=("ret_z1", "rsi"),
-        base_timeframe="15m",
         created_at=datetime(2026, 7, 13, 6, 0, tzinfo=UTC),
     )
 

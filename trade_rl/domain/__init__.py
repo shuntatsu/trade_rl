@@ -1,19 +1,5 @@
-"""Immutable domain contracts for residual research and release evidence."""
+"""Small immutable contracts shared by the lean research core."""
 
-from trade_rl.domain.datasets import DatasetManifest
 from trade_rl.domain.evaluation import GateCheck, GateDecision
-from trade_rl.domain.policies import PolicyEnsembleManifest, PolicyMember
-from trade_rl.domain.selection import PolicyMode, SelectionDecision
-from trade_rl.domain.signals import SignalArtifactManifest, SignalStatus
 
-__all__ = [
-    "DatasetManifest",
-    "GateCheck",
-    "GateDecision",
-    "PolicyEnsembleManifest",
-    "PolicyMember",
-    "PolicyMode",
-    "SelectionDecision",
-    "SignalArtifactManifest",
-    "SignalStatus",
-]
+__all__ = ["GateCheck", "GateDecision"]

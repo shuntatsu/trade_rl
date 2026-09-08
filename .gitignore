@@ -235,3 +235,7 @@ elites_memo.txt
 
 .pytest-preflight/
 .pytest-tmp/
+
+# Source package named "build"; override the generic packaging-output rule above.
+!trade_rl/data/build/
+!trade_rl/data/build/*.py

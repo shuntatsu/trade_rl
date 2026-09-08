@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import zipfile
 from dataclasses import dataclass
@@ -11,7 +12,9 @@ from typing import cast
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import file_digest_and_size, read_verified_bytes
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
 
 _RESULT_SCHEMA = "lean_candidate_result_v1"
@@ -44,38 +47,69 @@ class CandidateRunArtifactIdentity:
     provenance_file_size: int
 
 
-def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
+def _validate_root(root: Path) -> tuple[Path, Path, Path]:
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("candidate artifact root must be a regular directory")
+    for name in _REQUIRED_FILES:
+        if (root / name).is_symlink():
+            raise ValueError(
+                f"candidate artifact {name} must be a regular file, not a symlink"
+            )
     try:
-        raw = cast(object, json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        names = {entry.name for entry in root.iterdir()}
+    except OSError as error:
+        raise ValueError("candidate artifact root cannot be read") from error
+    if names != _REQUIRED_FILES:
+        raise ValueError(
+            "candidate artifact root must contain exactly "
+            "summary.json, returns.npz, provenance.json"
+        )
+    paths = tuple(
+        root / name for name in ("summary.json", "returns.npz", "provenance.json")
+    )
+    for path in paths:
+        if not path.is_file():
+            raise ValueError(
+                f"candidate artifact {path.name} must be a regular file, not a symlink"
+            )
+    return paths[0], paths[1], paths[2]
+
+
+def _verified_bytes(path: Path, *, label: str) -> tuple[bytes, str, int]:
+    digest, size = file_digest_and_size(path, field=f"candidate {label}")
+    payload = read_verified_bytes(
+        path,
+        expected_digest=digest,
+        expected_size_bytes=size,
+        field=f"candidate {label}",
+    )
+    return payload, digest, size
+
+
+def _read_json_object(payload: bytes, *, label: str) -> dict[str, object]:
+    try:
+        raw = cast(object, json.loads(payload.decode("utf-8")))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"malformed candidate {label} JSON") from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
         raise ValueError(f"candidate {label} must be a JSON object")
     return cast(dict[str, object], raw)
 
 
-def _validate_root(root: Path) -> tuple[Path, Path, Path]:
-    if root.is_symlink() or not root.is_dir():
-        raise ValueError("candidate artifact root must be a regular directory")
-    try:
-        entries = tuple(root.iterdir())
-    except OSError as error:
-        raise ValueError("candidate artifact root cannot be read") from error
-    names = {entry.name for entry in entries}
-    if names != _REQUIRED_FILES:
-        raise ValueError(
-            "candidate artifact root must contain exactly "
-            "summary.json, returns.npz, provenance.json"
-        )
-    resolved: list[Path] = []
-    for name in ("summary.json", "returns.npz", "provenance.json"):
-        path = root / name
-        if path.is_symlink() or not path.is_file():
-            raise ValueError(
-                f"candidate artifact {name} must be a regular file, not a symlink"
-            )
-        resolved.append(path)
-    return resolved[0], resolved[1], resolved[2]
+def _validate_provenance(provenance: dict[str, object]) -> None:
+    if provenance.get("schema_version") != PROVENANCE_SCHEMA:
+        raise ValueError("unsupported candidate provenance schema")
+    implementation = provenance.get("implementation")
+    runtime = provenance.get("runtime_environment")
+    if implementation is None or runtime is None:
+        raise ValueError("candidate provenance manifests are required")
+    if provenance.get("implementation_digest") != content_digest(implementation):
+        raise ValueError("candidate provenance implementation digest mismatch")
+    if provenance.get("runtime_environment_digest") != content_digest(runtime):
+        raise ValueError("candidate provenance runtime environment digest mismatch")
+    context = provenance.get("research_context_digest")
+    if context is not None:
+        require_sha256(context, field="research_context_digest")
 
 
 def _expected_return_keys(summary: dict[str, object]) -> frozenset[str]:
@@ -101,10 +135,14 @@ def _expected_return_keys(summary: dict[str, object]) -> frozenset[str]:
     return frozenset(keys)
 
 
-def _load_returns(path: Path, *, expected_keys: frozenset[str]) -> dict[str, np.ndarray]:
+def _load_returns(
+    payload: bytes,
+    *,
+    expected_keys: frozenset[str],
+) -> dict[str, np.ndarray]:
     loaded: dict[str, np.ndarray] = {}
     try:
-        with np.load(path, allow_pickle=False) as archive:
+        with np.load(io.BytesIO(payload), allow_pickle=False) as archive:
             keys = frozenset(archive.files)
             if keys != expected_keys:
                 raise ValueError("candidate return keys do not match summary")
@@ -121,18 +159,17 @@ def _load_returns(path: Path, *, expected_keys: frozenset[str]) -> dict[str, np.
                     raise ValueError("candidate return arrays must be one-dimensional")
                 if not np.isfinite(value).all():
                     raise ValueError("candidate return arrays must be finite")
-                loaded[key] = np.ascontiguousarray(value).copy()
+                immutable = np.ascontiguousarray(value).copy()
+                immutable.setflags(write=False)
+                loaded[key] = immutable
     except (OSError, EOFError, zipfile.BadZipFile) as error:
         raise ValueError("malformed candidate returns archive") from error
     return loaded
 
 
-def _file_evidence(path: Path) -> tuple[str, int]:
-    data = path.read_bytes()
-    return sha256(data).hexdigest(), len(data)
-
-
-def _semantic_returns_payload(returns: dict[str, np.ndarray]) -> list[dict[str, object]]:
+def _semantic_returns_payload(
+    returns: dict[str, np.ndarray],
+) -> list[dict[str, object]]:
     payload: list[dict[str, object]] = []
     for key in sorted(returns):
         value = np.ascontiguousarray(returns[key])
@@ -147,39 +184,63 @@ def _semantic_returns_payload(returns: dict[str, np.ndarray]) -> list[dict[str, 
     return payload
 
 
-def load_candidate_run_artifact(root: str | Path) -> LoadedCandidateRun:
-    """Load one exact three-file candidate artifact and validate semantic content."""
-
+def _load_with_evidence(
+    root: str | Path,
+) -> tuple[
+    LoadedCandidateRun,
+    tuple[tuple[str, int], tuple[str, int], tuple[str, int]],
+]:
     artifact_root = Path(root)
     summary_path, returns_path, provenance_path = _validate_root(artifact_root)
-    summary = _read_json_object(summary_path, label="summary")
+    summary_bytes, summary_hash, summary_size = _verified_bytes(
+        summary_path, label="summary"
+    )
+    returns_bytes, returns_hash, returns_size = _verified_bytes(
+        returns_path, label="returns"
+    )
+    provenance_bytes, provenance_hash, provenance_size = _verified_bytes(
+        provenance_path, label="provenance"
+    )
+    summary = _read_json_object(summary_bytes, label="summary")
     if summary.get("schema_version") != _RESULT_SCHEMA:
         raise ValueError("unsupported candidate result schema")
-    provenance = _read_json_object(provenance_path, label="provenance")
-    if provenance.get("schema_version") != PROVENANCE_SCHEMA:
-        raise ValueError("unsupported candidate provenance schema")
+    dataset_id = summary.get("dataset_id")
+    if isinstance(dataset_id, str):
+        require_sha256(dataset_id, field="candidate dataset_id")
+    provenance = _read_json_object(provenance_bytes, label="provenance")
+    _validate_provenance(provenance)
     returns = _load_returns(
-        returns_path,
+        returns_bytes,
         expected_keys=_expected_return_keys(summary),
     )
-    return LoadedCandidateRun(
+    loaded = LoadedCandidateRun(
         root=artifact_root,
         summary=summary,
         returns=returns,
         provenance=provenance,
     )
+    return loaded, (
+        (summary_hash, summary_size),
+        (returns_hash, returns_size),
+        (provenance_hash, provenance_size),
+    )
+
+
+def load_candidate_run_artifact(root: str | Path) -> LoadedCandidateRun:
+    """Load one exact three-file candidate artifact and validate semantic content."""
+
+    loaded, _ = _load_with_evidence(root)
+    return loaded
 
 
 def inspect_candidate_run_artifact(root: str | Path) -> CandidateRunArtifactIdentity:
     """Return stable semantic identity plus raw file digests/sizes."""
 
-    loaded = load_candidate_run_artifact(root)
-    summary_path = loaded.root / "summary.json"
-    returns_path = loaded.root / "returns.npz"
-    provenance_path = loaded.root / "provenance.json"
-    summary_hash, summary_size = _file_evidence(summary_path)
-    returns_hash, returns_size = _file_evidence(returns_path)
-    provenance_hash, provenance_size = _file_evidence(provenance_path)
+    loaded, evidence = _load_with_evidence(root)
+    (summary_hash, summary_size), (returns_hash, returns_size), (
+        provenance_hash,
+        provenance_size,
+    ) = evidence
     semantic_payload = {
         "schema_version": _ARTIFACT_IDENTITY_SCHEMA,
         "summary": loaded.summary,

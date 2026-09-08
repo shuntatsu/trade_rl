@@ -55,6 +55,9 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
+      - name: Fix import order only
+        run: uv run ruff check --fix --select I001 trade_rl tests
+
       - name: Ruff
         run: uv run ruff check trade_rl tests
 

@@ -83,6 +83,10 @@ def test_strategy_package_preserves_public_api() -> None:
 def test_strategy_families_do_not_depend_on_evaluation() -> None:
     for family in ("rules", "forecasts", "rl"):
         root = STRATEGIES / family
-        for path in sorted(root.rglob("*.py")) if root.exists() else ():
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*.py")):
             imports = _imports(path)
-            assert not any(name.startswith("trade_rl.evaluation") for name in imports), path
+            assert not any(
+                name.startswith("trade_rl.evaluation") for name in imports
+            ), path

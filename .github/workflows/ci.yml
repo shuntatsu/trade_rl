@@ -61,15 +61,7 @@ jobs:
           trade_rl/integrations
 
       - name: Core tests
-        run: >-
-          uv run pytest -q
-          tests/artifacts
-          tests/data
-          tests/risk
-          tests/simulation
-          tests/evaluation
-          tests/strategies
-          tests/integrations
+        run: uv run pytest -q tests
 
       - name: Package identity
         shell: bash

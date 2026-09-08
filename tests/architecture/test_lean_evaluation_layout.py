@@ -76,6 +76,10 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "runs/__init__.py",
         "runs/candidate.py",
         "runs/candidate_suite.py",
+        "runs/config.py",
+        "runs/execute.py",
+        "runs/provenance.py",
+        "runs/artifact.py",
     )
     missing = [path for path in required if not (PACKAGE / path).is_file()]
     assert missing == []

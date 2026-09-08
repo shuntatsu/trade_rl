@@ -24,7 +24,13 @@ class _RegressorPredictor(Protocol):
 
 
 class _TrainableRegressor(_RegressorPredictor, Protocol):
-    def fit(self, features: np.ndarray, labels: np.ndarray) -> object: ...
+    def fit(
+        self,
+        features: np.ndarray,
+        labels: np.ndarray,
+        *,
+        sample_weight: np.ndarray,
+    ) -> object: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,7 +137,7 @@ def fit_lightgbm_forecast(
     horizon_hours: int = 24,
     random_state: int = 0,
 ) -> LightGBMForecastModel:
-    """Fit one fixed shallow LightGBM configuration on shared causal rows."""
+    """Fit one shallow symbol-agnostic LightGBM on pooled balanced rows."""
 
     if isinstance(random_state, bool) or not isinstance(random_state, int):
         raise ValueError("random_state must be an integer")
@@ -159,7 +165,11 @@ def fit_lightgbm_forecast(
             verbosity=-1,
         ),
     )
-    predictor.fit(training.features, training.labels)
+    predictor.fit(
+        training.features,
+        training.labels,
+        sample_weight=training.sample_weights,
+    )
     return LightGBMForecastModel(
         feature_indices=training.feature_indices,
         predictor=predictor,

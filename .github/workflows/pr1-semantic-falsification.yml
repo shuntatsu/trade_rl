@@ -62,7 +62,7 @@ jobs:
           new_summary, new_returns = _result_payload(result)
 
           source = subprocess.check_output(
-              ["git", "show", "main:trade_rl/evaluation/runs/candidate.py"],
+              ["git", "show", "origin/main:trade_rl/evaluation/runs/candidate.py"],
               text=True,
           )
           legacy = types.ModuleType("legacy_candidate")
@@ -88,7 +88,7 @@ jobs:
           print(f"semantic payload equivalent: {len(new_returns)} return arrays")
           PY
       - name: Prove candidate suite computation authority unchanged
-        run: git diff --exit-code main...HEAD -- trade_rl/evaluation/runs/candidate_suite.py
+        run: git diff --exit-code origin/main...HEAD -- trade_rl/evaluation/runs/candidate_suite.py
       - name: Run Run Core adversarial contracts
         run: >-
           uv run pytest -q

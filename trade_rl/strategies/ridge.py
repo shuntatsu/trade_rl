@@ -1,4 +1,4 @@
-"""Small causal Ridge forecaster for single-symbol return prediction."""
+"""Small deterministic Ridge return forecast candidate."""
 
 from __future__ import annotations
 
@@ -19,17 +19,9 @@ from trade_rl.strategies.supervised import build_causal_forecast_training_set
 _SCALE_FLOOR = 1e-12
 
 
-def _readonly_vector(value: np.ndarray, *, field: str) -> np.ndarray:
-    vector = np.asarray(value, dtype=np.float64).reshape(-1).copy()
-    if vector.size == 0 or not np.isfinite(vector).all():
-        raise ValueError(f"{field} must be a non-empty finite vector")
-    vector.setflags(write=False)
-    return vector
-
-
 @dataclass(frozen=True, slots=True)
 class RidgeForecastModel:
-    """Frozen standardized linear return forecast."""
+    """Frozen shared linear forecast without symbol identity or symbol coefficients."""
 
     feature_indices: tuple[int, ...]
     feature_mean: np.ndarray
@@ -43,6 +35,10 @@ class RidgeForecastModel:
 
     def __post_init__(self) -> None:
         indices = tuple(self.feature_indices)
+        mean = np.asarray(self.feature_mean, dtype=np.float64).reshape(-1).copy()
+        scale = np.asarray(self.feature_scale, dtype=np.float64).reshape(-1).copy()
+        coefficients = np.asarray(self.coefficients, dtype=np.float64).reshape(-1).copy()
+        expected = (len(indices),)
         if not indices or len(set(indices)) != len(indices):
             raise ValueError("feature_indices must be non-empty and unique")
         if any(
@@ -50,17 +46,16 @@ class RidgeForecastModel:
             for index in indices
         ):
             raise ValueError("feature_indices must contain non-negative integers")
-        mean = _readonly_vector(self.feature_mean, field="feature_mean")
-        scale = _readonly_vector(self.feature_scale, field="feature_scale")
-        coefficients = _readonly_vector(self.coefficients, field="coefficients")
-        if mean.size != len(indices) or scale.size != len(indices):
-            raise ValueError("feature statistics must match feature_indices")
-        if coefficients.size != len(indices):
-            raise ValueError("coefficients must match feature_indices")
-        if np.any(scale <= 0.0):
-            raise ValueError("feature_scale must be positive")
-        if not math.isfinite(self.intercept):
-            raise ValueError("intercept must be finite")
+        if mean.shape != expected or scale.shape != expected or coefficients.shape != expected:
+            raise ValueError("Ridge arrays must match feature_indices")
+        if (
+            not np.isfinite(mean).all()
+            or not np.isfinite(scale).all()
+            or not np.isfinite(coefficients).all()
+            or np.any(scale <= 0.0)
+            or not math.isfinite(self.intercept)
+        ):
+            raise ValueError("Ridge parameters must be finite with positive scale")
         if (
             isinstance(self.horizon_hours, bool)
             or not isinstance(self.horizon_hours, int)
@@ -75,7 +70,9 @@ class RidgeForecastModel:
             or self.n_samples <= 0
         ):
             raise ValueError("n_samples must be a positive integer")
-
+        mean.setflags(write=False)
+        scale.setflags(write=False)
+        coefficients.setflags(write=False)
         object.__setattr__(self, "feature_indices", indices)
         object.__setattr__(self, "feature_mean", mean)
         object.__setattr__(self, "feature_scale", scale)
@@ -132,7 +129,7 @@ def fit_ridge_forecast(
     horizon_hours: int = 24,
     alpha: float = 1.0,
 ) -> RidgeForecastModel:
-    """Fit Ridge on the shared strict-cutoff causal forecast rows."""
+    """Fit one symbol-agnostic Ridge model on pooled, symbol-balanced rows."""
 
     if not math.isfinite(alpha) or alpha <= 0.0:
         raise ValueError("alpha must be finite and positive")
@@ -144,15 +141,27 @@ def fit_ridge_forecast(
     )
     x = training.features
     y = training.labels
-    feature_mean = x.mean(axis=0)
-    raw_scale = x.std(axis=0)
+    weights = training.sample_weights
+    weight_sum = float(weights.sum())
+
+    feature_mean = np.sum(x * weights[:, None], axis=0) / weight_sum
+    centered_x = x - feature_mean
+    weighted_variance = np.sum(
+        centered_x**2 * weights[:, None],
+        axis=0,
+    ) / weight_sum
+    raw_scale = np.sqrt(weighted_variance)
     feature_scale = np.where(raw_scale > _SCALE_FLOOR, raw_scale, 1.0)
-    standardized = (x - feature_mean) / feature_scale
-    intercept = float(y.mean())
+    standardized = centered_x / feature_scale
+
+    intercept = float(np.dot(weights, y) / weight_sum)
     centered_y = y - intercept
-    gram = standardized.T @ standardized
+    sqrt_weights = np.sqrt(weights)
+    weighted_x = standardized * sqrt_weights[:, None]
+    weighted_y = centered_y * sqrt_weights
+    gram = weighted_x.T @ weighted_x
     regularized = gram + alpha * np.eye(len(training.feature_indices), dtype=np.float64)
-    coefficients = np.linalg.solve(regularized, standardized.T @ centered_y)
+    coefficients = np.linalg.solve(regularized, weighted_x.T @ weighted_y)
 
     return RidgeForecastModel(
         feature_indices=training.feature_indices,

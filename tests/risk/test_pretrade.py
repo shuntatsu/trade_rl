@@ -45,9 +45,7 @@ def test_drawdown_stop_flattens_even_when_turnover_limit_is_zero() -> None:
 
 
 def test_emergency_flatten_bypasses_turnover_limit() -> None:
-    risk = PreTradeRisk(
-        PreTradeRiskConfig(max_abs_weight=1.0, max_turnover=0.0)
-    )
+    risk = PreTradeRisk(PreTradeRiskConfig(max_abs_weight=1.0, max_turnover=0.0))
     result = risk.constrain(
         np.array([0.40, 0.20]),
         current=np.array([0.40, 0.20]),

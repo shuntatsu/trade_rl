@@ -5,7 +5,7 @@ from trade_rl.integrations.binance import (
     BinancePublicTransport,
     BinanceTransportMode,
 )
-from trade_rl.integrations.frozen_binance_metadata import (
+from trade_rl.integrations.binance.metadata import (
     FrozenBinanceExchangeInfoTransport,
 )
 

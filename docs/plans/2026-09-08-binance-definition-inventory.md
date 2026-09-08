@@ -166,12 +166,12 @@ FrozenBinanceExchangeInfoTransport
 
 ## Coverage check
 
-Inventory workflow observed:
+Inventory workflow observed (the original summary undercounted `binance_cache.py` by one; the AST log itself lists all 14 definitions):
 
 ```text
 binance.py: 41 top-level classes/functions
-binance_cache.py: 13 top-level classes/functions
+binance_cache.py: 14 top-level classes/functions
 frozen_binance_metadata.py: 5 top-level classes/functions
 ```
 
-All 59 observed definitions above have exactly one MOVE or DELETE disposition. The split implementation must repeat the AST inventory against the old exact base and fail if the observed name set differs from this document before applying migration.
+All 60 observed definitions above have exactly one MOVE or DELETE disposition. The split implementation must repeat the AST inventory against the old exact base and fail if the observed name set differs from this document before applying migration.

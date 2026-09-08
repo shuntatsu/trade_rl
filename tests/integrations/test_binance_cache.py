@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from trade_rl.integrations.binance_cache import (
+from trade_rl.integrations.binance.cache import (
     plan_binance_vision_cache,
     require_complete_binance_vision_cache,
     sync_binance_vision_cache,

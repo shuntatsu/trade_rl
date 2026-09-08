@@ -134,8 +134,8 @@ def replace_method(class_source: str, name: str, replacement: str) -> str:
 
 def rewrite_old_helper_imports() -> None:
     replacements = {
-        "trade_rl.integrations.binance_cache": "trade_rl.integrations.binance.cache",
-        "trade_rl.integrations.frozen_binance_metadata": "trade_rl.integrations.binance.metadata",
+        "trade_rl.integrations.binance.cache": "trade_rl.integrations.binance.cache",
+        "trade_rl.integrations.binance.metadata": "trade_rl.integrations.binance.metadata",
     }
     for base in (ROOT / "trade_rl", ROOT / "tests"):
         for path in sorted(base.rglob("*.py")):
@@ -620,7 +620,7 @@ __all__ = [
 
     integrations_init = INTEGRATIONS / "__init__.py"
     text = integrations_init.read_text(encoding="utf-8")
-    old = "from trade_rl.integrations.frozen_binance_metadata import (\n    FrozenBinanceExchangeInfoTransport,\n)"
+    old = "from trade_rl.integrations.binance.metadata import (\n    FrozenBinanceExchangeInfoTransport,\n)"
     new = "from trade_rl.integrations.binance.metadata import FrozenBinanceExchangeInfoTransport"
     if text.count(old) != 1:
         raise RuntimeError("integrations frozen metadata import did not match exactly once")
@@ -634,8 +634,8 @@ __all__ = [
 
     # No executable old helper-module import may survive.
     retired = (
-        "trade_rl.integrations.binance_cache",
-        "trade_rl.integrations.frozen_binance_metadata",
+        "trade_rl.integrations.binance.cache",
+        "trade_rl.integrations.binance.metadata",
     )
     leftovers: list[str] = []
     for base in (ROOT / "trade_rl", ROOT / "tests"):

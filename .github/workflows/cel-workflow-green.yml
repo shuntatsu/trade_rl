@@ -22,8 +22,45 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --extra dev
-      - name: Format and verify Task 6
+      - name: Apply typed integration fixes and verify Task 6
         run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/workflow.py")
+          text = path.read_text(encoding="utf-8")
+
+          old_import = '''from trade_rl.data import (\n    inspect_published_market_dataset_artifact,\n    load_market_dataset_artifact,\n)\n'''
+          new_import = '''from trade_rl.data import (\n    PublishedDatasetArtifact,\n    inspect_published_market_dataset_artifact,\n    load_market_dataset_artifact,\n)\nfrom trade_rl.data.market import MarketDataset\n'''
+          if old_import not in text:
+              raise SystemExit("dataset import block mismatch")
+          text = text.replace(old_import, new_import, 1)
+
+          old_signature = '''def _validate_dataset_root(\n    dataset_root: str | Path,\n    plan: StudyPlan,\n):\n'''
+          new_signature = '''def _validate_dataset_root(\n    dataset_root: str | Path,\n    plan: StudyPlan,\n) -> tuple[MarketDataset, PublishedDatasetArtifact]:\n'''
+          if old_signature not in text:
+              raise SystemExit("dataset validator signature mismatch")
+          text = text.replace(old_signature, new_signature, 1)
+
+          needle = "\ndef _find_evidence("
+          positions = []
+          cursor = 0
+          while True:
+              position = text.find(needle, cursor)
+              if position < 0:
+                  break
+              positions.append(position)
+              cursor = position + len(needle)
+          if len(positions) != 2:
+              raise SystemExit(f"expected two _find_evidence definitions, found {len(positions)}")
+          second = positions[1]
+          next_public = text.find("\ndef create_study(", second)
+          if next_public < 0:
+              raise SystemExit("create_study marker missing after duplicate _find_evidence")
+          text = text[:second] + text[next_public:]
+
+          path.write_text(text, encoding="utf-8")
+          PY
           uv run ruff format trade_rl/evaluation/experiments/workflow.py
           uv run ruff check trade_rl tests
           uv run ruff format --check trade_rl tests

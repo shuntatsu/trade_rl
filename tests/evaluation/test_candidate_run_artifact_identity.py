@@ -156,7 +156,7 @@ def test_candidate_artifact_rejects_return_key_mismatch(tmp_path: Path) -> None:
         inspect_candidate_run_artifact(root)
 
 
-def test_candidate_artifact_rejects_unsupported_schema(tmp_path: Path) -> None:
+def test_candidate_artifact_rejects_unsupported_summary_schema(tmp_path: Path) -> None:
     root = tmp_path / "artifact"
     _write_root(root, compressed=True)
     summary = _summary()
@@ -164,6 +164,19 @@ def test_candidate_artifact_rejects_unsupported_schema(tmp_path: Path) -> None:
     (root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
 
     with pytest.raises(ValueError, match="candidate result schema"):
+        inspect_candidate_run_artifact(root)
+
+
+def test_candidate_artifact_rejects_unsupported_provenance_schema(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "artifact"
+    _write_root(root, compressed=True)
+    provenance = _provenance()
+    provenance["schema_version"] = "unknown"
+    (root / "provenance.json").write_text(json.dumps(provenance), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="candidate provenance schema"):
         inspect_candidate_run_artifact(root)
 
 

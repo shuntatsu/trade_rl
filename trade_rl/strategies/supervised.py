@@ -180,6 +180,12 @@ def build_causal_forecast_training_set(
         labels_by_symbol[symbol_index] = symbol_labels
         ends_by_symbol[symbol_index] = symbol_ends
 
+    if fit_symbol_indices is not None:
+        missing_symbols = [index for index in symbols if not rows_by_symbol[index]]
+        if missing_symbols:
+            names = ", ".join(dataset.symbols[index] for index in missing_symbols)
+            raise ValueError(f"fit symbol has no eligible training rows: {names}")
+
     active_symbols = [index for index in symbols if rows_by_symbol[index]]
     total_rows = sum(len(rows_by_symbol[index]) for index in active_symbols)
     if total_rows < 2:

@@ -49,13 +49,13 @@ jobs:
 
           path = Path("trade_rl/data/build/builder.py")
           text = path.read_text(encoding="utf-8")
-          replacements = {
-              "trade_rl.data.cross_asset_features": "trade_rl.data.features.cross_asset",
-              "trade_rl.data.economic_semantics": "trade_rl.data.features.economic",
-              "trade_rl.data.features": "trade_rl.data.features.core",
-              "trade_rl.data.multitimeframe": "trade_rl.data.features.multitimeframe",
-          }
-          for old, new in replacements.items():
+          replacements = (
+              ("trade_rl.data.features", "trade_rl.data.features.core"),
+              ("trade_rl.data.cross_asset_features", "trade_rl.data.features.cross_asset"),
+              ("trade_rl.data.economic_semantics", "trade_rl.data.features.economic"),
+              ("trade_rl.data.multitimeframe", "trade_rl.data.features.multitimeframe"),
+          )
+          for old, new in replacements:
               if old not in text:
                   raise SystemExit(f"expected builder import missing: {old}")
               text = text.replace(old, new)

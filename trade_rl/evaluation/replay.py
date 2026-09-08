@@ -160,7 +160,9 @@ def run_single_symbol_replay(
             break
 
     termination_reasons = (
-        () if book.termination_reason is None else (str(book.termination_reason.value),)
+        ()
+        if book.termination_reason is None
+        else (str(book.termination_reason.value),)
     )
     diagnostics = ExecutionDiagnostics(
         turnover_total=book.turnover_total,

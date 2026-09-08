@@ -1,4 +1,4 @@
-"""Lean single-symbol strategy replay on the canonical execution ledger."""
+"""Lean per-symbol strategy replay on the canonical execution ledger."""
 
 from __future__ import annotations
 
@@ -40,18 +40,31 @@ class SingleSymbolReplayResult:
     decisions: tuple[ReplayDecision, ...]
 
 
-def _desired_quantity_from_weight(book: BookState, target_weight: float) -> float:
+def _desired_quantity_from_weight(
+    book: BookState,
+    target_weight: float,
+    *,
+    symbol_index: int,
+) -> float:
     multipliers = np.asarray(book.contract_multipliers, dtype=np.float64)
-    denominator = float(book.mark_prices[0] * multipliers[0])
+    denominator = float(book.mark_prices[symbol_index] * multipliers[symbol_index])
     return float(target_weight * book.portfolio_value / denominator)
 
 
-def _weight_for_desired_quantity(book: BookState, desired_quantity: float) -> float:
+def _weight_for_desired_quantity(
+    book: BookState,
+    desired_quantity: float,
+    *,
+    symbol_index: int,
+) -> float:
     if book.portfolio_value <= 0.0:
         return 0.0
     multipliers = np.asarray(book.contract_multipliers, dtype=np.float64)
     return float(
-        desired_quantity * book.mark_prices[0] * multipliers[0] / book.portfolio_value
+        desired_quantity
+        * book.mark_prices[symbol_index]
+        * multipliers[symbol_index]
+        / book.portfolio_value
     )
 
 
@@ -84,21 +97,22 @@ def _observation(
     dataset: MarketDataset,
     *,
     index: int,
+    symbol_index: int,
     book: BookState,
     current_intent: PositionIntent,
 ) -> StrategyObservation:
     return StrategyObservation(
         index=index,
         timestamp=dataset.timestamps[index],
-        symbol=dataset.symbols[0],
-        features=dataset.features[index, 0],
-        feature_available=dataset.feature_available[index, 0],
+        symbol=dataset.symbols[symbol_index],
+        features=dataset.features[index, symbol_index],
+        feature_available=dataset.feature_available[index, symbol_index],
         global_features=dataset.global_features[index],
         global_feature_available=dataset.resolved_array("global_feature_available")[
             index
         ],
         current_intent=current_intent,
-        current_weight=float(book.weights[0]),
+        current_weight=float(book.weights[symbol_index]),
     )
 
 
@@ -106,6 +120,7 @@ def run_single_symbol_replay(
     dataset: MarketDataset,
     strategy: SingleSymbolStrategy,
     *,
+    symbol_index: int = 0,
     start_index: int,
     stop_index: int,
     gross_budget: float,
@@ -113,16 +128,20 @@ def run_single_symbol_replay(
     execution_cost: ExecutionCostConfig | None = None,
     risk: PreTradeRisk | None = None,
 ) -> SingleSymbolReplayResult:
-    """Replay one symbol with quantity-preserving holds and hard risk limits.
+    """Replay one selected symbol while every other symbol remains flat.
 
-    ``stop_index`` is exclusive. Every decision uses row ``t`` and executes over
-    the following bar through the canonical ``MarketExecutor``. When no explicit
-    risk controller is supplied, replay installs only an execution-aligned hard
-    exposure guard; stricter drawdown or turnover constraints must be explicit.
+    ``stop_index`` is exclusive. The full source dataset and canonical executor
+    remain intact, but observation, desired quantity, and target exposure are
+    restricted to ``symbol_index``. This allows the same frozen strategy to be
+    evaluated independently on every symbol without inventing sliced datasets.
     """
 
-    if dataset.n_symbols != 1:
-        raise ValueError("single-symbol replay requires exactly one symbol")
+    if (
+        isinstance(symbol_index, bool)
+        or not isinstance(symbol_index, int)
+        or not 0 <= symbol_index < dataset.n_symbols
+    ):
+        raise ValueError("symbol_index must identify an existing dataset symbol")
     if (
         isinstance(start_index, bool)
         or not isinstance(start_index, int)
@@ -137,7 +156,7 @@ def run_single_symbol_replay(
 
     initial_prices = dataset.resolved_array("mark_price")[start_index]
     book = BookState.zero(
-        1,
+        dataset.n_symbols,
         initial_capital,
         initial_prices,
         contract_multipliers=dataset.contract_multipliers,
@@ -155,6 +174,7 @@ def run_single_symbol_replay(
         observation = _observation(
             dataset,
             index=index,
+            symbol_index=symbol_index,
             book=book,
             current_intent=current_intent,
         )
@@ -167,18 +187,32 @@ def run_single_symbol_replay(
                 intent,
                 gross_budget=gross_budget,
             )
-            desired_quantity = _desired_quantity_from_weight(book, proposal_weight)
-        proposal_weight = _weight_for_desired_quantity(book, desired_quantity)
+            desired_quantity = _desired_quantity_from_weight(
+                book,
+                proposal_weight,
+                symbol_index=symbol_index,
+            )
+        proposal_weight = _weight_for_desired_quantity(
+            book,
+            desired_quantity,
+            symbol_index=symbol_index,
+        )
+        proposal_weights = np.zeros(dataset.n_symbols, dtype=np.float64)
+        proposal_weights[symbol_index] = proposal_weight
         constrained = risk_controller.constrain(
-            np.asarray([proposal_weight], dtype=np.float64),
+            proposal_weights,
             current=book.weights,
             drawdown=book.max_drawdown,
         )
-        target_weight = float(constrained.weights[0])
+        target_weight = float(constrained.weights[symbol_index])
         if constrained.was_constrained and any(
             reason != "max_turnover" for reason in constrained.reasons
         ):
-            desired_quantity = _desired_quantity_from_weight(book, target_weight)
+            desired_quantity = _desired_quantity_from_weight(
+                book,
+                target_weight,
+                symbol_index=symbol_index,
+            )
         decisions.append(
             ReplayDecision(
                 index=index,
@@ -189,7 +223,7 @@ def run_single_symbol_replay(
         )
         execution = executor.execute_interval(
             book,
-            np.asarray([target_weight], dtype=np.float64),
+            constrained.weights,
             start_index=index,
             bars=1,
         )

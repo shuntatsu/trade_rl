@@ -154,7 +154,11 @@ def _validated_names(values: tuple[str, ...], *, field: str) -> tuple[str, ...]:
     return normalized
 
 
-def _normalized_timestamp(value: object, *, field: str) -> np.datetime64:
+def _normalized_timestamp(
+    value: str | np.datetime64,
+    *,
+    field: str,
+) -> np.datetime64:
     try:
         resolved = np.datetime64(value, "ns")
     except (TypeError, ValueError) as error:

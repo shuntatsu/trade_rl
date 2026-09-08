@@ -77,9 +77,7 @@ class StudyPlan:
         )
         symbols = contract_unique_texts(self.symbols, field="symbols")
         if not isinstance(self.baseline_config, ResolvedRunConfig):
-            raise ContractViolationError(
-                "baseline_config must be a ResolvedRunConfig"
-            )
+            raise ContractViolationError("baseline_config must be a ResolvedRunConfig")
         ppo_seeds = contract_non_negative_int_tuple(
             self.ppo_seeds,
             field="ppo_seeds",
@@ -132,7 +130,9 @@ class StudyPlan:
         object.__setattr__(self, "n_bootstrap", n_bootstrap)
         object.__setattr__(self, "bootstrap_seed", bootstrap_seed)
         object.__setattr__(self, "implementation_digest", implementation_digest)
-        object.__setattr__(self, "runtime_environment_digest", runtime_environment_digest)
+        object.__setattr__(
+            self, "runtime_environment_digest", runtime_environment_digest
+        )
         object.__setattr__(self, "schema_version", schema_version)
 
     @property
@@ -201,9 +201,7 @@ class StudyFreeze:
         selected_strategy = self.selected_strategy
         if self.outcome is StudyOutcome.WINNER:
             if selected_evidence_digest is None:
-                raise ContractViolationError(
-                    "WINNER requires selected_evidence_digest"
-                )
+                raise ContractViolationError("WINNER requires selected_evidence_digest")
             selected_evidence_digest = contract_sha256(
                 selected_evidence_digest,
                 field="selected_evidence_digest",

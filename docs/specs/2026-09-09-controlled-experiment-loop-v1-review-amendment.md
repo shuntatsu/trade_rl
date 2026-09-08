@@ -8,7 +8,7 @@ This amendment is normative together with `2026-09-09-controlled-experiment-loop
 
 The Study / Experiment / Run split, append-only evidence model, semantic factor registry, bounded lineage, and development/final-data boundary are retained.
 
-The implementation MUST additionally apply the corrections below. These close review findings that would otherwise permit dependency inversion or an experiment to diverge from its pre-declared candidate configuration.
+The implementation MUST additionally apply the corrections below. These close review findings that would otherwise permit dependency inversion, post-definition substitution, retrospective Run attachment, or an unfinishable Study after an operationally failed attempt.
 
 ## A1. Provenance generation belongs to the Run layer
 
@@ -161,6 +161,7 @@ register_run_evidence
 bind_baseline_evidence
 define_experiment
 bind_candidate_evidence
+record_experiment_failure
 verify_experiment
 compare_experiment
 decide_experiment
@@ -169,6 +170,65 @@ inspect_study
 ```
 
 `bind_baseline_evidence` is explicit rather than being hidden inside generic Run registration.
+
+## A9. Run provenance binds the research context
+
+A Study must not accept a favorable Run that was generated independently and only attached after its results were known.
+
+Candidate-run provenance therefore contains an optional evidence-only field:
+
+```text
+research_context_digest
+```
+
+`run_candidate_artifact()` accepts an optional `research_context_digest` argument and CLI option. When provided it must be a lowercase SHA-256 digest and is included in `provenance.json`; it does not affect fitting/replay computation.
+
+Controlled Study usage requires:
+
+- initial baseline Run provenance `research_context_digest == StudyPlan digest`;
+- candidate Run provenance `research_context_digest == ExperimentDefinition digest`.
+
+`bind_baseline_evidence()` rejects a baseline without the exact Study digest context.
+
+`verify_experiment()` marks a bound candidate terminal `INVALID` when its context digest does not equal the ExperimentDefinition digest.
+
+Standalone candidate Runs outside Controlled Experiment Loop may omit the context digest for backward-compatible research use, but such Runs cannot be bound as a Controlled Study baseline/candidate.
+
+This is an audit/preregistration boundary, not a claim that software can prevent a researcher from performing unrelated external exploratory Runs before the Study begins.
+
+## A10. Operationally failed attempts are terminal and budgeted
+
+A defined Experiment can fail before trustworthy candidate evidence exists (for example OOM, missing optional runtime dependency, or an execution failure). Leaving such an Experiment permanently open makes the Study impossible to freeze and encourages deleting/restarting the Study.
+
+v1 therefore adds a terminal non-research state:
+
+```text
+FAILED
+```
+
+A `failure.json` artifact contains at least:
+
+```text
+schema_version
+study_digest
+experiment_digest
+reason
+recorded_by
+recorded_at
+```
+
+Rules:
+
+- `reason` and `recorded_by` are non-empty;
+- `recorded_at` is timezone-aware;
+- FAILED consumes the already-defined Experiment attempt;
+- FAILED has no comparison/decision and is never lineage eligible;
+- `record_experiment_failure()` is allowed only before `candidate-evidence.json` exists;
+- once candidate evidence is bound, the Experiment must proceed through verification rather than being converted to FAILED;
+- FAILED is immutable and terminal;
+- Study freeze accepts terminal `DECIDED`, `INVALID`, or `FAILED` attempts.
+
+This records operational failures without misclassifying them as controlled-domain INVALID evidence and without silently erasing the attempt from the Study budget.
 
 ## Additional acceptance criteria
 
@@ -181,3 +241,6 @@ Implementation is not complete unless all are true:
 5. Definition freezes a resolved candidate config and candidate evidence must match it exactly.
 6. same-factor-but-different-value post-definition substitution becomes `INVALID`.
 7. the affected/unaffected factor table above is covered by contract tests against current suite semantics.
+8. controlled baseline/candidate bindings require exact Study/Experiment research context digests.
+9. an Experiment can be terminally FAILED only before candidate evidence binding, remains budgeted, and cannot enter lineage.
+10. freeze reconstructs FAILED attempts as terminal history rather than requiring Study deletion/restart.

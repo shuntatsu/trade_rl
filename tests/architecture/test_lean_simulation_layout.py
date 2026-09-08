@@ -123,7 +123,9 @@ def test_simulation_package_public_api_is_preserved_exactly() -> None:
         assert getattr(simulation, name) is not None
 
 
-def test_simulation_tree_has_no_retired_private_imports_or_upward_dependencies() -> None:
+def test_simulation_tree_has_no_retired_private_imports_or_upward_dependencies() -> (
+    None
+):
     offenders: list[tuple[str, list[str]]] = []
     for path in SIMULATION.rglob("*.py"):
         modules = _imported_modules(path)

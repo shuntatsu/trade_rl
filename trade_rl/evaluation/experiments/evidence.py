@@ -11,9 +11,13 @@ from typing import cast
 import numpy as np
 
 from trade_rl._validation import require_sha256
+from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.artifacts.verified_file import open_regular_binary
 from trade_rl.data import (
+    MarketDataset,
+    PublishedDatasetArtifact,
     inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
 )
@@ -35,7 +39,6 @@ from trade_rl.evaluation.runs.execute import execute_candidate_run
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 
 _EVIDENCE_SCHEMA = "controlled_evidence_set_v1"
-_ANALYSIS_SCHEMA = "controlled_evidence_seed_invariance_v1"
 _DETERMINISTIC_STRATEGIES = (
     "cash",
     "constant_long",
@@ -50,26 +53,97 @@ _EXPECTED_STRATEGIES = frozenset((*_DETERMINISTIC_STRATEGIES, "ppo"))
 
 @dataclass(frozen=True, slots=True)
 class EvidenceSet:
-    """Immutable identity of one Study-owned multi-seed evidence point."""
+    """Raw Study-owned multi-seed evidence identity."""
 
     fingerprint: str
-    study_digest: str
-    research_context_digest: str
     semantic_config_digest: str
     ppo_seeds: tuple[int, ...]
     run_digests: tuple[tuple[int, str], ...]
-    analysis_digest: str
+    research_context_digest: str
     schema_version: str = _EVIDENCE_SCHEMA
+
+    def __post_init__(self) -> None:
+        try:
+            require_sha256(self.fingerprint, field="fingerprint")
+            require_sha256(
+                self.semantic_config_digest,
+                field="semantic_config_digest",
+            )
+            require_sha256(
+                self.research_context_digest,
+                field="research_context_digest",
+            )
+        except ValueError as error:
+            raise ArtifactIntegrityError(str(error)) from error
+        if self.schema_version != _EVIDENCE_SCHEMA:
+            raise ArtifactIntegrityError("unsupported EvidenceSet schema")
+        if len(self.ppo_seeds) < 2 or len(set(self.ppo_seeds)) != len(self.ppo_seeds):
+            raise ArtifactIntegrityError("EvidenceSet seed roster must be unique")
+        if any(
+            isinstance(seed, bool) or not isinstance(seed, int) or seed < 0
+            for seed in self.ppo_seeds
+        ):
+            raise ArtifactIntegrityError("EvidenceSet seeds must be non-negative integers")
+        if tuple(seed for seed, _ in self.run_digests) != self.ppo_seeds:
+            raise ArtifactIntegrityError(
+                "EvidenceSet run digests must follow the seed roster"
+            )
+        for _, digest in self.run_digests:
+            try:
+                require_sha256(digest, field="run artifact digest")
+            except ValueError as error:
+                raise ArtifactIntegrityError(str(error)) from error
+        expected = _evidence_fingerprint(
+            semantic_config_digest=self.semantic_config_digest,
+            ppo_seeds=self.ppo_seeds,
+            run_digests=self.run_digests,
+            research_context_digest=self.research_context_digest,
+        )
+        if self.fingerprint != expected:
+            raise ArtifactIntegrityError("EvidenceSet fingerprint mismatch")
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "fingerprint": self.fingerprint,
+            "semantic_config_digest": self.semantic_config_digest,
+            "ppo_seeds": list(self.ppo_seeds),
+            "run_digests": [
+                {"ppo_seed": seed, "artifact_digest": digest}
+                for seed, digest in self.run_digests
+            ],
+            "research_context_digest": self.research_context_digest,
+        }
 
 
 @dataclass(frozen=True, slots=True)
 class LoadedEvidenceSet:
-    """Verified EvidenceSet plus its run payloads."""
+    """Verified EvidenceSet plus its Study-owned Candidate Runs."""
 
     evidence: EvidenceSet
-    resolved_config: dict[str, object]
+    semantic_config: dict[str, object]
     runs: Mapping[int, LoadedCandidateRun]
-    analysis: dict[str, object]
+
+
+def _evidence_fingerprint(
+    *,
+    semantic_config_digest: str,
+    ppo_seeds: tuple[int, ...],
+    run_digests: tuple[tuple[int, str], ...],
+    research_context_digest: str,
+) -> str:
+    return content_digest(
+        {
+            "schema_version": _EVIDENCE_SCHEMA,
+            "semantic_config_digest": semantic_config_digest,
+            "ppo_seeds": list(ppo_seeds),
+            "run_digests": [
+                {"ppo_seed": seed, "artifact_digest": digest}
+                for seed, digest in run_digests
+            ],
+            "research_context_digest": research_context_digest,
+        }
+    )
 
 
 def _resolved_run_config(spec: ResolvedCandidateRunSpec) -> ResolvedRunConfig:
@@ -97,6 +171,12 @@ def _resolved_run_config(spec: ResolvedCandidateRunSpec) -> ResolvedRunConfig:
     )
 
 
+def _without_seed(config: ResolvedRunConfig) -> dict[str, object]:
+    payload = config.to_payload()
+    payload.pop("ppo_seed")
+    return payload
+
+
 def _check_study_fixed_config(plan: StudyPlan, resolved: ResolvedRunConfig) -> None:
     baseline = plan.baseline_config
     fixed_pairs = (
@@ -115,7 +195,20 @@ def _check_study_fixed_config(plan: StudyPlan, resolved: ResolvedRunConfig) -> N
             raise ArtifactIntegrityError(f"Study-fixed {field} drifted")
 
 
-def _check_dataset(plan: StudyPlan, dataset_root: str | Path):
+def _verify_plan_inputs(
+    *,
+    dataset_root: str | Path,
+    plan: StudyPlan,
+    research_context_digest: str,
+) -> tuple[PublishedDatasetArtifact, MarketDataset]:
+    try:
+        require_sha256(
+            research_context_digest,
+            field="research_context_digest",
+        )
+    except ValueError as error:
+        raise ArtifactIntegrityError(str(error)) from error
+
     artifact = inspect_published_market_dataset_artifact(dataset_root)
     dataset = load_market_dataset_artifact(dataset_root)
     if dataset.dataset_id != plan.dataset_id:
@@ -126,23 +219,15 @@ def _check_dataset(plan: StudyPlan, dataset_root: str | Path):
         raise ArtifactIntegrityError("Study dataset artifact digest mismatch")
     if tuple(dataset.symbols) != plan.symbols:
         raise ArtifactIntegrityError("Study dataset symbol roster mismatch")
-    return artifact, dataset
 
-
-def _check_current_provenance(
-    plan: StudyPlan,
-    *,
-    research_context_digest: str,
-) -> dict[str, object]:
-    require_sha256(research_context_digest, field="research_context_digest")
     provenance = build_candidate_run_provenance(
-        research_context_digest=research_context_digest
+        research_context_digest=research_context_digest,
     )
     if provenance.get("implementation_digest") != plan.implementation_digest:
         raise ArtifactIntegrityError("Study implementation provenance mismatch")
     if provenance.get("runtime_environment_digest") != plan.runtime_environment_digest:
         raise ArtifactIntegrityError("Study runtime provenance mismatch")
-    return provenance
+    return artifact, dataset
 
 
 def _run_return_map(
@@ -179,12 +264,23 @@ def _run_return_map(
                     "EvidenceSet strategy roster has duplicates"
                 )
             names.add(name)
-            if return_key not in run.returns:
+            values = run.returns.get(return_key)
+            if values is None:
                 raise ArtifactIntegrityError("EvidenceSet return key is missing")
-            result[(expected_symbol, name)] = run.returns[return_key]
+            result[(expected_symbol, name)] = values
         if names != _EXPECTED_STRATEGIES:
             raise ArtifactIntegrityError("EvidenceSet strategy roster mismatch")
     return result
+
+
+def _run_summary_seed(run: LoadedCandidateRun) -> int:
+    candidate_config = run.summary.get("candidate_config")
+    if not isinstance(candidate_config, dict):
+        raise ArtifactIntegrityError("EvidenceSet candidate_config is malformed")
+    seed = candidate_config.get("ppo_seed")
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise ArtifactIntegrityError("EvidenceSet PPO seed evidence is malformed")
+    return seed
 
 
 def _verify_seed_invariance(
@@ -193,19 +289,14 @@ def _verify_seed_invariance(
     seeds: tuple[int, ...],
     symbols: tuple[str, ...],
     research_context_digest: str,
-) -> dict[str, object]:
+) -> None:
     first_seed = seeds[0]
-    first = runs[first_seed]
-    first_map = _run_return_map(first, expected_symbols=symbols)
+    first_map = _run_return_map(runs[first_seed], expected_symbols=symbols)
     for seed in seeds:
         run = runs[seed]
         if run.provenance.get("research_context_digest") != research_context_digest:
             raise ArtifactIntegrityError("EvidenceSet research context mismatch")
-        candidate_config = run.summary.get("candidate_config")
-        if (
-            not isinstance(candidate_config, dict)
-            or candidate_config.get("ppo_seed") != seed
-        ):
+        if _run_summary_seed(run) != seed:
             raise ArtifactIntegrityError("EvidenceSet PPO seed evidence mismatch")
         current_map = _run_return_map(run, expected_symbols=symbols)
         if seed == first_seed:
@@ -219,58 +310,12 @@ def _verify_seed_invariance(
                     raise ArtifactIntegrityError(
                         f"deterministic strategy {strategy} drifted across PPO seeds"
                     )
-    return {
-        "schema_version": _ANALYSIS_SCHEMA,
-        "status": "VERIFIED",
-        "ppo_seeds": list(seeds),
-        "symbols": list(symbols),
-        "deterministic_strategy_names": list(_DETERMINISTIC_STRATEGIES),
-        "variable_strategy_name": "ppo",
-    }
-
-
-def _identity_payload(
-    *,
-    study_digest: str,
-    research_context_digest: str,
-    semantic_config: ResolvedRunConfig,
-    seeds: tuple[int, ...],
-    run_digests: tuple[tuple[int, str], ...],
-    analysis_digest: str,
-) -> dict[str, object]:
-    return {
-        "schema_version": _EVIDENCE_SCHEMA,
-        "study_digest": study_digest,
-        "research_context_digest": research_context_digest,
-        "semantic_config": semantic_config.to_payload(),
-        "semantic_config_digest": semantic_config.digest,
-        "ppo_seeds": list(seeds),
-        "runs": [
-            {"ppo_seed": seed, "artifact_digest": digest}
-            for seed, digest in run_digests
-        ],
-        "analysis_digest": analysis_digest,
-    }
-
-
-def _manifest_payload(
-    evidence: EvidenceSet, resolved_config: ResolvedRunConfig
-) -> dict[str, object]:
-    payload = _identity_payload(
-        study_digest=evidence.study_digest,
-        research_context_digest=evidence.research_context_digest,
-        semantic_config=resolved_config,
-        seeds=evidence.ppo_seeds,
-        run_digests=evidence.run_digests,
-        analysis_digest=evidence.analysis_digest,
-    )
-    return {**payload, "fingerprint": evidence.fingerprint}
 
 
 def execute_evidence_set(
     *,
     store: StudyStore,
-    target: Path,
+    target: str | Path,
     dataset_root: str | Path,
     plan: StudyPlan,
     config: CandidateRunConfig,
@@ -278,18 +323,27 @@ def execute_evidence_set(
 ) -> EvidenceSet:
     """Generate, verify, and atomically publish one Study-owned EvidenceSet."""
 
-    artifact, dataset = _check_dataset(plan, dataset_root)
-    _check_current_provenance(
-        plan,
+    artifact, dataset = _verify_plan_inputs(
+        dataset_root=dataset_root,
+        plan=plan,
         research_context_digest=research_context_digest,
     )
+    normalized_config = replace(config, ppo_seed=plan.ppo_seeds[0])
+    normalized_spec = resolve_candidate_run_spec(
+        dataset,
+        dataset_artifact_schema=artifact.schema_version,
+        dataset_artifact_digest=artifact.artifact_digest,
+        config=normalized_config,
+    )
+    normalized_contract = _resolved_run_config(normalized_spec)
+    _check_study_fixed_config(plan, normalized_contract)
     completed: EvidenceSet | None = None
 
     def builder(staging: Path) -> None:
         nonlocal completed
         loaded_runs: dict[int, LoadedCandidateRun] = {}
         run_digests: list[tuple[int, str]] = []
-        semantic_config: ResolvedRunConfig | None = None
+        seedless_contract = _without_seed(normalized_contract)
 
         for seed in plan.ppo_seeds:
             seed_config = replace(config, ppo_seed=seed)
@@ -301,21 +355,24 @@ def execute_evidence_set(
             )
             resolved = _resolved_run_config(spec)
             _check_study_fixed_config(plan, resolved)
-            normalized = replace(resolved, ppo_seed=plan.ppo_seeds[0])
-            if semantic_config is None:
-                semantic_config = normalized
-            elif normalized != semantic_config:
+            if _without_seed(resolved) != seedless_contract:
                 raise ArtifactIntegrityError(
                     "EvidenceSet resolved config changed beyond ppo_seed"
                 )
 
-            before = _check_current_provenance(
-                plan,
+            before = build_candidate_run_provenance(
                 research_context_digest=research_context_digest,
             )
+            if before.get("implementation_digest") != plan.implementation_digest:
+                raise ArtifactIntegrityError(
+                    "Study implementation provenance changed during EvidenceSet"
+                )
+            if before.get("runtime_environment_digest") != plan.runtime_environment_digest:
+                raise ArtifactIntegrityError(
+                    "Study runtime provenance changed during EvidenceSet"
+                )
             result = execute_candidate_run(dataset, spec)
-            after = _check_current_provenance(
-                plan,
+            after = build_candidate_run_provenance(
                 research_context_digest=research_context_digest,
             )
             if (
@@ -334,37 +391,29 @@ def execute_evidence_set(
             loaded_runs[seed] = loaded
             run_digests.append((seed, identity.artifact_digest))
 
-        if semantic_config is None:
-            raise ArtifactIntegrityError("EvidenceSet contains no seed Runs")
-        analysis = _verify_seed_invariance(
+        _verify_seed_invariance(
             loaded_runs,
             seeds=plan.ppo_seeds,
             symbols=plan.symbols,
             research_context_digest=research_context_digest,
         )
-        analysis_digest = content_digest(analysis)
         run_digest_tuple = tuple(run_digests)
-        identity_payload = _identity_payload(
-            study_digest=plan.digest,
-            research_context_digest=research_context_digest,
-            semantic_config=semantic_config,
-            seeds=plan.ppo_seeds,
-            run_digests=run_digest_tuple,
-            analysis_digest=analysis_digest,
-        )
-        evidence = EvidenceSet(
-            fingerprint=content_digest(identity_payload),
-            study_digest=plan.digest,
-            research_context_digest=research_context_digest,
-            semantic_config_digest=semantic_config.digest,
+        fingerprint = _evidence_fingerprint(
+            semantic_config_digest=normalized_contract.digest,
             ppo_seeds=plan.ppo_seeds,
             run_digests=run_digest_tuple,
-            analysis_digest=analysis_digest,
+            research_context_digest=research_context_digest,
         )
-        (staging / "analysis.json").write_bytes(canonical_json_bytes(analysis))
-        (staging / "manifest.json").write_bytes(
-            canonical_json_bytes(_manifest_payload(evidence, semantic_config))
+        evidence = EvidenceSet(
+            fingerprint=fingerprint,
+            semantic_config_digest=normalized_contract.digest,
+            ppo_seeds=plan.ppo_seeds,
+            run_digests=run_digest_tuple,
+            research_context_digest=research_context_digest,
         )
+        manifest = evidence.to_payload()
+        manifest["semantic_config"] = normalized_contract.to_payload()
+        atomic_write_bytes(staging / "manifest.json", canonical_json_bytes(manifest))
         completed = evidence
 
     with store.mutation_lock():
@@ -374,129 +423,126 @@ def execute_evidence_set(
     return completed
 
 
-def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
-    if path.is_symlink() or not path.is_file():
-        raise ArtifactIntegrityError(f"EvidenceSet {label} must be a regular file")
+def _read_manifest(root: Path) -> dict[str, object]:
+    manifest_path = root / "manifest.json"
+    if manifest_path.is_symlink():
+        raise ArtifactIntegrityError("EvidenceSet manifest must not be a symlink")
     try:
-        raw = cast(object, json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ArtifactIntegrityError(f"EvidenceSet {label} is malformed") from error
+        with open_regular_binary(manifest_path, field="EvidenceSet manifest") as handle:
+            payload = handle.read()
+        raw = cast(object, json.loads(payload.decode("utf-8")))
+    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ArtifactIntegrityError("EvidenceSet manifest is malformed") from error
     if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
-        raise ArtifactIntegrityError(f"EvidenceSet {label} must be a JSON object")
+        raise ArtifactIntegrityError("EvidenceSet manifest must be a JSON object")
     return cast(dict[str, object], raw)
 
 
-def _resolved_from_payload(payload: object) -> ResolvedRunConfig:
-    if not isinstance(payload, dict):
-        raise ArtifactIntegrityError("EvidenceSet semantic config is malformed")
-    try:
-        return ResolvedRunConfig(
-            signal_name=cast(str, payload["signal_name"]),
-            signal_index=cast(int, payload["signal_index"]),
-            feature_names=tuple(cast(list[str], payload["feature_names"])),
-            feature_indices=tuple(cast(list[int], payload["feature_indices"])),
-            fit_symbol_names=tuple(cast(list[str], payload["fit_symbol_names"])),
-            fit_symbol_indices=tuple(cast(list[int], payload["fit_symbol_indices"])),
-            fit_cutoff=cast(str, payload["fit_cutoff"]),
-            rule_entry_threshold=cast(float, payload["rule_entry_threshold"]),
-            rule_exit_threshold=cast(float, payload["rule_exit_threshold"]),
-            forecast_entry_threshold=cast(float, payload["forecast_entry_threshold"]),
-            forecast_exit_threshold=cast(float, payload["forecast_exit_threshold"]),
-            ppo_total_timesteps=cast(int, payload["ppo_total_timesteps"]),
-            ppo_seed=cast(int, payload["ppo_seed"]),
-            evaluation_start=cast(str, payload["evaluation_start"]),
-            evaluation_stop_exclusive=cast(str, payload["evaluation_stop_exclusive"]),
-            gross_budget=cast(float, payload["gross_budget"]),
-            initial_capital=cast(float, payload["initial_capital"]),
-            execution_overlay=cast(str, payload["execution_overlay"]),
-            schema_version=cast(
-                str, payload.get("schema_version", "resolved_run_config_v1")
-            ),
-        )
-    except (KeyError, TypeError, ValueError) as error:
-        raise ArtifactIntegrityError(
-            "EvidenceSet semantic config is malformed"
-        ) from error
+def _parse_evidence(
+    manifest: dict[str, object],
+) -> tuple[EvidenceSet, dict[str, object]]:
+    semantic_config = manifest.get("semantic_config")
+    seeds_raw = manifest.get("ppo_seeds")
+    run_digests_raw = manifest.get("run_digests")
+    if not isinstance(semantic_config, dict) or any(
+        not isinstance(key, str) for key in semantic_config
+    ):
+        raise ArtifactIntegrityError("EvidenceSet semantic_config is malformed")
+    if not isinstance(seeds_raw, list) or any(
+        isinstance(seed, bool) or not isinstance(seed, int) for seed in seeds_raw
+    ):
+        raise ArtifactIntegrityError("EvidenceSet seed roster is malformed")
+    if not isinstance(run_digests_raw, list):
+        raise ArtifactIntegrityError("EvidenceSet run digests are malformed")
+
+    run_digests: list[tuple[int, str]] = []
+    for entry in run_digests_raw:
+        if not isinstance(entry, dict):
+            raise ArtifactIntegrityError("EvidenceSet run digest entry is malformed")
+        seed = entry.get("ppo_seed")
+        digest = entry.get("artifact_digest")
+        if (
+            isinstance(seed, bool)
+            or not isinstance(seed, int)
+            or not isinstance(digest, str)
+        ):
+            raise ArtifactIntegrityError("EvidenceSet run digest entry is malformed")
+        run_digests.append((seed, digest))
+
+    fingerprint = manifest.get("fingerprint")
+    semantic_digest = manifest.get("semantic_config_digest")
+    context = manifest.get("research_context_digest")
+    schema = manifest.get("schema_version")
+    if not all(
+        isinstance(value, str)
+        for value in (fingerprint, semantic_digest, context, schema)
+    ):
+        raise ArtifactIntegrityError("EvidenceSet identity fields are malformed")
+    if content_digest(semantic_config) != semantic_digest:
+        raise ArtifactIntegrityError("EvidenceSet semantic config digest mismatch")
+
+    evidence = EvidenceSet(
+        fingerprint=cast(str, fingerprint),
+        semantic_config_digest=cast(str, semantic_digest),
+        ppo_seeds=tuple(cast(list[int], seeds_raw)),
+        run_digests=tuple(run_digests),
+        research_context_digest=cast(str, context),
+        schema_version=cast(str, schema),
+    )
+    return evidence, cast(dict[str, object], semantic_config)
 
 
 def load_evidence_set(root: str | Path) -> LoadedEvidenceSet:
-    """Load and re-verify one published EvidenceSet from disk."""
+    """Load and re-verify one complete Study-owned EvidenceSet."""
 
     evidence_root = Path(root)
     if evidence_root.is_symlink() or not evidence_root.is_dir():
         raise ArtifactIntegrityError("EvidenceSet root must be a regular directory")
-    manifest = _read_json_object(evidence_root / "manifest.json", label="manifest")
-    analysis = _read_json_object(evidence_root / "analysis.json", label="analysis")
-    if manifest.get("schema_version") != _EVIDENCE_SCHEMA:
-        raise ArtifactIntegrityError("unsupported EvidenceSet schema")
-    if analysis.get("schema_version") != _ANALYSIS_SCHEMA:
-        raise ArtifactIntegrityError("unsupported EvidenceSet analysis schema")
-    if content_digest(analysis) != manifest.get("analysis_digest"):
-        raise ArtifactIntegrityError("EvidenceSet analysis digest mismatch")
-
-    resolved = _resolved_from_payload(manifest.get("semantic_config"))
-    if resolved.digest != manifest.get("semantic_config_digest"):
-        raise ArtifactIntegrityError("EvidenceSet semantic config digest mismatch")
-    try:
-        seeds = tuple(cast(list[int], manifest["ppo_seeds"]))
-        run_items = cast(list[dict[str, object]], manifest["runs"])
-        run_digests = tuple(
-            (cast(int, item["ppo_seed"]), cast(str, item["artifact_digest"]))
-            for item in run_items
+    names = {entry.name for entry in evidence_root.iterdir()}
+    if names != {"manifest.json", "runs"}:
+        raise ArtifactIntegrityError(
+            "EvidenceSet root must contain exactly manifest.json and runs"
         )
-        study_digest = cast(str, manifest["study_digest"])
-        context = cast(str, manifest["research_context_digest"])
-        fingerprint = cast(str, manifest["fingerprint"])
-        analysis_digest = cast(str, manifest["analysis_digest"])
-    except (KeyError, TypeError) as error:
-        raise ArtifactIntegrityError("EvidenceSet manifest is malformed") from error
-    require_sha256(study_digest, field="study_digest")
-    require_sha256(context, field="research_context_digest")
-    require_sha256(fingerprint, field="fingerprint")
-    require_sha256(analysis_digest, field="analysis_digest")
-    if tuple(seed for seed, _ in run_digests) != seeds:
-        raise ArtifactIntegrityError("EvidenceSet run seed roster mismatch")
 
+    manifest = _read_manifest(evidence_root)
+    evidence, semantic_config = _parse_evidence(manifest)
+    runs_root = evidence_root / "runs"
+    if runs_root.is_symlink() or not runs_root.is_dir():
+        raise ArtifactIntegrityError("EvidenceSet runs must be a regular directory")
+    expected_dirs = {f"seed-{seed}" for seed in evidence.ppo_seeds}
+    actual_dirs = {entry.name for entry in runs_root.iterdir()}
+    if actual_dirs != expected_dirs:
+        raise ArtifactIntegrityError("EvidenceSet seed Run roster mismatch")
+
+    expected_digests = dict(evidence.run_digests)
     runs: dict[int, LoadedCandidateRun] = {}
-    for seed, expected_digest in run_digests:
-        require_sha256(expected_digest, field="run artifact digest")
-        run_root = evidence_root / "runs" / f"seed-{seed}"
-        identity = inspect_candidate_run_artifact(run_root)
-        if identity.artifact_digest != expected_digest:
+    for seed in evidence.ppo_seeds:
+        run_root = runs_root / f"seed-{seed}"
+        try:
+            loaded = load_candidate_run_artifact(run_root)
+            identity = inspect_candidate_run_artifact(run_root)
+        except ValueError as error:
+            raise ArtifactIntegrityError(str(error)) from error
+        if identity.artifact_digest != expected_digests[seed]:
             raise ArtifactIntegrityError("EvidenceSet Run artifact digest mismatch")
-        runs[seed] = load_candidate_run_artifact(run_root)
+        if loaded.provenance.get("research_context_digest") != evidence.research_context_digest:
+            raise ArtifactIntegrityError("EvidenceSet Run research context mismatch")
+        if _run_summary_seed(loaded) != seed:
+            raise ArtifactIntegrityError("EvidenceSet Run seed mismatch")
+        runs[seed] = loaded
 
     _verify_seed_invariance(
         runs,
-        seeds=seeds,
-        symbols=tuple(cast(list[str], analysis.get("symbols", []))),
-        research_context_digest=context,
-    )
-    identity_payload = _identity_payload(
-        study_digest=study_digest,
-        research_context_digest=context,
-        semantic_config=resolved,
-        seeds=seeds,
-        run_digests=run_digests,
-        analysis_digest=analysis_digest,
-    )
-    if content_digest(identity_payload) != fingerprint:
-        raise ArtifactIntegrityError("EvidenceSet fingerprint mismatch")
-
-    evidence = EvidenceSet(
-        fingerprint=fingerprint,
-        study_digest=study_digest,
-        research_context_digest=context,
-        semantic_config_digest=resolved.digest,
-        ppo_seeds=seeds,
-        run_digests=run_digests,
-        analysis_digest=analysis_digest,
+        seeds=evidence.ppo_seeds,
+        symbols=tuple(
+            cast(list[str], runs[evidence.ppo_seeds[0]].summary.get("symbols"))
+        ),
+        research_context_digest=evidence.research_context_digest,
     )
     return LoadedEvidenceSet(
         evidence=evidence,
-        resolved_config=resolved.to_payload(),
+        semantic_config=semantic_config,
         runs=runs,
-        analysis=analysis,
     )
 
 

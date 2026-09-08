@@ -62,7 +62,6 @@ EXPECTED_ROOT_BEFORE = {
     "target_execution.py",
     "target_exposure_controller.py",
 }
-
 EXPECTED_ROOT_AFTER = {
     "__init__.py",
     "accounting.py",
@@ -70,7 +69,6 @@ EXPECTED_ROOT_AFTER = {
     "execution.py",
     "liquidity.py",
 }
-
 EXPECTED_PUBLIC = {
     "BookState",
     "EconomicTerminationReason",
@@ -79,7 +77,6 @@ EXPECTED_PUBLIC = {
     "ExecutionResult",
     "MarketExecutor",
 }
-
 PACKAGE_FILES = {
     "orders": {"__init__.py", "model.py", "admission.py", "reconciliation.py"},
     "stateful": {
@@ -150,9 +147,13 @@ def _move_files() -> None:
 
 
 def _rewrite_owner_references() -> None:
-    # Text replacement is intentionally limited to Python source and skips the
-    # architecture contract, which contains the retired paths as literal data.
-    # Exact AST checks below prove no stale import module survives.
+    # Two-stage placeholders make the owner map atomic. This prevents a new
+    # owner such as ``orders.admission`` from being rewritten again by the
+    # shorter retired ``orders`` key into ``orders.model.admission``.
+    placeholders = {
+        old: f"__PHASE3B_SIM_OWNER_{index}__"
+        for index, old in enumerate(IMPORT_OWNER_MAP)
+    }
     for root_name in ("trade_rl", "tests", "scripts"):
         root = ROOT / root_name
         if not root.exists():
@@ -162,8 +163,10 @@ def _rewrite_owner_references() -> None:
                 continue
             text = path.read_text(encoding="utf-8")
             updated = text
-            for old, new in sorted(IMPORT_OWNER_MAP.items(), key=lambda item: -len(item[0])):
-                updated = updated.replace(old, new)
+            for old, placeholder in placeholders.items():
+                updated = updated.replace(old, placeholder)
+            for old, new in IMPORT_OWNER_MAP.items():
+                updated = updated.replace(placeholders[old], new)
             if updated != text:
                 path.write_text(updated, encoding="utf-8")
 
@@ -185,12 +188,9 @@ def _write_package_markers() -> None:
 def _assert_final_tree() -> None:
     observed_root = {path.name for path in SIMULATION.glob("*.py")}
     if observed_root != EXPECTED_ROOT_AFTER:
-        raise RuntimeError(
-            f"unexpected final simulation root: {sorted(observed_root)}"
-        )
+        raise RuntimeError(f"unexpected final simulation root: {sorted(observed_root)}")
     for package, expected_files in PACKAGE_FILES.items():
-        root = SIMULATION / package
-        observed = {path.name for path in root.glob("*.py")}
+        observed = {path.name for path in (SIMULATION / package).glob("*.py")}
         if observed != expected_files:
             raise RuntimeError(
                 f"unexpected {package} files: observed={sorted(observed)} "

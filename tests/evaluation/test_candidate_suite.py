@@ -46,16 +46,19 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     def fake_ridge(*args, **kwargs):
         calls["ridge"] = int(calls["ridge"]) + 1
         calls["ridge_dataset"] = args[0]
+        calls["ridge_kwargs"] = kwargs
         return SimpleNamespace(feature_indices=(0,))
 
     def fake_lightgbm(*args, **kwargs):
         calls["lightgbm"] = int(calls["lightgbm"]) + 1
         calls["lightgbm_dataset"] = args[0]
+        calls["lightgbm_kwargs"] = kwargs
         return SimpleNamespace(feature_indices=(0,))
 
     def fake_ppo(*args, **kwargs):
         calls["ppo"] = int(calls["ppo"]) + 1
         calls["ppo_dataset"] = args[0]
+        calls["ppo_kwargs"] = kwargs
         return ConstantIntentStrategy(PositionIntent.FLAT)
 
     monkeypatch.setattr(candidate_suite, "fit_ridge_forecast", fake_ridge)
@@ -90,6 +93,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
         forecast_exit_threshold=0.002,
         ppo_total_timesteps=256,
         ppo_seed=7,
+        fit_symbol_indices=(0,),
     )
 
     result = candidate_suite.run_lean_candidate_suite(
@@ -108,6 +112,9 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["ridge_dataset"] is dataset
     assert calls["lightgbm_dataset"] is dataset
     assert calls["ppo_dataset"] is dataset
+    assert calls["ridge_kwargs"]["fit_symbol_indices"] == (0,)
+    assert calls["lightgbm_kwargs"]["fit_symbol_indices"] == (0,)
+    assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["comparison_dataset"] is dataset
     assert calls["names"] == (
         "cash",

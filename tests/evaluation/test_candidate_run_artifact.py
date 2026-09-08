@@ -53,6 +53,7 @@ def run_config() -> dict[str, object]:
     return {
         "signal_name": "signal",
         "feature_names": ["signal"],
+        "fit_symbol_names": ["BTCUSDT"],
         "fit_cutoff": "2026-01-01T04:00:00",
         "evaluation_start": "2026-01-01T04:00:00",
         "evaluation_stop_exclusive": "2026-01-01T07:00:00",
@@ -135,6 +136,8 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         "signal_index": 0,
         "feature_names": ["signal"],
         "feature_indices": [0],
+        "fit_symbol_names": ["BTCUSDT"],
+        "fit_symbol_indices": [0],
         "fit_cutoff": "2026-01-01T04:00:00.000000000",
         "rule_entry_threshold": 0.10,
         "rule_exit_threshold": 0.02,
@@ -169,6 +172,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     lean_config = calls["config"]
     assert getattr(lean_config, "signal_index") == 0
     assert getattr(lean_config, "feature_indices") == (0,)
+    assert getattr(lean_config, "fit_symbol_indices") == (0,)
     assert calls["kwargs"] == {
         "start_index": 4,
         "stop_index": 7,

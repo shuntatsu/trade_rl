@@ -1,6 +1,10 @@
 """Lean evaluation primitives for trading research."""
 
 from trade_rl.evaluation.bootstrap import BootstrapResult, moving_block_mean_test
+from trade_rl.evaluation.candidate_suite import (
+    LeanCandidateConfig,
+    run_lean_candidate_suite,
+)
 from trade_rl.evaluation.capacity import (
     CapacityCurve,
     CapacityPoint,
@@ -51,6 +55,7 @@ __all__ = [
     "ClosedTradeTracker",
     "ExecutionDiagnostics",
     "IndependentFoldSummary",
+    "LeanCandidateConfig",
     "PERFECT_INFORMATION_BOUND_SCHEMA",
     "PairedComparison",
     "PerformanceMetrics",
@@ -72,6 +77,7 @@ __all__ = [
     "evaluate_performance",
     "moving_block_mean_test",
     "resolve_gate",
+    "run_lean_candidate_suite",
     "run_single_symbol_replay",
     "solve_perfect_information_bound",
     "summarize_independent_folds",

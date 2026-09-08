@@ -15,6 +15,8 @@ from trade_rl.artifacts.atomic_write import atomic_write_bytes
 from trade_rl.artifacts.canonical import canonical_json_bytes
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import (
+    MarketDataset,
+    PublishedDatasetArtifact,
     inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
 )
@@ -561,7 +563,10 @@ def _baseline_context_digest(plan: StudyPlan) -> str:
     return content_digest({"kind": "baseline", "study_digest": plan.digest})
 
 
-def _check_dataset(plan: StudyPlan, dataset_root: str | Path):
+def _check_dataset(
+    plan: StudyPlan,
+    dataset_root: str | Path,
+) -> tuple[PublishedDatasetArtifact, MarketDataset]:
     artifact = inspect_published_market_dataset_artifact(dataset_root)
     dataset = load_market_dataset_artifact(dataset_root)
     if dataset.dataset_id != plan.dataset_id:

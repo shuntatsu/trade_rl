@@ -85,20 +85,46 @@ jobs:
           def current(path: str) -> ast.Module:
               return ast.parse((ROOT / path).read_text(encoding="utf-8"), filename=path)
 
+          def import_signature(tree: ast.Module) -> tuple[str, ...]:
+              return tuple(
+                  sorted(
+                      ast.dump(node, include_attributes=False)
+                      for node in tree.body
+                      if isinstance(node, (ast.Import, ast.ImportFrom))
+                  )
+              )
+
+          def non_import_signature(tree: ast.Module) -> tuple[str, ...]:
+              return tuple(
+                  ast.dump(node, include_attributes=False)
+                  for node in tree.body
+                  if not isinstance(node, (ast.Import, ast.ImportFrom))
+              )
+
+          def assert_import_only_change(old_tree: ast.Module, new_tree: ast.Module, label: str) -> None:
+              assert import_signature(old_tree) == import_signature(new_tree), (
+                  f"import set changed: {label}",
+                  import_signature(old_tree),
+                  import_signature(new_tree),
+              )
+              assert non_import_signature(old_tree) == non_import_signature(new_tree), (
+                  f"non-import semantic diff: {label}"
+              )
+
           compared = 0
           for old_path, new_path in MOVES.items():
-              assert ast.dump(normalized_old(old_path), include_attributes=False) == ast.dump(
-                  current(new_path), include_attributes=False
-              ), f"non-import semantic diff: {old_path} -> {new_path}"
+              assert_import_only_change(
+                  normalized_old(old_path),
+                  current(new_path),
+                  f"{old_path} -> {new_path}",
+              )
               compared += 1
 
           for same_path in (
               "trade_rl/strategies/__init__.py",
               "trade_rl/evaluation/candidate_suite.py",
           ):
-              assert ast.dump(normalized_old(same_path), include_attributes=False) == ast.dump(
-                  current(same_path), include_attributes=False
-              ), f"non-import semantic diff: {same_path}"
+              assert_import_only_change(normalized_old(same_path), current(same_path), same_path)
               compared += 1
 
           old_facade = ast.parse(old_text("trade_rl/strategies/__init__.py"))
@@ -128,7 +154,9 @@ jobs:
                       module.startswith("trade_rl.evaluation") for module in modules
                   ), path
 
-          print(f"Normalized production modules AST-equivalent: {compared}/9")
+          print(f"Production modules import-only equivalent: {compared}/9")
+          print("Import statements may be Ruff-reordered; import sets are exact")
+          print("Non-import top-level AST is exact and order-preserved")
           print("Exact strategies.__all__ preserved")
           print("No strategy-family dependency on evaluation")
           PY

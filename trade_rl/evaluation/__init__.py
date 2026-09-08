@@ -25,6 +25,11 @@ from trade_rl.evaluation.perfect_information_bound import (
     PerfectInformationBoundResult,
     solve_perfect_information_bound,
 )
+from trade_rl.evaluation.replay import (
+    ReplayDecision,
+    SingleSymbolReplayResult,
+    run_single_symbol_replay,
+)
 from trade_rl.evaluation.seed_robustness import (
     SeedEvaluation,
     SeedResult,
@@ -46,17 +51,20 @@ __all__ = [
     "PerformanceMetrics",
     "PerfectInformationBoundConfig",
     "PerfectInformationBoundResult",
+    "ReplayDecision",
     "ReturnKind",
     "ReturnSeries",
     "SeedEvaluation",
     "SeedResult",
     "SeedRobustnessSummary",
+    "SingleSymbolReplayResult",
     "compare_paired_returns",
     "compound_return",
     "evaluate_capacity_grid",
     "evaluate_performance",
     "moving_block_mean_test",
     "resolve_gate",
+    "run_single_symbol_replay",
     "solve_perfect_information_bound",
     "summarize_independent_folds",
     "summarize_seed_robustness",

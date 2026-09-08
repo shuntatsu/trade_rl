@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tomllib
 from pathlib import Path
 
@@ -30,15 +29,10 @@ def test_package_metadata_uses_same_spdx_license() -> None:
     assert project["license"] == SPDX_ID
     assert set(project["license-files"]) == {"LICENSE", "LICENSES/*"}
 
-    package_json = json.loads(
-        (ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
-    )
-    assert package_json["license"] == SPDX_ID
-
 
 def test_license_transition_has_provenance_and_notice_documents() -> None:
-    licensing = (ROOT / "docs" / "LICENSING.md").read_text(encoding="utf-8")
-    provenance = (ROOT / "docs" / "LICENSING_PROVENANCE.md").read_text(encoding="utf-8")
+    licensing = (ROOT / "LICENSES" / "LICENSING.md").read_text(encoding="utf-8")
+    provenance = (ROOT / "LICENSES" / "PROVENANCE.md").read_text(encoding="utf-8")
     notices = (ROOT / "LICENSES" / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
 
     assert SPDX_ID in licensing

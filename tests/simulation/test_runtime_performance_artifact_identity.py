@@ -4,12 +4,12 @@ import json
 
 import pytest
 
-from trade_rl.simulation.runtime_performance import (
+from trade_rl.simulation.diagnostics.runtime_performance import (
     RuntimePerformanceEvidence,
     RuntimePerformanceMeasurement,
     RuntimePerformanceWorkload,
 )
-from trade_rl.simulation.runtime_performance_io import (
+from trade_rl.simulation.diagnostics.runtime_performance_io import (
     load_runtime_performance_evidence,
     write_runtime_performance_evidence,
 )

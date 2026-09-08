@@ -4,17 +4,17 @@ import numpy as np
 import pytest
 
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.order_reconciliation import (
-    OrderReconciliationError,
-    reconcile_target,
-)
-from trade_rl.simulation.orders import (
+from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
     OrderStatus,
     OrderType,
     PendingOrder,
     TimeInForce,
+)
+from trade_rl.simulation.orders.reconciliation import (
+    OrderReconciliationError,
+    reconcile_target,
 )
 
 

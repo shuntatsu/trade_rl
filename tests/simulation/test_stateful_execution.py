@@ -10,14 +10,14 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.orders import (
+from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
     OrderStatus,
     OrderType,
     TimeInForce,
 )
-from trade_rl.simulation.target_execution import execute_target_statefully
+from trade_rl.simulation.targets.execution import execute_target_statefully
 
 
 def _market(**overrides: object) -> MarketDataset:

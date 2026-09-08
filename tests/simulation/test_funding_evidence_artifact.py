@@ -4,8 +4,8 @@ from dataclasses import replace
 
 import pytest
 
-import trade_rl.simulation.funding_evidence as funding_evidence
-from trade_rl.simulation.funding_evidence import FundingBoundaryEvidence
+import trade_rl.simulation.diagnostics.funding as funding_evidence
+from trade_rl.simulation.diagnostics.funding import FundingBoundaryEvidence
 
 _DATASET_ID = "a" * 64
 _EXECUTION_POLICY_DIGEST = "b" * 64

@@ -8,7 +8,7 @@ from typing import cast
 
 from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
-from trade_rl.simulation.runtime_performance import (
+from trade_rl.simulation.diagnostics.runtime_performance import (
     RuntimePerformanceApprovalPolicy,
     RuntimePerformanceEvidence,
     approve_runtime_performance_evidence,

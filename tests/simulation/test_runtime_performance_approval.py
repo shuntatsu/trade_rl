@@ -7,15 +7,15 @@ from typing import cast
 
 import pytest
 
-import trade_rl.simulation.runtime_performance as runtime_performance
-import trade_rl.simulation.runtime_performance_io as runtime_performance_io
-from trade_rl.simulation.runtime_performance import (
+import trade_rl.simulation.diagnostics.runtime_performance as runtime_performance
+import trade_rl.simulation.diagnostics.runtime_performance_io as runtime_performance_io
+from trade_rl.simulation.diagnostics.runtime_performance import (
     RuntimePerformanceApprovalPolicy,
     RuntimePerformanceEvidence,
     RuntimePerformanceMeasurement,
     RuntimePerformanceWorkload,
 )
-from trade_rl.simulation.runtime_performance_io import (
+from trade_rl.simulation.diagnostics.runtime_performance_io import (
     load_runtime_performance_evidence,
     write_runtime_performance_evidence,
     write_runtime_performance_policy,

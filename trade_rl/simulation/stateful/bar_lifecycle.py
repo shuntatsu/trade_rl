@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from trade_rl.simulation.stateful_runtime import StatefulExecutionRuntime
+from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
 if TYPE_CHECKING:
     from trade_rl.simulation.execution import MarketExecutor

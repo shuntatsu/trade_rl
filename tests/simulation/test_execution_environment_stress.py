@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from trade_rl.simulation.diagnostics.execution_stress import ExecutionEnvironmentStress
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.execution_stress import ExecutionEnvironmentStress
 
 
 def _base_cost() -> ExecutionCostConfig:

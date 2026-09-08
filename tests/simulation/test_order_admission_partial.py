@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.order_admission import OrderAdmissionPolicy
-from trade_rl.simulation.orders import OrderIntent, OrderType, TimeInForce
+from trade_rl.simulation.orders.admission import OrderAdmissionPolicy
+from trade_rl.simulation.orders.model import OrderIntent, OrderType, TimeInForce
 
 
 def test_partial_order_admission_projects_only_remaining_quantity() -> None:

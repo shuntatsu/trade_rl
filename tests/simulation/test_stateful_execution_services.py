@@ -9,14 +9,14 @@ from trade_rl.data.market import MarketDataset
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.orders import (
+from trade_rl.simulation.orders.model import (
     OrderBookState,
     OrderIntent,
     OrderStatus,
     OrderType,
     TimeInForce,
 )
-from trade_rl.simulation.stateful_runtime import StatefulExecutionRuntime
+from trade_rl.simulation.stateful.runtime import StatefulExecutionRuntime
 
 
 def _market(*, processing_volume: float = 1_000.0) -> MarketDataset:

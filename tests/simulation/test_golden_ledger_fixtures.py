@@ -10,7 +10,7 @@ from trade_rl.risk.pretrade import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import MarketExecutor
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.execution import ExecutionCostConfig
-from trade_rl.simulation.orders import OrderBookState
+from trade_rl.simulation.orders.model import OrderBookState
 
 
 def market(**overrides: object) -> MarketDataset:

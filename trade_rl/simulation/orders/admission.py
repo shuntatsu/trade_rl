@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl.simulation.accounting import BookState
-from trade_rl.simulation.orders import OrderIntent
+from trade_rl.simulation.orders.model import OrderIntent
 
 _TOLERANCE = 1e-12
 

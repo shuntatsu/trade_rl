@@ -330,22 +330,14 @@ def execute_evidence_set(
         plan=plan,
         research_context_digest=research_context_digest,
     )
-    normalized_config = replace(config, ppo_seed=plan.ppo_seeds[0])
-    normalized_spec = resolve_candidate_run_spec(
-        dataset,
-        dataset_artifact_schema=artifact.schema_version,
-        dataset_artifact_digest=artifact.artifact_digest,
-        config=normalized_config,
-    )
-    normalized_contract = _resolved_run_config(normalized_spec)
-    _check_study_fixed_config(plan, normalized_contract)
     completed: EvidenceSet | None = None
 
     def builder(staging: Path) -> None:
         nonlocal completed
         loaded_runs: dict[int, LoadedCandidateRun] = {}
         run_digests: list[tuple[int, str]] = []
-        seedless_contract = _without_seed(normalized_contract)
+        normalized_contract: ResolvedRunConfig | None = None
+        seedless_contract: dict[str, object] | None = None
 
         for seed in plan.ppo_seeds:
             seed_config = replace(config, ppo_seed=seed)
@@ -357,7 +349,10 @@ def execute_evidence_set(
             )
             resolved = _resolved_run_config(spec)
             _check_study_fixed_config(plan, resolved)
-            if _without_seed(resolved) != seedless_contract:
+            if normalized_contract is None:
+                normalized_contract = resolved
+                seedless_contract = _without_seed(resolved)
+            elif _without_seed(resolved) != seedless_contract:
                 raise ArtifactIntegrityError(
                     "EvidenceSet resolved config changed beyond ppo_seed"
                 )
@@ -396,6 +391,8 @@ def execute_evidence_set(
             loaded_runs[seed] = loaded
             run_digests.append((seed, identity.artifact_digest))
 
+        if normalized_contract is None:
+            raise ArtifactIntegrityError("EvidenceSet contains no seed Runs")
         _verify_seed_invariance(
             loaded_runs,
             seeds=plan.ppo_seeds,

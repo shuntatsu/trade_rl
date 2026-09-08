@@ -23,7 +23,28 @@ jobs:
           persist-credentials: false
 
       - name: Apply deterministic migration
-        run: python scripts/phase1_migrate_boundaries.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/phase1_migrate_boundaries.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''        if path == source_checkout:
+                      continue
+          '''
+          new = '''        if path in {
+                      source_checkout,
+                      ROOT / "scripts/phase1_migrate_boundaries.py",
+                  }:
+                      continue
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("migration self-reference guard did not match exactly once")
+          path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+          python scripts/phase1_migrate_boundaries.py
 
       - name: Set up uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86

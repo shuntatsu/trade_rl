@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +16,43 @@ REQUIRED_DOC_FILES = {
 }
 EPHEMERAL_DOC_ROOTS = {"plans", "specs"}
 
+CURRENT_MARKDOWN = (
+    ROOT / "README.md",
+    ROOT / "AGENTS.md",
+    DOCS / "README.md",
+    DOCS / "AGENTS.md",
+    DOCS / "architecture" / "lean-core.md",
+    DOCS / "architecture" / "package-boundaries.md",
+    DOCS / "research" / "current-status.md",
+    ROOT / "LICENSES" / "LICENSING.md",
+    ROOT / "LICENSES" / "PROVENANCE.md",
+    ROOT / "LICENSES" / "THIRD_PARTY_NOTICES.md",
+)
+
+CURRENT_AUTHORITY_DOCS = (
+    ROOT / "README.md",
+    ROOT / "AGENTS.md",
+    DOCS / "README.md",
+    DOCS / "AGENTS.md",
+    DOCS / "architecture" / "lean-core.md",
+    DOCS / "architecture" / "package-boundaries.md",
+    DOCS / "research" / "current-status.md",
+)
+
+COMPLIANCE_GIT_BLOBS = {
+    "LICENSE": "0a041280bd00a9d068f503b8ee7ce35214bd24a1",
+    "LICENSES/GPL-3.0-or-later.txt": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7",
+    "LICENSES/LGPL-3.0-or-later.txt": "0a041280bd00a9d068f503b8ee7ce35214bd24a1",
+    "LICENSES/LICENSING.md": "a3066b942bd59ddae06e4c3ac53f907f84ee2a79",
+    "LICENSES/MIT.txt": "9d78c611c71ee12f697b773e518a91b895e0f999",
+    "LICENSES/PROVENANCE.md": "13af87f7f87d4602bc4c3f8d5123c5c6476de09b",
+    "LICENSES/THIRD_PARTY_NOTICES.md": "f07145046b624c54344e5d925dc51efe66825ac5",
+}
+
+LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+FULL_SHA_RE = re.compile(r"\b[0-9a-f]{40}\b")
+TRANSIENT_PR_RE = re.compile(r"\b(?:PR|pull request)\s*#\d+\b", re.IGNORECASE)
+
 
 def _doc_files() -> set[str]:
     result: set[str] = set()
@@ -21,6 +60,12 @@ def _doc_files() -> set[str]:
         if path.is_file():
             result.add(path.relative_to(DOCS).as_posix())
     return result
+
+
+def _git_blob_sha(path: Path) -> str:
+    data = path.read_bytes()
+    header = f"blob {len(data)}\0".encode()
+    return hashlib.sha1(header + data, usedforsecurity=False).hexdigest()
 
 
 def test_docs_tree_contains_current_authorities_and_only_active_ephemeral_docs() -> (
@@ -124,6 +169,34 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         "Production/live order routing",
     ):
         assert required in research
+
+
+def test_current_relative_markdown_links_resolve() -> None:
+    for path in CURRENT_MARKDOWN:
+        text = path.read_text(encoding="utf-8")
+        for match in LINK_RE.finditer(text):
+            target = match.group(1).strip()
+            if target.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            target_without_fragment = target.split("#", 1)[0]
+            if not target_without_fragment:
+                continue
+            resolved = (path.parent / target_without_fragment).resolve()
+            assert resolved.exists(), (path.relative_to(ROOT), target)
+
+
+def test_current_authority_docs_do_not_embed_transient_pr_or_full_sha_refs() -> None:
+    for path in CURRENT_AUTHORITY_DOCS:
+        text = path.read_text(encoding="utf-8")
+        assert FULL_SHA_RE.search(text) is None, path.relative_to(ROOT)
+        assert TRANSIENT_PR_RE.search(text) is None, path.relative_to(ROOT)
+
+
+def test_permanent_compliance_material_matches_verified_base() -> None:
+    for relative_path, expected_blob_sha in COMPLIANCE_GIT_BLOBS.items():
+        path = ROOT / relative_path
+        assert path.is_file(), relative_path
+        assert _git_blob_sha(path) == expected_blob_sha, relative_path
 
 
 def test_removed_monolithic_doc_is_not_referenced() -> None:

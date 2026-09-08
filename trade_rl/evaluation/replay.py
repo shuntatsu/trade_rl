@@ -45,10 +45,7 @@ def _weight_for_desired_quantity(book: BookState, desired_quantity: float) -> fl
         return 0.0
     multipliers = np.asarray(book.contract_multipliers, dtype=np.float64)
     return float(
-        desired_quantity
-        * book.mark_prices[0]
-        * multipliers[0]
-        / book.portfolio_value
+        desired_quantity * book.mark_prices[0] * multipliers[0] / book.portfolio_value
     )
 
 
@@ -160,9 +157,7 @@ def run_single_symbol_replay(
             break
 
     termination_reasons = (
-        ()
-        if book.termination_reason is None
-        else (str(book.termination_reason.value),)
+        () if book.termination_reason is None else (str(book.termination_reason.value),)
     )
     diagnostics = ExecutionDiagnostics(
         turnover_total=book.turnover_total,

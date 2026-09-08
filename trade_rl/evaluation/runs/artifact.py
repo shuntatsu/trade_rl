@@ -112,6 +112,8 @@ def _validate_provenance(provenance: dict[str, object]) -> None:
         raise ValueError("candidate provenance runtime environment digest mismatch")
     context = provenance.get("research_context_digest")
     if context is not None:
+        if not isinstance(context, str):
+            raise ValueError("research_context_digest must be a SHA-256 string")
         require_sha256(context, field="research_context_digest")
 
 

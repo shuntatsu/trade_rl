@@ -34,6 +34,7 @@
 - `research/`: current research status/evidence protocolのみ。
 - `specs/`: 未実装またはreview中で、独立してnormativeなdesignが存在するときだけ作る。
 - `plans/`: 実装中の独立planが必要なときだけ作る。
+- `specs/` / `plans/` に置く各Markdownは先頭付近に `Status: Active` を明記する。Activeでないfileをcurrent treeに残さない。
 - 完了した `specs/` / `plans/` は、耐久的な内容を `architecture/` / `research/` へ反映した後に削除する。
 - `docs/history` と `docs/archive` は作らない。
 - 過去の設計・migration経緯・削除済み文書は **Git history** から取得する。

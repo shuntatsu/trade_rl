@@ -140,7 +140,9 @@ def build_causal_forecast_training_set(
         label_end_times.append(timestamps[end_index])
 
     if len(rows) < 2:
-        raise ValueError("forecast fitting requires at least two eligible training rows")
+        raise ValueError(
+            "forecast fitting requires at least two eligible training rows"
+        )
 
     return CausalForecastTrainingSet(
         feature_indices=indices,

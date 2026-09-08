@@ -1,0 +1,196 @@
+name: Phase 3B simulation semantic falsification
+
+on:
+  push:
+    branches:
+      - refactor/lean-simulation-boundaries
+    paths:
+      - ".github/workflows/phase3b-simulation-semantic-falsification.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch exact Phase 3A logical base
+        run: git fetch --no-tags --depth=1 origin 8a3e1eb3c92d86053ee6305d0116a9218379810c
+
+      - name: Compare normalized production AST
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import ast
+          import subprocess
+          from pathlib import Path
+
+          BASE = "8a3e1eb3c92d86053ee6305d0116a9218379810c"
+          ROOT = Path.cwd()
+          OWNER_MAP = {
+              "trade_rl.simulation.orders": "trade_rl.simulation.orders.model",
+              "trade_rl.simulation.order_admission": "trade_rl.simulation.orders.admission",
+              "trade_rl.simulation.order_reconciliation": "trade_rl.simulation.orders.reconciliation",
+              "trade_rl.simulation.stateful_runtime": "trade_rl.simulation.stateful.runtime",
+              "trade_rl.simulation.stateful_execution": "trade_rl.simulation.stateful.execution",
+              "trade_rl.simulation.stateful_bar_lifecycle": "trade_rl.simulation.stateful.bar_lifecycle",
+              "trade_rl.simulation.stateful_order_transitions": "trade_rl.simulation.stateful.order_transitions",
+              "trade_rl.simulation.stateful_symbol_fills": "trade_rl.simulation.stateful.symbol_fills",
+              "trade_rl.simulation.target_execution": "trade_rl.simulation.targets.execution",
+              "trade_rl.simulation.target_exposure_controller": "trade_rl.simulation.targets.exposure_controller",
+              "trade_rl.simulation.execution_stress": "trade_rl.simulation.diagnostics.execution_stress",
+              "trade_rl.simulation.funding_evidence": "trade_rl.simulation.diagnostics.funding",
+              "trade_rl.simulation.runtime_performance": "trade_rl.simulation.diagnostics.runtime_performance",
+              "trade_rl.simulation.runtime_performance_io": "trade_rl.simulation.diagnostics.runtime_performance_io",
+          }
+          MOVES = {
+              "trade_rl/simulation/orders.py": "trade_rl/simulation/orders/model.py",
+              "trade_rl/simulation/order_admission.py": "trade_rl/simulation/orders/admission.py",
+              "trade_rl/simulation/order_reconciliation.py": "trade_rl/simulation/orders/reconciliation.py",
+              "trade_rl/simulation/stateful_runtime.py": "trade_rl/simulation/stateful/runtime.py",
+              "trade_rl/simulation/stateful_execution.py": "trade_rl/simulation/stateful/execution.py",
+              "trade_rl/simulation/stateful_bar_lifecycle.py": "trade_rl/simulation/stateful/bar_lifecycle.py",
+              "trade_rl/simulation/stateful_order_transitions.py": "trade_rl/simulation/stateful/order_transitions.py",
+              "trade_rl/simulation/stateful_symbol_fills.py": "trade_rl/simulation/stateful/symbol_fills.py",
+              "trade_rl/simulation/target_execution.py": "trade_rl/simulation/targets/execution.py",
+              "trade_rl/simulation/target_exposure_controller.py": "trade_rl/simulation/targets/exposure_controller.py",
+              "trade_rl/simulation/execution_stress.py": "trade_rl/simulation/diagnostics/execution_stress.py",
+              "trade_rl/simulation/funding_evidence.py": "trade_rl/simulation/diagnostics/funding.py",
+              "trade_rl/simulation/runtime_performance.py": "trade_rl/simulation/diagnostics/runtime_performance.py",
+              "trade_rl/simulation/runtime_performance_io.py": "trade_rl/simulation/diagnostics/runtime_performance_io.py",
+          }
+          KEEP_CHANGED = (
+              "trade_rl/simulation/__init__.py",
+              "trade_rl/simulation/bar_path.py",
+              "trade_rl/simulation/execution.py",
+          )
+
+          class NormalizeImports(ast.NodeTransformer):
+              def visit_ImportFrom(self, node: ast.ImportFrom) -> ast.AST:
+                  node = self.generic_visit(node)
+                  assert isinstance(node, ast.ImportFrom)
+                  if node.module in OWNER_MAP:
+                      node.module = OWNER_MAP[node.module]
+                  return node
+
+              def visit_Import(self, node: ast.Import) -> ast.AST:
+                  node = self.generic_visit(node)
+                  assert isinstance(node, ast.Import)
+                  for alias in node.names:
+                      if alias.name in OWNER_MAP:
+                          alias.name = OWNER_MAP[alias.name]
+                  return node
+
+          def old_text(path: str) -> str:
+              return subprocess.check_output(["git", "show", f"{BASE}:{path}"], text=True)
+
+          def old_tree(path: str) -> ast.Module:
+              tree = ast.parse(old_text(path), filename=path)
+              tree = NormalizeImports().visit(tree)
+              ast.fix_missing_locations(tree)
+              assert isinstance(tree, ast.Module)
+              return tree
+
+          def new_tree(path: str) -> ast.Module:
+              return ast.parse((ROOT / path).read_text(encoding="utf-8"), filename=path)
+
+          def import_signature(tree: ast.Module) -> tuple[str, ...]:
+              return tuple(sorted(
+                  ast.dump(node, include_attributes=False)
+                  for node in tree.body
+                  if isinstance(node, (ast.Import, ast.ImportFrom))
+              ))
+
+          def non_import_signature(tree: ast.Module) -> tuple[str, ...]:
+              return tuple(
+                  ast.dump(node, include_attributes=False)
+                  for node in tree.body
+                  if not isinstance(node, (ast.Import, ast.ImportFrom))
+              )
+
+          def assert_import_only(old_path: str, new_path: str) -> None:
+              old = old_tree(old_path)
+              new = new_tree(new_path)
+              assert import_signature(old) == import_signature(new), (
+                  f"import membership changed: {old_path} -> {new_path}",
+                  import_signature(old),
+                  import_signature(new),
+              )
+              assert non_import_signature(old) == non_import_signature(new), (
+                  f"non-import semantic diff: {old_path} -> {new_path}"
+              )
+
+          compared = 0
+          for old_path, new_path in MOVES.items():
+              assert_import_only(old_path, new_path)
+              compared += 1
+          for path in KEEP_CHANGED:
+              assert_import_only(path, path)
+              compared += 1
+          assert compared == 17
+
+          def exported(tree: ast.Module) -> tuple[str, ...]:
+              for node in tree.body:
+                  if isinstance(node, ast.Assign) and any(
+                      isinstance(target, ast.Name) and target.id == "__all__"
+                      for target in node.targets
+                  ):
+                      return tuple(ast.literal_eval(node.value))
+              raise AssertionError("missing __all__")
+
+          old_facade = ast.parse(old_text("trade_rl/simulation/__init__.py"))
+          new_facade = new_tree("trade_rl/simulation/__init__.py")
+          assert exported(old_facade) == exported(new_facade)
+
+          retired = set(OWNER_MAP)
+          offenders: list[tuple[str, list[str]]] = []
+          simulation_root = ROOT / "trade_rl" / "simulation"
+          for path in simulation_root.rglob("*.py"):
+              tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+              modules: set[str] = set()
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Import):
+                      modules.update(alias.name for alias in node.names)
+                  elif isinstance(node, ast.ImportFrom) and node.module:
+                      modules.add(node.module)
+              invalid = sorted(
+                  module for module in modules
+                  if module in retired
+                  or module.startswith("trade_rl.strategies")
+                  or module.startswith("trade_rl.evaluation")
+              )
+              if invalid:
+                  offenders.append((str(path.relative_to(ROOT)), invalid))
+          assert offenders == [], offenders
+
+          print(f"Simulation production modules import-only equivalent: {compared}/17")
+          print("Import sets exact after authorized owner normalization")
+          print("Non-import top-level AST exact and order-preserved")
+          print("Exact simulation.__all__ preserved")
+          print("No retired private or upward simulation imports")
+          PY
+
+      - name: Reject retired paths and one-shot migration helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            orders.py order_admission.py order_reconciliation.py \
+            stateful_runtime.py stateful_execution.py stateful_bar_lifecycle.py \
+            stateful_order_transitions.py stateful_symbol_fills.py \
+            target_execution.py target_exposure_controller.py execution_stress.py \
+            funding_evidence.py runtime_performance.py runtime_performance_io.py; do
+            test ! -e "trade_rl/simulation/$path"
+          done
+          test ! -e scripts/phase3b_simulation_migrate.py
+          test ! -e .github/workflows/phase3b-simulation-migrate.yml

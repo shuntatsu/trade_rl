@@ -3,6 +3,8 @@ from __future__ import annotations
 from hashlib import sha256
 from pathlib import Path
 
+import pytest
+
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.runs import provenance as provenance_module
 from trade_rl.evaluation.runs.provenance import (
@@ -36,6 +38,17 @@ def test_candidate_run_provenance_digest_binds_implementation_and_runtime() -> N
     )
     assert len(str(payload["implementation_digest"])) == 64
     assert len(str(payload["runtime_environment_digest"])) == 64
+    assert payload["research_context_digest"] is None
+
+
+def test_candidate_run_provenance_binds_research_context() -> None:
+    payload = build_candidate_run_provenance(research_context_digest="a" * 64)
+    assert payload["research_context_digest"] == "a" * 64
+
+
+def test_candidate_run_provenance_rejects_invalid_research_context() -> None:
+    with pytest.raises(ValueError, match="research_context_digest"):
+        build_candidate_run_provenance(research_context_digest="not-a-digest")
 
 
 def test_implementation_manifest_is_path_independent_and_source_byte_sensitive(

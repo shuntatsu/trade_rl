@@ -1,0 +1,70 @@
+name: Retry Task 7 Freeze Validation Ordering
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-task7-integration-retry2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  retry:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Apply integration patch and order freeze validation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path("trade_rl/evaluation/experiments/workflow.py")
+          text = workflow.read_text(encoding="utf-8")
+          marker = "from __future__ import annotations\n\n"
+          replacement = marker + "from collections.abc import Mapping\n"
+          if text.count(marker) != 1:
+              raise SystemExit("future import marker mismatch")
+          workflow.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+
+          helper = Path(".github/workflows/cel-task7-integration-fix.yml").read_text(
+              encoding="utf-8"
+          )
+          start = helper.index("          python - <<'PY'\n") + len(
+              "          python - <<'PY'\n"
+          )
+          end = helper.index("\n          PY\n", start)
+          patch = textwrap.dedent(helper[start:end])
+          exec(compile(patch, "cel-task7-integration-fix.yml", "exec"), {})
+
+          text = workflow.read_text(encoding="utf-8")
+          old = '''        if outcome is StudyOutcome.WINNER:\n            accepted_candidates = {\n                item.candidate.evidence.fingerprint\n                for item in state.experiments\n                if item.decision is not None\n                and item.decision.decision is ExperimentDecisionKind.ACCEPT_CANDIDATE\n                and item.candidate is not None\n            }\n            if selected_evidence_digest not in accepted_candidates:\n                raise InvalidExperimentStateError(\n                    "WINNER selected evidence must come from an ACCEPT_CANDIDATE decision"\n                )\n        decision_digests = tuple(\n            item.decision.digest\n            for item in state.experiments\n            if item.decision is not None\n        )\n        frozen = StudyFreeze(\n            study_digest=state.plan.digest,\n            experiment_decision_digests=decision_digests,\n            outcome=outcome,\n            selected_evidence_digest=selected_evidence_digest,\n            selected_strategy=selected_strategy,\n            rationale=rationale,\n            frozen_by=frozen_by,\n            frozen_at=frozen_at,\n        )\n'''
+          new = '''        decision_digests = tuple(\n            item.decision.digest\n            for item in state.experiments\n            if item.decision is not None\n        )\n        frozen = StudyFreeze(\n            study_digest=state.plan.digest,\n            experiment_decision_digests=decision_digests,\n            outcome=outcome,\n            selected_evidence_digest=selected_evidence_digest,\n            selected_strategy=selected_strategy,\n            rationale=rationale,\n            frozen_by=frozen_by,\n            frozen_at=frozen_at,\n        )\n        if outcome is StudyOutcome.WINNER:\n            accepted_candidates = {\n                item.candidate.evidence.fingerprint\n                for item in state.experiments\n                if item.decision is not None\n                and item.decision.decision is ExperimentDecisionKind.ACCEPT_CANDIDATE\n                and item.candidate is not None\n            }\n            if frozen.selected_evidence_digest not in accepted_candidates:\n                raise InvalidExperimentStateError(\n                    "WINNER selected evidence must come from an ACCEPT_CANDIDATE decision"\n                )\n'''
+          if text.count(old) != 1:
+              raise SystemExit("freeze validation ordering block mismatch")
+          workflow.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          uv run ruff check --fix trade_rl/evaluation/experiments/workflow.py trade_rl/evaluation/experiments/__init__.py
+          uv run ruff format trade_rl/evaluation/experiments/workflow.py trade_rl/evaluation/experiments/__init__.py
+          uv run pytest -q tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py tests/evaluation/experiments/test_failure.py tests/evaluation/experiments/test_freeze.py tests/evaluation/experiments/test_freeze_tamper.py tests/evaluation/experiments/test_workflow_atomicity.py tests/evaluation/experiments/test_workflow_candidate_atomicity.py tests/evaluation/experiments/test_workflow_seed_binding.py
+          uv run mypy trade_rl/evaluation/experiments/workflow.py trade_rl/evaluation/experiments/__init__.py
+      - name: Commit and remove transient helpers
+        run: |
+          rm .github/workflows/cel-task7-integration-retry2.yml
+          rm -f .github/workflows/cel-task7-integration-retry.yml .github/workflows/cel-task7-integration-fix.yml .github/workflows/cel-task7-freeze-impl.yml .github/workflows/cel-workflow-green.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/workflow.py trade_rl/evaluation/experiments/__init__.py .github/workflows
+          git diff --cached --check
+          git commit -m "feat: finalize terminal controlled study workflow"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

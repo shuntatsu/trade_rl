@@ -201,7 +201,9 @@ def _validate_time_contract(
     if not baseline.evaluation_start < baseline.evaluation_stop_exclusive:
         raise ValueError("evaluation_start must be before evaluation_stop_exclusive")
     if baseline.evaluation_stop_exclusive > stop:
-        raise ValueError("evaluation_stop_exclusive must not exceed data_stop_exclusive")
+        raise ValueError(
+            "evaluation_stop_exclusive must not exceed data_stop_exclusive"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,9 +330,7 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
     if not set(baseline.fit_symbol_names).issubset(symbols):
         raise ValueError("fit_symbol_names must be a subset of symbols")
 
-    factor_names = _string_sequence(
-        raw.get("allowed_factors"), field="allowed_factors"
-    )
+    factor_names = _string_sequence(raw.get("allowed_factors"), field="allowed_factors")
     try:
         allowed_factors = tuple(ControlledFactor(item) for item in factor_names)
     except ValueError as error:

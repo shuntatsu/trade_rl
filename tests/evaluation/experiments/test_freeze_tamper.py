@@ -19,7 +19,9 @@ def test_freeze_rejects_tampered_seed_returns_without_publication(
 ) -> None:
     root, _, snapshot = _with_baseline(tmp_path, monkeypatch)
     seed = snapshot.plan.ppo_seeds[0]
-    returns_path = root / "baseline" / "evidence" / "runs" / f"seed-{seed}" / "returns.npz"
+    returns_path = (
+        root / "baseline" / "evidence" / "runs" / f"seed-{seed}" / "returns.npz"
+    )
     payload = bytearray(returns_path.read_bytes())
     payload[0] ^= 0x01
     returns_path.write_bytes(payload)

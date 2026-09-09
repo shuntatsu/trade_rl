@@ -35,6 +35,14 @@ jobs:
               raise SystemExit("EvidenceSet identity block mismatch")
           path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
+          seed_test = Path("tests/evaluation/experiments/test_workflow_seed_binding.py")
+          text = seed_test.read_text(encoding="utf-8")
+          old = '''    loaded = load_evidence_set(root / "experiments" / "0001" / "candidate" / "evidence")\n    assert loaded.semantic_config["ppo_seed"] == snapshot.plan.ppo_seeds[0]\n    assert definition.candidate_config.ppo_seed == snapshot.plan.ppo_seeds[0]\n'''
+          new = '''    loaded = load_evidence_set(root / "experiments" / "0001" / "candidate" / "evidence")\n    assert "ppo_seed" not in loaded.semantic_config\n    assert loaded.evidence.ppo_seeds == snapshot.plan.ppo_seeds\n    assert [\n        loaded.runs[seed].summary["candidate_config"]["ppo_seed"]\n        for seed in snapshot.plan.ppo_seeds\n    ] == list(snapshot.plan.ppo_seeds)\n    assert definition.candidate_config.ppo_seed == snapshot.plan.ppo_seeds[0]\n'''
+          if text.count(old) != 1:
+              raise SystemExit("workflow seed-binding oracle mismatch")
+          seed_test.write_text(text.replace(old, new, 1), encoding="utf-8")
+
           docs = Path("docs/architecture/controlled-experiment-loop.md")
           text = docs.read_text(encoding="utf-8")
           marker = "EvidenceSet内で変えてよいのは `ppo_seed` だけである。"
@@ -50,17 +58,18 @@ jobs:
               text = text.replace(marker, addition, 1)
           docs.write_text(text, encoding="utf-8")
           PY
+          uv run ruff format trade_rl/evaluation/experiments/evidence.py tests/evaluation/experiments/test_workflow_seed_binding.py
           uv run ruff check trade_rl tests
           uv run ruff format --check trade_rl tests
           uv run mypy trade_rl
-          uv run pytest -q tests/evaluation/experiments/test_evidence_identity.py tests/evaluation/experiments/test_evidence.py tests/evaluation/experiments/test_delta.py tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py
+          uv run pytest -q tests/evaluation/experiments/test_evidence_identity.py tests/evaluation/experiments/test_workflow_seed_binding.py tests/evaluation/experiments/test_evidence.py tests/evaluation/experiments/test_delta.py tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py
           uv run pytest -q tests
       - name: Commit fix and remove helper
         run: |
           rm .github/workflows/cel-evidence-seedless-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add trade_rl/evaluation/experiments/evidence.py tests/evaluation/experiments/test_evidence_identity.py docs/architecture/controlled-experiment-loop.md .github/workflows/cel-evidence-seedless-fix.yml
+          git add trade_rl/evaluation/experiments/evidence.py tests/evaluation/experiments/test_evidence_identity.py tests/evaluation/experiments/test_workflow_seed_binding.py docs/architecture/controlled-experiment-loop.md .github/workflows/cel-evidence-seedless-fix.yml
           git diff --cached --check
           git commit -m "fix: separate EvidenceSet seed policy from semantic identity"
           git push origin HEAD:feat/controlled-experiment-loop-v1

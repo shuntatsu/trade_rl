@@ -8,6 +8,7 @@ import pytest
 
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symbol
+from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
 
@@ -102,13 +103,24 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
         lambda path: dataset,
     )
 
-    def fake_suite(loaded, config, **kwargs):
+    def fake_execute(loaded, spec):
         calls["dataset"] = loaded
-        calls["config"] = config
-        calls["kwargs"] = kwargs
-        return comparison
+        calls["config"] = spec.lean_config
+        calls["kwargs"] = {
+            "start_index": spec.evaluation_start_index,
+            "stop_index": spec.evaluation_stop_index,
+            "gross_budget": spec.config.gross_budget,
+            "initial_capital": spec.config.initial_capital,
+            "execution_cost": None,
+            "risk": None,
+        }
+        return CandidateRunResult(
+            spec=spec,
+            symbols=tuple(loaded.symbols),
+            comparison=comparison,
+        )
 
-    monkeypatch.setattr(candidate_run, "run_lean_candidate_suite", fake_suite)
+    monkeypatch.setattr(candidate_run, "execute_candidate_run", fake_execute)
 
     config_path = tmp_path / "run.json"
     config_path.write_text(json.dumps(run_config()), encoding="utf-8")
@@ -123,6 +135,7 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     assert artifact.root == output
     assert artifact.summary_path == output / "summary.json"
     assert artifact.returns_path == output / "returns.npz"
+    assert artifact.provenance_path == output / "provenance.json"
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
     assert summary["schema_version"] == "lean_candidate_result_v1"
     assert summary["dataset_id"] == dataset.dataset_id
@@ -168,6 +181,10 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
             "symbol_1_strategy_1",
         }
         assert arrays["symbol_0_strategy_1"].shape == (3,)
+
+    provenance = json.loads(artifact.provenance_path.read_text(encoding="utf-8"))
+    assert provenance["schema_version"] == "candidate_run_provenance_v1"
+    assert provenance["research_context_digest"] is None
 
     lean_config = calls["config"]
     assert getattr(lean_config, "signal_index") == 0

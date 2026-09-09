@@ -76,6 +76,24 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "runs/__init__.py",
         "runs/candidate.py",
         "runs/candidate_suite.py",
+        "runs/config.py",
+        "runs/execute.py",
+        "runs/provenance.py",
+        "runs/artifact.py",
+        "experiments/__init__.py",
+        "experiments/errors.py",
+        "experiments/store.py",
+        "experiments/evidence.py",
+        "experiments/delta.py",
+        "experiments/analysis.py",
+        "experiments/workflow.py",
+        "experiments/contracts/__init__.py",
+        "experiments/contracts/_common.py",
+        "experiments/contracts/run.py",
+        "experiments/contracts/study.py",
+        "experiments/contracts/experiment.py",
+        "experiments/contracts/decision.py",
+        "experiments/contracts/comparison.py",
     )
     missing = [path for path in required if not (PACKAGE / path).is_file()]
     assert missing == []
@@ -113,7 +131,6 @@ def test_phase4a_one_shot_helpers_are_absent() -> None:
         str(path.relative_to(ROOT)) for path in retired_helpers if path.exists()
     ]
     assert surviving == []
-    assert not (PACKAGE / "experiments").exists()
 
 
 def test_evaluation_package_public_api_is_exactly_preserved() -> None:

@@ -10,8 +10,9 @@
 2. `docs/README.md`
 3. `docs/architecture/lean-core.md`
 4. `docs/architecture/package-boundaries.md`
-5. 研究判断・候補・評価・データscopeに関わる作業なら `docs/research/current-status.md`
-6. その後に対象source、tests、CI、open PR、recent commitsを読む
+5. Study/Experiment/EvidenceSetやdevelopment研究workflowに関わる作業なら `docs/architecture/controlled-experiment-loop.md`
+6. 研究判断・候補・評価・データscopeに関わる作業なら `docs/research/current-status.md`
+7. その後に対象source、tests、CI、open PR、recent commitsを読む
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
 
@@ -23,6 +24,7 @@
 | strategy interface、quantity hold、strategy/risk責任 | `architecture/lean-core.md`, strategy/replay tests |
 | execution/accounting/fill/funding/borrow/liquidation | `architecture/lean-core.md`, simulation/risk/evaluation tests |
 | package移動、責務境界、依存方向、public facade | `architecture/package-boundaries.md`, `tests/architecture/` |
+| Study/Experiment/EvidenceSet、controlled factor、lineage、freeze | `architecture/controlled-experiment-loop.md`, experiment contract/workflow tests |
 | 候補strategy/control、fit scope、evaluation scope | `research/current-status.md`, candidate/strategy tests |
 | M1/M2/M3状態、development/final/stress手順 | `research/current-status.md` |
 | docsの入口・保持ルール | `docs/README.md`, `docs/AGENTS.md`, root `AGENTS.md` |

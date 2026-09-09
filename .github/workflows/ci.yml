@@ -47,6 +47,9 @@ jobs:
       - name: Core tests
         run: uv run pytest -q tests
 
+      - name: Build
+        run: uv build
+
       - name: Package identity
         shell: bash
         run: |

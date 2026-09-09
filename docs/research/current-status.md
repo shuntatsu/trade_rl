@@ -1,10 +1,10 @@
 # Current research status
 
-更新基準: 2026-09-08 (JST)
+更新基準: 2026-09-09 (JST)
 
 ## 結論
 
-Trade RLの現在地は、**lean coreと5候補+3 controlsの共通比較基盤までは実装済みだが、canonical実データを使ったM2 development比較はまだ実施していない**段階である。
+Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、およびControlled Experiment Loop v1まで実装済みだが、canonical実データを使ったM2 development Studyはまだ実施していない**段階である。
 
 したがって現在は次を主張しない。
 
@@ -13,7 +13,7 @@ Trade RLの現在地は、**lean coreと5候補+3 controlsの共通比較基盤�
 - Production/live order routingは未認可。
 - PPOやforecastがruleを上回るという結論はない。
 
-次の研究上の本質的作業は、新architectureを増やすことではなく、**一つのcanonical実データartifactとdevelopment windowをfreezeし、5候補+3 controlsを同じ条件で比較すること**である。
+次の研究上の本質的作業は、新しいmodel familyを増やすことではなく、**一つのcanonical実データartifactとdevelopment windowをfreezeし、Controlled Experiment Loopで5候補+3 controlsを同じ条件にbindして比較すること**である。
 
 ## 研究目的
 
@@ -43,6 +43,7 @@ Aggregate P&Lだけで成功を判定せず、各symbolの結果を保持する�
 - PPOはunused dataでも単純候補へ安定して上乗せする場合だけ残す。
 - 差が不明ならより単純な候補を残す。
 - 全候補が弱ければ **no winner** を正しい結論とする。
+- controlsはbenchmarkであり、Study winnerとは呼ばない。controlが最良ならno winnerである。
 
 ## Universal fit contract
 
@@ -89,7 +90,7 @@ PPO観測はselected feature、feature availability、current intent、current w
 - quantity-preserving independent symbol replay
 - DB/UI/teacher pipelineなしで成立するcore CI
 
-### M2 — Common comparison: infrastructure complete, real-data development comparison not run
+### M2 — Common comparison: Run Core + Controlled Experiment Loop complete, real-data development comparison not run
 
 実装済み:
 
@@ -99,13 +100,21 @@ PPO観測はselected feature、feature availability、current intent、current w
 - fit-symbol scopeの明示
 - symbol-ID-free PPO
 - 全symbol独立comparison
-- immutable filesystem candidate-run artifact
+- shared candidate config resolution
+- in-memory candidate execution seam
+- implementation/runtime/research-context provenance生成
+- immutable 3-file candidate-run artifact
+- semantic candidate-artifact identityとraw file integrity evidence
+- append-only Study/Experiment state machineとprocess-safe mutation lock
+- Study-owned multi-seed EvidenceSetとdeterministic seed invariance
+- one-factor resolved delta verificationとunaffected-strategy raw-return invariance
+- paired/bootstrap/seed analysis、ACCEPT-only lineage、FAILED/INVALID terminal、WINNER/NO_WINNER freeze
 
 未完了:
 
 1. canonical実データdevelopment artifactを選ぶ。
-2. signal/feature、`fit_symbol_names`、fit cutoff、development windowをfreezeする。
-3. 8候補を同じ条件で実行する。
+2. signal/feature、`fit_symbol_names`、fit cutoff、development window、seed policyをfreezeする。
+3. 5 candidates + 3 controlsを同じStudy条件で実行する。
 4. 全symbolの結果を完全報告する。
 5. winnerをfreezeするか、no-winnerと判断する。
 
@@ -119,7 +128,7 @@ M2で候補をfreezeした後だけ進む。
 4. README/config/CI/testsを採用構成へさらに縮約する。
 5. Production認可は研究結果とは別に扱う。
 
-## Development run
+## Development Run Core
 
 必要な入力は次の3つである。
 
@@ -150,7 +159,7 @@ M2で候補をfreezeした後だけ進む。
 
 `evaluation_start` と `evaluation_stop_exclusive` はdataset timestampへexact matchする必要がある。Evaluation startはfit cutoffより前にできない。
 
-実行:
+Standalone実行:
 
 ```bash
 uv run --extra forecast-gbm --extra train-sb3 \
@@ -160,7 +169,9 @@ uv run --extra forecast-gbm --extra train-sb3 \
   --output <new-result-dir>
 ```
 
-既存output directoryへの上書きは拒否する。
+Controlled StudyでRunを事前登録contextへbindする場合は、higher-level workflowから同じRun CoreへSHA-256 `research_context_digest`を渡す。CLIにも `--research-context-digest <sha256>` がある。Standalone Runでは省略できる。
+
+既存output directoryへの上書きは拒否する。実行前後でimplementation/runtime provenance digestが変化した場合もpublishしない。
 
 出力:
 
@@ -168,9 +179,14 @@ uv run --extra forecast-gbm --extra train-sb3 \
 <new-result-dir>/
   summary.json
   returns.npz
+  provenance.json
 ```
 
-`summary.json` はdataset artifact identity、resolved run config/scope、各symbol × strategy metrics/diagnostics等を保持する。`returns.npz` は後段のpaired comparison/block-bootstrap等に使えるraw interval-return seriesを保持する。このimmutable artifactをdevelopment evidenceの正本とする。
+- `summary.json`: dataset artifact identity、resolved run config/scope、各symbol × strategy metrics/diagnostics。
+- `returns.npz`: paired comparison/block-bootstrap等に使うraw interval-return series。`allow_pickle=False`で検証可能なnumeric 1D arraysだけを正当なevidenceとする。
+- `provenance.json`: exact Python source-byte manifest、runtime/dependency roster、optional research-context digest。
+
+3ファイルを一つのimmutable Run evidenceとして扱う。Semantic artifact identityはNPZ ZIP compressionの違いでは変えず、検証済みarray content、summary、provenanceへbindする。raw file SHA-256/sizeはtamper検出用evidenceとして別に保持できる。
 
 ## Development後の判断順序
 
@@ -204,10 +220,12 @@ Developmentで繰り返し見た期間をfinal testと呼ばない。Candidate�
 
 Stress結果を見てから合格thresholdを変更しない。
 
+Controlled Experiment Loop自体からsealed unused-futureを開かない。Development StudyをWINNER/NO_WINNERへfreezeした後、別subsystemでのみfinal authorizationを扱う。
+
 ## 現在の次アクション
 
-現時点での研究上の次アクションは、新しいV世代やmodel familyを追加することではない。
+現時点の次アクションは、Run Coreをさらに拡張することではない。
 
-> canonical実データartifactを一つ選び、development windowとfit/feature条件をfreezeし、5 candidates + 3 controlsを一回通して全symbolを比較する。
+> 実装済みControlled Experiment Loopで、一つのcanonical development dataset・fit/evaluation scope・seed policyをStudyへfreezeし、最初のreal-data M2 Studyを開始する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。

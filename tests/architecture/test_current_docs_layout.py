@@ -12,6 +12,7 @@ REQUIRED_DOC_FILES = {
     "README.md",
     "architecture/lean-core.md",
     "architecture/package-boundaries.md",
+    "architecture/controlled-experiment-loop.md",
     "research/current-status.md",
 }
 EPHEMERAL_DOC_ROOTS = {"plans", "specs"}
@@ -23,6 +24,7 @@ CURRENT_MARKDOWN = (
     DOCS / "AGENTS.md",
     DOCS / "architecture" / "lean-core.md",
     DOCS / "architecture" / "package-boundaries.md",
+    DOCS / "architecture" / "controlled-experiment-loop.md",
     DOCS / "research" / "current-status.md",
     ROOT / "LICENSES" / "LICENSING.md",
     ROOT / "LICENSES" / "PROVENANCE.md",
@@ -36,6 +38,7 @@ CURRENT_AUTHORITY_DOCS = (
     DOCS / "AGENTS.md",
     DOCS / "architecture" / "lean-core.md",
     DOCS / "architecture" / "package-boundaries.md",
+    DOCS / "architecture" / "controlled-experiment-loop.md",
     DOCS / "research" / "current-status.md",
 )
 
@@ -90,6 +93,12 @@ def test_phase4b_preview_workflow_is_absent() -> None:
     assert not path.exists()
 
 
+def test_only_permanent_ci_workflow_remains() -> None:
+    workflows = ROOT / ".github" / "workflows"
+    files = {path.name for path in workflows.iterdir() if path.is_file()}
+    assert files == {"ci.yml"}
+
+
 def test_root_agent_entry_routes_to_docs_contract() -> None:
     root_agents = ROOT / "AGENTS.md"
     assert root_agents.is_file()
@@ -104,6 +113,7 @@ def test_docs_index_routes_to_every_current_doc() -> None:
         "AGENTS.md",
         "architecture/lean-core.md",
         "architecture/package-boundaries.md",
+        "architecture/controlled-experiment-loop.md",
         "research/current-status.md",
     ):
         assert target in index
@@ -169,6 +179,25 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         "Production/live order routing",
     ):
         assert required in research
+
+
+def test_controlled_experiment_loop_is_durable_current_architecture() -> None:
+    contract = (DOCS / "architecture" / "controlled-experiment-loop.md").read_text(
+        encoding="utf-8"
+    )
+    for required in (
+        "Study-owned EvidenceSet",
+        "ACCEPT_CANDIDATE",
+        "FAILED",
+        "INVALID",
+        "WINNER",
+        "NO_WINNER",
+        "sealed unused-future",
+        "freeze_study",
+    ):
+        assert required in contract
+    assert not (DOCS / "specs").exists()
+    assert not (DOCS / "plans").exists()
 
 
 def test_current_relative_markdown_links_resolve() -> None:

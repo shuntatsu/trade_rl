@@ -14,17 +14,20 @@
 
 現在のActive specは [`specs/2026-09-09-canonical-m2-study-bootstrap-design.md`](specs/2026-09-09-canonical-m2-study-bootstrap-design.md) である。これはcanonical実データのsource freeze、dataset publication、StudyPlan作成までを定義し、baseline実行より前で停止する未実装設計である。
 
+現在のActive implementation planは [`plans/2026-09-10-canonical-m2-study-bootstrap-implementation.md`](plans/2026-09-10-canonical-m2-study-bootstrap-implementation.md) である。実装中だけ保持し、完了時には耐久契約をarchitecture/researchへ反映してspecとplanをcurrent treeから削除する。
+
 Controlled Experiment Loop v1の実装済み耐久契約は `architecture/controlled-experiment-loop.md` を正本とする。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 
 ## フォルダ方針
 
-現在の恒久フォルダは `architecture/` と `research/` である。`specs/` はActive designが存在する間だけ保持する。
+現在の恒久フォルダは `architecture/` と `research/` である。`specs/` と `plans/` はActive design/implementationが存在する間だけ保持する。
 
 - `architecture/`: 現行コードが満たすべき構造・責務・不変条件
 - `research/`: 現在の研究仮説、比較条件、証拠プロトコル、研究状態
 - `specs/`: 未実装またはreview中の独立normative designだけ
+- `plans/`: 実装中の独立implementation planだけ
 
 将来、未実装で独立してnormativeな設計がある間だけ `specs/` を作ってよい。実装中の独立した作業計画が必要な間だけ `plans/` を作ってよい。実装が終わり、耐久的な内容が `architecture/` または `research/` に反映されたら、完了済みspec/planはcurrent treeから削除する。
 

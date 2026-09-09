@@ -113,7 +113,9 @@ class _MetadataDelegate:
         return self.snapshot
 
 
-def test_frozen_metadata_transport_matches_dataset_builder_contract(tmp_path: Path) -> None:
+def test_frozen_metadata_transport_matches_dataset_builder_contract(
+    tmp_path: Path,
+) -> None:
     raw = (
         b'{"symbols":[{"symbol":"BTCUSDT","status":"TRADING",'
         b'"onboardDate":0,"filters":[]}]}'

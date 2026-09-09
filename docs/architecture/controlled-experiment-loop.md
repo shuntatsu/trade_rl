@@ -44,7 +44,7 @@ Study作成時にRun Coreの共通resolverでbaseline configを事前解決す�
 
 Controlled Studyは外部で生成済みの好都合なRunを後付け登録しない。`execute_evidence_set` がStudy seedごとに1 Runを生成し、Run Coreのconfig resolution、execution、provenance、artifact publication/load/inspectionを通す。
 
-EvidenceSet内で変えてよいのは `ppo_seed` だけである。次のdeterministic strategyはseedを変えてもraw returnsが完全一致しなければartifact integrity failureとする。
+EvidenceSet内で変えてよいのは `ppo_seed` だけである。 EvidenceSetのsemantic configとそのdigestからは `ppo_seed` を除外し、seed policyはordered `ppo_seeds`として別にidentityへbindする。各Run artifactには実際の `ppo_seed` を保持する。次のdeterministic strategyはseedを変えてもraw returnsが完全一致しなければartifact integrity failureとする。
 
 - `cash`
 - `constant_long`

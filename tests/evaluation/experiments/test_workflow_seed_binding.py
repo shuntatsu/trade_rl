@@ -35,7 +35,12 @@ def test_study_seed_binding_does_not_change_frozen_candidate_semantics(
     run_experiment(root, 1, dataset_root=dataset_root)
 
     loaded = load_evidence_set(root / "experiments" / "0001" / "candidate" / "evidence")
-    assert loaded.semantic_config["ppo_seed"] == snapshot.plan.ppo_seeds[0]
+    assert "ppo_seed" not in loaded.semantic_config
+    assert loaded.evidence.ppo_seeds == snapshot.plan.ppo_seeds
+    assert [
+        loaded.runs[seed].summary["candidate_config"]["ppo_seed"]
+        for seed in snapshot.plan.ppo_seeds
+    ] == list(snapshot.plan.ppo_seeds)
     assert definition.candidate_config.ppo_seed == snapshot.plan.ppo_seeds[0]
 
     verification = verify_experiment(root, 1)

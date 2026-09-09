@@ -391,7 +391,7 @@ def execute_evidence_set(
             loaded_runs[seed] = loaded
             run_digests.append((seed, identity.artifact_digest))
 
-        if normalized_contract is None:
+        if normalized_contract is None or seedless_contract is None:
             raise ArtifactIntegrityError("EvidenceSet contains no seed Runs")
         _verify_seed_invariance(
             loaded_runs,
@@ -400,21 +400,22 @@ def execute_evidence_set(
             research_context_digest=research_context_digest,
         )
         run_digest_tuple = tuple(run_digests)
+        semantic_config_digest = content_digest(seedless_contract)
         fingerprint = _evidence_fingerprint(
-            semantic_config_digest=normalized_contract.digest,
+            semantic_config_digest=semantic_config_digest,
             ppo_seeds=plan.ppo_seeds,
             run_digests=run_digest_tuple,
             research_context_digest=research_context_digest,
         )
         evidence = EvidenceSet(
             fingerprint=fingerprint,
-            semantic_config_digest=normalized_contract.digest,
+            semantic_config_digest=semantic_config_digest,
             ppo_seeds=plan.ppo_seeds,
             run_digests=run_digest_tuple,
             research_context_digest=research_context_digest,
         )
         manifest = evidence.to_payload()
-        manifest["semantic_config"] = normalized_contract.to_payload()
+        manifest["semantic_config"] = seedless_contract
         atomic_write_bytes(staging / "manifest.json", canonical_json_bytes(manifest))
         completed = evidence
 

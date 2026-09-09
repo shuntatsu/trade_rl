@@ -4,7 +4,7 @@
 
 ## 結論
 
-Trade RLの現在地は、**lean coreと5候補+3 controlsの共通比較基盤、およびprovenance-bound candidate Run Coreまでは実装済みだが、canonical実データを使ったM2 development比較はまだ実施していない**段階である。
+Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、およびControlled Experiment Loop v1まで実装済みだが、canonical実データを使ったM2 development Studyはまだ実施していない**段階である。
 
 したがって現在は次を主張しない。
 
@@ -90,7 +90,7 @@ PPO観測はselected feature、feature availability、current intent、current w
 - quantity-preserving independent symbol replay
 - DB/UI/teacher pipelineなしで成立するcore CI
 
-### M2 — Common comparison: Run Core complete, Controlled Experiment Loop implementation in progress, real-data development comparison not run
+### M2 — Common comparison: Run Core + Controlled Experiment Loop complete, real-data development comparison not run
 
 実装済み:
 
@@ -105,15 +105,18 @@ PPO観測はselected feature、feature availability、current intent、current w
 - implementation/runtime/research-context provenance生成
 - immutable 3-file candidate-run artifact
 - semantic candidate-artifact identityとraw file integrity evidence
+- append-only Study/Experiment state machineとprocess-safe mutation lock
+- Study-owned multi-seed EvidenceSetとdeterministic seed invariance
+- one-factor resolved delta verificationとunaffected-strategy raw-return invariance
+- paired/bootstrap/seed analysis、ACCEPT-only lineage、FAILED/INVALID terminal、WINNER/NO_WINNER freeze
 
 未完了:
 
-1. Controlled Experiment LoopのStudy/Experiment lifecycle実装を完了する。
-2. canonical実データdevelopment artifactを選ぶ。
-3. signal/feature、`fit_symbol_names`、fit cutoff、development window、seed policyをfreezeする。
-4. 5 candidates + 3 controlsを同じStudy条件で実行する。
-5. 全symbolの結果を完全報告する。
-6. winnerをfreezeするか、no-winnerと判断する。
+1. canonical実データdevelopment artifactを選ぶ。
+2. signal/feature、`fit_symbol_names`、fit cutoff、development window、seed policyをfreezeする。
+3. 5 candidates + 3 controlsを同じStudy条件で実行する。
+4. 全symbolの結果を完全報告する。
+5. winnerをfreezeするか、no-winnerと判断する。
 
 ### M3 — Finalize and delete: not started
 
@@ -223,6 +226,6 @@ Controlled Experiment Loop自体からsealed unused-futureを開かない。Deve
 
 現時点の次アクションは、Run Coreをさらに拡張することではない。
 
-> Active Controlled Experiment Loop v1 designを実装し、同じcanonical development条件・provenance・semantic factor・seed policyへcandidate evidenceをbindしたうえで比較を開始する。
+> 実装済みControlled Experiment Loopで、一つのcanonical development dataset・fit/evaluation scope・seed policyをStudyへfreezeし、最初のreal-data M2 Studyを開始する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。

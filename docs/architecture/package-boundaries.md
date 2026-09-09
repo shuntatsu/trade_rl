@@ -71,10 +71,11 @@ trade_rl/
     │   ├── fold_metrics.py
     │   ├── perfect_information/{bound.py,solver.py}
     │   └── walk_forward/{capabilities.py,folds.py,sealed_test.py,stitching.py}
-    └── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py}
+    ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py}
+    └── experiments/{errors.py,store.py,evidence.py,analysis.py,delta.py,workflow.py,contracts/}
 ```
 
-`evaluation/experiments/` は現時点では存在しない。Controlled Experiment Loopは、単一Runとは別のhigher-level conceptとしてActive design/planで定義中である。
+`evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。
 
 ## Ownership
 
@@ -115,7 +116,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 - `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。
 - `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
 
-`runs` はhigher-level experiment lifecycleを知らない。将来の `evaluation/experiments` はこのRun Coreを利用してよいが、`evaluation/runs -> evaluation/experiments` の逆依存は作らない。
+`runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。`evaluation/runs -> evaluation/experiments` の逆依存は作らない。experiments層からsealed unused-future authorizationへも依存しない。
 
 ## Dependency direction
 

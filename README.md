@@ -9,6 +9,7 @@ Start from:
 - `docs/README.md` — current documentation index
 - `docs/architecture/lean-core.md` — causal data, strategy/risk, execution/accounting, artifact invariants
 - `docs/architecture/package-boundaries.md` — current package ownership and dependency direction
+- `docs/architecture/controlled-experiment-loop.md` — append-only Study/Experiment/EvidenceSet lifecycle and freeze contract
 - `docs/research/current-status.md` — research status, candidate comparison, development/final protocol
 
 Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes.
@@ -16,7 +17,7 @@ Agents should read root `AGENTS.md` and `docs/AGENTS.md` before making changes.
 ## Current status
 
 - M1 lean core: **complete**
-- M2 universal comparison infrastructure: **complete**
+- M2 universal comparison + Controlled Experiment Loop infrastructure: **complete**
 - M2 real-data development comparison: **not run yet**
 - M3 frozen final evaluation / stress / deletion: **not started**
 - Profitability claim: **none**
@@ -56,6 +57,7 @@ The output directory is immutable and contains:
 ```text
 summary.json
 returns.npz
+provenance.json
 ```
 
 See `docs/research/current-status.md` for the accepted config keys, fit/evaluation rules, evidence outputs, and next-step decision process.

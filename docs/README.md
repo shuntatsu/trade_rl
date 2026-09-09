@@ -4,20 +4,15 @@
 
 この `docs/` tree は**現在のシステムを理解・変更するための正本だけ**を置く。過去の設計、完了済みmigration plan、完了済みspecを保存する場所ではない。過去資料が必要な場合は Git history を参照する。
 
-現在読むべき恒久文書は次の4つである。
+現在読むべき恒久文書は次の5つである。
 
 - [`AGENTS.md`](AGENTS.md) — Agent向けの読む順序、更新先、保持・削除ルール、verification contract
 - [`architecture/lean-core.md`](architecture/lean-core.md) — 現行lean coreの目的、データ・strategy・risk・execution/accounting・artifactの不変条件
 - [`architecture/package-boundaries.md`](architecture/package-boundaries.md) — 現在のpackage配置、責務境界、依存方向、public API方針
+- [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development StudyのEvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、development/final評価手順と未検証事項
 
-## Active design
-
-現在review中の独立normative design:
-
-- [`specs/2026-09-09-controlled-experiment-loop-v1-design.md`](specs/2026-09-09-controlled-experiment-loop-v1-design.md) — development-only Controlled Experiment Loop v1。Study / Experiment / Run、controlled factor、immutable evidence、provenance、lineage、winner/no-winner freezeを定義する。
-
-このspecは `Status: Active` の間だけcurrent treeに置く。実装完了後は耐久契約を `architecture/` / `research/` へ反映して削除する。
+現在、独立したActive spec/planはない。Controlled Experiment Loop v1の実装済み耐久契約は `architecture/controlled-experiment-loop.md` を正本とする。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 
@@ -36,6 +31,7 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 
 - package、責務、依存方向、公開境界を変えた → `architecture/package-boundaries.md`
 - causal data、strategy/risk分離、execution/accounting、artifact invariantを変えた → `architecture/lean-core.md`
+- Study/Experiment/EvidenceSet、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
 - 候補、fit/evaluation scope、評価期間、判定手順、研究状態を変えた → `research/current-status.md`
 - docsのrouting/保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME
 

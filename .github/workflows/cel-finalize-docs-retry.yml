@@ -45,12 +45,28 @@ jobs:
               "\nrmdir docs/specs docs/plans\n" + needle,
               1,
           )
+          script = script.replace(
+              '! git grep -n "Controlled Experiment Loop implementation in progress"',
+              '! git grep -n "Controlled Experiment Loop implementation in progress" -- ":!.github/workflows/*"',
+              1,
+          )
+          script = script.replace(
+              '! git grep -n "Active Controlled Experiment Loop v1 design"',
+              '! git grep -n "Active Controlled Experiment Loop v1 design" -- ":!.github/workflows/*"',
+              1,
+          )
+          script = script.replace(
+              '! git grep -n "2026-09-09-controlled-experiment-loop-v1" -- \':!/.git\'',
+              '! git grep -n "2026-09-09-controlled-experiment-loop-v1" -- ":!.github/workflows/*"',
+              1,
+          )
           subprocess.run(["bash", "-e"], input=script, text=True, check=True)
           PY
       - name: Commit durable docs and remove transient helpers
         run: |
-          rm .github/workflows/cel-finalize-docs-retry.yml
-          rm -f .github/workflows/cel-finalize-docs.yml
+          rm -f .github/workflows/cel-finalize-docs.yml \
+            .github/workflows/cel-finalize-docs-retry.yml \
+            .github/workflows/cel-finalize-docs-final.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add README.md docs tests/architecture/test_current_docs_layout.py .github/workflows

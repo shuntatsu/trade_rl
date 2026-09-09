@@ -451,6 +451,10 @@ def _parse_evidence(
         not isinstance(key, str) for key in semantic_config
     ):
         raise ArtifactIntegrityError("EvidenceSet semantic_config is malformed")
+    if "ppo_seed" in semantic_config:
+        raise ArtifactIntegrityError(
+            "EvidenceSet semantic config must not contain ppo_seed"
+        )
     if not isinstance(seeds_raw, list) or any(
         isinstance(seed, bool) or not isinstance(seed, int) for seed in seeds_raw
     ):

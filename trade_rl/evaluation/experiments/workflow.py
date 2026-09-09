@@ -11,6 +11,8 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data import (
+    MarketDataset,
+    PublishedDatasetArtifact,
     inspect_published_market_dataset_artifact,
     load_market_dataset_artifact,
 )
@@ -723,7 +725,7 @@ def _validate_fixed_fields(plan: StudyPlan, config: ResolvedRunConfig) -> None:
 def _validate_dataset_root(
     dataset_root: str | Path,
     plan: StudyPlan,
-):
+) -> tuple[MarketDataset, PublishedDatasetArtifact]:
     try:
         artifact = inspect_published_market_dataset_artifact(dataset_root)
         dataset = load_market_dataset_artifact(dataset_root)
@@ -1201,26 +1203,6 @@ def _experiment_state(state: _StudyState, sequence: int) -> _ExperimentState:
     raise InvalidExperimentStateError(
         f"experiment {sequence:04d} definition does not exist"
     )
-
-
-def _find_evidence(
-    state: _StudyState,
-    digest: str,
-) -> tuple[LoadedEvidenceSet, _AnalysisBinding]:
-    if (
-        state.baseline is not None
-        and state.baseline_analysis is not None
-        and state.baseline.evidence.fingerprint == digest
-    ):
-        return state.baseline, state.baseline_analysis
-    for experiment in state.experiments:
-        if (
-            experiment.candidate is not None
-            and experiment.candidate_analysis is not None
-            and experiment.candidate.evidence.fingerprint == digest
-        ):
-            return experiment.candidate, experiment.candidate_analysis
-    raise ArtifactIntegrityError("referenced EvidenceSet is absent from Study")
 
 
 def create_study(

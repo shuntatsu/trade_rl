@@ -7,11 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from trade_rl.evaluation.experiments.contracts import ControlledFactor
 from trade_rl.evaluation.experiments.bootstrap.config import (
     CanonicalM2BootstrapConfig,
     load_canonical_m2_bootstrap_config,
 )
+from trade_rl.evaluation.experiments.contracts import ControlledFactor
 
 
 def _valid_payload() -> dict[str, object]:

@@ -84,8 +84,7 @@ def _payload_for_url(url: str) -> bytes:
     if "fundingRate" in url:
         return _zip_csv(
             "funding.csv",
-            "calc_time,last_funding_rate\n"
-            f"{start_ms + 8 * 60 * 60 * 1000},0.0001\n",
+            f"calc_time,last_funding_rate\n{start_ms + 8 * 60 * 60 * 1000},0.0001\n",
         )
     interval_match = re.search(r"/(15m|30m|1h|2h|4h|6h|8h|12h|1d)/", url)
     assert interval_match is not None, url

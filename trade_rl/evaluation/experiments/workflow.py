@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -82,7 +83,11 @@ class StudySnapshot:
     experiment_sequences: tuple[int, ...]
     terminal_sequences: tuple[int, ...]
     lineage_evidence_digests: tuple[str, ...]
-    frozen: bool
+    freeze: StudyFreeze | None
+
+    @property
+    def frozen(self) -> bool:
+        return self.freeze is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +127,7 @@ class _StudyState:
             experiment_sequences=tuple(item.sequence for item in self.experiments),
             terminal_sequences=self.terminal_sequences,
             lineage_evidence_digests=self.lineage_evidence_digests,
-            frozen=self.frozen is not None,
+            freeze=self.frozen,
         )
 
 
@@ -710,6 +715,14 @@ def _semantic_without_seed(config: ResolvedRunConfig) -> dict[str, object]:
     return payload
 
 
+def _semantic_payload_without_seed(
+    payload: Mapping[str, object],
+) -> dict[str, object]:
+    normalized = dict(payload)
+    normalized.pop("ppo_seed", None)
+    return normalized
+
+
 def _validate_fixed_fields(plan: StudyPlan, config: ResolvedRunConfig) -> None:
     baseline = _semantic_without_seed(plan.baseline_config)
     candidate = _semantic_without_seed(config)
@@ -840,7 +853,7 @@ def _build_evidence_node(
         research_context_digest=research_context_digest,
     )
     loaded = load_evidence_set(staging / "evidence")
-    if loaded.semantic_config != expected_semantic:
+    if _semantic_payload_without_seed(loaded.semantic_config) != expected_semantic:
         raise ArtifactIntegrityError(
             "generated EvidenceSet does not match frozen resolved configuration"
         )
@@ -947,7 +960,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
     baseline_root = root / "baseline"
     if baseline_root.exists() or baseline_root.is_symlink():
         baseline, baseline_analysis = _load_evidence_node(store, Path("baseline"))
-        if baseline.semantic_config != _semantic_without_seed(plan.baseline_config):
+        if _semantic_payload_without_seed(
+            baseline.semantic_config
+        ) != _semantic_without_seed(plan.baseline_config):
             raise ArtifactIntegrityError(
                 "baseline EvidenceSet does not match frozen Study baseline config"
             )
@@ -1017,9 +1032,9 @@ def _reconstruct(store: StudyStore) -> _StudyState:
             candidate, candidate_analysis = _load_evidence_node(
                 store, base / "candidate"
             )
-            if candidate.semantic_config != _semantic_without_seed(
-                definition.candidate_config
-            ):
+            if _semantic_payload_without_seed(
+                candidate.semantic_config
+            ) != _semantic_without_seed(definition.candidate_config):
                 raise ArtifactIntegrityError(
                     "candidate EvidenceSet differs from ExperimentDefinition"
                 )
@@ -1177,8 +1192,31 @@ def _reconstruct(store: StudyStore) -> _StudyState:
         if "freeze.json" in root_names
         else None
     )
-    if frozen is not None and frozen.study_digest != plan.digest:
-        raise ArtifactIntegrityError("freeze Study digest mismatch")
+    if frozen is not None:
+        if frozen.study_digest != plan.digest:
+            raise ArtifactIntegrityError("freeze Study digest mismatch")
+        decision_digests = tuple(
+            item.decision.digest
+            for item in experiment_states
+            if item.decision is not None
+        )
+        if frozen.experiment_decision_digests != decision_digests:
+            raise ArtifactIntegrityError("freeze decision digest lineage mismatch")
+        all_sequences = tuple(item.sequence for item in experiment_states)
+        if tuple(terminal) != all_sequences:
+            raise ArtifactIntegrityError("frozen Study contains nonterminal Experiment")
+        if frozen.outcome is StudyOutcome.WINNER:
+            accepted_candidates = {
+                item.candidate.evidence.fingerprint
+                for item in experiment_states
+                if item.decision is not None
+                and item.decision.decision is ExperimentDecisionKind.ACCEPT_CANDIDATE
+                and item.candidate is not None
+            }
+            if frozen.selected_evidence_digest not in accepted_candidates:
+                raise ArtifactIntegrityError(
+                    "WINNER freeze evidence is not an ACCEPT_CANDIDATE lineage node"
+                )
 
     return _StudyState(
         plan=plan,
@@ -1594,12 +1632,72 @@ def record_experiment_failure(
         return failure
 
 
+def freeze_study(
+    root: str | Path,
+    *,
+    outcome: StudyOutcome,
+    selected_evidence_digest: str | None = None,
+    selected_strategy: str | None = None,
+    rationale: str,
+    frozen_by: str,
+    frozen_at: datetime,
+) -> StudyFreeze:
+    """Publish the one-shot terminal development Study outcome."""
+
+    store = StudyStore(root)
+    with store.mutation_lock():
+        state = _reconstruct(store)
+        _assert_mutable(state)
+        if state.baseline is None:
+            raise InvalidExperimentStateError(
+                "Study baseline is required before freeze"
+            )
+        all_sequences = tuple(item.sequence for item in state.experiments)
+        if state.terminal_sequences != all_sequences:
+            raise InvalidExperimentStateError(
+                "Study contains nonterminal Experiment and cannot freeze"
+            )
+        decision_digests = tuple(
+            item.decision.digest
+            for item in state.experiments
+            if item.decision is not None
+        )
+        frozen = StudyFreeze(
+            study_digest=state.plan.digest,
+            experiment_decision_digests=decision_digests,
+            outcome=outcome,
+            selected_evidence_digest=selected_evidence_digest,
+            selected_strategy=selected_strategy,
+            rationale=rationale,
+            frozen_by=frozen_by,
+            frozen_at=frozen_at,
+        )
+        if outcome is StudyOutcome.WINNER:
+            accepted_candidates = {
+                item.candidate.evidence.fingerprint
+                for item in state.experiments
+                if item.decision is not None
+                and item.decision.decision is ExperimentDecisionKind.ACCEPT_CANDIDATE
+                and item.candidate is not None
+            }
+            if frozen.selected_evidence_digest not in accepted_candidates:
+                raise InvalidExperimentStateError(
+                    "WINNER selected evidence must come from an ACCEPT_CANDIDATE decision"
+                )
+        store.publish_json_once("freeze.json", frozen.to_payload())
+        rebuilt = _reconstruct(store)
+        if rebuilt.frozen is None:
+            raise ArtifactIntegrityError("freeze publication did not reconstruct")
+        return rebuilt.frozen
+
+
 __all__ = [
     "StudySnapshot",
     "compare_experiment",
     "create_study",
     "decide_experiment",
     "define_experiment",
+    "freeze_study",
     "inspect_study",
     "record_experiment_failure",
     "run_baseline",

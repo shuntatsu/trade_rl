@@ -102,37 +102,37 @@ bootstrap    -X-> sealed final-test authorization
 
 入力はUTF-8 JSON object一つである。unknown keyは拒否する。研究条件に暗黙defaultを入れない。
 
-トップレベルschema:
+以下は**schema形状の例であり、symbol universe・期間・featureを研究上推奨するものではない**。
 
 ```json
 {
   "schema_version": "canonical_m2_bootstrap_config_v1",
-  "research_question": "...",
+  "research_question": "Can one universal policy beat simple controls on frozen development data?",
   "market": "usds-m",
-  "symbols": ["..."],
-  "base_timeframe": "...",
-  "feature_timeframes": ["..."],
-  "data_start": "...+00:00",
-  "data_stop_exclusive": "...+00:00",
+  "symbols": ["BTCUSDT", "ETHUSDT"],
+  "base_timeframe": "1h",
+  "feature_timeframes": ["4h", "1d"],
+  "data_start": "2024-01-01T00:00:00+00:00",
+  "data_stop_exclusive": "2025-07-01T00:00:00+00:00",
   "baseline": {
-    "signal_name": "...",
-    "feature_names": ["..."],
-    "fit_symbol_names": ["..."],
-    "fit_cutoff": "...",
-    "evaluation_start": "...",
-    "evaluation_stop_exclusive": "...",
-    "rule_entry_threshold": 0.0,
-    "rule_exit_threshold": 0.0,
-    "forecast_entry_threshold": 0.0,
-    "forecast_exit_threshold": 0.0,
-    "ppo_total_timesteps": 0,
-    "gross_budget": 0.0,
-    "initial_capital": 0.0
+    "signal_name": "1h__log_return_24bar",
+    "feature_names": ["1h__log_return_24bar", "1h__realized_volatility_24bar"],
+    "fit_symbol_names": ["BTCUSDT", "ETHUSDT"],
+    "fit_cutoff": "2025-01-01T00:00:00",
+    "evaluation_start": "2025-01-01T00:00:00",
+    "evaluation_stop_exclusive": "2025-07-01T00:00:00",
+    "rule_entry_threshold": 0.10,
+    "rule_exit_threshold": 0.02,
+    "forecast_entry_threshold": 0.01,
+    "forecast_exit_threshold": 0.002,
+    "ppo_total_timesteps": 100000,
+    "gross_budget": 0.5,
+    "initial_capital": 100000.0
   },
-  "ppo_seeds": [0, 1],
-  "allowed_factors": ["..."],
-  "max_experiments": 1,
-  "n_bootstrap": 1,
+  "ppo_seeds": [0, 1, 2, 3, 4],
+  "allowed_factors": ["FEATURE_SET", "PPO_TRAINING_BUDGET"],
+  "max_experiments": 12,
+  "n_bootstrap": 2000,
   "bootstrap_seed": 0
 }
 ```
@@ -156,7 +156,7 @@ bootstrap    -X-> sealed final-test authorization
 - `max_experiments > 0`
 - `n_bootstrap > 0`
 - `bootstrap_seed >= 0`
-- threshold/budget/capital/timestepsは既存Candidate Run contractと同じvalidatorを通す
+- baselineのthreshold/budget/capital/timestepsは既存 `CandidateRunConfig` と同じvalidatorを通す
 
 config parserはfeature index、symbol index、timestamp indexを独自解決しない。dataset作成後、既存 `resolve_candidate_run_spec()` / `create_study()` を唯一のresolution authorityとして使用する。
 
@@ -186,7 +186,9 @@ source/exchange-info/
 - retrieved_at
 - schema version
 
-Dataset identityへ渡す`metadata_evidence`はこのfrozen snapshotをcanonical payload化したものとし、少なくともmarket、source URI、raw SHA-256、retrieved_at、evidence schemaをbindする。
+`FrozenBinanceExchangeInfoTransport`へ `load_exchange_information(...)` compatibility methodを追加する。これは既存のfrozen snapshot loaderを再利用してdeep-mutable JSON copyと `"frozen:exchange-info"` source markerを返し、新しいmetadata parserは作らない。
+
+Dataset identityへ渡す`metadata_evidence`はfrozen snapshotをcanonical payload化したものとし、少なくともmarket、source URI、raw SHA-256、retrieved_at、evidence schemaをbindする。
 
 ### 5.2 Vision archive plan
 
@@ -222,16 +224,16 @@ source同期後、dataset buildはnetwork-enabled transportを使用してはな
 
 lower integration layerへcache-only capabilityを追加し、cache miss時はHTTPへfallbackせず`BinanceTransportError`でfail closedする。
 
-v1では `BinancePublicTransport` にbackward-compatibleな `allow_network: bool = True` を追加する。`allow_network=False`では、verified Vision cache hitだけを許し、それ以外の `_request_bytes()` を拒否する。
+`BinancePublicTransport` にbackward-compatibleな `allow_network: bool = True` を追加する。`allow_network=False`では、verified Vision cache hitだけを許し、それ以外の `_request_bytes()` を拒否する。default `True` は現行behaviorを維持する。
 
-bootstrap側は次を合成したcache-only transportを使う。
+bootstrap側のprivate composite transportは次だけをdelegateする。
 
 - klines/funding: `BinancePublicTransport(cache_root=..., allow_network=False)`
-- metadata: frozen `exchangeInfo` cache only
+- metadata: `FrozenBinanceExchangeInfoTransport(delegate=None)`
 
 USD-M fundingの現行Vision実装は未完了末尾月でRESTへfallbackし得る。その経路も`allow_network=False`で拒否される。さらにv1 config自体が`data_stop_exclusive`をUTC月境界に限定し、通常経路ではREST funding fallbackを必要としない条件をpre-registerする。
 
-Dataset build完了時、source rosterがfrozen Vision + frozen metadata以外を示した場合はbootstrap失敗とする。
+Dataset build完了時、source markerがVision cache + frozen metadata以外を示した場合はbootstrap失敗とする。
 
 ## 6. Dataset build and publication
 
@@ -352,9 +354,18 @@ uv run --extra forecast-gbm --extra train-sb3 \
 
 `bootstrap_digest`はmanifestのidentity fieldsをcanonical digestして計算する。filesystem absolute path、temporary staging pathはidentityへ入れない。
 
+`CanonicalM2BootstrapResult`は少なくとも次を返すimmutable valueとする。
+
+- final root
+- bootstrap digest
+- bootstrap config digest
+- dataset id
+- dataset artifact digest
+- StudyPlan digest
+
 ## 10. Atomicity and overwrite policy
 
-`--output`は存在していてはならない。
+`--output`は存在していてはならない。output parentはregular directoryとして扱い、final outputをsymlink越しにpublishしない。
 
 bootstrap全体はoutput parent配下のtemporary staging rootへ構築する。
 
@@ -433,9 +444,7 @@ parse config
 
 ## 12. Public API policy
 
-v1でintentional public surfaceはbootstrap packageの高水準contractだけにする。
-
-候補:
+v1のintentional public surfaceは次に固定する。
 
 ```python
 CanonicalM2BootstrapConfig
@@ -444,11 +453,16 @@ load_canonical_m2_bootstrap_config(...)
 bootstrap_canonical_m2_study(...)
 ```
 
-provider-specific helper、cache-only composite、manifest codecはpackage privateとする。
+provider-specific helper、cache-only composite、manifest codecはbootstrap package privateとする。
 
 `trade_rl.evaluation` root facadeへbootstrap APIを再exportしない。利用者は明示的に `trade_rl.evaluation.experiments.bootstrap` からimportする。
 
-lower integrationの `BinancePublicTransport(..., allow_network=False)` はbackward-compatible public constructor extensionとする。defaultは現行通りnetwork enabledである。
+lower integrationでは次のbackward-compatible public extensionを行う。
+
+```python
+BinancePublicTransport(..., allow_network: bool = True)
+FrozenBinanceExchangeInfoTransport.load_exchange_information(...)
+```
 
 ## 13. Test Oracle
 
@@ -482,15 +496,15 @@ lower integrationの `BinancePublicTransport(..., allow_network=False)` はbackw
 
 ### Integration
 
-fake Binance transportを使い、
+fake Binance transportを使い、次を一つのcontract testで通す。
 
-- source freeze
-- cache-only rebuild
-- dataset publication/reload
-- Study creation
-- final bundle reconstruction
-
-までを通す。
+```text
+source freeze
+→ cache-only rebuild
+→ dataset publication/reload
+→ Study creation
+→ final bundle reconstruction
+```
 
 ### Regression / falsification
 
@@ -500,7 +514,7 @@ fake Binance transportを使い、
 - source code/runtime drift
 - partial archive acquisition
 - partial dataset publication
-- Study created but final bootstrap publication fails
+- Study created in staging but final bootstrap publication fails
 - pre-existing output
 - symlink/path substitution
 - baseline accidentally executed

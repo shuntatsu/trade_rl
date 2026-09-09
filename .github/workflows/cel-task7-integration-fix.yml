@@ -1,0 +1,105 @@
+name: Integrate Freeze With Seed-Normalized Workflow
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-task7-integration-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Apply integration fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/workflow.py")
+          text = path.read_text(encoding="utf-8")
+
+          marker = '''def _semantic_without_seed(config: ResolvedRunConfig) -> dict[str, object]:\n    payload = config.to_payload()\n    payload.pop("ppo_seed")\n    return payload\n\n\n'''
+          replacement = marker + '''def _semantic_payload_without_seed(\n    payload: Mapping[str, object],\n) -> dict[str, object]:\n    normalized = dict(payload)\n    normalized.pop("ppo_seed", None)\n    return normalized\n\n\n'''
+          if text.count(marker) != 1:
+              raise SystemExit("semantic helper block mismatch")
+          text = text.replace(marker, replacement, 1)
+
+          comparisons = {
+              '''    if loaded.semantic_config != expected_semantic:\n''': '''    if _semantic_payload_without_seed(loaded.semantic_config) != expected_semantic:\n''',
+              '''        if baseline.semantic_config != _semantic_without_seed(plan.baseline_config):\n''': '''        if _semantic_payload_without_seed(\n            baseline.semantic_config\n        ) != _semantic_without_seed(plan.baseline_config):\n''',
+              '''            if candidate.semantic_config != _semantic_without_seed(\n                definition.candidate_config\n            ):\n''': '''            if _semantic_payload_without_seed(\n                candidate.semantic_config\n            ) != _semantic_without_seed(definition.candidate_config):\n''',
+          }
+          for old, new in comparisons.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"semantic comparison mismatch: {old!r}")
+              text = text.replace(old, new, 1)
+
+          old_snapshot = '''    terminal_sequences: tuple[int, ...]\n    lineage_evidence_digests: tuple[str, ...]\n    frozen: bool\n'''
+          new_snapshot = '''    terminal_sequences: tuple[int, ...]\n    lineage_evidence_digests: tuple[str, ...]\n    freeze: StudyFreeze | None\n\n    @property\n    def frozen(self) -> bool:\n        return self.freeze is not None\n'''
+          if text.count(old_snapshot) != 1:
+              raise SystemExit("StudySnapshot block mismatch")
+          text = text.replace(old_snapshot, new_snapshot, 1)
+
+          old_ctor = '''            terminal_sequences=self.terminal_sequences,\n            lineage_evidence_digests=self.lineage_evidence_digests,\n            frozen=self.frozen is not None,\n        )\n'''
+          new_ctor = '''            terminal_sequences=self.terminal_sequences,\n            lineage_evidence_digests=self.lineage_evidence_digests,\n            freeze=self.frozen,\n        )\n'''
+          if text.count(old_ctor) != 1:
+              raise SystemExit("StudySnapshot constructor mismatch")
+          text = text.replace(old_ctor, new_ctor, 1)
+
+          old_validation = '''    if frozen is not None and frozen.study_digest != plan.digest:\n        raise ArtifactIntegrityError("freeze Study digest mismatch")\n\n    return _StudyState(\n'''
+          new_validation = '''    if frozen is not None:\n        if frozen.study_digest != plan.digest:\n            raise ArtifactIntegrityError("freeze Study digest mismatch")\n        decision_digests = tuple(\n            item.decision.digest\n            for item in experiment_states\n            if item.decision is not None\n        )\n        if frozen.experiment_decision_digests != decision_digests:\n            raise ArtifactIntegrityError("freeze decision digest lineage mismatch")\n        all_sequences = tuple(item.sequence for item in experiment_states)\n        if tuple(terminal) != all_sequences:\n            raise ArtifactIntegrityError("frozen Study contains nonterminal Experiment")\n        if frozen.outcome is StudyOutcome.WINNER:\n            accepted_candidates = {\n                item.candidate.evidence.fingerprint\n                for item in experiment_states\n                if item.decision is not None\n                and item.decision.decision is ExperimentDecisionKind.ACCEPT_CANDIDATE\n                and item.candidate is not None\n            }\n            if frozen.selected_evidence_digest not in accepted_candidates:\n                raise ArtifactIntegrityError(\n                    "WINNER freeze evidence is not an ACCEPT_CANDIDATE lineage node"\n                )\n\n    return _StudyState(\n'''
+          if text.count(old_validation) != 1:
+              raise SystemExit("freeze reconstruction block mismatch")
+          text = text.replace(old_validation, new_validation, 1)
+
+          all_marker = '''\n\n__all__ = [\n    "StudySnapshot",\n'''
+          freeze_fn = '''\n\ndef freeze_study(\n    root: str | Path,\n    *,\n    outcome: StudyOutcome,\n    selected_evidence_digest: str | None = None,\n    selected_strategy: str | None = None,\n    rationale: str,\n    frozen_by: str,\n    frozen_at: datetime,\n) -> StudyFreeze:\n    """Publish the one-shot terminal development Study outcome."""\n\n    store = StudyStore(root)\n    with store.mutation_lock():\n        state = _reconstruct(store)\n        _assert_mutable(state)\n        if state.baseline is None:\n            raise InvalidExperimentStateError(\n                "Study baseline is required before freeze"\n            )\n        all_sequences = tuple(item.sequence for item in state.experiments)\n        if state.terminal_sequences != all_sequences:\n            raise InvalidExperimentStateError(\n                "Study contains nonterminal Experiment and cannot freeze"\n            )\n        if outcome is StudyOutcome.WINNER:\n            accepted_candidates = {\n                item.candidate.evidence.fingerprint\n                for item in state.experiments\n                if item.decision is not None\n                and item.decision.decision is ExperimentDecisionKind.ACCEPT_CANDIDATE\n                and item.candidate is not None\n            }\n            if selected_evidence_digest not in accepted_candidates:\n                raise InvalidExperimentStateError(\n                    "WINNER selected evidence must come from an ACCEPT_CANDIDATE decision"\n                )\n        decision_digests = tuple(\n            item.decision.digest\n            for item in state.experiments\n            if item.decision is not None\n        )\n        frozen = StudyFreeze(\n            study_digest=state.plan.digest,\n            experiment_decision_digests=decision_digests,\n            outcome=outcome,\n            selected_evidence_digest=selected_evidence_digest,\n            selected_strategy=selected_strategy,\n            rationale=rationale,\n            frozen_by=frozen_by,\n            frozen_at=frozen_at,\n        )\n        store.publish_json_once("freeze.json", frozen.to_payload())\n        rebuilt = _reconstruct(store)\n        if rebuilt.frozen is None:\n            raise ArtifactIntegrityError("freeze publication did not reconstruct")\n        return rebuilt.frozen\n'''
+          if text.count(all_marker) != 1:
+              raise SystemExit("workflow __all__ marker mismatch")
+          text = text.replace(all_marker, freeze_fn + all_marker, 1)
+          old_exports = '''    "define_experiment",\n    "inspect_study",\n    "record_experiment_failure",\n'''
+          new_exports = '''    "define_experiment",\n    "freeze_study",\n    "inspect_study",\n    "record_experiment_failure",\n'''
+          if text.count(old_exports) != 1:
+              raise SystemExit("workflow export block mismatch")
+          path.write_text(text.replace(old_exports, new_exports, 1), encoding="utf-8")
+
+          init = Path("trade_rl/evaluation/experiments/__init__.py")
+          text = init.read_text(encoding="utf-8")
+          old = '''    decide_experiment,\n    define_experiment,\n    inspect_study,\n'''
+          new = '''    decide_experiment,\n    define_experiment,\n    freeze_study,\n    inspect_study,\n'''
+          if text.count(old) != 1:
+              raise SystemExit("package import block mismatch")
+          text = text.replace(old, new, 1)
+          old = '''    "execute_evidence_set",\n    "inspect_study",\n'''
+          new = '''    "execute_evidence_set",\n    "freeze_study",\n    "inspect_study",\n'''
+          if text.count(old) != 1:
+              raise SystemExit("package export block mismatch")
+          init.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          uv run ruff check --fix trade_rl/evaluation/experiments/workflow.py trade_rl/evaluation/experiments/__init__.py
+          uv run ruff format trade_rl/evaluation/experiments/workflow.py trade_rl/evaluation/experiments/__init__.py
+          uv run pytest -q tests/evaluation/experiments/test_workflow.py tests/evaluation/experiments/test_lineage.py tests/evaluation/experiments/test_failure.py tests/evaluation/experiments/test_freeze.py tests/evaluation/experiments/test_freeze_tamper.py tests/evaluation/experiments/test_workflow_atomicity.py tests/evaluation/experiments/test_workflow_candidate_atomicity.py tests/evaluation/experiments/test_workflow_seed_binding.py
+          uv run mypy trade_rl/evaluation/experiments/workflow.py trade_rl/evaluation/experiments/__init__.py
+      - name: Commit and remove transient helpers
+        run: |
+          rm .github/workflows/cel-task7-integration-fix.yml
+          rm -f .github/workflows/cel-task7-freeze-impl.yml .github/workflows/cel-workflow-green.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments/workflow.py trade_rl/evaluation/experiments/__init__.py .github/workflows
+          git diff --cached --check
+          git commit -m "feat: finalize terminal controlled study workflow"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

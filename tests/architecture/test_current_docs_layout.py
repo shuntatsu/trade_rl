@@ -93,6 +93,12 @@ def test_phase4b_preview_workflow_is_absent() -> None:
     assert not path.exists()
 
 
+def test_only_permanent_ci_workflow_remains() -> None:
+    workflows = ROOT / ".github" / "workflows"
+    files = {path.name for path in workflows.iterdir() if path.is_file()}
+    assert files == {"ci.yml"}
+
+
 def test_root_agent_entry_routes_to_docs_contract() -> None:
     root_agents = ROOT / "AGENTS.md"
     assert root_agents.is_file()

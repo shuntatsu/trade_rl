@@ -1,0 +1,306 @@
+name: Finalize Controlled Experiment Docs
+
+on:
+  push:
+    branches:
+      - feat/controlled-experiment-loop-v1
+    paths:
+      - .github/workflows/cel-finalize-docs.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Write durable docs and remove completed plans/specs
+        run: |
+          cat > docs/architecture/controlled-experiment-loop.md <<'EOF'
+          # Controlled Experiment Loop
+
+          ## 結論
+
+          `trade_rl.evaluation.experiments` は、developmentデータ上の反復研究を **Study → Experiment → EvidenceSet → verification → comparison → decision → freeze** のappend-only state machineとして管理する。単一Runの計算は `evaluation/runs` が担当し、StudyはそのRun Coreを再利用してevidenceを自ら生成する。
+
+          このsubsystemはdevelopment専用であり、sealed unused-future / final authorizationを開かない。Studyを `WINNER` または `NO_WINNER` にfreezeした後のfinal評価は別subsystemの責務である。
+
+          ## Responsibility boundary
+
+          ```text
+          evaluation/runs
+            config resolution
+            one candidate-suite execution
+            implementation/runtime/context provenance
+            immutable Run artifact
+                  ↑
+          evaluation/experiments
+            Study contract and seed policy
+            multi-seed EvidenceSet
+            one-factor delta verification
+            paired/seed analysis
+            lineage, budget, FAILED/INVALID terminals
+            WINNER/NO_WINNER freeze
+          ```
+
+          `evaluation/runs -> evaluation/experiments` の逆依存は禁止する。`evaluation/experiments` からsealed final-test authorizationへ依存してはならない。
+
+          ## Frozen Study contract
+
+          `StudyPlan` は少なくとも次をdigestへbindする。
+
+          - canonical dataset identity / artifact schema / artifact digest / symbol roster
+          - baseline resolved semantic config
+          - 2個以上のunique non-negative `ppo_seeds`
+          - allowed controlled factors
+          - `max_experiments`
+          - bootstrap count/seed
+          - implementation/runtime provenance digest
+
+          Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
+
+          ## Study-owned EvidenceSet
+
+          Controlled Studyは外部で生成済みの好都合なRunを後付け登録しない。`execute_evidence_set` がStudy seedごとに1 Runを生成し、Run Coreのconfig resolution、execution、provenance、artifact publication/load/inspectionを通す。
+
+          EvidenceSet内で変えてよいのは `ppo_seed` だけである。次のdeterministic strategyはseedを変えてもraw returnsが完全一致しなければartifact integrity failureとする。
+
+          - `cash`
+          - `constant_long`
+          - `constant_short`
+          - `trend`
+          - `mean_reversion`
+          - `ridge24`
+          - `lightgbm24`
+
+          1 seedでも失敗した場合、complete EvidenceSetはpublishしない。EvidenceSetとanalysisはbundle staging内で完成させてから一度だけrenameするため、partial candidate/baselineを有効evidenceとして残さない。
+
+          ## Controlled Experiment
+
+          `ExperimentDefinition` はcandidate実行前に存在し、sequenceを即時に消費する。sequenceは1始まりで連続し、`max_experiments`を越えない。
+
+          各Experimentは1つの `ControlledFactor` だけを宣言する。verificationはbaseline/candidateのresolved semantic configを比較し、宣言factorに対応するpath以外の差分を拒否する。no-opもINVALIDである。
+
+          現行factor:
+
+          - `FEATURE_SET`
+          - `RULE_SIGNAL`
+          - `RULE_THRESHOLDS`
+          - `FORECAST_THRESHOLDS`
+          - `FIT_SYMBOL_SCOPE`
+          - `PPO_TRAINING_BUDGET`
+          - `GROSS_BUDGET`
+
+          factorごとに影響しないstrategyのraw returnsを完全一致で検証する。dataset identity、symbol roster、Study seed policy、implementation/runtime provenance、Study-fixed fieldが変わってもINVALIDである。
+
+          ## Analysis semantics
+
+          既存のpaired-return / block-bootstrap / seed robustness primitiveを再利用する。
+
+          - deterministic strategyはseed複製を独立sampleとして数えない。
+          - PPOはStudyで登録した同一seedをbaseline/candidateでpaired比較する。
+          - seedごとの結果を保持し、複数seedから単一の架空p-valueを合成しない。
+          - symbolは同calendar shockを共有し得るため、cross-symbol significance claimを作らない。
+          - symbol別結果、正負count、median、worst/best、drawdown/cost/turnover等はdescriptive evidenceとして保持する。
+
+          ## State machine and lineage
+
+          Study mutationは`StudyStore.mutation_lock()`でprocess間serializeし、各mutation前にdisk artifactからstateを再構築する。別DBやin-memory pointerをstateの正本にしない。
+
+          ```text
+          create_study
+            → run_baseline
+            → define_experiment
+            → run_experiment
+            → verify_experiment
+              ├─ INVALID: terminal / budgeted / lineage不変
+              └─ CONTROLLED
+                   → compare_experiment
+                   → decide_experiment
+                     ├─ ACCEPT_CANDIDATE: candidate EvidenceSetをlineageへ追加
+                     ├─ KEEP_BASELINE: lineage不変
+                     └─ INCONCLUSIVE: lineage不変
+          ```
+
+          candidate EvidenceSet完成前の実行失敗は `record_experiment_failure` で `FAILED` terminalとして記録できる。FAILEDはbudgetを消費し、lineageへ入らず、complete candidateを後からFAILEDへ書き換えることはできない。
+
+          後続Experimentのbaselineは初期baselineまたは過去の`ACCEPT_CANDIDATE`で到達可能なEvidenceSetだけである。KEEP/INCONCLUSIVE/INVALID/FAILED candidateを復活させない。
+
+          ## Freeze
+
+          `freeze_study` は全Experimentがterminalである場合だけ一度だけ`freeze.json`をpublishする。
+
+          - `NO_WINNER`: selected evidence/strategyを持たない。
+          - `WINNER`: 過去の`ACCEPT_CANDIDATE`でlineageへ入ったEvidenceSetと、5 candidate strategyの1つだけを選べる。controlsはwinnerにできない。
+
+          freeze artifactはStudy digestと全decision digestをbindする。再構築時にもdecision lineage、terminal状態、WINNERのaccepted lineageを再検証する。freeze後はbaseline/definition/run/verification/comparison/decision/failure/freezeを含む全mutationを`StudyFrozenError`で拒否する。
+
+          ## Artifact layout
+
+          ```text
+          <study>/
+            plan.json
+            baseline/
+              evidence/
+                manifest.json
+                runs/seed-*/{summary.json,returns.npz,provenance.json}
+              analysis.json
+            experiments/
+              0001/
+                definition.json
+                candidate/        # complete EvidenceSetがある場合
+                verification.json # candidate完成後
+                comparison.json   # CONTROLLEDのみ
+                decision.json     # comparison後
+                failure.json      # candidate完成前FAILEDの場合
+            freeze.json            # terminal Studyのみ
+          ```
+
+          `.mutation.lock` は同期primitiveでありresearch evidenceではない。canonical evidenceはappend-onlyで既存targetを上書きしない。
+
+          ## Failure / tamper contract
+
+          loader/inspectionはsymlink、path traversal、malformed JSON、digest mismatch、Run artifact tamper、analysis mismatch、seed roster mismatch、context/provenance drift、stale reference、non-contiguous sequence、illegal terminal transitionをfail-closedに扱う。
+
+          Process raceでもlock取得後に必ずdisk stateを再構築するため、例えばfreezeと新Experiment定義が同時に来ても、どちらか一方だけが先行状態へcommitできる。
+
+          ## What this does not prove
+
+          このworkflowがGreenでも、strategyのprofitability、実データ上のwinner、unused-futureでの再現性、production/live routingの安全性は証明されない。次の研究作業はcanonical real development Studyを実行し、freezeした結果を得ることである。
+          EOF
+
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(f"replacement mismatch in {path}: {old[:80]!r}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "README.md",
+              "- `docs/architecture/package-boundaries.md` — current package ownership and dependency direction\n- `docs/research/current-status.md` — research status, candidate comparison, development/final protocol\n",
+              "- `docs/architecture/package-boundaries.md` — current package ownership and dependency direction\n- `docs/architecture/controlled-experiment-loop.md` — append-only Study/Experiment/EvidenceSet lifecycle and freeze contract\n- `docs/research/current-status.md` — research status, candidate comparison, development/final protocol\n",
+          )
+          replace_once(
+              "README.md",
+              "- M2 universal comparison infrastructure: **complete**\n- M2 real-data development comparison: **not run yet**\n",
+              "- M2 universal comparison + Controlled Experiment Loop infrastructure: **complete**\n- M2 real-data development comparison: **not run yet**\n",
+          )
+          replace_once(
+              "README.md",
+              "summary.json\nreturns.npz\n",
+              "summary.json\nreturns.npz\nprovenance.json\n",
+          )
+
+          docs_readme = Path("docs/README.md")
+          docs_readme.write_text('''# Trade RL documentation\n\n## 結論\n\nこの `docs/` tree は**現在のシステムを理解・変更するための正本だけ**を置く。過去の設計、完了済みmigration plan、完了済みspecを保存する場所ではない。過去資料が必要な場合は Git history を参照する。\n\n現在読むべき恒久文書は次の5つである。\n\n- [`AGENTS.md`](AGENTS.md) — Agent向けの読む順序、更新先、保持・削除ルール、verification contract\n- [`architecture/lean-core.md`](architecture/lean-core.md) — 現行lean coreの目的、データ・strategy・risk・execution/accounting・artifactの不変条件\n- [`architecture/package-boundaries.md`](architecture/package-boundaries.md) — 現在のpackage配置、責務境界、依存方向、public API方針\n- [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development StudyのEvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約\n- [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、development/final評価手順と未検証事項\n\n現在、独立したActive spec/planはない。Controlled Experiment Loop v1の実装済み耐久契約は `architecture/controlled-experiment-loop.md` を正本とする。\n\nRootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。\n\n## フォルダ方針\n\n現在の恒久フォルダは `architecture/` と `research/` だけである。\n\n- `architecture/`: 現行コードが満たすべき構造・責務・不変条件\n- `research/`: 現在の研究仮説、比較条件、証拠プロトコル、研究状態\n\n将来、未実装で独立してnormativeな設計がある間だけ `specs/` を作ってよい。実装中の独立した作業計画が必要な間だけ `plans/` を作ってよい。実装が終わり、耐久的な内容が `architecture/` または `research/` に反映されたら、完了済みspec/planはcurrent treeから削除する。\n\n`docs/history` と `docs/archive` は作らない。Git historyが履歴の正本である。\n\n## 何を更新するか\n\n- package、責務、依存方向、公開境界を変えた → `architecture/package-boundaries.md`\n- causal data、strategy/risk分離、execution/accounting、artifact invariantを変えた → `architecture/lean-core.md`\n- Study/Experiment/EvidenceSet、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`\n- 候補、fit/evaluation scope、評価期間、判定手順、研究状態を変えた → `research/current-status.md`\n- docsのrouting/保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME\n\nコードとdocsが食い違った場合は、現行source・architecture test・public contractを確認して真の契約を確定し、docsだけを放置しない。\n\n## 法務・provenance\n\n`LICENSE` と `LICENSES/` はcurrent docsの整理対象ではない。ライセンス本文、provenance、third-party noticeは永久保持するcompliance materialであり、通常の完了済みplan/specと同じ削除ルールを適用しない。\n''', encoding="utf-8")
+
+          replace_once(
+              "docs/AGENTS.md",
+              "4. `docs/architecture/package-boundaries.md`\n5. 研究判断・候補・評価・データscopeに関わる作業なら `docs/research/current-status.md`\n6. その後に対象source、tests、CI、open PR、recent commitsを読む\n",
+              "4. `docs/architecture/package-boundaries.md`\n5. Study/Experiment/EvidenceSetやdevelopment研究workflowに関わる作業なら `docs/architecture/controlled-experiment-loop.md`\n6. 研究判断・候補・評価・データscopeに関わる作業なら `docs/research/current-status.md`\n7. その後に対象source、tests、CI、open PR、recent commitsを読む\n",
+          )
+          replace_once(
+              "docs/AGENTS.md",
+              "| package移動、責務境界、依存方向、public facade | `architecture/package-boundaries.md`, `tests/architecture/` |\n| 候補strategy/control、fit scope、evaluation scope | `research/current-status.md`, candidate/strategy tests |\n",
+              "| package移動、責務境界、依存方向、public facade | `architecture/package-boundaries.md`, `tests/architecture/` |\n| Study/Experiment/EvidenceSet、controlled factor、lineage、freeze | `architecture/controlled-experiment-loop.md`, experiment contract/workflow tests |\n| 候補strategy/control、fit scope、evaluation scope | `research/current-status.md`, candidate/strategy tests |\n",
+          )
+
+          replace_once(
+              "docs/architecture/package-boundaries.md",
+              "    └── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py}\n```\n\n`evaluation/experiments/` は現時点では存在しない。Controlled Experiment Loopは、単一Runとは別のhigher-level conceptとしてActive design/planで定義中である。\n",
+              "    ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py}\n    └── experiments/{errors.py,store.py,evidence.py,analysis.py,delta.py,workflow.py,contracts/}\n```\n\n`evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。\n",
+          )
+          replace_once(
+              "docs/architecture/package-boundaries.md",
+              "`runs` はhigher-level experiment lifecycleを知らない。将来の `evaluation/experiments` はこのRun Coreを利用してよいが、`evaluation/runs -> evaluation/experiments` の逆依存は作らない。\n",
+              "`runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。`evaluation/runs -> evaluation/experiments` の逆依存は作らない。experiments層からsealed unused-future authorizationへも依存しない。\n",
+          )
+
+          replace_once(
+              "docs/research/current-status.md",
+              "Trade RLの現在地は、**lean coreと5候補+3 controlsの共通比較基盤、およびprovenance-bound candidate Run Coreまでは実装済みだが、canonical実データを使ったM2 development比較はまだ実施していない**段階である。",
+              "Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、およびControlled Experiment Loop v1まで実装済みだが、canonical実データを使ったM2 development Studyはまだ実施していない**段階である。",
+          )
+          replace_once(
+              "docs/research/current-status.md",
+              "### M2 — Common comparison: Run Core complete, Controlled Experiment Loop implementation in progress, real-data development comparison not run",
+              "### M2 — Common comparison: Run Core + Controlled Experiment Loop complete, real-data development comparison not run",
+          )
+          replace_once(
+              "docs/research/current-status.md",
+              "- semantic candidate-artifact identityとraw file integrity evidence\n\n未完了:\n\n1. Controlled Experiment LoopのStudy/Experiment lifecycle実装を完了する。\n2. canonical実データdevelopment artifactを選ぶ。\n3. signal/feature、`fit_symbol_names`、fit cutoff、development window、seed policyをfreezeする。\n4. 5 candidates + 3 controlsを同じStudy条件で実行する。\n5. 全symbolの結果を完全報告する。\n6. winnerをfreezeするか、no-winnerと判断する。\n",
+              "- semantic candidate-artifact identityとraw file integrity evidence\n- append-only Study/Experiment state machineとprocess-safe mutation lock\n- Study-owned multi-seed EvidenceSetとdeterministic seed invariance\n- one-factor resolved delta verificationとunaffected-strategy raw-return invariance\n- paired/bootstrap/seed analysis、ACCEPT-only lineage、FAILED/INVALID terminal、WINNER/NO_WINNER freeze\n\n未完了:\n\n1. canonical実データdevelopment artifactを選ぶ。\n2. signal/feature、`fit_symbol_names`、fit cutoff、development window、seed policyをfreezeする。\n3. 5 candidates + 3 controlsを同じStudy条件で実行する。\n4. 全symbolの結果を完全報告する。\n5. winnerをfreezeするか、no-winnerと判断する。\n",
+          )
+          replace_once(
+              "docs/research/current-status.md",
+              "> Active Controlled Experiment Loop v1 designを実装し、同じcanonical development条件・provenance・semantic factor・seed policyへcandidate evidenceをbindしたうえで比較を開始する。",
+              "> 実装済みControlled Experiment Loopで、一つのcanonical development dataset・fit/evaluation scope・seed policyをStudyへfreezeし、最初のreal-data M2 Studyを開始する。",
+          )
+
+          test = Path("tests/architecture/test_current_docs_layout.py")
+          text = test.read_text(encoding="utf-8")
+          text = text.replace(
+              '    "architecture/package-boundaries.md",\n    "research/current-status.md",\n',
+              '    "architecture/package-boundaries.md",\n    "architecture/controlled-experiment-loop.md",\n    "research/current-status.md",\n',
+              1,
+          )
+          text = text.replace(
+              '    DOCS / "architecture" / "package-boundaries.md",\n    DOCS / "research" / "current-status.md",\n',
+              '    DOCS / "architecture" / "package-boundaries.md",\n    DOCS / "architecture" / "controlled-experiment-loop.md",\n    DOCS / "research" / "current-status.md",\n',
+              1,
+          )
+          text = text.replace(
+              '    DOCS / "architecture" / "package-boundaries.md",\n    DOCS / "research" / "current-status.md",\n',
+              '    DOCS / "architecture" / "package-boundaries.md",\n    DOCS / "architecture" / "controlled-experiment-loop.md",\n    DOCS / "research" / "current-status.md",\n',
+              1,
+          )
+          text = text.replace(
+              '        "architecture/package-boundaries.md",\n        "research/current-status.md",\n',
+              '        "architecture/package-boundaries.md",\n        "architecture/controlled-experiment-loop.md",\n        "research/current-status.md",\n',
+              1,
+          )
+          insert = '''\n\ndef test_controlled_experiment_loop_is_durable_current_architecture() -> None:\n    contract = (DOCS / "architecture" / "controlled-experiment-loop.md").read_text(\n        encoding="utf-8"\n    )\n    for required in (\n        "Study-owned EvidenceSet",\n        "ACCEPT_CANDIDATE",\n        "FAILED",\n        "INVALID",\n        "WINNER",\n        "NO_WINNER",\n        "sealed unused-future",\n        "freeze_study",\n    ):\n        assert required in contract\n    assert not (DOCS / "specs").exists()\n    assert not (DOCS / "plans").exists()\n'''
+          marker = "\ndef test_current_relative_markdown_links_resolve() -> None:\n"
+          if text.count(marker) != 1:
+              raise SystemExit("docs architecture test marker mismatch")
+          test.write_text(text.replace(marker, insert + marker, 1), encoding="utf-8")
+          PY
+
+          rm -f \
+            docs/specs/2026-09-09-controlled-experiment-loop-v1-design.md \
+            docs/specs/2026-09-09-controlled-experiment-loop-v1-review-amendment.md \
+            docs/specs/2026-09-09-controlled-experiment-loop-v1-study-owned-amendment.md \
+            docs/plans/2026-09-09-controlled-experiment-loop-v1.md \
+            docs/plans/2026-09-09-controlled-experiment-loop-v1-plan-amendment.md \
+            docs/plans/2026-09-09-candidate-run-core-refactor.md
+
+          uv run ruff check --fix tests/architecture/test_current_docs_layout.py
+          uv run ruff format tests/architecture/test_current_docs_layout.py
+          uv run pytest -q tests/architecture/test_current_docs_layout.py tests/architecture/test_lean_evaluation_layout.py tests/architecture/test_lean_dependency_boundaries.py
+          test ! -d docs/specs
+          test ! -d docs/plans
+          ! git grep -n "Controlled Experiment Loop implementation in progress"
+          ! git grep -n "Active Controlled Experiment Loop v1 design"
+          ! git grep -n "2026-09-09-controlled-experiment-loop-v1" -- ':!/.git'
+      - name: Commit durable docs and remove helper
+        run: |
+          rm .github/workflows/cel-finalize-docs.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md docs tests/architecture/test_current_docs_layout.py .github/workflows/cel-finalize-docs.yml
+          git diff --cached --check
+          git commit -m "docs: promote controlled experiment loop contract"
+          git push origin HEAD:feat/controlled-experiment-loop-v1

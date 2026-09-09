@@ -320,6 +320,17 @@ class FrozenBinanceExchangeInfoTransport:
             raise RuntimeError("frozen metadata cache publication failed")
         return verified
 
+    def load_exchange_information(
+        self,
+        *,
+        market: BinanceMarket | str,
+        mode: BinanceTransportMode | str = BinanceTransportMode.REST,
+    ) -> tuple[dict[str, object], str]:
+        """Return an independent mutable payload for dataset assembly."""
+
+        snapshot = self.load_exchange_information_snapshot(market=market, mode=mode)
+        return _mutable_json_object(snapshot.payload), "frozen:exchange-info"
+
 
 __all__ = [
     "BinanceExchangeInfoSnapshot",

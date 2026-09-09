@@ -270,9 +270,7 @@ class CanonicalM2BootstrapConfig:
             "base_timeframe": self.base_timeframe,
             "feature_timeframes": list(self.feature_timeframes),
             "data_start": self.data_start.astimezone(UTC).isoformat(),
-            "data_stop_exclusive": self.data_stop_exclusive.astimezone(
-                UTC
-            ).isoformat(),
+            "data_stop_exclusive": self.data_stop_exclusive.astimezone(UTC).isoformat(),
             "baseline": _baseline_payload(self.baseline),
             "ppo_seeds": list(self.ppo_seeds),
             "allowed_factors": [factor.value for factor in self.allowed_factors],
@@ -297,9 +295,7 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
     market = BinanceMarket.USDS_M
 
     symbols = _string_sequence(raw.get("symbols"), field="symbols")
-    base_timeframe = _require_text(
-        raw.get("base_timeframe"), field="base_timeframe"
-    )
+    base_timeframe = _require_text(raw.get("base_timeframe"), field="base_timeframe")
     binance_interval_milliseconds(base_timeframe)
     feature_timeframes = _string_sequence(
         raw.get("feature_timeframes"),

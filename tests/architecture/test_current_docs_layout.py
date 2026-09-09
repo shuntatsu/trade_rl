@@ -4,6 +4,8 @@ import hashlib
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs"
 
@@ -65,6 +67,13 @@ def _doc_files() -> set[str]:
     return result
 
 
+def _assert_active_ephemeral_doc(relative: str, text: str) -> None:
+    path = Path(relative)
+    assert path.parts[0] in EPHEMERAL_DOC_ROOTS, relative
+    assert path.suffix == ".md", relative
+    assert "Status: Active" in text, relative
+
+
 def _git_blob_sha(path: Path) -> str:
     data = path.read_bytes()
     header = f"blob {len(data)}\0".encode()
@@ -78,14 +87,16 @@ def test_docs_tree_contains_current_authorities_and_only_active_ephemeral_docs()
     assert REQUIRED_DOC_FILES <= files
 
     for relative in sorted(files - REQUIRED_DOC_FILES):
-        path = Path(relative)
-        assert path.parts[0] in EPHEMERAL_DOC_ROOTS, relative
-        assert path.suffix == ".md", relative
-        text = (DOCS / path).read_text(encoding="utf-8")
-        assert "Status: Active" in text, relative
+        text = (DOCS / relative).read_text(encoding="utf-8")
+        _assert_active_ephemeral_doc(relative, text)
 
     assert not (DOCS / "history").exists()
     assert not (DOCS / "archive").exists()
+
+
+def test_ephemeral_doc_policy_rejects_inactive_markdown() -> None:
+    with pytest.raises(AssertionError):
+        _assert_active_ephemeral_doc("specs/inactive.md", "# Inactive spec\n")
 
 
 def test_phase4b_preview_workflow_is_absent() -> None:
@@ -196,8 +207,6 @@ def test_controlled_experiment_loop_is_durable_current_architecture() -> None:
         "freeze_study",
     ):
         assert required in contract
-    assert not (DOCS / "specs").exists()
-    assert not (DOCS / "plans").exists()
 
 
 def test_current_relative_markdown_links_resolve() -> None:

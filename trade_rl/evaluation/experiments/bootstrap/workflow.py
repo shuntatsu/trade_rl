@@ -151,7 +151,9 @@ def _require_roster(value: object) -> list[dict[str, object]]:
 
 def _provenance_identity(payload: Mapping[str, object]) -> tuple[str, str]:
     return (
-        _require_digest(payload.get("implementation_digest"), field="implementation_digest"),
+        _require_digest(
+            payload.get("implementation_digest"), field="implementation_digest"
+        ),
         _require_digest(
             payload.get("runtime_environment_digest"),
             field="runtime_environment_digest",
@@ -217,13 +219,17 @@ def _validate_study_against_config(
     )
     for observed, expected, field in expected_pairs:
         if observed != expected:
-            raise ValueError(f"Study baseline resolved {field} differs from bootstrap config")
+            raise ValueError(
+                f"Study baseline resolved {field} differs from bootstrap config"
+            )
     if frozen.fit_cutoff != str(np.datetime64(config.baseline.fit_cutoff, "ns")):
         raise ValueError("Study baseline fit_cutoff differs from bootstrap config")
     if frozen.evaluation_start != str(
         np.datetime64(config.baseline.evaluation_start, "ns")
     ):
-        raise ValueError("Study baseline evaluation_start differs from bootstrap config")
+        raise ValueError(
+            "Study baseline evaluation_start differs from bootstrap config"
+        )
     if frozen.evaluation_stop_exclusive != str(
         np.datetime64(config.baseline.evaluation_stop_exclusive, "ns")
     ):
@@ -260,7 +266,9 @@ def _validate_study_against_config(
         if observed != expected:
             raise ValueError(f"Study baseline {field} differs from bootstrap config")
     if frozen.execution_overlay != "zero_overlay_dataset_fields_authoritative":
-        raise ValueError("Study baseline execution overlay differs from maintained contract")
+        raise ValueError(
+            "Study baseline execution overlay differs from maintained contract"
+        )
     return plan.digest, plan.implementation_digest, plan.runtime_environment_digest
 
 
@@ -431,9 +439,13 @@ def bootstrap_canonical_m2_study(
         )
         sources = frozenset(build.sources_used)
         if not sources or not sources.issubset(_ALLOWED_DATA_SOURCES):
-            raise ValueError("dataset build used source outside frozen bootstrap evidence")
+            raise ValueError(
+                "dataset build used source outside frozen bootstrap evidence"
+            )
         if "vision" not in sources or "frozen:exchange-info" not in sources:
-            raise ValueError("dataset build did not use complete frozen Binance evidence")
+            raise ValueError(
+                "dataset build did not use complete frozen Binance evidence"
+            )
 
         published = publish_market_dataset_artifact(staging / "dataset", build.dataset)
         artifact = inspect_published_market_dataset_artifact(staging / "dataset")
@@ -441,9 +453,13 @@ def bootstrap_canonical_m2_study(
         if loaded_dataset.dataset_id != build.dataset.dataset_id:
             raise ValueError("reloaded dataset id differs from built dataset")
         if artifact.artifact_digest != published.artifact_digest:
-            raise ValueError("reloaded dataset artifact digest differs from publication")
+            raise ValueError(
+                "reloaded dataset artifact digest differs from publication"
+            )
         if tuple(loaded_dataset.symbols) != config.symbols:
-            raise ValueError("published dataset symbol roster differs from bootstrap config")
+            raise ValueError(
+                "published dataset symbol roster differs from bootstrap config"
+            )
         resolve_candidate_run_spec(
             loaded_dataset,
             dataset_artifact_schema=artifact.schema_version,
@@ -462,12 +478,16 @@ def bootstrap_canonical_m2_study(
             n_bootstrap=config.n_bootstrap,
             bootstrap_seed=config.bootstrap_seed,
         )
-        study_digest, plan_implementation, plan_runtime = _validate_study_against_config(
-            config,
-            dataset_root=staging / "dataset",
+        study_digest, plan_implementation, plan_runtime = (
+            _validate_study_against_config(
+                config,
+                dataset_root=staging / "dataset",
+            )
         )
         if plan_implementation != start_implementation:
-            raise ValueError("Study implementation provenance differs from bootstrap start")
+            raise ValueError(
+                "Study implementation provenance differs from bootstrap start"
+            )
         if plan_runtime != start_runtime:
             raise ValueError("Study runtime provenance differs from bootstrap start")
 

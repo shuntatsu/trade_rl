@@ -40,7 +40,9 @@ def test_self_consistent_raw_source_tamper_is_rejected_by_frozen_roster(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     output = _published(tmp_path, monkeypatch)
-    manifest = json.loads((output / "bootstrap-manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (output / "bootstrap-manifest.json").read_text(encoding="utf-8")
+    )
     url = manifest["raw_source_roster"][0]["url"]
     cache = vision_cache_path(output / "source" / "vision-cache", url)
     payload = cache.read_bytes() + b"tamper"

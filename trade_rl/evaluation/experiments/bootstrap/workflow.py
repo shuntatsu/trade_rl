@@ -204,7 +204,7 @@ def _validate_study_against_config(
     )
     frozen = plan.baseline_config
     lean = resolved.lean_config
-    expected_pairs = (
+    expected_pairs: tuple[tuple[object, object, str], ...] = (
         (frozen.signal_name, config.baseline.signal_name, "signal_name"),
         (frozen.signal_index, lean.signal_index, "signal_index"),
         (frozen.feature_names, config.baseline.feature_names, "feature_names"),
@@ -234,7 +234,7 @@ def _validate_study_against_config(
         np.datetime64(config.baseline.evaluation_stop_exclusive, "ns")
     ):
         raise ValueError("Study baseline evaluation_stop differs from bootstrap config")
-    for observed, expected, field in (
+    numeric_pairs: tuple[tuple[object, object, str], ...] = (
         (
             frozen.rule_entry_threshold,
             config.baseline.rule_entry_threshold,
@@ -262,7 +262,8 @@ def _validate_study_against_config(
         ),
         (frozen.gross_budget, config.baseline.gross_budget, "gross_budget"),
         (frozen.initial_capital, config.baseline.initial_capital, "initial_capital"),
-    ):
+    )
+    for observed, expected, field in numeric_pairs:
         if observed != expected:
             raise ValueError(f"Study baseline {field} differs from bootstrap config")
     if frozen.execution_overlay != "zero_overlay_dataset_fields_authoritative":

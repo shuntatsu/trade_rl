@@ -106,6 +106,13 @@ def _install_fakes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(workflow_module, "build_binance_market_dataset", build)
 
 
+def _assert_no_partial_bootstrap(tmp_path: Path, output: Path) -> None:
+    assert not output.exists()
+    assert not any(
+        path.name.startswith(f".{output.name}.staging-") for path in tmp_path.iterdir()
+    )
+
+
 def test_bootstrap_publishes_dataset_and_study_atomically_before_baseline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -194,15 +201,80 @@ def test_mid_bootstrap_failure_leaves_no_final_or_staging_root(
     with pytest.raises(RuntimeError, match="dataset build failed"):
         bootstrap_canonical_m2_study(_config_path(tmp_path), output)
 
-    assert not output.exists()
-    assert not any(
-        path.name.startswith(".canonical-m2.staging-") for path in tmp_path.iterdir()
-    )
+    _assert_no_partial_bootstrap(tmp_path, output)
 
 
+@pytest.mark.parametrize(
+    ("stage", "message"),
+    [
+        ("source", "source freeze failed"),
+        ("dataset_publication", "dataset publication failed"),
+        ("study", "Study creation failed"),
+        ("manifest", "manifest write failed"),
+        ("final_validation", "staging validation failed"),
+    ],
+)
+def test_failure_at_publication_stages_never_exposes_partial_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stage: str,
+    message: str,
+) -> None:
+    _install_fakes(monkeypatch)
+    from trade_rl.evaluation.experiments.bootstrap import workflow as workflow_module
+
+    if stage == "source":
+        monkeypatch.setattr(
+            workflow_module,
+            "_freeze_binance_source",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(message)),
+        )
+    elif stage == "dataset_publication":
+        monkeypatch.setattr(
+            workflow_module,
+            "publish_market_dataset_artifact",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(message)),
+        )
+    elif stage == "study":
+        monkeypatch.setattr(
+            workflow_module,
+            "create_study",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(message)),
+        )
+    elif stage == "manifest":
+        real_write = workflow_module._write_json
+
+        def write(path: Path, payload: object) -> None:
+            if path.name == "bootstrap-manifest.json":
+                raise RuntimeError(message)
+            real_write(path, payload)
+
+        monkeypatch.setattr(workflow_module, "_write_json", write)
+    else:
+        real_inspect = workflow_module.inspect_canonical_m2_bootstrap
+
+        def inspect(root: str | Path):
+            if Path(root).name.startswith(".canonical-m2.staging-"):
+                raise RuntimeError(message)
+            return real_inspect(root)
+
+        monkeypatch.setattr(workflow_module, "inspect_canonical_m2_bootstrap", inspect)
+
+    output = tmp_path / "canonical-m2"
+    with pytest.raises(RuntimeError, match=message):
+        bootstrap_canonical_m2_study(_config_path(tmp_path), output)
+
+    _assert_no_partial_bootstrap(tmp_path, output)
+
+
+@pytest.mark.parametrize(
+    "drift_field",
+    ["implementation_digest", "runtime_environment_digest"],
+)
 def test_provenance_drift_prevents_final_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    drift_field: str,
 ) -> None:
     _install_fakes(monkeypatch)
     from trade_rl.evaluation.experiments.bootstrap import workflow as workflow_module
@@ -210,7 +282,7 @@ def test_provenance_drift_prevents_final_publication(
     real_provenance = workflow_module.build_candidate_run_provenance
     original = real_provenance()
     drifted = dict(original)
-    drifted["runtime_environment_digest"] = "f" * 64
+    drifted[drift_field] = "f" * 64
     values = iter((original, drifted))
     monkeypatch.setattr(
         workflow_module,
@@ -219,10 +291,7 @@ def test_provenance_drift_prevents_final_publication(
     )
     output = tmp_path / "canonical-m2"
 
-    with pytest.raises(ValueError, match="provenance.*drift|runtime provenance"):
+    with pytest.raises(ValueError, match="provenance.*drift|provenance"):
         bootstrap_canonical_m2_study(_config_path(tmp_path), output)
 
-    assert not output.exists()
-    assert not any(
-        path.name.startswith(".canonical-m2.staging-") for path in tmp_path.iterdir()
-    )
+    _assert_no_partial_bootstrap(tmp_path, output)

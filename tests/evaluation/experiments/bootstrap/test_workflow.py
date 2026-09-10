@@ -144,7 +144,9 @@ def test_bootstrap_manifest_binds_source_dataset_study_and_provenance(
     _install_fakes(monkeypatch)
     output = tmp_path / "canonical-m2"
     result = bootstrap_canonical_m2_study(_config_path(tmp_path), output)
-    manifest = json.loads((output / "bootstrap-manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (output / "bootstrap-manifest.json").read_text(encoding="utf-8")
+    )
 
     assert manifest["bootstrap_digest"] == result.bootstrap_digest
     assert manifest["bootstrap_config_digest"] == result.config_digest
@@ -193,7 +195,9 @@ def test_mid_bootstrap_failure_leaves_no_final_or_staging_root(
         bootstrap_canonical_m2_study(_config_path(tmp_path), output)
 
     assert not output.exists()
-    assert not any(path.name.startswith(".canonical-m2.staging-") for path in tmp_path.iterdir())
+    assert not any(
+        path.name.startswith(".canonical-m2.staging-") for path in tmp_path.iterdir()
+    )
 
 
 def test_provenance_drift_prevents_final_publication(
@@ -219,4 +223,6 @@ def test_provenance_drift_prevents_final_publication(
         bootstrap_canonical_m2_study(_config_path(tmp_path), output)
 
     assert not output.exists()
-    assert not any(path.name.startswith(".canonical-m2.staging-") for path in tmp_path.iterdir())
+    assert not any(
+        path.name.startswith(".canonical-m2.staging-") for path in tmp_path.iterdir()
+    )

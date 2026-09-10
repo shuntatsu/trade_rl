@@ -103,6 +103,22 @@ def _string_sequence(
     return values
 
 
+def _string_tuple(
+    value: object,
+    *,
+    field: str,
+    allow_empty: bool = False,
+) -> tuple[str, ...]:
+    if not isinstance(value, tuple):
+        raise ValueError(f"{field} must be a string tuple")
+    values = tuple(_require_text(item, field=field) for item in value)
+    if not allow_empty and not values:
+        raise ValueError(f"{field} must be non-empty")
+    if len(set(values)) != len(values):
+        raise ValueError(f"{field} must not contain duplicate values")
+    return values
+
+
 def _int_value(value: object, *, field: str, positive: bool = False) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field} must be an integer")
@@ -124,15 +140,21 @@ def _seed_policy(value: object) -> tuple[int, ...]:
     return seeds
 
 
+def _normalize_source_datetime(value: object, *, field: str) -> datetime:
+    if not isinstance(value, datetime):
+        raise ValueError(f"{field} must be a datetime")
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field} must be timezone-aware")
+    return value.astimezone(UTC)
+
+
 def _parse_source_datetime(value: object, *, field: str) -> datetime:
     raw = _require_text(value, field=field)
     try:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError as error:
         raise ValueError(f"{field} must be an ISO datetime") from error
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise ValueError(f"{field} must be timezone-aware")
-    return parsed.astimezone(UTC)
+    return _normalize_source_datetime(parsed, field=field)
 
 
 def _utc_np(value: datetime) -> np.datetime64:
@@ -230,38 +252,89 @@ class CanonicalM2BootstrapConfig:
             raise ValueError("schema_version does not match canonical M2 contract")
         if self.market is not BinanceMarket.USDS_M:
             raise ValueError("canonical M2 bootstrap supports only usds-m")
-        if not self.research_question.strip():
-            raise ValueError("research_question must be non-empty")
-        if not self.symbols or any(not item for item in self.symbols):
-            raise ValueError("symbols must be non-empty")
-        if len(set(self.symbols)) != len(self.symbols):
-            raise ValueError("symbols must not contain duplicate values")
-        if len(set(self.feature_timeframes)) != len(self.feature_timeframes):
-            raise ValueError("feature_timeframes must not contain duplicate values")
-        if self.base_timeframe in self.feature_timeframes:
+        if not isinstance(self.baseline, CandidateRunConfig):
+            raise ValueError("baseline must be a CandidateRunConfig")
+
+        research_question = _require_text(
+            self.research_question,
+            field="research_question",
+        )
+        symbols = _string_tuple(self.symbols, field="symbols")
+        base_timeframe = _require_text(self.base_timeframe, field="base_timeframe")
+        binance_interval_milliseconds(base_timeframe)
+        feature_timeframes = _string_tuple(
+            self.feature_timeframes,
+            field="feature_timeframes",
+            allow_empty=True,
+        )
+        if base_timeframe in feature_timeframes:
             raise ValueError("feature_timeframes must not repeat the base timeframe")
-        if not set(self.baseline.fit_symbol_names).issubset(self.symbols):
+        for timeframe in feature_timeframes:
+            binance_interval_milliseconds(timeframe)
+
+        data_start = _normalize_source_datetime(self.data_start, field="data_start")
+        data_stop = _normalize_source_datetime(
+            self.data_stop_exclusive,
+            field="data_stop_exclusive",
+        )
+        timeframes = (base_timeframe, *feature_timeframes)
+        _require_native_alignment(data_start, field="data_start", timeframes=timeframes)
+        _require_native_alignment(
+            data_stop,
+            field="data_stop_exclusive",
+            timeframes=timeframes,
+        )
+
+        if not set(self.baseline.fit_symbol_names).issubset(symbols):
             raise ValueError("fit_symbol_names must be a subset of symbols")
-        if len(self.ppo_seeds) < 2:
+        if not isinstance(self.ppo_seeds, tuple):
+            raise ValueError("ppo_seeds must be an integer tuple")
+        ppo_seeds = tuple(_int_value(seed, field="ppo_seeds") for seed in self.ppo_seeds)
+        if len(ppo_seeds) < 2:
             raise ValueError("ppo_seeds must contain at least two seeds")
-        if len(set(self.ppo_seeds)) != len(self.ppo_seeds):
+        if len(set(ppo_seeds)) != len(ppo_seeds):
             raise ValueError("ppo_seeds must not contain duplicate values")
-        if any(seed < 0 for seed in self.ppo_seeds):
-            raise ValueError("ppo_seeds must be non-negative")
-        if self.baseline.ppo_seed != self.ppo_seeds[0]:
+        if self.baseline.ppo_seed != ppo_seeds[0]:
             raise ValueError("baseline ppo_seed must equal first ppo_seeds value")
-        if not self.allowed_factors:
-            raise ValueError("allowed_factors must be non-empty")
-        if len(set(self.allowed_factors)) != len(self.allowed_factors):
+
+        if not isinstance(self.allowed_factors, tuple) or not self.allowed_factors:
+            raise ValueError("allowed_factors must be a non-empty tuple")
+        if any(
+            not isinstance(factor, ControlledFactor) for factor in self.allowed_factors
+        ):
+            raise ValueError("allowed_factors must contain ControlledFactor values")
+        allowed_factors = tuple(self.allowed_factors)
+        if len(set(allowed_factors)) != len(allowed_factors):
             raise ValueError("allowed_factors must not contain duplicate values")
-        _int_value(self.max_experiments, field="max_experiments", positive=True)
-        _int_value(self.n_bootstrap, field="n_bootstrap", positive=True)
-        _int_value(self.bootstrap_seed, field="bootstrap_seed")
+
+        max_experiments = _int_value(
+            self.max_experiments,
+            field="max_experiments",
+            positive=True,
+        )
+        n_bootstrap = _int_value(
+            self.n_bootstrap,
+            field="n_bootstrap",
+            positive=True,
+        )
+        bootstrap_seed = _int_value(self.bootstrap_seed, field="bootstrap_seed")
         _validate_time_contract(
-            data_start=self.data_start,
-            data_stop_exclusive=self.data_stop_exclusive,
+            data_start=data_start,
+            data_stop_exclusive=data_stop,
             baseline=self.baseline,
         )
+
+        object.__setattr__(self, "research_question", research_question)
+        object.__setattr__(self, "symbols", symbols)
+        object.__setattr__(self, "base_timeframe", base_timeframe)
+        object.__setattr__(self, "feature_timeframes", feature_timeframes)
+        object.__setattr__(self, "data_start", data_start)
+        object.__setattr__(self, "data_stop_exclusive", data_stop)
+        object.__setattr__(self, "ppo_seeds", ppo_seeds)
+        object.__setattr__(self, "allowed_factors", allowed_factors)
+        object.__setattr__(self, "max_experiments", max_experiments)
+        object.__setattr__(self, "n_bootstrap", n_bootstrap)
+        object.__setattr__(self, "bootstrap_seed", bootstrap_seed)
 
     def to_payload(self) -> dict[str, object]:
         return {

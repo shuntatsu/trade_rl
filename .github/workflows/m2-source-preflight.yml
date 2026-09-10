@@ -1,0 +1,113 @@
+name: M2 Source Availability Preflight
+
+on:
+  push:
+    branches:
+      - research/m2-canonical-study-001
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Check exact Vision archive existence without reading market values
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import urllib.error
+          import urllib.request
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from datetime import UTC, datetime
+          from urllib.parse import urlparse
+
+          from trade_rl.integrations.binance import plan_binance_vision_cache
+
+          SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
+          INTERVALS = ("1h", "4h", "1d")
+          START = datetime(2021, 1, 1, tzinfo=UTC)
+          STOP = datetime(2025, 1, 1, tzinfo=UTC)
+
+          plan = plan_binance_vision_cache(
+              market="usds-m",
+              symbols=SYMBOLS,
+              intervals=INTERVALS,
+              start_time=START,
+              end_time=STOP,
+          )
+
+          def check(url: str) -> tuple[str, int | None, int | None, str | None]:
+              request = urllib.request.Request(
+                  url,
+                  method="HEAD",
+                  headers={"User-Agent": "trade-rl-m2-source-preflight/1"},
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      length = response.headers.get("Content-Length")
+                      return url, int(response.status), None if length is None else int(length), None
+              except urllib.error.HTTPError as error:
+                  return url, int(error.code), None, str(error)
+              except Exception as error:
+                  return url, None, None, f"{type(error).__name__}: {error}"
+
+          results: list[tuple[str, int | None, int | None, str | None]] = []
+          with ThreadPoolExecutor(max_workers=24) as pool:
+              futures = [pool.submit(check, url) for url in plan.urls]
+              for future in as_completed(futures):
+                  results.append(future.result())
+
+          results.sort(key=lambda item: item[0])
+          bad = [item for item in results if item[1] != 200 or not item[2] or item[2] <= 0]
+          per_symbol: dict[str, dict[str, int]] = {
+              symbol: {"planned": 0, "available": 0, "missing": 0}
+              for symbol in SYMBOLS
+          }
+          for url, status, size, _error in results:
+              path = urlparse(url).path
+              symbol = next((item for item in SYMBOLS if f"/{item}/" in path), None)
+              if symbol is None:
+                  raise RuntimeError(f"could not resolve symbol from URL: {url}")
+              per_symbol[symbol]["planned"] += 1
+              if status == 200 and size and size > 0:
+                  per_symbol[symbol]["available"] += 1
+              else:
+                  per_symbol[symbol]["missing"] += 1
+
+          summary = {
+              "market": "usds-m",
+              "symbols": list(SYMBOLS),
+              "intervals": list(INTERVALS),
+              "start": START.isoformat(),
+              "stop_exclusive": STOP.isoformat(),
+              "planned_count": len(plan.urls),
+              "available_count": len(results) - len(bad),
+              "missing_count": len(bad),
+              "per_symbol": per_symbol,
+          }
+          print(json.dumps(summary, sort_keys=True, indent=2))
+          if bad:
+              print("MISSING_OR_UNREADABLE_URLS")
+              for url, status, size, error in bad:
+                  print(json.dumps({"url": url, "status": status, "size": size, "error": error}, sort_keys=True))
+              raise SystemExit(1)
+          PY

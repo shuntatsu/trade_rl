@@ -139,7 +139,9 @@ def _read_plan(path: Path) -> dict[str, object]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Vision plan is invalid JSON") from error
-    if not isinstance(payload, dict) or any(not isinstance(key, str) for key in payload):
+    if not isinstance(payload, dict) or any(
+        not isinstance(key, str) for key in payload
+    ):
         raise ValueError("Vision plan must be a JSON object")
     return payload
 
@@ -249,7 +251,9 @@ def _freeze_binance_source(
     else:
         live = live_transport
         if live.cache_root is None or Path(live.cache_root) != cache_root:
-            raise ValueError("live transport cache_root must equal bootstrap Vision cache root")
+            raise ValueError(
+                "live transport cache_root must equal bootstrap Vision cache root"
+            )
 
     frozen_metadata = FrozenBinanceExchangeInfoTransport(
         metadata_root,

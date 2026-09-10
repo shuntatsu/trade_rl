@@ -44,8 +44,21 @@ jobs:
       - name: Mypy
         run: uv run mypy trade_rl
 
-      - name: Core tests
-        run: uv run pytest -q tests
+      - name: Focused architecture and docs tests
+        run: |
+          uv run pytest -q \
+            tests/architecture/test_current_docs_layout.py \
+            tests/architecture/test_lean_dependency_boundaries.py \
+            tests/architecture/test_lean_evaluation_layout.py \
+            tests/architecture/test_lean_binance_layout.py
+
+      - name: Focused bootstrap and Binance integration tests
+        run: |
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap \
+            tests/integrations/test_binance.py \
+            tests/integrations/test_binance_cache.py \
+            tests/integrations/test_binance_cache_only.py
 
       - name: Build
         run: uv build

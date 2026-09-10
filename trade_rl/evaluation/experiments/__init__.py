@@ -1,5 +1,11 @@
 """Controlled development experiment contracts and workflow boundary."""
 
+from trade_rl.evaluation.experiments.bootstrap import (
+    CanonicalM2BootstrapConfig,
+    CanonicalM2BootstrapResult,
+    bootstrap_canonical_m2_study,
+    inspect_canonical_m2_bootstrap,
+)
 from trade_rl.evaluation.experiments.contracts import (
     CANDIDATE_STRATEGY_NAMES,
     CONTROL_STRATEGY_NAMES,
@@ -54,6 +60,8 @@ __all__ = [
     "ArtifactIntegrityError",
     "CANDIDATE_STRATEGY_NAMES",
     "CONTROL_STRATEGY_NAMES",
+    "CanonicalM2BootstrapConfig",
+    "CanonicalM2BootstrapResult",
     "ContractViolationError",
     "ControlledExperimentError",
     "ControlledFactor",
@@ -77,12 +85,14 @@ __all__ = [
     "StudyPlan",
     "StudySnapshot",
     "UncontrolledDeltaError",
+    "bootstrap_canonical_m2_study",
     "compare_experiment",
     "create_study",
     "decide_experiment",
     "define_experiment",
     "execute_evidence_set",
     "freeze_study",
+    "inspect_canonical_m2_bootstrap",
     "inspect_study",
     "load_evidence_set",
     "record_experiment_failure",

@@ -53,7 +53,7 @@ jobs:
               '            f"{_REST_BASE[resolved_market.value]}"',
               '            f"{_REST_EXCHANGE_INFO[resolved_market.value]}"',
               "        )",
-              "        urls = (primary_url,)",
+              "        urls: tuple[str, ...] = (primary_url,)",
               "        if resolved_market is BinanceMarket.USDS_M:",
               "            urls = (",
               "                primary_url,",

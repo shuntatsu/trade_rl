@@ -6,11 +6,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from tests.evaluation.experiments.bootstrap.test_binance import (
-    _FakeLiveTransport,
-    _config,
-)
 
+from tests.evaluation.experiments.bootstrap.test_binance import (
+    _config,
+    _FakeLiveTransport,
+)
 from trade_rl.data.build import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,

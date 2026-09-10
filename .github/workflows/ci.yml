@@ -44,11 +44,53 @@ jobs:
       - name: Mypy
         run: uv run mypy trade_rl
 
+      - name: Architecture tooling types
+        run: uv run mypy tests/architecture/imports.py tests/architecture/distribution.py
+
       - name: Core tests
         run: uv run pytest -q tests
 
       - name: Build
         run: uv build
+
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          print("clean installed core public imports and identity: OK")
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
 
       - name: Package identity
         shell: bash

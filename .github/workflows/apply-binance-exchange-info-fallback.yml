@@ -88,7 +88,7 @@ jobs:
           PY
           uv run ruff format trade_rl/integrations/binance/transport.py
 
-      - name: Verify patch
+      - name: Verify patch without helper in final tree
         shell: bash
         run: |
           set -euo pipefail
@@ -96,14 +96,15 @@ jobs:
           uv run ruff format --check trade_rl tests
           uv run mypy trade_rl
           uv run pytest -q tests/integrations/test_binance_exchange_info_fallback.py tests/integrations/test_binance.py
+          git rm .github/workflows/apply-binance-exchange-info-fallback.yml
           uv run pytest -q tests
           uv build
+          git diff --cached --check
 
-      - name: Commit verified patch and remove helper
+      - name: Commit verified patch
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/apply-binance-exchange-info-fallback.yml
           git config user.name "Shuntatsu"
           git config user.email "148511409+shuntatsu@users.noreply.github.com"
           git add trade_rl/integrations/binance/transport.py

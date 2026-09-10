@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 
 from trade_rl.evaluation.experiments.bootstrap import cli
-from trade_rl.evaluation.experiments.bootstrap.workflow import CanonicalM2BootstrapResult
+from trade_rl.evaluation.experiments.bootstrap.workflow import (
+    CanonicalM2BootstrapResult,
+)
 
 
 def _result(root: Path) -> CanonicalM2BootstrapResult:

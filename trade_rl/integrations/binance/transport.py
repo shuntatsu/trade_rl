@@ -539,11 +539,32 @@ class BinancePublicTransport:
             raise BinanceTransportError(
                 "Binance Vision does not publish exchange metadata; provide static metadata"
             )
-        url = (
+        primary_url = (
             f"{_REST_BASE[resolved_market.value]}"
             f"{_REST_EXCHANGE_INFO[resolved_market.value]}"
         )
-        raw_payload = self._request_bytes(url)
+        urls: tuple[str, ...] = (primary_url,)
+        if resolved_market is BinanceMarket.USDS_M:
+            urls = (
+                primary_url,
+                "https://www.binance.com/fapi/v1/exchangeInfo",
+            )
+
+        last_error: BinanceTransportError | None = None
+        raw_payload: bytes | None = None
+        url = primary_url
+        for candidate_url in urls:
+            url = candidate_url
+            try:
+                raw_payload = self._request_bytes(candidate_url)
+            except BinanceTransportError as error:
+                last_error = error
+                continue
+            break
+        if raw_payload is None:
+            assert last_error is not None
+            raise last_error
+
         try:
             payload = json.loads(raw_payload)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:

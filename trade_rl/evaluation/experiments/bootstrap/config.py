@@ -277,6 +277,11 @@ class CanonicalM2BootstrapConfig:
             self.data_stop_exclusive,
             field="data_stop_exclusive",
         )
+        _validate_time_contract(
+            data_start=data_start,
+            data_stop_exclusive=data_stop,
+            baseline=self.baseline,
+        )
         timeframes = (base_timeframe, *feature_timeframes)
         _require_native_alignment(data_start, field="data_start", timeframes=timeframes)
         _require_native_alignment(
@@ -320,11 +325,6 @@ class CanonicalM2BootstrapConfig:
             positive=True,
         )
         bootstrap_seed = _int_value(self.bootstrap_seed, field="bootstrap_seed")
-        _validate_time_contract(
-            data_start=data_start,
-            data_stop_exclusive=data_stop,
-            baseline=self.baseline,
-        )
 
         object.__setattr__(self, "research_question", research_question)
         object.__setattr__(self, "symbols", symbols)

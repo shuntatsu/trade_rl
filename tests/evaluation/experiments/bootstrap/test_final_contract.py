@@ -26,7 +26,9 @@ def _write_payload(tmp_path: Path, payload: dict[str, object], name: str) -> Pat
     return path
 
 
-def test_direct_config_construction_cannot_bypass_source_contract(tmp_path: Path) -> None:
+def test_direct_config_construction_cannot_bypass_source_contract(
+    tmp_path: Path,
+) -> None:
     valid = load_canonical_m2_bootstrap_config(_config_path(tmp_path))
 
     with pytest.raises(ValueError, match="timeframe|interval"):
@@ -114,7 +116,11 @@ def test_end_provenance_is_captured_after_staging_graph_validation(
 
     def inspect(root: str | Path):
         name = Path(root).name
-        events.append("inspect-staging" if name.startswith(".canonical-m2.staging-") else "inspect-final")
+        events.append(
+            "inspect-staging"
+            if name.startswith(".canonical-m2.staging-")
+            else "inspect-final"
+        )
         return real_inspect(root)
 
     monkeypatch.setattr(workflow_module, "build_candidate_run_provenance", provenance)

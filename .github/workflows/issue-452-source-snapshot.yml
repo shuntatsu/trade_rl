@@ -1,0 +1,31 @@
+name: Issue 452 exact source snapshot
+on:
+  push:
+    branches: [refactor/issue-452-guardrails]
+    paths: [.github/workflows/issue-452-source-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export only reviewed Git objects, never checkout credentials
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse refs/remotes/origin/main)" = 8ebc8eb29208d3c119d2487724859cab80db0bef
+          mkdir audit-source
+          git bundle create audit-source/main.bundle refs/remotes/origin/main
+          git bundle verify audit-source/main.bundle
+          sha256sum audit-source/main.bundle > audit-source/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: issue-452-main-source
+          path: audit-source/
+          if-no-files-found: error
+          retention-days: 1

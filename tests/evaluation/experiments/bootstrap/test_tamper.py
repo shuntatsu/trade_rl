@@ -85,6 +85,27 @@ def test_study_plan_tamper_is_rejected_even_when_json_remains_valid(
         inspect_canonical_m2_bootstrap(output)
 
 
+def test_study_and_manifest_cannot_agree_on_a_different_dataset_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = _published(tmp_path, monkeypatch)
+    plan_path = output / "study" / "plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["dataset_artifact_digest"] = "f" * 64
+    plan_path.write_text(json.dumps(plan, sort_keys=True), encoding="utf-8")
+    tampered_study_digest = content_digest(plan)
+
+    def mutate(manifest: dict[str, object]) -> None:
+        manifest["dataset_artifact_digest"] = "f" * 64
+        manifest["study_digest"] = tampered_study_digest
+
+    _rewrite_manifest(output, mutate)
+
+    with pytest.raises(ValueError, match="dataset.*digest|dataset artifact|Study"):
+        inspect_canonical_m2_bootstrap(output)
+
+
 def test_bootstrap_config_and_manifest_cannot_be_rewritten_after_study_creation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

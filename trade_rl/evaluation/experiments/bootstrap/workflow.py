@@ -197,7 +197,9 @@ def _validate_dataset_range(
     stop = np.datetime64(config.data_stop_exclusive.replace(tzinfo=None), "ns")
     expected_first = start + interval
     if dataset.timestamps[0] != expected_first or dataset.timestamps[-1] != stop:
-        raise ValueError("published dataset timestamp range differs from bootstrap config")
+        raise ValueError(
+            "published dataset timestamp range differs from bootstrap config"
+        )
 
 
 def _validate_fit_scope(

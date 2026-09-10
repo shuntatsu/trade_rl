@@ -1,0 +1,118 @@
+name: Canonical M2 Study 001 Bootstrap and Baseline
+
+on:
+  push:
+    branches:
+      - research/m2-canonical-study-001
+
+permissions:
+  contents: read
+
+env:
+  M2_ROOT: ${{ runner.temp }}/canonical-m2-study-001
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout exact preregistration commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install research extras
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Validate frozen preregistration
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from trade_rl.evaluation.experiments.bootstrap.config import (
+              load_canonical_m2_bootstrap_config,
+          )
+
+          config = load_canonical_m2_bootstrap_config(
+              "studies/m2/canonical-study-001/bootstrap.json"
+          )
+          print(f"bootstrap_config_digest={config.digest}")
+          print(f"symbols={','.join(config.symbols)}")
+          print(f"ppo_seeds={','.join(str(seed) for seed in config.ppo_seeds)}")
+          PY
+
+      - name: Freeze Binance source and publish canonical bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$M2_ROOT"
+          uv run python -m trade_rl.evaluation.experiments.bootstrap.cli \
+            --config studies/m2/canonical-study-001/bootstrap.json \
+            --output "$M2_ROOT/bootstrap"
+
+      - name: Preserve pristine bootstrap and execute baseline on Study copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a "$M2_ROOT/bootstrap/study" "$M2_ROOT/development-study"
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          from trade_rl.evaluation.experiments import (
+              inspect_canonical_m2_bootstrap,
+              inspect_study,
+              run_baseline,
+          )
+
+          root = Path(os.environ["M2_ROOT"])
+          bootstrap = inspect_canonical_m2_bootstrap(root / "bootstrap")
+          snapshot = run_baseline(
+              root / "development-study",
+              dataset_root=root / "bootstrap" / "dataset",
+          )
+          if snapshot.baseline is None:
+              raise RuntimeError("baseline EvidenceSet was not published")
+
+          inspect_canonical_m2_bootstrap(root / "bootstrap")
+          verified = inspect_study(root / "development-study")
+          if verified.baseline is None:
+              raise RuntimeError("baseline EvidenceSet failed reconstruction")
+
+          index = {
+              "schema_version": "canonical_m2_study_001_index_v1",
+              "git_sha": os.environ.get("GITHUB_SHA"),
+              "source_preflight_run_id": 34495043958,
+              "bootstrap_digest": bootstrap.bootstrap_digest,
+              "bootstrap_config_digest": bootstrap.config_digest,
+              "dataset_id": bootstrap.dataset_id,
+              "dataset_artifact_digest": bootstrap.dataset_artifact_digest,
+              "study_digest": verified.plan.digest,
+              "baseline_evidence_fingerprint": verified.baseline.fingerprint,
+              "ppo_seeds": list(verified.plan.ppo_seeds),
+          }
+          (root / "study-index.json").write_text(
+              json.dumps(index, allow_nan=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(index, allow_nan=False, sort_keys=True, indent=2))
+          PY
+
+      - name: Upload immutable bootstrap and baseline Study evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-001-baseline
+          path: ${{ runner.temp }}/canonical-m2-study-001
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90

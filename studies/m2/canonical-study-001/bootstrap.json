@@ -1,0 +1,70 @@
+{
+  "schema_version": "canonical_m2_bootstrap_config_v1",
+  "research_question": "Can one symbol-ID-free universal strategy family beat simple controls robustly across five long-lived Binance USD-M perpetual markets under one frozen development protocol?",
+  "market": "usds-m",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "ADAUSDT"
+  ],
+  "base_timeframe": "1h",
+  "feature_timeframes": [
+    "4h",
+    "1d"
+  ],
+  "data_start": "2021-01-01T00:00:00+00:00",
+  "data_stop_exclusive": "2025-01-01T00:00:00+00:00",
+  "baseline": {
+    "signal_name": "1h__log_return_24bar",
+    "feature_names": [
+      "1h__log_return_1bar",
+      "1h__log_return_4bar",
+      "1h__log_return_24bar",
+      "1h__realized_volatility_24bar",
+      "1h__volume_zscore_24bar",
+      "1h__funding_bps",
+      "1h__rsi_14bar",
+      "1h__macd_histogram_12_26_9",
+      "4h__log_return_4bar",
+      "4h__realized_volatility_24bar",
+      "1d__log_return_1bar",
+      "1d__realized_volatility_24bar"
+    ],
+    "fit_symbol_names": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "BNBUSDT",
+      "XRPUSDT",
+      "ADAUSDT"
+    ],
+    "fit_cutoff": "2023-01-01T00:00:00",
+    "evaluation_start": "2023-01-01T00:00:00",
+    "evaluation_stop_exclusive": "2025-01-01T00:00:00",
+    "rule_entry_threshold": 0.01,
+    "rule_exit_threshold": 0.0025,
+    "forecast_entry_threshold": 0.0025,
+    "forecast_exit_threshold": 0.0005,
+    "ppo_total_timesteps": 100000,
+    "gross_budget": 0.5,
+    "initial_capital": 100000.0
+  },
+  "ppo_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "allowed_factors": [
+    "FEATURE_SET",
+    "RULE_SIGNAL",
+    "RULE_THRESHOLDS",
+    "FORECAST_THRESHOLDS",
+    "PPO_TRAINING_BUDGET"
+  ],
+  "max_experiments": 12,
+  "n_bootstrap": 2000,
+  "bootstrap_seed": 1729
+}

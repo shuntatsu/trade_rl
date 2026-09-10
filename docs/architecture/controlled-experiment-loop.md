@@ -47,6 +47,8 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 8. config、source evidence、dataset id/schema/digest、StudyPlan digest、implementation/runtime provenanceを`bootstrap-manifest.json`へbindする。
 9. complete rootをstaging directory内で検証した後、最後のrename一回だけでfinal outputをpublishする。
 
+公開`CanonicalM2BootstrapConfig`はJSON loader経由だけでなく直接constructorでも同じcanonical validationを強制する。output parentはsymlink経由を拒否する。dataset publication後は、事前登録したsource rangeに対するexact timestamp coverageと、登録済みfit symbol scopeに実際のcausal training rowが存在することを確認してからStudyPlanを作る。final staging graphを完全検証した**後**に終了時provenanceを取得・開始時と照合し、その後はResultを事前構築してrenameだけを行う。rename後にnetwork、inspection、hash再計算など失敗し得る処理を置かない。
+
 このbootstrapは**baselineは実行しない**。`run_baseline`、Experiment定義/実行、winner選択、`freeze_study`、sealed unused-future / final authorizationはbootstrap責務ではない。成功直後の`study/`は`plan.json`と同期primitiveだけを持ち、baseline evidenceは存在しない。
 
 ```text

@@ -289,7 +289,9 @@ class CanonicalM2BootstrapConfig:
             raise ValueError("fit_symbol_names must be a subset of symbols")
         if not isinstance(self.ppo_seeds, tuple):
             raise ValueError("ppo_seeds must be an integer tuple")
-        ppo_seeds = tuple(_int_value(seed, field="ppo_seeds") for seed in self.ppo_seeds)
+        ppo_seeds = tuple(
+            _int_value(seed, field="ppo_seeds") for seed in self.ppo_seeds
+        )
         if len(ppo_seeds) < 2:
             raise ValueError("ppo_seeds must contain at least two seeds")
         if len(set(ppo_seeds)) != len(ppo_seeds):

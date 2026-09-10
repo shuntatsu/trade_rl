@@ -22,9 +22,46 @@ evaluation/experiments
   paired/seed analysis
   lineage, budget, FAILED/INVALID terminals
   WINNER/NO_WINNER freeze
+        ↑
+evaluation/experiments/bootstrap
+  canonical development source preparation
+  canonical dataset publication
+  immutable StudyPlan creation
 ```
 
 `evaluation/runs -> evaluation/experiments` の逆依存は禁止する。`evaluation/experiments` からsealed final-test authorizationへ依存してはならない。
+
+## Canonical M2 bootstrap preparation
+
+Canonical M2 bootstrapは、real-data development Studyを開始できる状態までを一度だけ構築するpreparation-only boundaryである。公開入口は `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つに限定する。
+
+`bootstrap_canonical_m2_study` は次の順序を固定する。
+
+1. strict JSON configを読み、Binance USD-M、symbol roster、base/feature timeframe、data range、baseline config、ordered `ppo_seeds`、allowed factor、experiment budget、bootstrap seed/countを事前登録する。baseline側に別の`ppo_seed` authorityは持たず、`ppo_seeds[0]`だけをbaseline seedへ注入する。
+2. Binance exchange-infoのraw bytesと、そのsource URI・retrieval time・SHA-256をfreezeする。
+3. exact Vision URL planを作り、必要なraw archiveをすべて取得し、URL・SHA-256・sizeのordered rosterをfreezeする。
+4. source同期後はmarket-data transportを`allow_network=False`で再構成し、dataset buildをcache-onlyへ切る。cache missやREST fallbackによるnetwork accessは失敗とする。
+5. frozen metadataとVision evidenceだけからcanonical `MarketDataset`をbuildし、filesystem dataset artifactとしてpublish・reload・identity検証する。
+6. 既存Run resolverでbaseline configをdatasetへ解決し、既存`create_study()`だけをStudyPlan authorityとして使う。
+7. implementation/runtime provenanceをbootstrap開始時とStudyPlan作成後・終了時に照合し、driftがあればpublishしない。
+8. config、source evidence、dataset id/schema/digest、StudyPlan digest、implementation/runtime provenanceを`bootstrap-manifest.json`へbindする。
+9. complete rootをstaging directory内で検証した後、最後のrename一回だけでfinal outputをpublishする。
+
+このbootstrapは**baselineは実行しない**。`run_baseline`、Experiment定義/実行、winner選択、`freeze_study`、sealed unused-future / final authorizationはbootstrap責務ではない。成功直後の`study/`は`plan.json`と同期primitiveだけを持ち、baseline evidenceは存在しない。
+
+```text
+<bootstrap>/
+  bootstrap.json
+  bootstrap-manifest.json
+  source/
+    vision-plan.json
+    vision-cache/**
+    exchange-info/{exchange-info.raw.json,manifest.json}
+  dataset/{manifest.json,arrays.npz}
+  study/{plan.json,.mutation.lock}
+```
+
+`inspect_canonical_m2_bootstrap` はnetworkを使わず、保存済みconfig、exact source evidence、dataset artifact、StudyPlan、bootstrap manifestの相互参照を再構築して検証する。raw archiveとsidecarを同時に書き換えた場合でも、bootstrap manifestにfreezeされたraw-source rosterとの不一致で拒否する。
 
 ## Frozen Study contract
 
@@ -147,4 +184,4 @@ Process raceでもlock取得後に必ずdisk stateを再構築するため、例
 
 ## What this does not prove
 
-このworkflowがGreenでも、strategyのprofitability、実データ上のwinner、unused-futureでの再現性、production/live routingの安全性は証明されない。次の研究作業はcanonical real development Studyを実行し、freezeした結果を得ることである。
+このworkflowがGreenでも、strategyのprofitability、実データ上のwinner、unused-futureでの再現性、production/live routingの安全性は証明されない。Canonical M2 bootstrap toolingの実装完了も同様に研究結果ではない。次の研究作業はcanonical real development bootstrapを実際に作成し、そのStudyでbaselineとControlled Experimentを実行して、`WINNER`または`NO_WINNER`へfreezeすることである。

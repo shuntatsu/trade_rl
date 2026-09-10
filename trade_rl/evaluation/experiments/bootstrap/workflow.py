@@ -18,6 +18,7 @@ from trade_rl.data.artifacts.publication import (
     load_market_dataset_artifact,
     publish_market_dataset_artifact,
 )
+from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.experiments.bootstrap.binance import (
     FrozenBinanceSource,
     _freeze_binance_source,
@@ -28,12 +29,17 @@ from trade_rl.evaluation.experiments.bootstrap.config import (
     load_canonical_m2_bootstrap_config,
 )
 from trade_rl.evaluation.experiments.workflow import create_study, inspect_study
-from trade_rl.evaluation.runs.config import resolve_candidate_run_spec
+from trade_rl.evaluation.runs.config import (
+    ResolvedCandidateRunSpec,
+    resolve_candidate_run_spec,
+)
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 from trade_rl.integrations.binance import (
     BinanceTransportMode,
+    binance_interval_milliseconds,
     build_binance_market_dataset,
 )
+from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 
 _MANIFEST_SCHEMA = "canonical_m2_bootstrap_manifest_v1"
 _MANIFEST_KEYS = frozenset(
@@ -161,6 +167,55 @@ def _provenance_identity(payload: Mapping[str, object]) -> tuple[str, str]:
     )
 
 
+def _prepare_output_parent(output: Path) -> None:
+    parent = output.parent
+    absolute_parent = parent.absolute()
+    for candidate in (absolute_parent, *absolute_parent.parents):
+        if candidate.is_symlink():
+            raise ValueError("bootstrap output parent must not traverse a symlink")
+    if parent.exists():
+        if not parent.is_dir():
+            raise ValueError("bootstrap output parent must be a regular directory")
+        return
+    parent.mkdir(parents=True)
+    for candidate in (absolute_parent, *absolute_parent.parents):
+        if candidate.is_symlink():
+            raise ValueError("bootstrap output parent must not traverse a symlink")
+    if not parent.is_dir():
+        raise ValueError("bootstrap output parent must be a regular directory")
+
+
+def _validate_dataset_range(
+    config: CanonicalM2BootstrapConfig,
+    dataset: MarketDataset,
+) -> None:
+    interval = np.timedelta64(
+        binance_interval_milliseconds(config.base_timeframe),
+        "ms",
+    )
+    start = np.datetime64(config.data_start.replace(tzinfo=None), "ns")
+    stop = np.datetime64(config.data_stop_exclusive.replace(tzinfo=None), "ns")
+    expected_first = start + interval
+    if dataset.timestamps[0] != expected_first or dataset.timestamps[-1] != stop:
+        raise ValueError("published dataset timestamp range differs from bootstrap config")
+
+
+def _validate_fit_scope(
+    dataset: MarketDataset,
+    spec: ResolvedCandidateRunSpec,
+) -> None:
+    try:
+        build_causal_forecast_training_set(
+            dataset,
+            feature_indices=spec.lean_config.feature_indices,
+            fit_symbol_indices=spec.lean_config.fit_symbol_indices,
+            fit_cutoff=spec.lean_config.fit_cutoff,
+            horizon_hours=24,
+        )
+    except ValueError as error:
+        raise ValueError("fit scope has no eligible training rows") from error
+
+
 def _validate_study_against_config(
     config: CanonicalM2BootstrapConfig,
     *,
@@ -196,12 +251,14 @@ def _validate_study_against_config(
     if plan.bootstrap_seed != config.bootstrap_seed:
         raise ValueError("Study bootstrap seed differs from bootstrap config")
 
+    _validate_dataset_range(config, dataset)
     resolved = resolve_candidate_run_spec(
         dataset,
         dataset_artifact_schema=artifact.schema_version,
         dataset_artifact_digest=artifact.artifact_digest,
         config=config.baseline,
     )
+    _validate_fit_scope(dataset, resolved)
     frozen = plan.baseline_config
     lean = resolved.lean_config
     expected_pairs: tuple[tuple[object, object, str], ...] = (
@@ -414,7 +471,7 @@ def bootstrap_canonical_m2_study(
     output = Path(output_root)
     if output.exists() or output.is_symlink():
         raise FileExistsError(f"bootstrap output already exists: {output}")
-    output.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_output_parent(output)
     staging = Path(
         tempfile.mkdtemp(
             prefix=f".{output.name}.staging-",
@@ -461,12 +518,14 @@ def bootstrap_canonical_m2_study(
             raise ValueError(
                 "published dataset symbol roster differs from bootstrap config"
             )
-        resolve_candidate_run_spec(
+        _validate_dataset_range(config, loaded_dataset)
+        resolved = resolve_candidate_run_spec(
             loaded_dataset,
             dataset_artifact_schema=artifact.schema_version,
             dataset_artifact_digest=artifact.artifact_digest,
             config=config.baseline,
         )
+        _validate_fit_scope(loaded_dataset, resolved)
 
         create_study(
             staging / "study",
@@ -492,11 +551,6 @@ def bootstrap_canonical_m2_study(
         if plan_runtime != start_runtime:
             raise ValueError("Study runtime provenance differs from bootstrap start")
 
-        end_provenance = build_candidate_run_provenance()
-        end_implementation, end_runtime = _provenance_identity(end_provenance)
-        if end_implementation != start_implementation or end_runtime != start_runtime:
-            raise ValueError("bootstrap provenance drift detected during publication")
-
         body = _manifest_body(
             config,
             frozen,
@@ -510,12 +564,25 @@ def bootstrap_canonical_m2_study(
         manifest = dict(body)
         manifest["bootstrap_digest"] = content_digest(body)
         _write_json(staging / "bootstrap-manifest.json", manifest)
-        inspect_canonical_m2_bootstrap(staging)
+        validated = inspect_canonical_m2_bootstrap(staging)
 
+        end_provenance = build_candidate_run_provenance()
+        end_implementation, end_runtime = _provenance_identity(end_provenance)
+        if end_implementation != start_implementation or end_runtime != start_runtime:
+            raise ValueError("bootstrap provenance drift detected during publication")
+
+        result = CanonicalM2BootstrapResult(
+            root=output,
+            config_digest=validated.config_digest,
+            bootstrap_digest=validated.bootstrap_digest,
+            dataset_id=validated.dataset_id,
+            dataset_artifact_digest=validated.dataset_artifact_digest,
+            study_digest=validated.study_digest,
+        )
         if output.exists() or output.is_symlink():
             raise FileExistsError(f"bootstrap output already exists: {output}")
         staging.rename(output)
-        return inspect_canonical_m2_bootstrap(output)
+        return result
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise

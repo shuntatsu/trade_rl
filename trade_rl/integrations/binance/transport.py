@@ -74,6 +74,7 @@ class BinancePublicTransport:
         max_attempts: int = 3,
         retry_backoff_seconds: float = 0.25,
         cache_root: str | Path | None = None,
+        allow_network: bool = True,
     ) -> None:
         if not math.isfinite(timeout_seconds) or timeout_seconds <= 0.0:
             raise ValueError("timeout_seconds must be finite and positive")
@@ -83,10 +84,13 @@ class BinancePublicTransport:
             raise ValueError("max_attempts must be positive")
         if not math.isfinite(retry_backoff_seconds) or retry_backoff_seconds < 0.0:
             raise ValueError("retry_backoff_seconds must be non-negative")
+        if not isinstance(allow_network, bool):
+            raise ValueError("allow_network must be a boolean")
         self.timeout_seconds = timeout_seconds
         self.max_attempts = max_attempts
         self.retry_backoff_seconds = retry_backoff_seconds
         self.cache_root = None if cache_root is None else Path(cache_root)
+        self.allow_network = allow_network
 
     def _vision_cache_path(self, url: str) -> Path | None:
         if self.cache_root is None or not url.startswith(f"{_VISION_ROOT}/"):
@@ -133,6 +137,10 @@ class BinancePublicTransport:
         cache_path = self._vision_cache_path(url)
         if cache_path is not None and cache_path.is_file():
             return self._validated_cached_vision_payload(url, cache_path)
+        if not self.allow_network:
+            raise BinanceTransportError(
+                f"network access is disabled for uncached source: {url}"
+            )
         request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
         last_error: BaseException | None = None
         for attempt in range(self.max_attempts):

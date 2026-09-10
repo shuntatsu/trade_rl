@@ -51,6 +51,12 @@ def _interval_ms(interval: str) -> int:
         raise ValueError(f"unsupported Binance interval: {interval}") from error
 
 
+def binance_interval_milliseconds(interval: str) -> int:
+    """Return the maintained Binance interval duration in milliseconds."""
+
+    return _interval_ms(interval)
+
+
 def _day_floor_ms(value: int) -> datetime:
     return datetime.fromtimestamp(value / 1_000, tz=UTC).replace(
         hour=0,

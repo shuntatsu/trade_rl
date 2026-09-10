@@ -72,10 +72,18 @@ trade_rl/
     │   ├── perfect_information/{bound.py,solver.py}
     │   └── walk_forward/{capabilities.py,folds.py,sealed_test.py,stitching.py}
     ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py}
-    └── experiments/{errors.py,store.py,evidence.py,analysis.py,delta.py,workflow.py,contracts/}
+    └── experiments/
+        ├── errors.py
+        ├── store.py
+        ├── evidence.py
+        ├── analysis.py
+        ├── delta.py
+        ├── workflow.py
+        ├── contracts/
+        └── bootstrap/{__init__.py,config.py,binance.py,workflow.py,cli.py}
 ```
 
-`evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。
+`evaluation/experiments/` はdevelopment-onlyのhigher-level Study lifecycleを所有し、`evaluation/runs/` のverified Run Coreを再利用する。`evaluation/experiments/bootstrap/` はそのStudyを実行する前のcanonical preparationだけを所有する。
 
 ## Ownership
 
@@ -89,7 +97,7 @@ trade_rl/
 
 ### `integrations`
 
-外部venue/providerを内部data contractへ変換するadapter層。Binanceはtransport、cache、Vision archive、metadata、dataset assemblyを分離する。strategy/evaluationを知らない。
+外部venue/providerを内部data contractへ変換するadapter層。Binanceはtransport、cache、Vision archive、metadata、dataset assemblyを分離する。strategy/evaluationを知らない。`BinancePublicTransport`の既定値はnetwork-enabledの既存互換を維持し、bootstrapだけがsource freeze後に`allow_network=False`を明示してcache-only化する。
 
 ### `risk`
 
@@ -116,7 +124,19 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 - `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。
 - `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
 
-`runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。`evaluation/runs -> evaluation/experiments` の逆依存は作らない。experiments層からsealed unused-future authorizationへも依存しない。
+`runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。
+
+`evaluation/experiments/bootstrap/` は次だけを所有する。
+
+- `config.py`: strict `CanonicalM2BootstrapConfig` parse/normalization/preflightと単一seed-policy authority。
+- `binance.py`: exact exchange-info / Vision source freeze、raw-source roster、cache-only transport composition。
+- `workflow.py`: source → canonical dataset → immutable StudyPlanをwhole-root stagingで構築し、manifest検証後に一回だけpublishする。
+- `cli.py`: `--config` / `--output` をparseしてworkflowを呼ぶだけのfilesystem adapter。
+- `__init__.py`: intentionally narrow public facade。
+
+`trade_rl.evaluation.experiments` から公開するbootstrap APIは `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つだけである。source-freeze private helperはpublic contractではない。
+
+Bootstrapはpreparation-onlyであり、baseline、Controlled Experiment、winner freeze、sealed final-test authorizationを実行しない。`evaluation/runs -> evaluation/experiments` の逆依存を作らず、`integrations`から`evaluation`へ依存させず、`evaluation/experiments/bootstrap`からsealed final-test ownerへ依存させない。
 
 ## Dependency direction
 
@@ -126,13 +146,15 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 _validation -> standard library only
 artifacts   -X-> data/risk/simulation/strategies/evaluation/integrations
 data        -X-> strategies/evaluation/simulation
-integrations-X-> strategies/evaluation
+integrations -X-> strategies/evaluation
 risk        -X-> strategies/evaluation
 simulation  -X-> strategies/evaluation
 strategies  -X-> evaluation
+evaluation/runs -X-> evaluation/experiments
+evaluation/experiments/bootstrap -X-> sealed final-test authorization
 ```
 
-`evaluation` はlower core packagesを利用してよい。依存方向を逆転させる必要が出た場合、循環依存や責務漏れを先に疑う。
+`evaluation` はlower core packagesを利用してよい。ただしlower layerからbootstrapへ逆依存しない。依存方向を逆転させる必要が出た場合、循環依存や責務漏れを先に疑う。
 
 ## Public API policy
 
@@ -144,6 +166,7 @@ Intentionally maintainedなpackage-level importは、内部private file移動よ
 from trade_rl.data import MarketDataset
 from trade_rl.strategies import RidgeForecastStrategy
 from trade_rl.evaluation import UniversalStrategyComparison
+from trade_rl.evaluation.experiments import bootstrap_canonical_m2_study
 from trade_rl.simulation import BookState, MarketExecutor
 from trade_rl.risk import PreTradeRisk
 ```

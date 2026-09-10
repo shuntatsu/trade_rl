@@ -4,6 +4,8 @@ import hashlib
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs"
 
@@ -16,6 +18,10 @@ REQUIRED_DOC_FILES = {
     "research/current-status.md",
 }
 EPHEMERAL_DOC_ROOTS = {"plans", "specs"}
+COMPLETED_EPHEMERAL_DOCS = (
+    DOCS / "specs" / "2026-09-09-canonical-m2-study-bootstrap-design.md",
+    DOCS / "plans" / "2026-09-10-canonical-m2-study-bootstrap-implementation.md",
+)
 
 CURRENT_MARKDOWN = (
     ROOT / "README.md",
@@ -65,6 +71,13 @@ def _doc_files() -> set[str]:
     return result
 
 
+def _assert_active_ephemeral_doc(relative: str, text: str) -> None:
+    path = Path(relative)
+    assert path.parts[0] in EPHEMERAL_DOC_ROOTS, relative
+    assert path.suffix == ".md", relative
+    assert "Status: Active" in text, relative
+
+
 def _git_blob_sha(path: Path) -> str:
     data = path.read_bytes()
     header = f"blob {len(data)}\0".encode()
@@ -78,14 +91,56 @@ def test_docs_tree_contains_current_authorities_and_only_active_ephemeral_docs()
     assert REQUIRED_DOC_FILES <= files
 
     for relative in sorted(files - REQUIRED_DOC_FILES):
-        path = Path(relative)
-        assert path.parts[0] in EPHEMERAL_DOC_ROOTS, relative
-        assert path.suffix == ".md", relative
-        text = (DOCS / path).read_text(encoding="utf-8")
-        assert "Status: Active" in text, relative
+        text = (DOCS / relative).read_text(encoding="utf-8")
+        _assert_active_ephemeral_doc(relative, text)
 
     assert not (DOCS / "history").exists()
     assert not (DOCS / "archive").exists()
+
+
+def test_ephemeral_doc_policy_rejects_inactive_markdown() -> None:
+    with pytest.raises(AssertionError):
+        _assert_active_ephemeral_doc("specs/inactive.md", "# Inactive spec\n")
+
+
+def test_completed_canonical_bootstrap_docs_are_promoted_and_removed() -> None:
+    for path in COMPLETED_EPHEMERAL_DOCS:
+        assert not path.exists(), path.relative_to(ROOT)
+
+    controlled_loop = (
+        DOCS / "architecture" / "controlled-experiment-loop.md"
+    ).read_text(encoding="utf-8")
+    for required in (
+        "Canonical M2 bootstrap",
+        "bootstrap_canonical_m2_study",
+        "cache-only",
+        "baselineは実行しない",
+    ):
+        assert required in controlled_loop
+
+    package_boundaries = (DOCS / "architecture" / "package-boundaries.md").read_text(
+        encoding="utf-8"
+    )
+    for required in (
+        "evaluation/experiments/bootstrap/",
+        "CanonicalM2BootstrapConfig",
+        "bootstrap_canonical_m2_study",
+        "sealed final-test",
+    ):
+        assert required in package_boundaries
+
+    research = (DOCS / "research" / "current-status.md").read_text(encoding="utf-8")
+    for required in (
+        "Canonical M2 bootstrap",
+        "bootstrap_canonical_m2_study",
+        "real-data M2 Studyはまだ実行していない",
+    ):
+        assert required in research
+
+    index = (DOCS / "README.md").read_text(encoding="utf-8")
+    assert "現在Activeなspec/planはない" in index
+    for path in COMPLETED_EPHEMERAL_DOCS:
+        assert path.name not in index
 
 
 def test_phase4b_preview_workflow_is_absent() -> None:
@@ -196,8 +251,6 @@ def test_controlled_experiment_loop_is_durable_current_architecture() -> None:
         "freeze_study",
     ):
         assert required in contract
-    assert not (DOCS / "specs").exists()
-    assert not (DOCS / "plans").exists()
 
 
 def test_current_relative_markdown_links_resolve() -> None:

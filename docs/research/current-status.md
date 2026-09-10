@@ -1,10 +1,10 @@
 # Current research status
 
-更新基準: 2026-09-09 (JST)
+更新基準: 2026-09-10 (JST)
 
 ## 結論
 
-Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、およびControlled Experiment Loop v1まで実装済みだが、canonical実データを使ったM2 development Studyはまだ実施していない**段階である。
+Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、Controlled Experiment Loop v1、およびCanonical M2 bootstrap toolingまで実装済みだが、canonical実データを使ったreal-data M2 Studyはまだ実行していない**段階である。
 
 したがって現在は次を主張しない。
 
@@ -13,7 +13,7 @@ Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤�
 - Production/live order routingは未認可。
 - PPOやforecastがruleを上回るという結論はない。
 
-次の研究上の本質的作業は、新しいmodel familyを増やすことではなく、**一つのcanonical実データartifactとdevelopment windowをfreezeし、Controlled Experiment Loopで5候補+3 controlsを同じ条件にbindして比較すること**である。
+次の研究上の本質的作業は、新しいmodel familyを増やすことではなく、**一つのcanonical実データbootstrapを実際に作成し、そのdataset/StudyPlanにbindされたdevelopment StudyをControlled Experiment Loopで開始すること**である。
 
 ## 研究目的
 
@@ -90,7 +90,7 @@ PPO観測はselected feature、feature availability、current intent、current w
 - quantity-preserving independent symbol replay
 - DB/UI/teacher pipelineなしで成立するcore CI
 
-### M2 — Common comparison: Run Core + Controlled Experiment Loop complete, real-data development comparison not run
+### M2 — Common comparison + canonical preparation tooling complete, real-data development comparison not run
 
 実装済み:
 
@@ -109,14 +109,22 @@ PPO観測はselected feature、feature availability、current intent、current w
 - Study-owned multi-seed EvidenceSetとdeterministic seed invariance
 - one-factor resolved delta verificationとunaffected-strategy raw-return invariance
 - paired/bootstrap/seed analysis、ACCEPT-only lineage、FAILED/INVALID terminal、WINNER/NO_WINNER freeze
+- strict `CanonicalM2BootstrapConfig` とsingle `ppo_seeds` authority
+- exact Binance exchange-info / Vision plan / raw archive rosterのfreeze
+- source同期後のcache-only network cut
+- canonical dataset artifact + immutable StudyPlanのwhole-root atomic publication
+- bootstrap manifestによるsource / dataset / Study / provenance identity binding
+- `inspect_canonical_m2_bootstrap` によるnetwork-free再検証
 
 未完了:
 
-1. canonical実データdevelopment artifactを選ぶ。
-2. signal/feature、`fit_symbol_names`、fit cutoff、development window、seed policyをfreezeする。
-3. 5 candidates + 3 controlsを同じStudy条件で実行する。
-4. 全symbolの結果を完全報告する。
+1. canonical実データ用の具体的なbootstrap configを確定する。
+2. `bootstrap_canonical_m2_study` またはCLIでimmutable bootstrapを実際に作成する。
+3. 生成された`study/`に対してbaselineを実行し、Controlled Experimentを開始する。
+4. 5 candidates + 3 controlsの全symbol結果を完全報告する。
 5. winnerをfreezeするか、no-winnerと判断する。
+
+**real-data M2 Studyはまだ実行していない。** Bootstrap toolingの実装完了は研究結果ではなく、profitabilityやwinnerの証拠ではない。
 
 ### M3 — Finalize and delete: not started
 
@@ -127,6 +135,63 @@ M2で候補をfreezeした後だけ進む。
 3. 支持されなかったstrategy familyと専用test/extra/dead adapterを削除する。
 4. README/config/CI/testsを採用構成へさらに縮約する。
 5. Production認可は研究結果とは別に扱う。
+
+## Canonical M2 bootstrap
+
+Canonical M2 bootstrapはresearch runそのものではなく、real development Studyの入力を固定するpreparation stepである。
+
+入力JSONは少なくとも次を事前登録する。
+
+- Binance USD-M market
+- ordered symbol roster
+- base timeframe / feature timeframes
+- exact data start / exclusive stop
+- baseline signal/features/fit symbols/fit cutoff/development window
+- rule / forecast thresholds
+- PPO training budget
+- ordered `ppo_seeds`
+- gross budget / initial capital
+- allowed controlled factors / experiment budget
+- bootstrap count / seed
+
+baseline JSONに`ppo_seed`は持たず、`ppo_seeds[0]`だけがbaseline seed authorityである。
+
+実行入口:
+
+```bash
+uv run --extra forecast-gbm --extra train-sb3 \
+  python -m trade_rl.evaluation.experiments.bootstrap.cli \
+  --config <canonical-bootstrap-config.json> \
+  --output <new-bootstrap-dir>
+```
+
+このCLIは `bootstrap_canonical_m2_study` を呼ぶ薄いfilesystem adapterである。`--output`は存在していてはならない。
+
+成功したbootstrapは概ね次を持つ。
+
+```text
+<new-bootstrap-dir>/
+  bootstrap.json
+  bootstrap-manifest.json
+  source/
+    exchange-info/{exchange-info.raw.json,manifest.json}
+    vision-plan.json
+    vision-cache/**
+  dataset/{manifest.json,arrays.npz}
+  study/{plan.json,.mutation.lock}
+```
+
+source同期後のdataset buildはcache-onlyで、missing cacheをnetwork fallbackで補わない。whole rootはstaging内で完成・検証してから最後にrenameする。成功直後のStudyはPlanだけで、baselineはまだ実行されていない。
+
+Inspection:
+
+```python
+from trade_rl.evaluation.experiments import inspect_canonical_m2_bootstrap
+
+result = inspect_canonical_m2_bootstrap("<new-bootstrap-dir>")
+```
+
+Inspectionは保存されたconfig、source roster、dataset artifact、StudyPlan、bootstrap manifestをnetwork-freeで相互検証する。
 
 ## Development Run Core
 
@@ -224,8 +289,8 @@ Controlled Experiment Loop自体からsealed unused-futureを開かない。Deve
 
 ## 現在の次アクション
 
-現時点の次アクションは、Run Coreをさらに拡張することではない。
+現時点の次アクションは、Run Coreやbootstrap toolingをさらに拡張することではない。
 
-> 実装済みControlled Experiment Loopで、一つのcanonical development dataset・fit/evaluation scope・seed policyをStudyへfreezeし、最初のreal-data M2 Studyを開始する。
+> 実データ用のstrict Canonical M2 bootstrap configを確定し、一つのimmutable bootstrapを作成して、そのStudyでbaselineと最初のControlled Experimentを開始する。
 
 旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。

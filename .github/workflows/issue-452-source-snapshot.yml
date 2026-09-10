@@ -1,4 +1,4 @@
-name: Issue 452 exact source snapshot
+name: Issue 452 isolated verification tools
 on:
   push:
     branches: [refactor/issue-452-guardrails]
@@ -8,24 +8,45 @@ permissions:
 jobs:
   snapshot:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
           persist-credentials: false
-      - name: Export only reviewed Git objects, never checkout credentials
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Package public runtime dependencies only, not credentials or home
         run: |
-          set -euo pipefail
-          test "$(git rev-parse refs/remotes/origin/main)" = 8ebc8eb29208d3c119d2487724859cab80db0bef
-          mkdir audit-source
-          git bundle create audit-source/main.bundle refs/remotes/origin/main
-          git bundle verify audit-source/main.bundle
-          sha256sum audit-source/main.bundle > audit-source/SHA256SUMS
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import shutil
+          import sys
+          import sysconfig
+          import tarfile
+          from pathlib import Path
+          root = Path('verification-tools')
+          root.mkdir()
+          shutil.copytree(sys.base_prefix, root / 'python', symlinks=True,
+                          ignore=shutil.ignore_patterns('__pycache__'))
+          shutil.copytree(sysconfig.get_paths()['purelib'], root / 'site-packages',
+                          symlinks=True, ignore=shutil.ignore_patterns('__pycache__'))
+          shutil.copy2('.venv/bin/ruff', root / 'ruff')
+          print(json.dumps({'python': sys.version, 'base': sys.base_prefix}))
+          out = Path('verification-tools.tar.gz')
+          with tarfile.open(out, 'w:gz', compresslevel=2) as archive:
+              archive.add(root, arcname='tools')
+          Path('verification-tools.sha256').write_text(hashlib.sha256(out.read_bytes()).hexdigest())
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: issue-452-main-source
-          path: audit-source/
+          name: issue-452-verification-tools
+          path: |
+            verification-tools.tar.gz
+            verification-tools.sha256
           if-no-files-found: error
           retention-days: 1

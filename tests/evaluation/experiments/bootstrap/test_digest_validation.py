@@ -89,3 +89,22 @@ def test_bootstrap_manifest_loader_rejects_noncanonical_sha256(
 
     with pytest.raises(ValueError, match="SHA-256"):
         _inspect_manifest(tmp_path)
+
+
+def test_bootstrap_digest_validation_accepts_canonical_lowercase_sha256(
+    tmp_path: Path,
+) -> None:
+    canonical = "a" * 64
+    result = CanonicalM2BootstrapResult(
+        root=tmp_path,
+        config_digest=canonical,
+        bootstrap_digest="2" * 64,
+        dataset_id="3" * 64,
+        dataset_artifact_digest="4" * 64,
+        study_digest="5" * 64,
+    )
+    assert result.config_digest == canonical
+
+    _write_manifest(tmp_path, config_digest=canonical)
+    manifest = _inspect_manifest(tmp_path)
+    assert manifest["bootstrap_config_digest"] == canonical

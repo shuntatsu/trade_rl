@@ -9,23 +9,6 @@ concurrency:
   group: issue-452-verification-tools
   cancel-in-progress: true
 jobs:
-  retire_previous:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    permissions:
-      actions: write
-    steps:
-      - name: Stop only this task's superseded export
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          target=repos/shuntatsu/trade_rl/actions/runs/34512808719
-          test "$(gh api "$target" --jq .head_sha)" = 22941de96543832d17707ba0ad10e3e315c8b5a7
-          status="$(gh api "$target" --jq .status)"
-          if test "$status" != completed; then
-            gh api --method POST "$target/cancel"
-          fi
   snapshot:
     runs-on: ubuntu-24.04
     timeout-minutes: 7
@@ -38,23 +21,27 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Install explicit managed Python and repository dev tools
-        run: |
+      - run: |
           uv python install 3.12
-          uv sync --extra dev --python "$(uv python find --managed-python 3.12)"
+          uv sync --extra dev
       - name: Export bounded public runtime directories only
         run: |
           uv run python - <<'PY'
           import hashlib
           import json
           import shutil
+          import subprocess
           import sys
           import sysconfig
           import tarfile
           from pathlib import Path
-          base = Path(sys.base_prefix)
+          managed = subprocess.check_output(
+              ['uv', 'python', 'find', '--managed-python', '--system', '--no-project', '--resolve-links', '3.12'],
+              text=True).strip()
+          base = Path(subprocess.check_output(
+              [managed, '-I', '-c', 'import sys; print(sys.base_prefix)'], text=True).strip())
           site = Path(sysconfig.get_paths()['purelib'])
-          print(json.dumps({'python': sys.version, 'base': str(base), 'site': str(site)}), flush=True)
+          print(json.dumps({'python': sys.version, 'managed': managed, 'base': str(base), 'site': str(site)}), flush=True)
           if base in (Path('/'), Path('/usr'), Path('/usr/local')):
               raise RuntimeError('managed standalone Python required')
           sources = (base, site)

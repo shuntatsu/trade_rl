@@ -5,10 +5,30 @@ on:
     paths: [.github/workflows/issue-452-source-snapshot.yml]
 permissions:
   contents: read
+concurrency:
+  group: issue-452-verification-tools
+  cancel-in-progress: true
 jobs:
+  retire_previous:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      actions: write
+    steps:
+      - name: Stop only this task's superseded export
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          target=repos/shuntatsu/trade_rl/actions/runs/34512808719
+          test "$(gh api "$target" --jq .head_sha)" = 22941de96543832d17707ba0ad10e3e315c8b5a7
+          status="$(gh api "$target" --jq .status)"
+          if test "$status" != completed; then
+            gh api --method POST "$target/cancel"
+          fi
   snapshot:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -18,8 +38,11 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --extra dev
-      - name: Package public runtime dependencies only, not credentials or home
+      - name: Install explicit managed Python and repository dev tools
+        run: |
+          uv python install 3.12
+          uv sync --extra dev --python "$(uv python find --managed-python 3.12)"
+      - name: Export bounded public runtime directories only
         run: |
           uv run python - <<'PY'
           import hashlib
@@ -29,14 +52,22 @@ jobs:
           import sysconfig
           import tarfile
           from pathlib import Path
+          base = Path(sys.base_prefix)
+          site = Path(sysconfig.get_paths()['purelib'])
+          print(json.dumps({'python': sys.version, 'base': str(base), 'site': str(site)}), flush=True)
+          if base in (Path('/'), Path('/usr'), Path('/usr/local')):
+              raise RuntimeError('managed standalone Python required')
+          sources = (base, site)
+          size = sum(p.stat().st_size for source in sources for p in source.rglob('*') if p.is_file())
+          if size > 800_000_000:
+              raise RuntimeError(f'public runtime export unexpectedly large: {size}')
           root = Path('verification-tools')
           root.mkdir()
-          shutil.copytree(sys.base_prefix, root / 'python', symlinks=True,
+          shutil.copytree(base, root / 'python', symlinks=True,
                           ignore=shutil.ignore_patterns('__pycache__'))
-          shutil.copytree(sysconfig.get_paths()['purelib'], root / 'site-packages',
-                          symlinks=True, ignore=shutil.ignore_patterns('__pycache__'))
+          shutil.copytree(site, root / 'site-packages', symlinks=True,
+                          ignore=shutil.ignore_patterns('__pycache__'))
           shutil.copy2('.venv/bin/ruff', root / 'ruff')
-          print(json.dumps({'python': sys.version, 'base': sys.base_prefix}))
           out = Path('verification-tools.tar.gz')
           with tarfile.open(out, 'w:gz', compresslevel=2) as archive:
               archive.add(root, arcname='tools')

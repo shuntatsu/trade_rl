@@ -110,14 +110,11 @@ def test_controlled_experiments_cannot_reach_sealed_final_test() -> None:
 
 def test_canonical_bootstrap_dependency_is_one_way_and_development_only() -> None:
     bootstrap = PACKAGE / "evaluation" / "experiments" / "bootstrap"
-    forbidden_bootstrap = (
-        "trade_rl.evaluation.robustness.walk_forward.sealed_test",
-    )
+    forbidden_bootstrap = ("trade_rl.evaluation.robustness.walk_forward.sealed_test",)
     assert _offenders(bootstrap, forbidden_bootstrap) == []
 
     forbidden_lower_to_bootstrap = ("trade_rl.evaluation.experiments.bootstrap",)
     assert _offenders(PACKAGE / "integrations", forbidden_lower_to_bootstrap) == []
     assert (
-        _offenders(PACKAGE / "evaluation" / "runs", forbidden_lower_to_bootstrap)
-        == []
+        _offenders(PACKAGE / "evaluation" / "runs", forbidden_lower_to_bootstrap) == []
     )

@@ -18,7 +18,6 @@ from trade_rl.data.artifacts.publication import (
     load_market_dataset_artifact,
     publish_market_dataset_artifact,
 )
-from trade_rl.evaluation.experiments import create_study, inspect_study
 from trade_rl.evaluation.experiments.bootstrap.binance import (
     FrozenBinanceSource,
     _freeze_binance_source,
@@ -28,6 +27,7 @@ from trade_rl.evaluation.experiments.bootstrap.config import (
     CanonicalM2BootstrapConfig,
     load_canonical_m2_bootstrap_config,
 )
+from trade_rl.evaluation.experiments.workflow import create_study, inspect_study
 from trade_rl.evaluation.runs.config import resolve_candidate_run_spec
 from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 from trade_rl.integrations.binance import (

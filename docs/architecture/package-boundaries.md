@@ -156,6 +156,14 @@ evaluation/experiments/bootstrap -X-> sealed final-test authorization
 
 `evaluation` はlower core packagesを利用してよい。ただしlower layerからbootstrapへ逆依存しない。依存方向を逆転させる必要が出た場合、循環依存や責務漏れを先に疑う。
 
+### Static import ownership gate
+
+`tests/architecture/imports.py` は、production sourceを実行せず、physical module treeを使って絶対・相対import、親packageからの子module import、選択したsymbolのstatic import re-exportを解決する。module名の区切りまで比較し、似たprefixの別moduleやfacade内の無関係なexportを禁止依存にしない。module scopeの条件分岐は保守的に両方検査し、関数・classのlocal importを公開exportと混同しない。
+
+star importはliteral `__all__`、または明示的なpublic import re-exportを追跡する。動的に組み立てた`__all__`は実行して推測せず検査を失敗させる。循環re-exportも有限に走査する。source-derived mapは一回のscan内だけに保持し、生成catalogをcurrent treeへ保存しない。
+
+このgateはstatic import ownershipの検査であり、runtime sandboxや任意のPython到達可能性の証明ではない。動的import、実行時のattribute再束縛、反射や関数実行で生じる依存は別のreview/contract testが必要である。
+
 ## Public API policy
 
 Intentionally maintainedなpackage-level importは、内部private file移動より優先して安定させる。
@@ -182,3 +190,9 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 3. intentionally publicなpackage facadeをsnapshot/contract testで確認する。
 4. 単なるmoveならnon-import AST、serialized bytes/digest、golden behavior等でsemantic driftを可能な範囲で反証する。
 5. 旧private pathや一時migration helperをfinal treeに残さない。
+
+## Distribution source closure
+
+構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。
+
+CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpを確認する。source closureはPython sourceの配布契約であり、optional trainerの実学習、全platform動作、すべてのnon-code resourceを保証するものではない。license/provenanceの恒久保持は別の既存gateも維持する。

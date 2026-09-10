@@ -1,0 +1,46 @@
+name: M2 Binance Metadata Endpoint Probe
+
+on:
+  push:
+    branches:
+      - research/m2-canonical-study-001
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe official Binance hosts without parsing payload values
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import urllib.error
+          import urllib.request
+
+          urls = (
+              "https://fapi.binance.com/fapi/v1/exchangeInfo",
+              "https://www.binance.com/fapi/v1/exchangeInfo",
+              "https://api.binance.com/fapi/v1/exchangeInfo",
+              "https://api1.binance.com/fapi/v1/exchangeInfo",
+              "https://api2.binance.com/fapi/v1/exchangeInfo",
+              "https://api3.binance.com/fapi/v1/exchangeInfo",
+              "https://api4.binance.com/fapi/v1/exchangeInfo",
+              "https://data-api.binance.vision/fapi/v1/exchangeInfo",
+          )
+          for url in urls:
+              request = urllib.request.Request(
+                  url,
+                  headers={"User-Agent": "trade-rl-m2-metadata-probe/1"},
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=15) as response:
+                      length = response.headers.get("Content-Length")
+                      print(url, "status=", response.status, "content_length=", length)
+              except urllib.error.HTTPError as error:
+                  print(url, "status=", error.code)
+              except Exception as error:
+                  print(url, "error=", type(error).__name__, str(error))
+          PY

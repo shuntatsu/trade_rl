@@ -7,12 +7,13 @@
 ## 読む順序
 
 1. root `AGENTS.md`
-2. `docs/README.md`
-3. `docs/architecture/lean-core.md`
-4. `docs/architecture/package-boundaries.md`
-5. Study/Experiment/EvidenceSetやdevelopment研究workflowに関わる作業なら `docs/architecture/controlled-experiment-loop.md`
-6. 研究判断・候補・評価・データscopeに関わる作業なら `docs/research/current-status.md`
-7. その後に対象source、tests、CI、open PR、recent commitsを読む
+2. `main/current HEAD`、作業branch、open PRのhead/base、recent commitsを確認し、進行中の同目的の変更・後継実装・廃止予定の作業線を識別する
+3. `docs/README.md`
+4. `docs/architecture/lean-core.md`
+5. `docs/architecture/package-boundaries.md`
+6. Study/Experiment/EvidenceSetやdevelopment研究workflowに関わる作業なら `docs/architecture/controlled-experiment-loop.md`
+7. 研究判断・候補・評価・データscopeに関わる作業なら `docs/research/current-status.md`
+8. 対象source、public facade、nearest tests、CIを照合する
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
 
@@ -64,9 +65,16 @@
 uv run ruff check trade_rl tests
 uv run ruff format --check trade_rl tests
 uv run mypy trade_rl
+uv run mypy tests/architecture/imports.py tests/architecture/distribution.py
 uv run pytest -q tests
 ```
 
-さらにpackage identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。古いHEADのGreenを現在HEADの証拠にしない。
+さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。古いHEADのGreenを現在HEADの証拠にしない。
 
 テストGreenだけでは正しさを宣言しない。最終diff、削除物、public API、重要failure mode、未検証事項、残存riskを再確認する。
+
+## 作業線の終了と変更の証拠
+
+不要な作業線は、mainへのancestor関係、同一tree、または後継実装が固有差分を包含する独立した証拠で判断する。open PRのhead/baseと進行中の実行は保護し、削除直前のexact SHA確認と削除後の一覧確認を行う。名称が古いことだけでは削除しない。未統合の実験設定・非再生成可能な証拠は残す。superseded PRは理由と後継の正本を会話へ記録し、旧設計を再mergeしない。
+
+ソース移動やPython docstring変更でも、Runのimplementation manifestは相対パスとraw bytesにbindするため実装digestが変化する。同じStudyの比較途中へ移行を混ぜず、元のsource/runtimeを保持する。計算の意味保存と、期待されるprovenance変化は別々に検証する。

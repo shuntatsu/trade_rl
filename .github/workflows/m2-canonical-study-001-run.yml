@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  M2_ROOT: ${{ runner.temp }}/canonical-m2-study-001
+  M2_ROOT: /tmp/canonical-m2-study-001
 
 jobs:
   study:
@@ -51,6 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf "$M2_ROOT"
           mkdir -p "$M2_ROOT"
           uv run python -m trade_rl.evaluation.experiments.bootstrap.cli \
             --config studies/m2/canonical-study-001/bootstrap.json \
@@ -112,7 +113,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: canonical-m2-study-001-baseline
-          path: ${{ runner.temp }}/canonical-m2-study-001
+          path: /tmp/canonical-m2-study-001
           include-hidden-files: true
           compression-level: 0
           retention-days: 90

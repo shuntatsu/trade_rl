@@ -130,11 +130,12 @@ jobs:
               raise SystemExit("workflow-boundary test: unexpected _resolved_contract count")
           boundary.write_text(text.replace(old, "", 1), encoding="utf-8")
           PY
-      - name: Verify focused contracts
+      - name: Format and verify focused contracts
         shell: bash
         run: |
           set -euo pipefail
           uv sync --extra dev
+          uv run ruff format trade_rl/evaluation/experiments tests/architecture/test_experiment_semantic_authorities.py tests/architecture/test_experiment_workflow_boundaries.py
           uv run pytest -q \
             tests/architecture/test_experiment_semantic_authorities.py \
             tests/architecture/test_experiment_workflow_boundaries.py \

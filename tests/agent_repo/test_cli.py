@@ -66,7 +66,7 @@ def _run(repository: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_cli_preflight_context_and_impact_emit_json_without_mutation(
+def test_cli_preflight_context_impact_and_diff_emit_json_without_mutation(
     tmp_path: Path,
 ) -> None:
     _repository(tmp_path)
@@ -80,10 +80,12 @@ def test_cli_preflight_context_and_impact_emit_json_without_mutation(
         "trade_rl/evaluation/runs/config.py",
         "trade_rl/evaluation/runs/__init__.py",
     )
+    diff = _run(tmp_path, "diff", "--base", "main")
 
     assert preflight.returncode == 0, preflight.stderr
     assert context.returncode == 0, context.stderr
     assert impact.returncode == 0, impact.stderr
+    assert diff.returncode == 0, diff.stderr
     assert json.loads(preflight.stdout)["branch"] == "feature"
     assert json.loads(context.stdout)["capability"] == "runs"
     contexts = json.loads(impact.stdout)["contexts"]
@@ -91,6 +93,7 @@ def test_cli_preflight_context_and_impact_emit_json_without_mutation(
         "trade_rl/evaluation/runs/__init__.py",
         "trade_rl/evaluation/runs/config.py",
     ]
+    assert json.loads(diff.stdout) == {"signals": []}
     assert _git(tmp_path, "status", "--porcelain=v1") == before
 
 

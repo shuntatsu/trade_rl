@@ -8,44 +8,10 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl.data.market import MarketDataset
-
-
-def validated_feature_indices(
-    dataset: MarketDataset,
-    feature_indices: tuple[int, ...],
-) -> tuple[int, ...]:
-    indices = tuple(feature_indices)
-    if not indices or len(set(indices)) != len(indices):
-        raise ValueError("feature_indices must be non-empty and unique")
-    if any(
-        isinstance(index, bool) or not isinstance(index, int) or index < 0
-        for index in indices
-    ):
-        raise ValueError("feature_indices must contain non-negative integers")
-    if max(indices) >= dataset.n_features:
-        raise ValueError("feature index is outside dataset features")
-    return indices
-
-
-def validated_symbol_indices(
-    dataset: MarketDataset,
-    symbol_indices: tuple[int, ...] | None,
-) -> tuple[int, ...]:
-    """Resolve an optional fit scope while rejecting ambiguous symbol indices."""
-
-    if symbol_indices is None:
-        return tuple(range(dataset.n_symbols))
-    indices = tuple(symbol_indices)
-    if not indices or len(set(indices)) != len(indices):
-        raise ValueError("symbol_indices must be non-empty and unique")
-    if any(
-        isinstance(index, bool) or not isinstance(index, int) or index < 0
-        for index in indices
-    ):
-        raise ValueError("symbol_indices must contain non-negative integers")
-    if max(indices) >= dataset.n_symbols:
-        raise ValueError("symbol index is outside dataset symbols")
-    return indices
+from trade_rl.strategies.dataset_scope import (
+    validated_feature_indices,
+    validated_symbol_indices,
+)
 
 
 @dataclass(frozen=True, slots=True)

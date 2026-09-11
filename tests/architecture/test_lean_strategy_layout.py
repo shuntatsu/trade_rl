@@ -4,6 +4,7 @@ import ast
 from pathlib import Path
 
 import trade_rl.strategies as strategies
+from trade_rl.strategies.forecasts import supervised as supervised_forecasts
 
 ROOT = Path(__file__).resolve().parents[2]
 STRATEGIES = ROOT / "trade_rl" / "strategies"
@@ -47,6 +48,7 @@ def _imports(path: Path) -> set[str]:
 
 def test_strategy_family_packages_exist() -> None:
     for relative in (
+        "dataset_scope.py",
         "rules/__init__.py",
         "rules/trend.py",
         "rules/mean_reversion.py",
@@ -78,6 +80,13 @@ def test_strategy_package_preserves_public_api() -> None:
     assert set(strategies.__all__) == EXPECTED_PUBLIC_API
     for name in EXPECTED_PUBLIC_API:
         assert hasattr(strategies, name), name
+
+
+def test_supervised_module_preserves_dataset_scope_exports() -> None:
+    assert {
+        "validated_feature_indices",
+        "validated_symbol_indices",
+    }.issubset(set(supervised_forecasts.__all__))
 
 
 def test_strategy_families_do_not_depend_on_evaluation() -> None:

@@ -1,0 +1,83 @@
+name: M2 XRP Daily Gap Diagnostic
+
+on:
+  push:
+    branches: [research/m2-canonical-study-001]
+    paths: [.github/workflows/m2-xrp-daily-gap-diagnostic.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Retire helper before source probe
+        env:
+          BRANCH: research/m2-canonical-study-001
+          EXPECTED_TREE: 53b94819aad987f48930c4ccabd9131f4b5347ba
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')" = "$GITHUB_SHA"
+          git rm .github/workflows/m2-xrp-daily-gap-diagnostic.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore: retire XRP daily-gap diagnostic"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          git push origin "HEAD:refs/heads/$BRANCH"
+      - name: Check only missing-day daily archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+          import csv, io, json, urllib.error, urllib.request, zipfile
+          from pathlib import Path
+          days = ("2022-02-26", "2022-02-27", "2022-02-28", "2022-04-01", "2022-04-02")
+          report = []
+          for day in days:
+              url = f"https://data.binance.vision/data/futures/um/daily/klines/XRPUSDT/1h/XRPUSDT-1h-{day}.zip"
+              request = urllib.request.Request(url, headers={"User-Agent": "trade-rl-m2-daily-gap-diagnostic/1"})
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      payload = response.read()
+                      status = int(response.status)
+              except urllib.error.HTTPError as error:
+                  report.append({"day": day, "url": url, "status": int(error.code), "row_count": 0})
+                  continue
+              with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                  members = [name for name in archive.namelist() if not name.endswith("/")]
+                  text = archive.read(members[0]).decode("utf-8-sig")
+              rows = [row for row in csv.reader(io.StringIO(text)) if row]
+              if rows and not rows[0][0].strip().lstrip("-").isdigit():
+                  rows = rows[1:]
+              opens = [int(row[0]) for row in rows]
+              while opens and abs(opens[0]) >= 10_000_000_000_000:
+                  opens = [value // 1000 for value in opens]
+              item = {
+                  "day": day,
+                  "url": url,
+                  "status": status,
+                  "row_count": len(opens),
+                  "first_open_ms": opens[0] if opens else None,
+                  "last_open_ms": opens[-1] if opens else None,
+              }
+              report.append(item)
+              print(json.dumps(item, sort_keys=True), flush=True)
+          Path("/tmp/m2-xrp-daily-gap-diagnostic.json").write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")
+          PY
+      - name: Upload diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-001-xrp-daily-gap-diagnostic
+          path: /tmp/m2-xrp-daily-gap-diagnostic.json
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: warn

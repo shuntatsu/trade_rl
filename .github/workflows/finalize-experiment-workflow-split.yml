@@ -1,0 +1,103 @@
+name: Finalize experiment workflow boundary split
+
+on:
+  push:
+    branches:
+      - refactor/experiment-workflow-boundaries
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact helper parent
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 3
+
+      - name: Guard exact helper parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "2095e81de7701f9e56dd9a5599ee4c936e7bd71f"
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/finalize-experiment-workflow-split.yml"
+
+      - name: Replay validated AST split
+        shell: bash
+        run: |
+          set -euo pipefail
+          awk '
+            /^          python - <<'\''PY'\''$/ {capture=1; next}
+            /^          PY$/ {if (capture) exit}
+            capture {sub(/^          /, ""); print}
+          ' .github/workflows/apply-experiment-workflow-split.yml > /tmp/split.py
+          test -s /tmp/split.py
+          python /tmp/split.py
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Normalize generated Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff check --fix \
+            trade_rl/evaluation/experiments/codec.py \
+            trade_rl/evaluation/experiments/inspection.py \
+            trade_rl/evaluation/experiments/workflow.py \
+            tests/architecture/test_lean_evaluation_layout.py
+          uv run ruff format \
+            trade_rl/evaluation/experiments/codec.py \
+            trade_rl/evaluation/experiments/inspection.py \
+            trade_rl/evaluation/experiments/workflow.py \
+            tests/architecture/test_lean_evaluation_layout.py
+
+      - name: Retire temporary workflows before repository tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/apply-experiment-workflow-split.yml
+          rm .github/workflows/finalize-experiment-workflow-split.yml
+          test "$(find .github/workflows -maxdepth 1 -type f -printf '%f\n' | sort)" = "ci.yml"
+
+      - name: Targeted GREEN and static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q tests/architecture tests/evaluation/experiments
+          uv run ruff check trade_rl/evaluation/experiments tests/architecture/test_experiment_workflow_boundaries.py tests/architecture/test_lean_evaluation_layout.py
+          uv run ruff format --check trade_rl/evaluation/experiments tests/architecture/test_experiment_workflow_boundaries.py tests/architecture/test_lean_evaluation_layout.py
+          uv run mypy \
+            trade_rl/evaluation/experiments/codec.py \
+            trade_rl/evaluation/experiments/inspection.py \
+            trade_rl/evaluation/experiments/workflow.py
+          git diff --check
+
+      - name: Commit split
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(printf '%s\n' ".github/workflows/apply-experiment-workflow-split.yml" ".github/workflows/finalize-experiment-workflow-split.yml" "docs/architecture/controlled-experiment-loop.md" "docs/architecture/package-boundaries.md" "tests/architecture/test_lean_evaluation_layout.py" "trade_rl/evaluation/experiments/codec.py" "trade_rl/evaluation/experiments/inspection.py" "trade_rl/evaluation/experiments/workflow.py")
+          observed=$(git status --porcelain=v1 --untracked-files=all | cut -c4- | sort)
+          test "$observed" = "$expected"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A \
+            .github/workflows/apply-experiment-workflow-split.yml \
+            .github/workflows/finalize-experiment-workflow-split.yml \
+            docs/architecture/controlled-experiment-loop.md \
+            docs/architecture/package-boundaries.md \
+            tests/architecture/test_lean_evaluation_layout.py \
+            trade_rl/evaluation/experiments/codec.py \
+            trade_rl/evaluation/experiments/inspection.py \
+            trade_rl/evaluation/experiments/workflow.py
+          test "$(git diff --cached --name-only | sort)" = "$expected"
+          git commit -m "refactor: split experiment codec and inspection boundaries"
+          git push origin HEAD:refactor/experiment-workflow-boundaries

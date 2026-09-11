@@ -35,7 +35,9 @@ def test_market_build_request_accepts_session_calendar(tmp_path: Path) -> None:
     assert request.config.session_periods_per_year == 252
 
 
-def test_market_build_request_accepts_cross_asset_reference_symbol(tmp_path: Path) -> None:
+def test_market_build_request_accepts_cross_asset_reference_symbol(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "build.json"
     path.write_text(
         json.dumps(

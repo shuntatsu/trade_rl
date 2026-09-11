@@ -18,13 +18,14 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 3
           persist-credentials: false
 
-      - name: Guard formal RED parent
+      - name: Guard formal RED ancestry
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "f2ae17f9e2a0ef0b02b75703759f07224e364eaf"
+          test "$(git rev-parse HEAD~2)" = "f2ae17f9e2a0ef0b02b75703759f07224e364eaf"
 
       - name: Apply facade and import-only migration
         shell: bash

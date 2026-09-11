@@ -104,7 +104,9 @@ def _assert_concurrent_publish_once(
         futures = tuple(executor.submit(attempt, value) for value in values)
         outcomes = tuple(future.result(timeout=10.0) for future in futures)
 
-    success_indices = tuple(index for index, outcome in enumerate(outcomes) if outcome is None)
+    success_indices = tuple(
+        index for index, outcome in enumerate(outcomes) if outcome is None
+    )
     failures = tuple(outcome for outcome in outcomes if outcome is not None)
     assert len(success_indices) == 1
     assert len(failures) == 1

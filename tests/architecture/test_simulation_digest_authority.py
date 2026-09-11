@@ -63,5 +63,8 @@ def test_liquidity_digest_adapter_delegates_and_preserves_error(
     assert calls == [("a" * 64, "order_id")]
 
     monkeypatch.setattr(liquidity, "require_sha256", _reject)
-    with pytest.raises(liquidity.LiquidityAllocationError, match="canonical SHA authority"):
+    with pytest.raises(
+        liquidity.LiquidityAllocationError,
+        match="canonical SHA authority",
+    ):
         liquidity._validate_digest("order_id", "a" * 64)

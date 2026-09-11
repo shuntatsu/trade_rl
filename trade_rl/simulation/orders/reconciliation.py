@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
 from trade_rl.simulation.accounting import BookState
 from trade_rl.simulation.orders.model import (
     OrderBookState,
@@ -33,12 +34,10 @@ class ReconciliationResult:
 
 
 def _validate_digest(value: str) -> None:
-    if len(value) != 64 or any(
-        character not in "0123456789abcdef" for character in value
-    ):
-        raise OrderReconciliationError(
-            "execution_policy_digest must be a lowercase SHA-256 digest"
-        )
+    try:
+        require_sha256(value, field="execution_policy_digest")
+    except ValueError as error:
+        raise OrderReconciliationError(str(error)) from error
 
 
 def _type_prices(

@@ -6,6 +6,12 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from tools.agent_repo.path_safety import (
+    checked_repo_directory,
+    checked_repo_file,
+    checked_repo_path,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class GitState:
@@ -52,23 +58,27 @@ def _dirty_paths(repository: Path) -> tuple[str, ...]:
 def _active_docs(repository: Path) -> tuple[str, ...]:
     result: list[str] = []
     for directory in (repository / "docs" / "specs", repository / "docs" / "plans"):
-        if not directory.is_dir():
+        if not directory.exists() and not directory.is_symlink():
             continue
+        directory = checked_repo_directory(repository, directory)
         for path in sorted(directory.rglob("*.md")):
-            if path.is_file() and "Status: Active" in path.read_text(encoding="utf-8"):
+            path = checked_repo_file(repository, path)
+            if "Status: Active" in path.read_text(encoding="utf-8"):
                 result.append(path.relative_to(repository).as_posix())
     return tuple(sorted(result))
 
 
 def _workflow_paths(repository: Path) -> tuple[str, ...]:
     directory = repository / ".github" / "workflows"
-    if not directory.is_dir():
+    if not directory.exists() and not directory.is_symlink():
         return ()
-    return tuple(
-        path.relative_to(repository).as_posix()
-        for path in sorted(directory.iterdir())
-        if path.is_file()
-    )
+    directory = checked_repo_directory(repository, directory)
+    result: list[str] = []
+    for path in sorted(directory.iterdir()):
+        path = checked_repo_path(repository, path)
+        if path.is_file():
+            result.append(path.relative_to(repository).as_posix())
+    return tuple(result)
 
 
 def read_git_state(repository: Path, *, base_ref: str | None = None) -> GitState:

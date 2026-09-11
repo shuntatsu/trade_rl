@@ -21,7 +21,8 @@ def test_market_calendar_kind_is_owned_by_shared_data_contracts() -> None:
     assert MarketModuleCalendarKind is contract_kind
 
 
-def test_market_build_config_keeps_string_payload_while_using_calendar_contract() -> None:
+def test_market_build_config_keeps_string_payload_while_using_calendar_contract(
+) -> None:
     contract_kind = data_contracts.MarketCalendarKind
     config = MarketBuildConfig(
         base_timeframe="1h",

@@ -53,7 +53,7 @@ from trade_rl.evaluation.robustness.perfect_information.bound import (
     PerfectInformationBoundResult,
     solve_perfect_information_bound,
 )
-from trade_rl.evaluation.runs.candidate_suite import (
+from trade_rl.evaluation.runs import (
     LeanCandidateConfig,
     run_lean_candidate_suite,
 )

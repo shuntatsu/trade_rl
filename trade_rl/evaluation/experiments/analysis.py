@@ -16,7 +16,7 @@ from trade_rl.evaluation.comparison.seed_robustness import (
     summarize_seed_robustness,
 )
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
-from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
+from trade_rl.evaluation.runs import LoadedCandidateRun
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 
 _ANALYSIS_SCHEMA = "controlled_evidence_analysis_v1"

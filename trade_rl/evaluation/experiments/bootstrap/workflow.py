@@ -30,11 +30,11 @@ from trade_rl.evaluation.experiments.bootstrap.config import (
     load_canonical_m2_bootstrap_config,
 )
 from trade_rl.evaluation.experiments.workflow import create_study, inspect_study
-from trade_rl.evaluation.runs.config import (
+from trade_rl.evaluation.runs import (
     ResolvedCandidateRunSpec,
+    build_candidate_run_provenance,
     resolve_candidate_run_spec,
 )
-from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 from trade_rl.integrations.binance import (
     BinanceTransportMode,
     binance_interval_milliseconds,

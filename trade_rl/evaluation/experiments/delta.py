@@ -18,7 +18,7 @@ from trade_rl.evaluation.experiments.contracts import (
 )
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
-from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
+from trade_rl.evaluation.runs import LoadedCandidateRun
 
 _STUDY_FIXED_CONFIG_PATHS = (
     "fit_cutoff",

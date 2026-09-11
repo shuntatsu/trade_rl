@@ -65,11 +65,11 @@ from trade_rl.evaluation.experiments.inspection import (
     inspect_study,
 )
 from trade_rl.evaluation.experiments.store import StudyStore
-from trade_rl.evaluation.runs.config import (
+from trade_rl.evaluation.runs import (
     CandidateRunConfig,
+    build_candidate_run_provenance,
     resolve_candidate_run_spec,
 )
-from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 
 _FACTOR_EFFECT_SCHEMA = "controlled_evidence_comparison_v1"
 _STUDY_FIXED_FIELDS = (

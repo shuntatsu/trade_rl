@@ -97,10 +97,15 @@ def test_runs_facade_exports_exact_surface_and_owner_identity() -> None:
     assert facade.CandidateRunArtifactIdentity is artifact.CandidateRunArtifactIdentity
     assert facade.LoadedCandidateRun is artifact.LoadedCandidateRun
     assert facade.PublishedCandidateRun is artifact.PublishedCandidateRun
-    assert facade.inspect_candidate_run_artifact is artifact.inspect_candidate_run_artifact
+    assert (
+        facade.inspect_candidate_run_artifact is artifact.inspect_candidate_run_artifact
+    )
     assert facade.load_candidate_run_artifact is artifact.load_candidate_run_artifact
     assert facade.publish_candidate_run is artifact.publish_candidate_run
-    assert facade.build_candidate_run_provenance is provenance.build_candidate_run_provenance
+    assert (
+        facade.build_candidate_run_provenance
+        is provenance.build_candidate_run_provenance
+    )
     assert not hasattr(facade, "load_candidate_run_config")
     assert not hasattr(facade, "PROVENANCE_SCHEMA")
 

@@ -292,7 +292,7 @@ facadeが内部moduleをre-exportすることで既存internal dependency graph�
 
 - package内部はfacadeを使わずowner moduleを直接importする。
 - facadeだけがowner moduleを外向きに束ねる。
-- import順は `candidate_suite → config → execute → provenance → artifact` とし、既存internal dependency directionに従う。
+- facadeからowner moduleを直接re-exportし、owner側からfacadeへの依存は作らない。
 - clean import testで確認する。
 
 ### Over-export

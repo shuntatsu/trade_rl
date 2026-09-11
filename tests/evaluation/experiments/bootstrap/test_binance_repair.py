@@ -18,21 +18,26 @@ from trade_rl.integrations.binance import (
     BinanceExchangeInfoSnapshot,
     BinanceMarket,
     BinanceTransportMode,
+    binance_interval_milliseconds,
     plan_binance_vision_cache,
     vision_cache_path,
     vision_kline_url,
 )
 
 _HOUR_MS = 60 * 60 * 1_000
+_DAY_MS = 24 * _HOUR_MS
 
 
-def _config() -> CanonicalM2BootstrapConfig:
+def _config(
+    *,
+    feature_timeframes: tuple[str, ...] = (),
+) -> CanonicalM2BootstrapConfig:
     return CanonicalM2BootstrapConfig(
         research_question="repair arbitrary incomplete monthly Vision evidence",
         market=BinanceMarket.USDS_M,
         symbols=("TESTUSDT",),
         base_timeframe="1h",
-        feature_timeframes=(),
+        feature_timeframes=feature_timeframes,
         data_start=datetime(2024, 1, 1, tzinfo=UTC),
         data_stop_exclusive=datetime(2024, 2, 1, tzinfo=UTC),
         baseline=CandidateRunConfig(
@@ -66,8 +71,13 @@ def _zip_csv(name: str, rows: list[str]) -> bytes:
     return buffer.getvalue()
 
 
-def _kline_row(open_ms: int, *, close: str = "100.5") -> str:
-    return f"{open_ms},100,101,99,{close},1,{open_ms + _HOUR_MS - 1},1000"
+def _kline_row(
+    open_ms: int,
+    *,
+    interval_ms: int = _HOUR_MS,
+    close: str = "100.5",
+) -> str:
+    return f"{open_ms},100,101,99,{close},1,{open_ms + interval_ms - 1},1000"
 
 
 def _month_start(url: str) -> datetime:
@@ -85,6 +95,12 @@ def _day_start(url: str) -> datetime:
         int(match.group(3)),
         tzinfo=UTC,
     )
+
+
+def _interval(url: str) -> str:
+    match = re.search(r"/(15m|30m|1h|2h|4h|6h|8h|12h|1d)/", url)
+    assert match is not None, url
+    return match.group(1)
 
 
 def _snapshot() -> BinanceExchangeInfoSnapshot:
@@ -177,23 +193,25 @@ class _RepairFixtureTransport:
         if "/monthly/klines/" in url:
             start = _month_start(url)
             stop = datetime(2024, 2, 1, tzinfo=UTC)
-            rows: list[str] = []
-            cursor = start
-            while cursor < stop:
-                open_ms = int(cursor.timestamp() * 1_000)
-                if open_ms not in self.missing_primary_opens:
-                    rows.append(_kline_row(open_ms))
-                cursor += timedelta(hours=1)
+            step = binance_interval_milliseconds(_interval(url))
+            start_ms = int(start.timestamp() * 1_000)
+            stop_ms = int(stop.timestamp() * 1_000)
+            rows = [
+                _kline_row(open_ms, interval_ms=step)
+                for open_ms in range(start_ms, stop_ms, step)
+                if open_ms not in self.missing_primary_opens
+            ]
             return _zip_csv("monthly.csv", rows)
         if "/daily/klines/" in url:
             start = _day_start(url)
+            step = binance_interval_milliseconds(_interval(url))
+            start_ms = int(start.timestamp() * 1_000)
             rows = []
-            for hour in range(24):
-                open_ms = int((start + timedelta(hours=hour)).timestamp() * 1_000)
+            for open_ms in range(start_ms, start_ms + _DAY_MS, step):
                 if open_ms in self.missing_daily_opens:
                     continue
                 close = "999.5" if open_ms == self.conflicting_daily_open else "100.5"
-                rows.append(_kline_row(open_ms, close=close))
+                rows.append(_kline_row(open_ms, interval_ms=step, close=close))
             return _zip_csv("daily.csv", rows)
         raise AssertionError(f"unexpected URL: {url}")
 
@@ -204,11 +222,14 @@ def _open_ms(day: int, hour: int) -> int:
 
 def _freeze(
     tmp_path: Path,
+    *,
+    config: CanonicalM2BootstrapConfig | None = None,
     **transport_kwargs: object,
 ):
+    resolved_config = _config() if config is None else config
     root = tmp_path / "source"
     live = _RepairFixtureTransport(root / "vision-cache", **transport_kwargs)
-    frozen = _freeze_binance_source(_config(), root, live_transport=live)
+    frozen = _freeze_binance_source(resolved_config, root, live_transport=live)
     return root, live, frozen
 
 
@@ -247,6 +268,10 @@ def test_freeze_repairs_arbitrary_primary_gap_with_explicit_daily_evidence(
         }
     ]
     assert live.download_calls == [*primary.urls, repair_url]
+    assert [item["url"] for item in frozen.raw_source_roster] == [
+        *primary.urls,
+        repair_url,
+    ]
 
     rows, source = frozen.composite_transport.load_klines(
         market=config.market,
@@ -262,6 +287,72 @@ def test_freeze_repairs_arbitrary_primary_gap_with_explicit_daily_evidence(
         int((config.data_start + timedelta(hours=index)).timestamp() * 1_000)
         for index in range(31 * 24)
     ]
+
+
+def test_freeze_repairs_same_arbitrary_gap_across_native_timeframes(
+    tmp_path: Path,
+) -> None:
+    config = _config(feature_timeframes=("4h",))
+    missing = _open_ms(16, 8)
+    root, live, frozen = _freeze(
+        tmp_path,
+        config=config,
+        missing_primary_opens=(missing,),
+    )
+    primary = plan_binance_vision_cache(
+        market=config.market,
+        symbols=config.symbols,
+        intervals=(config.base_timeframe, *config.feature_timeframes),
+        start_time=config.data_start,
+        end_time=config.data_stop_exclusive,
+    )
+    repair_1h = vision_kline_url(
+        config.market,
+        "TESTUSDT",
+        "1h",
+        datetime(2024, 1, 16, tzinfo=UTC),
+    )
+    repair_4h = vision_kline_url(
+        config.market,
+        "TESTUSDT",
+        "4h",
+        datetime(2024, 1, 16, tzinfo=UTC),
+    )
+    resolution = json.loads(
+        (root / "vision-resolution.json").read_text(encoding="utf-8")
+    )
+
+    assert resolution["repairs"] == [
+        {
+            "daily_urls": [repair_1h],
+            "missing_open_ms": [missing],
+            "symbol": "TESTUSDT",
+            "timeframe": "1h",
+        },
+        {
+            "daily_urls": [repair_4h],
+            "missing_open_ms": [missing],
+            "symbol": "TESTUSDT",
+            "timeframe": "4h",
+        },
+    ]
+    assert live.download_calls == [*primary.urls, repair_1h, repair_4h]
+    assert [item["url"] for item in frozen.raw_source_roster] == [
+        *primary.urls,
+        repair_1h,
+        repair_4h,
+    ]
+
+    rows, source = frozen.composite_transport.load_klines(
+        market=config.market,
+        symbol="TESTUSDT",
+        interval="4h",
+        start_ms=int(config.data_start.timestamp() * 1_000),
+        end_ms=int(config.data_stop_exclusive.timestamp() * 1_000),
+        mode="vision",
+    )
+    assert source == "vision"
+    assert len(rows) == 31 * 6
 
 
 def test_freeze_complete_primary_clock_does_not_request_daily_repair(

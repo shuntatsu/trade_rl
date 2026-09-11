@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: true
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
@@ -24,61 +24,67 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "4255c7260cb22ea04319bcc9cde4977fadab57c4"
+          test "$(git rev-parse HEAD^^)" = "4255c7260cb22ea04319bcc9cde4977fadab57c4"
           python - <<'PY'
           from pathlib import Path
 
           path = Path("trade_rl/evaluation/experiments/bootstrap/binance.py")
           text = path.read_text()
-          old = '''    composite = _FrozenDatasetTransport(
-              market_data=cache_transport,
-              metadata=metadata_transport,
-              repairs=repairs,
-          )
-          return FrozenBinanceSource(
-          '''
-          new = '''    composite = _FrozenDatasetTransport(
-              market_data=cache_transport,
-              metadata=metadata_transport,
-              repairs=repairs,
-          )
-          start_ms = int(config.data_start.timestamp() * 1_000)
-          end_ms = int(config.data_stop_exclusive.timestamp() * 1_000)
-          for symbol in config.symbols:
-              for timeframe in (config.base_timeframe, *config.feature_timeframes):
-                  composite.load_klines(
-                      market=config.market,
-                      symbol=symbol,
-                      interval=timeframe,
-                      start_ms=start_ms,
-                      end_ms=end_ms,
-                      mode=BinanceTransportMode.VISION,
-                  )
-          return FrozenBinanceSource(
-          '''
+          old = "\n".join([
+              "    composite = _FrozenDatasetTransport(",
+              "        market_data=cache_transport,",
+              "        metadata=metadata_transport,",
+              "        repairs=repairs,",
+              "    )",
+              "    return FrozenBinanceSource(",
+              "",
+          ])
+          new = "\n".join([
+              "    composite = _FrozenDatasetTransport(",
+              "        market_data=cache_transport,",
+              "        metadata=metadata_transport,",
+              "        repairs=repairs,",
+              "    )",
+              "    start_ms = int(config.data_start.timestamp() * 1_000)",
+              "    end_ms = int(config.data_stop_exclusive.timestamp() * 1_000)",
+              "    for symbol in config.symbols:",
+              "        for timeframe in (config.base_timeframe, *config.feature_timeframes):",
+              "            composite.load_klines(",
+              "                market=config.market,",
+              "                symbol=symbol,",
+              "                interval=timeframe,",
+              "                start_ms=start_ms,",
+              "                end_ms=end_ms,",
+              "                mode=BinanceTransportMode.VISION,",
+              "            )",
+              "    return FrozenBinanceSource(",
+              "",
+          ])
           if text.count(old) != 1:
               raise RuntimeError("unexpected frozen composite return shape")
           text = text.replace(old, new, 1)
-          old_duplicate = '''    frozen = _inspect_frozen_binance_source(config, root)
-              start_ms = int(config.data_start.timestamp() * 1_000)
-              end_ms = int(config.data_stop_exclusive.timestamp() * 1_000)
-              for symbol in config.symbols:
-                  for timeframe in (config.base_timeframe, *config.feature_timeframes):
-                      frozen.composite_transport.load_klines(
-                          market=config.market,
-                          symbol=symbol,
-                          interval=timeframe,
-                          start_ms=start_ms,
-                          end_ms=end_ms,
-                          mode=BinanceTransportMode.VISION,
-                      )
-              return frozen
-          '''
+          old_duplicate = "\n".join([
+              "    frozen = _inspect_frozen_binance_source(config, root)",
+              "    start_ms = int(config.data_start.timestamp() * 1_000)",
+              "    end_ms = int(config.data_stop_exclusive.timestamp() * 1_000)",
+              "    for symbol in config.symbols:",
+              "        for timeframe in (config.base_timeframe, *config.feature_timeframes):",
+              "            frozen.composite_transport.load_klines(",
+              "                market=config.market,",
+              "                symbol=symbol,",
+              "                interval=timeframe,",
+              "                start_ms=start_ms,",
+              "                end_ms=end_ms,",
+              "                mode=BinanceTransportMode.VISION,",
+              "            )",
+              "    return frozen",
+              "",
+          ])
           if text.count(old_duplicate) != 1:
               raise RuntimeError("unexpected freeze post-inspection validation shape")
           text = text.replace(
               old_duplicate,
-              '    return _inspect_frozen_binance_source(config, root)\n',
+              "    return _inspect_frozen_binance_source(config, root)\n",
               1,
           )
           path.write_text(text)

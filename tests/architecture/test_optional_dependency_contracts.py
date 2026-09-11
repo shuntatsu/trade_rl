@@ -32,7 +32,9 @@ def test_oracle_extra_declares_scipy_without_making_it_core() -> None:
     assert isinstance(optional, dict)
     assert SCIPY_REQUIREMENT in optional["oracle"]
     assert SCIPY_REQUIREMENT in optional["dev"]
-    assert not any(str(requirement).lower().startswith("scipy") for requirement in dependencies)
+    assert not any(
+        str(requirement).lower().startswith("scipy") for requirement in dependencies
+    )
 
 
 def test_readme_documents_oracle_extra() -> None:

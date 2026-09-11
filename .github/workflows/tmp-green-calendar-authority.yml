@@ -1,0 +1,135 @@
+name: Temporary Calendar Authority GREEN
+
+on:
+  push:
+    branches:
+      - refactor/data-calendar-kind-authority
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: refactor/data-calendar-kind-authority
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Guard exact RED parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          RED_HEAD=15aa739e7911a8d55ee516c16f24b42ce92a9a31
+          test "$(git rev-parse HEAD^)" = "$RED_HEAD"
+          test "$(git diff --name-only "$RED_HEAD"..HEAD)" = ".github/workflows/tmp-green-calendar-authority.yml"
+      - name: Apply exact semantic-authority replacements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          contracts = Path("trade_rl/data/contracts.py")
+          text = contracts.read_text(encoding="utf-8")
+          replacements = [
+              (
+                  "from enum import StrEnum\n",
+                  "from enum import Enum, StrEnum\n",
+              ),
+              (
+                  "from trade_rl._validation import require_aware_datetime, require_non_empty\n\n\nclass VolumeUnit(StrEnum):",
+                  "from trade_rl._validation import require_aware_datetime, require_non_empty\n\n\nclass MarketCalendarKind(str, Enum):\n    \"\"\"Timestamp contract shared by market build and dataset boundaries.\"\"\"\n\n    CONTINUOUS = \"continuous_24_7\"\n    SESSION = \"session_calendar\"\n\n\nclass VolumeUnit(StrEnum):",
+              ),
+              (
+                  "        raw_calendar = getattr(self.calendar_kind, \"value\", self.calendar_kind)\n        if not isinstance(raw_calendar, str) or raw_calendar not in {\n            \"continuous_24_7\",\n            \"session_calendar\",\n        }:\n            raise ValueError(\"calendar_kind is not supported\")\n        object.__setattr__(self, \"calendar_kind\", raw_calendar)\n        if raw_calendar == \"session_calendar\":\n",
+                  "        raw_calendar = getattr(self.calendar_kind, \"value\", self.calendar_kind)\n        try:\n            calendar_kind = MarketCalendarKind(raw_calendar)\n        except (TypeError, ValueError):\n            raise ValueError(\"calendar_kind is not supported\") from None\n        object.__setattr__(self, \"calendar_kind\", calendar_kind.value)\n        if calendar_kind is MarketCalendarKind.SESSION:\n",
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"contracts replacement count != 1 for {old!r}")
+              text = text.replace(old, new)
+          contracts.write_text(text, encoding="utf-8")
+
+          market = Path("trade_rl/data/market.py")
+          text = market.read_text(encoding="utf-8")
+          replacements = [
+              ("from enum import Enum\n", ""),
+              (
+                  "from trade_rl.data.contracts import VolumeUnit\n",
+                  "from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit\n",
+              ),
+              (
+                  "\n\nclass MarketCalendarKind(str, Enum):\n    \"\"\"Timestamp contract used by one market dataset.\"\"\"\n\n    CONTINUOUS = \"continuous_24_7\"\n    SESSION = \"session_calendar\"\n",
+                  "",
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"market replacement count != 1 for {old!r}")
+              text = text.replace(old, new)
+          market.write_text(text, encoding="utf-8")
+
+          builder = Path("trade_rl/data/build/builder.py")
+          text = builder.read_text(encoding="utf-8")
+          replacements = [
+              (
+                  "from trade_rl.data.contracts import (\n    InstrumentContract,\n    MarketBuildConfig,\n)\n",
+                  "from trade_rl.data.contracts import (\n    InstrumentContract,\n    MarketBuildConfig,\n    MarketCalendarKind,\n)\n",
+              ),
+              (
+                  "if self.config.calendar_kind == \"session_calendar\":",
+                  "if self.config.calendar_kind == MarketCalendarKind.SESSION.value:",
+              ),
+              (
+                  "if self.config.calendar_kind == \"continuous_24_7\"",
+                  "if self.config.calendar_kind == MarketCalendarKind.CONTINUOUS.value",
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"builder replacement count != 1 for {old!r}")
+              text = text.replace(old, new)
+          builder.write_text(text, encoding="utf-8")
+          PY
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --extra dev
+      - name: Format changed production files
+        run: uv run ruff format trade_rl/data/contracts.py trade_rl/data/market.py trade_rl/data/build/builder.py
+      - name: Focused tests
+        run: >-
+          uv run pytest -q
+          tests/architecture/test_data_calendar_authority.py
+          tests/data/test_market_dataset_v2.py
+          tests/data/test_session_dataset_builder.py
+          tests/data/test_market_contracts.py
+      - name: Static checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run ruff check trade_rl/data/contracts.py trade_rl/data/market.py trade_rl/data/build/builder.py tests/architecture/test_data_calendar_authority.py
+          uv run ruff format --check trade_rl/data/contracts.py trade_rl/data/market.py trade_rl/data/build/builder.py tests/architecture/test_data_calendar_authority.py
+          uv run mypy trade_rl/data/contracts.py trade_rl/data/market.py trade_rl/data/build/builder.py
+          git diff --check
+      - name: Commit verified durable tree and remove helper
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/tmp-green-calendar-authority.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/data/contracts.py trade_rl/data/market.py trade_rl/data/build/builder.py .github/workflows/tmp-green-calendar-authority.yml
+          git diff --cached --check
+          git diff --cached --name-status
+          git commit -m "refactor: unify market calendar semantic authority"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:refactor/data-calendar-kind-authority"

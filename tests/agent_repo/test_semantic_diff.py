@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from tools.agent_repo.semantic_diff import SemanticSignal, semantic_diff
 
 
@@ -128,3 +130,18 @@ def test_semantic_diff_ignores_docstrings_comments_and_private_plain_classes(
         signal for signal in signals if signal.path == "trade_rl/private.py"
     ]
     assert private_signals == []
+
+
+def test_semantic_diff_fails_closed_for_mutated_all(tmp_path: Path) -> None:
+    _baseline(tmp_path)
+    _write(
+        tmp_path,
+        "trade_rl/example.py",
+        "from trade_rl import Existing\n\n"
+        "OLD_SCHEMA = 'old_schema_v1'\n"
+        "__all__ = ['Existing']\n"
+        "__all__.append('ShadowExport')\n",
+    )
+
+    with pytest.raises(ValueError, match="__all__"):
+        semantic_diff(tmp_path, base_ref="main")

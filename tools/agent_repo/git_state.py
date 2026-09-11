@@ -44,9 +44,7 @@ def _nul_paths(value: str) -> tuple[str, ...]:
 
 def _dirty_paths(repository: Path) -> tuple[str, ...]:
     unstaged = _nul_paths(_git(repository, "diff", "--name-only", "-z", "--"))
-    staged = _nul_paths(
-        _git(repository, "diff", "--cached", "--name-only", "-z", "--")
-    )
+    staged = _nul_paths(_git(repository, "diff", "--cached", "--name-only", "-z", "--"))
     return tuple(sorted(set(unstaged) | set(staged)))
 
 

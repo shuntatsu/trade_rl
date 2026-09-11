@@ -9,7 +9,11 @@ from dataclasses import dataclass
 from importlib.util import resolve_name
 from pathlib import Path, PurePosixPath
 
-from tools.agent_repo.source_index import FILESYSTEM_EFFECTS, NETWORK_EFFECTS
+from tools.agent_repo.source_index import (
+    FILESYSTEM_EFFECTS,
+    NETWORK_EFFECTS,
+    literal_public_exports,
+)
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -181,30 +185,8 @@ def _schemas(tree: ast.Module) -> dict[str, str]:
 
 
 def _public_exports(tree: ast.Module) -> frozenset[str]:
-    assignments: list[ast.Assign | ast.AnnAssign] = []
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "__all__"
-            for target in node.targets
-        ):
-            assignments.append(node)
-        elif (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.target.id == "__all__"
-        ):
-            assignments.append(node)
-    if len(assignments) != 1:
-        return frozenset()
-    value = assignments[0].value
-    if not isinstance(value, (ast.List, ast.Tuple)):
-        return frozenset()
-    names: set[str] = set()
-    for item in value.elts:
-        if not isinstance(item, ast.Constant) or not isinstance(item.value, str):
-            return frozenset()
-        names.add(item.value)
-    return frozenset(names)
+    exports = literal_public_exports(tree)
+    return frozenset(() if exports is None else exports)
 
 
 def _direct_dependencies(

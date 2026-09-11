@@ -1,6 +1,6 @@
 # Agent entry point
 
-Trade RL の変更を行う Agent は、作業開始時に必ず次を読む。
+Trade RL の変更を行う Agent は、この入口を読んだら、詳細文書・実装へ進む前に `main/current HEAD`、作業branch、open PRのhead/base、recent commitsを確認する。重複・競合する実装線がないことを確かめてから次を読む。
 
 1. `docs/README.md` — 現行ドキュメントの入口と正本の一覧
 2. `docs/AGENTS.md` — 読む順序、更新先、保持・削除ルール、検証契約
@@ -12,4 +12,4 @@ Trade RL の変更を行う Agent は、作業開始時に必ず次を読む。
 
 ライセンス・provenance・third-party noticeは通常docsとは別の永久保持契約であり、`LICENSE` と `LICENSES/` を正本とする。明示的な法務目的なしに移動・削除・要約置換しない。
 
-完了を判断する前に、対象テストだけでなくRepositoryのquality gateを確認する。少なくとも現在のCIが要求する Ruff、Format、Mypy、full `tests/`、package identity と、変更内容に応じたarchitecture/contract testを実行し、未検証事項を成功扱いしない。
+完了を判断する前に、対象テストだけでなくRepositoryのquality gateを確認する。少なくとも現在のCIが要求する Ruff、Format、Mypy、full `tests/`、build、tracked source / sdist / wheel closure、clean-installed package identity と、変更内容に応じたarchitecture/contract testを実行し、未検証事項を成功扱いしない。

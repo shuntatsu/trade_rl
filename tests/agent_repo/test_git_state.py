@@ -71,6 +71,31 @@ def test_read_git_state_preserves_exact_staged_path_with_tab(tmp_path: Path) -> 
     assert state.changed_paths == ("trade_rl/odd\tname.py",)
 
 
+def test_read_git_state_preserves_exact_untracked_path_with_tab(tmp_path: Path) -> None:
+    _init_repository(tmp_path)
+    odd_path = tmp_path / "scratch\tname.txt"
+    odd_path.write_text("scratch\n", encoding="utf-8")
+
+    state = read_git_state(tmp_path)
+
+    assert state.untracked_paths == ("scratch\tname.txt",)
+
+
+def test_read_git_state_preserves_exact_base_changed_path_with_tab(
+    tmp_path: Path,
+) -> None:
+    _init_repository(tmp_path)
+    _git(tmp_path, "switch", "-c", "feature")
+    odd_path = tmp_path / "trade_rl" / "branch\tname.py"
+    odd_path.write_text("VALUE = 1\n", encoding="utf-8")
+    _git(tmp_path, "add", "trade_rl/branch\tname.py")
+    _git(tmp_path, "commit", "-m", "add branch path")
+
+    state = read_git_state(tmp_path, base_ref="main")
+
+    assert state.changed_paths == ("trade_rl/branch\tname.py",)
+
+
 def test_read_git_state_reports_detached_head(tmp_path: Path) -> None:
     _init_repository(tmp_path)
     head = _git(tmp_path, "rev-parse", "HEAD")

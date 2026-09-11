@@ -539,11 +539,18 @@ class BinancePublicTransport:
             raise BinanceTransportError(
                 "Binance Vision does not publish exchange metadata; provide static metadata"
             )
-        url = (
+        primary_url = (
             f"{_REST_BASE[resolved_market.value]}"
             f"{_REST_EXCHANGE_INFO[resolved_market.value]}"
         )
-        raw_payload = self._request_bytes(url)
+        url = primary_url
+        try:
+            raw_payload = self._request_bytes(primary_url)
+        except BinanceTransportError:
+            if resolved_market is not BinanceMarket.USDS_M or not self.allow_network:
+                raise
+            url = "https://www.binance.com/fapi/v1/exchangeInfo"
+            raw_payload = self._request_bytes(url)
         try:
             payload = json.loads(raw_payload)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:

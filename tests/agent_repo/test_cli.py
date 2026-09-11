@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 EVAL_DIMENSIONS = (
     "authority_discovery",
@@ -113,7 +112,12 @@ def test_eval_cli_lists_shows_and_scores_without_persisting_output(tmp_path: Pat
     _repository(tmp_path)
     score_path = tmp_path / "scores.json"
     score_path.write_text(
-        json.dumps({dimension: [2, f"evidence for {dimension}"] for dimension in EVAL_DIMENSIONS}),
+        json.dumps(
+            {
+                dimension: [2, f"evidence for {dimension}"]
+                for dimension in EVAL_DIMENSIONS
+            }
+        ),
         encoding="utf-8",
     )
     before = _git(tmp_path, "status", "--porcelain=v1")

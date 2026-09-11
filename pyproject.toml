@@ -54,7 +54,7 @@ select = ["E", "F", "I", "W"]
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["trade_rl", "tests"]
+known-first-party = ["trade_rl", "tests", "tools"]
 
 [tool.mypy]
 python_version = "3.12"

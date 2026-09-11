@@ -10,6 +10,7 @@ from typing import cast
 
 SUITE_SCHEMA = "agent_repo_eval_suite_v1"
 RUBRIC_VERSION = "agent_repo_rubric_v1"
+DEFAULT_SUITE = Path(__file__).with_name("evals") / "v1.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +203,7 @@ def score_eval(
 
 
 __all__ = [
+    "DEFAULT_SUITE",
     "DimensionScore",
     "EvalRubric",
     "EvalScore",

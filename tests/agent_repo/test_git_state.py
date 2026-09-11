@@ -55,6 +55,22 @@ def test_read_git_state_reports_exact_worktree_and_base_facts(tmp_path: Path) ->
     assert state.workflow_paths == (".github/workflows/ci.yml",)
 
 
+def test_read_git_state_preserves_exact_staged_path_with_tab(tmp_path: Path) -> None:
+    _init_repository(tmp_path)
+    odd_path = tmp_path / "trade_rl" / "odd\tname.py"
+    odd_path.write_text("VALUE = 1\n", encoding="utf-8")
+    _git(tmp_path, "add", "trade_rl/odd\tname.py")
+    _git(tmp_path, "commit", "-m", "add odd path")
+
+    odd_path.write_text("VALUE = 2\n", encoding="utf-8")
+    _git(tmp_path, "add", "trade_rl/odd\tname.py")
+
+    state = read_git_state(tmp_path)
+
+    assert state.dirty_paths == ("trade_rl/odd\tname.py",)
+    assert state.changed_paths == ("trade_rl/odd\tname.py",)
+
+
 def test_read_git_state_reports_detached_head(tmp_path: Path) -> None:
     _init_repository(tmp_path)
     head = _git(tmp_path, "rev-parse", "HEAD")

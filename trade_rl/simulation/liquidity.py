@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Sequence
 
+from trade_rl._validation import require_sha256
+
 _TOLERANCE = 1e-12
 
 
@@ -23,10 +25,10 @@ class LiquidityPriority(IntEnum):
 
 
 def _validate_digest(name: str, value: str) -> None:
-    if len(value) != 64 or any(
-        character not in "0123456789abcdef" for character in value
-    ):
-        raise LiquidityAllocationError(f"{name} must be a lowercase SHA-256 digest")
+    try:
+        require_sha256(value, field=name)
+    except ValueError as error:
+        raise LiquidityAllocationError(str(error)) from error
 
 
 @dataclass(frozen=True, slots=True)

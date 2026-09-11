@@ -11,6 +11,7 @@ from typing import Mapping, overload
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
 from trade_rl.artifacts.canonical import canonical_json_bytes
 
 ORDER_EVENT_SCHEMA = "order_event_v1"
@@ -78,10 +79,10 @@ def _validate_positive(name: str, value: float) -> None:
 
 
 def _validate_digest(name: str, value: str) -> None:
-    if len(value) != 64 or any(
-        character not in "0123456789abcdef" for character in value
-    ):
-        raise OrderDomainError(f"{name} must be a lowercase SHA-256 digest")
+    try:
+        require_sha256(value, field=name)
+    except ValueError as error:
+        raise OrderDomainError(str(error)) from error
 
 
 def execution_policy_digest(payload: Mapping[str, object]) -> str:

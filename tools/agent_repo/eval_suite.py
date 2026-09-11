@@ -60,7 +60,9 @@ def _object(value: object, *, field: str) -> dict[str, object]:
     return cast(dict[str, object], value)
 
 
-def _exact_keys(value: Mapping[str, object], expected: frozenset[str], *, field: str) -> None:
+def _exact_keys(
+    value: Mapping[str, object], expected: frozenset[str], *, field: str
+) -> None:
     if set(value) != expected:
         raise ValueError(f"{field} keys differ from contract")
 
@@ -71,7 +73,9 @@ def _string(value: object, *, field: str) -> str:
     return value
 
 
-def _strings(value: object, *, field: str, allow_empty: bool = False) -> tuple[str, ...]:
+def _strings(
+    value: object, *, field: str, allow_empty: bool = False
+) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise ValueError(f"{field} must be an array")
     result = tuple(_string(item, field=f"{field} item") for item in value)

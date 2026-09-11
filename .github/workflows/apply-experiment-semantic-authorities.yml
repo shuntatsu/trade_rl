@@ -1,0 +1,154 @@
+name: Apply experiment semantic authorities
+
+on:
+  push:
+    branches:
+      - refactor/experiment-semantic-authorities
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: refactor/experiment-semantic-authorities
+          fetch-depth: 1
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+      - name: Guard exact RED parent and apply minimal refactor
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "c262907426b32ed0bf22dcb2620abbc5e8f5fe61"
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str, *, count: int = 1) -> None:
+              source = Path(path)
+              text = source.read_text(encoding="utf-8")
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f"{path}: expected {count} matches, found {actual}")
+              source.write_text(text.replace(old, new, count), encoding="utf-8")
+
+          replace(
+              "trade_rl/evaluation/experiments/contracts/run.py",
+              "from dataclasses import dataclass\n",
+              "from dataclasses import dataclass\nfrom typing import TYPE_CHECKING\n",
+          )
+          replace(
+              "trade_rl/evaluation/experiments/contracts/run.py",
+              "from trade_rl.evaluation.experiments.errors import ContractViolationError\n\n\n",
+              "from trade_rl.evaluation.experiments.errors import ContractViolationError\n\nif TYPE_CHECKING:\n    from trade_rl.evaluation.runs import ResolvedCandidateRunSpec\n\n\n",
+          )
+          replace(
+              "trade_rl/evaluation/experiments/contracts/run.py",
+              "    def to_payload(self) -> dict[str, object]:\n",
+              '''    @classmethod\n    def from_candidate_spec(\n        cls,\n        spec: ResolvedCandidateRunSpec,\n    ) -> ResolvedRunConfig:\n        \"\"\"Project one Run Core spec into the controlled-experiment contract.\"\"\"\n\n        config = spec.config\n        lean = spec.lean_config\n        return cls(\n            signal_name=config.signal_name,\n            signal_index=lean.signal_index,\n            feature_names=config.feature_names,\n            feature_indices=lean.feature_indices,\n            fit_symbol_names=config.fit_symbol_names,\n            fit_symbol_indices=lean.fit_symbol_indices,\n            fit_cutoff=str(lean.fit_cutoff),\n            rule_entry_threshold=lean.rule_entry_threshold,\n            rule_exit_threshold=lean.rule_exit_threshold,\n            forecast_entry_threshold=lean.forecast_entry_threshold,\n            forecast_exit_threshold=lean.forecast_exit_threshold,\n            ppo_total_timesteps=lean.ppo_total_timesteps,\n            ppo_seed=lean.ppo_seed,\n            evaluation_start=str(config.evaluation_start),\n            evaluation_stop_exclusive=str(config.evaluation_stop_exclusive),\n            gross_budget=config.gross_budget,\n            initial_capital=config.initial_capital,\n            execution_overlay=\"zero_overlay_dataset_fields_authoritative\",\n        )\n\n    def to_payload(self) -> dict[str, object]:\n''',
+          )
+
+          replace(
+              "trade_rl/evaluation/experiments/contracts/study.py",
+              "from typing import cast\n",
+              "from typing import ClassVar, cast\n",
+          )
+          replace(
+              "trade_rl/evaluation/experiments/contracts/study.py",
+              'class StudyPlan:\n    \"\"\"Frozen development Study contract and adaptive-iteration budget.\"\"\"\n\n',
+              '''class StudyPlan:\n    \"\"\"Frozen development Study contract and adaptive-iteration budget.\"\"\"\n\n    FIXED_RESOLVED_FIELDS: ClassVar[tuple[str, ...]] = (\n        \"fit_cutoff\",\n        \"evaluation_start\",\n        \"evaluation_stop_exclusive\",\n        \"initial_capital\",\n        \"execution_overlay\",\n    )\n\n''',
+          )
+
+          replace(
+              "trade_rl/evaluation/experiments/codec.py",
+              "from trade_rl.evaluation.runs import (\n    CandidateRunConfig,\n    ResolvedCandidateRunSpec,\n)\n",
+              "from trade_rl.evaluation.runs import CandidateRunConfig\n",
+          )
+          codec_helper = '''\ndef _resolved_contract(spec: ResolvedCandidateRunSpec) -> ResolvedRunConfig:\n    config = spec.config\n    lean = spec.lean_config\n    return ResolvedRunConfig(\n        signal_name=config.signal_name,\n        signal_index=lean.signal_index,\n        feature_names=config.feature_names,\n        feature_indices=lean.feature_indices,\n        fit_symbol_names=config.fit_symbol_names,\n        fit_symbol_indices=lean.fit_symbol_indices,\n        fit_cutoff=str(np.datetime64(lean.fit_cutoff, \"ns\")),\n        rule_entry_threshold=lean.rule_entry_threshold,\n        rule_exit_threshold=lean.rule_exit_threshold,\n        forecast_entry_threshold=lean.forecast_entry_threshold,\n        forecast_exit_threshold=lean.forecast_exit_threshold,\n        ppo_total_timesteps=lean.ppo_total_timesteps,\n        ppo_seed=lean.ppo_seed,\n        evaluation_start=str(np.datetime64(config.evaluation_start, \"ns\")),\n        evaluation_stop_exclusive=str(\n            np.datetime64(config.evaluation_stop_exclusive, \"ns\")\n        ),\n        gross_budget=config.gross_budget,\n        initial_capital=config.initial_capital,\n        execution_overlay=\"zero_overlay_dataset_fields_authoritative\",\n    )\n\n'''
+          replace("trade_rl/evaluation/experiments/codec.py", codec_helper, "\n")
+
+          evidence_helper = '''\ndef _resolved_run_config(spec: ResolvedCandidateRunSpec) -> ResolvedRunConfig:\n    config = spec.config\n    lean = spec.lean_config\n    return ResolvedRunConfig(\n        signal_name=config.signal_name,\n        signal_index=lean.signal_index,\n        feature_names=config.feature_names,\n        feature_indices=lean.feature_indices,\n        fit_symbol_names=config.fit_symbol_names,\n        fit_symbol_indices=lean.fit_symbol_indices,\n        fit_cutoff=str(lean.fit_cutoff),\n        rule_entry_threshold=lean.rule_entry_threshold,\n        rule_exit_threshold=lean.rule_exit_threshold,\n        forecast_entry_threshold=lean.forecast_entry_threshold,\n        forecast_exit_threshold=lean.forecast_exit_threshold,\n        ppo_total_timesteps=lean.ppo_total_timesteps,\n        ppo_seed=lean.ppo_seed,\n        evaluation_start=str(config.evaluation_start),\n        evaluation_stop_exclusive=str(config.evaluation_stop_exclusive),\n        gross_budget=config.gross_budget,\n        initial_capital=config.initial_capital,\n        execution_overlay=\"zero_overlay_dataset_fields_authoritative\",\n    )\n\n'''
+          replace("trade_rl/evaluation/experiments/evidence.py", evidence_helper, "\n")
+          replace(
+              "trade_rl/evaluation/experiments/evidence.py",
+              "    ResolvedCandidateRunSpec,\n",
+              "",
+          )
+          replace(
+              "trade_rl/evaluation/experiments/evidence.py",
+              "    fixed_pairs = (\n        (\"fit_cutoff\", resolved.fit_cutoff, baseline.fit_cutoff),\n        (\"evaluation_start\", resolved.evaluation_start, baseline.evaluation_start),\n        (\n            \"evaluation_stop_exclusive\",\n            resolved.evaluation_stop_exclusive,\n            baseline.evaluation_stop_exclusive,\n        ),\n        (\"initial_capital\", resolved.initial_capital, baseline.initial_capital),\n        (\"execution_overlay\", resolved.execution_overlay, baseline.execution_overlay),\n    )\n    for field, actual, expected in fixed_pairs:\n",
+              "    for field in plan.FIXED_RESOLVED_FIELDS:\n        actual = getattr(resolved, field)\n        expected = getattr(baseline, field)\n",
+          )
+          replace(
+              "trade_rl/evaluation/experiments/evidence.py",
+              "            resolved = _resolved_run_config(spec)\n",
+              "            resolved = ResolvedRunConfig.from_candidate_spec(spec)\n",
+          )
+
+          replace(
+              "trade_rl/evaluation/experiments/workflow.py",
+              "    _resolved_contract,\n",
+              "",
+          )
+          replace(
+              "trade_rl/evaluation/experiments/workflow.py",
+              '''_STUDY_FIXED_FIELDS = (\n    "fit_cutoff",\n    "evaluation_start",\n    "evaluation_stop_exclusive",\n    "initial_capital",\n    "execution_overlay",\n)\n\n\n''',
+              "",
+          )
+          replace(
+              "trade_rl/evaluation/experiments/workflow.py",
+              "    for field in _STUDY_FIXED_FIELDS:\n",
+              "    for field in plan.FIXED_RESOLVED_FIELDS:\n",
+          )
+          replace(
+              "trade_rl/evaluation/experiments/workflow.py",
+              "resolved = _resolved_contract(spec)",
+              "resolved = ResolvedRunConfig.from_candidate_spec(spec)",
+              count=2,
+          )
+
+          replace(
+              "trade_rl/evaluation/experiments/delta.py",
+              '''_STUDY_FIXED_CONFIG_PATHS = (\n    "fit_cutoff",\n    "evaluation_start",\n    "evaluation_stop_exclusive",\n    "initial_capital",\n    "execution_overlay",\n)\n\n\n''',
+              "",
+          )
+          replace(
+              "trade_rl/evaluation/experiments/delta.py",
+              "    for field in _STUDY_FIXED_CONFIG_PATHS:\n",
+              "    for field in plan.FIXED_RESOLVED_FIELDS:\n",
+          )
+
+          boundary = Path("tests/architecture/test_experiment_workflow_boundaries.py")
+          text = boundary.read_text(encoding="utf-8")
+          old = '    "_resolved_contract",\n'
+          if text.count(old) != 1:
+              raise SystemExit("workflow-boundary test: unexpected _resolved_contract count")
+          boundary.write_text(text.replace(old, "", 1), encoding="utf-8")
+          PY
+      - name: Verify focused contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run pytest -q \
+            tests/architecture/test_experiment_semantic_authorities.py \
+            tests/architecture/test_experiment_workflow_boundaries.py \
+            tests/evaluation/experiments
+          uv run ruff check trade_rl/evaluation/experiments tests/architecture/test_experiment_semantic_authorities.py tests/architecture/test_experiment_workflow_boundaries.py
+          uv run ruff format --check trade_rl/evaluation/experiments tests/architecture/test_experiment_semantic_authorities.py tests/architecture/test_experiment_workflow_boundaries.py
+          uv run mypy trade_rl/evaluation/experiments
+          git diff --check
+      - name: Commit durable diff and retire helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/apply-experiment-semantic-authorities.yml
+          git config user.name "Shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add trade_rl/evaluation/experiments tests/architecture .github/workflows/apply-experiment-semantic-authorities.yml
+          git commit -m "refactor: centralize experiment semantic authorities"
+          git push origin HEAD:refactor/experiment-semantic-authorities

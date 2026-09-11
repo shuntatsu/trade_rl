@@ -1,0 +1,150 @@
+name: M2 Kline Clock Diagnostic
+
+on:
+  push:
+    branches:
+      - research/m2-canonical-study-001
+    paths:
+      - ".github/workflows/m2-kline-clock-diagnostic.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: m2-kline-clock-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact diagnostic helper
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Retire diagnostic helper before reading source clocks
+        shell: bash
+        env:
+          BRANCH: research/m2-canonical-study-001
+          EXPECTED_TREE: 53b94819aad987f48930c4ccabd9131f4b5347ba
+        run: |
+          set -euo pipefail
+          remote="$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')"
+          test "$remote" = "$GITHUB_SHA"
+          git rm .github/workflows/m2-kline-clock-diagnostic.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore: retire M2 kline clock diagnostic"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          git push origin "HEAD:refs/heads/$BRANCH"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install diagnostic dependencies
+        run: uv sync --extra dev
+
+      - name: Inspect only kline timestamp continuity
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          from trade_rl.evaluation.experiments.bootstrap.config import load_canonical_m2_bootstrap_config
+          from trade_rl.integrations.binance import BinancePublicTransport, BinanceTransportMode, binance_interval_milliseconds
+          from trade_rl.integrations.binance.vision import _epoch_ms, _normalize_epoch_ms
+
+          config = load_canonical_m2_bootstrap_config("studies/m2/canonical-study-001/bootstrap.json")
+          transport = BinancePublicTransport(max_attempts=3)
+          start_ms = _epoch_ms(config.data_start)
+          end_ms = _epoch_ms(config.data_stop_exclusive)
+          timeframes = (config.base_timeframe, *config.feature_timeframes)
+          report: dict[str, object] = {
+              "schema_version": "m2_kline_clock_diagnostic_v1",
+              "bootstrap_config_digest": config.digest,
+              "data_start_ms": start_ms,
+              "data_stop_exclusive_ms": end_ms,
+              "series": [],
+          }
+          failures = 0
+          for symbol in config.symbols:
+              for timeframe in timeframes:
+                  interval_ms = binance_interval_milliseconds(timeframe)
+                  rows, source = transport.load_klines(
+                      market=config.market,
+                      symbol=symbol,
+                      interval=timeframe,
+                      start_ms=start_ms,
+                      end_ms=end_ms,
+                      mode=BinanceTransportMode.VISION,
+                  )
+                  opens = [_normalize_epoch_ms(row[0]) for row in rows if start_ms <= _normalize_epoch_ms(row[0]) < end_ms]
+                  expected_count = (end_ms - start_ms) // interval_ms
+                  duplicates: list[int] = []
+                  gaps: list[dict[str, int]] = []
+                  for previous, current in zip(opens, opens[1:], strict=False):
+                      delta = current - previous
+                      if delta == 0:
+                          duplicates.append(current)
+                      elif delta != interval_ms:
+                          gaps.append({
+                              "previous_open_ms": previous,
+                              "current_open_ms": current,
+                              "delta_ms": delta,
+                              "missing_bars": max(0, delta // interval_ms - 1),
+                          })
+                  item = {
+                      "symbol": symbol,
+                      "timeframe": timeframe,
+                      "source": source,
+                      "expected_count": expected_count,
+                      "actual_count": len(opens),
+                      "first_open_ms": None if not opens else opens[0],
+                      "last_open_ms": None if not opens else opens[-1],
+                      "expected_first_open_ms": start_ms,
+                      "expected_last_open_ms": end_ms - interval_ms,
+                      "duplicate_count": len(duplicates),
+                      "duplicates_first_20": duplicates[:20],
+                      "irregular_gap_count": len(gaps),
+                      "gaps_first_20": gaps[:20],
+                  }
+                  if (
+                      len(opens) != expected_count
+                      or not opens
+                      or opens[0] != start_ms
+                      or opens[-1] != end_ms - interval_ms
+                      or duplicates
+                      or gaps
+                  ):
+                      failures += 1
+                  report["series"].append(item)
+                  print(json.dumps(item, sort_keys=True), flush=True)
+          report["failing_series_count"] = failures
+          Path("/tmp/m2-kline-clock-diagnostic.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          if failures == 0:
+              raise RuntimeError("all kline clocks are regular; investigate a different layer")
+          PY
+
+      - name: Upload timestamp-only diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-001-kline-clock-diagnostic
+          path: /tmp/m2-kline-clock-diagnostic.json
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: warn

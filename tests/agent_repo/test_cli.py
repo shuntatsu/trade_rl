@@ -44,8 +44,7 @@ def _repository(root: Path) -> None:
     _write(
         root,
         "trade_rl/evaluation/runs/__init__.py",
-        "from .config import CandidateRunConfig\n"
-        "__all__ = ['CandidateRunConfig']\n",
+        "from .config import CandidateRunConfig\n__all__ = ['CandidateRunConfig']\n",
     )
     _write(
         root,
@@ -108,7 +107,9 @@ def test_cli_commands_emit_json_without_mutation(tmp_path: Path) -> None:
     assert _git(tmp_path, "status", "--porcelain=v1") == before
 
 
-def test_eval_cli_lists_shows_and_scores_without_persisting_output(tmp_path: Path) -> None:
+def test_eval_cli_lists_shows_and_scores_without_persisting_output(
+    tmp_path: Path,
+) -> None:
     _repository(tmp_path)
     score_path = tmp_path / "scores.json"
     score_path.write_text(

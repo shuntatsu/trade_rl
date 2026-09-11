@@ -12,7 +12,11 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなspec/planはない。
+現在Activeなspecは次の1件である。
+
+- [`specs/2026-09-11-binance-vision-daily-repair-design.md`](specs/2026-09-11-binance-vision-daily-repair-design.md) — incomplete monthly Binance Vision archiveをofficial daily archiveで明示的・再現可能にrepairするsource-evidence契約
+
+現在Activeなplanはない。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

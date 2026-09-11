@@ -73,11 +73,11 @@ Status: Active
 
 - [ ] **Step 1: Add a reusable synthetic archive fixture with arbitrary gap dates**
 
-Create a test fixture covering a non-study-specific symbol such as `TESTUSDT`, a one-month 1h range, and a missing UTC day chosen inside the range. The fake live transport must return a monthly archive lacking that day and a daily archive containing all bars for that day. The fixture records every requested URL.
+Create a test fixture covering a non-study-specific symbol such as `TESTUSDT`, a one-month 1h range, and a missing UTC day chosen inside the range. The fake live transport must return a monthly archive lacking that day and a daily archive containing all bars for that day. The fixture records every requested URL and supplies matching synthetic exchange metadata.
 
 - [ ] **Step 2: Add the primary RED behavior**
 
-Assert that freezing succeeds only after a future implementation requests exactly the missing day's official daily URL, that `vision-plan.json` remains the primary monthly plan, and that `vision-resolution.json` contains the exact missing opens and repair URL.
+Assert that a future repaired freeze requests exactly the missing day's official daily URL, preserves `vision-plan.json` as the primary monthly plan, writes `vision-resolution.json`, and returns a composite transport whose merged clock is complete.
 
 Run:
 
@@ -85,7 +85,7 @@ Run:
 uv run pytest -q tests/evaluation/experiments/bootstrap/test_binance_repair.py
 ```
 
-Expected RED: fail because `vision-resolution.json` / repair resolution do not exist and current frozen source fails on the incomplete primary clock.
+Expected RED: fail because the current freeze accepts the incomplete primary archive without a resolution artifact or repair request, and the current composite transport later exposes the incomplete clock.
 
 - [ ] **Step 3: Add no-repair and genericity RED cases**
 
@@ -116,7 +116,7 @@ Do not modify production source in this Task.
 - Regression: `tests/integrations/test_binance.py`
 
 **Interfaces:**
-- Consumes: primary `BinanceVisionCachePlan`, cached archive sidecars, `vision_kline_url`, interval milliseconds, config symbol/timeframe ordering.
+- Consumes: primary `BinanceVisionCachePlan`, cached archive sidecars, `plan_vision_kline_urls`, `vision_kline_url`, interval milliseconds, config symbol/timeframe ordering.
 - Produces: internal deterministic resolution payload, resolution digest, and bootstrap-specific cache-only merged kline loader.
 
 - [ ] **Step 1: Introduce internal resolution types/helpers**
@@ -140,7 +140,7 @@ def _resolve_vision_repairs(
 ) -> tuple[_VisionRepair, ...]: ...
 ```
 
-The helper reads only validated cached primary kline bytes, computes the expected native clock, rejects duplicate/backwards/out-of-range primary timestamps, and derives ordered daily URLs from missing UTC days.
+For each config symbol/timeframe, derive that series' primary kline URLs with the existing `plan_vision_kline_urls` authority rather than guessing by string parsing the mixed kline/funding plan. Read only validated cached primary kline bytes, compute the expected native clock, reject duplicate/backwards/out-of-range primary timestamps, and derive ordered daily URLs from missing UTC days.
 
 - [ ] **Step 2: Persist canonical resolution payload**
 
@@ -156,15 +156,19 @@ Extend `_FrozenDatasetTransport` with the resolution mapping. Its `load_klines` 
 
 Do not change `BinancePublicTransport.load_klines` public behavior.
 
-- [ ] **Step 5: Bind repair bytes into source roster**
+- [ ] **Step 5: Update existing bootstrap fake archives to remain valid complete-primary fixtures**
+
+`tests/evaluation/experiments/bootstrap/test_binance.py::_payload_for_url` currently emits only two kline rows per monthly archive because the old freeze validated byte presence but not clock completeness. Change the test fixture—not the production acceptance rule—so normal no-repair tests provide a complete synthetic native clock for each planned month/timeframe. Keep existing assertions that a complete primary source performs no extra repair downloads.
+
+- [ ] **Step 6: Bind repair bytes into source roster**
 
 Build `raw_source_roster` from the ordered union `primary_plan.urls + repair_urls`. Keep roster item keys exactly `url / sha256 / size_bytes`.
 
-- [ ] **Step 6: Make offline inspection recompute, not trust, resolution**
+- [ ] **Step 7: Make offline inspection recompute, not trust, resolution**
 
 `_inspect_frozen_binance_source` must recompute missing timestamps/repair URLs from primary cached bytes, compare exact payload to saved `vision-resolution.json`, validate all repair bytes/sidecars, and instantiate the same network-cut merged transport.
 
-- [ ] **Step 7: Extend `FrozenBinanceSource`**
+- [ ] **Step 8: Extend `FrozenBinanceSource`**
 
 Add:
 
@@ -175,7 +179,7 @@ vision_resolution_digest: str | None
 
 Newly frozen sources always populate them. Legacy primary-only inspection may use `None` only when explicitly requested by the v1 manifest path in Task 3.
 
-- [ ] **Step 8: Verify targeted GREEN**
+- [ ] **Step 9: Verify targeted GREEN**
 
 Run:
 
@@ -191,7 +195,7 @@ uv run mypy trade_rl/evaluation/experiments/bootstrap trade_rl/integrations/bina
 
 Expected: all targeted tests/checks pass.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add trade_rl/evaluation/experiments/bootstrap/binance.py trade_rl/integrations/binance/vision.py tests/evaluation/experiments/bootstrap/test_binance_repair.py tests/evaluation/experiments/bootstrap/test_binance.py tests/integrations/test_binance.py
@@ -265,7 +269,7 @@ git commit -m "feat: bind Vision repair resolution into bootstrap manifest v2"
 - Consumes: completed Tasks 2–3.
 - Produces: evidence that the tests detect plausible incorrect implementations.
 
-- [ ] **Step 1: Add arbitrary-gap property-style parameterization**
+- [ ] **Step 1: Add arbitrary-gap parameterization**
 
 Parameterize at least two symbols, two native intervals, and multiple missing-day positions using synthetic archive fixtures. The expected repair URLs are computed from fixture dates, not copied from production output.
 

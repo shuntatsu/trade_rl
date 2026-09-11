@@ -58,7 +58,7 @@ Agent Evalはv1ではExtended verificationでありPR hard gateではない。�
 
 Agent実装は専用branchまたはworktreeで行い、PRを通常の統合経路とする。`main` への直接変更を通常経路にしない。mergeはユーザーの明示許可が必要であり、Agentはforce-push、history rewrite、`main`削除を行わない。
 
-PRの成功証拠は**現在のfinal HEAD**に束縛する。PR headが動いた後に、古いcommitで成功したCIを新HEADの成功証拠として扱わない。merge前に現在のhead SHAと、その同一SHAに対する最新CI結果を照合する。
+Integration invariant: tested PR head contains current `main`. PRの成功証拠は**現在のfinal HEAD**に束縛し、merge直前のcurrent `main` SHAをそのtested PR headがancestorとして包含していることも確認する。PR headが動いた後の古いCIだけでなく、`main` が進んだ後の古いPR-head Greenも現在の統合証拠として扱わない。`main` が進んだ場合は、non-force merge/rebase等でcurrent `main` を含む新しいPR HEADを作り、その新HEADでpermanent CIを再実行する。将来merge queueを採用する場合は、current target branchを含むmerge-group SHAのrequired checkを同等のoracleとしてよい。
 
 Branch protection / rulesetはGit treeとは別のGitHub設定である。保護を導入・変更した場合は、GitHubから設定をread-backし、required check、force-push/deletion、PR requirement、maintainer/admin bypass挙動を確認してから有効化済みと報告する。設定変更surfaceが利用できない場合は、proseやarchitecture testを代替にせず**未設定/未検証**と報告する。
 
@@ -114,7 +114,7 @@ uv run mypy tools/agent_repo tests/architecture/distribution.py
 uv run pytest -q tests
 ```
 
-さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。古いHEADのGreenを現在HEADの証拠にしない。
+さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。古いHEADのGreenを現在HEADの証拠にしない。merge直前は同時に、tested PR head contains current `main` を満たすことを再確認する。
 
 Coverageはbranch coverage 80%を目標signalとするが、80%未満だけを理由にmerge不可とはしない。重要Failure Mode、変更行、Error/Retry/Timeout/Fallback、Assertion品質を優先し、数値を上げるだけの低価値testを追加しない。
 

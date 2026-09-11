@@ -36,7 +36,9 @@ _FINAL_STEPS = (
         "uv run mypy tools/agent_repo tests/architecture/distribution.py",
         "repository-tooling type gate",
     ),
-    VerificationStep("final", "uv run pytest -q tests", "full deterministic test suite"),
+    VerificationStep(
+        "final", "uv run pytest -q tests", "full deterministic test suite"
+    ),
     VerificationStep("final", "uv build", "distribution build gate"),
     VerificationStep(
         "final",
@@ -85,7 +87,9 @@ def plan_verification(
     signals = semantic_diff(root, base_ref=base_ref)
     changed_paths = set(state.changed_paths) | set(state.untracked_paths)
     production_paths = {
-        path for path in changed_paths if path.startswith("trade_rl/") and path.endswith(".py")
+        path
+        for path in changed_paths
+        if path.startswith("trade_rl/") and path.endswith(".py")
     }
 
     fast_tests: set[str] = set()
@@ -111,7 +115,9 @@ def plan_verification(
     if "PUBLIC_EXPORT" in signal_kinds and _existing(
         root, "tests/architecture/test_runs_capability_facade.py"
     ):
-        if any(path.startswith("trade_rl/evaluation/runs/") for path in production_paths):
+        if any(
+            path.startswith("trade_rl/evaluation/runs/") for path in production_paths
+        ):
             fast_tests.add("tests/architecture/test_runs_capability_facade.py")
 
     if any(path.startswith("docs/") for path in changed_paths) and _existing(

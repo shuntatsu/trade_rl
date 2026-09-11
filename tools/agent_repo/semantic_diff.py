@@ -67,9 +67,7 @@ def _git_modules(repository: Path, ref: str) -> frozenset[str]:
         "trade_rl",
     ).stdout
     return frozenset(
-        _module_from_path(path)
-        for path in result.splitlines()
-        if path.endswith(".py")
+        _module_from_path(path) for path in result.splitlines() if path.endswith(".py")
     )
 
 
@@ -84,7 +82,9 @@ def _worktree_modules(repository: Path) -> frozenset[str]:
 def _changed_paths(repository: Path, merge_base: str) -> tuple[str, ...]:
     changed = set(
         line
-        for line in _git(repository, "diff", "--name-only", merge_base, "--").stdout.splitlines()
+        for line in _git(
+            repository, "diff", "--name-only", merge_base, "--"
+        ).stdout.splitlines()
         if line
     )
     changed.update(
@@ -231,9 +231,7 @@ def _direct_dependencies(
                 if child in known_modules:
                     result.add(child)
     return frozenset(
-        name
-        for name in result
-        if name.split(".", 1)[0] not in sys.stdlib_module_names
+        name for name in result if name.split(".", 1)[0] not in sys.stdlib_module_names
     )
 
 

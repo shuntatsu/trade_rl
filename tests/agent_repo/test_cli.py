@@ -8,6 +8,16 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+EVAL_DIMENSIONS = (
+    "authority_discovery",
+    "authority_reuse",
+    "boundary_compliance",
+    "scope_discipline",
+    "test_discovery",
+    "verification_selection",
+    "compatibility_awareness",
+    "context_efficiency",
+)
 
 
 def _git(repository: Path, *args: str) -> str:
@@ -96,6 +106,46 @@ def test_cli_commands_emit_json_without_mutation(tmp_path: Path) -> None:
     assert json.loads(diff.stdout) == {"signals": []}
     verification = json.loads(verify.stdout)["steps"]
     assert any(item["tier"] == "final" for item in verification)
+    assert _git(tmp_path, "status", "--porcelain=v1") == before
+
+
+def test_eval_cli_lists_shows_and_scores_without_persisting_output(tmp_path: Path) -> None:
+    _repository(tmp_path)
+    score_path = tmp_path / "scores.json"
+    score_path.write_text(
+        json.dumps({dimension: [2, f"evidence for {dimension}"] for dimension in EVAL_DIMENSIONS}),
+        encoding="utf-8",
+    )
+    before = _git(tmp_path, "status", "--porcelain=v1")
+
+    listed = _run(tmp_path, "eval-list")
+    shown = _run(tmp_path, "eval-show", "run-config-extension")
+    scored = _run(tmp_path, "eval-score", "run-config-extension", str(score_path))
+    unknown = _run(tmp_path, "eval-show", "missing-task")
+
+    assert listed.returncode == 0, listed.stderr
+    listing = json.loads(listed.stdout)
+    assert listing["rubric_version"] == "agent_repo_rubric_v1"
+    assert listing["task_ids"] == [
+        "run-config-extension",
+        "sha256-validation-reuse",
+        "dataset-scope-change",
+        "run-artifact-compatible-extension",
+        "binance-fallback-fix",
+    ]
+    assert shown.returncode == 0, shown.stderr
+    task = json.loads(shown.stdout)
+    assert task["task_id"] == "run-config-extension"
+    assert task["semantic_goal"]
+    assert task["critical_failures"]
+    assert task["review_questions"]
+    assert scored.returncode == 0, scored.stderr
+    score = json.loads(scored.stdout)
+    assert score["total"] == 16
+    assert score["maximum"] == 16
+    assert score["critical_failure"] is False
+    assert unknown.returncode != 0
+    assert unknown.stdout == ""
     assert _git(tmp_path, "status", "--porcelain=v1") == before
 
 

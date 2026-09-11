@@ -8,6 +8,7 @@ from trade_rl.evaluation.runs import artifact as candidate_artifact
 
 
 # Regression for the real zlib.error observed by baseline artifact falsification run 34616635445.
+# Keep the unit oracle at the Candidate artifact boundary where backend errors are normalized.
 def test_load_returns_normalizes_zlib_decompression_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

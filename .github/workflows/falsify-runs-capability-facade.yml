@@ -1,0 +1,126 @@
+name: Falsify runs capability facade contracts
+
+on:
+  push:
+    branches:
+      - refactor/runs-capability-facade
+    paths:
+      - .github/workflows/falsify-runs-capability-facade.yml
+
+permissions:
+  contents: write
+
+jobs:
+  falsify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact helper head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Guard verified docs parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "514805ee15900ea17697543290b3fbf0a93e32da"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Falsification probes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expect_failure() {
+            label="$1"
+            shift
+            if "$@"; then
+              echo "SURVIVED: ${label}"
+              exit 1
+            fi
+            echo "KILLED: ${label}"
+          }
+
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("trade_rl/evaluation/experiments/codec.py")
+          text = path.read_text(encoding="utf-8")
+          old = "from trade_rl.evaluation.runs import (\n    CandidateRunConfig,\n    ResolvedCandidateRunSpec,\n)"
+          new = "from trade_rl.evaluation.runs.config import (\n    CandidateRunConfig,\n    ResolvedCandidateRunSpec,\n)"
+          if text.count(old) != 1:
+              raise SystemExit("owner-import probe did not match exactly once")
+          path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+          expect_failure "external owner direct import" uv run pytest -q tests/architecture/test_runs_capability_facade.py::test_production_outside_runs_imports_run_core_through_facade
+          git restore trade_rl/evaluation/experiments/codec.py
+
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/architecture/imports.py")
+          text = path.read_text(encoding="utf-8")
+          start = text.index("    def collect_direct(")
+          end = text.index("\n    def collect(", start)
+          replacement = "    def collect_direct(self, path: Path) -> set[str]:\n        return self.collect(path)\n"
+          path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+          PY
+          expect_failure "direct collector follows reexports" uv run pytest -q tests/architecture/test_import_collector_contract.py::test_direct_collection_does_not_follow_symbol_reexports
+          git restore tests/architecture/imports.py
+
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("trade_rl/evaluation/runs/__init__.py")
+          text = path.read_text(encoding="utf-8")
+          path.write_text(text + "\n\nclass CandidateRunConfig(CandidateRunConfig):\n    pass\n", encoding="utf-8")
+          PY
+          expect_failure "facade wrapper breaks object identity" uv run pytest -q tests/architecture/test_runs_capability_facade.py::test_runs_facade_exports_exact_surface_and_owner_identity
+          git restore trade_rl/evaluation/runs/__init__.py
+
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("trade_rl/evaluation/__init__.py")
+          text = path.read_text(encoding="utf-8")
+          marker = "__all__ = [\n"
+          if text.count(marker) != 1:
+              raise SystemExit("Tier-1 probe marker mismatch")
+          path.write_text(text.replace(marker, marker + '    "CandidateRunConfig",\n', 1), encoding="utf-8")
+          PY
+          expect_failure "Tier-1 API expansion" uv run pytest -q tests/architecture/test_runs_capability_facade.py::test_evaluation_tier1_public_api_is_unchanged
+          git restore trade_rl/evaluation/__init__.py
+
+          printf '%s\n' 'from trade_rl.evaluation.runs.config import CandidateRunConfig' > tests/_falsification_runs_owner_import.py
+          uv run pytest -q tests/architecture/test_runs_capability_facade.py::test_production_outside_runs_imports_run_core_through_facade
+          rm tests/_falsification_runs_owner_import.py
+          echo "SCOPED: test-only owner import is not a production violation"
+
+          uv run pytest -q \
+            tests/architecture/test_import_collector_contract.py \
+            tests/architecture/test_runs_capability_facade.py
+          git diff --exit-code
+
+      - name: Retire falsification helper
+        run: rm .github/workflows/falsify-runs-capability-facade.yml
+
+      - name: Commit no-net-tree falsification checkpoint
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          test ! -e .github/workflows/falsify-runs-capability-facade.yml
+          git diff --cached --check
+          git commit -m "test: record runs facade falsification checkpoint"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

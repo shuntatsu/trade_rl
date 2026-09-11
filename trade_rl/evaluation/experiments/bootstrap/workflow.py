@@ -42,8 +42,9 @@ from trade_rl.integrations.binance import (
 )
 from trade_rl.strategies.forecasts.supervised import build_causal_forecast_training_set
 
-_MANIFEST_SCHEMA = "canonical_m2_bootstrap_manifest_v1"
-_MANIFEST_KEYS = frozenset(
+_MANIFEST_SCHEMA_V1 = "canonical_m2_bootstrap_manifest_v1"
+_MANIFEST_SCHEMA_V2 = "canonical_m2_bootstrap_manifest_v2"
+_MANIFEST_KEYS_V1 = frozenset(
     {
         "schema_version",
         "bootstrap_config_digest",
@@ -60,6 +61,7 @@ _MANIFEST_KEYS = frozenset(
         "bootstrap_digest",
     }
 )
+_MANIFEST_KEYS_V2 = _MANIFEST_KEYS_V1 | {"vision_resolution_digest"}
 _ROOT_ENTRIES = frozenset(
     {"bootstrap.json", "bootstrap-manifest.json", "source", "dataset", "study"}
 )
@@ -334,10 +336,13 @@ def _manifest_body(
     implementation_digest: str,
     runtime_environment_digest: str,
 ) -> dict[str, object]:
+    if frozen.vision_resolution_digest is None:
+        raise ValueError("new bootstrap manifest requires Vision resolution digest")
     return {
-        "schema_version": _MANIFEST_SCHEMA,
+        "schema_version": _MANIFEST_SCHEMA_V2,
         "bootstrap_config_digest": config.digest,
         "vision_plan_digest": frozen.vision_plan_digest,
+        "vision_resolution_digest": frozen.vision_resolution_digest,
         "raw_source_roster": list(frozen.raw_source_roster),
         "raw_source_roster_digest": frozen.raw_source_roster_digest,
         "metadata_evidence": frozen.metadata_evidence,
@@ -355,10 +360,15 @@ def _inspect_manifest(root: Path) -> dict[str, object]:
         root / "bootstrap-manifest.json",
         label="bootstrap manifest",
     )
-    if set(manifest) != _MANIFEST_KEYS:
-        raise ValueError("bootstrap manifest keys differ from contract")
-    if manifest.get("schema_version") != _MANIFEST_SCHEMA:
+    schema = manifest.get("schema_version")
+    if schema == _MANIFEST_SCHEMA_V1:
+        expected_keys = _MANIFEST_KEYS_V1
+    elif schema == _MANIFEST_SCHEMA_V2:
+        expected_keys = _MANIFEST_KEYS_V2
+    else:
         raise ValueError("bootstrap manifest schema differs from contract")
+    if set(manifest) != expected_keys:
+        raise ValueError("bootstrap manifest keys differ from contract")
     observed_digest = _require_digest(
         manifest.get("bootstrap_digest"),
         field="bootstrap_digest",
@@ -372,6 +382,11 @@ def _inspect_manifest(root: Path) -> dict[str, object]:
         field="bootstrap_config_digest",
     )
     _require_digest(manifest.get("vision_plan_digest"), field="vision_plan_digest")
+    if schema == _MANIFEST_SCHEMA_V2:
+        _require_digest(
+            manifest.get("vision_resolution_digest"),
+            field="vision_resolution_digest",
+        )
     roster = _require_roster(manifest.get("raw_source_roster"))
     roster_digest = _require_digest(
         manifest.get("raw_source_roster_digest"),
@@ -412,19 +427,26 @@ def inspect_canonical_m2_bootstrap(
         raise ValueError("bootstrap root entries differ from contract")
 
     config = load_canonical_m2_bootstrap_config(bootstrap_root / "bootstrap.json")
-    frozen = _inspect_frozen_binance_source(config, bootstrap_root / "source")
+    manifest = _inspect_manifest(bootstrap_root)
+    manifest_schema = manifest["schema_version"]
+    frozen = _inspect_frozen_binance_source(
+        config,
+        bootstrap_root / "source",
+        require_resolution=manifest_schema == _MANIFEST_SCHEMA_V2,
+    )
     artifact = inspect_published_market_dataset_artifact(bootstrap_root / "dataset")
     dataset = load_market_dataset_artifact(bootstrap_root / "dataset")
     study_digest, plan_implementation, plan_runtime = _validate_study_against_config(
         config,
         dataset_root=bootstrap_root / "dataset",
     )
-    manifest = _inspect_manifest(bootstrap_root)
-
     if manifest["bootstrap_config_digest"] != config.digest:
         raise ValueError("bootstrap config digest differs from manifest")
     if manifest["vision_plan_digest"] != frozen.vision_plan_digest:
         raise ValueError("Vision plan digest differs from bootstrap manifest")
+    if manifest_schema == _MANIFEST_SCHEMA_V2:
+        if manifest["vision_resolution_digest"] != frozen.vision_resolution_digest:
+            raise ValueError("Vision resolution digest differs from bootstrap manifest")
     if manifest["raw_source_roster"] != list(frozen.raw_source_roster):
         raise ValueError("raw source roster differs from frozen source evidence")
     if manifest["raw_source_roster_digest"] != frozen.raw_source_roster_digest:

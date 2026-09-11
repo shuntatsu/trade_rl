@@ -13,6 +13,12 @@ from dataclasses import dataclass
 from importlib.util import resolve_name
 from pathlib import Path, PurePosixPath
 
+from tools.agent_repo.path_safety import (
+    checked_repo_directory,
+    checked_repo_file,
+    checked_repo_path,
+)
+
 FILESYSTEM_EFFECTS = frozenset(
     {"write_text", "write_bytes", "replace", "rename", "unlink", "mkdir", "rmdir"}
 )
@@ -70,10 +76,13 @@ class ImportCollector:
     """Resolve imports and selected static re-exports against a physical tree."""
 
     def __init__(self, package: Path) -> None:
-        self.package = package
-        self.modules = {
-            self._module(path): path for path in sorted(package.rglob("*.py"))
-        }
+        self.repository = package.parent.resolve()
+        self.package = checked_repo_directory(self.repository, package)
+        source_paths = [
+            checked_repo_file(self.repository, path)
+            for path in sorted(self.package.rglob("*.py"))
+        ]
+        self.modules = {self._module(path): path for path in source_paths}
         self._trees: dict[Path, ast.Module] = {}
 
     def _module(self, path: Path) -> str:
@@ -83,11 +92,12 @@ class ImportCollector:
         return ".".join(parts)
 
     def _tree(self, path: Path) -> ast.Module:
-        if path not in self._trees:
-            self._trees[path] = ast.parse(
-                path.read_text(encoding="utf-8"), filename=str(path)
+        source = checked_repo_file(self.repository, path)
+        if source not in self._trees:
+            self._trees[source] = ast.parse(
+                source.read_text(encoding="utf-8"), filename=str(source)
             )
-        return self._trees[path]
+        return self._trees[source]
 
     def _base(self, path: Path, node: ast.ImportFrom) -> str:
         module = self._module(path)
@@ -266,7 +276,7 @@ class SourceIndex:
 
     def __init__(self, repository: Path, collector: ImportCollector) -> None:
         self.repository = repository
-        self.package = repository / "trade_rl"
+        self.package = collector.package
         self.collector = collector
         self._module_by_path = {
             path: module for module, path in collector.modules.items()
@@ -284,8 +294,9 @@ class SourceIndex:
     def build(cls, repository: Path) -> SourceIndex:
         root = repository.resolve()
         package = root / "trade_rl"
-        if not package.is_dir():
+        if not package.exists() and not package.is_symlink():
             raise ValueError("repository must contain trade_rl package")
+        package = checked_repo_directory(root, package)
         return cls(root, ImportCollector(package))
 
     def _logical_source(self, relative_path: str) -> tuple[str, Path]:
@@ -294,14 +305,19 @@ class SourceIndex:
             raise ValueError(f"unsafe repository path: {relative_path}")
         normalized = logical.as_posix().rstrip("/")
         candidate = self.repository.joinpath(*logical.parts)
+        try:
+            candidate = checked_repo_path(self.repository, candidate)
+        except FileNotFoundError as error:
+            raise FileNotFoundError(relative_path) from error
         if candidate.is_dir():
-            source = candidate / "__init__.py"
-            if not source.is_file():
-                raise FileNotFoundError(relative_path)
+            try:
+                source = checked_repo_file(self.repository, candidate / "__init__.py")
+            except FileNotFoundError as error:
+                raise FileNotFoundError(relative_path) from error
             return normalized, source
         if not candidate.is_file():
             raise FileNotFoundError(relative_path)
-        return normalized, candidate
+        return normalized, checked_repo_file(self.repository, candidate)
 
     def _domain_capability(self, relative_path: str) -> tuple[str | None, str | None]:
         parts = PurePosixPath(relative_path).parts
@@ -316,7 +332,8 @@ class SourceIndex:
         directory = source.parent
         while directory == self.package or directory.is_relative_to(self.package):
             init = directory / "__init__.py"
-            if init.is_file():
+            if init.exists() or init.is_symlink():
+                init = checked_repo_file(self.repository, init)
                 exports = _literal_public_exports(init)
                 module = self._module_by_path.get(init)
                 if exports and module is not None:
@@ -353,10 +370,12 @@ class SourceIndex:
         capability: str | None,
     ) -> tuple[str, ...]:
         tests_root = self.repository / "tests"
-        if not tests_root.is_dir():
+        if not tests_root.exists() and not tests_root.is_symlink():
             return ()
+        tests_root = checked_repo_directory(self.repository, tests_root)
         result: set[str] = set()
         for path in sorted(tests_root.rglob("test_*.py")):
+            path = checked_repo_file(self.repository, path)
             relative = path.relative_to(self.repository).as_posix()
             imports = self.collector.collect(path)
             if module is not None and module in imports:
@@ -379,13 +398,15 @@ class SourceIndex:
         self, relative_path: str, module: str | None
     ) -> tuple[str, ...]:
         docs_root = self.repository / "docs"
-        if not docs_root.is_dir():
+        if not docs_root.exists() and not docs_root.is_symlink():
             return ()
+        docs_root = checked_repo_directory(self.repository, docs_root)
         terms = {relative_path}
         if module is not None:
             terms.add(module)
         result: list[str] = []
         for path in sorted(docs_root.rglob("*.md")):
+            path = checked_repo_file(self.repository, path)
             text = path.read_text(encoding="utf-8")
             if any(term in text for term in terms):
                 result.append(path.relative_to(self.repository).as_posix())

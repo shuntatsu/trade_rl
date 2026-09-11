@@ -226,10 +226,7 @@ def _parse_module(path: Path) -> ast.Module:
 
 
 def _literal_public_exports(path: Path) -> tuple[str, ...] | None:
-    try:
-        return literal_public_exports(_parse_module(path))
-    except ValueError:
-        return None
+    return literal_public_exports(_parse_module(path))
 
 
 def _schema_constants(path: Path) -> tuple[str, ...]:
@@ -334,7 +331,10 @@ class SourceIndex:
             init = directory / "__init__.py"
             if init.exists() or init.is_symlink():
                 init = checked_repo_file(self.repository, init)
-                exports = _literal_public_exports(init)
+                try:
+                    exports = _literal_public_exports(init)
+                except ValueError:
+                    return None, ()
                 module = self._module_by_path.get(init)
                 if exports and module is not None:
                     return module, exports

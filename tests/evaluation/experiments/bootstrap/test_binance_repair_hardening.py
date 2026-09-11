@@ -21,9 +21,7 @@ from trade_rl.integrations.binance import BinanceTransportError, vision_cache_pa
 
 
 def _resolution(root: Path) -> dict[str, object]:
-    payload = json.loads(
-        (root / "vision-resolution.json").read_text(encoding="utf-8")
-    )
+    payload = json.loads((root / "vision-resolution.json").read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
     return payload
 

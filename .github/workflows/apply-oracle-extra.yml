@@ -1,0 +1,146 @@
+name: Apply perfect-information oracle dependency contract
+
+on:
+  push:
+    branches:
+      - fix/perfect-information-oracle-extra
+    paths:
+      - .github/workflows/apply-oracle-extra.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact helper head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Guard formal RED parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "f04df332e35a5b67c0a96becb1ca1b8b32dcb7af"
+
+      - name: Apply dependency contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+              target.write_text(text.replace(old, new), encoding="utf-8")
+
+          replace_exact(
+              "pyproject.toml",
+              "train-sb3 = [\n    \"stable-baselines3==2.3.2\",\n    \"torch==2.4.1\",\n]\ndev = [",
+              "train-sb3 = [\n    \"stable-baselines3==2.3.2\",\n    \"torch==2.4.1\",\n]\noracle = [\n    \"scipy>=1.14,<1.18\",\n]\ndev = [",
+          )
+
+          readme_section = "\n".join(
+              [
+                  "## Optional perfect-information bound",
+                  "",
+                  "The public perfect-information robustness bound uses SciPy. Install it through the capability extra:",
+                  "",
+                  "```bash",
+                  "uv sync --extra oracle",
+                  "```",
+                  "",
+                  "The `dev` extra also includes the same SciPy range for the repository test suite.",
+                  "",
+                  "## Research rule",
+              ]
+          )
+          replace_exact("README.md", "## Research rule", readme_section)
+
+          replace_exact(
+              "trade_rl/evaluation/robustness/perfect_information/solver.py",
+              "        raise RuntimeError(\n            \"perfect-information bound requires the optional 'oracle' dependency\"\n        ) from error",
+              "        raise RuntimeError(\n            \"perfect-information bound requires SciPy; install the optional 'oracle' \"\n            \"dependency with `uv sync --extra oracle`\"\n        ) from error",
+          )
+          PY
+
+      - name: Retire helper before verification
+        run: rm .github/workflows/apply-oracle-extra.yml
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Verify targeted GREEN and wheel metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock
+          uv lock --check
+          uv sync --extra dev
+          uv run pytest -q \
+            tests/architecture/test_optional_dependency_contracts.py \
+            tests/evaluation/test_perfect_information_bound_fail_closed.py \
+            tests/evaluation/test_perfect_information_bound_contracts.py \
+            tests/evaluation/test_perfect_information_bound_solver.py
+          uv run ruff check trade_rl/evaluation/robustness/perfect_information tests/architecture/test_optional_dependency_contracts.py
+          uv run ruff format --check trade_rl/evaluation/robustness/perfect_information tests/architecture/test_optional_dependency_contracts.py
+          uv run mypy trade_rl/evaluation/robustness/perfect_information
+          rm -rf dist
+          uv build
+          uv run python - <<'PY'
+          from email.parser import Parser
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          from packaging.requirements import Requirement
+          from packaging.specifiers import SpecifierSet
+
+          wheel = next(Path("dist").glob("*.whl"))
+          with ZipFile(wheel) as archive:
+              metadata_path = next(
+                  name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+              )
+              metadata = Parser().parsestr(archive.read(metadata_path).decode("utf-8"))
+
+          assert "oracle" in (metadata.get_all("Provides-Extra") or [])
+          requirements = [
+              Requirement(value) for value in (metadata.get_all("Requires-Dist") or [])
+          ]
+          oracle_scipy = [
+              requirement
+              for requirement in requirements
+              if requirement.name.lower() == "scipy"
+              and requirement.specifier == SpecifierSet(">=1.14,<1.18")
+              and requirement.marker is not None
+              and requirement.marker.evaluate({"extra": "oracle"})
+              and not requirement.marker.evaluate({"extra": ""})
+          ]
+          assert oracle_scipy, requirements
+          PY
+          git diff --check
+
+      - name: Commit verified dependency contract
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          test ! -e .github/workflows/apply-oracle-extra.yml
+          git diff --cached --check
+          git commit -m "fix: declare perfect-information oracle dependency"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -1,0 +1,166 @@
+name: M2 Base Clock Fast Diagnostic
+
+on:
+  push:
+    branches: [research/m2-canonical-study-001]
+    paths: [.github/workflows/m2-base-clock-fast-diagnostic.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Retire helper before source-clock probe
+        env:
+          BRANCH: research/m2-canonical-study-001
+          EXPECTED_TREE: 53b94819aad987f48930c4ccabd9131f4b5347ba
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')" = "$GITHUB_SHA"
+          git rm .github/workflows/m2-base-clock-fast-diagnostic.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore: retire M2 base-clock diagnostic"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          git push origin "HEAD:refs/heads/$BRANCH"
+
+      - name: Probe base 1h timestamps only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import csv
+          import hashlib
+          import io
+          import json
+          import urllib.request
+          import zipfile
+          from concurrent.futures import ThreadPoolExecutor
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          RAW_EXPECTED = "9c75849672fe56004261b540c84cdbb003a8821b94dd2f80f8bbe3e8a69f2eb4"
+          path = Path("studies/m2/canonical-study-001/bootstrap.json")
+          raw = path.read_bytes()
+          assert hashlib.sha256(raw).hexdigest() == RAW_EXPECTED
+          config = json.loads(raw)
+          symbols = tuple(config["symbols"])
+          interval = config["base_timeframe"]
+          assert interval == "1h"
+          start = datetime.fromisoformat(config["data_start"]).astimezone(UTC)
+          stop = datetime.fromisoformat(config["data_stop_exclusive"]).astimezone(UTC)
+          start_ms = int(start.timestamp() * 1000)
+          stop_ms = int(stop.timestamp() * 1000)
+          step = 3_600_000
+
+          def months():
+              cursor = start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+              while cursor < stop:
+                  yield cursor
+                  if cursor.month == 12:
+                      cursor = cursor.replace(year=cursor.year + 1, month=1)
+                  else:
+                      cursor = cursor.replace(month=cursor.month + 1)
+
+          def url(symbol: str, month: datetime) -> str:
+              period = month.strftime("%Y-%m")
+              return (
+                  "https://data.binance.vision/data/futures/um/monthly/klines/"
+                  f"{symbol}/{interval}/{symbol}-{interval}-{period}.zip"
+              )
+
+          def normalize(value: str) -> int:
+              numeric = int(value)
+              while abs(numeric) >= 10_000_000_000_000:
+                  numeric //= 1000
+              return numeric
+
+          def fetch(item: tuple[str, datetime]) -> tuple[str, list[int]]:
+              symbol, month = item
+              source = url(symbol, month)
+              request = urllib.request.Request(source, headers={"User-Agent": "trade-rl-m2-clock-diagnostic/1"})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  payload = response.read()
+              with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                  members = [name for name in archive.namelist() if not name.endswith("/")]
+                  if len(members) != 1:
+                      raise RuntimeError(f"unexpected archive members for {source}: {members}")
+                  text = archive.read(members[0]).decode("utf-8-sig")
+              rows = [row for row in csv.reader(io.StringIO(text)) if row]
+              if rows and not rows[0][0].strip().lstrip("-").isdigit():
+                  rows = rows[1:]
+              opens = [normalize(row[0]) for row in rows]
+              return symbol, [value for value in opens if start_ms <= value < stop_ms]
+
+          items = [(symbol, month) for symbol in symbols for month in months()]
+          grouped = {symbol: [] for symbol in symbols}
+          with ThreadPoolExecutor(max_workers=12) as pool:
+              for symbol, opens in pool.map(fetch, items):
+                  grouped[symbol].extend(opens)
+
+          report = {"schema_version": "m2_base_clock_fast_diagnostic_v1", "series": []}
+          failing = 0
+          expected_count = (stop_ms - start_ms) // step
+          for symbol in symbols:
+              opens = grouped[symbol]
+              gaps = []
+              duplicates = []
+              backwards = []
+              for previous, current in zip(opens, opens[1:]):
+                  delta = current - previous
+                  if delta == 0:
+                      duplicates.append(current)
+                  elif delta < 0:
+                      backwards.append({"previous_open_ms": previous, "current_open_ms": current, "delta_ms": delta})
+                  elif delta != step:
+                      gaps.append({
+                          "previous_open_ms": previous,
+                          "current_open_ms": current,
+                          "delta_ms": delta,
+                          "missing_bars": delta // step - 1,
+                      })
+              item = {
+                  "symbol": symbol,
+                  "expected_count": expected_count,
+                  "actual_count": len(opens),
+                  "expected_first_open_ms": start_ms,
+                  "first_open_ms": opens[0] if opens else None,
+                  "expected_last_open_ms": stop_ms - step,
+                  "last_open_ms": opens[-1] if opens else None,
+                  "duplicate_count": len(duplicates),
+                  "backwards_count": len(backwards),
+                  "gap_count": len(gaps),
+                  "duplicates_first_20": duplicates[:20],
+                  "backwards_first_20": backwards[:20],
+                  "gaps_first_20": gaps[:20],
+              }
+              if len(opens) != expected_count or duplicates or backwards or gaps or not opens or opens[0] != start_ms or opens[-1] != stop_ms - step:
+                  failing += 1
+              report["series"].append(item)
+              print(json.dumps(item, sort_keys=True), flush=True)
+          report["failing_series_count"] = failing
+          Path("/tmp/m2-base-clock-fast-diagnostic.json").write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")
+          if failing == 0:
+              raise RuntimeError("base 1h clocks are complete; failure lies in a different path")
+          PY
+
+      - name: Upload timestamp-only report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-001-base-clock-fast-diagnostic
+          path: /tmp/m2-base-clock-fast-diagnostic.json
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: warn

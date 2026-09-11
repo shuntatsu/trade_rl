@@ -1,0 +1,65 @@
+name: Replay verified bootstrap SHA-256 fix
+
+on:
+  push:
+    branches:
+      - fix/bootstrap-sha256-validator-authority-main
+
+permissions:
+  contents: write
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact branch commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+
+      - name: Guard exact hardened-main parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "5c6cb8813fbed8ab7a3a7ee05e9d7eeff06a468f"
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/replay-bootstrap-sha256-fix.yml"
+
+      - name: Replay exact verified files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin 596d72a9a7120393a8cd87c721ba4263dc3df82b
+          git show 596d72a9a7120393a8cd87c721ba4263dc3df82b:trade_rl/evaluation/experiments/bootstrap/workflow.py > trade_rl/evaluation/experiments/bootstrap/workflow.py
+          mkdir -p tests/evaluation/experiments/bootstrap
+          git show 596d72a9a7120393a8cd87c721ba4263dc3df82b:tests/evaluation/experiments/bootstrap/test_digest_validation.py > tests/evaluation/experiments/bootstrap/test_digest_validation.py
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Verify replay before commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run pytest -q tests/evaluation/experiments/bootstrap/test_digest_validation.py
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap/workflow.py tests/evaluation/experiments/bootstrap/test_digest_validation.py
+          uv run ruff format --check trade_rl/evaluation/experiments/bootstrap/workflow.py tests/evaluation/experiments/bootstrap/test_digest_validation.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap/workflow.py
+
+      - name: Commit replay and retire helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/replay-bootstrap-sha256-fix.yml
+          expected=$(printf '%s\n' ".github/workflows/replay-bootstrap-sha256-fix.yml" "tests/evaluation/experiments/bootstrap/test_digest_validation.py" "trade_rl/evaluation/experiments/bootstrap/workflow.py")
+          observed=$(git diff --name-only HEAD | sort)
+          test "$observed" = "$expected"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/replay-bootstrap-sha256-fix.yml tests/evaluation/experiments/bootstrap/test_digest_validation.py trade_rl/evaluation/experiments/bootstrap/workflow.py
+          git commit -m "fix: replay canonical SHA-256 validator on hardened main"
+          git push origin HEAD:fix/bootstrap-sha256-validator-authority-main

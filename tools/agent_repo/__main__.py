@@ -14,6 +14,7 @@ from typing import Any
 from tools.agent_repo.git_state import read_git_state
 from tools.agent_repo.semantic_diff import semantic_diff
 from tools.agent_repo.source_index import SourceIndex
+from tools.agent_repo.verification import plan_verification
 
 
 def _write_json(payload: object) -> None:
@@ -35,6 +36,9 @@ def _parser() -> argparse.ArgumentParser:
 
     diff = subparsers.add_parser("diff")
     diff.add_argument("--base", dest="base_ref", required=True)
+
+    verify = subparsers.add_parser("verify")
+    verify.add_argument("--base", dest="base_ref", required=True)
     return parser
 
 
@@ -47,6 +51,13 @@ def _dispatch(args: argparse.Namespace, repository: Path) -> object:
             "signals": [
                 asdict(signal)
                 for signal in semantic_diff(repository, base_ref=str(args.base_ref))
+            ]
+        }
+    if command == "verify":
+        return {
+            "steps": [
+                asdict(step)
+                for step in plan_verification(repository, base_ref=str(args.base_ref))
             ]
         }
 

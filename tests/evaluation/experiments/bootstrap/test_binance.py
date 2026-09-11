@@ -89,9 +89,14 @@ def _payload_for_url(url: str) -> bytes:
     interval_match = re.search(r"/(15m|30m|1h|2h|4h|6h|8h|12h|1d)/", url)
     assert interval_match is not None, url
     step = binance_interval_milliseconds(interval_match.group(1))
+    start = datetime.fromtimestamp(start_ms / 1_000, tz=UTC)
+    if start.month == 12:
+        stop = start.replace(year=start.year + 1, month=1)
+    else:
+        stop = start.replace(month=start.month + 1)
+    stop_ms = int(stop.timestamp() * 1_000)
     rows = []
-    for offset in (0, step):
-        open_ms = start_ms + offset
+    for open_ms in range(start_ms, stop_ms, step):
         rows.append(f"{open_ms},100,101,99,100.5,1,{open_ms + step - 1},1000")
     return _zip_csv("klines.csv", "\n".join(rows) + "\n")
 

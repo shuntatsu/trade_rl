@@ -18,14 +18,14 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: false
 
-      - name: Guard verified implementation parent
+      - name: Guard verified implementation ancestry
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "2dda5c30fcd8045cd2276a670f5a7dcb944168a7"
+          test "$(git rev-parse HEAD~2)" = "2dda5c30fcd8045cd2276a670f5a7dcb944168a7"
 
       - name: Promote durable architecture rule
         shell: bash
@@ -42,29 +42,29 @@ jobs:
                   raise SystemExit(f"{path}: expected exactly one match, found {count}")
               target.write_text(text.replace(old, new), encoding="utf-8")
 
-          replace_exact(
-              "docs/architecture/package-boundaries.md",
-              '''- `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
+          old_runs = "\n".join([
+              "- `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。",
+              "",
+              "`runs` はhigher-level experiment lifecycleを知らない。",
+          ])
+          new_runs = "\n".join([
+              "- `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。",
+              "",
+              "`trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance constructionのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。production codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。",
+              "",
+              "`runs` はhigher-level experiment lifecycleを知らない。",
+          ])
+          replace_exact("docs/architecture/package-boundaries.md", old_runs, new_runs)
 
-`runs` はhigher-level experiment lifecycleを知らない。''',
-              '''- `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
+          old_gate = "このgateはstatic import ownershipの検査であり、runtime sandboxや任意のPython到達可能性の証明ではない。動的import、実行時のattribute再束縛、反射や関数実行で生じる依存は別のreview/contract testが必要である。"
+          new_gate = "\n\n".join([
+              "`ImportCollector.collect()` はstatic re-exportを追跡してsemantic ownerまで展開する一方、`collect_direct()` はsourceに直接綴られたmodule pathだけを解決し、facade symbolのre-export先までは追わない。semantic dependencyとdirect-import policyは異なるoracleとして使い分け、facade経由の正当な利用をowner moduleの直接依存と誤認しない。",
+              old_gate,
+          ])
+          replace_exact("docs/architecture/package-boundaries.md", old_gate, new_gate)
 
-`trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance constructionのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。production codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。
-
-`runs` はhigher-level experiment lifecycleを知らない。''',
-          )
-          replace_exact(
-              "docs/architecture/package-boundaries.md",
-              '''このgateはstatic import ownershipの検査であり、runtime sandboxや任意のPython到達可能性の証明ではない。動的import、実行時のattribute再束縛、反射や関数実行で生じる依存は別のreview/contract testが必要である。''',
-              '''`ImportCollector.collect()` はstatic re-exportを追跡してsemantic ownerまで展開する一方、`collect_direct()` はsourceに直接綴られたmodule pathだけを解決し、facade symbolのre-export先までは追わない。semantic dependencyとdirect-import policyは異なるoracleとして使い分け、facade経由の正当な利用をowner moduleの直接依存と誤認しない。
-
-このgateはstatic import ownershipの検査であり、runtime sandboxや任意のPython到達可能性の証明ではない。動的import、実行時のattribute再束縛、反射や関数実行で生じる依存は別のreview/contract testが必要である。''',
-          )
-          replace_exact(
-              "docs/README.md",
-              '''現在Activeな設計は [`specs/2026-09-11-runs-capability-facade-design.md`](specs/2026-09-11-runs-capability-facade-design.md)、実装計画は [`plans/2026-09-11-runs-capability-facade-implementation.md`](plans/2026-09-11-runs-capability-facade-implementation.md) である。''',
-              '''現在Activeなspec/planはない。''',
-          )
+          active = "現在Activeな設計は [`specs/2026-09-11-runs-capability-facade-design.md`](specs/2026-09-11-runs-capability-facade-design.md)、実装計画は [`plans/2026-09-11-runs-capability-facade-implementation.md`](plans/2026-09-11-runs-capability-facade-implementation.md) である。"
+          replace_exact("docs/README.md", active, "現在Activeなspec/planはない。")
           PY
           rm docs/specs/2026-09-11-runs-capability-facade-design.md
           rm docs/plans/2026-09-11-runs-capability-facade-implementation.md

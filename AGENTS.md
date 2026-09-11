@@ -8,6 +8,12 @@ Trade RL の変更を行う Agent は、この入口を読んだら、詳細文�
 
 Local repository tooling (`python -m tools.agent_repo`) は preflight / context / impact / semantic diff / verification routing をsource-derivedで要約するために利用してよい。ただし、その出力はsource review、GitHub open-PR/branch overlap確認、final full CIの代替ではない。生成reportはcommitしない。
 
+## Git / PR boundary
+
+Agentによる実装作業は専用branchまたはworktreeで行い、PRを通常の統合経路とする。`main` を通常の作業branchとして直接変更しない。merge authorizationの前に、PRの**現在のfinal HEAD**と、その同一HEADに対する最新CI結果を確認する。古いHEADの成功runを現在HEADの証拠として扱わない。
+
+Agent作業で `main` へのforce-push、history rewrite、branch削除を行わない。mergeは明示的なユーザー許可を要する。branch protection / rulesetを有効化したと報告する場合は、GitHub側から設定をread-backして確認する。
+
 このRepositoryの現treeは現行システムだけを表す。完了済み設計・migration経緯・旧世代を保存するための `docs/history` / `docs/archive` は作らず、過去の内容は Git history から参照する。
 
 コード構造を変更した場合は対応するcurrent docsと `tests/architecture/` の契約を同じ変更で更新する。研究上の前提・比較対象・評価手順・研究状態を変更した場合は `docs/research/current-status.md` を更新する。

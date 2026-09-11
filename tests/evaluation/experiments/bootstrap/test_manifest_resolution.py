@@ -16,10 +16,7 @@ from trade_rl.evaluation.experiments.bootstrap.workflow import (
 )
 
 
-def _publish(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> Path:
+def _publish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     _install_fakes(monkeypatch)
     output = tmp_path / "canonical-m2"
     bootstrap_canonical_m2_study(_config_path(tmp_path), output)

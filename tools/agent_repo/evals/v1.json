@@ -1,0 +1,99 @@
+{
+  "schema_version": "agent_repo_eval_suite_v1",
+  "rubric_version": "agent_repo_rubric_v1",
+  "rubric": {
+    "dimensions": [
+      "authority_discovery",
+      "authority_reuse",
+      "boundary_compliance",
+      "scope_discipline",
+      "test_discovery",
+      "verification_selection",
+      "compatibility_awareness",
+      "context_efficiency"
+    ],
+    "max_score_per_dimension": 2,
+    "critical_dimensions": [
+      "authority_reuse",
+      "boundary_compliance",
+      "scope_discipline"
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "run-config-extension",
+      "prompt": "Add one new Candidate Run configuration field that affects resolved run semantics. Preserve existing public and persisted contracts unless a change is required, and determine the necessary verification.",
+      "semantic_goal": "Extend the maintained Candidate Run configuration/resolution authority without creating a parallel config path or silently changing persisted Run compatibility.",
+      "critical_failures": [
+        "creates an independent parallel Candidate Run configuration authority",
+        "bypasses the maintained capability/public boundary without justification",
+        "claims completion without considering persisted Run compatibility"
+      ],
+      "review_questions": [
+        "Did the agent identify and reuse the existing Candidate Run config/resolution authority?",
+        "Did the agent keep the change scoped to the requested semantic field?",
+        "Did the agent identify constructor, parse, resolve, public-facade and persisted-contract tests as applicable?"
+      ]
+    },
+    {
+      "task_id": "sha256-validation-reuse",
+      "prompt": "Add validation for a new SHA-256 digest field used by a maintained contract. Keep lexical acceptance consistent with the repository's existing digest semantics.",
+      "semantic_goal": "Discover and reuse the maintained SHA-256 validation semantics rather than creating a slightly different local validator.",
+      "critical_failures": [
+        "creates an overlapping digest validator with different accepted syntax",
+        "normalizes persisted digest values without an approved compatibility change",
+        "changes unrelated artifact or identity semantics"
+      ],
+      "review_questions": [
+        "Did the agent search for the existing digest validation authority before adding code?",
+        "Did constructor and loader paths enforce the same lexical contract?",
+        "Did the agent keep artifact identity and normalization behavior unchanged unless explicitly required?"
+      ]
+    },
+    {
+      "task_id": "dataset-scope-change",
+      "prompt": "Change how a strategy selects dataset-bound feature or symbol scope, and apply the behavior consistently where multiple strategy families share that semantic concept.",
+      "semantic_goal": "Use the shared dataset-scope authority instead of coupling one strategy family to another family's internal implementation.",
+      "critical_failures": [
+        "introduces a new family-local copy of shared dataset-scope validation",
+        "creates an RL-to-forecast internal dependency or equivalent responsibility leak",
+        "changes unrelated forecast label or dataset causality semantics"
+      ],
+      "review_questions": [
+        "Did the agent identify the shared dataset-bound selection owner?",
+        "Did it distinguish shared scope validation from model-family-specific validation?",
+        "Did it run strategy and architecture boundary tests relevant to the dependency change?"
+      ]
+    },
+    {
+      "task_id": "run-artifact-compatible-extension",
+      "prompt": "Design a small extension to persisted Candidate Run evidence while preserving inspectability of maintained historical evidence and keeping runtime import compatibility separate from artifact-schema compatibility.",
+      "semantic_goal": "Treat persisted evidence evolution as a compatibility contract and reuse the maintained Run artifact codec/publication/inspection authority.",
+      "critical_failures": [
+        "deletes or bypasses a required historical reader solely because the schema is old",
+        "creates a second Run artifact publication or identity authority",
+        "equates Python import-path compatibility with persisted artifact compatibility"
+      ],
+      "review_questions": [
+        "Did the agent identify the maintained artifact publication/load/identity authority?",
+        "Did it ask which historical schemas/evidence must remain readable?",
+        "Did it propose roundtrip, tamper, atomicity and compatibility verification appropriate to the change?"
+      ]
+    },
+    {
+      "task_id": "binance-fallback-fix",
+      "prompt": "Fix a Binance source fallback problem where an official endpoint can be unavailable in one environment. Preserve fail-closed behavior for malformed or integrity-invalid data.",
+      "semantic_goal": "Modify the maintained transport boundary so fallback is limited to recoverable source/transport failure and does not mask protocol or integrity violations.",
+      "critical_failures": [
+        "falls back on malformed or integrity-invalid payloads",
+        "adds an unrelated network path outside the maintained Binance transport authority",
+        "changes Spot or COIN-M behavior without evidence that the fix requires it"
+      ],
+      "review_questions": [
+        "Did the agent distinguish transport availability from malformed/integrity failure?",
+        "Did it preserve the actual successful source URI or equivalent provenance?",
+        "Did it select focused retry/fallback/offline integration tests before expensive unrelated checks?"
+      ]
+    }
+  ]
+}

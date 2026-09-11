@@ -16,15 +16,16 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: refactor/experiment-semantic-authorities
-          fetch-depth: 1
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
           python-version: "3.12"
-      - name: Guard exact RED parent and apply minimal refactor
+      - name: Guard exact RED tree and apply minimal refactor
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "c262907426b32ed0bf22dcb2620abbc5e8f5fe61"
+          changed="$(git diff --name-only c262907426b32ed0bf22dcb2620abbc5e8f5fe61..HEAD -- ':!.github/workflows/apply-experiment-semantic-authorities.yml')"
+          test -z "$changed"
           python - <<'PY'
           from pathlib import Path
 

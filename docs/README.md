@@ -12,7 +12,11 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeな設計は [`specs/2026-09-11-agent-repository-control-plane-v1-design.md`](specs/2026-09-11-agent-repository-control-plane-v1-design.md) である。実装計画はまだ作成していない。
+現在Activeな設計は [`specs/2026-09-11-agent-repository-control-plane-v1-design.md`](specs/2026-09-11-agent-repository-control-plane-v1-design.md) である。実装計画は次の3つに分割する。
+
+- [`plans/2026-09-11-agent-repository-control-plane-core-implementation.md`](plans/2026-09-11-agent-repository-control-plane-core-implementation.md) — network-free preflight / context / impact / semantic diff / verification planner
+- [`plans/2026-09-11-agent-repository-eval-implementation.md`](plans/2026-09-11-agent-repository-eval-implementation.md) — fresh-agent task corpus / rubric / baseline-comparison protocol
+- [`plans/2026-09-11-agent-repository-merge-safety-implementation.md`](plans/2026-09-11-agent-repository-merge-safety-implementation.md) — PR quality contract / integration policy / main protection read-back
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 
@@ -32,7 +36,7 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 ## 何を更新するか
 
 - package、責務、依存方向、公開境界を変えた → `architecture/package-boundaries.md`
-- causal data、strategy/risk分離、execution/accounting、artifact invariantを変えた → `architecture/lean-core.md`
+- causal data、availability、artifact identityを変えた → `architecture/lean-core.md`
 - Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
 - 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
 - docsの入口・保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME

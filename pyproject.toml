@@ -91,5 +91,6 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
+# Project target signal; permanent CI does not use this as a standalone merge gate.
 fail_under = 80
 precision = 2

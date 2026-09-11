@@ -16,13 +16,13 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 6
+          fetch-depth: 7
 
       - name: Guard exact helper-fix parent
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "8b0a2e59a7d4f21d5bb4b7601bef1f0b95ab1e6c"
+          test "$(git rev-parse HEAD^)" = "cb4d8b46a0e18f8d916b390976af46c2b6bbd672"
           test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/apply-strategy-dataset-scope-refactor.yml"
 
       - name: Apply responsibility move
@@ -34,7 +34,7 @@ jobs:
 
           supervised = Path("trade_rl/strategies/forecasts/supervised.py")
           text = supervised.read_text()
-          start = text.index("\ndef validated_feature_indices(")
+          start = text.index("\n\n\ndef validated_feature_indices(")
           end = text.index("\n\n@dataclass", start)
           shared_import = "\nfrom trade_rl.strategies.dataset_scope import (\n    validated_feature_indices,\n    validated_symbol_indices,\n)\n"
           supervised.write_text(text[:start] + shared_import + text[end:])

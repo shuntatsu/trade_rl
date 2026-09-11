@@ -36,16 +36,16 @@ jobs:
         run: uv sync --extra dev
 
       - name: Ruff
-        run: uv run ruff check trade_rl tests
+        run: uv run ruff check trade_rl tests tools
 
       - name: Format
-        run: uv run ruff format --check trade_rl tests
+        run: uv run ruff format --check trade_rl tests tools
 
       - name: Mypy
         run: uv run mypy trade_rl
 
-      - name: Architecture tooling types
-        run: uv run mypy tools/agent_repo/source_index.py tests/architecture/distribution.py
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
 
       - name: Core tests
         run: uv run pytest -q tests

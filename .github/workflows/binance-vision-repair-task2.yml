@@ -1,0 +1,95 @@
+name: Binance Vision repair Task 2
+on:
+  push:
+    branches: [fix/binance-vision-daily-repair-v1]
+    paths: [.github/workflows/binance-vision-repair-task2.yml]
+permissions:
+  contents: write
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Apply exact Task 2 cleanup and complete-primary fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "208fbaadc418b91b80fab4d311ec1942d5da7d1f"
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          production = Path("trade_rl/evaluation/experiments/bootstrap/binance.py")
+          text = production.read_text()
+          old = "    plan_binance_vision_cache,\n    plan_vision_kline_urls,\n    require_complete_binance_vision_cache,\n"
+          new = "    plan_binance_vision_cache,\n    require_complete_binance_vision_cache,\n"
+          if text.count(old) != 1:
+              raise RuntimeError("unexpected production import shape")
+          production.write_text(text.replace(old, new))
+
+          test_file = Path("tests/evaluation/experiments/bootstrap/test_binance.py")
+          test_text = test_file.read_text()
+          pattern = re.compile(r"def _payload_for_url\(url: str\) -> bytes:\n.*?\n\ndef _snapshot", re.S)
+          replacement = '''def _payload_for_url(url: str) -> bytes:
+              start_ms = _month_start_ms(url)
+              if "fundingRate" in url:
+                  return _zip_csv(
+                      "funding.csv",
+                      f"calc_time,last_funding_rate\\n{start_ms + 8 * 60 * 60 * 1000},0.0001\\n",
+                  )
+              interval_match = re.search(r"/(15m|30m|1h|2h|4h|6h|8h|12h|1d)/", url)
+              assert interval_match is not None, url
+              step = binance_interval_milliseconds(interval_match.group(1))
+              start = datetime.fromtimestamp(start_ms / 1_000, tz=UTC)
+              if start.month == 12:
+                  stop = start.replace(year=start.year + 1, month=1)
+              else:
+                  stop = start.replace(month=start.month + 1)
+              stop_ms = int(stop.timestamp() * 1_000)
+              rows = []
+              for open_ms in range(start_ms, stop_ms, step):
+                  rows.append(
+                      f"{open_ms},100,101,99,100.5,1,{open_ms + step - 1},1000"
+                  )
+              return _zip_csv("klines.csv", "\\n".join(rows) + "\\n")
+
+
+          def _snapshot'''
+          updated, count = pattern.subn(replacement, test_text)
+          if count != 1:
+              raise RuntimeError(f"expected one fixture replacement, got {count}")
+          test_file.write_text(updated)
+          PY
+          git rm .github/workflows/binance-vision-repair-task2.yml
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/binance.py \
+            tests/evaluation/experiments/bootstrap/test_binance.py \
+            tests/evaluation/experiments/bootstrap/test_binance_repair.py
+          uv run ruff check \
+            trade_rl/evaluation/experiments/bootstrap/binance.py \
+            tests/evaluation/experiments/bootstrap/test_binance.py \
+            tests/evaluation/experiments/bootstrap/test_binance_repair.py
+          uv run pytest -q \
+            tests/evaluation/experiments/bootstrap/test_binance_repair.py \
+            tests/evaluation/experiments/bootstrap/test_binance.py \
+            tests/integrations/test_binance.py
+          uv run mypy trade_rl/evaluation/experiments/bootstrap trade_rl/integrations/binance
+          test ! -e .github/workflows/binance-vision-repair-task2.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add trade_rl/evaluation/experiments/bootstrap/binance.py \
+            tests/evaluation/experiments/bootstrap/test_binance.py \
+            tests/evaluation/experiments/bootstrap/test_binance_repair.py \
+            .github/workflows/binance-vision-repair-task2.yml
+          git commit -m "fix: complete frozen Vision daily repair source"
+          git push origin HEAD:refs/heads/fix/binance-vision-daily-repair-v1

@@ -117,9 +117,7 @@ def test_production_outside_runs_imports_run_core_through_facade() -> None:
         if path.is_relative_to(RUNS):
             continue
         for imported in sorted(collector.collect_direct(path)):
-            if any(
-                within_module(imported, owner) for owner in FORBIDDEN_OWNER_MODULES
-            ):
+            if any(within_module(imported, owner) for owner in FORBIDDEN_OWNER_MODULES):
                 offenders.append((path.relative_to(ROOT).as_posix(), imported))
     assert offenders == []
 

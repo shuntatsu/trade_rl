@@ -492,6 +492,18 @@ def _inspect_frozen_binance_source(
         metadata=metadata_transport,
         repairs=repairs,
     )
+    start_ms = int(config.data_start.timestamp() * 1_000)
+    end_ms = int(config.data_stop_exclusive.timestamp() * 1_000)
+    for symbol in config.symbols:
+        for timeframe in (config.base_timeframe, *config.feature_timeframes):
+            composite.load_klines(
+                market=config.market,
+                symbol=symbol,
+                interval=timeframe,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                mode=BinanceTransportMode.VISION,
+            )
     return FrozenBinanceSource(
         cache_transport=cache_transport,
         metadata_transport=metadata_transport,
@@ -562,20 +574,7 @@ def _freeze_binance_source(
     resolution_payload = _vision_resolution_payload(config, repairs)
     _write_json(root / "vision-resolution.json", resolution_payload)
 
-    frozen = _inspect_frozen_binance_source(config, root)
-    start_ms = int(config.data_start.timestamp() * 1_000)
-    end_ms = int(config.data_stop_exclusive.timestamp() * 1_000)
-    for symbol in config.symbols:
-        for timeframe in (config.base_timeframe, *config.feature_timeframes):
-            frozen.composite_transport.load_klines(
-                market=config.market,
-                symbol=symbol,
-                interval=timeframe,
-                start_ms=start_ms,
-                end_ms=end_ms,
-                mode=BinanceTransportMode.VISION,
-            )
-    return frozen
+    return _inspect_frozen_binance_source(config, root)
 
 
 __all__ = ["FrozenBinanceSource"]

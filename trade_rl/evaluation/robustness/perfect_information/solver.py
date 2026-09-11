@@ -61,7 +61,8 @@ def _scipy_modules() -> tuple[Any, Any]:
         sparse = importlib.import_module("scipy.sparse")
     except ImportError as error:
         raise RuntimeError(
-            "perfect-information bound requires the optional 'oracle' dependency"
+            "perfect-information bound requires SciPy; install the optional 'oracle' "
+            "dependency with `uv sync --extra oracle`"
         ) from error
     return optimize, sparse
 

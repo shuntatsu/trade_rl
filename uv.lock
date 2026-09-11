@@ -831,6 +831,9 @@ dev = [
 forecast-gbm = [
     { name = "lightgbm", extra = ["scikit-learn"] },
 ]
+oracle = [
+    { name = "scipy" },
+]
 train-sb3 = [
     { name = "stable-baselines3" },
     { name = "torch" },
@@ -847,10 +850,11 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.0" },
     { name = "scipy", marker = "extra == 'dev'", specifier = ">=1.14,<1.18" },
+    { name = "scipy", marker = "extra == 'oracle'", specifier = ">=1.14,<1.18" },
     { name = "stable-baselines3", marker = "extra == 'train-sb3'", specifier = "==2.3.2" },
     { name = "torch", marker = "extra == 'train-sb3'", specifier = "==2.4.1" },
 ]
-provides-extras = ["forecast-gbm", "train-sb3", "dev"]
+provides-extras = ["forecast-gbm", "train-sb3", "oracle", "dev"]
 
 [[package]]
 name = "triton"

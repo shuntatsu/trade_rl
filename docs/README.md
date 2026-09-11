@@ -12,9 +12,7 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなimplementation plan:
-
-- [`plans/2026-09-11-simulation-sha256-authority-plan.md`](plans/2026-09-11-simulation-sha256-authority-plan.md) — simulation内のSHA-256 lexical validationを既存authorityへ収束させる限定変更。完了後はcurrent treeから削除する。
+現在Activeなspec/planはない。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

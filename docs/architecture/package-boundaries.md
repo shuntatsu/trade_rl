@@ -75,6 +75,8 @@ trade_rl/
     ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py}
     └── experiments/
         ├── errors.py
+        ├── codec.py
+        ├── inspection.py
         ├── store.py
         ├── evidence.py
         ├── analysis.py
@@ -125,7 +127,7 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 - `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。
 - `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
 
-`runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。
+`runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。 `codec.py` はpersisted JSONから既存contractへのfail-closed decodeとstable payload/identity変換を所有し、`inspection.py` はdisk graphからのread-only state reconstruction・tamper validation・`inspect_study`を所有する。`workflow.py` はmutation lock下のcommand orchestrationだけを所有し、各mutation前のdisk再構築と既存failure-injection seamを維持する。
 
 `evaluation/experiments/bootstrap/` は次だけを所有する。
 

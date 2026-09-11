@@ -82,6 +82,8 @@ def test_evaluation_responsibility_packages_exist() -> None:
         "runs/artifact.py",
         "experiments/__init__.py",
         "experiments/errors.py",
+        "experiments/codec.py",
+        "experiments/inspection.py",
         "experiments/store.py",
         "experiments/evidence.py",
         "experiments/delta.py",

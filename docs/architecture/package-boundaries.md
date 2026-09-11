@@ -52,6 +52,7 @@ trade_rl/
 │   ├── targets/{execution.py,exposure_controller.py}
 │   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
 ├── strategies/
+│   ├── dataset_scope.py
 │   ├── interface.py
 │   ├── position_intent.py
 │   ├── controls.py
@@ -74,6 +75,8 @@ trade_rl/
     ├── runs/{candidate.py,candidate_suite.py,config.py,execute.py,provenance.py,artifact.py}
     └── experiments/
         ├── errors.py
+        ├── codec.py
+        ├── inspection.py
         ├── store.py
         ├── evidence.py
         ├── analysis.py
@@ -109,7 +112,7 @@ execution/accountingの経済正本と、order/stateful/target/diagnosticsを持
 
 ### `strategies`
 
-small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。
+small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
 ### `evaluation`
 
@@ -124,7 +127,9 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 - `artifact.py`: summary/raw returns/provenanceのpublication、verified load、semantic identity。
 - `candidate.py`: 上記を順番に呼ぶ薄いfilesystem CLI/facade。
 
-`runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。
+`trade_rl.evaluation.runs` はcandidate-run contract、execution、artifact inspection/publication、provenance constructionのTier-2 public facadeである。`config.py`、`candidate_suite.py`、`execute.py`、`artifact.py`、`provenance.py` は引き続き実装ownerであり、facadeはこれらをwrapperなしでre-exportするだけとする。production codeは `evaluation/runs/` の外からRun Coreを利用するときfacadeを経由し、package内部は循環を避けるためowner moduleを直接参照してよい。Tier-1 `trade_rl.evaluation` の公開面はこの規則によって拡大しない。candidate-runのpersisted schema互換契約はPython import pathとは独立して維持する。
+
+`runs` はhigher-level experiment lifecycleを知らない。`evaluation/experiments/` はStudy/Experiment contract、append-only store、multi-seed EvidenceSet、analysis、controlled delta、lineage/budget/freeze workflowを所有する。 `codec.py` はpersisted JSONから既存contractへのfail-closed decodeとstable payload/identity変換を所有し、`inspection.py` はdisk graphからのread-only state reconstruction・tamper validation・`inspect_study`を所有する。`workflow.py` はmutation lock下のcommand orchestrationだけを所有し、各mutation前のdisk再構築と既存failure-injection seamを維持する。
 
 `evaluation/experiments/bootstrap/` は次だけを所有する。
 
@@ -150,11 +155,22 @@ integrations -X-> strategies/evaluation
 risk        -X-> strategies/evaluation
 simulation  -X-> strategies/evaluation
 strategies  -X-> evaluation
+strategies/rl -X-> strategies/forecasts
 evaluation/runs -X-> evaluation/experiments
 evaluation/experiments/bootstrap -X-> sealed final-test authorization
 ```
 
-`evaluation` はlower core packagesを利用してよい。ただしlower layerからbootstrapへ逆依存しない。依存方向を逆転させる必要が出た場合、循環依存や責務漏れを先に疑う。
+`evaluation` はlower core packagesを利用してよい。ただしlower layerからbootstrapへ逆依存しない。strategy family間で共有するdataset-bound selectionはroot `strategies/dataset_scope.py` を経由し、RLからforecast内部へ依存させない。依存方向を逆転させる必要が出た場合、循環依存や責務漏れを先に疑う。
+
+### Static import ownership gate
+
+`tests/architecture/imports.py` は、production sourceを実行せず、physical module treeを使って絶対・相対import、親packageからの子module import、選択したsymbolのstatic import re-exportを解決する。module名の区切りまで比較し、似たprefixの別moduleやfacade内の無関係なexportを禁止依存にしない。module scopeの条件分岐は保守的に両方検査し、関数・classのlocal importを公開exportと混同しない。
+
+star importはliteral `__all__`、または明示的なpublic import re-exportを追跡する。動的に組み立てた`__all__`は実行して推測せず検査を失敗させる。循環re-exportも有限に走査する。source-derived mapは一回のscan内だけに保持し、生成catalogをcurrent treeへ保存しない。
+
+`ImportCollector.collect()` はstatic re-exportを追跡してsemantic ownerまで展開する一方、`collect_direct()` はsourceに直接綴られたmodule pathだけを解決し、facade symbolのre-export先までは追わない。semantic dependencyとdirect-import policyは異なるoracleとして使い分け、facade経由の正当な利用をowner moduleの直接依存と誤認しない。
+
+このgateはstatic import ownershipの検査であり、runtime sandboxや任意のPython到達可能性の証明ではない。動的import、実行時のattribute再束縛、反射や関数実行で生じる依存は別のreview/contract testが必要である。
 
 ## Public API policy
 
@@ -182,3 +198,9 @@ Packageを追加・移動・削除するときは同じ変更で次を行う。
 3. intentionally publicなpackage facadeをsnapshot/contract testで確認する。
 4. 単なるmoveならnon-import AST、serialized bytes/digest、golden behavior等でsemantic driftを可能な範囲で反証する。
 5. 旧private pathや一時migration helperをfinal treeに残さない。
+
+## Distribution source closure
+
+構造変更では、working treeだけでなくGit HEADのproduction `.py` roster、sdist、direct wheel、sdistから再buildしたwheelの相対pathとSHA-256が一致することを検証する。`tests/architecture/distribution.py` は未追跡・ignoreされたsource、worktree差分、sourceの欠落・混入・改変、重複member、不正path、symlink sourceを拒否し、archiveを展開・実行しない。
+
+CIはbuilt wheelをcheckout外の新規venvへ非editable installし、isolated Pythonでpackage identity、public facade import、candidate/bootstrap CLI helpを確認する。source closureはPython sourceの配布契約であり、optional trainerの実学習、全platform動作、すべてのnon-code resourceを保証するものではない。license/provenanceの恒久保持は別の既存gateも維持する。

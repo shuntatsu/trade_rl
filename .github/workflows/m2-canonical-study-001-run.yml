@@ -4,21 +4,160 @@ on:
   push:
     branches:
       - research/m2-canonical-study-001
+    paths:
+      - ".github/workflows/m2-canonical-study-001-run.yml"
+      - "studies/m2/canonical-study-001/bootstrap.json"
+      - "trade_rl/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
 
 permissions:
   contents: read
 
+concurrency:
+  group: canonical-m2-study-001-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   M2_ROOT: /tmp/canonical-m2-study-001
+  PREREGISTRATION_SHA: fb400a9390ff297c43ec189462d96cfb0ab40fb8
+  MAIN_BASE_SHA: 5e300a30cb0620b7d79bd2c24f66dc0512012747
+  BOOTSTRAP_RAW_SHA256: 9c75849672fe56004261b540c84cdbb003a8821b94dd2f80f8bbe3e8a69f2eb4
+  BOOTSTRAP_CONFIG_DIGEST: 71b72031d33b50468774e6bc355206725d6a85ea2a5680fa8e5c8b9c385aee5b
+  SOURCE_PREFLIGHT_RUN_ID: "34495043958"
+  METADATA_PROBE_RUN_ID: "34496232656"
 
 jobs:
-  study:
+  verify:
+    name: Verify frozen study on current core
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 20
     steps:
-      - name: Checkout exact preregistration commit
+      - name: Checkout exact research head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify merge lineage and production tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^1)" = "$PREREGISTRATION_SHA"
+          test "$(git rev-parse HEAD^2)" = "$MAIN_BASE_SHA"
+          git diff --exit-code "$MAIN_BASE_SHA" HEAD -- \
+            trade_rl tests pyproject.toml uv.lock .github/workflows/ci.yml
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install core verification dependencies
+        run: uv sync --extra dev
+
+      - name: Validate frozen preregistration identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum studies/m2/canonical-study-001/bootstrap.json | awk '{print $1}')" = "$BOOTSTRAP_RAW_SHA256"
+          uv run python - <<'PY'
+          import os
+          from trade_rl.evaluation.experiments.bootstrap.config import (
+              load_canonical_m2_bootstrap_config,
+          )
+
+          config = load_canonical_m2_bootstrap_config(
+              "studies/m2/canonical-study-001/bootstrap.json"
+          )
+          expected = os.environ["BOOTSTRAP_CONFIG_DIGEST"]
+          if config.digest != expected:
+              raise RuntimeError(
+                  f"frozen bootstrap digest changed: {config.digest} != {expected}"
+              )
+          print(f"bootstrap_config_digest={config.digest}")
+          print(f"symbols={','.join(config.symbols)}")
+          print(f"ppo_seeds={','.join(str(seed) for seed in config.ppo_seeds)}")
+          PY
+
+      - name: Ruff
+        run: uv run ruff check trade_rl tests
+
+      - name: Format
+        run: uv run ruff format --check trade_rl tests
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Architecture tooling types
+        run: uv run mypy tests/architecture/imports.py tests/architecture/distribution.py
+
+      - name: Core tests
+        run: uv run pytest -q tests
+
+      - name: Build
+        run: uv build
+
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          print("clean installed core public imports and identity: OK")
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+  study:
+    name: Execute frozen bootstrap and baseline
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout exact verified research head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up uv
@@ -30,24 +169,8 @@ jobs:
       - name: Install research extras
         run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
 
-      - name: Validate frozen preregistration
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv run python - <<'PY'
-          from trade_rl.evaluation.experiments.bootstrap.config import (
-              load_canonical_m2_bootstrap_config,
-          )
-
-          config = load_canonical_m2_bootstrap_config(
-              "studies/m2/canonical-study-001/bootstrap.json"
-          )
-          print(f"bootstrap_config_digest={config.digest}")
-          print(f"symbols={','.join(config.symbols)}")
-          print(f"ppo_seeds={','.join(str(seed) for seed in config.ppo_seeds)}")
-          PY
-
       - name: Freeze Binance source and publish canonical bootstrap
+        id: bootstrap
         shell: bash
         run: |
           set -euo pipefail
@@ -56,8 +179,32 @@ jobs:
           uv run python -m trade_rl.evaluation.experiments.bootstrap.cli \
             --config studies/m2/canonical-study-001/bootstrap.json \
             --output "$M2_ROOT/bootstrap"
+          uv run python - <<'PY'
+          import os
+          from pathlib import Path
+          from trade_rl.evaluation.experiments import inspect_canonical_m2_bootstrap
 
-      - name: Preserve pristine bootstrap and execute baseline on Study copy
+          result = inspect_canonical_m2_bootstrap(
+              Path(os.environ["M2_ROOT"]) / "bootstrap"
+          )
+          if result.config_digest != os.environ["BOOTSTRAP_CONFIG_DIGEST"]:
+              raise RuntimeError("published bootstrap config digest changed")
+          print(f"bootstrap_digest={result.bootstrap_digest}")
+          print(f"dataset_id={result.dataset_id}")
+          print(f"dataset_artifact_digest={result.dataset_artifact_digest}")
+          PY
+
+      - name: Upload pristine immutable bootstrap evidence
+        if: steps.bootstrap.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-001-bootstrap
+          path: /tmp/canonical-m2-study-001/bootstrap
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+      - name: Execute baseline on Study copy and reconstruct evidence
         shell: bash
         run: |
           set -euo pipefail
@@ -90,17 +237,23 @@ jobs:
               raise RuntimeError("baseline EvidenceSet failed reconstruction")
 
           index = {
-              "schema_version": "canonical_m2_study_001_index_v1",
-              "git_sha": os.environ.get("GITHUB_SHA"),
-              "source_preflight_run_id": 34495043958,
-              "bootstrap_digest": bootstrap.bootstrap_digest,
+              "schema_version": "canonical_m2_study_001_index_v2",
+              "execution_git_sha": os.environ.get("GITHUB_SHA"),
+              "main_base_sha": os.environ["MAIN_BASE_SHA"],
+              "preregistration_git_sha": os.environ["PREREGISTRATION_SHA"],
+              "source_preflight_run_id": int(os.environ["SOURCE_PREFLIGHT_RUN_ID"]),
+              "metadata_probe_run_id": int(os.environ["METADATA_PROBE_RUN_ID"]),
+              "bootstrap_raw_sha256": os.environ["BOOTSTRAP_RAW_SHA256"],
               "bootstrap_config_digest": bootstrap.config_digest,
+              "bootstrap_digest": bootstrap.bootstrap_digest,
               "dataset_id": bootstrap.dataset_id,
               "dataset_artifact_digest": bootstrap.dataset_artifact_digest,
               "study_digest": verified.plan.digest,
               "baseline_evidence_fingerprint": verified.baseline.fingerprint,
               "ppo_seeds": list(verified.plan.ppo_seeds),
           }
+          if index["bootstrap_config_digest"] != os.environ["BOOTSTRAP_CONFIG_DIGEST"]:
+              raise RuntimeError("baseline is not bound to frozen bootstrap config")
           (root / "study-index.json").write_text(
               json.dumps(index, allow_nan=False, sort_keys=True, indent=2) + "\n",
               encoding="utf-8",

@@ -138,7 +138,6 @@ def test_completed_canonical_bootstrap_docs_are_promoted_and_removed() -> None:
         assert required in research
 
     index = (DOCS / "README.md").read_text(encoding="utf-8")
-    assert "現在Activeなspec/planはない" in index
     for path in COMPLETED_EPHEMERAL_DOCS:
         assert path.name not in index
 
@@ -172,6 +171,8 @@ def test_docs_index_routes_to_every_current_doc() -> None:
         "research/current-status.md",
     ):
         assert target in index
+    for relative in sorted(_doc_files() - REQUIRED_DOC_FILES):
+        assert relative in index
 
 
 def test_agent_contract_defines_update_and_retention_policy() -> None:

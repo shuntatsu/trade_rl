@@ -31,6 +31,8 @@ evaluation/experiments/bootstrap
 
 `evaluation/runs -> evaluation/experiments` の逆依存は禁止する。`evaluation/experiments` からsealed final-test authorizationへ依存してはならない。
 
+`evaluation/experiments` 内部では、`codec.py` がpersisted payloadのdecode/semantic identity、`inspection.py` がread-only filesystem reconstructionとtamper validation、`workflow.py` がmutation commandを所有する。read sideからmutation workflowへの逆依存は作らない。既存の `workflow.StudySnapshot` / `workflow.inspect_study` は明示export契約としてinspection ownerの同一objectをre-exportする。
+
 ## Canonical M2 bootstrap preparation
 
 Canonical M2 bootstrapは、real-data development Studyを開始できる状態までを一度だけ構築するpreparation-only boundaryである。公開入口は `CanonicalM2BootstrapConfig`、`CanonicalM2BootstrapResult`、`bootstrap_canonical_m2_study`、`inspect_canonical_m2_bootstrap` の4つに限定する。
@@ -125,7 +127,7 @@ factorごとに影響しないstrategyのraw returnsを完全一致で検証す�
 
 ## State machine and lineage
 
-Study mutationは`StudyStore.mutation_lock()`でprocess間serializeし、各mutation前にdisk artifactからstateを再構築する。別DBやin-memory pointerをstateの正本にしない。
+Study mutationは`StudyStore.mutation_lock()`でprocess間serializeし、各mutation前にdisk artifactからstateを再構築する。別DBやin-memory pointerをstateの正本にしない。 read-only `inspect_study` も同じmutation lock内でdisk graphを再構築するため、inspectionとmutationが別moduleでもstate authorityはfilesystemのままである。
 
 ```text
 create_study

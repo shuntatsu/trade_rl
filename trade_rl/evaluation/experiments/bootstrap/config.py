@@ -13,7 +13,7 @@ import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.experiments.contracts import ControlledFactor
-from trade_rl.evaluation.runs.config import (
+from trade_rl.evaluation.runs import (
     CandidateRunConfig,
     parse_candidate_run_config,
 )

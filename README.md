@@ -62,6 +62,16 @@ provenance.json
 
 See `docs/research/current-status.md` for the accepted config keys, fit/evaluation rules, evidence outputs, and next-step decision process.
 
+## Optional perfect-information bound
+
+The public perfect-information robustness bound uses SciPy. Install it through the capability extra:
+
+```bash
+uv sync --extra oracle
+```
+
+The `dev` extra also includes the same SciPy range for the repository test suite.
+
 ## Research rule
 
 Do not add model complexity to make a result pass. First verify causality, data quality, execution accounting, costs, symbol-level robustness, and unused-data evidence. A correct `no winner` result is preferable to an overfit winner.

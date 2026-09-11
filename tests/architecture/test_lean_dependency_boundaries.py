@@ -4,30 +4,30 @@ import ast
 import sys
 from pathlib import Path
 
+from tests.architecture.imports import ImportCollector, within_module
+
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "trade_rl"
 
 
 def collect_imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    result: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            result.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            result.add(node.module)
-    return result
+    return ImportCollector(PACKAGE).collect(path)
 
 
 def collect_trade_rl_imports(path: Path) -> set[str]:
-    return {name for name in collect_imports(path) if name.startswith("trade_rl")}
+    return {name for name in collect_imports(path) if within_module(name, "trade_rl")}
 
 
 def _offenders(root: Path, forbidden_prefixes: tuple[str, ...]) -> list[str]:
+    collector = ImportCollector(PACKAGE)
     result: list[str] = []
     for path in sorted(root.rglob("*.py")):
-        imports = collect_trade_rl_imports(path)
-        if any(name.startswith(forbidden_prefixes) for name in imports):
+        imports = collector.collect(path)
+        if any(
+            within_module(name, prefix)
+            for name in imports
+            for prefix in forbidden_prefixes
+        ):
             result.append(str(path.relative_to(ROOT)))
     return result
 
@@ -94,6 +94,16 @@ def test_integrations_do_not_depend_on_strategy_or_evaluation() -> None:
 
 def test_strategies_do_not_depend_on_evaluation() -> None:
     assert _offenders(PACKAGE / "strategies", ("trade_rl.evaluation",)) == []
+
+
+def test_rl_does_not_depend_on_forecast_family() -> None:
+    assert (
+        _offenders(
+            PACKAGE / "strategies" / "rl",
+            ("trade_rl.strategies.forecasts",),
+        )
+        == []
+    )
 
 
 def test_risk_does_not_depend_on_strategy_or_evaluation() -> None:

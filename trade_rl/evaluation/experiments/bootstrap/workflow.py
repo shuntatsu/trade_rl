@@ -12,6 +12,7 @@ from typing import cast
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.artifacts.publication import (
     inspect_published_market_dataset_artifact,
@@ -29,11 +30,11 @@ from trade_rl.evaluation.experiments.bootstrap.config import (
     load_canonical_m2_bootstrap_config,
 )
 from trade_rl.evaluation.experiments.workflow import create_study, inspect_study
-from trade_rl.evaluation.runs.config import (
+from trade_rl.evaluation.runs import (
     ResolvedCandidateRunSpec,
+    build_candidate_run_provenance,
     resolve_candidate_run_spec,
 )
-from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
 from trade_rl.integrations.binance import (
     BinanceTransportMode,
     binance_interval_milliseconds,
@@ -85,13 +86,7 @@ class CanonicalM2BootstrapResult:
             "dataset_artifact_digest",
             "study_digest",
         ):
-            value = getattr(self, field)
-            if not isinstance(value, str) or len(value) != 64:
-                raise ValueError(f"{field} must be a SHA-256 digest")
-            try:
-                int(value, 16)
-            except ValueError as error:
-                raise ValueError(f"{field} must be a SHA-256 digest") from error
+            _require_digest(getattr(self, field), field=field)
 
 
 def _write_json(path: Path, payload: Mapping[str, object]) -> None:
@@ -122,13 +117,9 @@ def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
 
 
 def _require_digest(value: object, *, field: str) -> str:
-    if not isinstance(value, str) or len(value) != 64:
+    if not isinstance(value, str):
         raise ValueError(f"{field} must be a SHA-256 digest")
-    try:
-        int(value, 16)
-    except ValueError as error:
-        raise ValueError(f"{field} must be a SHA-256 digest") from error
-    return value
+    return require_sha256(value, field=field)
 
 
 def _require_mapping(value: object, *, field: str) -> dict[str, object]:

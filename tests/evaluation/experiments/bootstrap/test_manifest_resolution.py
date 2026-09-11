@@ -24,9 +24,7 @@ def _publish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _read_manifest(root: Path) -> dict[str, object]:
-    payload = json.loads(
-        (root / "bootstrap-manifest.json").read_text(encoding="utf-8")
-    )
+    payload = json.loads((root / "bootstrap-manifest.json").read_text(encoding="utf-8"))
     assert isinstance(payload, dict)
     return payload
 

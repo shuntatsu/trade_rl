@@ -105,7 +105,9 @@ class ImportCollector:
         try:
             exports = literal_public_exports(tree)
         except ValueError as error:
-            raise ValueError(f"{path}: star import requires a literal __all__") from error
+            raise ValueError(
+                f"{path}: star import requires a literal __all__"
+            ) from error
         if exports is not None:
             return set(exports)
         names: set[str] = set()

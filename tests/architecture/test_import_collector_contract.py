@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from tools.agent_repo.source_index import ImportCollector
 
 from tests.architecture import test_lean_dependency_boundaries as boundaries
+from tools.agent_repo.source_index import ImportCollector
 
 SEALED = "trade_rl.evaluation.robustness.walk_forward.sealed_test"
 CLIENT = "trade_rl/evaluation/experiments/client.py"
@@ -43,7 +43,7 @@ def source_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         ),
     }
     for name, text in files.items():
-        _write(tmp_path, name, text)
+        _write(source_tree if False else tmp_path, name, text)
     monkeypatch.setattr(boundaries, "ROOT", tmp_path)
     monkeypatch.setattr(boundaries, "PACKAGE", tmp_path / "trade_rl")
     return tmp_path

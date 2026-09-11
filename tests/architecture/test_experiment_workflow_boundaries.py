@@ -114,13 +114,60 @@ WORKFLOW_COMMANDS = {
 }
 
 
+def _tree(path: Path) -> ast.Module:
+    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
 def _defined_names(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     return {
         node.name
-        for node in tree.body
+        for node in _tree(path).body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     }
+
+
+def _function(path: Path, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
+    for node in _tree(path).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return node
+    raise AssertionError(f"missing function {name} in {path}")
+
+
+def _is_mutation_lock_call(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "mutation_lock"
+    )
+
+
+def _is_reconstruct_call(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_reconstruct"
+    )
+
+
+def _assert_reconstruction_is_lock_scoped(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> None:
+    locks = [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.With)
+        and any(_is_mutation_lock_call(item.context_expr) for item in node.items)
+    ]
+    assert len(locks) == 1, function.name
+    lock = locks[0]
+    assert lock.end_lineno is not None
+    reconstruct_calls = [
+        node for node in ast.walk(function) if _is_reconstruct_call(node)
+    ]
+    assert reconstruct_calls, function.name
+    assert all(
+        lock.lineno <= call.lineno <= lock.end_lineno for call in reconstruct_calls
+    ), function.name
 
 
 def test_experiment_boundary_modules_exist() -> None:
@@ -158,6 +205,18 @@ def test_workflow_keeps_failure_injection_seams() -> None:
         "analyze_evidence_set",
     ):
         assert callable(getattr(workflow_module, name, None)), name
+
+
+def test_mutation_commands_reconstruct_only_inside_the_mutation_lock() -> None:
+    path = EXPERIMENTS / "workflow.py"
+    for name in sorted(WORKFLOW_COMMANDS):
+        _assert_reconstruction_is_lock_scoped(_function(path, name))
+
+
+def test_inspection_reconstructs_inside_the_same_mutation_lock() -> None:
+    _assert_reconstruction_is_lock_scoped(
+        _function(EXPERIMENTS / "inspection.py", "inspect_study")
+    )
 
 
 def test_inspection_exports_preserve_existing_module_identity() -> None:

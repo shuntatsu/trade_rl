@@ -18,8 +18,7 @@ def _tree(root: Path) -> None:
     _write(
         root,
         "trade_rl/evaluation/runs/__init__.py",
-        "from .config import CandidateRunConfig\n"
-        "__all__ = ['CandidateRunConfig']\n",
+        "from .config import CandidateRunConfig\n__all__ = ['CandidateRunConfig']\n",
     )
     _write(
         root,
@@ -59,7 +58,9 @@ def _tree(root: Path) -> None:
     )
 
 
-def test_context_reports_source_derived_capability_and_consumers(tmp_path: Path) -> None:
+def test_context_reports_source_derived_capability_and_consumers(
+    tmp_path: Path,
+) -> None:
     _tree(tmp_path)
     index = SourceIndex.build(tmp_path)
 
@@ -77,21 +78,15 @@ def test_context_reports_source_derived_capability_and_consumers(tmp_path: Path)
     )
     assert context.public_exports == ("CandidateRunConfig",)
     assert context.schema_constants == ("RUN_SCHEMA",)
-    assert context.test_candidates == (
-        "tests/evaluation/test_candidate_run_config.py",
-    )
-    assert context.doc_references == (
-        "docs/architecture/package-boundaries.md",
-    )
+    assert context.test_candidates == ("tests/evaluation/test_candidate_run_config.py",)
+    assert context.doc_references == ("docs/architecture/package-boundaries.md",)
     assert context.effect_signals == ("filesystem:write_text",)
 
 
 def test_context_does_not_invent_public_or_network_semantics(tmp_path: Path) -> None:
     _tree(tmp_path)
 
-    context = SourceIndex.build(tmp_path).context(
-        "trade_rl/evaluation/runs/config.py"
-    )
+    context = SourceIndex.build(tmp_path).context("trade_rl/evaluation/runs/config.py")
 
     assert "_PrivateHelper" not in context.public_exports
     assert all("network:" not in value for value in context.effect_signals)

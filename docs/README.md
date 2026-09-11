@@ -14,11 +14,11 @@
 
 現在Activeなspecは次の1件である。
 
-- [`specs/2026-09-11-binance-vision-daily-repair-design.md`](specs/2026-09-11-binance-vision-daily-repair-design.md) — incomplete monthly Binance Vision archiveをofficial daily archiveで明示的・再現可能にrepairするsource-evidence契約
+- [`specs/2026-09-11-binance-vision-daily-repair-design.md`](specs/2026-09-11-binance-vision-daily-repair-design.md) — self-review済み。incomplete monthly Binance Vision archiveをofficial daily archiveで明示的・再現可能にrepairするsource-evidence契約
 
 現在Activeなplanは次の1件である。
 
-- [`plans/2026-09-11-binance-vision-daily-repair-implementation.md`](plans/2026-09-11-binance-vision-daily-repair-implementation.md) — primary plan維持、resolution evidence、manifest v2互換、反証検証、canonical M2再実行までのTDD実装計画
+- [`plans/2026-09-11-binance-vision-daily-repair-implementation.md`](plans/2026-09-11-binance-vision-daily-repair-implementation.md) — self-review済み。primary plan維持、resolution evidence、manifest v2互換、反証検証、canonical M2再実行までのTDD実装計画
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

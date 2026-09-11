@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from pathlib import Path
 from typing import cast
 
@@ -25,26 +27,49 @@ def _policy_artifact_mapping(
     return {"policy_digest": policy.digest, **policy.to_mapping()}
 
 
+def _publish_immutable_bytes(
+    path: str | Path,
+    payload: bytes,
+    *,
+    artifact_name: str,
+) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        if target.read_bytes() != payload:
+            raise FileExistsError(
+                f"refusing to overwrite immutable {artifact_name}: {target}"
+            )
+        return target
+
+    temporary = target.with_name(
+        f".{target.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}"
+    )
+    temporary.write_bytes(payload)
+    try:
+        try:
+            os.link(temporary, target)
+        except FileExistsError as error:
+            if target.read_bytes() != payload:
+                raise FileExistsError(
+                    f"refusing to overwrite immutable {artifact_name}: {target}"
+                ) from error
+        return target
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def write_runtime_performance_evidence(
     path: str | Path,
     evidence: RuntimePerformanceEvidence,
 ) -> Path:
     """Persist one canonical performance evidence artifact without overwriting drift."""
 
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    encoded = canonical_json_bytes(_artifact_mapping(evidence))
-    if target.exists():
-        if target.read_bytes() != encoded:
-            raise FileExistsError(f"refusing to overwrite immutable evidence: {target}")
-        return target
-    temporary = target.with_name(f".{target.name}.tmp")
-    temporary.write_bytes(encoded)
-    try:
-        temporary.replace(target)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return target
+    return _publish_immutable_bytes(
+        path,
+        canonical_json_bytes(_artifact_mapping(evidence)),
+        artifact_name="evidence",
+    )
 
 
 def write_runtime_performance_policy(
@@ -53,20 +78,11 @@ def write_runtime_performance_policy(
 ) -> Path:
     """Persist one reviewed performance policy without overwriting threshold drift."""
 
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    encoded = canonical_json_bytes(_policy_artifact_mapping(policy))
-    if target.exists():
-        if target.read_bytes() != encoded:
-            raise FileExistsError(f"refusing to overwrite immutable policy: {target}")
-        return target
-    temporary = target.with_name(f".{target.name}.tmp")
-    temporary.write_bytes(encoded)
-    try:
-        temporary.replace(target)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return target
+    return _publish_immutable_bytes(
+        path,
+        canonical_json_bytes(_policy_artifact_mapping(policy)),
+        artifact_name="policy",
+    )
 
 
 def load_runtime_performance_evidence(

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tools.agent_repo.git_state import read_git_state
+from tools.agent_repo.path_safety import checked_repo_directory, checked_repo_file
 from tools.agent_repo.semantic_diff import semantic_diff
 from tools.agent_repo.source_index import SourceIndex
 
@@ -66,7 +67,11 @@ _TIER_ORDER = {"fast": 0, "final": 1, "extended": 2, "signal": 3}
 
 
 def _existing(repository: Path, relative: str) -> bool:
-    return (repository / relative).is_file()
+    candidate = repository / relative
+    if not candidate.exists() and not candidate.is_symlink():
+        return False
+    checked_repo_file(repository, candidate)
+    return True
 
 
 def _pytest_command(paths: set[str]) -> str | None:
@@ -95,8 +100,10 @@ def plan_verification(
     fast_tests: set[str] = set()
     index = SourceIndex.build(root)
     for path in sorted(production_paths):
-        if not (root / path).is_file():
+        candidate = root / path
+        if not candidate.exists() and not candidate.is_symlink():
             continue
+        checked_repo_file(root, candidate)
         context = index.context(path)
         fast_tests.update(context.test_candidates)
         if path.startswith("trade_rl/evaluation/runs/") and _existing(
@@ -139,20 +146,22 @@ def plan_verification(
     steps.extend(_FINAL_STEPS)
 
     if "NETWORK_EFFECT" in signal_kinds:
-        if (root / "tests" / "integrations").is_dir():
-            steps.append(
-                VerificationStep(
-                    "extended",
-                    "uv run pytest -q tests/integrations",
-                    "network effect changed; verify transport, retry, fallback, and offline boundaries",
-                )
-            )
-        else:
+        integration_tests = root / "tests" / "integrations"
+        if not integration_tests.exists() and not integration_tests.is_symlink():
             steps.append(
                 VerificationStep(
                     "extended",
                     "manual: inspect network/retry/fallback contract",
                     "network effect changed but no dedicated integration test directory was found",
+                )
+            )
+        else:
+            checked_repo_directory(root, integration_tests)
+            steps.append(
+                VerificationStep(
+                    "extended",
+                    "uv run pytest -q tests/integrations",
+                    "network effect changed; verify transport, retry, fallback, and offline boundaries",
                 )
             )
     if "SCHEMA" in signal_kinds:

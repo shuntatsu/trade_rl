@@ -77,13 +77,16 @@ def test_semantic_diff_reports_narrow_review_signals(tmp_path: Path) -> None:
         "DEPENDENCY",
         "FILESYSTEM_EFFECT",
     } <= kinds
-    assert SemanticSignal(
-        kind="DATA_SHAPE",
-        change="added",
-        path="trade_rl/example.py",
-        name="NewConfig",
-        detail="dataclass",
-    ) in signals
+    assert (
+        SemanticSignal(
+            kind="DATA_SHAPE",
+            change="added",
+            path="trade_rl/example.py",
+            name="NewConfig",
+            detail="dataclass",
+        )
+        in signals
+    )
     assert any(
         signal.kind == "PUBLIC_EXPORT"
         and signal.change == "added"

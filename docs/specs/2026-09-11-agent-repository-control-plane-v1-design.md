@@ -12,7 +12,7 @@ Trade RL を「Agentが読みやすいRepository」から、**Agentが発見・�
 
 1. **Agent Eval** — Repository構造が実際にAgentの正答率・探索効率を改善しているか測る。
 2. **Preflight / Context / Impact Inspector** — source/Gitから現在の変更対象・入口・依存・関連検証をその場で導出する。
-3. **Merge Safety** — mainへの変更経路をPR + current-head CI中心にし、Agentの誤操作をRepository側で止める。
+3. **Merge Safety** — mainへの変更経路をPR + current-main-inclusive tested-head CI中心にし、Agentの誤操作をRepository側で止める。
 4. **Semantic Diff** — Git diffだけでは見えにくい新しいauthority・public surface・schema・dependency/effectをreview signalとして可視化する。
 5. **Risk-based Verification Planner** — 開発中は変更リスクに近い検査を選び、最終段階では現行full quality gateへ収束する。
 
@@ -330,18 +330,21 @@ v1では中央lock registryを作らない。
 
 mainは設計時点でunprotectedである。AI Agent運用では、Repository内部の強いCIだけでは誤操作を防ぎきれない。
 
-v1導入時にGitHub側で次を目標とする。
+v1導入時のintegration invariantは **tested PR head contains current `main`** である。merge authorization時点のcurrent `main` commitがtested PR headのancestorであり、その同一PR HEADにpermanent CI successが存在することをcurrent integration evidenceとする。`main` が進んだ後の古いPR-head Greenは、PR head自体が変わっていなくてもstale evidenceとして扱う。
+
+GitHub側で次を目標とする。
 
 - main direct mutationを通常経路にしない;
 - PR経由を標準化;
-- current final HEADのCI successをmerge条件にする;
+- tested PR headがcurrent `main` を含むことをmerge条件にする;
+- その同一tested PR HEADのpermanent CI successをmerge条件にする;
 - force-push/history rewriteを禁止;
 - main deletionを禁止;
 - auto-mergeは明示的に採用しない。
 
-required approval count等の具体設定は、solo-maintainer workflowを壊さないよう実装時にGitHubの利用可能なruleset/branch-protection機能を確認して決める。
+required approval count等の具体設定は、solo-maintainer workflowを壊さないよう実装時にGitHubの利用可能なruleset/branch-protection機能を確認して決める。strict branch-up-to-date / merge queue等でcurrent-main containmentをGitHub側に強制できる場合はそれを利用する。設定surfaceがその条件を表現できない場合でもchecked-in process invariantを弱めず、merge直前にread-only compare/merge-baseでcurrent `main` containmentを明示的に検証する。
 
-Protection設定を変更した後はread-backし、期待したruleが有効か検証する。設定に失敗した場合、Repositoryが保護されたと主張しない。
+Protection設定を変更した後はread-backし、期待したruleが有効か検証する。設定に失敗した場合、Repositoryが保護されたと主張しない。protectionが未設定の状態でdirect-main rejectionを確認するための書き込みprobeは、失敗時に`main`を実際に変更し得るため行わない。
 
 ## 17. PR quality contract
 
@@ -375,6 +378,7 @@ v1実装中も次を維持する。
 - architecture testsの既存hard gateを弱めない。
 - full final quality gateをfast local plannerで置き換えない。
 - optional/extended checksを無条件に常時実行へ昇格しない。
+- merge authorization時のtested PR headはthen-current `main` を包含し、same-head permanent CI evidenceを持つ。
 
 ## 19. Failure modes
 
@@ -420,6 +424,12 @@ rulesetを厳しくしすぎて緊急修正不能になる。
 
 **Mitigation:** existing distribution closureをoracleとして使い、production `trade_rl/**/*.py` rosterとの契約を維持する。sdist inclusionは別途観測し、production wheelの境界と混同しない。
 
+### FM-8: Green PR head is stale against current main
+
+PR HEAD自身はGreenでも、その後`main`が進み、実際の統合treeが未検証になる。
+
+**Mitigation:** merge authorization直前にtested PR head contains current `main` をread-only compare/merge-baseで確認する。満たさなければcurrent `main` をnon-forceで取り込んだ新HEADを作り、permanent CIを再実行する。古いGreenを再利用しない。
+
 ## 20. Risk
 
 全体リスクは **Medium**。
@@ -438,6 +448,7 @@ control plane自身にも独立Oracleを持つ。
 - verification planner table-driven testでchanged paths→recommended layersを検証;
 - generated outputがfilesystem/current docsへ永続化されないことを確認;
 - distribution closureで`tools/`がproduction wheelへ混入しないことを確認;
+- tested PR headとcurrent `main` のcompare/merge-baseでintegration evidenceのfreshnessを確認;
 - branch protectionはGitHub read-backで検証;
 - Agent Evalはfresh-agent runを用い、rubricでauthority discovery / duplicate creation / scope / verificationを評価。
 
@@ -466,7 +477,7 @@ Agent Evalは通常pytestとは分離したExtended verificationとする。
 7. `trade_rl` runtime public API、artifact schema、economic behaviorを変更しない。
 8. control planeはproduction wheelへ混入しない。
 9. Agent Eval task/rubricが存在し、少なくとも構造変更前後を比較できる。
-10. main protection導入時は設定をread-backし、current-head CIをmerge safetyの根拠にできる。
+10. merge authorization時はtested PR head contains current `main` を満たし、その同一PR HEADのpermanent CI successをcurrent integration evidenceとして確認できる。main protection導入時はGitHub設定もread-backする。
 11. Coverage 80%は目標signalとして扱い、不要なtestを増やすhard gateにしない。
 12. current full CI / architecture / distribution gateを弱めない。
 
@@ -484,6 +495,7 @@ Agent Evalは通常pytestとは分離したExtended verificationとする。
 - semantic-diff / verification-planner falsification mutationsを実施;
 - final diffにgenerated reports、debug data、一時workflowがない;
 - Agent Evalで少なくともbaseline比の悪化がないことを確認、または未実行理由を明記;
+- merge authorization直前にfinal tested PR head contains current `main` とsame-head permanent CIを確認;
 - branch protectionを実施したphaseではGitHub read-backを確認;
 - 未検証事項・残存riskを明記。
 
@@ -509,7 +521,7 @@ risk routingを追加。local fast loopを改善するが、final full CIを維�
 
 ### Phase 4 — Merge Safety
 
-GitHub ruleset/branch-protectionを確認し、PR + final-head CIを標準統合経路にする。Repository setting変更はコード差分と別に検証可能にする。
+GitHub ruleset/branch-protectionを確認し、PR + current-main-inclusive tested-head CIを標準統合経路にする。Repository setting変更はコード差分と別に検証可能にする。
 
 ### Phase 5 — Agent Eval rerun / architecture decision
 

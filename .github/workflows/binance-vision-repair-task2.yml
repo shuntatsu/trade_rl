@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: true
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
         with:
@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "208fbaadc418b91b80fab4d311ec1942d5da7d1f"
+          test "$(git rev-parse HEAD^^)" = "208fbaadc418b91b80fab4d311ec1942d5da7d1f"
           python - <<'PY'
           from pathlib import Path
           import re
@@ -65,7 +65,7 @@ jobs:
 
 
           def _snapshot'''
-          updated, count = pattern.subn(replacement, test_text)
+          updated, count = pattern.subn(lambda _match: replacement, test_text)
           if count != 1:
               raise RuntimeError(f"expected one fixture replacement, got {count}")
           test_file.write_text(updated)
@@ -87,9 +87,6 @@ jobs:
           test ! -e .github/workflows/binance-vision-repair-task2.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add trade_rl/evaluation/experiments/bootstrap/binance.py \
-            tests/evaluation/experiments/bootstrap/test_binance.py \
-            tests/evaluation/experiments/bootstrap/test_binance_repair.py \
-            .github/workflows/binance-vision-repair-task2.yml
+          git add -A
           git commit -m "fix: complete frozen Vision daily repair source"
           git push origin HEAD:refs/heads/fix/binance-vision-daily-repair-v1

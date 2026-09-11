@@ -13,7 +13,7 @@ from gymnasium import spaces
 from trade_rl.data.market import MarketDataset
 from trade_rl.risk import PreTradeRisk, PreTradeRiskConfig
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
-from trade_rl.strategies.forecasts.supervised import (
+from trade_rl.strategies.dataset_scope import (
     validated_feature_indices,
     validated_symbol_indices,
 )

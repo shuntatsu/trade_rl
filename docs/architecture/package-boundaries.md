@@ -52,6 +52,7 @@ trade_rl/
 │   ├── targets/{execution.py,exposure_controller.py}
 │   └── diagnostics/{execution_stress.py,funding.py,runtime_performance.py,runtime_performance_io.py}
 ├── strategies/
+│   ├── dataset_scope.py
 │   ├── interface.py
 │   ├── position_intent.py
 │   ├── controls.py
@@ -109,7 +110,7 @@ execution/accountingの経済正本と、order/stateful/target/diagnosticsを持
 
 ### `strategies`
 
-small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。
+small strategy interfaceとlogical intent、controls、rule、forecast、teacher-free RLを持つ。evaluationを知らない。`dataset_scope.py` はdatasetに束縛されたfeature/symbol selection validationの単一ownerであり、forecastとRLのsibling familyが互いの内部実装へ依存せず共有する。model自身やcandidate config自身の不変条件validationは各ownerに残す。
 
 ### `evaluation`
 
@@ -150,11 +151,12 @@ integrations -X-> strategies/evaluation
 risk        -X-> strategies/evaluation
 simulation  -X-> strategies/evaluation
 strategies  -X-> evaluation
+strategies/rl -X-> strategies/forecasts
 evaluation/runs -X-> evaluation/experiments
 evaluation/experiments/bootstrap -X-> sealed final-test authorization
 ```
 
-`evaluation` はlower core packagesを利用してよい。ただしlower layerからbootstrapへ逆依存しない。依存方向を逆転させる必要が出た場合、循環依存や責務漏れを先に疑う。
+`evaluation` はlower core packagesを利用してよい。ただしlower layerからbootstrapへ逆依存しない。strategy family間で共有するdataset-bound selectionはroot `strategies/dataset_scope.py` を経由し、RLからforecast内部へ依存させない。依存方向を逆転させる必要が出た場合、循環依存や責務漏れを先に疑う。
 
 ### Static import ownership gate
 

@@ -80,7 +80,6 @@ CODEC_OWNED = {
     "_decision_from_payload",
     "_failure_from_payload",
     "_freeze_from_payload",
-    "_resolved_contract",
     "_semantic_without_seed",
     "_semantic_payload_without_seed",
     "_baseline_context_digest",

@@ -27,7 +27,6 @@ from trade_rl.evaluation.experiments.store import StudyStore
 from trade_rl.evaluation.runs import (
     CandidateRunConfig,
     LoadedCandidateRun,
-    ResolvedCandidateRunSpec,
     build_candidate_run_provenance,
     execute_candidate_run,
     inspect_candidate_run_artifact,
@@ -146,31 +145,6 @@ def _evidence_fingerprint(
     )
 
 
-def _resolved_run_config(spec: ResolvedCandidateRunSpec) -> ResolvedRunConfig:
-    config = spec.config
-    lean = spec.lean_config
-    return ResolvedRunConfig(
-        signal_name=config.signal_name,
-        signal_index=lean.signal_index,
-        feature_names=config.feature_names,
-        feature_indices=lean.feature_indices,
-        fit_symbol_names=config.fit_symbol_names,
-        fit_symbol_indices=lean.fit_symbol_indices,
-        fit_cutoff=str(lean.fit_cutoff),
-        rule_entry_threshold=lean.rule_entry_threshold,
-        rule_exit_threshold=lean.rule_exit_threshold,
-        forecast_entry_threshold=lean.forecast_entry_threshold,
-        forecast_exit_threshold=lean.forecast_exit_threshold,
-        ppo_total_timesteps=lean.ppo_total_timesteps,
-        ppo_seed=lean.ppo_seed,
-        evaluation_start=str(config.evaluation_start),
-        evaluation_stop_exclusive=str(config.evaluation_stop_exclusive),
-        gross_budget=config.gross_budget,
-        initial_capital=config.initial_capital,
-        execution_overlay="zero_overlay_dataset_fields_authoritative",
-    )
-
-
 def _without_seed(config: ResolvedRunConfig) -> dict[str, object]:
     payload = config.to_payload()
     payload.pop("ppo_seed")
@@ -179,18 +153,9 @@ def _without_seed(config: ResolvedRunConfig) -> dict[str, object]:
 
 def _check_study_fixed_config(plan: StudyPlan, resolved: ResolvedRunConfig) -> None:
     baseline = plan.baseline_config
-    fixed_pairs = (
-        ("fit_cutoff", resolved.fit_cutoff, baseline.fit_cutoff),
-        ("evaluation_start", resolved.evaluation_start, baseline.evaluation_start),
-        (
-            "evaluation_stop_exclusive",
-            resolved.evaluation_stop_exclusive,
-            baseline.evaluation_stop_exclusive,
-        ),
-        ("initial_capital", resolved.initial_capital, baseline.initial_capital),
-        ("execution_overlay", resolved.execution_overlay, baseline.execution_overlay),
-    )
-    for field, actual, expected in fixed_pairs:
+    for field in plan.FIXED_RESOLVED_FIELDS:
+        actual = getattr(resolved, field)
+        expected = getattr(baseline, field)
         if actual != expected:
             raise ArtifactIntegrityError(f"Study-fixed {field} drifted")
 
@@ -345,7 +310,7 @@ def execute_evidence_set(
                 dataset_artifact_digest=artifact.artifact_digest,
                 config=seed_config,
             )
-            resolved = _resolved_run_config(spec)
+            resolved = ResolvedRunConfig.from_candidate_spec(spec)
             _check_study_fixed_config(plan, resolved)
             if normalized_contract is None:
                 normalized_contract = resolved

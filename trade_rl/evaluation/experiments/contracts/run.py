@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.experiments.contracts._common import (
@@ -13,6 +14,9 @@ from trade_rl.evaluation.experiments.contracts._common import (
     contract_unique_texts,
 )
 from trade_rl.evaluation.experiments.errors import ContractViolationError
+
+if TYPE_CHECKING:
+    from trade_rl.evaluation.runs import ResolvedCandidateRunSpec
 
 
 def _index_tuple(values: object, *, field: str) -> tuple[int, ...]:
@@ -157,6 +161,36 @@ class ResolvedRunConfig:
         object.__setattr__(self, "initial_capital", initial_capital)
         object.__setattr__(self, "execution_overlay", execution_overlay)
         object.__setattr__(self, "schema_version", schema_version)
+
+    @classmethod
+    def from_candidate_spec(
+        cls,
+        spec: ResolvedCandidateRunSpec,
+    ) -> ResolvedRunConfig:
+        """Project one Run Core spec into the controlled-experiment contract."""
+
+        config = spec.config
+        lean = spec.lean_config
+        return cls(
+            signal_name=config.signal_name,
+            signal_index=lean.signal_index,
+            feature_names=config.feature_names,
+            feature_indices=lean.feature_indices,
+            fit_symbol_names=config.fit_symbol_names,
+            fit_symbol_indices=lean.fit_symbol_indices,
+            fit_cutoff=str(lean.fit_cutoff),
+            rule_entry_threshold=lean.rule_entry_threshold,
+            rule_exit_threshold=lean.rule_exit_threshold,
+            forecast_entry_threshold=lean.forecast_entry_threshold,
+            forecast_exit_threshold=lean.forecast_exit_threshold,
+            ppo_total_timesteps=lean.ppo_total_timesteps,
+            ppo_seed=lean.ppo_seed,
+            evaluation_start=str(config.evaluation_start),
+            evaluation_stop_exclusive=str(config.evaluation_stop_exclusive),
+            gross_budget=config.gross_budget,
+            initial_capital=config.initial_capital,
+            execution_overlay="zero_overlay_dataset_fields_authoritative",
+        )
 
     def to_payload(self) -> dict[str, object]:
         return {

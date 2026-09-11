@@ -12,6 +12,7 @@ from typing import cast
 
 import numpy as np
 
+from trade_rl._validation import require_sha256
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.artifacts.publication import (
     inspect_published_market_dataset_artifact,
@@ -85,13 +86,7 @@ class CanonicalM2BootstrapResult:
             "dataset_artifact_digest",
             "study_digest",
         ):
-            value = getattr(self, field)
-            if not isinstance(value, str) or len(value) != 64:
-                raise ValueError(f"{field} must be a SHA-256 digest")
-            try:
-                int(value, 16)
-            except ValueError as error:
-                raise ValueError(f"{field} must be a SHA-256 digest") from error
+            _require_digest(getattr(self, field), field=field)
 
 
 def _write_json(path: Path, payload: Mapping[str, object]) -> None:
@@ -122,13 +117,9 @@ def _read_json_object(path: Path, *, label: str) -> dict[str, object]:
 
 
 def _require_digest(value: object, *, field: str) -> str:
-    if not isinstance(value, str) or len(value) != 64:
+    if not isinstance(value, str):
         raise ValueError(f"{field} must be a SHA-256 digest")
-    try:
-        int(value, 16)
-    except ValueError as error:
-        raise ValueError(f"{field} must be a SHA-256 digest") from error
-    return value
+    return require_sha256(value, field=field)
 
 
 def _require_mapping(value: object, *, field: str) -> dict[str, object]:

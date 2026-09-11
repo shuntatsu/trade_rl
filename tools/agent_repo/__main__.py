@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from tools.agent_repo.git_state import read_git_state
+from tools.agent_repo.semantic_diff import semantic_diff
 from tools.agent_repo.source_index import SourceIndex
 
 
@@ -31,6 +32,9 @@ def _parser() -> argparse.ArgumentParser:
 
     impact = subparsers.add_parser("impact")
     impact.add_argument("paths", nargs="+")
+
+    diff = subparsers.add_parser("diff")
+    diff.add_argument("--base", dest="base_ref", required=True)
     return parser
 
 
@@ -38,6 +42,13 @@ def _dispatch(args: argparse.Namespace, repository: Path) -> object:
     command = str(args.command)
     if command == "preflight":
         return asdict(read_git_state(repository, base_ref=args.base_ref))
+    if command == "diff":
+        return {
+            "signals": [
+                asdict(signal)
+                for signal in semantic_diff(repository, base_ref=str(args.base_ref))
+            ]
+        }
 
     index = SourceIndex.build(repository)
     if command == "context":

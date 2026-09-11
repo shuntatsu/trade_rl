@@ -149,6 +149,32 @@ def test_semantic_diff_reports_project_and_ci_surfaces(tmp_path: Path) -> None:
     )
 
 
+def test_semantic_diff_ignores_optional_dependency_reordering(tmp_path: Path) -> None:
+    _baseline(tmp_path)
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        "[project]\n"
+        "name = 'example'\n\n"
+        "[project.optional-dependencies]\n"
+        "feature = ['alpha==1', 'beta==2']\n",
+    )
+    _git(tmp_path, "add", "pyproject.toml")
+    _git(tmp_path, "commit", "-m", "add optional extra")
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        "[project]\n"
+        "name = 'example'\n\n"
+        "[project.optional-dependencies]\n"
+        "feature = ['beta==2', 'alpha==1']\n",
+    )
+
+    signals = semantic_diff(tmp_path, base_ref="main")
+
+    assert all(signal.kind != "PROJECT_EXTRA" for signal in signals)
+
+
 def test_semantic_diff_ignores_docstrings_comments_and_private_plain_classes(
     tmp_path: Path,
 ) -> None:

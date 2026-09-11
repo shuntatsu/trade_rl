@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import fields
 from pathlib import Path
 
-import numpy as np
-
 from trade_rl.evaluation.experiments.bootstrap import config as bootstrap_config
-from trade_rl.evaluation.runs.config import CandidateRunConfig, parse_candidate_run_config
+from trade_rl.evaluation.runs.config import (
+    CandidateRunConfig,
+    parse_candidate_run_config,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 RUN_CONFIG_PATH = ROOT / "trade_rl" / "evaluation" / "runs" / "config.py"

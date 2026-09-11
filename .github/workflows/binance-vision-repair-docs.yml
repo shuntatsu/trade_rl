@@ -1,0 +1,113 @@
+name: Binance Vision repair docs
+on:
+  push:
+    branches: [fix/binance-vision-daily-repair-v1]
+    paths: [.github/workflows/binance-vision-repair-docs.yml]
+permissions:
+  contents: write
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Promote durable contract and retire active docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "fc14fe7bb8065c5531e32e203d7c6baefbb21282"
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/architecture/controlled-experiment-loop.md")
+          text = path.read_text()
+
+          old = "3. exact Vision URL planを作り、必要なraw archiveをすべて取得し、URL・SHA-256・sizeのordered rosterをfreezeする。"
+          new = (
+              "3. pre-registrationから決まる`vision-plan.json`をprimary source planとして固定する。"
+              "primary monthly kline archiveのtimestamp coverageに欠損がある場合だけ、欠損UTC dayのofficial daily archiveをdeterministic repairとして取得し、"
+              "`vision-resolution.json`へsymbol/timeframe・missing open timestamp・repair URLを記録する。repair判断にprice/return/P&Lを使わず、補間・synthetic OHLC・REST kline repairは禁止する。"
+              "primary + repairの実使用raw archiveをURL・SHA-256・sizeのordered rosterとしてfreezeする。"
+          )
+          if text.count(old) != 1:
+              raise RuntimeError("canonical bootstrap step 3 changed")
+          text = text.replace(old, new, 1)
+
+          old = "8. config、source evidence、dataset id/schema/digest、StudyPlan digest、implementation/runtime provenanceを`bootstrap-manifest.json`へbindする。"
+          new = (
+              "8. config、primary Vision plan、resolved Vision repair、raw source roster、dataset id/schema/digest、StudyPlan digest、implementation/runtime provenanceを"
+              "`bootstrap-manifest.json`へbindする。新規writerは`canonical_m2_bootstrap_manifest_v2`を出力し`vision_resolution_digest`を含める。"
+              "legacy v1 readerはprimary-only artifactだけを明示的に維持し、v1へresolution fileを後付けしたschema混同は拒否する。"
+          )
+          if text.count(old) != 1:
+              raise RuntimeError("canonical bootstrap step 8 changed")
+          text = text.replace(old, new, 1)
+
+          old = """  source/
+              vision-plan.json
+              vision-cache/**
+              exchange-info/{exchange-info.raw.json,manifest.json}
+          """
+          new = """  source/
+              vision-plan.json
+              vision-resolution.json
+              vision-cache/**
+              exchange-info/{exchange-info.raw.json,manifest.json}
+          """
+          if text.count(old) != 1:
+              raise RuntimeError("canonical bootstrap layout changed")
+          text = text.replace(old, new, 1)
+
+          old = "`inspect_canonical_m2_bootstrap` はnetworkを使わず、保存済みconfig、exact source evidence、dataset artifact、StudyPlan、bootstrap manifestの相互参照を再構築して検証する。raw archiveとsidecarを同時に書き換えた場合でも、bootstrap manifestにfreezeされたraw-source rosterとの不一致で拒否する。"
+          new = (
+              "`inspect_canonical_m2_bootstrap` はnetworkを使わず、保存済みconfig、primary plan、primary raw bytesから再導出したtimestamp gap、"
+              "resolved daily repair、primary + repair raw-source roster、dataset artifact、StudyPlan、bootstrap manifestの相互参照を再構築して検証する。"
+              "保存済み`vision-resolution.json`を盲信せずprimary bytesからrepair URLを再計算する。repair overlapはnormalized open timestamp・OHLC・quote volumeがprimaryと一致する場合だけ許し、"
+              "primaryをauthorityとして1 rowへcollapseする。不一致、repair後のmissing/duplicate/irregular clock、repair raw bytes/sidecar tamperはfail-closedにする。"
+              "raw archiveとsidecarを同時に書き換えた場合でも、bootstrap manifestにfreezeされたraw-source rosterとの不一致で拒否する。"
+          )
+          if text.count(old) != 1:
+              raise RuntimeError("canonical inspection paragraph changed")
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          readme = Path("docs/README.md")
+          index = readme.read_text()
+          old = """現在Activeなspecは次の1件である。
+
+          - [`specs/2026-09-11-binance-vision-daily-repair-design.md`](specs/2026-09-11-binance-vision-daily-repair-design.md) — self-review済み。incomplete monthly Binance Vision archiveをofficial daily archiveで明示的・再現可能にrepairするsource-evidence契約
+
+          現在Activeなplanは次の1件である。
+
+          - [`plans/2026-09-11-binance-vision-daily-repair-implementation.md`](plans/2026-09-11-binance-vision-daily-repair-implementation.md) — self-review済み。primary plan維持、resolution evidence、manifest v2互換、反証検証、canonical M2再実行までのTDD実装計画
+          """
+          new = """現在Activeなspecはない。
+
+          現在Activeなplanはない。
+          """
+          if index.count(old) != 1:
+              raise RuntimeError("docs active index changed; preserve concurrent docs before cleanup")
+          readme.write_text(index.replace(old, new, 1))
+          PY
+          git rm \
+            docs/specs/2026-09-11-binance-vision-daily-repair-design.md \
+            docs/plans/2026-09-11-binance-vision-daily-repair-implementation.md \
+            .github/workflows/binance-vision-repair-docs.yml
+          uv run pytest -q tests/architecture/test_current_docs_layout.py
+          test ! -e docs/specs/2026-09-11-binance-vision-daily-repair-design.md
+          test ! -e docs/plans/2026-09-11-binance-vision-daily-repair-implementation.md
+          test ! -e .github/workflows/binance-vision-repair-docs.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "docs: record frozen Vision repair evidence contract"
+          git push origin HEAD:refs/heads/fix/binance-vision-daily-repair-v1

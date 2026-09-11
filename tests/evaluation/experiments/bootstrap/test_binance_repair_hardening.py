@@ -19,6 +19,8 @@ from trade_rl.evaluation.experiments.bootstrap.binance import (
 )
 from trade_rl.integrations.binance import BinanceTransportError, vision_cache_path
 
+# These tests mutate only source-evidence contracts, never strategy outcomes.
+
 
 def _resolution(root: Path) -> dict[str, object]:
     payload = json.loads((root / "vision-resolution.json").read_text(encoding="utf-8"))

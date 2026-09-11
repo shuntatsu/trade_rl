@@ -93,6 +93,22 @@ def test_context_does_not_invent_public_or_network_semantics(tmp_path: Path) -> 
     assert "tests/data/test_config.py" not in context.test_candidates
 
 
+def test_context_does_not_claim_facade_when_all_is_mutated(tmp_path: Path) -> None:
+    _tree(tmp_path)
+    _write(
+        tmp_path,
+        "trade_rl/evaluation/runs/__init__.py",
+        "from .config import CandidateRunConfig\n"
+        "__all__ = ['CandidateRunConfig']\n"
+        "__all__.append('ShadowExport')\n",
+    )
+
+    context = SourceIndex.build(tmp_path).context("trade_rl/evaluation/runs/config.py")
+
+    assert context.facade_module is None
+    assert context.public_exports == ()
+
+
 def test_impact_is_deterministic_by_path(tmp_path: Path) -> None:
     _tree(tmp_path)
     index = SourceIndex.build(tmp_path)

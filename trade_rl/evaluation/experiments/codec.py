@@ -32,7 +32,7 @@ from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     ContractViolationError,
 )
-from trade_rl.evaluation.runs.config import (
+from trade_rl.evaluation.runs import (
     CandidateRunConfig,
     ResolvedCandidateRunSpec,
 )

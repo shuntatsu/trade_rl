@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.architecture import test_lean_dependency_boundaries as boundaries
+from tests.architecture.imports import ImportCollector
 
 SEALED = "trade_rl.evaluation.robustness.walk_forward.sealed_test"
 CLIENT = "trade_rl/evaluation/experiments/client.py"
@@ -266,3 +267,43 @@ def test_explicit_named_import_is_not_hidden_by_all(source_tree: Path) -> None:
     facade.write_text(facade.read_text() + "__all__ = ['Safe']\n", encoding="utf-8")
     path = _write(source_tree, CLIENT, "from ..facade import Ledger\n")
     assert SEALED in boundaries.collect_trade_rl_imports(path)
+
+
+def test_direct_collection_does_not_follow_symbol_reexports(source_tree: Path) -> None:
+    path = _write(source_tree, CLIENT, "from ..facade import Ledger\n")
+    direct = ImportCollector(source_tree / "trade_rl").collect_direct(path)
+    assert direct == {"trade_rl.evaluation.facade"}
+    assert SEALED not in direct
+
+
+def test_direct_collection_detects_physical_child_module_import(
+    source_tree: Path,
+) -> None:
+    path = _write(
+        source_tree,
+        CLIENT,
+        "from ..robustness.walk_forward import sealed_test\n",
+    )
+    direct = ImportCollector(source_tree / "trade_rl").collect_direct(path)
+    assert "trade_rl.evaluation.robustness.walk_forward" in direct
+    assert SEALED in direct
+
+
+def test_direct_collection_resolves_relative_child_import(source_tree: Path) -> None:
+    path = _write(
+        source_tree,
+        "trade_rl/evaluation/robustness/walk_forward/client.py",
+        "from . import sealed_test\n",
+    )
+    direct = ImportCollector(source_tree / "trade_rl").collect_direct(path)
+    assert SEALED in direct
+
+
+def test_direct_collection_includes_local_scope_imports(source_tree: Path) -> None:
+    path = _write(
+        source_tree,
+        CLIENT,
+        "def deferred():\n    from ..robustness.walk_forward import sealed_test\n",
+    )
+    direct = ImportCollector(source_tree / "trade_rl").collect_direct(path)
+    assert SEALED in direct

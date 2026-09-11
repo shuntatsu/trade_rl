@@ -8,6 +8,8 @@ one scan only and no generated index is persisted.
 from __future__ import annotations
 
 import ast
+import re
+import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass
 from importlib.util import resolve_name
@@ -23,6 +25,7 @@ FILESYSTEM_EFFECTS = frozenset(
     {"write_text", "write_bytes", "replace", "rename", "unlink", "mkdir", "rmdir"}
 )
 NETWORK_EFFECTS = frozenset({"urlopen"})
+_REQUIREMENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
 def within_module(name: str, prefix: str) -> bool:
@@ -217,6 +220,8 @@ class PathContext:
     public_exports: tuple[str, ...]
     schema_constants: tuple[str, ...]
     test_candidates: tuple[str, ...]
+    architecture_tests: tuple[str, ...]
+    project_references: tuple[str, ...]
     doc_references: tuple[str, ...]
     effect_signals: tuple[str, ...]
 
@@ -266,6 +271,52 @@ def _effect_signals(path: Path) -> tuple[str, ...]:
         if name in NETWORK_EFFECTS:
             result.add(f"network:{name}")
     return tuple(sorted(result))
+
+
+def _normalized_package_name(value: str) -> str:
+    return re.sub(r"[-_.]+", "-", value).lower()
+
+
+def _requirement_package(value: str) -> str | None:
+    match = _REQUIREMENT_NAME.match(value.strip())
+    if match is None:
+        return None
+    return _normalized_package_name(match.group(0))
+
+
+def _imported_top_level_packages(path: Path) -> frozenset[str]:
+    tree = _parse_module(path)
+    result: set[str] = set()
+    importlib_names: set[str] = set()
+    import_module_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                result.add(_normalized_package_name(alias.name.split(".", 1)[0]))
+                if alias.name == "importlib":
+                    importlib_names.add(alias.asname or "importlib")
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            result.add(_normalized_package_name(node.module.split(".", 1)[0]))
+            if node.module == "importlib":
+                for alias in node.names:
+                    if alias.name == "import_module":
+                        import_module_names.add(alias.asname or alias.name)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        target = node.func
+        is_import_module = (
+            isinstance(target, ast.Attribute)
+            and target.attr == "import_module"
+            and isinstance(target.value, ast.Name)
+            and target.value.id in importlib_names
+        ) or (isinstance(target, ast.Name) and target.id in import_module_names)
+        if not is_import_module:
+            continue
+        argument = node.args[0]
+        if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+            result.add(_normalized_package_name(argument.value.split(".", 1)[0]))
+    return frozenset(result)
 
 
 class SourceIndex:
@@ -394,6 +445,58 @@ class SourceIndex:
                     result.add(relative)
         return tuple(sorted(result))
 
+    def _architecture_tests(
+        self,
+        relative_path: str,
+        module: str | None,
+        facade_module: str | None,
+    ) -> tuple[str, ...]:
+        root = self.repository / "tests" / "architecture"
+        if not root.exists() and not root.is_symlink():
+            return ()
+        root = checked_repo_directory(self.repository, root)
+        terms = {relative_path}
+        if module is not None:
+            terms.add(module)
+        if facade_module is not None:
+            terms.add(facade_module)
+        result: list[str] = []
+        for path in sorted(root.rglob("test_*.py")):
+            path = checked_repo_file(self.repository, path)
+            text = path.read_text(encoding="utf-8")
+            if any(term in text for term in terms):
+                result.append(path.relative_to(self.repository).as_posix())
+        return tuple(result)
+
+    def _project_references(self, source: Path) -> tuple[str, ...]:
+        pyproject = self.repository / "pyproject.toml"
+        if not pyproject.exists() and not pyproject.is_symlink():
+            return ()
+        pyproject = checked_repo_file(self.repository, pyproject)
+        payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        project = payload.get("project")
+        if not isinstance(project, dict):
+            return ()
+        optional = project.get("optional-dependencies")
+        if not isinstance(optional, dict):
+            return ()
+        imported = _imported_top_level_packages(source)
+        result: set[str] = set()
+        for extra, requirements in optional.items():
+            if extra == "dev" or not isinstance(extra, str):
+                continue
+            if not isinstance(requirements, list):
+                continue
+            packages = {
+                package
+                for requirement in requirements
+                if isinstance(requirement, str)
+                if (package := _requirement_package(requirement)) is not None
+            }
+            if imported & packages:
+                result.add(f"project.optional-dependencies.{extra}")
+        return tuple(sorted(result))
+
     def _doc_references(
         self, relative_path: str, module: str | None
     ) -> tuple[str, ...]:
@@ -445,6 +548,12 @@ class SourceIndex:
                 domain=domain,
                 capability=capability,
             ),
+            architecture_tests=self._architecture_tests(
+                logical_path,
+                module,
+                facade_module,
+            ),
+            project_references=self._project_references(source),
             doc_references=self._doc_references(logical_path, module),
             effect_signals=_effect_signals(source),
         )

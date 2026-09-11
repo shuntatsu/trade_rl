@@ -35,13 +35,8 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
-      - name: Ruff diagnostic
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv run ruff check --fix trade_rl tests tools
-          git diff -- tests/agent_repo tools/agent_repo
-          exit 1
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
 
       - name: Format
         run: uv run ruff format --check trade_rl tests tools

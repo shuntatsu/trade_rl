@@ -32,6 +32,40 @@ def _module_scope(node: ast.AST) -> Iterator[ast.AST]:
         yield from _module_scope(child)
 
 
+def literal_public_exports(tree: ast.Module) -> tuple[str, ...] | None:
+    """Return one literal ``__all__`` or fail closed on ambiguous mutation/use."""
+
+    declarations = [
+        node
+        for node in _module_scope(tree)
+        if isinstance(node, ast.Name) and node.id == "__all__"
+    ]
+    if not declarations:
+        return None
+    assignments = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
+        )
+    ]
+    if len(assignments) != 1 or len(declarations) != 1:
+        raise ValueError("public exports require one literal __all__ assignment")
+    value = assignments[0].value
+    if not isinstance(value, (ast.List, ast.Tuple)):
+        raise ValueError("public exports require a literal __all__ sequence")
+    names: list[str] = []
+    for item in value.elts:
+        if not isinstance(item, ast.Constant) or not isinstance(item.value, str):
+            raise ValueError("public exports require string literals in __all__")
+        names.append(item.value)
+    return tuple(sorted(names))
+
+
 class ImportCollector:
     """Resolve imports and selected static re-exports against a physical tree."""
 
@@ -66,37 +100,14 @@ class ImportCollector:
         if path in visited:
             return set()
         visited = visited | {path}
-        nodes = list(_module_scope(self._tree(path)))
-        declarations = [
-            node
-            for node in nodes
-            if isinstance(node, ast.Name) and node.id == "__all__"
-        ]
-        if declarations:
-            assignments = [
-                node
-                for node in self._tree(path).body
-                if isinstance(node, (ast.Assign, ast.AnnAssign))
-                and any(
-                    isinstance(target, ast.Name) and target.id == "__all__"
-                    for target in (
-                        node.targets if isinstance(node, ast.Assign) else [node.target]
-                    )
-                )
-            ]
-            if len(assignments) == 1 and len(declarations) == 1:
-                value = assignments[0].value
-                if isinstance(value, (ast.List, ast.Tuple)):
-                    exported_names: set[str] = set()
-                    for item in value.elts:
-                        if not isinstance(item, ast.Constant) or not isinstance(
-                            item.value, str
-                        ):
-                            break
-                        exported_names.add(item.value)
-                    else:
-                        return exported_names
-            raise ValueError(f"{path}: star import requires a literal __all__")
+        tree = self._tree(path)
+        nodes = list(_module_scope(tree))
+        try:
+            exports = literal_public_exports(tree)
+        except ValueError as error:
+            raise ValueError(f"{path}: star import requires a literal __all__") from error
+        if exports is not None:
+            return set(exports)
         names: set[str] = set()
         for node in nodes:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -203,33 +214,10 @@ def _parse_module(path: Path) -> ast.Module:
 
 
 def _literal_public_exports(path: Path) -> tuple[str, ...] | None:
-    tree = _parse_module(path)
-    assignments: list[ast.Assign | ast.AnnAssign] = []
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "__all__"
-            for target in node.targets
-        ):
-            assignments.append(node)
-        elif (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.target.id == "__all__"
-        ):
-            assignments.append(node)
-    if not assignments:
+    try:
+        return literal_public_exports(_parse_module(path))
+    except ValueError:
         return None
-    if len(assignments) != 1:
-        return None
-    value = assignments[0].value
-    if not isinstance(value, (ast.List, ast.Tuple)):
-        return None
-    names: list[str] = []
-    for item in value.elts:
-        if not isinstance(item, ast.Constant) or not isinstance(item.value, str):
-            return None
-        names.append(item.value)
-    return tuple(sorted(names))
 
 
 def _schema_constants(path: Path) -> tuple[str, ...]:
@@ -442,4 +430,10 @@ class SourceIndex:
         return tuple(self.context(path) for path in sorted(set(relative_paths)))
 
 
-__all__ = ["ImportCollector", "PathContext", "SourceIndex", "within_module"]
+__all__ = [
+    "ImportCollector",
+    "PathContext",
+    "SourceIndex",
+    "literal_public_exports",
+    "within_module",
+]

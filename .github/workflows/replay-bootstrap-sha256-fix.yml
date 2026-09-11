@@ -16,14 +16,15 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 3
 
-      - name: Guard exact hardened-main parent
+      - name: Guard exact hardened-main ancestry
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "5c6cb8813fbed8ab7a3a7ee05e9d7eeff06a468f"
-          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/replay-bootstrap-sha256-fix.yml"
+          test "$(git rev-parse HEAD^)" = "6dd06416486005e42c0ffee3ae02050a9d4460a2"
+          test "$(git rev-parse HEAD^^)" = "5c6cb8813fbed8ab7a3a7ee05e9d7eeff06a468f"
+          test "$(git diff --name-only 5c6cb8813fbed8ab7a3a7ee05e9d7eeff06a468f HEAD)" = ".github/workflows/replay-bootstrap-sha256-fix.yml"
 
       - name: Replay exact verified files
         shell: bash
@@ -56,10 +57,11 @@ jobs:
           set -euo pipefail
           rm .github/workflows/replay-bootstrap-sha256-fix.yml
           expected=$(printf '%s\n' ".github/workflows/replay-bootstrap-sha256-fix.yml" "tests/evaluation/experiments/bootstrap/test_digest_validation.py" "trade_rl/evaluation/experiments/bootstrap/workflow.py")
-          observed=$(git diff --name-only HEAD | sort)
+          observed=$(git status --porcelain=v1 --untracked-files=all | cut -c4- | sort)
           test "$observed" = "$expected"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/replay-bootstrap-sha256-fix.yml tests/evaluation/experiments/bootstrap/test_digest_validation.py trade_rl/evaluation/experiments/bootstrap/workflow.py
+          git add -A .github/workflows/replay-bootstrap-sha256-fix.yml tests/evaluation/experiments/bootstrap/test_digest_validation.py trade_rl/evaluation/experiments/bootstrap/workflow.py
+          test "$(git diff --cached --name-only | sort)" = "$expected"
           git commit -m "fix: replay canonical SHA-256 validator on hardened main"
           git push origin HEAD:fix/bootstrap-sha256-validator-authority-main

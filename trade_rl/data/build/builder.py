@@ -11,6 +11,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.data.contracts import (
     InstrumentContract,
     MarketBuildConfig,
+    MarketCalendarKind,
 )
 from trade_rl.data.features.core import calculate_feature_events
 from trade_rl.data.features.cross_asset import (
@@ -265,7 +266,7 @@ class MarketDatasetBuilder:
             raise ValueError("instrument symbols must be unique")
         raw_series = tuple(source.load(symbol) for symbol in symbols)
         step_ns = int(round(self.config.bar_hours * _NS_PER_HOUR))
-        if self.config.calendar_kind == "session_calendar":
+        if self.config.calendar_kind == MarketCalendarKind.SESSION.value:
             timestamps = _session_clock(raw_series)
             alignment_step: int | None = None
         else:
@@ -483,7 +484,7 @@ class MarketDatasetBuilder:
             metadata["metadata_evidence"] = identity_provenance
         periods_per_year = (
             int(round(365.0 * 24.0 / self.config.bar_hours))
-            if self.config.calendar_kind == "continuous_24_7"
+            if self.config.calendar_kind == MarketCalendarKind.CONTINUOUS.value
             else int(self.config.session_periods_per_year or 0)
         )
         return MarketDataset(

@@ -37,7 +37,9 @@ def _publish_immutable_bytes(
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         if target.read_bytes() != payload:
-            raise FileExistsError(f"refusing to overwrite immutable {artifact_name}: {target}")
+            raise FileExistsError(
+                f"refusing to overwrite immutable {artifact_name}: {target}"
+            )
         return target
 
     temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")

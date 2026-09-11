@@ -12,9 +12,7 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなspecは [`specs/2026-09-11-runs-capability-facade-design.md`](specs/2026-09-11-runs-capability-facade-design.md) である。`evaluation/runs` のTier-2 capability facadeとdependency ruleをreview中で、実装完了後は耐久契約を `architecture/package-boundaries.md` に反映してspecをcurrent treeから削除する。Active planはない。
-
-Canonical M2 Study Bootstrapの実装済み耐久契約は `architecture/controlled-experiment-loop.md`、package責務は `architecture/package-boundaries.md`、研究上の現在地は `research/current-status.md` を正本とする。
+現在Activeなspecは [`specs/2026-09-11-runs-capability-facade-design.md`](specs/2026-09-11-runs-capability-facade-design.md) である。実装計画は設計承認後に `plans/` へ置く。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

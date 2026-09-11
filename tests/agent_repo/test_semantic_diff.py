@@ -109,6 +109,46 @@ def test_semantic_diff_reports_narrow_review_signals(tmp_path: Path) -> None:
     )
 
 
+def test_semantic_diff_reports_project_and_ci_surfaces(tmp_path: Path) -> None:
+    _baseline(tmp_path)
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        "[project]\n"
+        "name = 'example'\n\n"
+        "[project.optional-dependencies]\n"
+        "forecast-gbm = ['lightgbm==4.7.0']\n\n"
+        "[project.scripts]\n"
+        "trade-rl-check = 'trade_rl.cli:main'\n",
+    )
+    _write(
+        tmp_path,
+        ".github/workflows/verify.yml",
+        "name: Verify\non: [pull_request]\njobs: {}\n",
+    )
+
+    signals = semantic_diff(tmp_path, base_ref="main")
+
+    assert any(
+        signal.kind == "PROJECT_EXTRA"
+        and signal.change == "added"
+        and signal.name == "forecast-gbm"
+        for signal in signals
+    )
+    assert any(
+        signal.kind == "PROJECT_SCRIPT"
+        and signal.change == "added"
+        and signal.name == "trade-rl-check"
+        for signal in signals
+    )
+    assert any(
+        signal.kind == "CI_SURFACE"
+        and signal.change == "added"
+        and signal.path == ".github/workflows/verify.yml"
+        for signal in signals
+    )
+
+
 def test_semantic_diff_ignores_docstrings_comments_and_private_plain_classes(
     tmp_path: Path,
 ) -> None:

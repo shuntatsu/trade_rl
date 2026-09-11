@@ -4,6 +4,7 @@ import ast
 from pathlib import Path
 
 import trade_rl.strategies as strategies
+import trade_rl.strategies.dataset_scope as shared_dataset_scope
 from trade_rl.strategies.forecasts import supervised as supervised_forecasts
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -87,6 +88,14 @@ def test_supervised_module_preserves_dataset_scope_exports() -> None:
         "validated_feature_indices",
         "validated_symbol_indices",
     }.issubset(set(supervised_forecasts.__all__))
+    assert (
+        supervised_forecasts.validated_feature_indices
+        is shared_dataset_scope.validated_feature_indices
+    )
+    assert (
+        supervised_forecasts.validated_symbol_indices
+        is shared_dataset_scope.validated_symbol_indices
+    )
 
 
 def test_strategy_families_do_not_depend_on_evaluation() -> None:

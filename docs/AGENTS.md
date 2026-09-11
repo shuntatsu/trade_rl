@@ -27,6 +27,7 @@ uv run python -m tools.agent_repo context trade_rl/evaluation/runs
 uv run python -m tools.agent_repo impact trade_rl/evaluation/runs/config.py
 uv run python -m tools.agent_repo diff --base main
 uv run python -m tools.agent_repo verify --base main
+uv run python -m tools.agent_repo eval-list
 ```
 
 - `preflight`: local branch/HEAD/base/worktree/Active docs/workflow rosterを表示する。
@@ -34,8 +35,24 @@ uv run python -m tools.agent_repo verify --base main
 - `impact`: 複数pathのcontextを決定的順序で表示する。
 - `diff`: public/data-shape/schema/dependency/effectのreview signalを表示する。signal自体を仕様違反判定には使わない。
 - `verify`: Fast / Required final / Extended / Coverage signalを分けて表示する。開発途中の無駄を減らすためのroutingであり、final full gateを置き換えない。
+- `eval-list` / `eval-show` / `eval-score`: versionedなAgent-UX task/rubricを表示・Evaluator入力から採点する。Agent transcriptを自動解釈しない。
 
 これらはnetwork-free local toolingであり、GitHub上のopen PR/branch overlapは別途確認する。出力は一時情報であり、生成JSON/Markdown reportをcurrent treeへcommitしない。
+
+## Agent Eval protocol
+
+Agent向けRepository構造の改善を評価する場合、baselineと比較対象で同一suite/rubricを使う。
+
+1. baselineとcomparisonで同じeval suite/rubric versionを選ぶ。
+2. task-specificな過去会話を持たないfresh Agent sessionを開始し、通常のRepository accessだけを与える。
+3. Agentへはtask promptと通常のRepository instructionsだけを渡す。
+4. evaluator専用のcritical failures / review questionsはAgent完了前に見せない。
+5. 完了後にdiff、選択したcommands/tests、public/private imports、残存riskを観測する。
+6. 全rubric dimensionを短いobservable evidence付きで採点する。
+7. aggregate score、critical failure、changed-path count、目立つ不要探索だけをPR/Issue summaryへ記録する。
+8. transcript、model reasoning、run-specific log、generated patchをcurrent treeへcommitしない。
+
+Agent Evalはv1ではExtended verificationでありPR hard gateではない。点数上昇だけを品質証明にせず、critical failureやauthority/boundary/scopeの回帰を優先して見る。benchmarkへ過適合するためにrubricを弱めない。
 
 ## 更新matrix
 
@@ -56,7 +73,7 @@ uv run python -m tools.agent_repo verify --base main
 - `architecture/`: current authoritative architectureのみ。
 - `research/`: current research status/evidence protocolのみ。
 - `specs/`: 未実装またはreview中で、独立してnormativeなdesignが存在するときだけ作る。
-- `plans/`: 実装中の独立planが必要なときだけ作る。
+- `plans/`: 実装中の独立planが必要な間だけ作る。
 - `specs/` / `plans/` に置く各Markdownは先頭付近に `Status: Active` を明記する。Activeでないfileをcurrent treeに残さない。
 - 完了した `specs/` / `plans/` は、耐久的な内容を `architecture/` / `research/` へ反映した後に削除する。
 - `docs/history` と `docs/archive` は作らない。

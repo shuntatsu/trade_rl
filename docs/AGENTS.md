@@ -54,6 +54,14 @@ Agent向けRepository構造の改善を評価する場合、baselineと比較対
 
 Agent Evalはv1ではExtended verificationでありPR hard gateではない。点数上昇だけを品質証明にせず、critical failureやauthority/boundary/scopeの回帰を優先して見る。benchmarkへ過適合するためにrubricを弱めない。
 
+## Git / PR integration safety
+
+Agent実装は専用branchまたはworktreeで行い、PRを通常の統合経路とする。`main` への直接変更を通常経路にしない。mergeはユーザーの明示許可が必要であり、Agentはforce-push、history rewrite、`main`削除を行わない。
+
+PRの成功証拠は**現在のfinal HEAD**に束縛する。PR headが動いた後に、古いcommitで成功したCIを新HEADの成功証拠として扱わない。merge前に現在のhead SHAと、その同一SHAに対する最新CI結果を照合する。
+
+Branch protection / rulesetはGit treeとは別のGitHub設定である。保護を導入・変更した場合は、GitHubから設定をread-backし、required check、force-push/deletion、PR requirement、maintainer/admin bypass挙動を確認してから有効化済みと報告する。設定変更surfaceが利用できない場合は、proseやarchitecture testを代替にせず**未設定/未検証**と報告する。
+
 ## 更新matrix
 
 | 変更 | 必ず確認・更新する場所 |

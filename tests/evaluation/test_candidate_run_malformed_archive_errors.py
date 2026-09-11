@@ -7,6 +7,7 @@ import pytest
 from trade_rl.evaluation.runs import artifact as candidate_artifact
 
 
+# Regression for the real zlib.error observed by baseline artifact falsification run 34616635445.
 def test_load_returns_normalizes_zlib_decompression_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

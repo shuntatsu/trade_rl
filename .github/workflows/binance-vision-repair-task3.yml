@@ -1,0 +1,140 @@
+name: Binance Vision repair Task 3
+on:
+  push:
+    branches: [fix/binance-vision-daily-repair-v1]
+    paths: [.github/workflows/binance-vision-repair-task3.yml]
+permissions:
+  contents: write
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Implement exact v1/v2 manifest dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "89a054c6ddde927d6116ff78f80bb2ef994e6afd"
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/workflow.py")
+          text = path.read_text()
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"expected one occurrence, got {count}: {old[:80]!r}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '_MANIFEST_SCHEMA = "canonical_m2_bootstrap_manifest_v1"\n_MANIFEST_KEYS = frozenset(\n',
+              '_MANIFEST_SCHEMA_V1 = "canonical_m2_bootstrap_manifest_v1"\n'
+              '_MANIFEST_SCHEMA_V2 = "canonical_m2_bootstrap_manifest_v2"\n'
+              '_MANIFEST_KEYS_V1 = frozenset(\n',
+          )
+          replace_once(
+              '        "bootstrap_digest",\n    }\n)\n_ROOT_ENTRIES = frozenset(\n',
+              '        "bootstrap_digest",\n    }\n)\n'
+              '_MANIFEST_KEYS_V2 = _MANIFEST_KEYS_V1 | {"vision_resolution_digest"}\n'
+              '_ROOT_ENTRIES = frozenset(\n',
+          )
+          replace_once(
+              ') -> dict[str, object]:\n    return {\n        "schema_version": _MANIFEST_SCHEMA,\n',
+              ') -> dict[str, object]:\n'
+              '    if frozen.vision_resolution_digest is None:\n'
+              '        raise ValueError("new bootstrap manifest requires Vision resolution digest")\n'
+              '    return {\n'
+              '        "schema_version": _MANIFEST_SCHEMA_V2,\n',
+          )
+          replace_once(
+              '        "vision_plan_digest": frozen.vision_plan_digest,\n        "raw_source_roster": list(frozen.raw_source_roster),\n',
+              '        "vision_plan_digest": frozen.vision_plan_digest,\n'
+              '        "vision_resolution_digest": frozen.vision_resolution_digest,\n'
+              '        "raw_source_roster": list(frozen.raw_source_roster),\n',
+          )
+          replace_once(
+              '    if set(manifest) != _MANIFEST_KEYS:\n'
+              '        raise ValueError("bootstrap manifest keys differ from contract")\n'
+              '    if manifest.get("schema_version") != _MANIFEST_SCHEMA:\n'
+              '        raise ValueError("bootstrap manifest schema differs from contract")\n',
+              '    schema = manifest.get("schema_version")\n'
+              '    if schema == _MANIFEST_SCHEMA_V1:\n'
+              '        expected_keys = _MANIFEST_KEYS_V1\n'
+              '    elif schema == _MANIFEST_SCHEMA_V2:\n'
+              '        expected_keys = _MANIFEST_KEYS_V2\n'
+              '    else:\n'
+              '        raise ValueError("bootstrap manifest schema differs from contract")\n'
+              '    if set(manifest) != expected_keys:\n'
+              '        raise ValueError("bootstrap manifest keys differ from contract")\n',
+          )
+          replace_once(
+              '    _require_digest(manifest.get("vision_plan_digest"), field="vision_plan_digest")\n'
+              '    roster = _require_roster(manifest.get("raw_source_roster"))\n',
+              '    _require_digest(manifest.get("vision_plan_digest"), field="vision_plan_digest")\n'
+              '    if schema == _MANIFEST_SCHEMA_V2:\n'
+              '        _require_digest(\n'
+              '            manifest.get("vision_resolution_digest"),\n'
+              '            field="vision_resolution_digest",\n'
+              '        )\n'
+              '    roster = _require_roster(manifest.get("raw_source_roster"))\n',
+          )
+          replace_once(
+              '    manifest = _inspect_manifest(bootstrap_root)\n\n'
+              '    if manifest["bootstrap_config_digest"] != config.digest:\n',
+              '    if manifest["bootstrap_config_digest"] != config.digest:\n',
+          )
+          replace_once(
+              '    config = load_canonical_m2_bootstrap_config(bootstrap_root / "bootstrap.json")\n'
+              '    frozen = _inspect_frozen_binance_source(config, bootstrap_root / "source")\n'
+              '    artifact = inspect_published_market_dataset_artifact(bootstrap_root / "dataset")\n',
+              '    config = load_canonical_m2_bootstrap_config(bootstrap_root / "bootstrap.json")\n'
+              '    manifest = _inspect_manifest(bootstrap_root)\n'
+              '    manifest_schema = manifest["schema_version"]\n'
+              '    frozen = _inspect_frozen_binance_source(\n'
+              '        config,\n'
+              '        bootstrap_root / "source",\n'
+              '        require_resolution=manifest_schema == _MANIFEST_SCHEMA_V2,\n'
+              '    )\n'
+              '    artifact = inspect_published_market_dataset_artifact(bootstrap_root / "dataset")\n',
+          )
+          replace_once(
+              '    if manifest["vision_plan_digest"] != frozen.vision_plan_digest:\n'
+              '        raise ValueError("Vision plan digest differs from bootstrap manifest")\n'
+              '    if manifest["raw_source_roster"] != list(frozen.raw_source_roster):\n',
+              '    if manifest["vision_plan_digest"] != frozen.vision_plan_digest:\n'
+              '        raise ValueError("Vision plan digest differs from bootstrap manifest")\n'
+              '    if manifest_schema == _MANIFEST_SCHEMA_V2:\n'
+              '        if manifest["vision_resolution_digest"] != frozen.vision_resolution_digest:\n'
+              '            raise ValueError(\n'
+              '                "Vision resolution digest differs from bootstrap manifest"\n'
+              '            )\n'
+              '    if manifest["raw_source_roster"] != list(frozen.raw_source_roster):\n',
+          )
+          path.write_text(text)
+          PY
+          git rm .github/workflows/binance-vision-repair-task3.yml
+          uv run ruff format \
+            trade_rl/evaluation/experiments/bootstrap/workflow.py \
+            tests/evaluation/experiments/bootstrap/test_manifest_resolution.py
+          uv run ruff check trade_rl/evaluation/experiments/bootstrap tests/evaluation/experiments/bootstrap
+          uv run ruff format --check trade_rl/evaluation/experiments/bootstrap tests/evaluation/experiments/bootstrap
+          uv run pytest -q tests/evaluation/experiments/bootstrap
+          uv run mypy trade_rl/evaluation/experiments/bootstrap
+          test ! -e .github/workflows/binance-vision-repair-task3.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: bind Vision repair resolution into bootstrap manifest v2"
+          git push origin HEAD:refs/heads/fix/binance-vision-daily-repair-v1

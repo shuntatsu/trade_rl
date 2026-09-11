@@ -41,12 +41,12 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 1. strict JSON configを読み、Binance USD-M、symbol roster、base/feature timeframe、data range、baseline config、ordered `ppo_seeds`、allowed factor、experiment budget、bootstrap seed/countを事前登録する。baseline側に別の`ppo_seed` authorityは持たず、`ppo_seeds[0]`だけをbaseline seedへ注入する。
 2. Binance exchange-infoのraw bytesと、そのsource URI・retrieval time・SHA-256をfreezeする。
-3. exact Vision URL planを作り、必要なraw archiveをすべて取得し、URL・SHA-256・sizeのordered rosterをfreezeする。
+3. pre-registrationから決まる`vision-plan.json`をprimary source planとして固定する。primary monthly kline archiveのtimestamp coverageに欠損がある場合だけ、欠損UTC dayのofficial daily archiveをdeterministic repairとして取得し、`vision-resolution.json`へsymbol/timeframe・missing open timestamp・repair URLを記録する。repair判断にprice/return/P&Lを使わず、補間・synthetic OHLC・REST kline repairは禁止する。primary + repairの実使用raw archiveをURL・SHA-256・sizeのordered rosterとしてfreezeする。
 4. source同期後はmarket-data transportを`allow_network=False`で再構成し、dataset buildをcache-onlyへ切る。cache missやREST fallbackによるnetwork accessは失敗とする。
 5. frozen metadataとVision evidenceだけからcanonical `MarketDataset`をbuildし、filesystem dataset artifactとしてpublish・reload・identity検証する。
 6. 既存Run resolverでbaseline configをdatasetへ解決し、既存`create_study()`だけをStudyPlan authorityとして使う。
 7. implementation/runtime provenanceをbootstrap開始時とStudyPlan作成後・終了時に照合し、driftがあればpublishしない。
-8. config、source evidence、dataset id/schema/digest、StudyPlan digest、implementation/runtime provenanceを`bootstrap-manifest.json`へbindする。
+8. config、primary Vision plan、resolved Vision repair、raw source roster、dataset id/schema/digest、StudyPlan digest、implementation/runtime provenanceを`bootstrap-manifest.json`へbindする。新規writerは`canonical_m2_bootstrap_manifest_v2`を出力し`vision_resolution_digest`を含める。legacy v1 readerはprimary-only artifactだけを明示的に維持し、v1へresolution fileを後付けしたschema混同は拒否する。
 9. complete rootをstaging directory内で検証した後、最後のrename一回だけでfinal outputをpublishする。
 
 公開`CanonicalM2BootstrapConfig`はJSON loader経由だけでなく直接constructorでも同じcanonical validationを強制する。output parentはsymlink経由を拒否する。dataset publication後は、事前登録したsource rangeに対するexact timestamp coverageと、登録済みfit symbol scopeに実際のcausal training rowが存在することを確認してからStudyPlanを作る。final staging graphを完全検証した**後**に終了時provenanceを取得・開始時と照合し、その後はResultを事前構築してrenameだけを行う。rename後にnetwork、inspection、hash再計算など失敗し得る処理を置かない。
@@ -59,13 +59,14 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
   bootstrap-manifest.json
   source/
     vision-plan.json
+    vision-resolution.json
     vision-cache/**
     exchange-info/{exchange-info.raw.json,manifest.json}
   dataset/{manifest.json,arrays.npz}
   study/{plan.json,.mutation.lock}
 ```
 
-`inspect_canonical_m2_bootstrap` はnetworkを使わず、保存済みconfig、exact source evidence、dataset artifact、StudyPlan、bootstrap manifestの相互参照を再構築して検証する。raw archiveとsidecarを同時に書き換えた場合でも、bootstrap manifestにfreezeされたraw-source rosterとの不一致で拒否する。
+`inspect_canonical_m2_bootstrap` はnetworkを使わず、保存済みconfig、primary plan、primary raw bytesから再導出したtimestamp gap、resolved daily repair、primary + repair raw-source roster、dataset artifact、StudyPlan、bootstrap manifestの相互参照を再構築して検証する。保存済み`vision-resolution.json`を盲信せずprimary bytesからrepair URLを再計算する。repair overlapはnormalized open timestamp・OHLC・quote volumeがprimaryと一致する場合だけ許し、primaryをauthorityとして1 rowへcollapseする。不一致、repair後のmissing/duplicate/irregular clock、repair raw bytes/sidecar tamperはfail-closedにする。raw archiveとsidecarを同時に書き換えた場合でも、bootstrap manifestにfreezeされたraw-source rosterとの不一致で拒否する。
 
 ## Frozen Study contract
 

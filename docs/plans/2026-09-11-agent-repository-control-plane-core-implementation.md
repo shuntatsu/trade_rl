@@ -143,7 +143,7 @@ Expected: grep returns no current-code references; tests pass.
 
 ```bash
 git add tools tests/architecture
- git commit -m "refactor: promote repository import inspector"
+git commit -m "refactor: promote repository import inspector"
 ```
 
 ---
@@ -169,10 +169,9 @@ class GitState:
     changed_paths: tuple[str, ...]
     active_docs: tuple[str, ...]
     workflow_paths: tuple[str, ...]
-
-
-def read_git_state(repository: Path, *, base_ref: str | None = None) -> GitState: ...
 ```
+
+`read_git_state(repository: Path, *, base_ref: str | None = None)` returns `GitState` and raises the underlying Git error when an explicit base cannot be resolved.
 
 - [ ] **Step 1: Write a failing temporary-repository test**
 
@@ -233,7 +232,7 @@ Expected: pass.
 
 ```bash
 git add tools/agent_repo/git_state.py tests/agent_repo
- git commit -m "feat: add repository preflight state"
+git commit -m "feat: add repository preflight state"
 ```
 
 ---
@@ -263,14 +262,9 @@ class PathContext:
     test_candidates: tuple[str, ...]
     doc_references: tuple[str, ...]
     effect_signals: tuple[str, ...]
-
-
-class SourceIndex:
-    @classmethod
-    def build(cls, repository: Path) -> "SourceIndex": ...
-    def context(self, relative_path: str) -> PathContext: ...
-    def impact(self, relative_paths: tuple[str, ...]) -> tuple[PathContext, ...]: ...
 ```
+
+`SourceIndex.build(repository: Path)` builds an in-memory index for one scan. `context(relative_path: str)` returns `PathContext`; `impact(relative_paths: tuple[str, ...])` returns the corresponding contexts in deterministic path order.
 
 - [ ] **Step 1: Write a synthetic-tree RED test**
 
@@ -341,7 +335,7 @@ Expected: pass.
 
 ```bash
 git add tools/agent_repo/source_index.py tests/agent_repo/test_source_index.py
- git commit -m "feat: add source context and impact inspection"
+git commit -m "feat: add source context and impact inspection"
 ```
 
 ---
@@ -368,24 +362,12 @@ Call the module through `subprocess.run([sys.executable, "-m", "tools.agent_repo
 
 - [ ] **Step 2: Implement argparse dispatch**
 
-Use:
-
-```python
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(...)
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    ...
-    return 0
-```
-
-At module bottom:
+Create subcommands `preflight`, `context`, and `impact`, require the arguments shown above, call the Task 2/3 interfaces, serialize dataclasses with `dataclasses.asdict`, `sort_keys=True`, `indent=2`, and return exit code `0` on success. At module bottom use:
 
 ```python
 if __name__ == "__main__":
     raise SystemExit(main())
 ```
-
-Serialize dataclasses with `dataclasses.asdict`, `sort_keys=True`, `indent=2`.
 
 - [ ] **Step 3: Prove the CLI is read-only**
 
@@ -403,7 +385,7 @@ Expected: pass.
 
 ```bash
 git add tools/agent_repo/__main__.py tests/agent_repo/test_cli.py
- git commit -m "feat: expose agent repository inspection CLI"
+git commit -m "feat: expose agent repository inspection CLI"
 ```
 
 ---
@@ -425,10 +407,9 @@ class SemanticSignal:
     path: str
     name: str
     detail: str
-
-
-def semantic_diff(repository: Path, *, base_ref: str) -> tuple[SemanticSignal, ...]: ...
 ```
+
+`semantic_diff(repository: Path, *, base_ref: str)` returns `tuple[SemanticSignal, ...]` sorted by the dataclass ordering.
 
 CLI:
 
@@ -494,7 +475,7 @@ Expected: pass.
 
 ```bash
 git add tools/agent_repo/semantic_diff.py tools/agent_repo/__main__.py tests/agent_repo
- git commit -m "feat: add semantic review diff"
+git commit -m "feat: add semantic review diff"
 ```
 
 ---
@@ -514,14 +495,9 @@ class VerificationStep:
     tier: str  # fast | final | extended | signal
     command: str
     reason: str
-
-
-def plan_verification(
-    repository: Path,
-    *,
-    base_ref: str,
-) -> tuple[VerificationStep, ...]: ...
 ```
+
+`plan_verification(repository: Path, *, base_ref: str)` returns a deterministic `tuple[VerificationStep, ...]`.
 
 CLI:
 
@@ -604,12 +580,12 @@ Expected: pass.
 
 ```bash
 git add tools/agent_repo/verification.py tools/agent_repo/__main__.py tests/agent_repo
- git commit -m "feat: add risk based verification planner"
+git commit -m "feat: add risk based verification planner"
 ```
 
 ---
 
-### Task 7: Enforce the repository-tooling boundary and type-check it
+### Task 7: Enforce the repository-tooling boundary and permanent CI coverage
 
 **Files:**
 - Create: `tests/architecture/test_agent_repo_tooling_boundary.py`
@@ -619,15 +595,29 @@ git add tools/agent_repo/verification.py tools/agent_repo/__main__.py tests/agen
 **Interfaces:**
 - `trade_rl/**` must not import `tools`.
 - installed wheel must contain no Python source outside `trade_rl/**` (existing distribution checker already fails such a wheel).
-- repository tooling is type-checked independently of production Mypy scope.
+- repository tooling is linted, formatted, and type-checked independently of the production Mypy scope.
 
 - [ ] **Step 1: Write architecture RED for a synthetic forbidden dependency**
 
 Use `ImportCollector` on a temporary tree and verify a `trade_rl/example.py` containing `from tools.agent_repo import source_index` is classified as forbidden. Also scan the real production tree and assert no current offender.
 
-- [ ] **Step 2: Add CI type-checking for tooling**
+- [ ] **Step 2: Extend permanent Ruff/Format coverage to repository tooling**
 
-Change the architecture-tooling type step from the retired test helper to:
+Change the existing CI commands to:
+
+```yaml
+- name: Ruff
+  run: uv run ruff check trade_rl tests tools
+
+- name: Format
+  run: uv run ruff format --check trade_rl tests tools
+```
+
+This is not an extra quality layer; it extends the existing permanent style/static gate to the new maintained Python tooling.
+
+- [ ] **Step 3: Add CI type-checking for tooling**
+
+Replace the retired test-helper path with:
 
 ```yaml
 - name: Repository tooling types
@@ -636,7 +626,7 @@ Change the architecture-tooling type step from the retired test helper to:
 
 Do not add `tools` to the production `[tool.mypy].files = ["trade_rl"]` contract.
 
-- [ ] **Step 3: Clarify the coverage target without turning it into PR blocking**
+- [ ] **Step 4: Clarify the coverage target without turning it into PR blocking**
 
 Keep the existing `fail_under = 80` value as the documented target signal, add a TOML comment immediately above it:
 
@@ -647,20 +637,22 @@ fail_under = 80
 
 The control-plane measurement command uses `--cov-fail-under=0` so measurement itself does not fail solely on the percentage.
 
-- [ ] **Step 4: Run architecture/type checks**
+- [ ] **Step 5: Run architecture/static checks**
 
 ```bash
+uv run ruff check trade_rl tests tools
+uv run ruff format --check trade_rl tests tools
 uv run mypy tools/agent_repo tests/architecture/distribution.py
 uv run pytest -q tests/agent_repo tests/architecture
 ```
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add .github/workflows/ci.yml pyproject.toml tests/architecture tools
- git commit -m "test: enforce agent repository tooling boundary"
+git commit -m "test: enforce agent repository tooling boundary"
 ```
 
 ---
@@ -722,7 +714,7 @@ Run the same commands as permanent CI, including build, distribution closure, sd
 
 ```bash
 git add AGENTS.md docs
- git commit -m "docs: route agent repository control plane"
+git commit -m "docs: route agent repository control plane"
 ```
 
 - [ ] **Step 6: Final review**

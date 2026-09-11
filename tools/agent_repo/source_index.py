@@ -276,7 +276,9 @@ class SourceIndex:
         self.repository = repository
         self.package = repository / "trade_rl"
         self.collector = collector
-        self._module_by_path = {path: module for module, path in collector.modules.items()}
+        self._module_by_path = {
+            path: module for module, path in collector.modules.items()
+        }
         self._production_paths = tuple(sorted(collector.modules.values()))
         self._direct = {
             path: frozenset(collector.collect_direct(path))
@@ -373,11 +375,17 @@ class SourceIndex:
                 continue
             parts = PurePosixPath(relative).parts
             if domain is not None and len(parts) >= 2 and parts[1] == domain:
-                if capability is not None and len(parts) >= 3 and parts[2] == capability:
+                if (
+                    capability is not None
+                    and len(parts) >= 3
+                    and parts[2] == capability
+                ):
                     result.add(relative)
         return tuple(sorted(result))
 
-    def _doc_references(self, relative_path: str, module: str | None) -> tuple[str, ...]:
+    def _doc_references(
+        self, relative_path: str, module: str | None
+    ) -> tuple[str, ...]:
         docs_root = self.repository / "docs"
         if not docs_root.is_dir():
             return ()

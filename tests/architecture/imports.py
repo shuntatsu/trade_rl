@@ -144,6 +144,22 @@ class ImportCollector:
                         result.update(self._export(base, alias.name, visited))
         return result
 
+    def collect_direct(self, path: Path) -> set[str]:
+        result: set[str] = set()
+        for node in ast.walk(self._tree(path)):
+            if isinstance(node, ast.Import):
+                result.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                base = self._base(path, node)
+                result.add(base)
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    child = f"{base}.{alias.name}"
+                    if child in self.modules:
+                        result.add(child)
+        return result
+
     def collect(self, path: Path) -> set[str]:
         result: set[str] = set()
         for node in ast.walk(self._tree(path)):

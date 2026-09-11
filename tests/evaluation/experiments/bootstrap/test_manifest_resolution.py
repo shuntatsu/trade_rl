@@ -1,3 +1,5 @@
+"""Bootstrap manifest v1/v2 source-resolution compatibility contracts."""
+
 from __future__ import annotations
 
 import json

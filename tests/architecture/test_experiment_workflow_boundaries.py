@@ -128,7 +128,10 @@ def _defined_names(path: Path) -> set[str]:
 
 def _function(path: Path, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
     for node in _tree(path).body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == name
+        ):
             return node
     raise AssertionError(f"missing function {name} in {path}")
 

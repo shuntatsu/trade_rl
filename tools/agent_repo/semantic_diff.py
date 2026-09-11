@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
 from importlib.util import resolve_name
 from pathlib import Path, PurePosixPath
@@ -98,18 +99,10 @@ def _changed_paths(repository: Path, merge_base: str) -> tuple[str, ...]:
             "ls-files",
             "--others",
             "--exclude-standard",
-            "--",
-            "trade_rl",
         ).stdout.splitlines()
         if line
     )
-    return tuple(
-        sorted(
-            path
-            for path in changed
-            if path.startswith("trade_rl/") and path.endswith(".py")
-        )
-    )
+    return tuple(sorted(changed))
 
 
 def _base_text(repository: Path, ref: str, path: str) -> str | None:
@@ -121,7 +114,7 @@ def _base_text(repository: Path, ref: str, path: str) -> str | None:
 
 def _current_text(repository: Path, path: str) -> str | None:
     candidate = repository / path
-    if not candidate.exists():
+    if not candidate.exists() and not candidate.is_symlink():
         return None
     if candidate.is_symlink() or not candidate.is_file():
         raise ValueError(f"semantic diff source must be a regular file: {path}")
@@ -263,6 +256,40 @@ def _surface(
     )
 
 
+def _project_surfaces(text: str | None) -> tuple[dict[str, str], dict[str, str]]:
+    if text is None:
+        return {}, {}
+    payload = tomllib.loads(text)
+    project = payload.get("project")
+    if project is None:
+        return {}, {}
+    if not isinstance(project, dict):
+        raise ValueError("pyproject project table must be a table")
+
+    extras: dict[str, str] = {}
+    optional = project.get("optional-dependencies")
+    if optional is not None:
+        if not isinstance(optional, dict):
+            raise ValueError("project.optional-dependencies must be a table")
+        for name, requirements in optional.items():
+            if not isinstance(name, str) or not isinstance(requirements, list):
+                raise ValueError("optional dependency entries must be string lists")
+            if not all(isinstance(item, str) for item in requirements):
+                raise ValueError("optional dependency entries must be string lists")
+            extras[name] = repr(tuple(requirements))
+
+    scripts: dict[str, str] = {}
+    script_table = project.get("scripts")
+    if script_table is not None:
+        if not isinstance(script_table, dict):
+            raise ValueError("project.scripts must be a table")
+        for name, target in script_table.items():
+            if not isinstance(name, str) or not isinstance(target, str):
+                raise ValueError("project script entries must be strings")
+            scripts[name] = target
+    return extras, scripts
+
+
 def _mapping_signals(
     *,
     kind: str,
@@ -309,6 +336,29 @@ def _set_signals(
     ]
 
 
+def _ci_surface_signal(
+    path: str,
+    *,
+    before: str | None,
+    after: str | None,
+) -> SemanticSignal | None:
+    if before == after:
+        return None
+    if before is None:
+        change = "added"
+    elif after is None:
+        change = "removed"
+    else:
+        change = "changed"
+    return SemanticSignal(
+        kind="CI_SURFACE",
+        change=change,
+        path=path,
+        name=PurePosixPath(path).name,
+        detail="workflow file",
+    )
+
+
 def semantic_diff(
     repository: Path,
     *,
@@ -320,8 +370,15 @@ def semantic_diff(
     merge_base = _git(root, "merge-base", "HEAD", base_ref).stdout.strip()
     before_modules = _git_modules(root, merge_base)
     after_modules = _worktree_modules(root)
+    changed_paths = _changed_paths(root, merge_base)
     signals: list[SemanticSignal] = []
-    for path in _changed_paths(root, merge_base):
+
+    production_paths = (
+        path
+        for path in changed_paths
+        if path.startswith("trade_rl/") and path.endswith(".py")
+    )
+    for path in production_paths:
         before = _surface(
             _base_text(root, merge_base, path),
             path=path,
@@ -384,6 +441,44 @@ def semantic_diff(
                 detail="effect candidate",
             )
         )
+
+    if "pyproject.toml" in changed_paths:
+        before_extras, before_scripts = _project_surfaces(
+            _base_text(root, merge_base, "pyproject.toml")
+        )
+        after_extras, after_scripts = _project_surfaces(
+            _current_text(root, "pyproject.toml")
+        )
+        signals.extend(
+            _mapping_signals(
+                kind="PROJECT_EXTRA",
+                path="pyproject.toml",
+                before=before_extras,
+                after=after_extras,
+            )
+        )
+        signals.extend(
+            _mapping_signals(
+                kind="PROJECT_SCRIPT",
+                path="pyproject.toml",
+                before=before_scripts,
+                after=after_scripts,
+            )
+        )
+
+    for path in changed_paths:
+        if not path.startswith(".github/workflows/") or not path.endswith(
+            (".yml", ".yaml")
+        ):
+            continue
+        signal = _ci_surface_signal(
+            path,
+            before=_base_text(root, merge_base, path),
+            after=_current_text(root, path),
+        )
+        if signal is not None:
+            signals.append(signal)
+
     return tuple(sorted(signals))
 
 

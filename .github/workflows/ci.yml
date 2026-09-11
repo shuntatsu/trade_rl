@@ -45,7 +45,7 @@ jobs:
         run: uv run mypy trade_rl
 
       - name: Architecture tooling types
-        run: uv run mypy tests/architecture/imports.py tests/architecture/distribution.py
+        run: uv run mypy tools/agent_repo/source_index.py tests/architecture/distribution.py
 
       - name: Core tests
         run: uv run pytest -q tests

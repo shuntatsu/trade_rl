@@ -6,7 +6,12 @@ ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / ".github" / "pull_request_template.md"
 ROOT_AGENTS = ROOT / "AGENTS.md"
 DOC_AGENTS = ROOT / "docs" / "AGENTS.md"
-MERGE_PLAN = ROOT / "docs" / "plans" / "2026-09-11-agent-repository-merge-safety-implementation.md"
+MERGE_PLAN = (
+    ROOT
+    / "docs"
+    / "plans"
+    / "2026-09-11-agent-repository-merge-safety-implementation.md"
+)
 REQUIRED = (
     "## Objective",
     "## Non-goals",

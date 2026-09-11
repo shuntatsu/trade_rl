@@ -240,6 +240,8 @@ def _schema_constants(path: Path) -> tuple[str, ...]:
             targets = list(node.targets)
             value = node.value
         elif isinstance(node, ast.AnnAssign):
+            if node.value is None:
+                continue
             targets = [node.target]
             value = node.value
         else:

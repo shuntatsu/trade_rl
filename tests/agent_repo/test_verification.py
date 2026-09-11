@@ -31,8 +31,7 @@ def _baseline(root: Path) -> None:
     _write(
         root,
         "trade_rl/evaluation/runs/__init__.py",
-        "from .config import CandidateRunConfig\n"
-        "__all__ = ['CandidateRunConfig']\n",
+        "from .config import CandidateRunConfig\n__all__ = ['CandidateRunConfig']\n",
     )
     _write(
         root,
@@ -54,14 +53,20 @@ def _baseline(root: Path) -> None:
         "tests/evaluation/runs/test_config.py",
         "from trade_rl.evaluation.runs import CandidateRunConfig\n",
     )
-    _write(root, "tests/integrations/test_binance.py", "def test_transport(): assert True\n")
+    _write(
+        root,
+        "tests/integrations/test_binance.py",
+        "def test_transport(): assert True\n",
+    )
     for name in (
         "test_runs_capability_facade.py",
         "test_lean_dependency_boundaries.py",
         "test_import_collector_contract.py",
         "test_current_docs_layout.py",
     ):
-        _write(root, f"tests/architecture/{name}", "def test_placeholder(): assert True\n")
+        _write(
+            root, f"tests/architecture/{name}", "def test_placeholder(): assert True\n"
+        )
     _write(root, "docs/README.md", "# Docs\n")
     _write(root, "pyproject.toml", "[project]\nname='example'\n")
     _git(root, "add", ".")
@@ -72,7 +77,9 @@ def _by_tier(steps: tuple[VerificationStep, ...], tier: str) -> list[Verificatio
     return [step for step in steps if step.tier == tier]
 
 
-def test_runs_change_gets_targeted_fast_tests_and_full_final_gate(tmp_path: Path) -> None:
+def test_runs_change_gets_targeted_fast_tests_and_full_final_gate(
+    tmp_path: Path,
+) -> None:
     _baseline(tmp_path)
     _write(
         tmp_path,
@@ -87,7 +94,9 @@ def test_runs_change_gets_targeted_fast_tests_and_full_final_gate(tmp_path: Path
     steps = plan_verification(tmp_path, base_ref="main")
 
     fast_commands = {step.command for step in _by_tier(steps, "fast")}
-    assert any("tests/evaluation/runs/test_config.py" in value for value in fast_commands)
+    assert any(
+        "tests/evaluation/runs/test_config.py" in value for value in fast_commands
+    )
     assert any("test_runs_capability_facade.py" in value for value in fast_commands)
     final_commands = {step.command for step in _by_tier(steps, "final")}
     assert {
@@ -157,4 +166,7 @@ def test_docs_only_change_gets_docs_fast_check_without_coverage_signal(
         for step in steps
     )
     assert _by_tier(steps, "signal") == []
-    assert any(step.tier == "final" and step.command == "uv run pytest -q tests" for step in steps)
+    assert any(
+        step.tier == "final" and step.command == "uv run pytest -q tests"
+        for step in steps
+    )

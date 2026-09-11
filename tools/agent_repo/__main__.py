@@ -68,7 +68,9 @@ def _score_input(path: Path) -> dict[str, tuple[int, str]]:
         decoded = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("eval score input must be valid JSON") from error
-    if not isinstance(decoded, dict) or any(not isinstance(key, str) for key in decoded):
+    if not isinstance(decoded, dict) or any(
+        not isinstance(key, str) for key in decoded
+    ):
         raise ValueError("eval score input must be a JSON object")
     result: dict[str, tuple[int, str]] = {}
     for dimension, value in decoded.items():

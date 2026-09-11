@@ -134,7 +134,7 @@ tools/
 
 これは最終folder数を固定する契約ではない。実装時に責務が小さければ統合する。逆に1巨大fileへ集約しない。
 
-`setuptools.packages.find.include = ["trade_rl*"]` を維持し、`tools/` はwheel/sdistのproduction package closureへ混入させない。
+`setuptools.packages.find.include = ["trade_rl*"]` を維持し、`tools/` は**installed production wheelへ混入させない**。sdistへの開発用tooling inclusionはproduction Python-source closureとは別問題なので、実装時に明示的に確認し、含まれる/含まれないを推測で断定しない。
 
 CLI想定:
 
@@ -210,7 +210,7 @@ v1のsignal候補:
 - schema/version constantの追加・削除・値変更;
 - production dependency edgeの追加・削除;
 - optional dependency / project script / CI surface変更;
--新しいURL literal / network call site候補;
+- 新しいURL literal / network call site候補;
 - 新しいfilesystem mutation call site候補;
 - new/removed CLI/public facade surface。
 
@@ -416,9 +416,9 @@ rulesetを厳しくしすぎて緊急修正不能になる。
 
 ### FM-7: Tooling leaks into production distribution
 
-`tools/` がsdist/wheelへ混入する。
+`tools/` がinstalled production wheelへ混入する。
 
-**Mitigation:** existing distribution closureをoracleとして使い、production `trade_rl/**/*.py` rosterとの契約を維持する。
+**Mitigation:** existing distribution closureをoracleとして使い、production `trade_rl/**/*.py` rosterとの契約を維持する。sdist inclusionは別途観測し、production wheelの境界と混同しない。
 
 ## 20. Risk
 
@@ -437,7 +437,7 @@ control plane自身にも独立Oracleを持つ。
 - false-positive fixtureで無関係なprivate helperをpublic changeと誤認しないことを確認;
 - verification planner table-driven testでchanged paths→recommended layersを検証;
 - generated outputがfilesystem/current docsへ永続化されないことを確認;
-- distribution closureで`tools/`がproduction packageへ混入しないことを確認;
+- distribution closureで`tools/`がproduction wheelへ混入しないことを確認;
 - branch protectionはGitHub read-backで検証;
 - Agent Evalはfresh-agent runを用い、rubricでauthority discovery / duplicate creation / scope / verificationを評価。
 

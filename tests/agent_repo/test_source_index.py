@@ -93,8 +93,15 @@ def test_context_does_not_invent_public_or_network_semantics(tmp_path: Path) -> 
     assert "tests/data/test_config.py" not in context.test_candidates
 
 
-def test_context_does_not_claim_facade_when_all_is_mutated(tmp_path: Path) -> None:
+def test_context_does_not_claim_facade_when_nearest_all_is_mutated(
+    tmp_path: Path,
+) -> None:
     _tree(tmp_path)
+    _write(
+        tmp_path,
+        "trade_rl/evaluation/__init__.py",
+        "ParentSurface = object()\n__all__ = ['ParentSurface']\n",
+    )
     _write(
         tmp_path,
         "trade_rl/evaluation/runs/__init__.py",

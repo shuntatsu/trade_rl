@@ -17,6 +17,26 @@
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
 
+## Local repository tooling
+
+Repository-localなsource-derived inspectionには次を使ってよい。
+
+```bash
+uv run python -m tools.agent_repo preflight --base main
+uv run python -m tools.agent_repo context trade_rl/evaluation/runs
+uv run python -m tools.agent_repo impact trade_rl/evaluation/runs/config.py
+uv run python -m tools.agent_repo diff --base main
+uv run python -m tools.agent_repo verify --base main
+```
+
+- `preflight`: local branch/HEAD/base/worktree/Active docs/workflow rosterを表示する。
+- `context`: capability、facade、imports/consumers、近傍test/docs、schema/effect signalをsourceから導出する。
+- `impact`: 複数pathのcontextを決定的順序で表示する。
+- `diff`: public/data-shape/schema/dependency/effectのreview signalを表示する。signal自体を仕様違反判定には使わない。
+- `verify`: Fast / Required final / Extended / Coverage signalを分けて表示する。開発途中の無駄を減らすためのroutingであり、final full gateを置き換えない。
+
+これらはnetwork-free local toolingであり、GitHub上のopen PR/branch overlapは別途確認する。出力は一時情報であり、生成JSON/Markdown reportをcurrent treeへcommitしない。
+
 ## 更新matrix
 
 | 変更 | 必ず確認・更新する場所 |
@@ -62,14 +82,16 @@
 完了報告前に、変更内容に応じたtargeted testと全体quality gateを確認する。現在の標準gateは次である。
 
 ```bash
-uv run ruff check trade_rl tests
-uv run ruff format --check trade_rl tests
+uv run ruff check trade_rl tests tools
+uv run ruff format --check trade_rl tests tools
 uv run mypy trade_rl
-uv run mypy tests/architecture/imports.py tests/architecture/distribution.py
+uv run mypy tools/agent_repo tests/architecture/distribution.py
 uv run pytest -q tests
 ```
 
 さらに `uv build`、tracked production Python sourceとsdist/direct wheel/sdist再build wheelのpath・bytes一致、checkout外での非editable installとpublic import/CLI smoke、package identity、関連architecture/contract test、GitHub Actionsの**同一final HEAD**の結果を確認する。古いHEADのGreenを現在HEADの証拠にしない。
+
+Coverageはbranch coverage 80%を目標signalとするが、80%未満だけを理由にmerge不可とはしない。重要Failure Mode、変更行、Error/Retry/Timeout/Fallback、Assertion品質を優先し、数値を上げるだけの低価値testを追加しない。
 
 テストGreenだけでは正しさを宣言しない。最終diff、削除物、public API、重要failure mode、未検証事項、残存riskを再確認する。
 

@@ -18,12 +18,12 @@ jobs:
           ref: refactor/candidate-run-json-authority
           fetch-depth: 0
           persist-credentials: false
-      - name: Guard exact RED parent
+      - name: Guard formal RED ancestry and helper-only delta
         shell: bash
         run: |
           set -euo pipefail
           RED_HEAD=7ec2c72f6a59c90e00c62f13ddc328398b332b18
-          test "$(git rev-parse HEAD^)" = "$RED_HEAD"
+          git merge-base --is-ancestor "$RED_HEAD" HEAD
           test "$(git diff --name-only "$RED_HEAD"..HEAD)" = ".github/workflows/tmp-green-candidate-json-authority.yml"
       - name: Apply exact authority replacements
         shell: bash
@@ -56,16 +56,12 @@ jobs:
 
 
           '''
-          replacements = [
-              ("from typing import cast\n", "from typing import ClassVar, cast\n"),
-              (allowed_block, ""),
-              (
-                  '''class CandidateRunConfig:
+          class_marker = '''class CandidateRunConfig:
               """Raw semantic configuration for one candidate-suite run."""
 
               signal_name: str
-          ''',
-                  '''class CandidateRunConfig:
+          '''
+          class_replacement = '''class CandidateRunConfig:
               """Raw semantic configuration for one candidate-suite run."""
 
               JSON_FIELDS: ClassVar[tuple[str, ...]] = (
@@ -86,18 +82,9 @@ jobs:
               )
 
               signal_name: str
-          ''',
-              ),
-              (
-                  '''        object.__setattr__(self, "gross_budget", gross_budget)
-              object.__setattr__(self, "initial_capital", initial_capital)
-
-
-          @dataclass(frozen=True, slots=True)
-          class ResolvedCandidateRunSpec:
-          ''',
-                  '''        object.__setattr__(self, "gross_budget", gross_budget)
-              object.__setattr__(self, "initial_capital", initial_capital)
+          '''
+          method_marker = '        object.__setattr__(self, "initial_capital", initial_capital)\n'
+          method_replacement = '''        object.__setattr__(self, "initial_capital", initial_capital)
 
               def to_json_payload(self) -> dict[str, object]:
                   """Return the normalized raw candidate-run JSON contract."""
@@ -112,12 +99,12 @@ jobs:
                       else:
                           payload[name] = value
                   return payload
-
-
-          @dataclass(frozen=True, slots=True)
-          class ResolvedCandidateRunSpec:
-          ''',
-              ),
+          '''
+          replacements = [
+              ("from typing import cast\n", "from typing import ClassVar, cast\n"),
+              (allowed_block, ""),
+              (class_marker, class_replacement),
+              (method_marker, method_replacement),
               (
                   "unknown = sorted(set(raw) - _ALLOWED_CONFIG_KEYS)",
                   "unknown = sorted(set(raw) - set(CandidateRunConfig.JSON_FIELDS))",

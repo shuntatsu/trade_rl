@@ -11,7 +11,6 @@ from tools.agent_repo.eval_suite import (
     score_eval,
 )
 
-
 DIMENSIONS = [
     "authority_discovery",
     "authority_reuse",

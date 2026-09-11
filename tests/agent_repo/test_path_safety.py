@@ -7,6 +7,7 @@ import pytest
 
 from tools.agent_repo.git_state import read_git_state
 from tools.agent_repo.source_index import SourceIndex
+from tools.agent_repo.verification import plan_verification
 
 
 def _write(root: Path, relative: str, source: str) -> Path:
@@ -32,6 +33,23 @@ def _git(repository: Path, *args: str) -> None:
         capture_output=True,
         text=True,
     )
+
+
+def _planner_baseline(root: Path) -> None:
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.name", "Test User")
+    _git(root, "config", "user.email", "test@example.com")
+    _write(root, "trade_rl/__init__.py", "")
+    _write(root, "trade_rl/integrations/__init__.py", "")
+    _write(root, "trade_rl/integrations/binance/__init__.py", "")
+    _write(
+        root,
+        "trade_rl/integrations/binance/transport.py",
+        "def load() -> bytes:\n    return b'x'\n",
+    )
+    _write(root, "docs/README.md", "# Docs\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "baseline")
 
 
 def test_source_index_rejects_symlinked_production_file(tmp_path: Path) -> None:
@@ -86,3 +104,39 @@ def test_preflight_rejects_symlinked_active_doc(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="symlink|repository"):
         read_git_state(tmp_path)
+
+
+def test_verification_rejects_symlinked_architecture_test(tmp_path: Path) -> None:
+    _planner_baseline(tmp_path)
+    external = tmp_path.parent / f"{tmp_path.name}-external-test.py"
+    external.write_text("def test_external(): assert True\n", encoding="utf-8")
+    _symlink(
+        tmp_path / "tests" / "architecture" / "test_current_docs_layout.py",
+        external,
+    )
+    _write(tmp_path, "docs/README.md", "# Docs\n\nChanged.\n")
+
+    with pytest.raises(ValueError, match="symlink|repository"):
+        plan_verification(tmp_path, base_ref="main")
+
+
+def test_verification_rejects_symlinked_integration_directory(tmp_path: Path) -> None:
+    _planner_baseline(tmp_path)
+    external = tmp_path.parent / f"{tmp_path.name}-external-tests"
+    external.mkdir()
+    _write(external, "test_external.py", "def test_external(): assert True\n")
+    _symlink(
+        tmp_path / "tests" / "integrations",
+        external,
+        target_is_directory=True,
+    )
+    _write(
+        tmp_path,
+        "trade_rl/integrations/binance/transport.py",
+        "import urllib.request\n\n"
+        "def load() -> bytes:\n"
+        "    return urllib.request.urlopen('https://example.invalid').read()\n",
+    )
+
+    with pytest.raises(ValueError, match="symlink|repository"):
+        plan_verification(tmp_path, base_ref="main")

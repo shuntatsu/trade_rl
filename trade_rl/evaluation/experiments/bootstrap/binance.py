@@ -21,7 +21,6 @@ from trade_rl.integrations.binance import (
     FrozenBinanceExchangeInfoTransport,
     binance_interval_milliseconds,
     plan_binance_vision_cache,
-    plan_vision_kline_urls,
     require_complete_binance_vision_cache,
     sync_binance_vision_cache,
     sync_binance_vision_urls,
@@ -108,9 +107,7 @@ class _FrozenDatasetTransport:
             interval_ms=step,
             source="primary Vision evidence",
         )
-        days = tuple(
-            dict.fromkeys(_utc_day(value) for value in relevant_missing)
-        )
+        days = tuple(dict.fromkeys(_utc_day(value) for value in relevant_missing))
         for day in days:
             day_start_ms = int(day.timestamp() * 1_000)
             daily_rows, daily_source = self.market_data.load_klines(
@@ -246,7 +243,9 @@ def _utc_day(open_ms: int) -> datetime:
     )
 
 
-def _expected_open_times(start_ms: int, end_ms: int, interval_ms: int) -> tuple[int, ...]:
+def _expected_open_times(
+    start_ms: int, end_ms: int, interval_ms: int
+) -> tuple[int, ...]:
     if end_ms <= start_ms or (end_ms - start_ms) % interval_ms != 0:
         raise ValueError("Vision kline range must align to its native interval")
     return tuple(range(start_ms, end_ms, interval_ms))
@@ -290,7 +289,9 @@ def _finite_number(value: object, *, field: str) -> float:
     return number
 
 
-def _kline_semantics(row: list[object]) -> tuple[int, float, float, float, float, float]:
+def _kline_semantics(
+    row: list[object],
+) -> tuple[int, float, float, float, float, float]:
     return (
         _normalize_epoch_ms(row[0]),
         _finite_number(row[1], field="open"),
@@ -382,9 +383,7 @@ def _vision_resolution_payload(
 
 
 def _repair_urls(repairs: tuple[_VisionRepair, ...]) -> tuple[str, ...]:
-    return tuple(
-        dict.fromkeys(url for repair in repairs for url in repair.daily_urls)
-    )
+    return tuple(dict.fromkeys(url for repair in repairs for url in repair.daily_urls))
 
 
 def _raw_source_roster(
@@ -468,7 +467,9 @@ def _inspect_frozen_binance_source(
         resolution_digest = content_digest(observed_resolution)
     else:
         if resolution_path.exists():
-            raise ValueError("legacy primary-only Vision source must not have resolution")
+            raise ValueError(
+                "legacy primary-only Vision source must not have resolution"
+            )
         repairs = ()
         resolution_payload = None
         resolution_digest = None

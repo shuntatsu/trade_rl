@@ -276,7 +276,7 @@ def _project_surfaces(text: str | None) -> tuple[dict[str, str], dict[str, str]]
                 raise ValueError("optional dependency entries must be string lists")
             if not all(isinstance(item, str) for item in requirements):
                 raise ValueError("optional dependency entries must be string lists")
-            extras[name] = repr(tuple(requirements))
+            extras[name] = repr(tuple(sorted(requirements)))
 
     scripts: dict[str, str] = {}
     script_table = project.get("scripts")

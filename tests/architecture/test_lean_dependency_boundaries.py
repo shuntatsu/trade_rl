@@ -96,6 +96,16 @@ def test_strategies_do_not_depend_on_evaluation() -> None:
     assert _offenders(PACKAGE / "strategies", ("trade_rl.evaluation",)) == []
 
 
+def test_rl_does_not_depend_on_forecast_family() -> None:
+    assert (
+        _offenders(
+            PACKAGE / "strategies" / "rl",
+            ("trade_rl.strategies.forecasts",),
+        )
+        == []
+    )
+
+
 def test_risk_does_not_depend_on_strategy_or_evaluation() -> None:
     forbidden = ("trade_rl.strategies", "trade_rl.evaluation")
     assert _offenders(PACKAGE / "risk", forbidden) == []

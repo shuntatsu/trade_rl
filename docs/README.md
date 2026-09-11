@@ -12,11 +12,17 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeな設計は、review済みの [`specs/2026-09-11-agent-repository-control-plane-v1-design.md`](specs/2026-09-11-agent-repository-control-plane-v1-design.md) である。実装計画は責務と検証境界を混ぜないため、次の3つに分割する。
+現在Activeなspecは次の2件である。
 
-- [`plans/2026-09-11-agent-repository-control-plane-core-implementation.md`](plans/2026-09-11-agent-repository-control-plane-core-implementation.md) — network-free preflight / context / impact / semantic diff / verification planner
-- [`plans/2026-09-11-agent-repository-eval-implementation.md`](plans/2026-09-11-agent-repository-eval-implementation.md) — fresh-agent task corpus / rubric / baseline-comparison protocol
-- [`plans/2026-09-11-agent-repository-merge-safety-implementation.md`](plans/2026-09-11-agent-repository-merge-safety-implementation.md) — PR quality contract / integration policy / main protection read-back
+- [`specs/2026-09-11-agent-repository-control-plane-v1-design.md`](specs/2026-09-11-agent-repository-control-plane-v1-design.md) — Agent Eval、source-derived inspector、Semantic Diff、risk-based verification、merge safetyを定義するAgent-safe Repository設計
+- [`specs/2026-09-11-binance-vision-daily-repair-design.md`](specs/2026-09-11-binance-vision-daily-repair-design.md) — incomplete monthly Binance Vision archiveをofficial daily archiveで明示的・再現可能にrepairするsource-evidence契約
+
+現在Activeなplanは次の4件である。
+
+- [`plans/2026-09-11-agent-repository-control-plane-core-implementation.md`](plans/2026-09-11-agent-repository-control-plane-core-implementation.md) — preflight/context/impact、Semantic Diff、risk-based verificationをTDDで実装する計画
+- [`plans/2026-09-11-agent-repository-eval-implementation.md`](plans/2026-09-11-agent-repository-eval-implementation.md) — fresh-Agent task/rubric/scorerと評価protocolの実装計画
+- [`plans/2026-09-11-agent-repository-merge-safety-implementation.md`](plans/2026-09-11-agent-repository-merge-safety-implementation.md) — PR Quality ContractとGitHub integration safetyの実装計画
+- [`plans/2026-09-11-binance-vision-daily-repair-implementation.md`](plans/2026-09-11-binance-vision-daily-repair-implementation.md) — primary plan維持、resolution evidence、manifest v2互換、反証検証、canonical M2再実行までのTDD実装計画
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 
@@ -36,10 +42,10 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 ## 何を更新するか
 
 - package、責務、依存方向、公開境界を変えた → `architecture/package-boundaries.md`
-- causal data、availability、artifact identityを変えた → `architecture/lean-core.md`
+- causal data、strategy/risk分離、execution/accounting、artifact invariantを変えた → `architecture/lean-core.md`
 - Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
 - 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
-- docsの入口・保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME
+- docsのrouting/保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME
 
 コードとdocsが食い違った場合は、現行source・architecture test・public contractを確認して真の契約を確定し、docsだけを放置しない。
 

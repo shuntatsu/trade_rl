@@ -85,9 +85,7 @@ def test_context_reports_source_derived_capability_and_consumers(
     assert context.public_exports == ("CandidateRunConfig",)
     assert context.schema_constants == ("RUN_SCHEMA",)
     assert context.test_candidates == ("tests/evaluation/test_candidate_run_config.py",)
-    assert context.architecture_tests == (
-        "tests/architecture/test_runs_boundary.py",
-    )
+    assert context.architecture_tests == ("tests/architecture/test_runs_boundary.py",)
     assert context.project_references == ()
     assert context.doc_references == ("docs/architecture/package-boundaries.md",)
     assert context.effect_signals == ("filesystem:write_text",)
@@ -153,9 +151,7 @@ def test_context_reports_optional_capability_extra_from_dynamic_import(
         "trade_rl/strategies/forecasts/lightgbm.py"
     )
 
-    assert context.project_references == (
-        "project.optional-dependencies.forecast-gbm",
-    )
+    assert context.project_references == ("project.optional-dependencies.forecast-gbm",)
 
 
 def test_impact_is_deterministic_by_path(tmp_path: Path) -> None:

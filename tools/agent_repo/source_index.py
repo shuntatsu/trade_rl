@@ -332,14 +332,21 @@ class SourceIndex:
             directory = directory.parent
         return None, ()
 
-    def _consumers(self, module: str | None, *, semantic: bool) -> tuple[str, ...]:
+    def _consumers(
+        self,
+        module: str | None,
+        *,
+        semantic: bool,
+        exclude_module: str | None,
+    ) -> tuple[str, ...]:
         if module is None:
             return ()
         imports_by_path = self._semantic if semantic else self._direct
         result = [
             path.relative_to(self.repository).as_posix()
             for path, imports in imports_by_path.items()
-            if self._module_by_path.get(path) != module and module in imports
+            if self._module_by_path.get(path) not in {module, exclude_module}
+            and module in imports
         ]
         return tuple(sorted(result))
 
@@ -399,8 +406,16 @@ class SourceIndex:
             facade_module=facade_module,
             direct_imports=direct_imports,
             semantic_imports=semantic_imports,
-            direct_consumers=self._consumers(module, semantic=False),
-            semantic_consumers=self._consumers(module, semantic=True),
+            direct_consumers=self._consumers(
+                module,
+                semantic=False,
+                exclude_module=facade_module,
+            ),
+            semantic_consumers=self._consumers(
+                module,
+                semantic=True,
+                exclude_module=facade_module,
+            ),
             public_exports=public_exports,
             schema_constants=_schema_constants(source),
             test_candidates=self._test_candidates(

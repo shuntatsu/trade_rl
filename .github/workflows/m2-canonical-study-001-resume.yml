@@ -1,0 +1,365 @@
+name: Canonical M2 Study 001 Repaired Bootstrap and Baseline
+
+on:
+  push:
+    branches: [research/m2-canonical-study-001]
+    paths: [.github/workflows/m2-canonical-study-001-resume.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: canonical-m2-study-001-repaired-execution
+  cancel-in-progress: false
+
+env:
+  BRANCH: research/m2-canonical-study-001
+  M2_ROOT: /tmp/canonical-m2-study-001
+  RESEARCH_MERGE_SHA: 482175fdbe4810316e665a9cbc5b980c7d95e201
+  RESEARCH_PARENT_SHA: bdc626e4ef18d2780d8f1bfd1fabdd077240cefc
+  PREREGISTRATION_SHA: fb400a9390ff297c43ec189462d96cfb0ab40fb8
+  MAIN_BASE_SHA: 4838c32f7982792ddeaf05e3302a05437fcc30f9
+  EXPECTED_EVIDENCE_TREE: edb2c00f70a0235108406063ff4e53cac7353923
+  BOOTSTRAP_RAW_SHA256: 9c75849672fe56004261b540c84cdbb003a8821b94dd2f80f8bbe3e8a69f2eb4
+  BOOTSTRAP_CONFIG_DIGEST: 71b72031d33b50468774e6bc355206725d6a85ea2a5680fa8e5c8b9c385aee5b
+  SOURCE_PREFLIGHT_RUN_ID: "34495043958"
+  METADATA_PROBE_RUN_ID: "34496232656"
+
+jobs:
+  verify:
+    name: Retire helper and verify frozen study
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      evidence_sha: ${{ steps.retire.outputs.evidence_sha }}
+    steps:
+      - name: Checkout exact one-shot helper head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify research lineage before retirement
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$RESEARCH_MERGE_SHA"
+          test "$(git rev-parse "$RESEARCH_MERGE_SHA^1")" = "$RESEARCH_PARENT_SHA"
+          test "$(git rev-parse "$RESEARCH_MERGE_SHA^2")" = "$MAIN_BASE_SHA"
+          git merge-base --is-ancestor "$PREREGISTRATION_SHA" "$RESEARCH_MERGE_SHA"
+          test "$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')" = "$GITHUB_SHA"
+
+      - name: Retire one-shot execution helper
+        id: retire
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/m2-canonical-study-001-resume.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore: retire canonical M2 repaired execution helper"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_EVIDENCE_TREE"
+          evidence_sha="$(git rev-parse HEAD)"
+          echo "evidence_sha=$evidence_sha" >> "$GITHUB_OUTPUT"
+          git push origin "HEAD:refs/heads/$BRANCH"
+
+      - name: Verify exact retired evidence tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e .github/workflows/m2-canonical-study-001-resume.yml
+          test "$(git rev-parse HEAD)" = "${{ steps.retire.outputs.evidence_sha }}"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_EVIDENCE_TREE"
+          actual="$(git diff --name-only "$MAIN_BASE_SHA" HEAD)"
+          expected=$'studies/m2/canonical-study-001/README.md\nstudies/m2/canonical-study-001/bootstrap.json'
+          test "$actual" = "$expected"
+          test "$(sha256sum studies/m2/canonical-study-001/bootstrap.json | awk '{print $1}')" = "$BOOTSTRAP_RAW_SHA256"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install core verification dependencies
+        run: uv sync --extra dev
+
+      - name: Validate frozen preregistration identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import os
+          from trade_rl.evaluation.experiments.bootstrap.config import (
+              load_canonical_m2_bootstrap_config,
+          )
+
+          config = load_canonical_m2_bootstrap_config(
+              "studies/m2/canonical-study-001/bootstrap.json"
+          )
+          expected = os.environ["BOOTSTRAP_CONFIG_DIGEST"]
+          if config.digest != expected:
+              raise RuntimeError(
+                  f"frozen bootstrap digest changed: {config.digest} != {expected}"
+              )
+          print(f"bootstrap_config_digest={config.digest}")
+          print(f"symbols={','.join(config.symbols)}")
+          print(f"ppo_seeds={','.join(str(seed) for seed in config.ppo_seeds)}")
+          PY
+
+      - name: Ruff
+        run: uv run ruff check trade_rl tests
+
+      - name: Format
+        run: uv run ruff format --check trade_rl tests
+
+      - name: Mypy
+        run: uv run mypy trade_rl
+
+      - name: Architecture tooling types
+        run: uv run mypy tests/architecture/imports.py tests/architecture/distribution.py
+
+      - name: Core tests
+        run: uv run pytest -q tests
+
+      - name: Build
+        run: uv build
+
+      - name: Distribution source closure and sdist rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl
+          rebuilt="$(mktemp -d)"
+          trap 'rm -rf "$rebuilt"' EXIT
+          uv build --wheel dist/*.tar.gz --out-dir "$rebuilt"
+          uv run python -m tests.architecture.distribution "$rebuilt"/*.whl
+
+      - name: Clean installed core smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(realpath dist/*.whl)"
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          clean="$(mktemp -d)"
+          trap 'rm -rf "$clean"' EXIT
+          uv venv "$clean/venv" --python 3.12
+          uv pip install --python "$clean/venv/bin/python" "$wheel"
+          cd "$clean"
+          "$clean/venv/bin/python" -I - "$expected" <<'PY'
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import trade_rl
+          import trade_rl.data
+          import trade_rl.evaluation
+          import trade_rl.evaluation.experiments
+          import trade_rl.risk
+          import trade_rl.simulation
+          import trade_rl.strategies
+          assert trade_rl.__version__ == version("trade-rl") == sys.argv[1]
+          assert Path(trade_rl.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+          print("clean installed core public imports and identity: OK")
+          PY
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.runs.candidate --help
+          "$clean/venv/bin/python" -I -m trade_rl.evaluation.experiments.bootstrap.cli --help
+
+      - name: Package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
+          module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
+          test "$module" = "$expected"
+
+  study:
+    name: Execute frozen repaired bootstrap and baseline
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      EVIDENCE_GIT_SHA: ${{ needs.verify.outputs.evidence_sha }}
+    steps:
+      - name: Checkout exact verified retired head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ needs.verify.outputs.evidence_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact evidence head before research execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EVIDENCE_GIT_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_EVIDENCE_TREE"
+          test ! -e .github/workflows/m2-canonical-study-001-resume.yml
+          test "$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')" = "$EVIDENCE_GIT_SHA"
+          actual="$(git diff --name-only "$MAIN_BASE_SHA" HEAD)"
+          expected=$'studies/m2/canonical-study-001/README.md\nstudies/m2/canonical-study-001/bootstrap.json'
+          test "$actual" = "$expected"
+          test "$(sha256sum studies/m2/canonical-study-001/bootstrap.json | awk '{print $1}')" = "$BOOTSTRAP_RAW_SHA256"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install research extras
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Freeze Binance source and publish canonical bootstrap v2
+        id: bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$M2_ROOT"
+          mkdir -p "$M2_ROOT"
+          uv run python -m trade_rl.evaluation.experiments.bootstrap.cli \
+            --config studies/m2/canonical-study-001/bootstrap.json \
+            --output "$M2_ROOT/bootstrap"
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from trade_rl.evaluation.experiments import inspect_canonical_m2_bootstrap
+
+          root = Path(os.environ["M2_ROOT"])
+          bootstrap_root = root / "bootstrap"
+          result = inspect_canonical_m2_bootstrap(bootstrap_root)
+          if result.config_digest != os.environ["BOOTSTRAP_CONFIG_DIGEST"]:
+              raise RuntimeError("published bootstrap config digest changed")
+          resolution_path = bootstrap_root / "source" / "vision-resolution.json"
+          if not resolution_path.is_file():
+              raise RuntimeError("Vision resolution evidence is missing")
+          manifest = json.loads(
+              (bootstrap_root / "bootstrap-manifest.json").read_text(encoding="utf-8")
+          )
+          if manifest.get("schema_version") != "canonical_m2_bootstrap_manifest_v2":
+              raise RuntimeError("canonical bootstrap did not publish manifest v2")
+          resolution = json.loads(resolution_path.read_text(encoding="utf-8"))
+          repairs = resolution.get("repairs")
+          if not isinstance(repairs, list):
+              raise RuntimeError("Vision resolution repairs are invalid")
+          summary = {
+              "schema_version": "canonical_m2_study_001_bootstrap_index_v1",
+              "execution_git_sha": os.environ["EVIDENCE_GIT_SHA"],
+              "main_base_sha": os.environ["MAIN_BASE_SHA"],
+              "preregistration_git_sha": os.environ["PREREGISTRATION_SHA"],
+              "source_preflight_run_id": int(os.environ["SOURCE_PREFLIGHT_RUN_ID"]),
+              "metadata_probe_run_id": int(os.environ["METADATA_PROBE_RUN_ID"]),
+              "bootstrap_raw_sha256": os.environ["BOOTSTRAP_RAW_SHA256"],
+              "bootstrap_config_digest": result.config_digest,
+              "vision_resolution_digest": manifest["vision_resolution_digest"],
+              "raw_source_roster_digest": manifest["raw_source_roster_digest"],
+              "repair_entry_count": len(repairs),
+              "bootstrap_digest": result.bootstrap_digest,
+              "dataset_id": result.dataset_id,
+              "dataset_artifact_digest": result.dataset_artifact_digest,
+              "study_digest": result.study_digest,
+          }
+          (root / "bootstrap-index.json").write_text(
+              json.dumps(summary, allow_nan=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(summary, allow_nan=False, sort_keys=True, indent=2))
+          PY
+
+      - name: Upload pristine immutable bootstrap evidence
+        if: steps.bootstrap.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-001-bootstrap-v2
+          path: |
+            /tmp/canonical-m2-study-001/bootstrap
+            /tmp/canonical-m2-study-001/bootstrap-index.json
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+      - name: Execute baseline on Study copy and reconstruct evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a "$M2_ROOT/bootstrap/study" "$M2_ROOT/development-study"
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          from trade_rl.evaluation.experiments import (
+              inspect_canonical_m2_bootstrap,
+              inspect_study,
+              run_baseline,
+          )
+
+          root = Path(os.environ["M2_ROOT"])
+          bootstrap = inspect_canonical_m2_bootstrap(root / "bootstrap")
+          snapshot = run_baseline(
+              root / "development-study",
+              dataset_root=root / "bootstrap" / "dataset",
+          )
+          if snapshot.baseline is None:
+              raise RuntimeError("baseline EvidenceSet was not published")
+
+          inspect_canonical_m2_bootstrap(root / "bootstrap")
+          verified = inspect_study(root / "development-study")
+          if verified.baseline is None:
+              raise RuntimeError("baseline EvidenceSet failed reconstruction")
+
+          manifest = json.loads(
+              (root / "bootstrap" / "bootstrap-manifest.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          index = {
+              "schema_version": "canonical_m2_study_001_index_v3",
+              "execution_git_sha": os.environ["EVIDENCE_GIT_SHA"],
+              "main_base_sha": os.environ["MAIN_BASE_SHA"],
+              "preregistration_git_sha": os.environ["PREREGISTRATION_SHA"],
+              "source_preflight_run_id": int(os.environ["SOURCE_PREFLIGHT_RUN_ID"]),
+              "metadata_probe_run_id": int(os.environ["METADATA_PROBE_RUN_ID"]),
+              "bootstrap_raw_sha256": os.environ["BOOTSTRAP_RAW_SHA256"],
+              "bootstrap_config_digest": bootstrap.config_digest,
+              "vision_resolution_digest": manifest["vision_resolution_digest"],
+              "raw_source_roster_digest": manifest["raw_source_roster_digest"],
+              "bootstrap_digest": bootstrap.bootstrap_digest,
+              "dataset_id": bootstrap.dataset_id,
+              "dataset_artifact_digest": bootstrap.dataset_artifact_digest,
+              "study_digest": verified.plan.digest,
+              "baseline_evidence_fingerprint": verified.baseline.fingerprint,
+              "ppo_seeds": list(verified.plan.ppo_seeds),
+          }
+          if index["bootstrap_config_digest"] != os.environ["BOOTSTRAP_CONFIG_DIGEST"]:
+              raise RuntimeError("baseline is not bound to frozen bootstrap config")
+          (root / "study-index.json").write_text(
+              json.dumps(index, allow_nan=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(index, allow_nan=False, sort_keys=True, indent=2))
+          PY
+
+      - name: Upload immutable bootstrap and baseline Study evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-001-baseline-v3
+          path: /tmp/canonical-m2-study-001
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+      - name: Upload clearly labeled failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-001-failure-diagnostics-v3
+          path: /tmp/canonical-m2-study-001
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: warn

@@ -1,0 +1,128 @@
+name: Binance Vision repair mutation probe
+on:
+  push:
+    branches: [fix/binance-vision-daily-repair-v1]
+    paths: [.github/workflows/binance-vision-repair-mutation-probe.yml]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Retire probe from current tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "0d29c000a153f7b478b13c4b8b598d0937f7b0fd"
+          git rm .github/workflows/binance-vision-repair-mutation-probe.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore: retire Vision repair mutation probe"
+          test "$(git rev-parse HEAD^{tree})" = "898030b01021a26df4f1250d32469326c82502e5"
+          git push origin HEAD:refs/heads/fix/binance-vision-daily-repair-v1
+      - name: Prove maintained tests kill four plausible mutants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path("trade_rl/evaluation/experiments/bootstrap/workflow.py")
+          text = workflow.read_text()
+          old = '''    if manifest_schema == _MANIFEST_SCHEMA_V2:
+              if manifest["vision_resolution_digest"] != frozen.vision_resolution_digest:
+                  raise ValueError("Vision resolution digest differs from bootstrap manifest")
+          '''
+          if text.count(old) != 1:
+              raise RuntimeError("resolution-digest comparison shape changed")
+          workflow.write_text(text.replace(old, "", 1))
+          PY
+          if uv run pytest -q tests/evaluation/experiments/bootstrap/test_manifest_resolution.py::test_v2_manifest_rejects_resolution_digest_mismatch; then
+            echo "resolution-digest mutant survived" >&2
+            exit 1
+          fi
+          git checkout -- trade_rl/evaluation/experiments/bootstrap/workflow.py
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/binance.py")
+          text = path.read_text()
+          old = '''                    if _kline_semantics(existing) != _kline_semantics(row):
+                          raise ValueError(
+                              "daily Vision repair overlap conflicts with primary evidence"
+                          )
+                      continue
+          '''
+          new = '''                    if False and _kline_semantics(existing) != _kline_semantics(row):
+                          raise ValueError(
+                              "daily Vision repair overlap conflicts with primary evidence"
+                          )
+                      continue
+          '''
+          if text.count(old) != 1:
+              raise RuntimeError("overlap comparison shape changed")
+          path.write_text(text.replace(old, new, 1))
+          PY
+          if uv run pytest -q tests/evaluation/experiments/bootstrap/test_binance_repair_hardening.py::test_offline_inspection_rejects_self_consistent_repair_overlap_conflict; then
+            echo "overlap-conflict mutant survived" >&2
+            exit 1
+          fi
+          git checkout -- trade_rl/evaluation/experiments/bootstrap/binance.py
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/binance.py")
+          text = path.read_text()
+          old = '''def _repair_urls(repairs: tuple[_VisionRepair, ...]) -> tuple[str, ...]:
+              return tuple(dict.fromkeys(url for repair in repairs for url in repair.daily_urls))
+          '''
+          new = '''def _repair_urls(repairs: tuple[_VisionRepair, ...]) -> tuple[str, ...]:
+              return ()
+          '''
+          if text.count(old) != 1:
+              raise RuntimeError("repair URL roster shape changed")
+          path.write_text(text.replace(old, new, 1))
+          PY
+          if uv run pytest -q tests/evaluation/experiments/bootstrap/test_binance_repair.py::test_freeze_repairs_arbitrary_primary_gap_with_explicit_daily_evidence; then
+            echo "repair-roster mutant survived" >&2
+            exit 1
+          fi
+          git checkout -- trade_rl/evaluation/experiments/bootstrap/binance.py
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/evaluation/experiments/bootstrap/binance.py")
+          text = path.read_text()
+          old = '''            missing = tuple(value for value in expected if value not in indexed)
+              if not missing:
+                  continue
+          '''
+          new = '''            missing = tuple(value for value in expected if value not in indexed)
+              if not missing:
+                  missing = (expected[0],)
+          '''
+          if text.count(old) != 1:
+              raise RuntimeError("missing-resolution shape changed")
+          path.write_text(text.replace(old, new, 1))
+          PY
+          if uv run pytest -q tests/evaluation/experiments/bootstrap/test_binance_repair.py::test_freeze_complete_primary_clock_does_not_request_daily_repair; then
+            echo "unnecessary-repair mutant survived" >&2
+            exit 1
+          fi
+          git checkout -- trade_rl/evaluation/experiments/bootstrap/binance.py
+          git diff --exit-code
+          echo "killed_mutants=4/4"

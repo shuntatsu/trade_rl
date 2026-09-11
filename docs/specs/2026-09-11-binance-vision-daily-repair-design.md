@@ -72,7 +72,7 @@ Official Binance Vision の primary monthly archive が内部的に不完全で�
 
 Canonical bootstrap 専用の frozen dataset transport が persisted resolution plan に従って primary rows と repair rows をmergeする。通常の `BinancePublicTransport.load_klines(..., mode=VISION)` の外部挙動は変更しない。
 
-repair merge は timestamp key で行う。primary row が存在する timestamp は primary が authority である。repair archiveに同じ timestamp が存在する場合、row content が一致しなければ fail-closed とする。一致する overlap は重複publicationせず、primary rowを保持する。primary に存在しない expected timestampだけ repair rowから補う。
+repair merge は timestamp key で行う。primary row が存在する timestamp は primary が authority である。repair archiveに同じ timestamp が存在する場合、datasetへ入力される semantic fields、すなわち normalized open timestamp、open / high / low / close、quote volume が一致しなければ fail-closed とする。一致する overlap は重複publicationせずprimary rowを保持する。CSV文字列表現や未使用fieldの差だけではconflictとしないが、primary / repair のraw archive bytes自体はそれぞれSHA-256 rosterで独立に固定する。primary に存在しない expected timestampだけ repair rowから補う。
 
 merge後は start inclusive / stop exclusive の全 expected open timestamp が exactly one row 存在し、strictly increasing かつ native interval exact でなければ source freezeを失敗させる。
 
@@ -85,7 +85,7 @@ merge後は start inclusive / stop exclusive の全 expected open timestamp が 
 5. missing expected open timestampsをdeterministically列挙する。
 6. missing timestampが属するUTC dayからofficial daily repair URLsを導出する。
 7. repair URLsだけ追加同期し、各 raw byteを既存 sidecar SHA-256 evidenceで検証する。
-8. primary + repair rowsをmergeし、overlap conflictとfull clock coverageを検証する。
+8. primary + repair rowsをmergeし、dataset-semantic overlap conflictとfull clock coverageを検証する。
 9. `vision-resolution.json` をpublishする。
 10. primary + repair ordered unionからraw source rosterを作る。
 11. network-disabled frozen transportだけをdataset buildへ渡す。
@@ -118,10 +118,10 @@ vision_resolution_digest
 
 readerは以下を維持する。
 
-- v1: `vision-resolution.json` を要求せず、既存 primary-only artifact を従来契約でinspectする。
-- v2: `vision-resolution.json` を必須とし、manifestの`vision_resolution_digest`とrecomputed resolution digestの一致を要求する。
+- v1: `vision-resolution.json` を要求せず、raw source rosterはprimary plan URLsだけであることを要求し、既存 primary-only artifact を従来契約でinspectする。
+- v2: `vision-resolution.json` を必須とし、manifestの`vision_resolution_digest`とrecomputed resolution digestの一致を要求し、raw source rosterがprimary + repairのordered unionとexact一致することを要求する。
 
-v1 artifactをv2へ自動migration・rewriteしない。
+v1 artifactをv2へ自動migration・rewriteしない。v1 sourceへresolution fileを後付けしたartifactも受理しない。
 
 ## Invariants
 
@@ -130,7 +130,7 @@ v1 artifactをv2へ自動migration・rewriteしない。
 - repair decisionはtimestamp coverageだけから決まり、価格・return・P&Lを参照しない。
 - daily repair URLは official `https://data.binance.vision/data/` 配下のみ。
 - primary rowはrepair rowで上書きしない。
-- overlap content conflictはfail-closed。
+- dataset-semantic overlap conflictはfail-closed。
 - repair後も1本でもmissing/duplicate/backwards/irregular rowがあればdatasetをpublishしない。
 - source sync完了後のdataset build / inspectionでnetwork accessしない。
 - repair raw bytesを含む全使用sourceがraw source rosterに含まれる。
@@ -141,8 +141,8 @@ v1 artifactをv2へ自動migration・rewriteしない。
 ## Failure Modes
 
 - primary archiveにmissing barsがあるがdaily archiveも存在しない。
-- daily archiveは存在するがrequired timestampが仍欠損している。
-- daily repairとprimary overlapのrow contentが異なる。
+- daily archiveは存在するがrequired timestampがなお欠損している。
+- daily repairとprimary overlapのdataset-semantic row contentが異なる。
 - repair URLがrequested symbol/timeframe/dayと一致しない。
 - repair URLがofficial Vision prefix外。
 - resolution fileのmissing timestamps / URL order / digestがtamperされる。
@@ -161,7 +161,7 @@ v1 artifactをv2へ自動migration・rewriteしない。
 - synthetic monthly primary archiveにarbitrary day gapを作ると、そのdayだけdaily repair URLがresolved planへ入る。
 - gapのないseriesではrepair listが空で追加network requestがない。
 - repair後のopen timestampsがrequested clockのexpected sequenceと完全一致する。
-- primary/daily overlapが同一なら1 rowへcollapseし、異なるなら失敗する。
+- primary/daily overlapのdataset-semantic fieldsが同一なら1 rowへcollapseし、異なるなら失敗する。
 - daily archive自体がincompleteなら失敗する。
 - resolution file / repair raw bytes / sidecar / roster tamperをinspectionが検出する。
 - `allow_network=False` のinspection/rebuildでnetwork requestが発生しない。

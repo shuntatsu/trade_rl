@@ -1,0 +1,228 @@
+name: Apply runs capability facade migration
+
+on:
+  push:
+    branches:
+      - refactor/runs-capability-facade
+    paths:
+      - .github/workflows/apply-runs-capability-facade.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact helper head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Guard formal RED parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "f2ae17f9e2a0ef0b02b75703759f07224e364eaf"
+
+      - name: Apply facade and import-only migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+              target.write_text(text.replace(old, new), encoding="utf-8")
+
+          Path("trade_rl/evaluation/runs/__init__.py").write_text(
+              '''"""Tier-2 public facade for immutable candidate-run contracts and execution."""
+
+          from trade_rl.evaluation.runs.artifact import (
+              CandidateRunArtifactIdentity,
+              LoadedCandidateRun,
+              PublishedCandidateRun,
+              inspect_candidate_run_artifact,
+              load_candidate_run_artifact,
+              publish_candidate_run,
+          )
+          from trade_rl.evaluation.runs.candidate_suite import (
+              LeanCandidateConfig,
+              run_lean_candidate_suite,
+          )
+          from trade_rl.evaluation.runs.config import (
+              CandidateRunConfig,
+              ResolvedCandidateRunSpec,
+              parse_candidate_run_config,
+              resolve_candidate_run_spec,
+          )
+          from trade_rl.evaluation.runs.execute import CandidateRunResult, execute_candidate_run
+          from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance
+
+          __all__ = [
+              "CandidateRunArtifactIdentity",
+              "CandidateRunConfig",
+              "CandidateRunResult",
+              "LeanCandidateConfig",
+              "LoadedCandidateRun",
+              "PublishedCandidateRun",
+              "ResolvedCandidateRunSpec",
+              "build_candidate_run_provenance",
+              "execute_candidate_run",
+              "inspect_candidate_run_artifact",
+              "load_candidate_run_artifact",
+              "parse_candidate_run_config",
+              "publish_candidate_run",
+              "resolve_candidate_run_spec",
+              "run_lean_candidate_suite",
+          ]
+          ''',
+              encoding="utf-8",
+          )
+
+          replace_exact(
+              "trade_rl/evaluation/__init__.py",
+              '''from trade_rl.evaluation.runs.candidate_suite import (
+              LeanCandidateConfig,
+              run_lean_candidate_suite,
+          )''',
+              '''from trade_rl.evaluation.runs import (
+              LeanCandidateConfig,
+              run_lean_candidate_suite,
+          )''',
+          )
+          replace_exact(
+              "trade_rl/evaluation/experiments/analysis.py",
+              "from trade_rl.evaluation.runs.artifact import LoadedCandidateRun",
+              "from trade_rl.evaluation.runs import LoadedCandidateRun",
+          )
+          replace_exact(
+              "trade_rl/evaluation/experiments/delta.py",
+              "from trade_rl.evaluation.runs.artifact import LoadedCandidateRun",
+              "from trade_rl.evaluation.runs import LoadedCandidateRun",
+          )
+          replace_exact(
+              "trade_rl/evaluation/experiments/codec.py",
+              '''from trade_rl.evaluation.runs.config import (
+              CandidateRunConfig,
+              ResolvedCandidateRunSpec,
+          )''',
+              '''from trade_rl.evaluation.runs import (
+              CandidateRunConfig,
+              ResolvedCandidateRunSpec,
+          )''',
+          )
+          replace_exact(
+              "trade_rl/evaluation/experiments/evidence.py",
+              '''from trade_rl.evaluation.runs.artifact import (
+              LoadedCandidateRun,
+              inspect_candidate_run_artifact,
+              load_candidate_run_artifact,
+              publish_candidate_run,
+          )
+          from trade_rl.evaluation.runs.config import (
+              CandidateRunConfig,
+              ResolvedCandidateRunSpec,
+              resolve_candidate_run_spec,
+          )
+          from trade_rl.evaluation.runs.execute import execute_candidate_run
+          from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance''',
+              '''from trade_rl.evaluation.runs import (
+              CandidateRunConfig,
+              LoadedCandidateRun,
+              ResolvedCandidateRunSpec,
+              build_candidate_run_provenance,
+              execute_candidate_run,
+              inspect_candidate_run_artifact,
+              load_candidate_run_artifact,
+              publish_candidate_run,
+              resolve_candidate_run_spec,
+          )''',
+          )
+          replace_exact(
+              "trade_rl/evaluation/experiments/workflow.py",
+              '''from trade_rl.evaluation.runs.config import (
+              CandidateRunConfig,
+              resolve_candidate_run_spec,
+          )
+          from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance''',
+              '''from trade_rl.evaluation.runs import (
+              CandidateRunConfig,
+              build_candidate_run_provenance,
+              resolve_candidate_run_spec,
+          )''',
+          )
+          replace_exact(
+              "trade_rl/evaluation/experiments/bootstrap/config.py",
+              '''from trade_rl.evaluation.runs.config import (
+              CandidateRunConfig,
+              parse_candidate_run_config,
+          )''',
+              '''from trade_rl.evaluation.runs import (
+              CandidateRunConfig,
+              parse_candidate_run_config,
+          )''',
+          )
+          replace_exact(
+              "trade_rl/evaluation/experiments/bootstrap/workflow.py",
+              '''from trade_rl.evaluation.runs.config import (
+              ResolvedCandidateRunSpec,
+              resolve_candidate_run_spec,
+          )
+          from trade_rl.evaluation.runs.provenance import build_candidate_run_provenance''',
+              '''from trade_rl.evaluation.runs import (
+              ResolvedCandidateRunSpec,
+              build_candidate_run_provenance,
+              resolve_candidate_run_spec,
+          )''',
+          )
+          PY
+
+      - name: Retire helper before repository checks
+        run: rm .github/workflows/apply-runs-capability-facade.yml
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Verify targeted GREEN
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          uv run ruff check --fix --select I001 trade_rl/evaluation tests/architecture/test_runs_capability_facade.py
+          uv run ruff format trade_rl/evaluation tests/architecture/test_runs_capability_facade.py
+          uv run pytest -q \
+            tests/architecture/test_import_collector_contract.py \
+            tests/architecture/test_runs_capability_facade.py \
+            tests/architecture/test_experiment_workflow_boundaries.py \
+            tests/architecture/test_current_docs_layout.py \
+            tests/evaluation
+          uv run ruff check trade_rl/evaluation tests/architecture/test_import_collector_contract.py tests/architecture/test_runs_capability_facade.py
+          uv run ruff format --check trade_rl/evaluation tests/architecture/test_import_collector_contract.py tests/architecture/test_runs_capability_facade.py
+          uv run mypy trade_rl/evaluation
+          uv run mypy tests/architecture/imports.py
+          git diff --check
+
+      - name: Commit verified migration
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          test ! -e .github/workflows/apply-runs-capability-facade.yml
+          git diff --cached --check
+          git commit -m "refactor: expose candidate run capability facade"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

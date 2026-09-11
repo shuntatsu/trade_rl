@@ -38,21 +38,16 @@ def _git(repository: Path, *args: str) -> str:
     ).stdout
 
 
-def _lines(value: str) -> tuple[str, ...]:
-    return tuple(sorted(line for line in value.splitlines() if line))
+def _nul_paths(value: str) -> tuple[str, ...]:
+    return tuple(sorted(path for path in value.split("\0") if path))
 
 
 def _dirty_paths(repository: Path) -> tuple[str, ...]:
-    status = _git(repository, "status", "--porcelain=v1", "--untracked-files=no")
-    paths: set[str] = set()
-    for line in status.splitlines():
-        if len(line) < 4:
-            continue
-        path = line[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.add(path)
-    return tuple(sorted(paths))
+    unstaged = _nul_paths(_git(repository, "diff", "--name-only", "-z", "--"))
+    staged = _nul_paths(
+        _git(repository, "diff", "--cached", "--name-only", "-z", "--")
+    )
+    return tuple(sorted(set(unstaged) | set(staged)))
 
 
 def _active_docs(repository: Path) -> tuple[str, ...]:
@@ -94,13 +89,17 @@ def read_git_state(repository: Path, *, base_ref: str | None = None) -> GitState
         branch = branch_value or None
 
     dirty_paths = _dirty_paths(root)
-    untracked_paths = _lines(_git(root, "ls-files", "--others", "--exclude-standard"))
+    untracked_paths = _nul_paths(
+        _git(root, "ls-files", "--others", "--exclude-standard", "-z")
+    )
 
     merge_base: str | None = None
     base_changed: tuple[str, ...] = ()
     if base_ref is not None:
         merge_base = _git(root, "merge-base", "HEAD", base_ref).strip()
-        base_changed = _lines(_git(root, "diff", "--name-only", f"{merge_base}...HEAD"))
+        base_changed = _nul_paths(
+            _git(root, "diff", "--name-only", "-z", f"{merge_base}...HEAD", "--")
+        )
 
     changed_paths = tuple(sorted(set(base_changed) | set(dirty_paths)))
     return GitState(

@@ -42,4 +42,7 @@ def test_merge_policy_requires_tested_head_to_include_current_main() -> None:
     assert required in root_agents
     assert required in doc_agents
     assert 'Do not require "branch must be up to date"' not in merge_plan
-    assert "Require the PR branch to be up to date with current `main` before merge" in merge_plan
+    assert (
+        "Require the PR branch to be up to date with current `main` before merge"
+        in merge_plan
+    )

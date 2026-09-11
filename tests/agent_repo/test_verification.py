@@ -5,6 +5,19 @@ from pathlib import Path
 
 from tools.agent_repo.verification import VerificationStep, plan_verification
 
+FINAL_COMMANDS = {
+    "uv run ruff check trade_rl tests tools",
+    "uv run ruff format --check trade_rl tests tools",
+    "uv run mypy trade_rl",
+    "uv run mypy tools/agent_repo tests/architecture/distribution.py",
+    "uv run pytest -q tests",
+    "uv build",
+    "uv run python -m tests.architecture.distribution dist/*.tar.gz dist/*.whl",
+    "CI composite: rebuild wheel from sdist and verify source closure",
+    "CI composite: clean installed core smoke",
+    "CI composite: package identity",
+}
+
 
 def _git(repository: Path, *args: str) -> str:
     return subprocess.run(
@@ -99,14 +112,7 @@ def test_runs_change_gets_targeted_fast_tests_and_full_final_gate(
     )
     assert any("test_runs_capability_facade.py" in value for value in fast_commands)
     final_commands = {step.command for step in _by_tier(steps, "final")}
-    assert {
-        "uv run ruff check trade_rl tests tools",
-        "uv run ruff format --check trade_rl tests tools",
-        "uv run mypy trade_rl",
-        "uv run mypy tools/agent_repo tests/architecture/distribution.py",
-        "uv run pytest -q tests",
-        "uv build",
-    } <= final_commands
+    assert final_commands == FINAL_COMMANDS
     coverage = _by_tier(steps, "signal")
     assert len(coverage) == 1
     assert "--cov-fail-under=0" in coverage[0].command
@@ -166,7 +172,4 @@ def test_docs_only_change_gets_docs_fast_check_without_coverage_signal(
         for step in steps
     )
     assert _by_tier(steps, "signal") == []
-    assert any(
-        step.tier == "final" and step.command == "uv run pytest -q tests"
-        for step in steps
-    )
+    assert {step.command for step in _by_tier(steps, "final")} == FINAL_COMMANDS

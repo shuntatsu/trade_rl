@@ -1,14 +1,11 @@
 import importlib
 from pathlib import Path
-from types import ModuleType
-
-import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _code_symbols() -> ModuleType:
+def _code_symbols():
     return importlib.import_module("guide.tools.code_symbols")
 
 
@@ -94,8 +91,9 @@ def test_index_rejects_non_commit_revision(tmp_path: Path) -> None:
     package.mkdir()
     (package / "demo.py").write_text("def demo() -> None:\n    pass\n", encoding="utf-8")
 
-    with pytest.raises(
-        code_symbols.GuideCodeSymbolError,
-        match="40-character hexadecimal",
-    ):
+    try:
         code_symbols.build_symbol_index(package, revision="main")
+    except code_symbols.GuideCodeSymbolError as exc:
+        assert "40-character hexadecimal" in str(exc)
+    else:
+        raise AssertionError("expected GuideCodeSymbolError for non-commit revision")

@@ -11,6 +11,7 @@
     "dev": "vite",
     "code-index": "python3 tools/code_symbols.py --write .generated/code-symbols.json",
     "source-check": "python3 tools/content_contract.py --check",
+    "prelint": "npm run code-index",
     "lint": "eslint . --max-warnings=0",
     "pretypecheck": "npm run code-index",
     "typecheck": "tsc -b --pretty false",

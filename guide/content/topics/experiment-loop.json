@@ -3,33 +3,96 @@
   "title": "Controlled Experiment Loop",
   "nav_label": "実験ループ",
   "summary": "baselineから一因子実験、検証、判断、freezeまでの状態遷移を追います。",
-  "keywords": ["Study", "Experiment", "EvidenceSet", "preregistration", "verification", "decision", "freeze"],
+  "keywords": [
+    "Study",
+    "Experiment",
+    "EvidenceSet",
+    "preregistration",
+    "verification",
+    "decision",
+    "freeze"
+  ],
   "source_sections": [
-    {"path": "docs/architecture/controlled-experiment-loop.md", "heading": "Controlled Experiment", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    {"path": "docs/architecture/controlled-experiment-loop.md", "heading": "State machine and lineage", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    {
+      "path": "docs/architecture/controlled-experiment-loop.md",
+      "heading": "Controlled Experiment",
+      "sha256": "6bb4f32d53f3568b738525c82bf5a59fbe2b4f96983a7a555414d99b8a80d44a"
+    },
+    {
+      "path": "docs/architecture/controlled-experiment-loop.md",
+      "heading": "State machine and lineage",
+      "sha256": "aea54983333177472e9db0f7ea7a89f9c070504e6cb77113ac56f24a604cedb8"
+    }
   ],
   "sections": [
     {
       "title": "一度に変えるのは一つ",
-      "body": ["Controlled Factorを事前登録し、resolved config deltaがその一因子だけであることを実行前後に検証します。"]
+      "body": [
+        "Controlled Factorを事前登録し、resolved config deltaがその一因子だけであることを実行前後に検証します。"
+      ]
     },
     {
       "title": "結果より先に判断規則を固定",
-      "body": ["verificationとcomparisonを通ったEvidenceだけをpreregistered ruleへ入力し、ACCEPT / KEEP / INCONCLUSIVEを決めます。"]
+      "body": [
+        "verificationとcomparisonを通ったEvidenceだけをpreregistered ruleへ入力し、ACCEPT / KEEP / INCONCLUSIVEを決めます。"
+      ]
     }
   ],
   "visualization": {
     "kind": "experiment-loop",
     "steps": [
-      {"id": "study", "label": "Create Study", "phase": "setup", "detail": "Dataset、baseline config、seed policy、allowed factorsを固定します。"},
-      {"id": "baseline", "label": "Baseline", "phase": "evidence", "detail": "Study-owned EvidenceSetをmulti-seedで生成し、baseline fingerprintを固定します。"},
-      {"id": "preregister", "label": "Preregister", "phase": "setup", "detail": "変えるfactor、期待、decision ruleを結果を見る前に登録します。"},
-      {"id": "execute", "label": "Execute", "phase": "evidence", "detail": "同じStudy authorityの下でcandidate EvidenceSetを生成します。"},
-      {"id": "verify", "label": "Verify", "phase": "guard", "detail": "one-factor deltaとunaffected-strategy invarianceをfail-closedで検証します。"},
-      {"id": "compare", "label": "Compare", "phase": "analysis", "detail": "paired/bootstrap/multi-seed analysisをraw returnsから計算します。"},
-      {"id": "decide", "label": "Decide", "phase": "decision", "detail": "事前登録ruleでACCEPT / KEEP / INCONCLUSIVEを決定します。"},
-      {"id": "freeze", "label": "Freeze", "phase": "terminal", "detail": "研究budget終了後、WINNERまたはNO_WINNERへfreezeします。"}
+      {
+        "id": "study",
+        "label": "Create Study",
+        "phase": "setup",
+        "detail": "Dataset、baseline config、seed policy、allowed factorsを固定します。"
+      },
+      {
+        "id": "baseline",
+        "label": "Baseline",
+        "phase": "evidence",
+        "detail": "Study-owned EvidenceSetをmulti-seedで生成し、baseline fingerprintを固定します。"
+      },
+      {
+        "id": "preregister",
+        "label": "Preregister",
+        "phase": "setup",
+        "detail": "変えるfactor、期待、decision ruleを結果を見る前に登録します。"
+      },
+      {
+        "id": "execute",
+        "label": "Execute",
+        "phase": "evidence",
+        "detail": "同じStudy authorityの下でcandidate EvidenceSetを生成します。"
+      },
+      {
+        "id": "verify",
+        "label": "Verify",
+        "phase": "guard",
+        "detail": "one-factor deltaとunaffected-strategy invarianceをfail-closedで検証します。"
+      },
+      {
+        "id": "compare",
+        "label": "Compare",
+        "phase": "analysis",
+        "detail": "paired/bootstrap/multi-seed analysisをraw returnsから計算します。"
+      },
+      {
+        "id": "decide",
+        "label": "Decide",
+        "phase": "decision",
+        "detail": "事前登録ruleでACCEPT / KEEP / INCONCLUSIVEを決定します。"
+      },
+      {
+        "id": "freeze",
+        "label": "Freeze",
+        "phase": "terminal",
+        "detail": "研究budget終了後、WINNERまたはNO_WINNERへfreezeします。"
+      }
     ],
-    "failure_states": ["FAILED", "INVALID"]
+    "failure_states": [
+      "FAILED",
+      "INVALID"
+    ]
   }
 }

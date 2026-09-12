@@ -3,37 +3,121 @@
   "title": "責務とアーキテクチャ",
   "nav_label": "責務分離",
   "summary": "data / strategy / risk / execution / evaluationが何を所有し、何を所有しないかを確認します。",
-  "keywords": ["architecture", "ownership", "data", "strategy", "risk", "simulation", "evaluation", "dependency"],
+  "keywords": [
+    "architecture",
+    "ownership",
+    "data",
+    "strategy",
+    "risk",
+    "simulation",
+    "evaluation",
+    "dependency"
+  ],
   "source_sections": [
-    {"path": "docs/architecture/package-boundaries.md", "heading": "Ownership", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    {"path": "docs/architecture/package-boundaries.md", "heading": "Dependency direction", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    {
+      "path": "docs/architecture/package-boundaries.md",
+      "heading": "Ownership",
+      "sha256": "0dd38ee9f1a21716f6b0863d0b6bd57dc10a94983f9db432879232d73cee6c7f"
+    },
+    {
+      "path": "docs/architecture/package-boundaries.md",
+      "heading": "Dependency direction",
+      "sha256": "72779d9ec62383cf45ed181e86bb2e246f70515342d2e2cd419847c4ab602971"
+    }
   ],
   "sections": [
     {
       "title": "一つの責務に一つのowner",
-      "body": ["private implementationを別packageから直接触らず、data・strategy・risk・simulation・evaluationの境界を維持します。"]
+      "body": [
+        "private implementationを別packageから直接触らず、data・strategy・risk・simulation・evaluationの境界を維持します。"
+      ]
     },
     {
       "title": "依存方向",
-      "body": ["domain coreが上位workflowへ逆依存しないため、研究workflowを変更してもexecution/accounting authorityが二重化しません。"]
+      "body": [
+        "domain coreが上位workflowへ逆依存しないため、研究workflowを変更してもexecution/accounting authorityが二重化しません。"
+      ]
     }
   ],
   "visualization": {
     "kind": "architecture",
     "nodes": [
-      {"id": "data", "label": "data", "subtitle": "Dataset authority", "description": "MarketDataset、causal data、feature、artifact、build economicsを所有します。", "input": "source evidence", "output": "immutable Dataset", "not_owned": "strategy / replay"},
-      {"id": "integrations", "label": "integrations", "subtitle": "External adapters", "description": "Binance等の外部sourceをdomain contractへ変換します。", "input": "provider responses", "output": "typed source evidence", "not_owned": "research decision"},
-      {"id": "strategies", "label": "strategies", "subtitle": "Intent", "description": "rule / forecast / PPOが論理intentを生成します。", "input": "StrategyObservation", "output": "SHORT / FLAT / LONG", "not_owned": "risk sizing / fill accounting"},
-      {"id": "risk", "label": "risk", "subtitle": "Hard limits", "description": "strategy intentをhard risk条件へ投影します。", "input": "intent + portfolio state", "output": "allowed target", "not_owned": "strategy alpha"},
-      {"id": "simulation", "label": "simulation", "subtitle": "Economic authority", "description": "MarketExecutor + BookStateがexecution/accountingを所有します。", "input": "target + market state", "output": "fills / costs / state", "not_owned": "winner selection"},
-      {"id": "evaluation", "label": "evaluation", "subtitle": "Evidence & research", "description": "Replay、metrics、Run artifacts、Study / Experiment workflowを所有します。", "input": "Dataset + candidates", "output": "EvidenceSet / decisions", "not_owned": "provider data transport"}
+      {
+        "id": "data",
+        "label": "data",
+        "subtitle": "Dataset authority",
+        "description": "MarketDataset、causal data、feature、artifact、build economicsを所有します。",
+        "input": "source evidence",
+        "output": "immutable Dataset",
+        "not_owned": "strategy / replay"
+      },
+      {
+        "id": "integrations",
+        "label": "integrations",
+        "subtitle": "External adapters",
+        "description": "Binance等の外部sourceをdomain contractへ変換します。",
+        "input": "provider responses",
+        "output": "typed source evidence",
+        "not_owned": "research decision"
+      },
+      {
+        "id": "strategies",
+        "label": "strategies",
+        "subtitle": "Intent",
+        "description": "rule / forecast / PPOが論理intentを生成します。",
+        "input": "StrategyObservation",
+        "output": "SHORT / FLAT / LONG",
+        "not_owned": "risk sizing / fill accounting"
+      },
+      {
+        "id": "risk",
+        "label": "risk",
+        "subtitle": "Hard limits",
+        "description": "strategy intentをhard risk条件へ投影します。",
+        "input": "intent + portfolio state",
+        "output": "allowed target",
+        "not_owned": "strategy alpha"
+      },
+      {
+        "id": "simulation",
+        "label": "simulation",
+        "subtitle": "Economic authority",
+        "description": "MarketExecutor + BookStateがexecution/accountingを所有します。",
+        "input": "target + market state",
+        "output": "fills / costs / state",
+        "not_owned": "winner selection"
+      },
+      {
+        "id": "evaluation",
+        "label": "evaluation",
+        "subtitle": "Evidence & research",
+        "description": "Replay、metrics、Run artifacts、Study / Experiment workflowを所有します。",
+        "input": "Dataset + candidates",
+        "output": "EvidenceSet / decisions",
+        "not_owned": "provider data transport"
+      }
     ],
     "edges": [
-      {"from": "integrations", "to": "data"},
-      {"from": "data", "to": "strategies"},
-      {"from": "strategies", "to": "risk"},
-      {"from": "risk", "to": "simulation"},
-      {"from": "simulation", "to": "evaluation"}
+      {
+        "from": "integrations",
+        "to": "data"
+      },
+      {
+        "from": "data",
+        "to": "strategies"
+      },
+      {
+        "from": "strategies",
+        "to": "risk"
+      },
+      {
+        "from": "risk",
+        "to": "simulation"
+      },
+      {
+        "from": "simulation",
+        "to": "evaluation"
+      }
     ]
   }
 }

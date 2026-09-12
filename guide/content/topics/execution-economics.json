@@ -3,36 +3,101 @@
   "title": "実行コスト",
   "nav_label": "実行コスト",
   "summary": "fee・spread・participation・borrowがどこで決まり、二重課金をどう防ぐかを可視化します。",
-  "keywords": ["execution economics", "fee", "spread", "participation", "borrow", "zero overlay", "cost"],
+  "keywords": [
+    "execution economics",
+    "fee",
+    "spread",
+    "participation",
+    "borrow",
+    "zero overlay",
+    "cost"
+  ],
   "source_sections": [
-    {"path": "docs/research/current-status.md", "heading": "Execution economics contract", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    {"path": "docs/architecture/lean-core.md", "heading": "Execution / accounting authority", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "Execution economics contract",
+      "sha256": "19da184a81e949b40ac8ba00fc3d4533d5cdbdc809efc83ebc324eaff2b587f1"
+    },
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Execution / accounting authority",
+      "sha256": "5bd44d6f6a878e0ff8b01c61d442772244e3e1f8995366aae6a07522919f2305"
+    }
   ],
   "sections": [
     {
       "title": "Datasetが唯一の実行コストauthority",
-      "body": ["Canonical M2ではbuild-level ExecutionEconomicsProfileをDataset fieldsへbindし、runtime overlayはzeroのままにします。"]
+      "body": [
+        "Canonical M2ではbuild-level ExecutionEconomicsProfileをDataset fieldsへbindし、runtime overlayはzeroのままにします。"
+      ]
     },
     {
       "title": "research assumptionであってvenue truthではない",
-      "body": ["採用中のfee/spread等は再現可能な研究仮定です。historical account-specific Binance fee truthとは主張しません。"]
+      "body": [
+        "採用中のfee/spread等は再現可能な研究仮定です。historical account-specific Binance fee truthとは主張しません。"
+      ]
     }
   ],
   "visualization": {
     "kind": "economics",
     "components": [
-      {"id": "profile", "label": "ExecutionEconomicsProfile", "role": "Build authority", "description": "fee / spread / participation / borrow assumptionsを一箇所で解決します。", "status": "configured"},
-      {"id": "dataset", "label": "MarketDataset", "role": "Immutable fields", "description": "resolved economics arraysをcontent identityへ含めます。", "status": "authoritative"},
-      {"id": "overlay", "label": "Runtime overlay", "role": "zero overlay", "description": "Dataset fieldsと二重課金しないため、Canonical M2では追加overlayをゼロに固定します。", "status": "disabled"},
-      {"id": "executor", "label": "MarketExecutor", "role": "Accounting", "description": "fillsへDataset economicsを適用し、fee/slippage/funding/borrow等を記録します。", "status": "active"},
-      {"id": "evidence", "label": "Run diagnostics", "role": "Evidence", "description": "turnover、total_cost、funding_pnl等をsummaryとraw evidenceへ残します。", "status": "verified"}
+      {
+        "id": "profile",
+        "label": "ExecutionEconomicsProfile",
+        "role": "Build authority",
+        "description": "fee / spread / participation / borrow assumptionsを一箇所で解決します。",
+        "status": "configured"
+      },
+      {
+        "id": "dataset",
+        "label": "MarketDataset",
+        "role": "Immutable fields",
+        "description": "resolved economics arraysをcontent identityへ含めます。",
+        "status": "authoritative"
+      },
+      {
+        "id": "overlay",
+        "label": "Runtime overlay",
+        "role": "zero overlay",
+        "description": "Dataset fieldsと二重課金しないため、Canonical M2では追加overlayをゼロに固定します。",
+        "status": "disabled"
+      },
+      {
+        "id": "executor",
+        "label": "MarketExecutor",
+        "role": "Accounting",
+        "description": "fillsへDataset economicsを適用し、fee/slippage/funding/borrow等を記録します。",
+        "status": "active"
+      },
+      {
+        "id": "evidence",
+        "label": "Run diagnostics",
+        "role": "Evidence",
+        "description": "turnover、total_cost、funding_pnl等をsummaryとraw evidenceへ残します。",
+        "status": "verified"
+      }
     ],
     "assumptions": [
-      {"label": "fee", "state": "dataset-authoritative"},
-      {"label": "spread", "state": "dataset-authoritative"},
-      {"label": "participation", "state": "dataset-authoritative"},
-      {"label": "borrow", "state": "dataset-authoritative"},
-      {"label": "market impact", "state": "not modeled as Dataset authority"}
+      {
+        "label": "fee",
+        "state": "dataset-authoritative"
+      },
+      {
+        "label": "spread",
+        "state": "dataset-authoritative"
+      },
+      {
+        "label": "participation",
+        "state": "dataset-authoritative"
+      },
+      {
+        "label": "borrow",
+        "state": "dataset-authoritative"
+      },
+      {
+        "label": "market impact",
+        "state": "not modeled as Dataset authority"
+      }
     ]
   }
 }

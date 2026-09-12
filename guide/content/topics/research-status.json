@@ -3,15 +3,34 @@
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
   "summary": "何が検証済みで、何が未開始・未証明・制約として残っているかを分離して表示します。",
-  "keywords": ["M2", "baseline", "verified", "pending", "profitability", "winner", "limitations", "Study 004"],
+  "keywords": [
+    "M2",
+    "baseline",
+    "verified",
+    "pending",
+    "profitability",
+    "winner",
+    "limitations",
+    "Study 004"
+  ],
   "source_sections": [
-    {"path": "docs/research/current-status.md", "heading": "結論", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    {"path": "docs/research/current-status.md", "heading": "M2 — Canonical real-data baseline verified; controlled comparison not started", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "結論",
+      "sha256": "50f4bd7b805049088ab772109710509e9d682dac5e4ab439a57373b5876826a0"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "M2 — Canonical real-data baseline verified; controlled comparison not started",
+      "sha256": "4fd85672013f8154c436a9013634bc32ffe4eaa0373ccb2aee5c38e162537bfa"
+    }
   ],
   "sections": [
     {
       "title": "Baseline成立とstrategy勝利は別",
-      "body": ["現在のEvidenceは、real-cost条件の研究環境と再現可能なbaseline pathが成立したことを示します。strategyの優位性はまだ示していません。"]
+      "body": [
+        "現在のEvidenceは、real-cost条件の研究環境と再現可能なbaseline pathが成立したことを示します。strategyの優位性はまだ示していません。"
+      ]
     }
   ],
   "visualization": {

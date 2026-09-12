@@ -3,31 +3,87 @@
   "title": "データフロー",
   "nav_label": "データフロー",
   "summary": "sourceを凍結してからDataset、Replay、Evidenceになるまでを順番に追います。",
-  "keywords": ["source", "freeze", "feature", "dataset", "artifact", "replay", "evidence", "causal"],
+  "keywords": [
+    "source",
+    "freeze",
+    "feature",
+    "dataset",
+    "artifact",
+    "replay",
+    "evidence",
+    "causal"
+  ],
   "source_sections": [
-    {"path": "docs/architecture/lean-core.md", "heading": "Data contract", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    {"path": "docs/architecture/controlled-experiment-loop.md", "heading": "Canonical M2 bootstrap preparation", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Data contract",
+      "sha256": "33e6a44389050df8e7d8cba4980733efe33b6a89cf25f066bb1ee39e4a74fe99"
+    },
+    {
+      "path": "docs/architecture/controlled-experiment-loop.md",
+      "heading": "Canonical M2 bootstrap preparation",
+      "sha256": "0ce763a1d56730cd6444cbb61560a8e49a3cbb33a77110ca37df033da3d7bd24"
+    }
   ],
   "sections": [
     {
       "title": "なぜ先にsourceを固定するのか",
-      "body": ["結果を見てから都合の良いデータへ差し替えないため、exchange metadata・archive roster・data rangeを先に固定します。"]
+      "body": [
+        "結果を見てから都合の良いデータへ差し替えないため、exchange metadata・archive roster・data rangeを先に固定します。"
+      ]
     },
     {
       "title": "未来を混ぜない",
-      "body": ["feature_available_time <= decision_time を守り、fit cutoffより後の情報がtrainingへ戻らないようにします。"]
+      "body": [
+        "feature_available_time <= decision_time を守り、fit cutoffより後の情報がtrainingへ戻らないようにします。"
+      ]
     }
   ],
   "visualization": {
     "kind": "data-flow",
     "steps": [
-      {"id": "source", "label": "Source", "summary": "取得対象を決める", "detail": "市場、銘柄、timeframe、期間を事前登録します。"},
-      {"id": "freeze", "label": "Freeze", "summary": "raw evidenceを固定", "detail": "URL・SHA-256・size・exchange metadataを保存し、再現可能なsource rosterにします。"},
-      {"id": "build", "label": "Build", "summary": "causal featuresを構築", "detail": "source同期後はnetwork fallbackを切り、cache-onlyでMarketDatasetを作ります。"},
-      {"id": "artifact", "label": "Dataset Artifact", "summary": "identityを固定", "detail": "arraysとmanifestをpublishしてreloadし、content identityを再検証します。"},
-      {"id": "strategy", "label": "Strategy", "summary": "同じDatasetを見る", "detail": "候補strategyは共通Datasetとscopeを使い、論理intentだけを生成します。"},
-      {"id": "replay", "label": "Replay", "summary": "Executionを適用", "detail": "risk projection後、MarketExecutor + BookStateでfills・cost・returnsを生成します。"},
-      {"id": "evidence", "label": "Evidence", "summary": "raw結果を封印", "detail": "summary、raw interval returns、provenanceをimmutable evidenceとして保持します。"}
+      {
+        "id": "source",
+        "label": "Source",
+        "summary": "取得対象を決める",
+        "detail": "市場、銘柄、timeframe、期間を事前登録します。"
+      },
+      {
+        "id": "freeze",
+        "label": "Freeze",
+        "summary": "raw evidenceを固定",
+        "detail": "URL・SHA-256・size・exchange metadataを保存し、再現可能なsource rosterにします。"
+      },
+      {
+        "id": "build",
+        "label": "Build",
+        "summary": "causal featuresを構築",
+        "detail": "source同期後はnetwork fallbackを切り、cache-onlyでMarketDatasetを作ります。"
+      },
+      {
+        "id": "artifact",
+        "label": "Dataset Artifact",
+        "summary": "identityを固定",
+        "detail": "arraysとmanifestをpublishしてreloadし、content identityを再検証します。"
+      },
+      {
+        "id": "strategy",
+        "label": "Strategy",
+        "summary": "同じDatasetを見る",
+        "detail": "候補strategyは共通Datasetとscopeを使い、論理intentだけを生成します。"
+      },
+      {
+        "id": "replay",
+        "label": "Replay",
+        "summary": "Executionを適用",
+        "detail": "risk projection後、MarketExecutor + BookStateでfills・cost・returnsを生成します。"
+      },
+      {
+        "id": "evidence",
+        "label": "Evidence",
+        "summary": "raw結果を封印",
+        "detail": "summary、raw interval returns、provenanceをimmutable evidenceとして保持します。"
+      }
     ]
   }
 }

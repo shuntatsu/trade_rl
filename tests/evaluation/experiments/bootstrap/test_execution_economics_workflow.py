@@ -9,7 +9,9 @@ import pytest
 
 from tests.evaluation.experiments.bootstrap.test_binance import _config
 from trade_rl.data.build import ExecutionEconomicsProfile
-from trade_rl.evaluation.experiments.bootstrap.workflow import bootstrap_canonical_m2_study
+from trade_rl.evaluation.experiments.bootstrap.workflow import (
+    bootstrap_canonical_m2_study,
+)
 
 
 class _StopAfterBuildObservation(RuntimeError):

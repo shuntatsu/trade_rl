@@ -93,13 +93,35 @@ export type ResearchStatusVisualization = {
   }>;
 };
 
+export type SequenceActor = {
+  id: string;
+  label_ja: string;
+  code_ref?: string;
+};
+
+export type SequenceMessage = {
+  id: string;
+  from: string;
+  to: string;
+  label_ja: string;
+  code_ref?: string;
+  state_changes_ja?: string[];
+};
+
+export type SequenceVisualization = {
+  kind: "sequence";
+  actors: SequenceActor[];
+  messages: SequenceMessage[];
+};
+
 export type GuideVisualization =
   | ArchitectureVisualization
   | DataFlowVisualization
   | EconomicsVisualization
   | ObservationVisualization
   | ExperimentLoopVisualization
-  | ResearchStatusVisualization;
+  | ResearchStatusVisualization
+  | SequenceVisualization;
 
 export type GuideTopic = {
   id: string;
@@ -288,7 +310,67 @@ function parseSteps(value: unknown, label: string): FlowStep[] {
   }));
 }
 
-function parseVisualization(value: unknown): GuideVisualization {
+function parseSequence(
+  raw: JsonRecord,
+  codeReferenceIds: ReadonlySet<string>,
+): SequenceVisualization {
+  if (!Array.isArray(raw.actors) || raw.actors.length === 0 || !Array.isArray(raw.messages)) {
+    throw new Error("sequence visualization requires actors and messages");
+  }
+  const actorRecords = raw.actors.map((item, index) => record(item, `actors[${index}]`));
+  const actorIds = uniqueIds(actorRecords, "actors");
+  const actors = actorRecords.map((actor, index) => {
+    const codeRef =
+      actor.code_ref === undefined
+        ? undefined
+        : string(actor.code_ref, `actors[${index}].code_ref`);
+    if (codeRef && !codeReferenceIds.has(codeRef)) {
+      throw new Error(`unknown code reference in actor: ${codeRef}`);
+    }
+    return {
+      id: string(actor.id, `actors[${index}].id`),
+      label_ja: string(actor.label_ja, `actors[${index}].label_ja`),
+      ...(codeRef ? { code_ref: codeRef } : {}),
+    };
+  });
+
+  const messageRecords = raw.messages.map((item, index) =>
+    record(item, `messages[${index}]`),
+  );
+  uniqueIds(messageRecords, "messages");
+  const messages = messageRecords.map((message, index) => {
+    const from = string(message.from, `messages[${index}].from`);
+    const to = string(message.to, `messages[${index}].to`);
+    if (!actorIds.has(from) || !actorIds.has(to)) {
+      throw new Error(`unknown actor reference in sequence message: ${from} -> ${to}`);
+    }
+    const codeRef =
+      message.code_ref === undefined
+        ? undefined
+        : string(message.code_ref, `messages[${index}].code_ref`);
+    if (codeRef && !codeReferenceIds.has(codeRef)) {
+      throw new Error(`unknown code reference in sequence message: ${codeRef}`);
+    }
+    const stateChanges =
+      message.state_changes_ja === undefined
+        ? undefined
+        : strings(message.state_changes_ja, `messages[${index}].state_changes_ja`);
+    return {
+      id: string(message.id, `messages[${index}].id`),
+      from,
+      to,
+      label_ja: string(message.label_ja, `messages[${index}].label_ja`),
+      ...(codeRef ? { code_ref: codeRef } : {}),
+      ...(stateChanges ? { state_changes_ja: stateChanges } : {}),
+    };
+  });
+  return { kind: "sequence", actors, messages };
+}
+
+function parseVisualization(
+  value: unknown,
+  codeReferenceIds: ReadonlySet<string>,
+): GuideVisualization {
   const raw = record(value, "visualization");
   const kind = string(raw.kind, "visualization.kind");
   if (kind === "architecture") return parseArchitecture(raw);
@@ -357,11 +439,14 @@ function parseVisualization(value: unknown): GuideVisualization {
     uniqueIds(groups, "groups");
     return { kind, groups };
   }
+  if (kind === "sequence") return parseSequence(raw, codeReferenceIds);
   throw new Error(`unknown visualization kind: ${kind}`);
 }
 
 export function parseTopic(value: unknown): GuideTopic {
   const raw = record(value, "topic");
+  const codeReferences = parseCodeReferences(raw.code_references);
+  const codeReferenceIds = new Set(codeReferences.map((reference) => reference.id));
   return {
     id: string(raw.id, "topic.id"),
     title: string(raw.title, "topic.title"),
@@ -369,9 +454,9 @@ export function parseTopic(value: unknown): GuideTopic {
     summary: string(raw.summary, "topic.summary"),
     keywords: strings(raw.keywords, "topic.keywords"),
     source_sections: parseSources(raw.source_sections),
-    code_references: parseCodeReferences(raw.code_references),
+    code_references: codeReferences,
     sections: parseSections(raw.sections),
-    visualization: parseVisualization(raw.visualization),
+    visualization: parseVisualization(raw.visualization, codeReferenceIds),
   };
 }
 

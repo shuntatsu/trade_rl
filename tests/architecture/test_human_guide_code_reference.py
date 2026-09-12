@@ -112,9 +112,7 @@ def test_refresh_code_updates_only_source_digest(tmp_path) -> None:
     source = tmp_path / "trade_rl" / "demo.py"
     source.parent.mkdir(parents=True)
     source.write_text(
-        "def run(value: int) -> int:\n"
-        "    result = value + 1\n"
-        "    return result\n",
+        "def run(value: int) -> int:\n    result = value + 1\n    return result\n",
         encoding="utf-8",
     )
     test_path = tmp_path / "tests" / "demo" / "test_demo.py"

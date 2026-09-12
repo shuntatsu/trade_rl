@@ -4,8 +4,22 @@ import numpy as np
 import pytest
 
 from trade_rl.data.market import MarketDataset
+from trade_rl.strategies.interface import StrategyObservation
+from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl import ppo
-from trade_rl.strategies.rl.ppo import PPOTradingEnv
+from trade_rl.strategies.rl.ppo import PPOIntentStrategy, PPOTradingEnv
+
+
+class _FlatPolicy:
+    def predict(
+        self,
+        observation: np.ndarray,
+        *,
+        deterministic: bool = True,
+    ) -> tuple[object, object]:
+        del observation
+        assert deterministic is True
+        return np.asarray(1), None
 
 
 def _market(
@@ -93,6 +107,20 @@ def _env(dataset: MarketDataset) -> PPOTradingEnv:
     )
 
 
+def _legacy_observation_without_staleness() -> StrategyObservation:
+    return StrategyObservation(
+        index=0,
+        timestamp=np.datetime64("2026-01-01", "ns"),
+        symbol="BTCUSDT",
+        features=np.asarray([0.5]),
+        feature_available=np.asarray([True]),
+        global_features=np.asarray([0.8, 0.7, 0.1, 0.4]),
+        global_feature_available=np.ones(4, dtype=np.bool_),
+        current_intent=PositionIntent.FLAT,
+        current_weight=0.0,
+    )
+
+
 def test_observation_v2_contract_is_fixed_before_m2() -> None:
     assert ppo.PPO_OBSERVATION_SCHEMA == "ppo_observation_v2"
     assert ppo.PPO_GLOBAL_FEATURE_NAMES == (
@@ -108,26 +136,20 @@ def test_observation_v2_encodes_exact_order_masks_and_staleness() -> None:
 
     expected = np.asarray(
         [
-            # selected local values: slow is unavailable, fast is usable
             0.0,
             10.0,
-            # local availability / finite mask
             0.0,
             1.0,
-            # selected normalized staleness in the same order
             1.0,
             0.25,
-            # fixed global contract order, not dataset storage order
             0.8,
             0.7,
             0.0,
             0.4,
-            # global availability
             1.0,
             1.0,
             0.0,
             1.0,
-            # portfolio state
             0.0,
             0.0,
         ],
@@ -135,7 +157,7 @@ def test_observation_v2_encodes_exact_order_masks_and_staleness() -> None:
     )
     np.testing.assert_array_equal(observation, expected)
     assert observation.shape == (16,)
-    assert observation.flags.writeable is True  # Gym receives its own mutable copy.
+    assert observation.flags.writeable is True
 
 
 def test_observation_v2_fails_closed_when_global_contract_is_missing() -> None:
@@ -163,3 +185,20 @@ def test_observation_v2_does_not_read_future_rows() -> None:
     mutated_future, _ = _env(_market(future_shift=999.0)).reset(seed=5)
 
     np.testing.assert_array_equal(baseline, mutated_future)
+
+
+def test_public_strategy_observation_constructor_remains_backward_compatible() -> None:
+    observation = _legacy_observation_without_staleness()
+
+    assert observation.feature_staleness is None
+
+
+def test_ppo_v2_rejects_legacy_observation_without_staleness() -> None:
+    strategy = PPOIntentStrategy(
+        _FlatPolicy(),
+        feature_indices=(0,),
+        global_feature_indices=(0, 1, 2, 3),
+    )
+
+    with pytest.raises(ValueError, match="requires feature staleness"):
+        strategy.decide(_legacy_observation_without_staleness())

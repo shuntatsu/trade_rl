@@ -23,6 +23,21 @@ _PAYLOAD_FIELDS = frozenset(
 )
 
 
+def _text(value: object, *, field: str, strip: bool = False) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    resolved = value.strip() if strip else value
+    if not resolved:
+        raise ValueError(f"{field} must be a non-empty string")
+    return resolved
+
+
+def _boolean(value: object, *, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be a boolean")
+    return value
+
+
 def _rate(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field} must be a finite non-negative number")
@@ -58,10 +73,11 @@ class ExecutionEconomicsProfile:
     def __post_init__(self) -> None:
         if self.schema_version != _SCHEMA_VERSION:
             raise ValueError("execution economics schema_version is unsupported")
-        if not isinstance(self.name, str) or not self.name.strip():
-            raise ValueError("execution economics name must be a non-empty string")
-        if not isinstance(self.borrow_available, bool):
-            raise ValueError("borrow_available must be a boolean")
+        name = _text(self.name, field="execution economics name", strip=True)
+        borrow_available = _boolean(
+            self.borrow_available,
+            field="borrow_available",
+        )
 
         fee_rate = _rate(self.fee_rate, field="fee_rate")
         maker_fee_rate = _rate(self.maker_fee_rate, field="maker_fee_rate")
@@ -74,15 +90,16 @@ class ExecutionEconomicsProfile:
             raise ValueError(
                 "generic fee_rate cannot be combined with maker/taker fee rates"
             )
-        if not self.borrow_available and borrow_rate != 0.0:
+        if not borrow_available and borrow_rate != 0.0:
             raise ValueError("borrow_rate must be zero when borrow is unavailable")
 
-        object.__setattr__(self, "name", self.name.strip())
+        object.__setattr__(self, "name", name)
         object.__setattr__(self, "fee_rate", fee_rate)
         object.__setattr__(self, "maker_fee_rate", maker_fee_rate)
         object.__setattr__(self, "taker_fee_rate", taker_fee_rate)
         object.__setattr__(self, "spread_rate", spread_rate)
         object.__setattr__(self, "max_participation_rate", max_participation_rate)
+        object.__setattr__(self, "borrow_available", borrow_available)
         object.__setattr__(self, "borrow_rate", borrow_rate)
 
     def to_payload(self) -> dict[str, object]:
@@ -118,15 +135,21 @@ class ExecutionEconomicsProfile:
         if missing:
             raise ValueError(f"{field} is missing required fields: {missing}")
         return cls(
-            schema_version=raw["schema_version"],
-            name=raw["name"],
-            fee_rate=raw["fee_rate"],
-            maker_fee_rate=raw["maker_fee_rate"],
-            taker_fee_rate=raw["taker_fee_rate"],
-            spread_rate=raw["spread_rate"],
-            max_participation_rate=raw["max_participation_rate"],
-            borrow_available=raw["borrow_available"],
-            borrow_rate=raw["borrow_rate"],
+            schema_version=_text(
+                raw["schema_version"],
+                field=f"{field}.schema_version",
+            ),
+            name=_text(raw["name"], field=f"{field}.name", strip=True),
+            fee_rate=_rate(raw["fee_rate"], field="fee_rate"),
+            maker_fee_rate=_rate(raw["maker_fee_rate"], field="maker_fee_rate"),
+            taker_fee_rate=_rate(raw["taker_fee_rate"], field="taker_fee_rate"),
+            spread_rate=_rate(raw["spread_rate"], field="spread_rate"),
+            max_participation_rate=_participation(raw["max_participation_rate"]),
+            borrow_available=_boolean(
+                raw["borrow_available"],
+                field="borrow_available",
+            ),
+            borrow_rate=_rate(raw["borrow_rate"], field="borrow_rate"),
         )
 
 

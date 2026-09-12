@@ -8,6 +8,8 @@ Human-facing content lives in guide/content/topics/*.json.
 
 技術仕様や研究状態の正本を置き換えません。実装と説明が食い違う場合は、`docs/architecture/`、`docs/research/current-status.md`、現行source、contract testsを正本として確認します。
 
+公開URL: <https://shuntatsu.github.io/trade_rl/>
+
 ## 開発
 
 Node.js 24 LTSを使用します。React / Vite / Tailwindの依存関係とビルドはこの`guide/` workspace内に閉じ込めます。
@@ -33,7 +35,7 @@ GitHub Actionsでは既存Python gateの`Lean Core`と独立した`Human Guide` 
 
 `.github/workflows/ci.yml` は引き続き品質ゲートです。`.github/workflows/deploy-guide.yml` は、同一Repositoryの `main` pushに対する `CI` がsuccessになった場合だけ、その `workflow_run.head_sha` をexact checkoutして `guide/dist/` だけをGitHub Pagesへdeployします。PR、fork、failed/cancelled CIからPages writeを実行しません。
 
-Pagesの一回限りのRepository設定はGit tree外です。公開を有効にする場合はGitHubの `Settings → Pages → Build and deployment → Source` を **GitHub Actions** に設定します。この設定をread-backでき、実deployと公開URL smokeが成功するまで「公開済み」とは扱いません。
+Repository Pages sourceは **GitHub Actions** を使用します。公開済み判定はworkflow fileの存在ではなく、Pages state、deployment成功、実公開URL smokeを合わせて確認します。
 
 生成済み`dist/`はcommitしません。deployment buildでも`source-check`を再実行し、正本とのfingerprintがstaleならpublishをfail-closedに停止します。
 

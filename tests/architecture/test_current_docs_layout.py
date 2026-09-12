@@ -133,7 +133,7 @@ def test_completed_canonical_bootstrap_docs_are_promoted_and_removed() -> None:
     for required in (
         "Canonical M2 bootstrap",
         "bootstrap_canonical_m2_study",
-        "Canonical real-data baselineは実行・独立検証済み",
+        "Portable Canonical real-data baselineは結果前preregistrationからpost-Artifact独立検証まで完了",
         "Controlled Experimentはまだ開始していない",
     ):
         assert required in research

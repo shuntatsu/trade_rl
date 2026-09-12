@@ -6,6 +6,7 @@
   "keywords": [
     "全体像",
     "MarketDataset",
+    "portable numerics",
     "strategy",
     "execution",
     "experiment",
@@ -20,7 +21,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "50f4bd7b805049088ab772109710509e9d682dac5e4ab439a57373b5876826a0"
+      "sha256": "76cb099e8a17340df850104021c7397c52bcfd55af257555b2f8c508d142c07a"
     }
   ],
   "sections": [
@@ -34,8 +35,8 @@
     {
       "title": "現在の位置",
       "body": [
-        "real-cost assumptionとPPO Observation v2を持つCanonical real-data baselineは実行・独立検証済みです。",
-        "Controlled Experimentはまだ開始しておらず、profitability・winner・Production authorizationは未証明です。"
+        "market_build_v3 / portable_feature_numerics_v1、real-cost assumption、PPO Observation v2を持つportable Canonical real-data baselineは、結果前preregistrationからpost-Artifact独立検証まで完了しています。",
+        "Controlled Experimentはportable lineage上ではまだ開始しておらず、profitability・winner・Production authorizationは未証明です。"
       ]
     }
   ],

@@ -7,29 +7,35 @@
     "M2",
     "baseline",
     "verified",
-    "pending",
+    "portable numerics",
+    "market_build_v3",
     "profitability",
     "winner",
-    "limitations",
-    "Study 004"
+    "limitations"
   ],
   "source_sections": [
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "50f4bd7b805049088ab772109710509e9d682dac5e4ab439a57373b5876826a0"
+      "sha256": "76cb099e8a17340df850104021c7397c52bcfd55af257555b2f8c508d142c07a"
     },
     {
       "path": "docs/research/current-status.md",
       "heading": "M2 — Canonical real-data baseline verified; controlled comparison not started",
-      "sha256": "4fd85672013f8154c436a9013634bc32ffe4eaa0373ccb2aee5c38e162537bfa"
+      "sha256": "9cd5515915777fc791ac74c1cfaa790bcc56447789fa83fa5d1bc764671aea8c"
     }
   ],
   "sections": [
     {
-      "title": "Baseline成立とstrategy勝利は別",
+      "title": "Portable baseline成立とstrategy勝利は別",
       "body": [
-        "現在のEvidenceは、real-cost条件の研究環境と再現可能なbaseline pathが成立したことを示します。strategyの優位性はまだ示していません。"
+        "現在のEvidenceは、CPU-portableなDataset identity、real-cost条件、結果前preregistration、再現可能なbaseline pathが成立したことを示します。strategyの優位性はまだ示していません。"
+      ]
+    },
+    {
+      "title": "Study 004は履歴として保持",
+      "body": [
+        "Study 004はpre-portable numericsで生成されたimmutable evidenceとして残しますが、current canonical inputはportable successorへ移行しました。旧Studyは書き換えません。"
       ]
     }
   ],
@@ -40,19 +46,20 @@
         "id": "verified",
         "label": "検証済み",
         "items": [
-          "real-cost-assumption Datasetを固定",
-          "PPO Observation v2をStudy identityへbind",
-          "5 symbols × 8 strategies × 5 seedsのbaseline evidence",
+          "market_build_v3 / portable_feature_numerics_v1を固定",
+          "full priced Dataset identityをheterogeneous AMD / Intel runnerでbyte-identicalに再現",
+          "結果前のplan-only portable preregistrationをbaselineより先に封印",
+          "5 symbols × 8 strategies × 5 seedsのportable baseline evidence",
           "tradeあり175 observationsで175 / 175 positive total_cost",
-          "別runnerでbaseline artifactを再取得しraw evidenceから独立再計算"
+          "別runnerでDataset / StudyPlanを再構築しraw Candidate Runsから独立再計算"
         ]
       },
       {
         "id": "pending",
         "label": "次に実行",
         "items": [
-          "最初のControlled Factorを結果を見る前に事前登録",
-          "Study 004 baselineをimmutable inputとして最初のControlled Experimentを実行",
+          "portable lineageの最初のControlled Factorを結果を見る前に事前登録",
+          "portable baseline Artifactをimmutable inputとして最初のControlled Experimentを実行",
           "factor isolationとmulti-seed analysisを独立検証",
           "development結果からwinnerまたはno-winnerを判断"
         ]
@@ -71,6 +78,7 @@
         "id": "limitations",
         "label": "残存制約",
         "items": [
+          "portable numerics保証はcanonical Dataset constructionとrepositoryのsupported Python/runner環境が対象",
           "fee/spreadは再現可能なresearch assumptionsでありaccount-specific venue truthではない",
           "Dataset-authoritative market-impact/slippage modelは未導入",
           "PPO controlled factorを解釈する前にcross-seed aggregation contractを明示する必要がある"

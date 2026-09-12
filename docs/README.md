@@ -16,11 +16,12 @@
 
 - [`specs/2026-09-11-agent-repository-control-plane-v1-design.md`](specs/2026-09-11-agent-repository-control-plane-v1-design.md) — Agent Eval、source-derived inspector、Semantic Diff、risk-based verification、merge safetyを定義するAgent-safe Repository設計
 
-現在Activeなplanは次の3件である。
+現在Activeなplanは次の2件である。
 
-- [`plans/2026-09-11-agent-repository-control-plane-core-implementation.md`](plans/2026-09-11-agent-repository-control-plane-core-implementation.md) — preflight/context/impact、Semantic Diff、risk-based verificationをTDDで実装する計画
-- [`plans/2026-09-11-agent-repository-eval-implementation.md`](plans/2026-09-11-agent-repository-eval-implementation.md) — fresh-Agent task/rubric/scorerと評価protocolの実装計画
-- [`plans/2026-09-11-agent-repository-merge-safety-implementation.md`](plans/2026-09-11-agent-repository-merge-safety-implementation.md) — PR Quality ContractとGitHub integration safetyの実装計画
+- [`plans/2026-09-11-agent-repository-eval-implementation.md`](plans/2026-09-11-agent-repository-eval-implementation.md) — prompt-only corpus、generic rubric、matched baseline/comparison protocolと、未実施のfresh-Agent比較を管理するcurrent plan
+- [`plans/2026-09-11-agent-repository-merge-safety-implementation.md`](plans/2026-09-11-agent-repository-merge-safety-implementation.md) — 実装済みのPR integration invariantと、未適用のGitHub `main` protection/rulesetだけを管理するcurrent plan
+
+Preflight/context/impact、Semantic Diff、risk-based verificationなどのControl Plane Core実装は完了しているため、旧core implementation planはcurrent treeから削除済みである。実装経緯はGit historyおよびsuperseded PR #464を参照する。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 
@@ -31,9 +32,9 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 - `architecture/`: 現行コードが満たすべき構造・責務・不変条件
 - `research/`: 現在の研究仮説、比較条件、証拠プロトコル、研究状態
 - `specs/`: 未実装またはreview中の独立normative designだけ
-- `plans/`: 実装中の独立implementation planだけ
+- `plans/`: 実装中または外部verification待ちで、独立したcurrent workが残るplanだけ
 
-将来、未実装で独立してnormativeな設計がある間だけ `specs/` を作ってよい。実装中の独立した作業計画が必要な間だけ `plans/` を作ってよい。実装が終わり、耐久的な内容が `architecture/` または `research/` に反映されたら、完了済みspec/planはcurrent treeから削除する。
+将来、未実装で独立してnormativeな設計がある間だけ `specs/` を作ってよい。実装中または外部verification待ちの独立作業が必要な間だけ `plans/` を作ってよい。実装・verificationが終わり、耐久的な内容が `architecture/`、`research/`、`AGENTS.md` 等のcurrent authorityへ反映されたら、完了済みspec/planはcurrent treeから削除する。
 
 `docs/history` と `docs/archive` は作らない。Git historyが履歴の正本である。
 

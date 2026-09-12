@@ -86,15 +86,9 @@ Study作成時にRun Coreの共通resolverでbaseline configを事前解決す�
 
 Controlled Studyは外部で生成済みの好都合なRunを後付け登録しない。`execute_evidence_set` がStudy seedごとに1 Runを生成し、Run Coreのconfig resolution、execution、provenance、artifact publication/load/inspectionを通す。
 
-EvidenceSet内で変えてよいのは `ppo_seed` だけである。 EvidenceSetのsemantic configとそのdigestからは `ppo_seed` を除外し、seed policyはordered `ppo_seeds`として別にidentityへbindする。各Run artifactには実際の `ppo_seed` を保持する。次のdeterministic strategyはseedを変えてもraw returnsが完全一致しなければartifact integrity failureとする。
+EvidenceSet内で変えてよいのは `ppo_seed` だけである。EvidenceSetのsemantic configとそのdigestからは `ppo_seed` を除外し、seed policyはordered `ppo_seeds`として別にidentityへbindする。各Run artifactには実際の `ppo_seed` を保持する。
 
-- `cash`
-- `constant_long`
-- `constant_short`
-- `trend`
-- `mean_reversion`
-- `ridge24`
-- `lightgbm24`
+Studyで維持するordered strategy rosterは `StudyPlan.STRATEGY_NAMES`、そのうちPPO seedを変えてもraw returnsが完全一致しなければならないrosterは `StudyPlan.PPO_SEED_INVARIANT_STRATEGY_NAMES` をsource contractの正本とする。現行契約では `ppo` だけがPPO seed依存を許される。rosterをarchitecture docs側で別途列挙・管理しない。
 
 1 seedでも失敗した場合、complete EvidenceSetはpublishしない。EvidenceSetとanalysisはbundle staging内で完成させてから一度だけrenameするため、partial candidate/baselineを有効evidenceとして残さない。
 

@@ -23,6 +23,9 @@ from trade_rl.strategies.position_intent import (
     target_weight_for_intent,
 )
 
+PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
+PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
+
 
 class _PredictPolicy(Protocol):
     def predict(
@@ -31,6 +34,23 @@ class _PredictPolicy(Protocol):
         *,
         deterministic: bool = True,
     ) -> tuple[object, object]: ...
+
+
+def ppo_observation_contract_payload() -> dict[str, object]:
+    """Return the frozen semantic PPO observation contract for persisted evidence."""
+
+    return {
+        "schema_version": PPO_OBSERVATION_SCHEMA,
+        "global_feature_names": list(PPO_GLOBAL_FEATURE_NAMES),
+        "includes_local_feature_staleness": True,
+        "layout": [
+            "local_values",
+            "local_available",
+            "local_staleness",
+            "current_intent",
+            "current_weight",
+        ],
+    }
 
 
 def _validated_indices(feature_indices: tuple[int, ...]) -> tuple[int, ...]:
@@ -58,15 +78,27 @@ def _encode_observation(
         observation.feature_available[list(indices)],
         dtype=np.bool_,
     )
+    if observation.feature_staleness is None:
+        raise ValueError("PPO Observation v2 requires feature staleness")
+    staleness = np.asarray(
+        observation.feature_staleness[list(indices)],
+        dtype=np.float64,
+    )
     finite = np.isfinite(selected)
     usable = available & finite
     values = np.where(usable, selected, 0.0)
+
     state = np.asarray(
         [float(observation.current_intent), observation.current_weight],
         dtype=np.float64,
     )
     encoded = np.concatenate(
-        (values, usable.astype(np.float64), state),
+        (
+            values,
+            usable.astype(np.float64),
+            staleness,
+            state,
+        ),
     ).astype(np.float32)
     encoded.setflags(write=False)
     return encoded
@@ -139,7 +171,10 @@ class PPOIntentStrategy:
         self.feature_indices = _validated_indices(feature_indices)
 
     def decide(self, observation: StrategyObservation) -> PositionIntent:
-        encoded = _encode_observation(observation, self.feature_indices)
+        encoded = _encode_observation(
+            observation,
+            self.feature_indices,
+        )
         action, _ = self.policy.predict(encoded, deterministic=True)
         return _intent_from_action(action)
 
@@ -187,7 +222,7 @@ class PPOTradingEnv(gym.Env):
         self.initial_capital = initial_capital
         self.execution_cost = execution_cost or ExecutionCostConfig.zero()
 
-        observation_size = 2 * len(self.feature_indices) + 2
+        observation_size = 3 * len(self.feature_indices) + 2
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -225,6 +260,9 @@ class PPOTradingEnv(gym.Env):
             symbol=self.dataset.symbols[symbol_index],
             features=self.dataset.features[self.index, symbol_index],
             feature_available=self.dataset.feature_available[self.index, symbol_index],
+            feature_staleness=self.dataset.resolved_array("feature_staleness")[
+                self.index, symbol_index
+            ],
             global_features=self.dataset.global_features[self.index],
             global_feature_available=self.dataset.resolved_array(
                 "global_feature_available"
@@ -396,4 +434,11 @@ def fit_ppo_strategy(
     )
 
 
-__all__ = ["PPOIntentStrategy", "PPOTradingEnv", "fit_ppo_strategy"]
+__all__ = [
+    "PPO_GLOBAL_FEATURE_NAMES",
+    "PPO_OBSERVATION_SCHEMA",
+    "PPOIntentStrategy",
+    "PPOTradingEnv",
+    "fit_ppo_strategy",
+    "ppo_observation_contract_payload",
+]

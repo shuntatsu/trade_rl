@@ -107,6 +107,9 @@ def _observation(
         symbol=dataset.symbols[symbol_index],
         features=dataset.features[index, symbol_index],
         feature_available=dataset.feature_available[index, symbol_index],
+        feature_staleness=dataset.resolved_array("feature_staleness")[
+            index, symbol_index
+        ],
         global_features=dataset.global_features[index],
         global_feature_available=dataset.resolved_array("global_feature_available")[
             index

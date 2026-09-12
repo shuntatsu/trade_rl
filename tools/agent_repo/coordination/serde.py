@@ -152,7 +152,9 @@ def task_packet_from_payload(value: object) -> TaskPacket:
         non_goals=_strings(payload["non_goals"], field_name="non_goals"),
         dependencies=_dependencies(payload["dependencies"]),
         write_scope=WriteScope(
-            allow=_strings(write_scope_payload["allow"], field_name="write_scope.allow"),
+            allow=_strings(
+                write_scope_payload["allow"], field_name="write_scope.allow"
+            ),
             deny=_strings(write_scope_payload["deny"], field_name="write_scope.deny"),
         ),
         resource_keys=_strings(payload["resource_keys"], field_name="resource_keys"),
@@ -175,9 +177,7 @@ def task_status_from_payload(value: object) -> TaskStatus:
     _strict_fields(payload, _STATUS_FIELDS, field_name="task status")
     return TaskStatus(
         phase=TaskPhase(_string(payload["phase"], field_name="phase")),
-        condition=TaskCondition(
-            _string(payload["condition"], field_name="condition")
-        ),
+        condition=TaskCondition(_string(payload["condition"], field_name="condition")),
         reason=_optional_string(payload["reason"], field_name="reason"),
     )
 
@@ -192,9 +192,7 @@ def task_status_record_from_payload(value: object) -> TaskStatusRecord:
             payload["task_contract_digest"], field_name="task_contract_digest"
         ),
         phase=TaskPhase(_string(payload["phase"], field_name="phase")),
-        condition=TaskCondition(
-            _string(payload["condition"], field_name="condition")
-        ),
+        condition=TaskCondition(_string(payload["condition"], field_name="condition")),
         base_sha=_string(payload["base_sha"], field_name="base_sha"),
         owner=_optional_string(payload["owner"], field_name="owner"),
         lease_epoch=_optional_integer(payload["lease_epoch"], field_name="lease_epoch"),
@@ -226,9 +224,7 @@ def dashboard_snapshot_from_payload(value: object) -> DashboardSnapshot:
         task_id=_string(payload["task_id"], field_name="task_id"),
         title=_string(payload["title"], field_name="title"),
         phase=TaskPhase(_string(payload["phase"], field_name="phase")),
-        condition=TaskCondition(
-            _string(payload["condition"], field_name="condition")
-        ),
+        condition=TaskCondition(_string(payload["condition"], field_name="condition")),
         owner=_optional_string(payload.get("owner"), field_name="owner"),
         pr_id=_optional_string(payload.get("pr_id"), field_name="pr_id"),
         dependency_summary=_optional_string(
@@ -255,7 +251,9 @@ def string_set(value: object, *, field_name: str) -> frozenset[str]:
 
 def status_mapping(value: object) -> dict[str, TaskStatus]:
     payload = _mapping(value, field_name="statuses")
-    return {key: task_status_from_payload(item) for key, item in sorted(payload.items())}
+    return {
+        key: task_status_from_payload(item) for key, item in sorted(payload.items())
+    }
 
 
 __all__ = [

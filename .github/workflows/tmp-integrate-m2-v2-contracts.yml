@@ -12,7 +12,7 @@ env:
   MAIN_SHA: 4780882f0caf2312fbb33108573ad53b4690e776
   ECON_SHA: 558919861f1fa86956664405b8946ab923b2d863
   PPO_SHA: b3c20f01966c8f4e944255ee7df5cd4258684a0f
-  PRIOR_HELPER_SHA: e359643b9bd79ad8ccd852dc3ba0a9e369fa02c6
+  PRIOR_HELPER_SHA: 4506caf4c2691751fdf58cda8ce0accab6a9b845
   BRANCH: integration/m2-canonical-v2-contracts
 
 jobs:
@@ -35,7 +35,8 @@ jobs:
           set -euo pipefail
           helper=.github/workflows/tmp-integrate-m2-v2-contracts.yml
           test "$(git rev-parse HEAD^)" = "$PRIOR_HELPER_SHA"
-          test "$(git rev-parse HEAD^^)" = "$ECON_SHA"
+          test "$(git merge-base HEAD "$ECON_SHA")" = "$ECON_SHA"
+          test "$(git diff --name-only "$ECON_SHA" HEAD)" = "$helper"
           test "$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')" = "$GITHUB_SHA"
           git fetch --no-tags origin "$MAIN_SHA" "$ECON_SHA" "$PPO_SHA"
           python - <<'PY'
@@ -61,11 +62,14 @@ jobs:
           def changed(a,b):
               out=subprocess.check_output(['git','diff','--name-only',a,b],text=True)
               return {x for x in out.splitlines() if x}
+          def cached_from(a):
+              out=subprocess.check_output(['git','diff','--cached','--name-only',a],text=True)
+              return {x for x in out.splitlines() if x}
           main=os.environ['MAIN_SHA']; econ=os.environ['ECON_SHA']; ppo=os.environ['PPO_SHA']
           expected=changed(main,econ)|changed(main,ppo)
-          actual=changed(main,'HEAD')
+          actual=cached_from(main)
           if actual != expected:
-              raise RuntimeError(f'integration working-tree diff mismatch extra={sorted(actual-expected)} missing={sorted(expected-actual)}')
+              raise RuntimeError(f'integration staged-tree mismatch extra={sorted(actual-expected)} missing={sorted(expected-actual)}')
           PY
           uv sync --extra dev --extra forecast-gbm --extra train-sb3
           uv run ruff check trade_rl tests

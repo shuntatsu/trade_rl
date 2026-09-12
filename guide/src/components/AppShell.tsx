@@ -1,6 +1,7 @@
 import { ExternalLink, Moon, Sun } from "lucide-react";
 import type { ReactNode } from "react";
 
+import type { GuideNavigateTarget } from "../app/useHashRoute";
 import type { ThemePreference } from "../app/useTheme";
 import type { GuideTopic } from "../content/schema";
 import { MobileNav } from "./MobileNav";
@@ -18,7 +19,7 @@ export function AppShell({
 }: {
   topics: GuideTopic[];
   activeId: string;
-  onNavigate: (id: string) => void;
+  onNavigate: (target: GuideNavigateTarget) => void;
   theme: ThemePreference;
   resolvedTheme: "light" | "dark";
   onThemeChange: (theme: ThemePreference) => void;

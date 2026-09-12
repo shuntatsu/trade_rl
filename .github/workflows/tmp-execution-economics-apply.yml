@@ -10,9 +10,9 @@ permissions:
 
 jobs:
   apply:
-    if: "${{ github.event.head_commit.message == 'chore: preserve legacy economics build path' }}"
+    if: "${{ github.event.head_commit.message == 'chore: apply canonical execution economics protocol' }}"
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -29,170 +29,302 @@ jobs:
           uv run python - <<'PY'
           from pathlib import Path
 
-          config = Path("trade_rl/data/build/config.py")
-          text = config.read_text(encoding="utf-8")
-          marker = ")\n\n\n@dataclass(frozen=True, slots=True)\nclass MarketDatasetBuildRequest:"
-          replacement = (
-              ")\nfrom trade_rl.data.economics import (\n"
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one replacement, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          # Canonical bootstrap config: preserve v1 byte semantics, add strict v2.
+          config = Path("trade_rl/evaluation/experiments/bootstrap/config.py")
+          replace_once(
+              config,
+              "from trade_rl.artifacts.hashing import content_digest\n",
+              "from trade_rl.artifacts.hashing import content_digest\n"
+              "from trade_rl.data.economics import (\n"
               "    ExecutionEconomicsConfig,\n"
               "    parse_execution_economics,\n"
-              ")\n\n\n@dataclass(frozen=True, slots=True)\nclass MarketDatasetBuildRequest:"
+              ")\n",
           )
-          if text.count(marker) != 1:
-              raise RuntimeError("config import/dataclass marker mismatch")
-          text = text.replace(marker, replacement, 1)
-          old_request = (
-              "class MarketDatasetBuildRequest:\n"
-              "    source_root: Path\n"
-              "    config: MarketBuildConfig\n"
-              "    instruments: tuple[InstrumentContract, ...]\n"
+          text = config.read_text(encoding="utf-8")
+          old_constants = '''_SCHEMA_VERSION = "canonical_m2_bootstrap_config_v1"
+          _TOP_LEVEL_KEYS = frozenset(
+              {
+                  "schema_version",
+                  "research_question",
+                  "market",
+                  "symbols",
+                  "base_timeframe",
+                  "feature_timeframes",
+                  "data_start",
+                  "data_stop_exclusive",
+                  "baseline",
+                  "ppo_seeds",
+                  "allowed_factors",
+                  "max_experiments",
+                  "n_bootstrap",
+                  "bootstrap_seed",
+              }
           )
-          new_request = old_request + "    execution_economics: ExecutionEconomicsConfig | None = None\n"
-          if text.count(old_request) != 1:
-              raise RuntimeError("build request marker mismatch")
-          text = text.replace(old_request, new_request, 1)
-          old_allowed = (
-              '            "cross_asset_reference_symbol",\n'
-              '            "features",\n'
-              '            "instruments",\n'
+          '''.replace("          ", "")
+          new_constants = '''_SCHEMA_VERSION_V1 = "canonical_m2_bootstrap_config_v1"
+          _SCHEMA_VERSION_V2 = "canonical_m2_bootstrap_config_v2"
+          _TOP_LEVEL_KEYS_V1 = frozenset(
+              {
+                  "schema_version",
+                  "research_question",
+                  "market",
+                  "symbols",
+                  "base_timeframe",
+                  "feature_timeframes",
+                  "data_start",
+                  "data_stop_exclusive",
+                  "baseline",
+                  "ppo_seeds",
+                  "allowed_factors",
+                  "max_experiments",
+                  "n_bootstrap",
+                  "bootstrap_seed",
+              }
           )
-          new_allowed = (
-              '            "cross_asset_reference_symbol",\n'
-              '            "features",\n'
-              '            "instruments",\n'
-              '            "execution_economics",\n'
+          _TOP_LEVEL_KEYS_V2 = _TOP_LEVEL_KEYS_V1 | {"execution_economics"}
+          '''.replace("          ", "")
+          if text.count(old_constants) != 1:
+              raise RuntimeError("bootstrap constants marker mismatch")
+          text = text.replace(old_constants, new_constants, 1)
+          old_fields = (
+              "    bootstrap_seed: int\n"
+              "    schema_version: str = _SCHEMA_VERSION\n\n"
+              "    def __post_init__(self) -> None:\n"
+              "        if self.schema_version != _SCHEMA_VERSION:\n"
+              "            raise ValueError(\"schema_version does not match canonical M2 contract\")\n"
           )
-          if text.count(old_allowed) != 1:
-              raise RuntimeError("root allowed marker mismatch")
-          text = text.replace(old_allowed, new_allowed, 1)
-          old_return = "        instruments=instruments,\n    )\n"
-          new_return = (
-              "        instruments=instruments,\n"
-              "        execution_economics=(\n"
-              "            None\n"
-              "            if root.get(\"execution_economics\") is None\n"
-              "            else parse_execution_economics(root[\"execution_economics\"])\n"
-              "        ),\n"
+          new_fields = (
+              "    bootstrap_seed: int\n"
+              "    execution_economics: ExecutionEconomicsConfig | None = None\n"
+              "    schema_version: str = _SCHEMA_VERSION_V1\n\n"
+              "    def __post_init__(self) -> None:\n"
+              "        if self.schema_version not in {_SCHEMA_VERSION_V1, _SCHEMA_VERSION_V2}:\n"
+              "            raise ValueError(\"schema_version does not match canonical M2 contract\")\n"
+              "        if self.schema_version == _SCHEMA_VERSION_V1 and self.execution_economics is not None:\n"
+              "            raise ValueError(\"execution_economics is not valid for bootstrap config v1\")\n"
+              "        if self.schema_version == _SCHEMA_VERSION_V2 and self.execution_economics is None:\n"
+              "            raise ValueError(\"execution_economics is required for bootstrap config v2\")\n"
+              "        if self.execution_economics is not None and not isinstance(\n"
+              "            self.execution_economics, ExecutionEconomicsConfig\n"
+              "        ):\n"
+              "            raise ValueError(\"execution_economics must be an ExecutionEconomicsConfig\")\n"
+          )
+          if text.count(old_fields) != 1:
+              raise RuntimeError("bootstrap dataclass marker mismatch")
+          text = text.replace(old_fields, new_fields, 1)
+
+          method_start = text.index("    def to_payload(self) -> dict[str, object]:\n")
+          method_end = text.index("\n    @property\n    def digest", method_start)
+          new_method = '''    def to_payload(self) -> dict[str, object]:
+              payload: dict[str, object] = {
+                  "schema_version": self.schema_version,
+                  "research_question": self.research_question,
+                  "market": self.market.value,
+                  "symbols": list(self.symbols),
+                  "base_timeframe": self.base_timeframe,
+                  "feature_timeframes": list(self.feature_timeframes),
+                  "data_start": self.data_start.astimezone(UTC).isoformat(),
+                  "data_stop_exclusive": self.data_stop_exclusive.astimezone(UTC).isoformat(),
+                  "baseline": _baseline_payload(self.baseline),
+                  "ppo_seeds": list(self.ppo_seeds),
+                  "allowed_factors": [factor.value for factor in self.allowed_factors],
+                  "max_experiments": self.max_experiments,
+                  "n_bootstrap": self.n_bootstrap,
+                  "bootstrap_seed": self.bootstrap_seed,
+              }
+              if self.execution_economics is not None:
+                  payload["execution_economics"] = self.execution_economics.canonical_payload()
+              return payload
+          '''.replace("          ", "")
+          text = text[:method_start] + new_method + text[method_end:]
+
+          old_parse_head = '''def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
+              _expect_exact_keys(raw, _TOP_LEVEL_KEYS, field="bootstrap config")
+              if raw.get("schema_version") != _SCHEMA_VERSION:
+                  raise ValueError("schema_version does not match canonical M2 contract")
+
+              market_text = _require_text(raw.get("market"), field="market")
+          '''.replace("          ", "")
+          new_parse_head = '''def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
+              schema_version = raw.get("schema_version")
+              if schema_version == _SCHEMA_VERSION_V1:
+                  _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V1, field="bootstrap config")
+                  execution_economics = None
+              elif schema_version == _SCHEMA_VERSION_V2:
+                  _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V2, field="bootstrap config")
+                  execution_economics = parse_execution_economics(raw["execution_economics"])
+              else:
+                  raise ValueError("schema_version does not match canonical M2 contract")
+
+              market_text = _require_text(raw.get("market"), field="market")
+          '''.replace("          ", "")
+          if text.count(old_parse_head) != 1:
+              raise RuntimeError("bootstrap parse head marker mismatch")
+          text = text.replace(old_parse_head, new_parse_head, 1)
+          old_return_tail = (
+              "        bootstrap_seed=_int_value(raw.get(\"bootstrap_seed\"), field=\"bootstrap_seed\"),\n"
               "    )\n"
           )
-          if text.count(old_return) != 1:
-              raise RuntimeError("build request return marker mismatch")
-          config.write_text(text.replace(old_return, new_return, 1), encoding="utf-8")
+          new_return_tail = (
+              "        bootstrap_seed=_int_value(raw.get(\"bootstrap_seed\"), field=\"bootstrap_seed\"),\n"
+              "        execution_economics=execution_economics,\n"
+              "        schema_version=schema_version,\n"
+              "    )\n"
+          )
+          if text.count(old_return_tail) != 1:
+              raise RuntimeError("bootstrap parse return marker mismatch")
+          config.write_text(text.replace(old_return_tail, new_return_tail, 1), encoding="utf-8")
 
-          builder = Path("trade_rl/data/build/builder.py")
-          text = builder.read_text(encoding="utf-8")
-          import_marker = "from trade_rl.data.features.core import calculate_feature_events\n"
-          import_replacement = (
-              "from trade_rl.data.economics import ExecutionEconomicsConfig\n"
-              + import_marker
+          # Binance integration: one pass-through into the shared MarketDatasetBuilder.
+          binance = Path("trade_rl/integrations/binance/dataset.py")
+          replace_once(
+              binance,
+              "from trade_rl.data.contracts import (\n",
+              "from trade_rl.data.contracts import (\n",
           )
+          text = binance.read_text(encoding="utf-8")
+          import_marker = "from trade_rl.data.market import MarketDataset\n"
           if text.count(import_marker) != 1:
-              raise RuntimeError("builder import marker mismatch")
-          text = text.replace(import_marker, import_replacement, 1)
-          old_signature = (
-              "        instruments: tuple[InstrumentContract, ...],\n"
-              "        *,\n"
-              "        identity_provenance: Mapping[str, object] | None = None,\n"
-              "    ) -> MarketDataset:\n"
+              raise RuntimeError("Binance economics import marker mismatch")
+          text = text.replace(
+              import_marker,
+              "from trade_rl.data.economics import ExecutionEconomicsConfig\n" + import_marker,
+              1,
           )
-          new_signature = (
-              "        instruments: tuple[InstrumentContract, ...],\n"
-              "        *,\n"
-              "        identity_provenance: Mapping[str, object] | None = None,\n"
-              "        execution_economics: ExecutionEconomicsConfig | None = None,\n"
-              "    ) -> MarketDataset:\n"
+          old_signature_tail = (
+              "    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]\n"
+              "    | None = None,\n"
+              "    metadata_evidence: Mapping[str, object] | None = None,\n"
+              ") -> BinanceDatasetBuildResult:\n"
           )
-          if text.count(old_signature) != 1:
-              raise RuntimeError("builder signature marker mismatch")
-          text = text.replace(old_signature, new_signature, 1)
-          old_economics = (
-              "        economics = build_market_economic_semantics(\n"
-              "            timestamps=timestamps,\n"
-              "            instruments=instruments,\n"
-              "            row_present=row_present,\n"
-              "            raw_tradable=raw_tradable,\n"
-              "            source_information_available=information_available,\n"
-              "            available_at=available_at,\n"
-              "            close=close,\n"
-              "            funding_event_count=funding_event_count,\n"
+          new_signature_tail = (
+              "    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]\n"
+              "    | None = None,\n"
+              "    metadata_evidence: Mapping[str, object] | None = None,\n"
+              "    execution_economics: ExecutionEconomicsConfig | None = None,\n"
+              ") -> BinanceDatasetBuildResult:\n"
+          )
+          if text.count(old_signature_tail) != 1:
+              raise RuntimeError("Binance signature marker mismatch")
+          text = text.replace(old_signature_tail, new_signature_tail, 1)
+          old_build_tail = (
+              "        identity_provenance=metadata_evidence,\n"
+              "    )\n"
+          )
+          new_build_tail = (
+              "        identity_provenance=metadata_evidence,\n"
+              "        execution_economics=execution_economics,\n"
+              "    )\n"
+          )
+          if text.count(old_build_tail) != 1:
+              raise RuntimeError("Binance builder call marker mismatch")
+          binance.write_text(text.replace(old_build_tail, new_build_tail, 1), encoding="utf-8")
+
+          # Bootstrap workflow: pass the profile and validate the persisted dataset.
+          workflow = Path("trade_rl/evaluation/experiments/bootstrap/workflow.py")
+          text = workflow.read_text(encoding="utf-8")
+          insert_marker = "\ndef _validate_fit_scope(\n"
+          helper = '''
+          def _validate_execution_economics(
+              config: CanonicalM2BootstrapConfig,
+              dataset: MarketDataset,
+          ) -> None:
+              expected = config.execution_economics
+              if expected is None:
+                  return
+              expected_fields: tuple[tuple[str, object], ...] = (
+                  ("fee_rate", expected.fee_rate),
+                  ("maker_fee_rate", expected.maker_fee_rate),
+                  ("taker_fee_rate", expected.taker_fee_rate),
+                  ("spread_rate", expected.spread_rate),
+                  ("max_participation_rate", expected.max_participation_rate),
+                  ("borrow_available", expected.borrow_available),
+                  ("borrow_rate", expected.borrow_rate),
+              )
+              for name, expected_value in expected_fields:
+                  observed = np.asarray(dataset.resolved_array(name))
+                  if not np.all(observed == expected_value):
+                      raise ValueError(
+                          f"published dataset execution economics differ for {name}"
+                      )
+              identity = json.loads(dataset.identity_payload_json or "{}")
+              if identity.get("execution_economics") != expected.canonical_payload():
+                  raise ValueError(
+                      "published dataset execution economics identity differs from bootstrap config"
+                  )
+
+          '''.replace("          ", "")
+          if text.count(insert_marker) != 1:
+              raise RuntimeError("workflow helper insertion marker mismatch")
+          text = text.replace(insert_marker, "\n" + helper + "def _validate_fit_scope(\n", 1)
+          old_validation = "    _validate_dataset_range(config, dataset)\n    resolved = resolve_candidate_run_spec(\n"
+          new_validation = (
+              "    _validate_dataset_range(config, dataset)\n"
+              "    _validate_execution_economics(config, dataset)\n"
+              "    resolved = resolve_candidate_run_spec(\n"
+          )
+          if text.count(old_validation) != 1:
+              raise RuntimeError("workflow validation marker mismatch")
+          text = text.replace(old_validation, new_validation, 1)
+          old_build_call = (
+              "            feature_timeframes=config.feature_timeframes,\n"
+              "            metadata_evidence=frozen.metadata_evidence,\n"
               "        )\n"
           )
-          new_economics = (
-              "        if execution_economics is None:\n"
-              + old_economics.replace("        economics", "            economics")
-              .replace("            timestamps", "                timestamps")
-              .replace("            instruments", "                instruments")
-              .replace("            row_present", "                row_present")
-              .replace("            raw_tradable", "                raw_tradable")
-              .replace("            source_information_available", "                source_information_available")
-              .replace("            available_at", "                available_at")
-              .replace("            close", "                close")
-              .replace("            funding_event_count", "                funding_event_count")
-              .replace("        )\n", "            )\n")
-              + "        else:\n"
-              "            economics = build_market_economic_semantics(\n"
-              "                timestamps=timestamps,\n"
-              "                instruments=instruments,\n"
-              "                row_present=row_present,\n"
-              "                raw_tradable=raw_tradable,\n"
-              "                source_information_available=information_available,\n"
-              "                available_at=available_at,\n"
-              "                close=close,\n"
-              "                funding_event_count=funding_event_count,\n"
-              "                fee_rate=execution_economics.fee_rate,\n"
-              "                maker_fee_rate=execution_economics.maker_fee_rate,\n"
-              "                taker_fee_rate=execution_economics.taker_fee_rate,\n"
-              "                spread_rate=execution_economics.spread_rate,\n"
-              "                max_participation_rate=(\n"
-              "                    execution_economics.max_participation_rate\n"
-              "                ),\n"
-              "                borrow_available=execution_economics.borrow_available,\n"
-              "                borrow_rate=execution_economics.borrow_rate,\n"
-              "            )\n"
+          new_build_call = (
+              "            feature_timeframes=config.feature_timeframes,\n"
+              "            metadata_evidence=frozen.metadata_evidence,\n"
+              "            execution_economics=config.execution_economics,\n"
+              "        )\n"
           )
-          if text.count(old_economics) != 1:
-              raise RuntimeError("builder economics marker mismatch")
-          text = text.replace(old_economics, new_economics, 1)
-          old_metadata_tail = (
-              '            "global_feature_names": self.config.global_feature_names,\n'
-              "        }\n"
-              "        if identity_provenance is not None:\n"
-          )
-          new_metadata_tail = (
-              '            "global_feature_names": self.config.global_feature_names,\n'
-              "        }\n"
-              "        if execution_economics is not None:\n"
-              "            metadata[\"execution_economics\"] = (\n"
-              "                execution_economics.canonical_payload()\n"
-              "            )\n"
-              "        if identity_provenance is not None:\n"
-          )
-          if text.count(old_metadata_tail) != 1:
-              raise RuntimeError("builder metadata marker mismatch")
-          builder.write_text(
-              text.replace(old_metadata_tail, new_metadata_tail, 1),
-              encoding="utf-8",
-          )
+          if text.count(old_build_call) != 1:
+              raise RuntimeError("workflow build call marker mismatch")
+          workflow.write_text(text.replace(old_build_call, new_build_call, 1), encoding="utf-8")
           PY
       - name: Format implementation
-        run: uv run ruff format trade_rl/data/economics.py trade_rl/data/build/config.py trade_rl/data/build/builder.py tests/data/test_execution_economics_build.py
+        run: >-
+          uv run ruff format
+          trade_rl/evaluation/experiments/bootstrap/config.py
+          trade_rl/evaluation/experiments/bootstrap/workflow.py
+          trade_rl/integrations/binance/dataset.py
+          tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
       - name: Ruff targeted
-        run: uv run ruff check trade_rl/data/economics.py trade_rl/data/build/config.py trade_rl/data/build/builder.py tests/data/test_execution_economics_build.py
+        run: >-
+          uv run ruff check
+          trade_rl/data/economics.py
+          trade_rl/data/build/config.py
+          trade_rl/data/build/builder.py
+          trade_rl/evaluation/experiments/bootstrap/config.py
+          trade_rl/evaluation/experiments/bootstrap/workflow.py
+          trade_rl/integrations/binance/dataset.py
+          tests/data/test_execution_economics_build.py
+          tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
       - name: Targeted and adjacent tests
         run: >-
           uv run pytest -q
           tests/data/test_execution_economics_build.py
-          tests/data/test_market_build_config_session.py
-          tests/data/test_market_builder.py
-          tests/data/test_economic_semantics.py
-          tests/data/test_market_artifact.py
+          tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
+          tests/evaluation/experiments/bootstrap/test_config.py
+          tests/evaluation/experiments/bootstrap/test_workflow.py
+          tests/integrations/test_binance.py
       - name: Commit implementation if verified
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "Shuntatsu"
           git config user.email "148511409+shuntatsu@users.noreply.github.com"
-          git add trade_rl/data/economics.py trade_rl/data/build/config.py trade_rl/data/build/builder.py tests/data/test_execution_economics_build.py
+          git add \
+            trade_rl/evaluation/experiments/bootstrap/config.py \
+            trade_rl/evaluation/experiments/bootstrap/workflow.py \
+            trade_rl/integrations/binance/dataset.py \
+            tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
           git diff --cached --check
-          git commit -m "feat: add explicit execution economics build contract"
+          git commit -m "feat: bind execution economics to canonical M2 bootstrap"
           git push origin HEAD:fix/m2-execution-economics-protocol

@@ -14,7 +14,9 @@
 
 人間向けの説明UIは root [`guide/`](../guide/README.md) に置く。Interactive Guideはこの `docs/` の正本から派生した**非正本の説明層**であり、技術仕様・研究状態のauthorityにはしない。Guide topicは参照する正本Markdown sectionのfingerprintを保持し、正本変更時は内容レビューとsource checkを必要とする。
 
-現在Activeなspec / planはない。Issue #494のportable Dataset numerics contractは `architecture/lean-core.md` と `architecture/package-boundaries.md` へ、portable canonical lineageのcurrent stateは `research/current-status.md` へ昇格済みである。Agent Repository Control Plane v1、Agent Coordination Plane v1、Interactive Human Guide v1の実装済み契約も `AGENTS.md`、`architecture/package-boundaries.md`、`guide/README.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
+現在Activeなspecは [`specs/2026-09-13-interactive-guide-pages-v1.md`](specs/2026-09-13-interactive-guide-pages-v1.md)、Activeなimplementation planは [`plans/2026-09-13-interactive-guide-pages-v1.md`](plans/2026-09-13-interactive-guide-pages-v1.md) で、Interactive Human GuideをGitHub Pagesへ安全に公開し、外部Pages設定とpost-deploy oracleまで完遂する作業を定義する。Issue #494のportable Dataset numerics contractは `architecture/lean-core.md` と `architecture/package-boundaries.md` へ、portable canonical lineageのcurrent stateは `research/current-status.md` へ昇格済みである。Agent Repository Control Plane v1、Agent Coordination Plane v1、Interactive Human Guide v1の実装済み契約も `AGENTS.md`、`architecture/package-boundaries.md`、`guide/README.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
+
+GitHub PagesのSource設定と公開siteの到達性はGit tree外の状態である。workflow実装やCI Greenだけでは公開済みと判定せず、Pages state read-back・deployment・public smokeが揃うまでこのPages作業をActiveとして扱う。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 
@@ -38,6 +40,7 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 - Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
 - 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
 - Guideが参照する正本sectionを変えた → 対応する `guide/content/topics/*.json` を人間が再確認し、`guide/tools/content_contract.py --check` を通す
+- Guide Pages deployment / public URLを変えた → `.github/workflows/deploy-guide.yml`、`guide/README.md`、Pages state read-backを確認する
 - docsの入口・保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME
 
 コードとdocsが食い違った場合は、現行source・architecture test・public contractを確認して真の契約を確定し、docsだけを放置しない。

@@ -14,6 +14,7 @@
     "test": "vitest run",
     "build": "tsc -b --pretty false && vite build",
     "e2e": "playwright test",
+    "e2e:public": "playwright test --config playwright.public.config.ts",
     "check": "npm run source-check && npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

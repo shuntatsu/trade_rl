@@ -11,7 +11,9 @@
     "risk",
     "simulation",
     "evaluation",
-    "dependency"
+    "dependency",
+    "tooling",
+    "coordination"
   ],
   "source_sections": [
     {
@@ -22,7 +24,7 @@
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Dependency direction",
-      "sha256": "c21bec73f87d917459dfae62e5f146ac6da5b353a26c72eb2abf30cd644a7619"
+      "sha256": "f5333ea1c67847921d38ea2bc7707774b69ed02f933fbb82f19433b48f9a5024"
     }
   ],
   "sections": [
@@ -36,6 +38,12 @@
       "title": "依存方向",
       "body": [
         "domain coreが上位workflowへ逆依存しないため、研究workflowを変更してもexecution/accounting authorityが二重化しません。"
+      ]
+    },
+    {
+      "title": "Repository toolingはruntimeの外",
+      "body": [
+        "tools/agent_repoのControl Plane / Coordination Planeは開発・統合作業を支援しますが、trade_rl runtimeや研究・artifactのauthorityにはなりません。production packageからrepository toolingへ逆依存させない境界を維持します。"
       ]
     }
   ],

@@ -116,7 +116,19 @@ def test_zero_overlay_charges_dataset_cost_exactly_once() -> None:
 
     assert result.fill_count == 1
     assert filled_notional > 0.0
-    assert result.interval_cost == pytest.approx(expected_cost, rel=0.0, abs=1e-12)
-    assert result.cost_by_symbol[0] == pytest.approx(expected_cost, rel=0.0, abs=1e-12)
-    assert result.book.total_cost == pytest.approx(expected_cost, rel=0.0, abs=1e-12)
+    assert result.interval_cost == pytest.approx(
+        expected_cost,
+        rel=0.0,
+        abs=1e-12,
+    )
+    assert result.cost_by_symbol[0] == pytest.approx(
+        expected_cost,
+        rel=0.0,
+        abs=1e-12,
+    )
+    assert result.book.total_cost == pytest.approx(
+        expected_cost,
+        rel=0.0,
+        abs=1e-12,
+    )
     assert expected_cost == pytest.approx(0.7, rel=0.0, abs=1e-12)

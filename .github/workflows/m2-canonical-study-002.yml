@@ -1,0 +1,421 @@
+name: Canonical M2 Study 002 Bootstrap and Baseline
+
+on:
+  push:
+    branches: [research/m2-canonical-study-002]
+    paths: [.github/workflows/m2-canonical-study-002.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: canonical-m2-study-002-execution
+  cancel-in-progress: false
+
+env:
+  BRANCH: research/m2-canonical-study-002
+  M2_ROOT: /tmp/canonical-m2-study-002
+  CODE_SHA: 558919861f1fa86956664405b8946ab923b2d863
+  PREREGISTRATION_SHA: f8e4489761c3d4b5cec59008b1e7774f789b75a8
+  PREREGISTRATION_TREE: 81e40ec58bb27974512ae942f35f1d02711dec10
+  BOOTSTRAP_BLOB_SHA: f5bfa9d1f7505ddf971a45539bc9387b708fb1f0
+  STUDY001_FROZEN_SHA: aebc35cb6422726d19d8d8cf545729c25bb9ae0e
+
+jobs:
+  verify:
+    name: Retire helper and verify preregistration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      evidence_sha: ${{ steps.retire.outputs.evidence_sha }}
+      config_digest: ${{ steps.validate.outputs.config_digest }}
+      raw_sha256: ${{ steps.validate.outputs.raw_sha256 }}
+    steps:
+      - name: Checkout exact one-shot helper head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify preregistration lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$PREREGISTRATION_SHA"
+          test "$(git rev-parse "$PREREGISTRATION_SHA^")" = "$CODE_SHA"
+          test "$(git rev-parse "$PREREGISTRATION_SHA^{tree}")" = "$PREREGISTRATION_TREE"
+          test "$(git rev-parse "$PREREGISTRATION_SHA:studies/m2/canonical-study-002/bootstrap.json")" = "$BOOTSTRAP_BLOB_SHA"
+          test "$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')" = "$GITHUB_SHA"
+          actual="$(git diff --name-only "$CODE_SHA" "$PREREGISTRATION_SHA")"
+          expected=$'studies/m2/canonical-study-002/README.md\nstudies/m2/canonical-study-002/bootstrap.json'
+          test "$actual" = "$expected"
+          git diff --exit-code "$CODE_SHA" "$PREREGISTRATION_SHA" -- trade_rl tests
+
+      - name: Retire one-shot execution helper
+        id: retire
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/m2-canonical-study-002.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore: retire canonical M2 Study 002 execution helper"
+          test "$(git rev-parse HEAD^{tree})" = "$PREREGISTRATION_TREE"
+          evidence_sha="$(git rev-parse HEAD)"
+          echo "evidence_sha=$evidence_sha" >> "$GITHUB_OUTPUT"
+          git push origin "HEAD:refs/heads/$BRANCH"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install verification dependencies
+        run: uv sync --extra dev
+
+      - name: Validate Study 001 to Study 002 protocol delta
+        id: validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$STUDY001_FROZEN_SHA"
+          git show "$STUDY001_FROZEN_SHA:studies/m2/canonical-study-001/bootstrap.json" > /tmp/study001-bootstrap.json
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          from trade_rl.evaluation.experiments.bootstrap.config import (
+              load_canonical_m2_bootstrap_config,
+          )
+
+          old = json.loads(Path("/tmp/study001-bootstrap.json").read_text(encoding="utf-8"))
+          path = Path("studies/m2/canonical-study-002/bootstrap.json")
+          new = json.loads(path.read_text(encoding="utf-8"))
+          if old.get("schema_version") != "canonical_m2_bootstrap_config_v1":
+              raise RuntimeError("Study 001 schema is not the frozen v1 contract")
+          if new.get("schema_version") != "canonical_m2_bootstrap_config_v2":
+              raise RuntimeError("Study 002 schema is not v2")
+          economics = new.get("execution_economics")
+          if not isinstance(economics, dict):
+              raise RuntimeError("Study 002 execution economics are missing")
+          old_core = dict(old)
+          new_core = dict(new)
+          old_core.pop("schema_version")
+          new_core.pop("schema_version")
+          new_core.pop("execution_economics")
+          if old_core != new_core:
+              raise RuntimeError("Study 002 changes research fields beyond execution economics")
+
+          expected = {
+              "name": "canonical_m2_research_assumption_v1",
+              "fee_rate": 0.0005,
+              "maker_fee_rate": 0.0,
+              "taker_fee_rate": 0.0,
+              "spread_rate": 0.0002,
+              "max_participation_rate": 0.05,
+              "borrow_available": True,
+              "borrow_rate": 0.0,
+          }
+          if economics != expected:
+              raise RuntimeError("Study 002 execution economics differ from preregistered profile")
+          config = load_canonical_m2_bootstrap_config(path)
+          if config.execution_economics is None:
+              raise RuntimeError("parsed Study 002 execution economics are missing")
+          if config.execution_economics.to_payload() != expected:
+              raise RuntimeError("parsed Study 002 execution economics changed")
+          raw_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as stream:
+              stream.write(f"config_digest={config.digest}\n")
+              stream.write(f"raw_sha256={raw_sha}\n")
+          print(f"bootstrap_config_digest={config.digest}")
+          print(f"bootstrap_raw_sha256={raw_sha}")
+          PY
+
+      - name: Targeted protocol checks
+        run: |
+          uv run pytest -q \
+            tests/data/test_execution_economics_profile.py \
+            tests/data/test_execution_economics_artifact_executor.py \
+            tests/integrations/test_binance_execution_economics.py \
+            tests/evaluation/experiments/bootstrap/test_execution_economics_config.py \
+            tests/evaluation/experiments/bootstrap/test_execution_economics_workflow.py \
+            tests/evaluation/experiments/bootstrap/test_execution_economics_fullpath.py
+
+  study:
+    name: Execute frozen Study 002 bootstrap and baseline
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      EVIDENCE_GIT_SHA: ${{ needs.verify.outputs.evidence_sha }}
+      BOOTSTRAP_CONFIG_DIGEST: ${{ needs.verify.outputs.config_digest }}
+      BOOTSTRAP_RAW_SHA256: ${{ needs.verify.outputs.raw_sha256 }}
+    steps:
+      - name: Checkout exact verified evidence head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ needs.verify.outputs.evidence_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact preregistered evidence tree before execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EVIDENCE_GIT_SHA"
+          test "$(git rev-parse HEAD^{tree})" = "$PREREGISTRATION_TREE"
+          test ! -e .github/workflows/m2-canonical-study-002.yml
+          test "$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')" = "$EVIDENCE_GIT_SHA"
+          actual="$(git diff --name-only "$CODE_SHA" HEAD)"
+          expected=$'studies/m2/canonical-study-002/README.md\nstudies/m2/canonical-study-002/bootstrap.json'
+          test "$actual" = "$expected"
+          git diff --exit-code "$CODE_SHA" HEAD -- trade_rl tests
+          test "$(sha256sum studies/m2/canonical-study-002/bootstrap.json | awk '{print $1}')" = "$BOOTSTRAP_RAW_SHA256"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install research extras
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Freeze Binance source and publish Study 002 bootstrap
+        id: bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$M2_ROOT"
+          mkdir -p "$M2_ROOT"
+          uv run python -m trade_rl.evaluation.experiments.bootstrap.cli \
+            --config studies/m2/canonical-study-002/bootstrap.json \
+            --output "$M2_ROOT/bootstrap"
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import numpy as np
+
+          from trade_rl.data import load_market_dataset_artifact
+          from trade_rl.evaluation.experiments import inspect_canonical_m2_bootstrap
+          from trade_rl.evaluation.experiments.bootstrap.config import (
+              load_canonical_m2_bootstrap_config,
+          )
+
+          root = Path(os.environ["M2_ROOT"])
+          bootstrap_root = root / "bootstrap"
+          config = load_canonical_m2_bootstrap_config(
+              "studies/m2/canonical-study-002/bootstrap.json"
+          )
+          result = inspect_canonical_m2_bootstrap(bootstrap_root)
+          if result.config_digest != os.environ["BOOTSTRAP_CONFIG_DIGEST"]:
+              raise RuntimeError("published bootstrap config digest changed")
+          dataset = load_market_dataset_artifact(bootstrap_root / "dataset")
+          economics = config.execution_economics
+          if economics is None:
+              raise RuntimeError("Study 002 economics disappeared after bootstrap")
+          expected_arrays = {
+              "fee_rate": economics.fee_rate,
+              "maker_fee_rate": economics.maker_fee_rate,
+              "taker_fee_rate": economics.taker_fee_rate,
+              "spread_rate": economics.spread_rate,
+              "max_participation_rate": economics.max_participation_rate,
+              "borrow_available": economics.borrow_available,
+              "borrow_rate": economics.borrow_rate,
+          }
+          array_summary = {}
+          for field, expected in expected_arrays.items():
+              observed = dataset.resolved_array(field)
+              if not bool(np.all(observed == expected)):
+                  raise RuntimeError(f"Dataset {field} differs from Study 002 profile")
+              array_summary[field] = {
+                  "shape": list(observed.shape),
+                  "min": float(np.min(observed)),
+                  "max": float(np.max(observed)),
+              }
+          identity = json.loads(dataset.identity_payload_json or "{}")
+          if identity.get("execution_economics") != economics.to_payload():
+              raise RuntimeError("Dataset identity does not bind Study 002 economics")
+          manifest = json.loads(
+              (bootstrap_root / "bootstrap-manifest.json").read_text(encoding="utf-8")
+          )
+          resolution = json.loads(
+              (bootstrap_root / "source" / "vision-resolution.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          repairs = resolution.get("repairs")
+          if not isinstance(repairs, list):
+              raise RuntimeError("Vision resolution repairs are invalid")
+          summary = {
+              "schema_version": "canonical_m2_study_002_bootstrap_index_v1",
+              "execution_git_sha": os.environ["EVIDENCE_GIT_SHA"],
+              "code_sha": os.environ["CODE_SHA"],
+              "preregistration_git_sha": os.environ["PREREGISTRATION_SHA"],
+              "bootstrap_raw_sha256": os.environ["BOOTSTRAP_RAW_SHA256"],
+              "bootstrap_config_digest": result.config_digest,
+              "vision_resolution_digest": manifest["vision_resolution_digest"],
+              "raw_source_roster_digest": manifest["raw_source_roster_digest"],
+              "metadata_evidence": manifest["metadata_evidence"],
+              "repair_entry_count": len(repairs),
+              "bootstrap_digest": result.bootstrap_digest,
+              "dataset_id": result.dataset_id,
+              "dataset_artifact_digest": result.dataset_artifact_digest,
+              "study_digest": result.study_digest,
+              "implementation_digest": manifest["implementation_digest"],
+              "runtime_environment_digest": manifest["runtime_environment_digest"],
+              "execution_economics": economics.to_payload(),
+              "economic_arrays": array_summary,
+              "study001_source_bytes_reused": False,
+              "study001_artifact_retrieval_status": "unavailable_via_actions_api",
+          }
+          (root / "bootstrap-index.json").write_text(
+              json.dumps(summary, allow_nan=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(summary, allow_nan=False, sort_keys=True, indent=2))
+          PY
+
+      - name: Upload pristine immutable Study 002 bootstrap evidence
+        if: steps.bootstrap.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-002-bootstrap-v1
+          path: |
+            /tmp/canonical-m2-study-002/bootstrap
+            /tmp/canonical-m2-study-002/bootstrap-index.json
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+      - name: Execute baseline and assert nonzero execution costs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a "$M2_ROOT/bootstrap/study" "$M2_ROOT/development-study"
+          uv run python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          from trade_rl.evaluation.experiments import (
+              inspect_canonical_m2_bootstrap,
+              inspect_study,
+              load_evidence_set,
+              run_baseline,
+          )
+
+          root = Path(os.environ["M2_ROOT"])
+          bootstrap = inspect_canonical_m2_bootstrap(root / "bootstrap")
+          snapshot = run_baseline(
+              root / "development-study",
+              dataset_root=root / "bootstrap" / "dataset",
+          )
+          if snapshot.baseline is None:
+              raise RuntimeError("baseline EvidenceSet was not published")
+          verified = inspect_study(root / "development-study")
+          if verified.baseline is None:
+              raise RuntimeError("baseline EvidenceSet failed reconstruction")
+          loaded = load_evidence_set(
+              root / "development-study" / "baseline" / "evidence"
+          )
+          costs = []
+          active_cost_cells = []
+          for seed, run in sorted(loaded.runs.items()):
+              by_symbol = run.summary.get("by_symbol")
+              if not isinstance(by_symbol, list):
+                  raise RuntimeError("baseline run symbol summary is malformed")
+              evaluation = run.summary.get("evaluation")
+              if not isinstance(evaluation, dict) or evaluation.get("execution_overlay") != "zero_overlay_dataset_fields_authoritative":
+                  raise RuntimeError("baseline execution overlay differs from maintained contract")
+              for symbol_entry in by_symbol:
+                  if not isinstance(symbol_entry, dict):
+                      raise RuntimeError("baseline symbol entry is malformed")
+                  symbol = symbol_entry.get("symbol")
+                  strategies = symbol_entry.get("strategies")
+                  if not isinstance(strategies, list):
+                      raise RuntimeError("baseline strategy summary is malformed")
+                  for strategy in strategies:
+                      if not isinstance(strategy, dict):
+                          raise RuntimeError("baseline strategy entry is malformed")
+                      metrics = strategy.get("metrics")
+                      if not isinstance(metrics, dict):
+                          raise RuntimeError("baseline metrics are malformed")
+                      value = metrics.get("total_cost")
+                      if isinstance(value, bool) or not isinstance(value, (int, float)):
+                          raise RuntimeError("baseline total_cost is malformed")
+                      cost = float(value)
+                      costs.append(cost)
+                      if cost > 0.0:
+                          active_cost_cells.append(
+                              {
+                                  "seed": seed,
+                                  "symbol": symbol,
+                                  "strategy": strategy.get("name"),
+                                  "total_cost": cost,
+                              }
+                          )
+          if not costs or sum(costs) <= 0.0 or not active_cost_cells:
+              raise RuntimeError("Study 002 baseline did not incur positive execution costs")
+          if not (root / "development-study" / "baseline" / "analysis.json").is_file():
+              raise RuntimeError("baseline within-EvidenceSet analysis is missing")
+
+          bootstrap_index = json.loads(
+              (root / "bootstrap-index.json").read_text(encoding="utf-8")
+          )
+          index = {
+              "schema_version": "canonical_m2_study_002_index_v1",
+              "execution_git_sha": os.environ["EVIDENCE_GIT_SHA"],
+              "code_sha": os.environ["CODE_SHA"],
+              "preregistration_git_sha": os.environ["PREREGISTRATION_SHA"],
+              "bootstrap_raw_sha256": os.environ["BOOTSTRAP_RAW_SHA256"],
+              "bootstrap_config_digest": bootstrap.config_digest,
+              "bootstrap_digest": bootstrap.bootstrap_digest,
+              "vision_resolution_digest": bootstrap_index["vision_resolution_digest"],
+              "raw_source_roster_digest": bootstrap_index["raw_source_roster_digest"],
+              "dataset_id": bootstrap.dataset_id,
+              "dataset_artifact_digest": bootstrap.dataset_artifact_digest,
+              "study_digest": verified.plan.digest,
+              "baseline_evidence_fingerprint": verified.baseline.fingerprint,
+              "ppo_seeds": list(verified.plan.ppo_seeds),
+              "baseline_total_cost_sum": sum(costs),
+              "positive_cost_cell_count": len(active_cost_cells),
+              "max_total_cost": max(costs),
+              "sample_positive_cost_cells": active_cost_cells[:10],
+          }
+          (root / "study-index.json").write_text(
+              json.dumps(index, allow_nan=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(index, allow_nan=False, sort_keys=True, indent=2))
+          PY
+
+      - name: Upload immutable Study 002 bootstrap and baseline evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-002-baseline-v1
+          path: /tmp/canonical-m2-study-002
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+      - name: Upload clearly labeled Study 002 failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-study-002-failure-diagnostics-v1
+          path: /tmp/canonical-m2-study-002
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: warn

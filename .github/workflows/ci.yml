@@ -38,13 +38,8 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Format diagnostic
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv run ruff format tests/agent_repo/test_verification_project_routing.py
-          git diff -- tests/agent_repo/test_verification_project_routing.py
-          exit 1
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
 
       - name: Mypy
         run: uv run mypy trade_rl

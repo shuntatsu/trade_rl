@@ -1,0 +1,249 @@
+{
+  "id": "implementation-replay",
+  "title": "1本のバーを追う",
+  "nav_label": "1本のバーを追う",
+  "summary": "単銘柄リプレイが、観測・戦略判断・ハードリスク・約定・帳簿更新をどの順番で実行するかを、実装と対応付けて追います。",
+  "keywords": [
+    "単銘柄リプレイ",
+    "観測",
+    "戦略判断",
+    "希望保有数量",
+    "desired_quantity",
+    "リスク制約",
+    "約定",
+    "帳簿",
+    "run_single_symbol_replay"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Data contract",
+      "sha256": "d3fb6336c89f4630cd0d99ad85e6ae20fbaf61890b7fb6f104c9b0fbf3d0cba0"
+    }
+  ],
+  "code_references": [
+    {
+      "id": "replay-run",
+      "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
+      "kind": "function",
+      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "label_ja": "単銘柄リプレイを実行",
+      "description_ja": "各バーで観測を作り、戦略の意図を数量へ変換し、ハードリスクで制約してから約定器へ渡し、帳簿と評価系列を更新する統括処理です。",
+      "variables": [
+        {
+          "name": "desired_quantity",
+          "label_ja": "希望保有数量",
+          "description_ja": "戦略の意図から換算した、リスク制約と約定へ渡す保有数量です。"
+        },
+        {
+          "name": "proposal_weight",
+          "label_ja": "リスク制約前の提案ウェイト",
+          "description_ja": "希望保有数量を現在の価格と資産額でウェイトへ戻した、ハードリスク適用前の提案値です。"
+        },
+        {
+          "name": "target_weight",
+          "label_ja": "リスク制約後の目標ウェイト",
+          "description_ja": "PreTradeRiskが制約した後の実行可能な目標ウェイトです。"
+        },
+        {
+          "name": "book",
+          "label_ja": "帳簿状態",
+          "description_ja": "現金、保有数量、評価額など、約定後に次のバーへ引き継ぐ共通の会計状態です。"
+        },
+        {
+          "name": "current_intent",
+          "label_ja": "現在のポジション意図",
+          "description_ja": "直前まで採用されているLONG・FLAT・SHORT等の論理的なポジション意図です。"
+        },
+        {
+          "name": "index",
+          "label_ja": "現在のバー番号",
+          "description_ja": "リプレイが現在処理している市場データ上の時点です。"
+        }
+      ],
+      "tests": [
+        "tests/evaluation/test_single_symbol_replay.py"
+      ]
+    },
+    {
+      "id": "replay-observation",
+      "symbol": "trade_rl.evaluation.replay._observation",
+      "kind": "function",
+      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "label_ja": "その時点の観測を組み立てる",
+      "description_ja": "現在のfeatureに、保有数量・現金・評価額などのportfolio文脈を連結し、戦略が読む観測ベクトルを作ります。",
+      "variables": [],
+      "tests": [
+        "tests/evaluation/test_single_symbol_replay.py"
+      ]
+    },
+    {
+      "id": "risk-constrain",
+      "symbol": "trade_rl.risk.pretrade.PreTradeRisk.constrain",
+      "kind": "method",
+      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "label_ja": "ハードリスクを適用",
+      "description_ja": "提案ウェイトへgross exposure、short可否、participation等の制約を順に適用し、実行可能な目標へ射影します。",
+      "variables": [],
+      "tests": [
+        "tests/risk/test_pretrade.py"
+      ]
+    },
+    {
+      "id": "execute-interval",
+      "symbol": "trade_rl.simulation.execution.MarketExecutor.execute_interval",
+      "kind": "method",
+      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "label_ja": "次の区間を約定・会計処理",
+      "description_ja": "リスク制約済みの目標を実際の注文・約定ルールへ落とし込み、コストと収益を反映した新しい帳簿状態と区間結果を返します。",
+      "variables": [],
+      "tests": [
+        "tests/simulation/test_execution_v2.py"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "title": "処理順が重要",
+      "body": [
+        "このリプレイでは、未来のバーを先読みしてから判断するのではなく、現在時点の観測を作り、戦略判断、ハードリスク、約定の順で状態を進めます。図の番号はコード上の実行順に対応します。"
+      ]
+    },
+    {
+      "title": "戦略の意図はそのまま約定しない",
+      "body": [
+        "戦略がLONGやSHORTを選んでも、まず希望保有数量と提案ウェイトへ変換し、PreTradeRiskでhard limit内へ射影します。約定器へ渡るのは、この制約後の目標です。"
+      ]
+    },
+    {
+      "title": "約定後は共通の帳簿へ戻す",
+      "body": [
+        "MarketExecutorが返すBookStateを次のバーへ引き継ぎ、同じ会計状態から次の観測と収益系列を作ります。戦略ごとに別の会計を持たせないことが比較の前提です。"
+      ]
+    }
+  ],
+  "visualization": {
+    "kind": "sequence",
+    "actors": [
+      {
+        "id": "dataset",
+        "label_ja": "市場データセット"
+      },
+      {
+        "id": "replay",
+        "label_ja": "リプレイ統括",
+        "code_ref": "replay-run"
+      },
+      {
+        "id": "strategy",
+        "label_ja": "戦略"
+      },
+      {
+        "id": "risk",
+        "label_ja": "ハードリスク",
+        "code_ref": "risk-constrain"
+      },
+      {
+        "id": "executor",
+        "label_ja": "約定シミュレータ",
+        "code_ref": "execute-interval"
+      },
+      {
+        "id": "book",
+        "label_ja": "共通帳簿"
+      },
+      {
+        "id": "result",
+        "label_ja": "リプレイ結果"
+      }
+    ],
+    "messages": [
+      {
+        "id": "observe",
+        "from": "dataset",
+        "to": "replay",
+        "label_ja": "その時点の観測を組み立てる",
+        "code_ref": "replay-observation",
+        "state_changes_ja": [
+          "現在バーのfeatureへ、保有数量・現金・評価額を連結する",
+          "未来のバーは観測に入れない"
+        ]
+      },
+      {
+        "id": "decide",
+        "from": "replay",
+        "to": "strategy",
+        "label_ja": "現在の観測で戦略判断を取得",
+        "state_changes_ja": [
+          "strategy.decideへ現在時点の観測だけを渡す"
+        ]
+      },
+      {
+        "id": "intent-target",
+        "from": "strategy",
+        "to": "replay",
+        "label_ja": "ポジション意図を希望保有数量へ変換",
+        "code_ref": "replay-run",
+        "state_changes_ja": [
+          "論理的なintentを次の実行区間で必要な数量へ換算する",
+          "現在の帳簿と価格を使って提案ウェイトを計算する"
+        ]
+      },
+      {
+        "id": "risk-constrain",
+        "from": "replay",
+        "to": "risk",
+        "label_ja": "ハードリスクで目標を制約",
+        "code_ref": "risk-constrain",
+        "state_changes_ja": [
+          "提案ウェイトをhard limit内へ射影する",
+          "制約で変わった場合は希望保有数量を再計算する"
+        ]
+      },
+      {
+        "id": "execute-interval",
+        "from": "replay",
+        "to": "executor",
+        "label_ja": "制約済み目標を約定シミュレータへ渡す",
+        "code_ref": "execute-interval",
+        "state_changes_ja": [
+          "注文・流動性・コスト・資金調達・borrow・marginの規則を適用する",
+          "区間収益と新しいBookStateを返す"
+        ]
+      },
+      {
+        "id": "update-book",
+        "from": "executor",
+        "to": "book",
+        "label_ja": "約定後の帳簿を共通状態へ反映",
+        "code_ref": "replay-run",
+        "state_changes_ja": [
+          "bookをexecution.bookへ更新する",
+          "filled quantityに応じて現在のポジション意図を更新する"
+        ]
+      },
+      {
+        "id": "advance",
+        "from": "book",
+        "to": "replay",
+        "label_ja": "次に処理するバーへ進む",
+        "code_ref": "replay-run",
+        "state_changes_ja": [
+          "next_indexを使って処理位置を進める",
+          "区間return・cost・turnover等の系列を蓄積する"
+        ]
+      },
+      {
+        "id": "finalize",
+        "from": "replay",
+        "to": "result",
+        "label_ja": "診断値とリプレイ結果を確定",
+        "code_ref": "replay-run",
+        "state_changes_ja": [
+          "ExecutionDiagnosticsを集計する",
+          "共通accountingの結果をSingleSymbolReplayResultとして返す"
+        ]
+      }
+    ]
+  }
+}

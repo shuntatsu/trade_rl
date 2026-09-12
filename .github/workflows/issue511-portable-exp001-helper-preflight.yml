@@ -1,0 +1,61 @@
+name: Issue 511 portable Experiment 0001 helper preflight
+
+on:
+  push:
+    branches:
+      - tmp/issue511-portable-exp001
+    paths:
+      - .github/workflows/issue511-portable-exp001-helper-preflight.yml
+
+env:
+  FROZEN_MAIN_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact helper head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production subtree unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$FROZEN_MAIN_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_MAIN_SHA:trade_rl")"
+
+      - name: Set up frozen uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile and lint prereg/execution/verifier helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile \
+            research/issue511_portable_exp001.py \
+            research/issue511_portable_exp001_execute.py \
+            research/issue511_portable_exp001_postverify.py
+          uv run ruff check \
+            research/issue511_portable_exp001.py \
+            research/issue511_portable_exp001_execute.py \
+            research/issue511_portable_exp001_postverify.py
+          CURRENT_MAIN_SHA="$FROZEN_MAIN_SHA" \
+          BASELINE_RUN_ID=34700123151 \
+          BASELINE_ARTIFACT_ID=10301701698 \
+          BASELINE_ARTIFACT_DIGEST=sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a \
+          GITHUB_RUN_ID=0 \
+          uv run python research/issue511_portable_exp001.py --help >/dev/null
+          uv run python research/issue511_portable_exp001_execute.py --help >/dev/null
+          uv run python research/issue511_portable_exp001_postverify.py --help >/dev/null

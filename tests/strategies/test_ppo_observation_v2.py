@@ -25,13 +25,8 @@ class _FlatPolicy:
 def _market(
     *,
     symbol: str = "BTCUSDT",
-    global_names: tuple[str, ...] = (
-        "market_return_dispersion",
-        "active_fraction",
-        "market_return_mean",
-        "tradable_fraction",
-    ),
     future_shift: float = 0.0,
+    global_shift: float = 0.0,
 ) -> MarketDataset:
     close = np.asarray([[100.0], [101.0], [102.0], [103.0]])
     features = np.asarray(
@@ -54,24 +49,15 @@ def _market(
         ],
         dtype=np.float32,
     )
-    base_global_by_name = {
-        "active_fraction": 0.8,
-        "tradable_fraction": 0.7,
-        "market_return_mean": 0.1,
-        "market_return_dispersion": 0.4,
-    }
     global_features = np.asarray(
         [
-            [base_global_by_name[name] for name in global_names],
-            [base_global_by_name[name] + 0.01 for name in global_names],
-            [base_global_by_name[name] + future_shift for name in global_names],
-            [base_global_by_name[name] + future_shift for name in global_names],
+            [0.4 + global_shift],
+            [0.5 + global_shift],
+            [0.6 + global_shift],
+            [0.7 + global_shift],
         ],
         dtype=np.float32,
     )
-    global_available = np.ones_like(global_features, dtype=np.bool_)
-    if "market_return_mean" in global_names:
-        global_available[0, global_names.index("market_return_mean")] = False
 
     return MarketDataset(
         dataset_id="9" * 64,
@@ -89,10 +75,10 @@ def _market(
         tradable=np.ones((4, 1), dtype=np.bool_),
         feature_available=feature_available,
         feature_names=("fast", "slow"),
-        global_feature_names=global_names,
+        global_feature_names=("arbitrary_cross_symbol_context",),
         periods_per_year=8_760,
         feature_staleness=feature_staleness,
-        global_feature_available=global_available,
+        global_feature_available=np.ones((4, 1), dtype=np.bool_),
     )
 
 
@@ -114,8 +100,8 @@ def _legacy_observation_without_staleness() -> StrategyObservation:
         symbol="BTCUSDT",
         features=np.asarray([0.5]),
         feature_available=np.asarray([True]),
-        global_features=np.asarray([0.8, 0.7, 0.1, 0.4]),
-        global_feature_available=np.ones(4, dtype=np.bool_),
+        global_features=np.asarray([999.0]),
+        global_feature_available=np.asarray([True]),
         current_intent=PositionIntent.FLAT,
         current_weight=0.0,
     )
@@ -123,12 +109,19 @@ def _legacy_observation_without_staleness() -> StrategyObservation:
 
 def test_observation_v2_contract_is_fixed_before_m2() -> None:
     assert ppo.PPO_OBSERVATION_SCHEMA == "ppo_observation_v2"
-    assert ppo.PPO_GLOBAL_FEATURE_NAMES == (
-        "active_fraction",
-        "tradable_fraction",
-        "market_return_mean",
-        "market_return_dispersion",
-    )
+    assert ppo.PPO_GLOBAL_FEATURE_NAMES == ()
+    assert ppo.ppo_observation_contract_payload() == {
+        "schema_version": "ppo_observation_v2",
+        "global_feature_names": [],
+        "includes_local_feature_staleness": True,
+        "layout": [
+            "local_values",
+            "local_available",
+            "local_staleness",
+            "current_intent",
+            "current_weight",
+        ],
+    }
 
 
 def test_observation_v2_encodes_exact_order_masks_and_staleness() -> None:
@@ -142,35 +135,21 @@ def test_observation_v2_encodes_exact_order_masks_and_staleness() -> None:
             1.0,
             1.0,
             0.25,
-            0.8,
-            0.7,
-            0.0,
-            0.4,
-            1.0,
-            1.0,
-            0.0,
-            1.0,
             0.0,
             0.0,
         ],
         dtype=np.float32,
     )
     np.testing.assert_array_equal(observation, expected)
-    assert observation.shape == (16,)
+    assert observation.shape == (8,)
     assert observation.flags.writeable is True
 
 
-def test_observation_v2_fails_closed_when_global_contract_is_missing() -> None:
-    dataset = _market(
-        global_names=(
-            "active_fraction",
-            "tradable_fraction",
-            "market_return_mean",
-        )
-    )
+def test_observation_v2_does_not_depend_on_cross_symbol_global_aggregates() -> None:
+    baseline, _ = _env(_market(global_shift=0.0)).reset(seed=11)
+    mutated_globals, _ = _env(_market(global_shift=999.0)).reset(seed=11)
 
-    with pytest.raises(ValueError, match="missing PPO global feature"):
-        _env(dataset)
+    np.testing.assert_array_equal(baseline, mutated_globals)
 
 
 def test_observation_v2_is_symbol_name_invariant() -> None:
@@ -194,11 +173,7 @@ def test_public_strategy_observation_constructor_remains_backward_compatible() -
 
 
 def test_ppo_v2_rejects_legacy_observation_without_staleness() -> None:
-    strategy = PPOIntentStrategy(
-        _FlatPolicy(),
-        feature_indices=(0,),
-        global_feature_indices=(0, 1, 2, 3),
-    )
+    strategy = PPOIntentStrategy(_FlatPolicy(), feature_indices=(0,))
 
     with pytest.raises(ValueError, match="requires feature staleness"):
         strategy.decide(_legacy_observation_without_staleness())

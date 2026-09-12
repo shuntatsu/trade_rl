@@ -6,6 +6,7 @@ from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.experiments.codec import _resolved_from_payload
 from trade_rl.evaluation.experiments.contracts import ControlledFactor, StudyPlan
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
+from trade_rl.evaluation.experiments.evidence import _check_study_fixed_config
 from trade_rl.strategies.rl.ppo import (
     PPO_GLOBAL_FEATURE_NAMES,
     PPO_OBSERVATION_SCHEMA,
@@ -92,3 +93,12 @@ def test_resolved_run_v2_rejects_tampered_global_observation_roster() -> None:
         ArtifactIntegrityError, match="observation|resolved-run contract"
     ):
         _resolved_from_payload(payload, field="current")
+
+
+def test_historical_v1_study_rejects_new_v2_evidence_before_execution() -> None:
+    legacy = _resolved_from_payload(_v1_payload(), field="legacy")
+    current = _resolved_from_payload(_v2_payload(), field="current")
+    plan = _study_plan(legacy)
+
+    with pytest.raises(ArtifactIntegrityError, match="Study-fixed"):
+        _check_study_fixed_config(plan, current)

@@ -97,9 +97,10 @@ def test_status_comment_parser_fails_closed_on_malformed_or_ambiguous_input() ->
         parse_status_comment("<!-- agent-coordination:T500-04 -->\n```json\n{bad}\n```")
 
     unknown = rendered.replace(
-        '"task_revision": 2,',
-        '"unknown": true,\n  "task_revision": 2,',
+        '  "task_revision": 2\n',
+        '  "task_revision": 2,\n  "unknown": true\n',
     )
+    assert unknown != rendered
     with pytest.raises(ValueError, match="unknown field"):
         parse_status_comment(unknown)
 

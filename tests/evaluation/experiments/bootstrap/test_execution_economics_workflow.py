@@ -79,3 +79,22 @@ def test_bootstrap_passes_versioned_execution_economics_to_binance_build(
         path.name.startswith(".canonical-m2.staging-") for path in tmp_path.iterdir()
     )
     assert config.execution_economics == expected
+
+
+def test_v2_bootstrap_rejects_dataset_that_ignores_execution_economics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.evaluation.experiments.bootstrap.test_workflow import _install_fakes
+
+    _install_fakes(monkeypatch)
+    config_path, _config_value = _write_config(tmp_path, v2=True)
+    output = tmp_path / "canonical-m2"
+
+    with pytest.raises(ValueError, match="execution economics"):
+        bootstrap_canonical_m2_study(config_path, output)
+
+    assert not output.exists()
+    assert not any(
+        path.name.startswith(".canonical-m2.staging-") for path in tmp_path.iterdir()
+    )

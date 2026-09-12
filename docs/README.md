@@ -12,9 +12,13 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなspecはない。
+現在Activeなspec:
 
-現在Activeなplanはない。
+- [`specs/2026-09-12-interactive-human-guide-v1.md`](specs/2026-09-12-interactive-human-guide-v1.md) — 人間向けInteractive Guide v1の設計
+
+現在Activeなplan:
+
+- [`plans/2026-09-12-interactive-human-guide-v1.md`](plans/2026-09-12-interactive-human-guide-v1.md) — Interactive Guide v1の実装計画
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

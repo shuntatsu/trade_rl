@@ -1,0 +1,126 @@
+name: Issue 511 recovery dry run
+
+on:
+  push:
+    branches:
+      - tmp/issue511-recovery
+    paths:
+      - .github/workflows/issue511-recovery-dry-run.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  FAILURE_RUN_ID: "34707652616"
+  FAILURE_RUN_HEAD: 52e9c573fbee9ca24eac031f7dad5c6646ca76d8
+  FAILURE_ARTIFACT: canonical-m2-portable-exp001-execution-failure-34707652616
+  FAILURE_ARTIFACT_ID: "10304040458"
+  FAILURE_ARTIFACT_DIGEST: sha256:0e67733694765a48f0ca47220cb4c5520bd2934043d5f1a4a60cf865f241735a
+  EXPECTED_CANDIDATE_FINGERPRINT: 5e1ee8a530097e6b1c4571efe1d3edd9e867a2e77b8346a558ce9ed385e1f672
+  DOWNLOAD_ROOT: /tmp/issue511-recovery-dry-run
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact recovery helper head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production subtree unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Verify exact failure artifact binding
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FAILURE_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "failure"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$FAILURE_RUN_HEAD"
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FAILURE_RUN_ID/artifacts?per_page=100")"
+          count="$(jq --arg name "$FAILURE_ARTIFACT" '[.artifacts[] | select(.name == $name)] | length' <<<"$artifacts")"
+          test "$count" = "1"
+          test "$(jq -r --arg name "$FAILURE_ARTIFACT" '.artifacts[] | select(.name == $name) | .id' <<<"$artifacts")" = "$FAILURE_ARTIFACT_ID"
+          test "$(jq -r --arg name "$FAILURE_ARTIFACT" '.artifacts[] | select(.name == $name) | .digest' <<<"$artifacts")" = "$FAILURE_ARTIFACT_DIGEST"
+          test "$(jq -r --arg name "$FAILURE_ARTIFACT" '.artifacts[] | select(.name == $name) | .expired' <<<"$artifacts")" = "false"
+
+      - name: Download exact failure artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FAILURE_ARTIFACT }}
+          path: ${{ env.DOWNLOAD_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FAILURE_RUN_ID }}
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile lint and test recovery helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile research/issue511_portable_exp001_recovery.py
+          uv run ruff check \
+            research/issue511_portable_exp001_recovery.py \
+            research/test_issue511_portable_exp001_recovery.py
+          uv run pytest -q research/test_issue511_portable_exp001_recovery.py
+
+      - name: Recover only decision and index in disposable copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$DOWNLOAD_ROOT/issue511-portable-exp001-result"
+          test -d "$root/study/experiments/0001/candidate"
+          test -f "$root/study/experiments/0001/verification.json"
+          test -f "$root/study/experiments/0001/comparison.json"
+          test ! -e "$root/study/experiments/0001/decision.json"
+
+          candidate_before="$(find "$root/study/experiments/0001/candidate" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          verification_before="$(sha256sum "$root/study/experiments/0001/verification.json" | awk '{print $1}')"
+          comparison_before="$(sha256sum "$root/study/experiments/0001/comparison.json" | awk '{print $1}')"
+
+          uv run python research/issue511_portable_exp001_recovery.py --root "$root" >/dev/null
+
+          test -f "$root/study/experiments/0001/decision.json"
+          test -f "$root/portable-exp001-recovered-result-index.json"
+          candidate_after="$(find "$root/study/experiments/0001/candidate" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          verification_after="$(sha256sum "$root/study/experiments/0001/verification.json" | awk '{print $1}')"
+          comparison_after="$(sha256sum "$root/study/experiments/0001/comparison.json" | awk '{print $1}')"
+
+          test "$candidate_before" = "$candidate_after"
+          test "$verification_before" = "$verification_after"
+          test "$comparison_before" = "$comparison_after"
+          jq -e --arg fp "$EXPECTED_CANDIDATE_FINGERPRINT" '
+            .candidate_evidence_fingerprint == $fp and
+            .candidate_reexecuted_during_recovery == false and
+            .comparison_recomputed_during_recovery == false and
+            .original_execution_run_id == 34707652616 and
+            .source_failure_artifact_id == 10304040458 and
+            .profitability_claimed == false and
+            .winner_claimed == false and
+            .final_test_authorized == false and
+            .production_authorized == false
+          ' "$root/portable-exp001-recovered-result-index.json" >/dev/null
+
+          echo "RECOVERY_DRY_RUN_OK candidate/verification/comparison bytes unchanged; decision/index only"

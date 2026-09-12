@@ -1,4 +1,4 @@
-import importlib
+from importlib import import_module
 from pathlib import Path
 
 
@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _code_symbols():
-    return importlib.import_module("guide.tools.code_symbols")
+    return import_module("guide.tools.code_symbols")
 
 
 def _symbols(index: dict[str, object]) -> dict[str, dict[str, object]]:

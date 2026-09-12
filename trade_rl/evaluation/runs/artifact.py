@@ -7,6 +7,7 @@ import json
 import shutil
 import tempfile
 import zipfile
+import zlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
@@ -326,7 +327,7 @@ def _load_returns(
                 immutable = np.ascontiguousarray(value).copy()
                 immutable.setflags(write=False)
                 loaded[key] = immutable
-    except (OSError, EOFError, zipfile.BadZipFile) as error:
+    except (OSError, EOFError, zipfile.BadZipFile, zlib.error) as error:
         raise ValueError("malformed candidate returns archive") from error
     return loaded
 

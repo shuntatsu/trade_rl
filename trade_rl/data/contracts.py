@@ -5,11 +5,18 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from enum import StrEnum
+from enum import Enum, StrEnum
 
 import numpy as np
 
 from trade_rl._validation import require_aware_datetime, require_non_empty
+
+
+class MarketCalendarKind(str, Enum):
+    """Timestamp contract shared by market build and dataset boundaries."""
+
+    CONTINUOUS = "continuous_24_7"
+    SESSION = "session_calendar"
 
 
 class VolumeUnit(StrEnum):
@@ -334,13 +341,12 @@ class MarketBuildConfig:
         require_non_empty(self.base_timeframe, field="base_timeframe")
         timeframe_hours(self.base_timeframe)
         raw_calendar = getattr(self.calendar_kind, "value", self.calendar_kind)
-        if not isinstance(raw_calendar, str) or raw_calendar not in {
-            "continuous_24_7",
-            "session_calendar",
-        }:
-            raise ValueError("calendar_kind is not supported")
-        object.__setattr__(self, "calendar_kind", raw_calendar)
-        if raw_calendar == "session_calendar":
+        try:
+            calendar_kind = MarketCalendarKind(raw_calendar)
+        except (TypeError, ValueError):
+            raise ValueError("calendar_kind is not supported") from None
+        object.__setattr__(self, "calendar_kind", calendar_kind.value)
+        if calendar_kind is MarketCalendarKind.SESSION:
             if (
                 isinstance(self.session_periods_per_year, bool)
                 or not isinstance(self.session_periods_per_year, int)

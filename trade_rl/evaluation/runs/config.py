@@ -7,7 +7,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import ClassVar, cast
 
 import numpy as np
 
@@ -15,8 +15,12 @@ from trade_rl._validation import require_sha256
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.runs.candidate_suite import LeanCandidateConfig
 
-_ALLOWED_CONFIG_KEYS = frozenset(
-    {
+
+@dataclass(frozen=True, slots=True)
+class CandidateRunConfig:
+    """Raw semantic configuration for one candidate-suite run."""
+
+    JSON_FIELDS: ClassVar[tuple[str, ...]] = (
         "signal_name",
         "feature_names",
         "fit_symbol_names",
@@ -31,13 +35,7 @@ _ALLOWED_CONFIG_KEYS = frozenset(
         "ppo_seed",
         "gross_budget",
         "initial_capital",
-    }
-)
-
-
-@dataclass(frozen=True, slots=True)
-class CandidateRunConfig:
-    """Raw semantic configuration for one candidate-suite run."""
+    )
 
     signal_name: str
     feature_names: tuple[str, ...]
@@ -117,6 +115,20 @@ class CandidateRunConfig:
         object.__setattr__(self, "evaluation_stop_exclusive", evaluation_stop)
         object.__setattr__(self, "gross_budget", gross_budget)
         object.__setattr__(self, "initial_capital", initial_capital)
+
+    def to_json_payload(self) -> dict[str, object]:
+        """Return the normalized raw candidate-run JSON contract."""
+
+        payload: dict[str, object] = {}
+        for name in self.JSON_FIELDS:
+            value = getattr(self, name)
+            if isinstance(value, np.datetime64):
+                payload[name] = str(np.datetime64(value, "ns"))
+            elif isinstance(value, tuple):
+                payload[name] = list(value)
+            else:
+                payload[name] = value
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,7 +244,7 @@ def _required_timestamp(raw: Mapping[str, object], name: str) -> np.datetime64:
 def parse_candidate_run_config(raw: Mapping[str, object]) -> CandidateRunConfig:
     """Validate one JSON-like candidate-run configuration."""
 
-    unknown = sorted(set(raw) - _ALLOWED_CONFIG_KEYS)
+    unknown = sorted(set(raw) - set(CandidateRunConfig.JSON_FIELDS))
     if unknown:
         raise ValueError(f"unknown config keys: {', '.join(unknown)}")
     return CandidateRunConfig(

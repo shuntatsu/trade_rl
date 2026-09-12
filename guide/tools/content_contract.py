@@ -26,6 +26,7 @@ _ALLOWED_VISUALIZATIONS = {
     "observation",
     "experiment-loop",
     "research-status",
+    "sequence",
 }
 
 
@@ -205,6 +206,110 @@ def _required_string(record: dict[str, Any], field: str, *, label: str) -> str:
     return value
 
 
+def validate_sequence_visualization(
+    topic: dict[str, object],
+    *,
+    topic_id: str,
+) -> None:
+    visualization = topic.get("visualization")
+    if not isinstance(visualization, dict) or visualization.get("kind") != "sequence":
+        raise GuideContractError(f"topic {topic_id} has no sequence visualization")
+
+    raw_actors = visualization.get("actors")
+    raw_messages = visualization.get("messages")
+    if not isinstance(raw_actors, list) or not raw_actors:
+        raise GuideContractError(f"topic {topic_id} sequence actors must be non-empty")
+    if not isinstance(raw_messages, list):
+        raise GuideContractError(f"topic {topic_id} sequence messages must be a list")
+
+    code_reference_ids = {
+        reference["id"]
+        for reference in _topic_code_references(topic, topic_id=topic_id)
+    }
+    actor_ids: list[str] = []
+    for index, actor in enumerate(raw_actors):
+        if not isinstance(actor, dict):
+            raise GuideContractError(f"topic {topic_id} has malformed sequence actor")
+        actor_id = _required_string(
+            actor,
+            "id",
+            label=f"topic {topic_id} sequence actor {index}",
+        )
+        _required_string(
+            actor,
+            "label_ja",
+            label=f"topic {topic_id} sequence actor {actor_id}",
+        )
+        actor_ids.append(actor_id)
+        code_ref = actor.get("code_ref")
+        if code_ref is not None:
+            if not isinstance(code_ref, str) or not code_ref:
+                raise GuideContractError(
+                    f"topic {topic_id} sequence actor {actor_id} has malformed code reference"
+                )
+            if code_ref not in code_reference_ids:
+                raise GuideContractError(
+                    f"unknown code reference in topic {topic_id} sequence actor: {code_ref}"
+                )
+    if len(set(actor_ids)) != len(actor_ids):
+        raise GuideContractError(f"topic {topic_id} sequence has duplicate actor ids")
+    actor_id_set = set(actor_ids)
+
+    message_ids: list[str] = []
+    for index, message in enumerate(raw_messages):
+        if not isinstance(message, dict):
+            raise GuideContractError(f"topic {topic_id} has malformed sequence message")
+        message_id = _required_string(
+            message,
+            "id",
+            label=f"topic {topic_id} sequence message {index}",
+        )
+        message_ids.append(message_id)
+    if len(set(message_ids)) != len(message_ids):
+        raise GuideContractError(f"topic {topic_id} sequence has duplicate message ids")
+
+    for index, message in enumerate(raw_messages):
+        assert isinstance(message, dict)
+        message_id = message_ids[index]
+        source = _required_string(
+            message,
+            "from",
+            label=f"topic {topic_id} sequence message {message_id}",
+        )
+        target = _required_string(
+            message,
+            "to",
+            label=f"topic {topic_id} sequence message {message_id}",
+        )
+        _required_string(
+            message,
+            "label_ja",
+            label=f"topic {topic_id} sequence message {message_id}",
+        )
+        if source not in actor_id_set or target not in actor_id_set:
+            raise GuideContractError(
+                f"unknown actor reference in topic {topic_id} sequence: {source} -> {target}"
+            )
+        code_ref = message.get("code_ref")
+        if code_ref is not None:
+            if not isinstance(code_ref, str) or not code_ref:
+                raise GuideContractError(
+                    f"topic {topic_id} sequence message {message_id} has malformed code reference"
+                )
+            if code_ref not in code_reference_ids:
+                raise GuideContractError(
+                    f"unknown code reference in topic {topic_id} sequence message: {code_ref}"
+                )
+        state_changes = message.get("state_changes_ja")
+        if state_changes is not None and (
+            not isinstance(state_changes, list)
+            or not all(isinstance(item, str) and item for item in state_changes)
+        ):
+            raise GuideContractError(
+                f"topic {topic_id} sequence message {message_id} has malformed state changes"
+            )
+
+
 def _code_reference_test_path(root: Path, path_text: str) -> Path:
     path = PurePosixPath(path_text)
     if (
@@ -339,6 +444,8 @@ def check_content(root: Path = ROOT) -> None:
             raise GuideContractError(
                 f"topic {topic_id} has unknown visualization kind: {kind!r}"
             )
+        if kind == "sequence":
+            validate_sequence_visualization(topic, topic_id=topic_id)
         validate_source_sections(
             root,
             _topic_source_sections(topic, topic_id=topic_id),

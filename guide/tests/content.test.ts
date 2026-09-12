@@ -36,6 +36,19 @@ function minimalTopic() {
   };
 }
 
+function codeReference() {
+  return {
+    id: "run",
+    symbol: "trade_rl.demo.run",
+    kind: "function",
+    source_sha256: "a".repeat(64),
+    label_ja: "デモ処理",
+    description_ja: "デモ処理です。",
+    variables: [],
+    tests: [],
+  };
+}
+
 describe("guide content", () => {
   it("loads the seven reviewed topics in manifest order", () => {
     const topics = loadTopics();
@@ -91,16 +104,7 @@ describe("guide content", () => {
   });
 
   it("rejects duplicate code reference ids", () => {
-    const reference = {
-      id: "same",
-      symbol: "trade_rl.demo.run",
-      kind: "function",
-      source_sha256: "a".repeat(64),
-      label_ja: "デモ処理",
-      description_ja: "デモ処理です。",
-      variables: [],
-      tests: [],
-    };
+    const reference = { ...codeReference(), id: "same" };
 
     expect(() =>
       parseTopic({
@@ -114,19 +118,70 @@ describe("guide content", () => {
     expect(() =>
       parseTopic({
         ...minimalTopic(),
-        code_references: [
-          {
-            id: "run",
-            symbol: "trade_rl.demo.run",
-            kind: "function",
-            source_sha256: "a".repeat(64),
-            label_ja: "",
-            description_ja: "デモ処理です。",
-            variables: [],
-            tests: [],
-          },
-        ],
+        code_references: [{ ...codeReference(), label_ja: "" }],
       }),
     ).toThrow(/label_ja/i);
+  });
+
+  it("rejects sequence messages with unknown actors", () => {
+    expect(() =>
+      parseTopic({
+        ...minimalTopic(),
+        code_references: [codeReference()],
+        visualization: {
+          kind: "sequence",
+          actors: [
+            { id: "replay", label_ja: "リプレイ統括", code_ref: "run" },
+          ],
+          messages: [
+            {
+              id: "decide",
+              from: "replay",
+              to: "missing",
+              label_ja: "戦略判断を取得",
+            },
+          ],
+        },
+      }),
+    ).toThrow(/actor reference/i);
+  });
+
+  it("rejects sequence references to unknown code references", () => {
+    expect(() =>
+      parseTopic({
+        ...minimalTopic(),
+        code_references: [codeReference()],
+        visualization: {
+          kind: "sequence",
+          actors: [
+            { id: "replay", label_ja: "リプレイ統括", code_ref: "missing" },
+          ],
+          messages: [],
+        },
+      }),
+    ).toThrow(/code reference/i);
+  });
+
+  it("rejects duplicate sequence message ids", () => {
+    const message = {
+      id: "same",
+      from: "replay",
+      to: "strategy",
+      label_ja: "戦略判断を取得",
+    };
+    expect(() =>
+      parseTopic({
+        ...minimalTopic(),
+        code_references: [codeReference()],
+        visualization: {
+          kind: "sequence",
+          actors: [
+            { id: "replay", label_ja: "リプレイ統括", code_ref: "run" },
+            { id: "strategy", label_ja: "戦略" },
+          ],
+          messages: [message, message],
+        },
+      }),
+    ).toThrow(/messages.*duplicate/i);
   });
 });

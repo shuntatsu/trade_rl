@@ -121,6 +121,24 @@ def test_two_workers_cannot_race_to_replace_one_active_lease() -> None:
         )
 
 
+def test_expired_lease_cannot_be_revived_by_late_heartbeat() -> None:
+    packet = _packet("T500-heartbeat")
+    lease = grant_lease(
+        packet,
+        "agent-a",
+        epoch=1,
+        now=NOW,
+        ttl=timedelta(minutes=5),
+    )
+
+    with pytest.raises(ValueError, match="expired"):
+        heartbeat(
+            lease,
+            head_sha=HEAD_A,
+            observed_at=lease.expires_at,
+        )
+
+
 def test_old_epoch_is_fenced_after_reassignment_and_late_push() -> None:
     packet = _packet("T500-epoch")
     old = heartbeat(

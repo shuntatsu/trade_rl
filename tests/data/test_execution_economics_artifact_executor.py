@@ -19,7 +19,10 @@ from trade_rl.data.contracts import (
     MarketBuildConfig,
 )
 from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
+from trade_rl.evaluation.replay import run_single_symbol_replay
 from trade_rl.simulation import BookState, ExecutionCostConfig, MarketExecutor
+from trade_rl.strategies.controls import ConstantIntentStrategy
+from trade_rl.strategies.position_intent import PositionIntent
 
 
 def _profile() -> ExecutionEconomicsProfile:
@@ -130,3 +133,20 @@ def test_zero_overlay_charges_dataset_cost_exactly_once() -> None:
         abs=1e-12,
     )
     assert expected_cost == pytest.approx(0.7, rel=0.0, abs=1e-12)
+
+
+def test_controlled_replay_uses_dataset_economics_with_zero_overlay() -> None:
+    dataset = _dataset()
+
+    result = run_single_symbol_replay(
+        dataset,
+        ConstantIntentStrategy(PositionIntent.LONG),
+        start_index=0,
+        stop_index=1,
+        gross_budget=1.0,
+        initial_capital=1_000.0,
+    )
+
+    assert result.diagnostics.n_trades == 1
+    assert result.diagnostics.total_cost == pytest.approx(0.7, rel=0.0, abs=1e-12)
+    assert result.book.total_cost == pytest.approx(0.7, rel=0.0, abs=1e-12)

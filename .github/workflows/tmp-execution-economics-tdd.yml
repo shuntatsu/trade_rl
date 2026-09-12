@@ -31,7 +31,5 @@ jobs:
           tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
       - name: Generic execution economics tests in isolation
         run: uv run pytest -q tests/data/test_execution_economics_build.py
-      - name: Canonical protocol RED tests
+      - name: Canonical protocol tests
         run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
-
-# Temporary trigger for the verified implementation workflow; removed before PR.

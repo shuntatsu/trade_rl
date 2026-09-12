@@ -12,14 +12,16 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなspecは次の1件である。
+現在Activeなspecは次の2件である。
 
 - [`specs/2026-09-11-agent-repository-control-plane-v1-design.md`](specs/2026-09-11-agent-repository-control-plane-v1-design.md) — Agent Eval、source-derived inspector、Semantic Diff、risk-based verification、merge safetyを定義するAgent-safe Repository設計
+- [`specs/2026-09-12-agent-coordination-plane-v1-design.md`](specs/2026-09-12-agent-coordination-plane-v1-design.md) — #500。複数AgentのTask DAG、execution mode、lease fencing、semantic conflict、independent review、exact-snapshot evidence、handoff、integrationを定義する設計
 
-現在Activeなplanは次の2件である。
+現在Activeなplanは次の3件である。
 
 - [`plans/2026-09-11-agent-repository-eval-implementation.md`](plans/2026-09-11-agent-repository-eval-implementation.md) — prompt-only corpus、generic rubric、matched baseline/comparison protocolと、未実施のfresh-Agent比較を管理するcurrent plan
 - [`plans/2026-09-11-agent-repository-merge-safety-implementation.md`](plans/2026-09-11-agent-repository-merge-safety-implementation.md) — 実装済みのPR integration invariantと、未適用のGitHub `main` protection/rulesetだけを管理するcurrent plan
+- [`plans/2026-09-12-agent-coordination-plane-v1-implementation.md`](plans/2026-09-12-agent-coordination-plane-v1-implementation.md) — #500。Task contract/state/evidence、dependency/conflict scheduler、lease/recovery、GitHub projection、operator CLI、adversarial verificationをTDDで実装するcurrent plan
 
 Preflight/context/impact、Semantic Diff、risk-based verificationなどのControl Plane Core実装は完了しているため、旧core implementation planはcurrent treeから削除済みである。実装経緯はGit historyおよびsuperseded PR #464を参照する。
 

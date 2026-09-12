@@ -1,0 +1,59 @@
+name: Issue 494 strengthen portable numerics guard
+
+on:
+  push:
+    branches:
+      - fix/portable-feature-numerics
+    paths:
+      - .github/workflows/issue494-strengthen-guard.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/portable-feature-numerics
+          fetch-depth: 1
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install dev environment
+        run: uv sync --extra dev
+      - name: Forbid vector sqrt in identity-bound code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/data/test_portable_feature_numerics.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''        "std",\n        "sum",\n        "var",\n'''
+          new = '''        "std",\n        "sum",\n        "sqrt",\n        "var",\n'''
+          if text.count(old) != 1:
+              raise RuntimeError("forbidden NumPy set anchor changed")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+      - name: Verify strengthened guard
+        run: |
+          uv run ruff check tests/data/test_portable_feature_numerics.py
+          uv run ruff format --check tests/data/test_portable_feature_numerics.py
+          uv run pytest -q tests/data/test_portable_feature_numerics.py
+      - name: Commit verified guard without workflow residue
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/issue494-strengthen-guard.yml
+          git diff --check
+          git config user.name "Shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add tests/data/test_portable_feature_numerics.py
+          git commit -m "test: guard portable transcendental boundary"
+          git push origin HEAD:fix/portable-feature-numerics

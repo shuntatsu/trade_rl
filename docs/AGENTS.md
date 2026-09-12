@@ -17,20 +17,6 @@
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
 
-## Interactive Guide update contract
-
-Root `guide/` は人間向けの**非正本**説明層であり、技術仕様・研究状態のauthorityにはしない。説明本文と可視化modelは `guide/content/topics/*.json` に置き、正本Markdown sectionとの対応は各topicのsource fingerprintでfail-closedに検証する。
-
-Guideがbindしている `docs/architecture/*` または `docs/research/current-status.md` のsectionを変更した場合、対応topicの説明が新しい正本と一致することを人間が確認してから、対象topicだけを明示的にrefreshする。refreshを単なるCI通過手段として実行しない。
-
-```bash
-python3 guide/tools/content_contract.py --refresh <topic-id>
-python3 guide/tools/content_contract.py --check
-npm --prefix guide run check
-```
-
-正本sectionが変わっていない通常のGuide UI変更ではfingerprintを更新しない。Guide側の説明と正本が食い違う場合は、正本をGuideへ合わせず、現行source・contract test・正本docsから契約を再確認してGuideを修正する。
-
 ## Local repository tooling
 
 Repository-localなsource-derived inspectionには次を使ってよい。
@@ -52,6 +38,30 @@ uv run python -m tools.agent_repo eval-list
 - `eval-list` / `eval-show` / `eval-score`: versionedなAgent-UX task promptとgeneric rubricを表示・Evaluator入力から採点する。task-specificなEvaluator answer keyはchecked-in corpusへ保存しない。
 
 これらはnetwork-free local toolingであり、GitHub上のopen PR/branch overlapは別途確認する。出力は一時情報であり、生成JSON/Markdown reportをcurrent treeへcommitしない。
+
+## Agent Coordination Plane
+
+複数Agentが同時に作業する場合、Repository Control Planeのsource-derived inspectionとは別に、`tools/agent_repo/coordination/` の **Agent Coordination Plane** を使ってTask契約・依存・競合・ownership・evidence freshnessを扱う。Coordination Planeはdomain/research/artifact authorityではなく、Repository上の作業を安全に分離・統合するrepository toolingである。
+
+Network-free operator surfaceは次を提供する。
+
+```bash
+uv run python -m tools.agent_repo task digest task.json
+uv run python -m tools.agent_repo task ready snapshot.json
+uv run python -m tools.agent_repo task status-render status.json
+uv run python -m tools.agent_repo task status-parse status-comment.txt
+uv run python -m tools.agent_repo task dashboard dashboard.json
+```
+
+- Task contractは `task_revision` とcanonical **Task Contract digest** の両方へbindする。revision bump漏れでもdigestが変われば古いlease/review/verification evidenceをstaleとして扱う。
+- Task状態は単一statusではなく `phase + condition` で表す。`review / stale` や `executing / blocked` を区別する。
+- `execution_mode=read_only` はimmutable snapshotを共有してよく、writable lease/branchを持たない。`write` Taskはactive ownerを1つに限定し、isolated writable worktree/branchを使う。
+- write ownershipはCoordinator-issued **lease epoch** をfencing tokenとして扱う。reassignment時はepochを増加し、new epoch専用branch/worktreeを作る。expired leaseはbranch/PR/CI/artifact side effectをreconcileするまで即reassignしない。
+- file overlapだけでなく `authority:` / `identity:` / `schema:` / `workflow:` / `artifact:` / `side-effect:` Resource Keyでsemantic collisionを判定する。hard conflictは同時実行しない。
+- CoordinatorがTask phase/condition/leaseのsingle writerであり、Worker/Reviewer/Verifier/Integratorの自然言語報告だけでstateを確定しない。status commentはCoordinator-owned durable projectionとして扱う。
+- Review/verificationはTask revision/digest/base/**exact HEAD**へbindする。HEADが変わった後のapproval/Greenを再利用しない。`main`が進んだ場合はintegration evidenceをstaleにし、tested PR head contains current `main` を満たす新HEADで再検証する。
+- Workerは自分でTaskを`complete`にしない。review → verification → integration → post-merge oracleを通し、child Taskが全部completeでもparent Acceptance Criteriaとcross-task invariantを最後に再評価する。
+- `task ...` CLIはlocal JSON/textを解析・表示するだけでGitHubへclaim/comment/mergeを書き込まない。authorized GitHub writeはCoordinator/Integrator側の明示的な外部actionとして扱う。
 
 ## Agent Eval protocol
 
@@ -88,7 +98,6 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 | Study/Experiment/EvidenceSet、controlled factor、lineage、freeze | `architecture/controlled-experiment-loop.md`, experiment contract/workflow tests |
 | 候補strategy/control、fit scope、evaluation scope | `research/current-status.md`, candidate/strategy tests |
 | M1/M2/M3状態、development/final/stress手順 | `research/current-status.md` |
-| Guideがbindする正本section | 対応する `guide/content/topics/*.json`, `guide/tools/content_contract.py --check` |
 | docsの入口・保持ルール | `docs/README.md`, `docs/AGENTS.md`, root `AGENTS.md` |
 | license/provenance/third party | `LICENSE`, `LICENSES/`, package metadata。通常cleanupとは分離する |
 

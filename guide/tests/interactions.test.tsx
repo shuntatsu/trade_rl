@@ -110,6 +110,33 @@ describe("interactive guide workflow", () => {
     });
   });
 
+  it("restores a replay step from the URL and shows its code inspector", () => {
+    window.location.hash = "#implementation-replay?step=risk-constrain";
+    render(<App />);
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "1本のバーを追う" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /ハードリスクで目標を制約/ }),
+    ).toHaveAttribute("aria-current", "step");
+    expect(
+      screen.getByRole("heading", { level: 3, name: "ハードリスクを適用" }),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to the first replay step when the URL step is unknown", () => {
+    window.location.hash = "#implementation-replay?step=missing";
+    render(<App />);
+
+    expect(
+      screen.getByRole("button", { name: /その時点の観測を組み立てる/ }),
+    ).toHaveAttribute("aria-current", "step");
+    expect(
+      screen.getByRole("heading", { level: 3, name: "その時点の観測を組み立てる" }),
+    ).toBeInTheDocument();
+  });
+
   it("switches dark mode without changing content", async () => {
     const user = userEvent.setup();
     render(<App />);

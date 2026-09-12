@@ -30,6 +30,7 @@ def test_market_dataset_build_request_composes_root_json_fields() -> None:
         "source_root",
         *MarketBuildConfig.JSON_FIELDS,
         "instruments",
+        "execution_economics",
     )
 
 

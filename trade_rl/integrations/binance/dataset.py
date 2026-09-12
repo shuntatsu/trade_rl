@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from trade_rl.data.build.builder import MarketDatasetBuilder
+from trade_rl.data.build.economics import ExecutionEconomicsProfile
 from trade_rl.data.contracts import (
     FeatureAlignment,
     FeatureKind,
@@ -565,6 +566,7 @@ def build_binance_market_dataset(
     execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]
     | None = None,
     metadata_evidence: Mapping[str, object] | None = None,
+    execution_economics: ExecutionEconomicsProfile | None = None,
 ) -> BinanceDatasetBuildResult:
     """Build one deterministic linear-product dataset from public Binance data."""
 
@@ -712,6 +714,7 @@ def build_binance_market_dataset(
         source,
         tuple(item.to_contract() for item in metadata),
         identity_provenance=metadata_evidence,
+        execution_economics=execution_economics,
     )
     sources = set(source.sources_used)
     if metadata_source is not None:

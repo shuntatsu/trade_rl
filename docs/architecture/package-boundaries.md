@@ -27,7 +27,7 @@ trade_rl/
 │   ├── source.py
 │   ├── view.py
 │   ├── artifacts/{codec.py,publication.py}
-│   ├── build/{config.py,builder.py}
+│   ├── build/{config.py,builder.py,economics.py}
 │   └── features/{core.py,cross_asset.py,economic.py,multitimeframe.py}
 ├── integrations/
 │   └── binance/
@@ -96,7 +96,7 @@ trade_rl/
 
 ### `data`
 
-`MarketDataset`、point-in-time contract/source、identity、bounded view、artifact codec/publication、dataset build、causal feature computationを持つ。strategy/evaluation/simulationへ依存しない。
+`MarketDataset`、point-in-time contract/source、identity、bounded view、artifact codec/publication、dataset build、causal feature computationを持つ。strategy/evaluation/simulationへ依存しない。`data/build/economics.py` は build-level `ExecutionEconomicsProfile` の単一ownerであり、`MarketBuildConfig` のfeature/build semanticsとは分離する。profile省略時はlegacy build behavior/content identityを維持し、明示profileは既存economic-semantics経路を通してimmutable Dataset fields/content identityへbindする。
 
 ### `integrations`
 
@@ -133,9 +133,9 @@ lower layerを利用してReplay・metrics・gate・comparison・robustness・co
 
 `evaluation/experiments/bootstrap/` は次だけを所有する。
 
-- `config.py`: strict `CanonicalM2BootstrapConfig` parse/normalization/preflightと単一seed-policy authority。
+- `config.py`: strict `CanonicalM2BootstrapConfig` parse/normalization/preflightと単一seed-policy authority。historical v1のpayload/digest/read semanticsを維持し、v2では明示的なbuild-level execution economicsを必須としてbootstrap identityへbindする。
 - `binance.py`: exact exchange-info / Vision source freeze、raw-source roster、cache-only transport composition。
-- `workflow.py`: source → canonical dataset → immutable StudyPlanをwhole-root stagingで構築し、manifest検証後に一回だけpublishする。
+- `workflow.py`: source → canonical dataset → immutable StudyPlanをwhole-root stagingで構築し、manifest検証後に一回だけpublishする。v2ではbuildへ渡したexecution economicsと、生成/reloadしたDataset economic arraysおよびidentity-bound profileの一致もfail-closedで検証する。
 - `cli.py`: `--config` / `--output` をparseしてworkflowを呼ぶだけのfilesystem adapter。
 - `__init__.py`: intentionally narrow public facade。
 

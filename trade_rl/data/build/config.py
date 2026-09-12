@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import ClassVar
 
+from trade_rl.data.build.economics import ExecutionEconomicsProfile
 from trade_rl.data.contracts import (
     FeatureAlignment,
     FeatureKind,
@@ -26,11 +27,13 @@ class MarketDatasetBuildRequest:
         "source_root",
         *MarketBuildConfig.JSON_FIELDS,
         "instruments",
+        "execution_economics",
     )
 
     source_root: Path
     config: MarketBuildConfig
     instruments: tuple[InstrumentContract, ...]
+    execution_economics: ExecutionEconomicsProfile | None = None
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
@@ -215,6 +218,15 @@ def load_market_build_request(path: str | Path) -> MarketDatasetBuildRequest:
             _list(root.get("instruments"), field="instruments")
         )
     )
+    raw_execution_economics = root.get("execution_economics")
+    execution_economics = (
+        None
+        if raw_execution_economics is None
+        else ExecutionEconomicsProfile.from_payload(
+            raw_execution_economics,
+            field="execution_economics",
+        )
+    )
     source_root = Path(
         _string(root.get("source_root"), field="source_root")
     ).expanduser()
@@ -247,4 +259,5 @@ def load_market_build_request(path: str | Path) -> MarketDatasetBuildRequest:
             ),
         ),
         instruments=instruments,
+        execution_economics=execution_economics,
     )

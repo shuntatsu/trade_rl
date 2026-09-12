@@ -12,6 +12,7 @@ from typing import cast
 import numpy as np
 
 from trade_rl.artifacts.hashing import content_digest
+from trade_rl.data.build import ExecutionEconomicsProfile
 from trade_rl.evaluation.experiments.contracts import ControlledFactor
 from trade_rl.evaluation.runs import (
     CandidateRunConfig,
@@ -22,8 +23,9 @@ from trade_rl.integrations.binance import (
     binance_interval_milliseconds,
 )
 
-_SCHEMA_VERSION = "canonical_m2_bootstrap_config_v1"
-_TOP_LEVEL_KEYS = frozenset(
+_SCHEMA_VERSION_V1 = "canonical_m2_bootstrap_config_v1"
+_SCHEMA_VERSION_V2 = "canonical_m2_bootstrap_config_v2"
+_TOP_LEVEL_KEYS_V1 = frozenset(
     {
         "schema_version",
         "research_question",
@@ -41,6 +43,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "bootstrap_seed",
     }
 )
+_TOP_LEVEL_KEYS_V2 = frozenset((*_TOP_LEVEL_KEYS_V1, "execution_economics"))
 _BASELINE_FIELDS = (
     "signal_name",
     "feature_names",
@@ -228,11 +231,23 @@ class CanonicalM2BootstrapConfig:
     max_experiments: int
     n_bootstrap: int
     bootstrap_seed: int
-    schema_version: str = _SCHEMA_VERSION
+    execution_economics: ExecutionEconomicsProfile | None = None
+    schema_version: str = _SCHEMA_VERSION_V1
 
     def __post_init__(self) -> None:
-        if self.schema_version != _SCHEMA_VERSION:
+        if self.schema_version not in {_SCHEMA_VERSION_V1, _SCHEMA_VERSION_V2}:
             raise ValueError("schema_version does not match canonical M2 contract")
+        if self.schema_version == _SCHEMA_VERSION_V1:
+            if self.execution_economics is not None:
+                raise ValueError(
+                    "v1 bootstrap config must not include execution_economics"
+                )
+        elif self.execution_economics is None:
+            raise ValueError("v2 bootstrap config requires execution_economics")
+        if self.execution_economics is not None and not isinstance(
+            self.execution_economics, ExecutionEconomicsProfile
+        ):
+            raise ValueError("execution_economics must be an ExecutionEconomicsProfile")
         if self.market is not BinanceMarket.USDS_M:
             raise ValueError("canonical M2 bootstrap supports only usds-m")
         if not isinstance(self.baseline, CandidateRunConfig):
@@ -322,7 +337,7 @@ class CanonicalM2BootstrapConfig:
         object.__setattr__(self, "bootstrap_seed", bootstrap_seed)
 
     def to_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "schema_version": self.schema_version,
             "research_question": self.research_question,
             "market": self.market.value,
@@ -338,6 +353,9 @@ class CanonicalM2BootstrapConfig:
             "n_bootstrap": self.n_bootstrap,
             "bootstrap_seed": self.bootstrap_seed,
         }
+        if self.execution_economics is not None:
+            payload["execution_economics"] = self.execution_economics.to_payload()
+        return payload
 
     @property
     def digest(self) -> str:
@@ -345,8 +363,17 @@ class CanonicalM2BootstrapConfig:
 
 
 def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
-    _expect_exact_keys(raw, _TOP_LEVEL_KEYS, field="bootstrap config")
-    if raw.get("schema_version") != _SCHEMA_VERSION:
+    schema_version = _require_text(raw.get("schema_version"), field="schema_version")
+    if schema_version == _SCHEMA_VERSION_V1:
+        _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V1, field="bootstrap config")
+        execution_economics = None
+    elif schema_version == _SCHEMA_VERSION_V2:
+        _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V2, field="bootstrap config")
+        execution_economics = ExecutionEconomicsProfile.from_payload(
+            raw.get("execution_economics"),
+            field="execution_economics",
+        )
+    else:
         raise ValueError("schema_version does not match canonical M2 contract")
 
     market_text = _require_text(raw.get("market"), field="market")
@@ -414,6 +441,8 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
             raw.get("n_bootstrap"), field="n_bootstrap", positive=True
         ),
         bootstrap_seed=_int_value(raw.get("bootstrap_seed"), field="bootstrap_seed"),
+        execution_economics=execution_economics,
+        schema_version=schema_version,
     )
 
 

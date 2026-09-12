@@ -1,4 +1,4 @@
-import { Github, Moon, Sun } from "lucide-react";
+import { ExternalLink, Moon, Sun } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ThemePreference } from "../app/useTheme";
@@ -24,14 +24,19 @@ export function AppShell({
   onThemeChange: (theme: ThemePreference) => void;
   children: ReactNode;
 }) {
-  const toggleTheme = () => onThemeChange(resolvedTheme === "dark" ? "light" : "dark");
+  const toggleTheme = () =>
+    onThemeChange(resolvedTheme === "dark" ? "light" : "dark");
 
   return (
     <div className="app-layout">
       <Sidebar topics={topics} activeId={activeId} onNavigate={onNavigate} />
       <div className="app-column">
         <header className="topbar">
-          <MobileNav topics={topics} activeId={activeId} onNavigate={onNavigate} />
+          <MobileNav
+            topics={topics}
+            activeId={activeId}
+            onNavigate={onNavigate}
+          />
           <SearchPalette topics={topics} onNavigate={onNavigate} />
           <div className="topbar__actions">
             <a
@@ -41,13 +46,15 @@ export function AppShell({
               rel="noreferrer"
               aria-label="GitHub repository"
             >
-              <Github size={18} />
+              <ExternalLink size={18} />
             </a>
             <button
               type="button"
               className="icon-button"
               onClick={toggleTheme}
-              aria-label={resolvedTheme === "dark" ? "ライトモードへ" : "ダークモードへ"}
+              aria-label={
+                resolvedTheme === "dark" ? "ライトモードへ" : "ダークモードへ"
+              }
               title={`Theme: ${theme}`}
             >
               {resolvedTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}

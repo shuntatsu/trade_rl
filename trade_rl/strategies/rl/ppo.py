@@ -260,9 +260,7 @@ class PPOTradingEnv(gym.Env):
         self.execution_cost = execution_cost or ExecutionCostConfig.zero()
 
         observation_size = (
-            3 * len(self.feature_indices)
-            + 2 * len(self.global_feature_indices)
-            + 2
+            3 * len(self.feature_indices) + 2 * len(self.global_feature_indices) + 2
         )
         self.observation_space = spaces.Box(
             low=-np.inf,

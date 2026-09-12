@@ -52,10 +52,14 @@ class StrategyObservation:
         feature_available = (
             np.asarray(self.feature_available, dtype=np.bool_).reshape(-1).copy()
         )
-        feature_staleness = np.asarray(
-            self.feature_staleness,
-            dtype=np.float32,
-        ).reshape(-1).copy()
+        feature_staleness = (
+            np.asarray(
+                self.feature_staleness,
+                dtype=np.float32,
+            )
+            .reshape(-1)
+            .copy()
+        )
         global_features = _readonly_vector(
             self.global_features,
             field="global_features",

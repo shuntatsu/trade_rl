@@ -15,6 +15,7 @@ def observation() -> StrategyObservation:
         symbol="BTCUSDT",
         features=np.array([0.0]),
         feature_available=np.array([False]),
+        feature_staleness=np.array([1.0]),
         global_features=np.array([0.0]),
         global_feature_available=np.array([False]),
         current_intent=PositionIntent.FLAT,

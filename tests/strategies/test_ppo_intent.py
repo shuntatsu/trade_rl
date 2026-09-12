@@ -13,6 +13,7 @@ from trade_rl.simulation.execution import ExecutionCostConfig
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 from trade_rl.strategies.rl.ppo import (
+    PPO_GLOBAL_FEATURE_NAMES,
     PPOIntentStrategy,
     PPOTradingEnv,
     fit_ppo_strategy,
@@ -65,7 +66,7 @@ def market() -> MarketDataset:
         timestamps=np.datetime64("2026-01-01", "ns")
         + np.arange(4) * np.timedelta64(1, "h"),
         features=np.arange(4, dtype=np.float32).reshape(4, 1, 1),
-        global_features=np.zeros((4, 1), dtype=np.float32),
+        global_features=np.zeros((4, 4), dtype=np.float32),
         open=close.copy(),
         high=close.copy(),
         low=close.copy(),
@@ -75,7 +76,7 @@ def market() -> MarketDataset:
         tradable=np.ones((4, 1), dtype=np.bool_),
         feature_available=np.ones((4, 1, 1), dtype=np.bool_),
         feature_names=("signal",),
-        global_feature_names=("regime",),
+        global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
         periods_per_year=8_760,
     )
 
@@ -98,7 +99,7 @@ def pooled_market() -> MarketDataset:
         timestamps=np.datetime64("2026-01-01", "ns")
         + np.arange(4) * np.timedelta64(1, "h"),
         features=features,
-        global_features=np.zeros((4, 1), dtype=np.float32),
+        global_features=np.zeros((4, 4), dtype=np.float32),
         open=close.copy(),
         high=close.copy(),
         low=close.copy(),
@@ -108,7 +109,7 @@ def pooled_market() -> MarketDataset:
         tradable=np.ones((4, 2), dtype=np.bool_),
         feature_available=np.ones((4, 2, 1), dtype=np.bool_),
         feature_names=("signal",),
-        global_feature_names=("regime",),
+        global_feature_names=PPO_GLOBAL_FEATURE_NAMES,
         periods_per_year=8_760,
     )
 
@@ -120,8 +121,9 @@ def observation() -> StrategyObservation:
         symbol="BTCUSDT",
         features=np.asarray([0.5]),
         feature_available=np.asarray([True]),
-        global_features=np.asarray([0.0]),
-        global_feature_available=np.asarray([True]),
+        feature_staleness=np.asarray([0.0], dtype=np.float32),
+        global_features=np.zeros(4, dtype=np.float64),
+        global_feature_available=np.ones(4, dtype=np.bool_),
         current_intent=PositionIntent.FLAT,
         current_weight=0.0,
     )
@@ -129,15 +131,27 @@ def observation() -> StrategyObservation:
 
 def test_policy_action_mapping_is_short_flat_long() -> None:
     assert (
-        PPOIntentStrategy(FakePolicy(0), feature_indices=(0,)).decide(observation())
+        PPOIntentStrategy(
+            FakePolicy(0),
+            feature_indices=(0,),
+            global_feature_indices=(0, 1, 2, 3),
+        ).decide(observation())
         is PositionIntent.SHORT
     )
     assert (
-        PPOIntentStrategy(FakePolicy(1), feature_indices=(0,)).decide(observation())
+        PPOIntentStrategy(
+            FakePolicy(1),
+            feature_indices=(0,),
+            global_feature_indices=(0, 1, 2, 3),
+        ).decide(observation())
         is PositionIntent.FLAT
     )
     assert (
-        PPOIntentStrategy(FakePolicy(2), feature_indices=(0,)).decide(observation())
+        PPOIntentStrategy(
+            FakePolicy(2),
+            feature_indices=(0,),
+            global_feature_indices=(0, 1, 2, 3),
+        ).decide(observation())
         is PositionIntent.LONG
     )
 
@@ -190,11 +204,11 @@ def test_pooled_env_cycles_symbols_without_symbol_identity_in_observation() -> N
 
     first_observation, _ = env.reset(seed=3)
     assert env.active_symbol_index == 0
-    assert first_observation.shape == (4,)
+    assert first_observation.shape == (13,)
 
     second_observation, _ = env.reset()
     assert env.active_symbol_index == 1
-    assert second_observation.shape == (4,)
+    assert second_observation.shape == (13,)
     _, _, _, _, _ = env.step(2)
     assert env.book.quantities[0] == 0.0
     assert env.book.quantities[1] > 0.0
@@ -217,7 +231,7 @@ def test_pooled_env_cycles_only_explicit_fit_symbols() -> None:
 
     observation, info = env.reset(seed=3)
     assert env.active_symbol_index == 1
-    assert observation.shape == (4,)
+    assert observation.shape == (13,)
     assert info["symbol"] == "ETHUSDT"
     env.reset()
     assert env.active_symbol_index == 1

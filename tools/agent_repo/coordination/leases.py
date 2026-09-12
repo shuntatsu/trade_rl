@@ -263,6 +263,8 @@ def heartbeat(
     _require_aware(observed_at, field_name="observed_at")
     if observed_at < lease.last_heartbeat_at:
         raise ValueError("heartbeat time must be monotonic")
+    if observed_at >= lease.expires_at:
+        raise ValueError("expired lease requires reconciliation before heartbeat")
     ttl = timedelta(seconds=lease.ttl_seconds)
     return replace(
         lease,

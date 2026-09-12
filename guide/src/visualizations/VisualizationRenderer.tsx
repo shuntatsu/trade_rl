@@ -5,11 +5,18 @@ import { ExperimentLoop } from "./ExperimentLoop";
 import { FlowStepper } from "./FlowStepper";
 import { ObservationVector } from "./ObservationVector";
 import { ResearchStatusBoard } from "./ResearchStatusBoard";
+import { SequenceDiagram } from "./SequenceDiagram";
+
+const ignoreStepSelection = () => undefined;
 
 export function VisualizationRenderer({
   visualization,
+  selectedStep,
+  onSelectStep,
 }: {
   visualization: GuideVisualization;
+  selectedStep?: string;
+  onSelectStep?: (stepId: string) => void;
 }) {
   switch (visualization.kind) {
     case "architecture":
@@ -24,5 +31,13 @@ export function VisualizationRenderer({
       return <ExperimentLoop visualization={visualization} />;
     case "research-status":
       return <ResearchStatusBoard visualization={visualization} />;
+    case "sequence":
+      return (
+        <SequenceDiagram
+          visualization={visualization}
+          selectedStep={selectedStep}
+          onSelectStep={onSelectStep ?? ignoreStepSelection}
+        />
+      );
   }
 }

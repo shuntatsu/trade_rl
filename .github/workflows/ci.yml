@@ -121,12 +121,9 @@ jobs:
         working-directory: guide
         run: npm ci
 
-      - name: Diagnose replay code fingerprints
+      - name: Guide source, lint, type, unit and build checks
         working-directory: guide
-        run: |
-          python3 tools/content_contract.py --refresh-code implementation-replay
-          cat content/topics/implementation-replay.json
-          exit 1
+        run: npm run check
 
       - name: Install Chromium
         working-directory: guide

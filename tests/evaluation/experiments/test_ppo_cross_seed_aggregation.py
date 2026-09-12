@@ -14,7 +14,9 @@ LEGACY_SCHEMA = "controlled_evidence_comparison_v1"
 CURRENT_SCHEMA = "controlled_evidence_comparison_v2"
 
 
-def _with_ppo_execution_metrics(run: LoadedCandidateRun, *, seed: int) -> LoadedCandidateRun:
+def _with_ppo_execution_metrics(
+    run: LoadedCandidateRun, *, seed: int
+) -> LoadedCandidateRun:
     summary = deepcopy(run.summary)
     by_symbol = summary.get("by_symbol")
     assert isinstance(by_symbol, list)
@@ -115,14 +117,19 @@ def _legacy_first_seed_oracle(
     candidate: dict[int, LoadedCandidateRun],
 ) -> dict[str, float]:
     first_seed = min(candidate)
-    returns = [_ppo_metric(candidate[first_seed], index, "total_return") for index in range(2)]
+    returns = [
+        _ppo_metric(candidate[first_seed], index, "total_return") for index in range(2)
+    ]
     drawdowns = [
         _ppo_metric(candidate[first_seed], index, "max_drawdown") for index in range(2)
     ]
     turnovers = [
-        _ppo_metric(candidate[first_seed], index, "turnover_total") for index in range(2)
+        _ppo_metric(candidate[first_seed], index, "turnover_total")
+        for index in range(2)
     ]
-    costs = [_ppo_metric(candidate[first_seed], index, "total_cost") for index in range(2)]
+    costs = [
+        _ppo_metric(candidate[first_seed], index, "total_cost") for index in range(2)
+    ]
     return {
         "median_candidate_total_return": float(median(returns)),
         "worst_candidate_max_drawdown": max(drawdowns),
@@ -213,7 +220,10 @@ def test_explicit_legacy_v1_reproduces_first_seed_candidate_metric_semantics() -
 
 def test_unknown_factor_effect_schema_is_rejected() -> None:
     baseline = {0: _run(0), 1: _run(1)}
-    candidate = {0: _run(0, candidate_shift=0.001), 1: _run(1, candidate_shift=0.001)}
+    candidate = {
+        0: _run(0, candidate_shift=0.001),
+        1: _run(1, candidate_shift=0.001),
+    }
 
     with pytest.raises(ArtifactIntegrityError, match="schema"):
         compare_evidence_sets(

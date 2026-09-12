@@ -100,6 +100,8 @@ class FeatureAlignment(StrEnum):
     UNSHIFTED_DECISION_TIME = "unshifted_decision_time"
 
 
+PORTABLE_FEATURE_NUMERICS_SCHEMA = "portable_feature_numerics_v1"
+
 _TIMEFRAME_HOURS = {
     "15m": 0.25,
     "30m": 0.5,
@@ -344,7 +346,7 @@ class MarketBuildConfig:
     calendar_kind: str = "continuous_24_7"
     session_periods_per_year: int | None = None
     cross_asset_reference_symbol: str | None = None
-    schema_version: str = "market_build_v2"
+    schema_version: str = "market_build_v3"
 
     def __post_init__(self) -> None:
         require_non_empty(self.base_timeframe, field="base_timeframe")
@@ -382,6 +384,8 @@ class MarketBuildConfig:
                 "base timeframe features must omit timeframe instead of repeating it"
             )
         require_non_empty(self.schema_version, field="schema_version")
+        if self.schema_version != "market_build_v3":
+            raise ValueError("unsupported market build schema")
 
     @property
     def bar_hours(self) -> float:
@@ -414,6 +418,7 @@ class MarketBuildConfig:
             "cross_asset_reference_symbol": self.cross_asset_reference_symbol,
             "features": tuple(spec.canonical_payload() for spec in self.features),
             "global_feature_names": self.global_feature_names,
+            "feature_numerics_schema": PORTABLE_FEATURE_NUMERICS_SCHEMA,
             "schema_version": self.schema_version,
         }
         if any(spec.timeframe is not None for spec in self.features):

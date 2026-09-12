@@ -11,13 +11,14 @@
     "artifact",
     "replay",
     "evidence",
-    "causal"
+    "causal",
+    "portable numerics"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Data contract",
-      "sha256": "33e6a44389050df8e7d8cba4980733efe33b6a89cf25f066bb1ee39e4a74fe99"
+      "sha256": "d3fb6336c89f4630cd0d99ad85e6ae20fbaf61890b7fb6f104c9b0fbf3d0cba0"
     },
     {
       "path": "docs/architecture/controlled-experiment-loop.md",
@@ -36,6 +37,12 @@
       "title": "未来を混ぜない",
       "body": [
         "feature_available_time <= decision_time を守り、fit cutoffより後の情報がtrainingへ戻らないようにします。"
+      ]
+    },
+    {
+      "title": "同じsourceから同じDataset identityを作る",
+      "body": [
+        "canonical featureはportable_feature_numerics_v1の固定されたscalar/reduction semanticsで計算し、確認済みのAMD/Intel hosted runner間でCPU依存の微小差がDataset identityへ混ざらないようにします。roundingやtoleranceで差を隠す方式ではありません。"
       ]
     }
   ],
@@ -58,7 +65,7 @@
         "id": "build",
         "label": "Build",
         "summary": "causal featuresを構築",
-        "detail": "source同期後はnetwork fallbackを切り、cache-onlyでMarketDatasetを作ります。"
+        "detail": "source同期後はnetwork fallbackを切り、cache-onlyかつportable feature numericsでMarketDatasetを作ります。"
       },
       {
         "id": "artifact",

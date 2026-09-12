@@ -208,17 +208,17 @@ def test_dataset_identity_binds_order_config_and_contracts() -> None:
     assert len(identities) == 4
 
 
-def test_builder_preserves_pre481_identity_without_execution_profile() -> None:
+def test_builder_has_stable_portable_v3_identity_without_execution_profile() -> None:
     dataset = MarketDatasetBuilder(config()).build(_identity_source(), instruments())
 
     assert dataset.dataset_id == (
-        "668129565e4e3b8ede5f4fa472b32008d6d7be5e6f7068a9a9945883208041a0"
+        "de8c017c050089187c5f477f9791e96998624972a5a2f1fbd795b64695bf890e"
     )
     assert dataset.feature_config_digest == (
-        "3729d59af7d2a35a6e58b12c605e8b5ef31a59e543b815e7c875e8bb4de4f3d4"
+        "17557a2fa47f5b5dafc4d2c1b79088469466e2b0bc2e585e4d84258921d2cff2"
     )
     assert dataset.normalization_digest == (
-        "1a49c7408926d85dc457f379f026197c21a1dba095f40693ffb0c71b9c25a8b0"
+        "7cf1d370d5e46e53c5a4b021b7b39ac317ec6f319bd660e236309e1ee3059785"
     )
     assert set(dataset.fee_rate.ravel()) == {0.0}
     assert set(dataset.spread_rate.ravel()) == {0.0}

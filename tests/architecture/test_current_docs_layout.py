@@ -133,7 +133,7 @@ def test_completed_canonical_bootstrap_docs_are_promoted_and_removed() -> None:
     for required in (
         "Canonical M2 bootstrap",
         "bootstrap_canonical_m2_study",
-        "Canonical real-data baselineは実行・独立検証済み",
+        "Portable Canonical real-data baselineは結果前preregistrationからpost-Artifact独立検証まで完了",
         "Controlled Experimentはまだ開始していない",
     ):
         assert required in research
@@ -148,10 +148,10 @@ def test_phase4b_preview_workflow_is_absent() -> None:
     assert not path.exists()
 
 
-def test_only_permanent_workflows_remain() -> None:
+def test_only_permanent_ci_workflow_remains() -> None:
     workflows = ROOT / ".github" / "workflows"
     files = {path.name for path in workflows.iterdir() if path.is_file()}
-    assert files == {"ci.yml", "deploy-guide.yml"}
+    assert files == {"ci.yml"}
 
 
 def test_root_agent_entry_routes_to_docs_contract() -> None:

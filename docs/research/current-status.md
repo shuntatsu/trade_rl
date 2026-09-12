@@ -1,10 +1,10 @@
 # Current research status
 
-更新基準: 2026-09-12 (JST)
+更新基準: 2026-09-13 (JST)
 
 ## 結論
 
-Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、Controlled Experiment Loop v1、Canonical M2 bootstrap toolingを実装し、real-cost-assumption Datasetとfit-scope-safe PPO Observation v2を固定したCanonical real-data baselineは実行・独立検証済み**の段階である。
+Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、Controlled Experiment Loop v1、Canonical M2 bootstrap toolingを実装し、`market_build_v3` / `portable_feature_numerics_v1`、real-cost-assumption Dataset、fit-scope-safe PPO Observation v2を固定したportable Canonical real-data baselineを、結果前のplan-only preregistrationからfresh post-Artifact verificationまで完了した**段階である。
 
 一方、**Controlled Experimentはまだ開始していない**。したがって現在は次を主張しない。
 
@@ -135,19 +135,28 @@ Execution economicsはfeature configurationではなくDataset environment seman
 - bootstrap manifestによるsource / dataset / Study / provenance identity binding
 - `inspect_canonical_m2_bootstrap` によるnetwork-free再検証
 - build-level execution economicsのDataset identity bindingとbootstrap v2 closure
-- real-cost-assumption Datasetを使ったbaseline-only Studyの実行
-- baseline Artifactを別runnerで再取得し、raw Candidate Runsからanalysisまで独立再計算するpost-Artifact verification
+- `market_build_v3` / `portable_feature_numerics_v1` によるCPU-portableなidentity-bound feature numerics
+- persisted `market_build_v2` artifactのhistorical reader互換
+- heterogeneous AMD / Intel hosted runnerでのfull priced Dataset byte identity一致
+- portable Dataset / StudyPlanの結果前plan-only preregistrationと独立再構築
+- real-cost-assumption portable Datasetを使ったbaseline-only Studyの実行
+- baseline Artifactを別runnerで再取得し、Dataset / StudyPlan / EvidenceSet / raw Candidate Runsをpublication indexに依存せず独立再構築・再計算するpost-Artifact verification
 
-現在のcanonical baselineで確認したこと:
+現在のcanonical portable baselineで確認したこと:
 
-- preregisteredな5 PPO seedsが存在する。
-- 5 symbols × 8 strategiesの完全なbaseline evidenceが存在する。
-- tradeが発生した175 observationsすべてで`total_cost > 0`を観測した。
-- cash 25 observationsはzero-trade / zero-cost / zero-returnである。
-- aggregate realized trading costは正である。
-- Dataset / Dataset Artifact / Study / EvidenceSetのidentityはsuperseded zero-cost lineageからすべて変化した。
-- raw returns、summary、execution diagnostics、deterministic seed invariance、within-EvidenceSet analysisをpublished indexに依存せず独立再計算した。
-- Studyはbaseline-onlyのままで、Experiment countは0、未freezeである。
+- build semanticsは `market_build_v3` / `portable_feature_numerics_v1` で、hash-only roundingやtolerance弱体化は使わない。
+- same sealed sourceからのfull priced Dataset identityはheterogeneous AMD / Intel hosted runner間でbyte-identicalに再現した。
+- 結果を見る前のplan-only preregistrationはrun `34702660287`、Artifact ID `10300479733`、outer digest `sha256:60127cc2f24c7e8b3dcb5c6157ca49a5dd2f5b60c44f1020e4d540405e34e1f4` としてbaseline結果より先に封印した。
+- portable Dataset IDは `d7a04ede97a1bb37b811c3e071f325fa007525a6040927e6793d8cc7c10f538f`、Dataset artifact digestは `77362e148c713840dda64e0ef70e663cce6611407eac31fefbb9fccca73ae8f8`、Study digestは `3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79` である。
+- portable baselineはrun `34700123151`、Artifact ID `10301701698`、outer digest `sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a`、EvidenceSet fingerprint `526b485d60b394739b7a8d03535e1cfa08b26fa920119c70ee53f05faa53dd29` である。
+- preregistrationとbaselineは同じDataset artifactと**完全に同一のStudyPlan**へbindされ、preregistrationはplan-only、baselineはbaseline-onlyのままでExperiment countは0、未freezeである。
+- preregisteredな5 PPO seedsと5 symbols × 8 strategiesの完全なbaseline evidenceが存在する。
+- tradeが発生した175 observationsすべてで`total_cost > 0`、cash 25 observationsはzero-trade / zero-cost / zero-return、aggregate realized trading costは正である。
+- fresh post-Artifact verifier run `34704606059` はsealed source、portable preregistration、baseline Artifactを再取得し、Dataset / StudyPlanを独立再構築したうえでraw Candidate Runsからreturn・cost・seed invarianceを再検証した。verifier Artifact IDは `10300932825`、outer digestは `sha256:77c26e8cdeecdc023a750582ec5aebe3870ca84728e580c9e27d1b2e420368a9` である。
+- publication indexは独立再構築後のcross-checkにだけ使い、結果のoracleにはしていない。
+- `research/m2-canonical-study-004` はpre-portable `market_build_v2` numericsで生成されたimmutable historical evidenceとしてhead/treeを維持するが、current canonical inputとしてはportable successorにsupersedeされた。旧Studyを書き換えたり削除したりしない。
+- pre-portable Study 004 Experiment 0001 (#498) はfail-closedし、result Artifactも結果解釈も存在しないため、portable lineage上のControlled Experimentは依然として未開始である。
+- baseline成立はresearch environment / identity / evidence pathの検証であり、profitability、winner、Production readinessを意味しない。
 
 未完了:
 
@@ -157,7 +166,7 @@ Execution economicsはfeature configurationではなくDataset environment seman
 4. 5 candidates + 3 controlsのdevelopment結果を全symbolで完全報告する。
 5. winnerをfreezeするか、no-winnerと判断する。
 
-**Canonical real-data baselineは実行・独立検証済みだが、Controlled Experimentはまだ開始していない。** Baseline成立はresearch environmentとevidence pathの検証であり、profitabilityやwinnerの証拠ではない。
+**Portable Canonical real-data baselineは結果前preregistrationからpost-Artifact独立検証まで完了したが、portable lineage上のControlled Experimentはまだ開始していない。** Baseline成立はresearch environmentとevidence pathの検証であり、profitabilityやwinnerの証拠ではない。
 
 ### M3 — Finalize and delete: not started
 

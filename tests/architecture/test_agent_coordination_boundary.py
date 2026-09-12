@@ -56,6 +56,6 @@ def test_completed_coordination_ephemeral_docs_are_removed() -> None:
         assert not path.exists(), path.relative_to(ROOT)
 
     index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
-    assert "現在Activeなspec / planはない" in index
+    assert "Agent Coordination Plane v1" in index
     for path in completed:
         assert path.name not in index

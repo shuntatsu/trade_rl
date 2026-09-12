@@ -1,8 +1,7 @@
 from pathlib import Path
 
+import guide.tools.code_symbols as code_symbols
 import pytest
-
-from guide.tools.code_symbols import GuideCodeSymbolError, build_symbol_index
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,7 +18,7 @@ def _symbols(index: dict[str, object]) -> dict[str, dict[str, object]]:
 
 
 def test_index_resolves_replay_risk_execution_and_local_names() -> None:
-    index = build_symbol_index(ROOT / "trade_rl", revision="a" * 40)
+    index = code_symbols.build_symbol_index(ROOT / "trade_rl", revision="a" * 40)
     symbols = _symbols(index)
 
     replay = symbols["trade_rl.evaluation.replay.run_single_symbol_replay"]
@@ -50,7 +49,7 @@ def test_index_parses_module_without_executing_it(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    index = build_symbol_index(package, revision="b" * 40)
+    index = code_symbols.build_symbol_index(package, revision="b" * 40)
     symbols = _symbols(index)
 
     assert "trade_rl.danger.safe" in symbols
@@ -72,7 +71,7 @@ def test_nested_scope_names_do_not_leak_into_parent_function(tmp_path: Path) -> 
         encoding="utf-8",
     )
 
-    symbols = _symbols(build_symbol_index(package, revision="c" * 40))
+    symbols = _symbols(code_symbols.build_symbol_index(package, revision="c" * 40))
     outer = symbols["trade_rl.nested.outer"]
 
     assert "result" in outer["local_names"]
@@ -86,5 +85,8 @@ def test_index_rejects_non_commit_revision(tmp_path: Path) -> None:
     package.mkdir()
     (package / "demo.py").write_text("def demo() -> None:\n    pass\n", encoding="utf-8")
 
-    with pytest.raises(GuideCodeSymbolError, match="40-character hexadecimal"):
-        build_symbol_index(package, revision="main")
+    with pytest.raises(
+        code_symbols.GuideCodeSymbolError,
+        match="40-character hexadecimal",
+    ):
+        code_symbols.build_symbol_index(package, revision="main")

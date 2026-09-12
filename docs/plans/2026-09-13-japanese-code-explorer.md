@@ -36,14 +36,26 @@ Status: Active
 - Modify: `guide/src/content/schema.ts`
 
 **Interfaces:**
-- Produces: `layerDirectedGraph(nodeIds: readonly string[], edges: readonly DirectedEdge[]): GraphLayout`
-- Produces: `DirectedEdge = { from: string; to: string }`
+- Produces: `type DirectedEdge = { from: string; to: string }`
+- Produces: `layerDirectedGraph(nodeIds: readonly string[], edges: readonly DirectedEdge[]): { layers: string[][] }`
 - Invariant: rendererは `visualization.edges` に存在しない矢印を生成しない。
 
 - [ ] **Step 1: 現行bugを再現するcomponent testを書く**
 
 ```tsx
-it("renders only declared architecture edges even when node order disagrees", () => {
+function node(id: string) {
+  return {
+    id,
+    label: id,
+    subtitle: `${id} subtitle`,
+    description: `${id} description`,
+    input: `${id} input`,
+    output: `${id} output`,
+    not_owned: `${id} not owned`,
+  };
+}
+
+it("renders only declared architecture edges when node order disagrees", () => {
   const visualization = {
     kind: "architecture" as const,
     nodes: [node("data"), node("integrations"), node("strategies")],
@@ -63,15 +75,13 @@ it("renders only declared architecture edges even when node order disagrees", ()
 
 - [ ] **Step 2: REDを確認する**
 
-Run:
-
 ```bash
-npm --prefix guide run test -- --run guide/tests/architecture-flow.test.tsx
+npm --prefix guide run test -- tests/architecture-flow.test.tsx
 ```
 
-Expected: 現行`ArchitectureFlow`にedge DOMがなく、またnode配列順に接続するためFAIL。
+Expected: 現行`ArchitectureFlow`はedgeをDOMへ反映せず、node配列順で接続するためFAIL。
 
-- [ ] **Step 3: deterministic DAG layoutのunit testを書く**
+- [ ] **Step 3: deterministic DAG layoutのunit testを追加する**
 
 ```ts
 it("layers a directed graph without inventing adjacency", () => {
@@ -85,18 +95,28 @@ it("layers a directed graph without inventing adjacency", () => {
     ).layers,
   ).toEqual([["integrations"], ["data"], ["strategies"]]);
 });
-```
 
-cycleは `directed graph contains a cycle` でfailさせる。
+it("rejects cycles", () => {
+  expect(() =>
+    layerDirectedGraph(
+      ["a", "b"],
+      [
+        { from: "a", to: "b" },
+        { from: "b", to: "a" },
+      ],
+    ),
+  ).toThrow("directed graph contains a cycle");
+});
+```
 
 - [ ] **Step 4: 最小layout helperとedge-driven rendererを実装する**
 
-`graphLayout.ts` はKahn方式でindegreeを計算し、同rank内は元node orderで安定化する。`ArchitectureFlow.tsx` はlayout順にnodeを置き、edgeは `visualization.edges.map(...)` だけから描画する。各edgeへ `data-testid={\`edge-${from}-${to}\`}` を付ける。
+`graphLayout.ts` はKahn方式でindegreeを計算し、同rank内は元node orderで安定化する。`ArchitectureFlow.tsx` はlayout順にnodeを置き、edge DOMは `visualization.edges.map(...)` だけから生成する。各edgeに `data-testid={\`edge-${edge.from}-${edge.to}\`}` を付ける。
 
 - [ ] **Step 5: targeted testsをGREENにする**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/architecture-flow.test.tsx guide/tests/content.test.ts
+npm --prefix guide run test -- tests/architecture-flow.test.tsx tests/content.test.ts
 ```
 
 - [ ] **Step 6: commitする**
@@ -122,7 +142,7 @@ git commit -m "fix: render declared Guide architecture edges"
 - Generated schema: `guide-code-symbols-v1`
 - `CodeSymbol`: `qualified_name`, `kind`, `path`, `start_line`, `end_line`, `signature`, `source_sha256`, `local_names`
 
-- [ ] **Step 1: AST indexのRED testsを書く**
+- [ ] **Step 1: AST indexのRED testを書く**
 
 ```python
 def test_index_resolves_replay_risk_execution_and_local_names() -> None:
@@ -145,9 +165,26 @@ def test_index_resolves_replay_risk_execution_and_local_names() -> None:
     assert execution["kind"] == "method"
 ```
 
-別fixtureでmodule top-levelに `raise RuntimeError("must not execute")` を置き、AST index生成が成功することを確認する。nested functionのlocal nameが親へ漏れないtestも追加する。
+- [ ] **Step 2: production moduleを実行しないoracleを追加する**
 
-- [ ] **Step 2: REDを確認する**
+```python
+def test_index_parses_module_without_executing_it(tmp_path: Path) -> None:
+    package = tmp_path / "trade_rl"
+    package.mkdir()
+    (package / "danger.py").write_text(
+        "raise RuntimeError('must not execute')\n\ndef safe(value: int) -> int:\n    result = value + 1\n    return result\n",
+        encoding="utf-8",
+    )
+
+    index = build_symbol_index(package, revision="b" * 40)
+    symbols = {entry["qualified_name"]: entry for entry in index["symbols"]}
+    assert "trade_rl.danger.safe" in symbols
+    assert symbols["trade_rl.danger.safe"]["local_names"] == ["result", "value"]
+```
+
+nested function/classのlocalが親へ漏れないfixtureもこのfileへ追加する。
+
+- [ ] **Step 3: REDを確認する**
 
 ```bash
 uv run pytest -q tests/architecture/test_human_guide_code_symbols.py
@@ -155,26 +192,24 @@ uv run pytest -q tests/architecture/test_human_guide_code_symbols.py
 
 Expected: `guide.tools.code_symbols` が存在せずFAIL。
 
-- [ ] **Step 3: AST collectorを実装する**
-
-実装規則:
+- [ ] **Step 4: AST collectorを実装する**
 
 ```python
 SCHEMA_VERSION = "guide-code-symbols-v1"
 
 
 def _source_digest(lines: list[str], start: int, end: int) -> str:
-    text = "".join(lines[start - 1 : end]).replace("\r\n", "\n")
+    text = "".join(lines[start - 1 : end]).replace("\r\n", "\n").replace("\r", "\n")
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 ```
 
-`FunctionDef` / `AsyncFunctionDef` / `ClassDef` を走査する。method qualified nameは `module.Class.method`、top-level functionは `module.function`。local name collectorはparametersと同一function scope内の`Store` targetsだけを集め、nested function/class/lambdaへ降りない。
+`FunctionDef` / `AsyncFunctionDef` / `ClassDef` を走査する。method qualified nameは `module.Class.method`、top-level functionは `module.function`。local-name collectorはparametersと同一function scope内の`Store` targetsだけを集め、nested function/class/lambdaへ降りない。
 
-- [ ] **Step 4: revision resolutionとJSON writerを実装する**
+- [ ] **Step 5: revision resolutionとJSON writerを実装する**
 
 priorityは `--revision` → `GUIDE_SOURCE_REV` → `GITHUB_SHA` → `git rev-parse HEAD`。40桁hex以外はfailする。JSONはqualified name順に安定sortし、UTF-8 + `indent=2` + trailing newlineで書く。
 
-- [ ] **Step 5: generated pathをignoreし、npm lifecycleへ接続する**
+- [ ] **Step 6: generated pathをignoreし、npm lifecycleへ接続する**
 
 `.gitignore`へ追加:
 
@@ -192,7 +227,7 @@ guide/.generated/
 "prebuild": "npm run code-index"
 ```
 
-- [ ] **Step 6: GREENとdeterminismを確認する**
+- [ ] **Step 7: GREENとdeterminismを確認する**
 
 ```bash
 uv run pytest -q tests/architecture/test_human_guide_code_symbols.py
@@ -202,10 +237,11 @@ npm --prefix guide run code-index
 diff -u /tmp/code-symbols-a.json guide/.generated/code-symbols.json
 ```
 
-- [ ] **Step 7: generated fileがtracked diffへ出ないことを確認してcommitする**
+- [ ] **Step 8: generated fileがtracked diffへ出ないことを確認してcommitする**
 
 ```bash
 git status --short
+git ls-files guide/.generated
 git add .gitignore guide/package.json guide/tools/code_symbols.py tests/architecture/test_human_guide_code_symbols.py
 git commit -m "feat: index Guide code symbols from Python AST"
 ```
@@ -222,43 +258,104 @@ git commit -m "feat: index Guide code symbols from Python AST"
 - Modify: `guide/tests/content.test.ts`
 
 **Interfaces:**
-- Produces: `CodeReference` with `id`, `symbol`, `kind`, `source_sha256`, `label_ja`, `description_ja`, `variables`, `tests`
+- Produces: `validate_code_reference(root: Path, reference: dict[str, object], symbols: dict[str, dict[str, object]]) -> None`
+- Produces: `refresh_code_references(topic_ids: list[str], root: Path = ROOT) -> None`
 - Produces: `getCodeSymbol(qualifiedName: string): CodeSymbol | undefined`
 - Produces CLI: `python3 guide/tools/content_contract.py --refresh-code <topic-id> [...]`
 
-- [ ] **Step 1: Python contract RED testsを書く**
-
-以下をそれぞれ独立testにする。
+- [ ] **Step 1: missing/wrong-kind/stale/unknown-variableのRED testsを書く**
 
 ```python
-def test_code_reference_rejects_missing_symbol(tmp_path: Path) -> None: ...
-def test_code_reference_rejects_wrong_kind(tmp_path: Path) -> None: ...
-def test_code_reference_rejects_stale_source_digest(tmp_path: Path) -> None: ...
-def test_code_reference_rejects_unknown_local_name(tmp_path: Path) -> None: ...
-def test_code_reference_rejects_missing_or_escaping_test_path(tmp_path: Path) -> None: ...
-def test_refresh_code_updates_only_source_digest(tmp_path: Path) -> None: ...
+def _reference(symbol: str, *, kind: str, digest: str) -> dict[str, object]:
+    return {
+        "id": "ref",
+        "symbol": symbol,
+        "kind": kind,
+        "source_sha256": digest,
+        "label_ja": "参照",
+        "description_ja": "参照説明",
+        "variables": [],
+        "tests": [],
+    }
+
+
+def test_code_reference_rejects_missing_symbol() -> None:
+    symbols = build_symbol_index(ROOT / "trade_rl", revision="a" * 40)["symbols"]
+    by_name = {entry["qualified_name"]: entry for entry in symbols}
+    reference = _reference(
+        "trade_rl.evaluation.replay.missing",
+        kind="function",
+        digest="0" * 64,
+    )
+    with pytest.raises(GuideContractError, match="missing code symbol"):
+        validate_code_reference(ROOT, reference, by_name)
+
+
+def test_code_reference_rejects_wrong_kind_and_unknown_variable() -> None:
+    symbols = build_symbol_index(ROOT / "trade_rl", revision="a" * 40)["symbols"]
+    by_name = {entry["qualified_name"]: entry for entry in symbols}
+    symbol = by_name["trade_rl.evaluation.replay.run_single_symbol_replay"]
+
+    wrong_kind = _reference(symbol["qualified_name"], kind="method", digest=symbol["source_sha256"])
+    with pytest.raises(GuideContractError, match="code symbol kind mismatch"):
+        validate_code_reference(ROOT, wrong_kind, by_name)
+
+    bad_variable = _reference(symbol["qualified_name"], kind="function", digest=symbol["source_sha256"])
+    bad_variable["variables"] = [
+        {"name": "does_not_exist", "label_ja": "存在しない", "description_ja": "検証用"}
+    ]
+    with pytest.raises(GuideContractError, match="unknown code variable"):
+        validate_code_reference(ROOT, bad_variable, by_name)
 ```
 
-`refresh_code` testでは `label_ja` / `description_ja` / `variables` がbyte-for-byte維持され、`source_sha256`だけがcurrent digestへ変わることをassertする。
+stale digestとmissing/escaping test pathも同じpublic validatorへ対して独立assertする。
 
-- [ ] **Step 2: TypeScript parser RED testsを書く**
+- [ ] **Step 2: `--refresh-code` がdigest以外を書き換えないRED testを書く**
 
-`guide/tests/content.test.ts`へ、duplicate `code_references[].id`、unknown sequence `code_ref`、empty `label_ja` をrejectするcaseを追加する。
+```python
+def test_refresh_code_updates_only_digest(tmp_path: Path) -> None:
+    topic = {
+        "id": "demo",
+        "code_references": [
+            {
+                "id": "run",
+                "symbol": "trade_rl.evaluation.replay.run_single_symbol_replay",
+                "kind": "function",
+                "source_sha256": "0" * 64,
+                "label_ja": "単銘柄リプレイ",
+                "description_ja": "一つの銘柄を順番に評価する",
+                "variables": [],
+                "tests": ["tests/evaluation/test_single_symbol_replay.py"],
+            }
+        ],
+    }
+    # test fixture copies current trade_rl/ and this topic under tmp_path before refresh.
+    before = json.loads(json.dumps(topic, ensure_ascii=False))
+    refresh_code_references(["demo"], root=tmp_path)
+    after = json.loads((tmp_path / "guide/content/topics/demo.json").read_text(encoding="utf-8"))
+    assert after["code_references"][0]["label_ja"] == before["code_references"][0]["label_ja"]
+    assert after["code_references"][0]["description_ja"] == before["code_references"][0]["description_ja"]
+    assert after["code_references"][0]["source_sha256"] != "0" * 64
+```
 
-- [ ] **Step 3: REDを確認する**
+fixture setupはtest内で `shutil.copytree(ROOT / "trade_rl", tmp_path / "trade_rl")` とtopic JSON作成を行う。省略helperに依存しない。
+
+- [ ] **Step 3: TypeScript parser RED testsを書く**
+
+`guide/tests/content.test.ts`へduplicate `code_references[].id`、unknown sequence `code_ref`、empty `label_ja` をrejectするcaseを追加する。
+
+- [ ] **Step 4: REDを確認する**
 
 ```bash
 uv run pytest -q tests/architecture/test_human_guide_content_contract.py
-npm --prefix guide run test -- --run guide/tests/content.test.ts
+npm --prefix guide run test -- tests/content.test.ts
 ```
 
-- [ ] **Step 4: `content_contract.py`へAST index validationを追加する**
+- [ ] **Step 5: `content_contract.py`へAST index validationとrefreshを実装する**
 
-`guide.tools.code_symbols.build_symbol_index`をimportし、`check_content()`の一回の走査でindexを構築する。topicごとにCodeReferenceを検証する。`--refresh-code` は明示topic idのみ許可し、unknown idはfailする。
+`check_content()`の一回の走査でindexを構築し、topicごとにCodeReferenceを検証する。通常checkではdigest一致を要求する。`--refresh-code` ではsymbol/kind/variables/test-pathを先に検証し、digestだけcurrent valueへ置換する。
 
-- [ ] **Step 5: `schema.ts`へ型とparse contractを追加する**
-
-追加型:
+- [ ] **Step 6: `schema.ts`へ型とparse contractを追加する**
 
 ```ts
 export type CodeReference = {
@@ -273,22 +370,22 @@ export type CodeReference = {
 };
 ```
 
-`GuideTopic`へ `code_references: CodeReference[]` を追加する。既存topicは移行完了まで空配列を許す。
+`GuideTopic`へ `code_references: CodeReference[]` を追加する。既存topicは移行完了までmissing/emptyを空配列としてparseしてよい。
 
-- [ ] **Step 6: generated index readerを実装する**
+- [ ] **Step 7: generated index readerを実装する**
 
 `codeSymbols.ts` は `../../.generated/code-symbols.json` をparseし、`Map<string, CodeSymbol>`をmodule scopeで一度だけ構築する。lookupはO(1)にする。
 
-- [ ] **Step 7: GREENを確認する**
+- [ ] **Step 8: GREENを確認する**
 
 ```bash
 python3 guide/tools/content_contract.py --check
 uv run pytest -q tests/architecture/test_human_guide_content_contract.py tests/architecture/test_human_guide_code_symbols.py
-npm --prefix guide run test -- --run guide/tests/content.test.ts
+npm --prefix guide run test -- tests/content.test.ts
 npm --prefix guide run typecheck
 ```
 
-- [ ] **Step 8: commitする**
+- [ ] **Step 9: commitする**
 
 ```bash
 git add guide/tools/content_contract.py guide/src/content/schema.ts guide/src/content/codeSymbols.ts guide/tests/content.test.ts tests/architecture/test_human_guide_content_contract.py
@@ -328,17 +425,27 @@ expect(formatHashRoute({ topicId: "code-map", symbol: "trade_rl.evaluation.repla
 
 - [ ] **Step 2: search RED testsを書く**
 
-fixture topicに `希望保有数量 / desired_quantity` を持つCodeReferenceを置き、両queryが同一 `topicId + step` を返すことをassertする。
+`loadTopics()`が返すcode reference移行後fixtureを使い、次をassertする。
+
+```ts
+const japanese = searchGuide(loadTopics(), "希望保有数量");
+const identifier = searchGuide(loadTopics(), "desired_quantity");
+expect(japanese[0]?.topicId).toBe("implementation-replay");
+expect(identifier[0]?.topicId).toBe("implementation-replay");
+expect(japanese[0]?.step).toBe(identifier[0]?.step);
+```
+
+Task 5のtopic追加前はこのtestを `it.todo` にせず、Task 4内では専用minimal `GuideTopic` fixtureを直接構築してRED/GREENにする。Task 5でreal contentを使うintegration assertionへ置換する。
 
 - [ ] **Step 3: REDを確認する**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/routing.test.ts guide/tests/search.test.ts
+npm --prefix guide run test -- tests/routing.test.ts tests/search.test.ts
 ```
 
 - [ ] **Step 4: route parser/formatter/hookを実装する**
 
-query paramは `step` と `symbol` だけを受け入れ、両方来た場合はtopic種別に関係なく `step` を優先して `symbol` を捨てる。decode失敗時はhomeへ戻す。
+query paramは `step` と `symbol` だけを受け入れ、両方来た場合は `step` を優先して `symbol` を捨てる。decode失敗時はhomeへ戻す。
 
 - [ ] **Step 5: searchをtopic/code-ref/variableへ拡張する**
 
@@ -346,12 +453,12 @@ query paramは `step` と `symbol` だけを受け入れ、両方来た場合は
 
 - [ ] **Step 6: SearchPaletteを日本語主見出し + identifier/path副表示へ変更する**
 
-`choose(result)` は `onNavigate({ topicId, step, symbol })` を呼ぶ。dialog `aria-label` も `ガイド検索` へ日本語化する。
+`choose(result)` は `onNavigate({ topicId, step, symbol })` を呼ぶ。dialog `aria-label` は `ガイド検索` へ日本語化する。
 
 - [ ] **Step 7: GREENを確認する**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/routing.test.ts guide/tests/search.test.ts guide/tests/interactions.test.tsx
+npm --prefix guide run test -- tests/routing.test.ts tests/search.test.ts tests/interactions.test.tsx
 ```
 
 - [ ] **Step 8: commitする**
@@ -398,12 +505,12 @@ expect(buildCodeSourceUrl(symbol, "https://github.com/shuntatsu/trade_rl"))
 - [ ] **Step 3: REDを確認する**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/sequence-diagram.test.tsx guide/tests/interactions.test.tsx
+npm --prefix guide run test -- tests/sequence-diagram.test.tsx tests/interactions.test.tsx
 ```
 
 - [ ] **Step 4: reviewed replay contentを書く**
 
-CodeReference idは最低限次を持つ。
+CodeReference id:
 
 ```text
 replay-run -> trade_rl.evaluation.replay.run_single_symbol_replay
@@ -412,7 +519,9 @@ risk-constrain -> trade_rl.risk.pretrade.PreTradeRisk.constrain
 execute-interval -> trade_rl.simulation.execution.MarketExecutor.execute_interval
 ```
 
-`replay-run` のvariablesには `desired_quantity`, `proposal_weight`, `target_weight`, `book`, `current_intent`, `index` を日本語alias付きで登録する。test pathは `tests/evaluation/test_single_symbol_replay.py`、`tests/risk/test_pretrade.py`、`tests/simulation/test_execution_v2.py` 等、実際に該当contractを検証するfileだけを付ける。
+`replay-run` のvariablesには `desired_quantity`, `proposal_weight`, `target_weight`, `book`, `current_intent`, `index` を日本語alias付きで登録する。test pathは `tests/evaluation/test_single_symbol_replay.py`、`tests/risk/test_pretrade.py`、`tests/simulation/test_execution_v2.py` の該当contractへ限定する。
+
+CodeReference作成時の `source_sha256` は64桁zeroで一時作成し、同じ未commit変更内で次stepのexplicit refreshを必ず実行してcurrent digestへ置換する。zero digestのままcommitしない。
 
 - [ ] **Step 5: code digestを明示refreshする**
 
@@ -423,7 +532,7 @@ python3 guide/tools/content_contract.py --check
 
 - [ ] **Step 6: SequenceDiagramを実装する**
 
-Desktopはactor header + ordered message rows。messageはnative `<button>` とし、`aria-current="step"` を選択messageだけに付ける。Mobileは同じordered dataからstep-throughを表示し、「前へ」「次へ」で全messageへ到達可能にする。
+Desktopはactor header + ordered message rows。messageはnative `<button>` とし、選択messageだけ `aria-current="step"` を持つ。Mobileは同じordered dataからstep-throughを表示し、「前へ」「次へ」で全messageへ到達可能にする。
 
 - [ ] **Step 7: CodeInspectorとexact source linkを実装する**
 
@@ -433,17 +542,21 @@ Desktopはactor header + ordered message rows。messageはnative `<button>` と�
 
 `#implementation-replay?step=risk-constrain` 直アクセスで同じmessage/inspectorが選択される。unknown stepはfirst messageへfallbackする。
 
-- [ ] **Step 9: targeted GREENを確認する**
+- [ ] **Step 9: real content検索integration assertionへ置換する**
+
+Task 4のminimal search fixtureを残さず、`loadTopics()`を使って `希望保有数量` と `desired_quantity` が同じ `implementation-replay` stepへ到達するtestへ置換する。
+
+- [ ] **Step 10: targeted GREENを確認する**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/sequence-diagram.test.tsx guide/tests/interactions.test.tsx guide/tests/routing.test.ts
+npm --prefix guide run test -- tests/sequence-diagram.test.tsx tests/interactions.test.tsx tests/routing.test.ts tests/search.test.ts
 npm --prefix guide run typecheck
 ```
 
-- [ ] **Step 10: commitする**
+- [ ] **Step 11: commitする**
 
 ```bash
-git add guide/content/manifest.json guide/content/topics/implementation-replay.json guide/src/visualizations/SequenceDiagram.tsx guide/src/components/CodeInspector.tsx guide/src/content/sourceLinks.ts guide/src/content/schema.ts guide/src/visualizations/VisualizationRenderer.tsx guide/src/app/App.tsx guide/src/styles/app.css guide/tests/sequence-diagram.test.tsx guide/tests/interactions.test.tsx
+git add guide/content/manifest.json guide/content/topics/implementation-replay.json guide/src/visualizations/SequenceDiagram.tsx guide/src/components/CodeInspector.tsx guide/src/content/sourceLinks.ts guide/src/content/schema.ts guide/src/visualizations/VisualizationRenderer.tsx guide/src/app/App.tsx guide/src/styles/app.css guide/tests/sequence-diagram.test.tsx guide/tests/interactions.test.tsx guide/tests/search.test.ts
 git commit -m "feat: explain replay implementation with code-linked sequence"
 ```
 
@@ -468,12 +581,12 @@ git commit -m "feat: explain replay implementation with code-linked sequence"
 
 - [ ] **Step 1: PPO sequence content testをREDで追加する**
 
-5 observation segmentの日本語label、`PPOTradingEnv.step` のrisk/execution/reward順、`fit_ppo_strategy` の `model.learn` 後にfitted strategyが返る説明をassertする。
+5 observation segmentの日本語label、`PPOTradingEnv.step` のrisk→execution→reward順、`fit_ppo_strategy` の学習後にfitted strategyが返る説明をassertする。
 
 - [ ] **Step 2: REDを確認する**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/ppo-sequence.test.tsx
+npm --prefix guide run test -- tests/ppo-sequence.test.tsx
 ```
 
 - [ ] **Step 3: current sourceを根拠にreviewed contentを書く**
@@ -490,9 +603,11 @@ Observation segment:
 
 除外欄にはsymbol IDとdataset-global featureを明示する。
 
-`PPOTradingEnv.step` のvariablesには `desired_quantity`, `proposal_weight`, `target_weight`, `reward`, `index` を登録する。
+`PPOTradingEnv.step` のCodeReference variablesは同methodのlocalとしてAST検証できる `symbol_index`, `intent`, `proposal_weight`, `target_weight`, `reward` に限定する。`self.desired_quantity`, `self.index`, `self.book` は `state_changes_ja` と説明文で状態更新として表示し、local-name contractへ偽装しない。
 
 - [ ] **Step 4: code/docs fingerprintをrefreshする**
+
+CodeReferenceは64桁zero digestで未commit作成し、次を同じ変更内で実行する。
 
 ```bash
 python3 guide/tools/content_contract.py --refresh-code implementation-ppo
@@ -500,14 +615,14 @@ python3 guide/tools/content_contract.py --refresh implementation-ppo
 python3 guide/tools/content_contract.py --check
 ```
 
-- [ ] **Step 5: existing sequence rendererで表示し、追加分岐を作らない**
+- [ ] **Step 5: existing sequence rendererで表示する**
 
-PPO専用rendererは作らず、content modelで表現する。Observation 5segmentだけはmessage detail内のordered listとして出す。
+PPO専用rendererは作らない。Observation 5segmentはmessage detail内のordered listで表現する。
 
 - [ ] **Step 6: GREENを確認する**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/ppo-sequence.test.tsx guide/tests/content.test.ts
+npm --prefix guide run test -- tests/ppo-sequence.test.tsx tests/content.test.ts
 npm --prefix guide run typecheck
 ```
 
@@ -543,18 +658,16 @@ unknown node、unknown relation、cycleをrejectする。renderer testは `integ
 - [ ] **Step 2: REDを確認する**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/code-map.test.tsx
+npm --prefix guide run test -- tests/code-map.test.tsx
 ```
 
 - [ ] **Step 3: top-level reviewed modelを書く**
 
-nodeは `artifacts`, `integrations`, `data`, `strategies`, `risk`, `simulation`, `evaluation`。edge labelは「市場sourceを内部契約へ変換」「観測から売買意図を生成」「hard riskを適用」「約定・会計を実行」「結果を評価Evidenceへ変換」等、日本語で何が渡るかを書く。
+nodeは `artifacts`, `integrations`, `data`, `strategies`, `risk`, `simulation`, `evaluation`。edge labelは「市場sourceを内部契約へ変換」「観測から売買意図を生成」「hard riskを適用」「約定・会計を実行」「結果を評価Evidenceへ変換」等、日本語で何が渡るかを書く。このviewを「import依存図」と記述しない。
 
-このviewを「import依存図」と記述しない。
+- [ ] **Step 4: 主要owner symbolをCodeReferenceへbindする**
 
-- [ ] **Step 4: packageごとの主要owner symbolをCodeReferenceへbindする**
-
-最低限 `MarketDataset`, `SingleSymbolStrategy`, `PreTradeRisk`, `MarketExecutor`, `run_single_symbol_replay` へdrill-downできるようにする。
+最低限 `MarketDataset`, `SingleSymbolStrategy`, `PreTradeRisk`, `MarketExecutor`, `run_single_symbol_replay` へdrill-downできるようにする。64桁zero digestで未commit作成し、次stepでrefreshする。
 
 - [ ] **Step 5: fingerprintをrefreshする**
 
@@ -571,7 +684,7 @@ Desktopはlayered overview、mobileは選択nodeのincoming/outgoing neighborhoo
 - [ ] **Step 7: GREENを確認する**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/code-map.test.tsx guide/tests/content.test.ts
+npm --prefix guide run test -- tests/code-map.test.tsx tests/content.test.ts
 npm --prefix guide run typecheck
 ```
 
@@ -599,15 +712,7 @@ git commit -m "feat: add code-linked responsibility map"
 - Modify: `guide/tests/search.test.ts`
 
 **Interfaces:**
-- Final topic order:
-  1. `overview`
-  2. `implementation-replay`
-  3. `implementation-ppo`
-  4. `code-map`
-  5. `data-flow`
-  6. `execution-economics`
-  7. `experiment-loop`
-  8. `research-status`
+- Final topic order: `overview`, `implementation-replay`, `implementation-ppo`, `code-map`, `data-flow`, `execution-economics`, `experiment-loop`, `research-status`
 
 - [ ] **Step 1: final manifest expectationを先にREDへ変更する**
 
@@ -627,12 +732,12 @@ expect(topics.map((topic) => topic.id)).toEqual([
 - [ ] **Step 2: REDを確認する**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/content.test.ts
+npm --prefix guide run test -- tests/content.test.ts
 ```
 
 - [ ] **Step 3: copyを日本語主表示へ改稿する**
 
-原則:
+最初の出現では日本語意味を先に置く。
 
 ```text
 Point-in-time evidence -> その時点で利用可能だった市場証拠（point-in-time evidence）
@@ -642,29 +747,27 @@ EvidenceSet -> 比較用の検証証拠（EvidenceSet）
 portable numerics -> CPU差を抑えた再現可能数値計算（portable numerics）
 ```
 
-最初の出現で日本語意味を示し、以後必要のない英語反復を減らす。
+以後、照合に不要な英語反復を減らす。
 
 - [ ] **Step 4: #513後のresearch-state factを保持する**
 
 `research-status.json` の「portable Experiment 0001の結果前preregistrationとfresh verifierを完了し、bound runを開始」等、current main由来の状態を削除・巻き戻さない。
 
-- [ ] **Step 5: 廃止topicを削除しmanifestを更新する**
+- [ ] **Step 5: 廃止topicを統合後に削除しmanifestを更新する**
 
-`architecture` の責務説明は `code-map`、`ppo-observation-v2` は `implementation-ppo` へ統合してから削除する。
+`architecture` の責務説明は `code-map`、`ppo-observation-v2` は `implementation-ppo` へ移したことをdiffで確認してから削除する。
 
-- [ ] **Step 6: 影響topicのMarkdown fingerprintだけを明示refreshする**
+- [ ] **Step 6: 影響topicのMarkdown fingerprintを明示refreshする**
 
 ```bash
 python3 guide/tools/content_contract.py --refresh overview data-flow execution-economics experiment-loop research-status
 python3 guide/tools/content_contract.py --check
 ```
 
-正本sectionが変わっていないtopicも、content source bindingが既存digestと一致するなら無意味なdigest変更は発生しないことをdiffで確認する。
-
 - [ ] **Step 7: content/search testsをGREENにする**
 
 ```bash
-npm --prefix guide run test -- --run guide/tests/content.test.ts guide/tests/search.test.ts
+npm --prefix guide run test -- tests/content.test.ts tests/search.test.ts
 ```
 
 - [ ] **Step 8: commitする**
@@ -695,9 +798,9 @@ git commit -m "docs: make the Human Guide Japanese-first"
 
 `tests/architecture/test_guide_pages_deployment.py` でdeploy workflowのBuild Guide stepに `GUIDE_SOURCE_REV: ${{ github.event.workflow_run.head_sha }}` が存在することをassertする。
 
-- [ ] **Step 2: E2Eを新workflowへ更新しREDを確認する**
+- [ ] **Step 2: browser workflowを新UIへ変更してREDを確認する**
 
-`guide.spec.ts` の主経路を次へ変更する。
+`guide.spec.ts` の主経路:
 
 ```text
 /#overview
@@ -718,14 +821,14 @@ npm --prefix guide run e2e -- --grep "replay|mobile|source"
 
 - [ ] **Step 4: CI/deploy workflowへexact revision envを追加する**
 
-CI:
+CI Human Guide step:
 
 ```yaml
 env:
   GUIDE_SOURCE_REV: ${{ github.event.pull_request.head.sha || github.sha }}
 ```
 
-Deploy Build Guide:
+Deploy Build Guide step:
 
 ```yaml
 env:
@@ -772,18 +875,18 @@ git commit -m "test: bind Guide UX and source links to exact revisions"
 - Delete after durable promotion: `docs/plans/2026-09-13-japanese-code-explorer.md`
 
 **Interfaces:**
-- Durable docs define Japanese-first copy rule, `--refresh-code`, generated index, exact-revision link contract, sequence/code-map ownership, and cleanup rule.
+- Durable docs define Japanese-first copy rule, `--refresh-code`, generated index, exact-revision source-link contract, sequence/code-map ownership, and cleanup rule.
 
 - [ ] **Step 1: durable contract testを先に更新してREDを確認する**
 
-`tests/architecture/test_human_guide.py` でREADMEに以下markerが存在することをassertする。
+`tests/architecture/test_human_guide.py` で `guide/README.md` に次の具体的contractが存在することをassertする。
 
 ```text
-Japanese-first
+日本語を主表示し実identifierを副表示する
 --refresh-code
-.guide generated code symbol indexの非tracked性
-exact revision source link
-sequence / code-map relationship is reviewed content, not inferred call graph
+code symbol indexはguide/.generatedへ生成しcommitしない
+source linkはbuildしたexact revisionへ固定する
+sequence/code-map relationshipはreview済みcontentであり自動call graphではない
 ```
 
 Run:
@@ -794,7 +897,7 @@ uv run pytest -q tests/architecture/test_human_guide.py tests/architecture/test_
 
 - [ ] **Step 2: `guide/README.md` と `docs/AGENTS.md` を更新する**
 
-maintenance手順を次の順で固定する。
+maintenance手順:
 
 ```bash
 python3 guide/tools/content_contract.py --check
@@ -818,7 +921,8 @@ uv run pytest -q tests/architecture/test_human_guide.py tests/architecture/test_
 - [ ] **Step 4: runtime非変更とgenerated漏れを反証する**
 
 ```bash
-git diff --name-only main...HEAD
+git fetch origin main
+git diff --name-only origin/main...HEAD
 git status --short
 git ls-files guide/.generated
 ```
@@ -829,14 +933,13 @@ Expected:
 - `guide/.generated` tracked fileは0件。
 - debug/temporary outputは0件。
 
-- [ ] **Step 5: final mainを取り込む**
+- [ ] **Step 5: final mainをnon-forceで取り込む**
 
 ```bash
-git fetch origin main
 git merge --no-ff origin/main
 ```
 
-conflictがあればcurrent mainのresearch statusをauthorityとしてGuide copyを再照合する。force push/rebase history rewriteは使わない。
+conflictがあればcurrent mainのresearch statusをauthorityとしてGuide copyを再照合する。force push/history rewriteは使わない。
 
 - [ ] **Step 6: final current-main包含を確認する**
 
@@ -857,7 +960,7 @@ npm --prefix guide run check
 npm --prefix guide run e2e
 ```
 
-- [ ] **Step 8: final diffを自己レビューする**
+- [ ] **Step 8: final diffを自己レビュー・反証する**
 
 確認対象:
 
@@ -875,7 +978,17 @@ research status unchanged
 no generated/debug/temp files
 ```
 
-誤実装を通すテストがないか、特に「edgeを配列順へ戻してもtestsが通る」「unknown variableでもsource-checkが通る」「source linkがmainへ戻ってもE2Eが通る」を反証し、不十分ならtestを追加して修正する。
+さらに以下の誤実装を意図的に想定し、現在のtestsが落とせることを確認する。
+
+```text
+edge描画をnode配列順へ戻す
+CodeReference variableを存在しない名前へ変える
+source_sha256を1文字変える
+source linkのrevisionをmainへ固定する
+unknown hash selectionを渡す
+```
+
+落とせないcaseがあればtestを追加してから進む。
 
 - [ ] **Step 9: durable docsへ昇格後、Active spec/planを削除する**
 
@@ -905,7 +1018,7 @@ git status --short
 git rev-parse HEAD
 ```
 
-PR bodyには、RED証拠、主要GREEN gate、runtime diff 0、current main包含、未検証事項を記載する。mergeはユーザーの明示許可なしに行わない。
+PR bodyにはRED証拠、主要GREEN gate、runtime diff 0、current main包含、未検証事項を記載する。mergeはユーザーの明示許可なしに行わない。
 
 - [ ] **Step 12: exact final PR HEADのCIだけを有効な統合証拠として確認する**
 

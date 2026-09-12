@@ -40,3 +40,24 @@ def test_human_guide_generated_outputs_are_ignored() -> None:
         "guide/test-results/",
     ):
         assert path in ignored
+
+
+def test_human_guide_has_permanent_repository_routing_contract() -> None:
+    root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    docs_readme = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    docs_agents = (ROOT / "docs" / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "guide/README.md" in root_readme
+    assert "non-authoritative" in root_readme
+
+    assert "guide/README.md" in docs_readme
+    assert "非正本" in docs_readme
+
+    assert "guide/content/topics" in docs_agents
+    assert "content_contract.py --check" in docs_agents
+    assert "非正本" in docs_agents
+
+
+def test_completed_human_guide_design_artifacts_are_removed() -> None:
+    assert not (ROOT / "docs/specs/2026-09-12-interactive-human-guide-v1.md").exists()
+    assert not (ROOT / "docs/plans/2026-09-12-interactive-human-guide-v1.md").exists()

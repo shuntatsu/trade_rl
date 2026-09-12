@@ -6,11 +6,25 @@ import argparse
 import json
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
 
+from tools.agent_repo.coordination.dashboard import render_dashboard
+from tools.agent_repo.coordination.github_state import (
+    parse_status_comment,
+    render_status_comment,
+)
+from tools.agent_repo.coordination.scheduler import ready_tasks
+from tools.agent_repo.coordination.serde import (
+    dashboard_snapshot_from_payload,
+    packet_sequence,
+    status_mapping,
+    string_set,
+    task_packet_from_payload,
+    task_status_record_from_payload,
+)
 from tools.agent_repo.eval_suite import (
     DEFAULT_SUITE,
     EvalTask,
@@ -52,6 +66,12 @@ def _parser() -> argparse.ArgumentParser:
     eval_score = subparsers.add_parser("eval-score")
     eval_score.add_argument("task_id")
     eval_score.add_argument("score_json")
+
+    task = subparsers.add_parser("task")
+    task_commands = task.add_subparsers(dest="task_command", required=True)
+    for name in ("digest", "ready", "status-render", "status-parse", "dashboard"):
+        task_command = task_commands.add_parser(name)
+        task_command.add_argument("input")
     return parser
 
 
@@ -83,6 +103,101 @@ def _score_input(path: Path) -> dict[str, tuple[int, str]]:
             raise ValueError("eval score evidence must be a string")
         result[dimension] = (score, evidence)
     return result
+
+
+def _input_path(repository: Path, raw: object) -> Path:
+    path = Path(str(raw))
+    return path if path.is_absolute() else repository / path
+
+
+def _json_input(repository: Path, raw: object) -> object:
+    path = _input_path(repository, raw)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("task input must be valid JSON") from error
+
+
+def _mapping(value: object, *, field_name: str) -> Mapping[str, object]:
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+        raise ValueError(f"{field_name} must be a JSON object")
+    return value
+
+
+def _exact_fields(
+    payload: Mapping[str, object],
+    expected: set[str],
+    *,
+    field_name: str,
+) -> None:
+    unknown = set(payload) - expected
+    if unknown:
+        raise ValueError(f"unknown field in {field_name}: {sorted(unknown)[0]}")
+    missing = expected - set(payload)
+    if missing:
+        raise ValueError(f"missing field in {field_name}: {sorted(missing)[0]}")
+
+
+def _dispatch_task(args: argparse.Namespace, repository: Path) -> object:
+    task_command = str(args.task_command)
+    path = _input_path(repository, args.input)
+    if task_command == "status-parse":
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            raise ValueError("task status input must be valid UTF-8 text") from error
+        return parse_status_comment(text).canonical_payload()
+
+    decoded = _json_input(repository, args.input)
+    if task_command == "digest":
+        packet = task_packet_from_payload(decoded)
+        return {
+            "task_id": packet.task_id,
+            "contract_digest": packet.contract_digest(),
+        }
+    if task_command == "status-render":
+        record = task_status_record_from_payload(decoded)
+        return {"comment": render_status_comment(record)}
+    if task_command == "ready":
+        payload = _mapping(decoded, field_name="task ready input")
+        _exact_fields(
+            payload,
+            {"packets", "statuses", "leased_task_ids", "evidence_task_ids"},
+            field_name="task ready input",
+        )
+        packets = packet_sequence(payload["packets"])
+        statuses = status_mapping(payload["statuses"])
+        return {
+            "ready_task_ids": list(
+                ready_tasks(
+                    packets,
+                    statuses,
+                    leased_task_ids=string_set(
+                        payload["leased_task_ids"], field_name="leased_task_ids"
+                    ),
+                    evidence_task_ids=string_set(
+                        payload["evidence_task_ids"], field_name="evidence_task_ids"
+                    ),
+                )
+            )
+        }
+    if task_command == "dashboard":
+        payload = _mapping(decoded, field_name="dashboard input")
+        _exact_fields(
+            payload,
+            {"parent_title", "main_sha", "tasks"},
+            field_name="dashboard input",
+        )
+        parent_title = payload["parent_title"]
+        main_sha = payload["main_sha"]
+        tasks = payload["tasks"]
+        if not isinstance(parent_title, str) or not isinstance(main_sha, str):
+            raise ValueError("dashboard parent_title and main_sha must be strings")
+        if not isinstance(tasks, list):
+            raise ValueError("dashboard tasks must be a JSON array")
+        snapshots = tuple(dashboard_snapshot_from_payload(item) for item in tasks)
+        return {"dashboard": render_dashboard(parent_title, main_sha, snapshots)}
+    raise ValueError(f"unsupported task command: {task_command}")
 
 
 def _dispatch(args: argparse.Namespace, repository: Path) -> object:
@@ -122,6 +237,8 @@ def _dispatch(args: argparse.Namespace, repository: Path) -> object:
             scores=cast(dict[str, tuple[int, str]], _score_input(score_path)),
         )
         return asdict(result)
+    if command == "task":
+        return _dispatch_task(args, repository)
 
     index = SourceIndex.build(repository)
     if command == "context":

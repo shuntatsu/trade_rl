@@ -509,6 +509,7 @@ def bootstrap_canonical_m2_study(
             transport=frozen.composite_transport,
             feature_timeframes=config.feature_timeframes,
             metadata_evidence=frozen.metadata_evidence,
+            execution_economics=config.execution_economics,
         )
         sources = frozenset(build.sources_used)
         if not sources or not sources.issubset(_ALLOWED_DATA_SOURCES):

@@ -1,0 +1,71 @@
+name: Temporary market build JSON authority patch
+
+on:
+  push:
+    branches:
+      - refactor/market-build-json-authority
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: refactor/market-build-json-authority
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+        with:
+          version: "0.8.22"
+      - name: Apply guarded authority patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          python - <<'PY'
+          from pathlib import Path
+
+          contracts = Path("trade_rl/data/contracts.py")
+          text = contracts.read_text(encoding="utf-8")
+          old = "from enum import Enum, StrEnum\n\nimport numpy as np\n"
+          new = "from enum import Enum, StrEnum\nfrom typing import ClassVar\n\nimport numpy as np\n"
+          if text.count(old) != 1:
+              raise SystemExit("contracts import guard mismatch")
+          text = text.replace(old, new)
+          old = '''class MarketBuildConfig:\n    """Complete deterministic configuration for one market dataset build."""\n\n    base_timeframe: str\n'''
+          new = '''class MarketBuildConfig:\n    """Complete deterministic configuration for one market dataset build."""\n\n    JSON_FIELDS: ClassVar[tuple[str, ...]] = (\n        "base_timeframe",\n        "features",\n        "calendar_kind",\n        "session_periods_per_year",\n        "cross_asset_reference_symbol",\n    )\n\n    base_timeframe: str\n'''
+          if text.count(old) != 1:
+              raise SystemExit("MarketBuildConfig guard mismatch")
+          contracts.write_text(text.replace(old, new), encoding="utf-8")
+
+          config = Path("trade_rl/data/build/config.py")
+          text = config.read_text(encoding="utf-8")
+          old = "from pathlib import Path\n\nfrom trade_rl.data.contracts import (\n"
+          new = "from pathlib import Path\nfrom typing import ClassVar\n\nfrom trade_rl.data.contracts import (\n"
+          if text.count(old) != 1:
+              raise SystemExit("build config import guard mismatch")
+          text = text.replace(old, new)
+          old = '''class MarketDatasetBuildRequest:\n    source_root: Path\n    config: MarketBuildConfig\n    instruments: tuple[InstrumentContract, ...]\n'''
+          new = '''class MarketDatasetBuildRequest:\n    JSON_FIELDS: ClassVar[tuple[str, ...]] = (\n        "source_root",\n        *MarketBuildConfig.JSON_FIELDS,\n        "instruments",\n    )\n\n    source_root: Path\n    config: MarketBuildConfig\n    instruments: tuple[InstrumentContract, ...]\n'''
+          if text.count(old) != 1:
+              raise SystemExit("MarketDatasetBuildRequest guard mismatch")
+          text = text.replace(old, new)
+          old = '''    _reject_unknown(\n        root,\n        allowed={\n            "source_root",\n            "base_timeframe",\n            "calendar_kind",\n            "session_periods_per_year",\n            "cross_asset_reference_symbol",\n            "features",\n            "instruments",\n        },\n        field="market build config",\n    )\n'''
+          new = '''    _reject_unknown(\n        root,\n        allowed=set(MarketDatasetBuildRequest.JSON_FIELDS),\n        field="market build config",\n    )\n'''
+          if text.count(old) != 1:
+              raise SystemExit("root allowlist guard mismatch")
+          config.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+          uv run ruff format trade_rl/data/contracts.py trade_rl/data/build/config.py tests/architecture/test_market_build_json_authority.py
+          uv run ruff check trade_rl/data/contracts.py trade_rl/data/build/config.py tests/architecture/test_market_build_json_authority.py
+          uv run pytest -q tests/architecture/test_market_build_json_authority.py tests/data/test_market_build_config_session.py
+          rm .github/workflows/tmp-market-build-json-authority.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "refactor: centralize market build JSON authority"
+          git push origin HEAD:refactor/market-build-json-authority

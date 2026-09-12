@@ -133,7 +133,8 @@ def test_completed_canonical_bootstrap_docs_are_promoted_and_removed() -> None:
     for required in (
         "Canonical M2 bootstrap",
         "bootstrap_canonical_m2_study",
-        "real-data M2 Studyはまだ実行していない",
+        "Canonical real-data baselineは実行・独立検証済み",
+        "Controlled Experimentはまだ開始していない",
     ):
         assert required in research
 
@@ -227,7 +228,7 @@ def test_current_docs_preserve_core_and_research_contracts() -> None:
         "constant_short",
         "fit_symbol_names",
         "no winner",
-        "real-data development comparison not run",
+        "Controlled Experimentはまだ開始していない",
         "python -m trade_rl.evaluation.runs.candidate",
         "fee adverse",
         "spread adverse",

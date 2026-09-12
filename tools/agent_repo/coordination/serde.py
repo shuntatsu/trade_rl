@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 from tools.agent_repo.coordination.dashboard import DashboardSnapshot
 from tools.agent_repo.coordination.github_state import TaskStatusRecord
@@ -255,10 +255,7 @@ def string_set(value: object, *, field_name: str) -> frozenset[str]:
 
 def status_mapping(value: object) -> dict[str, TaskStatus]:
     payload = _mapping(value, field_name="statuses")
-    return {
-        key: task_status_from_payload(item)
-        for key, item in sorted(payload.items())
-    }
+    return {key: task_status_from_payload(item) for key, item in sorted(payload.items())}
 
 
 __all__ = [

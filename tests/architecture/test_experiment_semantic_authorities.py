@@ -111,6 +111,9 @@ def test_study_plan_owns_fixed_resolved_field_roster() -> None:
         "evaluation_stop_exclusive",
         "initial_capital",
         "execution_overlay",
+        "schema_version",
+        "ppo_observation_schema",
+        "ppo_global_feature_names",
     )
 
     for name in ("evidence.py", "workflow.py", "delta.py"):

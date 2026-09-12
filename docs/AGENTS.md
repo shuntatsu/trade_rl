@@ -113,6 +113,7 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 | 候補strategy/control、fit scope、evaluation scope | `research/current-status.md`, candidate/strategy tests |
 | M1/M2/M3状態、development/final/stress手順 | `research/current-status.md` |
 | Guideがbindする正本section | 対応する `guide/content/topics/*.json`, `guide/tools/content_contract.py --check` |
+| Guide Pages deployment / public URL | `.github/workflows/deploy-guide.yml`, `guide/README.md`, Pages state read-back |
 | docsの入口・保持ルール | `docs/README.md`, `docs/AGENTS.md`, root `AGENTS.md` |
 | license/provenance/third party | `LICENSE`, `LICENSES/`, package metadata。通常cleanupとは分離する |
 

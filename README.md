@@ -6,7 +6,8 @@ Trade RL is a lean research system for testing one symbol-agnostic long/short st
 
 Start from:
 
-- `guide/README.md` — human-facing Interactive Guide (non-authoritative; technical/research truth remains under `docs/`)
+- [Interactive Guide](https://shuntatsu.github.io/trade_rl/) — published human-facing Guide (non-authoritative; technical/research truth remains under `docs/`)
+- `guide/README.md` — Interactive Guide development and deployment maintenance
 - `docs/README.md` — current documentation index
 - `docs/architecture/lean-core.md` — causal data, strategy/risk, execution/accounting, artifact invariants
 - `docs/architecture/package-boundaries.md` — current package ownership and dependency direction

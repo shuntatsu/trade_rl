@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from importlib import import_module
 from importlib.util import find_spec
 from pathlib import Path
@@ -69,6 +71,18 @@ def test_recovery_helper_cannot_reexecute_candidate() -> None:
     assert "run_experiment(" not in source
     assert "execute_evidence_set(" not in source
     assert "compare_experiment(" not in source
+
+
+def test_recovery_helper_runs_as_direct_script() -> None:
+    module = _module()
+    completed = subprocess.run(
+        [sys.executable, str(Path(module.__file__)), "--help"],
+        cwd=Path(module.__file__).resolve().parents[1],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_postverify_mapping_helper_accepts_mappingproxy() -> None:

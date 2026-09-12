@@ -165,7 +165,9 @@ def test_ppo_cross_symbol_candidate_metrics_use_equal_symbol_two_stage_seed_aggr
         assert summary[field] == value
 
 
-def test_ppo_cross_symbol_aggregation_is_invariant_to_seed_mapping_insertion_order() -> None:
+def test_ppo_cross_symbol_aggregation_is_invariant_to_seed_mapping_insertion_order() -> (
+    None
+):
     seeds = (0, 1, 2, 3)
     baseline = {seed: _run(seed) for seed in seeds}
     candidate = {

@@ -183,9 +183,7 @@ class TaskPacket:
             self,
             "dependencies",
             tuple(
-                value
-                if isinstance(value, TaskDependency)
-                else TaskDependency(**value)  # type: ignore[arg-type]
+                value if isinstance(value, TaskDependency) else TaskDependency(**value)  # type: ignore[arg-type]
                 for value in self.dependencies
             ),
         )

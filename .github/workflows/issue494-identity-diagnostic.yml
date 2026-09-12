@@ -1,0 +1,66 @@
+name: Issue 494 portable identity diagnostic
+
+on:
+  push:
+    branches:
+      - fix/portable-feature-numerics
+    paths:
+      - .github/workflows/issue494-identity-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install dev environment
+        run: uv sync --extra dev
+      - name: Print fixed fixture identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import numpy as np
+
+          from tests.data.test_market_builder import _identity_source, config, instruments
+          from trade_rl.artifacts.canonical import canonical_json_bytes
+          from trade_rl.data.build.builder import MarketDatasetBuilder
+
+          dataset = MarketDatasetBuilder(config()).build(_identity_source(), instruments())
+          payload = config().canonical_payload()
+          independent_feature_config_digest = hashlib.sha256(
+              canonical_json_bytes(payload)
+          ).hexdigest()
+          if independent_feature_config_digest != dataset.feature_config_digest:
+              raise RuntimeError("feature config digest does not match canonical payload")
+
+          def sha(array):
+              value = np.ascontiguousarray(array)
+              h = hashlib.sha256()
+              h.update(value.dtype.str.encode("ascii"))
+              h.update(json.dumps(value.shape).encode("ascii"))
+              h.update(value.tobytes(order="C"))
+              return h.hexdigest()
+
+          print("PORTABLE_FIXTURE=" + json.dumps({
+              "dataset_id": dataset.dataset_id,
+              "feature_config_digest": dataset.feature_config_digest,
+              "normalization_digest": dataset.normalization_digest,
+              "features_sha256": sha(dataset.features),
+              "global_features_sha256": sha(dataset.global_features),
+              "config": payload,
+          }, sort_keys=True))
+          PY

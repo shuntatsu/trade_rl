@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from tools.agent_repo.coordination.conflicts import ConflictLevel, classify_conflict
 from tools.agent_repo.coordination.model import (
     EvidenceKind,
     EvidenceRecord,
@@ -66,6 +67,28 @@ def evidence_is_current(
     return True
 
 
+def evidence_is_current_after_peer_integration(
+    evidence: EvidenceRecord,
+    packet: TaskPacket,
+    integrated_packet: TaskPacket,
+    *,
+    head_sha: str,
+    current_main_sha: str | None = None,
+) -> bool:
+    """Reject evidence made stale by a semantically conflicting peer integration."""
+
+    if packet.task_id == integrated_packet.task_id:
+        raise ValueError("peer integration requires a distinct task")
+    if classify_conflict(packet, integrated_packet) is not ConflictLevel.NONE:
+        return False
+    return evidence_is_current(
+        evidence,
+        packet,
+        head_sha=head_sha,
+        current_main_sha=current_main_sha,
+    )
+
+
 def parent_completion_allowed(
     child_statuses: Mapping[str, TaskStatus],
     *,
@@ -87,6 +110,7 @@ def parent_completion_allowed(
 
 __all__ = [
     "evidence_is_current",
+    "evidence_is_current_after_peer_integration",
     "parent_completion_allowed",
     "validate_transition",
 ]

@@ -4,7 +4,7 @@ Status: Active
 
 ## Objective
 
-`trade_rl` の現在の正本docsを置き換えず、人間が「何をするシステムか」「データがどう流れるか」「各責務がどう分かれるか」「研究はいまどこまで進んだか」を視覚的・対話的に理解できる、build不要の静的Interactive Guideを追加する。
+`trade_rl` の現在の正本docsを置き換えず、人間が「何をするシステムか」「データがどう流れるか」「各責務がどう分かれるか」「研究はいまどこまで進んだか」を、視覚的・対話的に理解できるInteractive Guideを追加する。
 
 Guideは**説明層でありauthorityではない**。技術仕様・研究状態の正本は引き続き `docs/architecture/*` と `docs/research/current-status.md` に置く。
 
@@ -12,18 +12,33 @@ Guideは**説明層でありauthorityではない**。技術仕様・研究状�
 
 - `docs/` のcurrent-only authority構造を別のdocs siteへ置き換えない。
 - GitHub Pages公開をv1の必須条件にしない。
-- React/Vite/npm等のfrontend package/toolchainを導入しない。
 - Guide内に第二の研究結果・設定authorityを作らない。
 - Guideから取引・学習・研究Runを実行しない。
 - backend/API/server/databaseを追加しない。
 - profitability、winner、Production authorizationを示唆するUIを作らない。
 - 正本docsの内容を自動要約して無検証で公開しない。
+- production Python package `trade_rl/**` にfrontend責務を混ぜない。
 
 ## Audience
 
 主対象は、Repositoryを初めて読む人、研究/実装の全体像を短時間で理解したい人、コードを読む前に責務と研究状態を把握したい開発者・レビュアーである。
 
 Agent向けの最短routingは既存 `AGENTS.md` / `docs/AGENTS.md` を維持する。GuideはAgent authorityではない。
+
+## Technology
+
+GuideはRepository rootの独立frontend workspaceとして実装する。
+
+- Node.js 24 LTS
+- React 19.3
+- TypeScript
+- Vite 8 current supported line
+- Tailwind CSS 4.3 + `@tailwindcss/vite`
+- Vitest + React Testing Library
+- Playwright Chromium for browser/UX verification
+- Python 3.12 standard library for authoritative-doc source fingerprint validation
+
+Node dependenciesは `guide/package.json` / `guide/package-lock.json` に閉じ込める。root Python package metadataへfrontend dependencyを混ぜない。
 
 ## Information architecture
 
@@ -45,12 +60,36 @@ Guide v1は次の7領域を持つ。
 
 ```text
 guide/
-  index.html
   README.md
-  assets/
-    app.css
-    core.js
-    app.js
+  package.json
+  package-lock.json
+  index.html
+  vite.config.ts
+  tsconfig.json
+  src/
+    main.tsx
+    app/
+      App.tsx
+      routes.ts
+      theme.ts
+    components/
+      AppShell.tsx
+      Sidebar.tsx
+      SearchPalette.tsx
+      SourceLinks.tsx
+      TopicHeader.tsx
+    visualizations/
+      ArchitectureFlow.tsx
+      FlowStepper.tsx
+      ObservationVector.tsx
+      EconomicsAuthorityPath.tsx
+      ExperimentLoop.tsx
+      ResearchStatusBoard.tsx
+    content/
+      loadTopics.ts
+      schema.ts
+    styles/
+      app.css
   content/
     manifest.json
     topics/
@@ -61,21 +100,27 @@ guide/
       ppo-observation-v2.json
       experiment-loop.json
       research-status.json
-  generated/
-    guide-data.js
   tools/
-    build.py
+    content_contract.py
   tests/
-    core.test.cjs
+    setup.ts
+    content.test.ts
+    routing.test.tsx
+    interactions.test.tsx
+  e2e/
+    guide.spec.ts
+    accessibility.spec.ts
 ```
+
+`guide/dist/`, Playwright reports/screenshots、coverageはgenerated outputでありcommitしない。
 
 Repositoryのroot `README.md` と `docs/README.md` はGuideへの入口を追加するが、「Guideは非正本」「正本はdocs」という境界を明記する。
 
-## Content authority / freshness contract
+## Content architecture
 
 ### Authoring source
 
-人間向け説明内容のauthoring sourceは `guide/content/topics/*.json` とする。UI copyを `index.html` / `app.js` に散在させない。
+人間向け説明内容のauthoring sourceは `guide/content/topics/*.json` とする。説明copy・diagram node/edge・step・statusをReact componentへ直書きしない。
 
 各topicは少なくとも次を持つ。
 
@@ -84,6 +129,7 @@ Repositoryのroot `README.md` と `docs/README.md` はGuideへの入口を追加
   "id": "execution-economics",
   "title": "実行コスト",
   "summary": "取引コストがどこで決まり、どう計上されるか",
+  "keywords": ["fee", "spread", "cost"],
   "source_sections": [
     {
       "path": "docs/research/current-status.md",
@@ -96,41 +142,45 @@ Repositoryのroot `README.md` と `docs/README.md` はGuideへの入口を追加
 }
 ```
 
-### Section fingerprint
+`src/content/loadTopics.ts` はViteのJSON module importを使い、manifest順でtyped topic dataへ変換する。JSON schema/型検査はruntime boundaryでもfail closedにする。
 
-`guide/tools/build.py` はMarkdownをheading単位で抽出し、topicが宣言した `path + heading` のsection SHA-256を再計算する。
+### Source-section fingerprint
+
+`guide/tools/content_contract.py` はMarkdownをheading単位で抽出し、topicが宣言した `path + heading` のsection SHA-256を再計算する。
 
 - headingが消えた → fail closed。
 - pathが消えた → fail closed。
 - digestが変わった → Guide staleとしてfail closed。
 - authorがGuideを読み直し、説明内容を必要に応じて更新した後だけ明示的なrefresh commandでdigestを更新できる。
 
-これにより「docsが変わったらGuideも確認する」を機械的に強制する。
+これにより「正本docsが変わったらGuideも確認する」を機械的に強制する。
 
-### Generated runtime data
+### No generated runtime content
 
-ブラウザ表示用 `guide/generated/guide-data.js` はcontent JSONから決定論的に生成する。Guide自体はbuild不要で、`guide/index.html` を直接開いても動作する。
+Viteが `guide/content/topics/*.json` を直接bundleする。説明内容から別のgenerated JSを作らない。
 
-生成物はcommitし、CIではgeneratorを再実行した結果とbyte-equalであることを確認する。stale generated dataを許可しない。
-
-## Runtime architecture
-
-外部runtime dependencyは使わない。
+これにより更新時のauthority chainを次の1本にする。
 
 ```text
-content JSON
-    ↓ build.py
-reviewed source-section fingerprints
-    ↓
-generated/guide-data.js
-    ↓
-index.html
- ├─ assets/core.js    pure state/transform helpers
- ├─ assets/app.js     DOM/event/rendering
- └─ assets/app.css    light/dark/responsive tokens
+Authoritative docs
+      ↓ reviewed fingerprint
+Guide topic JSON
+      ↓ typed import
+React visualization
 ```
 
-`core.js` はUMD/CommonJS-compatibleなpure helperとして、browserとNode built-in test runnerの両方から利用できるようにする。DOM処理は `app.js` に限定する。
+## React architecture
+
+`App.tsx` はlayout compositionだけを担当し、巨大なone-file appにしない。
+
+- `app/`: routing/theme/global state
+- `components/`: navigation/search/common presentation
+- `visualizations/`: visualization family単位のinteractive component
+- `content/`: typed content loading/validation
+
+Topicごとの特殊copyはJSONへ置き、componentはgeneric visualization kindをrenderする。
+
+Heavy third-party visualization frameworkはv1では導入しない。主要図はsemantic HTML + responsive SVG/CSSで構成し、keyboard/touch selectionをReact stateで管理する。
 
 ## UX principles
 
@@ -159,28 +209,36 @@ index.html
 
 - Architecture flow: component選択でresponsibility / input / output / not-ownedを表示。
 - Data flow stepper: source → freeze → build → artifact → strategy → replay → evidence。
-- Execution economics explorer: fee/spread/participation/borrowとzero-overlayの関係を図示。値変更simulationではなく、authority pathのON/OFF可視化を行う。
+- Execution economics explorer: fee/spread/participation/borrowとzero-overlayのauthority pathを可視化する。値をいじって研究結果をsimulationするUIにはしない。
 - PPO Observation v2 explorer: vector segmentを選択すると意味、shape contribution、禁止情報を表示。
 - Experiment loop: baseline / prereg / execute / verify / decide / freezeを状態遷移として辿れる。
 - Research status: `verified / pending / not claimed / limitation` を明確に分離。
 
 ## Visual design
 
+ユーザー承認済み方向は、**情報密度は維持しつつ、コントラストと彩度を少し落とし、わかりやすさ・可視化・UXを優先**する。
+
 ### Light mode
 
-- background: cool off-white / very light blue-gray。
-- surfaces: backgroundとの差は小さく、border + small tonal change中心。
-- primary textは濃紺だがpure blackを避ける。
-- accentは低彩度blue/teal中心。
+- background: `#f5f7fa`
+- primary surface: `#f9fafb`
+- secondary surface: `#f1f4f8`
+- primary text: `#334155`
+- muted text: `#64748b`
+- border: `#dbe3ec`
+- primary accent: `#6f8faa`
 
 ### Dark mode
 
-- background: blue-charcoal。pure blackは使わない。
-- surfaces: backgroundよりわずかに明るい程度。
-- primary text: pure whiteではなくsoft blue-gray。
-- muted textはWCAG AAを下回らない範囲で輝度差を抑える。
-- accentの彩度を下げ、選択状態だけ少し強める。
-- borders/shadowsは極めて弱く、カード境界を色差だけで強調しすぎない。
+- background: `#17202b`
+- primary surface: `#1d2835`
+- secondary surface: `#243140`
+- primary text: `#bec9d8`
+- muted text: `#95a5b8`
+- border: `#334254`
+- primary accent: `#7899b6`
+
+pure black / pure whiteをprimary surface/textに使わない。persistent content categoryの色は低彩度blue / teal / violet / amber / roseを使い、accent色はselection/focus/actionへ優先的に使う。
 
 ### Contrast policy
 
@@ -188,100 +246,142 @@ index.html
 
 - normal text contrast: WCAG AA 4.5:1以上。
 - large text / nonessential decorationは穏やかにする。
-- interaction focus ringは明確に残す。
+- focus ringは明確に残す。
 - statusは色だけでなくicon + textで表現する。
+- selected stateはborder/colorだけでなく背景・label・ARIA stateで判別できる。
 
 ### Theme behavior
 
 - defaultはOS `prefers-color-scheme`。
 - UI toggleでlight/darkを切替可能。
-- user selectionはlocal browser storageへ保存してよい。
-- storage不可でもsystem/defaultへfail-safeする。
+- explicit selectionだけ`localStorage`へ保存する。
+- storage不可でもsystem preferenceへfail-safeする。
+- light/darkでcopy・topic state・意味論を分岐させない。
 
 ## Navigation / search
 
 - 左navigationは7 topic + Home。
-- narrow screenではdrawerへreflow。
+- narrow screenではcompact navigation/drawerへreflow。
 - searchはtitle / summary / keywords / section headingsをlocal indexで検索。
-- `Ctrl/Cmd+K` はGuide内にfocusがある場合だけsearchへ移動。
+- `Ctrl/Cmd+K` でsearch paletteを開く。
 - hash routing (`#execution-economics` 等) で直接リンクできる。
-- back/forward操作を壊さない。
+- browser back/forwardを壊さない。
+- selected topic/detailはURL hashから復元可能にする。
+
+React Routerはv1では追加せず、small hash-router hookで十分なsurfaceに限定する。
 
 ## Accessibility
 
-- semantic `nav/main/section/button` を使用。
-- clickable diagram nodeはbutton相当のkeyboard target。
-- selected stateをARIAで公開。
+- semantic `header/nav/main/section/aside/button` を使用。
+- diagram nodeはnative buttonまたは同等のkeyboard semantics。
+- selected stateを`aria-pressed` / `aria-current`等で公開。
 - focus-visibleを隠さない。
 - animationは `prefers-reduced-motion` で停止/短縮。
 - 320px幅でpage-level horizontal overflowを出さない。
 - primary interactionはhover依存にしない。
+- Playwrightでkeyboard-only primary pathを実行する。
 
 ## Update workflow
 
-通常の実装変更時は次の流れにする。
+通常のproduction/docs変更時は次の流れにする。
 
 1. 正本docsを更新する。
-2. `uv run python guide/tools/build.py --check` がsource fingerprint mismatchでREDになる。
-3. 対応topicを読み直して説明copy/visualization dataを更新する。
-4. `uv run python guide/tools/build.py --refresh-sources` でreview済みsection digestを更新する。
-5. `uv run python guide/tools/build.py --write` でgenerated JSを更新する。
-6. Guide contract tests + JS tests + full CIを通す。
+2. `uv run python guide/tools/content_contract.py --check` が関連section fingerprint mismatchならREDになる。
+3. 対応topic JSONを読み直して説明copy/visualization dataを更新する。
+4. `uv run python guide/tools/content_contract.py --refresh-sources` でreview済みsection digestを更新する。
+5. `npm --prefix guide run typecheck` / `test` / `build` でGuideを検証する。
 
-Guideだけ変更する場合も、source fingerprintを勝手に更新せず、source docsと説明の整合性を確認する。
+Guideだけ変更する場合も、source fingerprintを勝手にrefreshせず、正本docsとの整合性を確認する。
+
+## Development commands
+
+```bash
+npm --prefix guide ci
+npm --prefix guide run dev
+npm --prefix guide run typecheck
+npm --prefix guide run test
+npm --prefix guide run build
+npm --prefix guide run e2e
+uv run python guide/tools/content_contract.py --check
+```
+
+`package-lock.json`をcommitし、CIは`npm ci`で再現する。
+
+## CI integration
+
+既存Python `Lean Core` gateを弱めない。Guide用Node検証を同workflowの独立job `Human Guide` として追加し、PR/main pushで実行する。
+
+`Human Guide` jobは少なくとも次を実行する。
+
+```text
+checkout exact head
+setup Node 24 LTS
+npm --prefix guide ci
+source fingerprint check
+TypeScript typecheck
+Vitest
+Vite production build
+Playwright Chromium primary UX / responsive / theme / keyboard tests
+```
+
+Node jobのfailureでPython core testsをskipしない。二つのjobは独立して走らせる。
 
 ## Invariants
 
 - `guide/` は非正本である。
 - source docsへのtraceabilityが全topicに存在する。
-- generated dataはauthoring contentから決定論的に生成される。
-- stale source fingerprint / missing source heading / stale generated JSはCI Greenにならない。
+- stale source fingerprint / missing source headingはCI Greenにならない。
+- explanation copy/visualization modelはstructured topic JSONをsingle authoring sourceにする。
+- React componentはtopic固有research truthを埋め込まない。
 - Guide変更は `trade_rl/**` runtime behaviorを変えない。
-- frontend package manager/dependencyを追加しない。
-- Guideはnetworkなしで閲覧できる。
+- Node dependenciesは`guide/`に閉じる。
+- production Guideはremote runtime/CDNなしでbuildできる。
 - light/dark双方を同じinformation architectureで提供する。
 
 ## Failure modes / risks
 
 - Guideが第二の仕様書になる。
 - 正本更新後もGuideが古いままGreenになる。
-- generated JSだけ手編集されcontent sourceと乖離する。
+- componentに説明copyが散ってJSON更新だけでは済まなくなる。
 - research metricを静的copyして古くする。
 - visual emphasisが「verified baseline = profitable」のような誤解を生む。
 - low-contrast化でaccessibilityを落とす。
 - diagramがdesktopでは良いがmobileで読めない。
 - mouse hoverだけで情報を出す。
 - dark modeだけ別copy/別stateになり意味がずれる。
-- UI logicが巨大化し、content updateのたびにJS変更が必要になる。
+- React state/effectが複雑化し、不要なre-renderやURL/state二重authorityを作る。
+- Node dependency更新がPython core開発を不必要にblockする。
 
 ## Test Oracle
 
 完了判定は少なくとも次を観測する。
 
-- 全topic JSON schema/required fieldsがvalid。
+- 全topic JSON required fields / visualization kind / referenced IDsがvalid。
 - source path + headingが存在しsection digestが一致。
-- generated dataがfresh generationとbyte-equal。
-- `node --check`でJS syntax Green。
-- Node built-in testsでrouting/search/step state/pure transforms Green。
-- architecture testでGuide非正本境界、root/docs routing、Active docs lifecycleを確認。
-- light/dark desktopで全primary interactionをbrowser実行。
-- mobile-widthでnavigation/reflow/diagram/detailを確認。
+- TypeScript typecheck Green。
+- Vitestでcontent loading、routing、search、theme、stepper/selection stateがGreen。
+- Vite production build Green。
+- Playwrightでlight/dark desktopの全primary interactionが成立。
+- Playwrightで320px narrow layoutにpage-level horizontal overflowがない。
 - keyboard-onlyでtopic selection/search/theme/diagram selectionが可能。
-- WCAG AA text contrastをtoken-levelで確認。
-- final diffにtemporary screenshot/debug/generated stray fileがない。
-- exact-head repository CIがGreen。
+- `prefers-reduced-motion`でも情報が欠落しない。
+- WCAG AA text contrastをtoken-level testで確認。
+- architecture testでGuide非正本境界、root/docs routing、Active docs lifecycleを確認。
+- final diffに`dist/`、Playwright report、debug output、temporary screenshotがない。
+- exact-head Python CIとHuman Guide CIがGreen。
 
 ## Acceptance Criteria
 
 1. Repository rootからInteractive Guideへ到達できる。
-2. `guide/index.html` はbuild/serverなしでも主要機能が使える。
+2. `npm --prefix guide run dev` でローカルGuideを起動でき、`npm --prefix guide run build` でself-contained static asset bundleを生成できる。
 3. Light/Darkを備え、双方ともapproved low-contrast visual directionを保つ。
 4. 全体像、Data Flow、Responsibilities、Execution Economics、PPO Observation v2、Experiment Loop、Research Statusを対話的に理解できる。
 5. 各topicからsource authorityへ遷移できる。
-6. content更新はstructured files中心で行え、layout JSの編集を原則不要にする。
+6. content更新は`guide/content/topics/*.json`中心で行え、layout component変更を原則不要にする。
 7. source authorityの関連section変更をCIが検出する。
-8. stale generated dataをCIが検出する。
+8. malformed/duplicate/broken content referenceをCIが検出する。
 9. 320pxからdesktopまで主要操作が成立する。
 10. keyboard/focus/reduced-motion/contrastのaccessibility contractを満たす。
 11. `trade_rl/**` runtime/public API/artifact identityへ変更を加えない。
-12. 実装完了時、Active spec/planはcurrent treeから削除し、恒久的なGuide maintenance ruleだけを `docs/README.md` / `docs/AGENTS.md` に残す。
+12. Node toolchainはGuide workspaceに隔離され、既存Python Lean Core gateを弱めない。
+13. 実装完了時、Active spec/planはcurrent treeから削除し、恒久的なGuide maintenance ruleだけを `docs/README.md` / `docs/AGENTS.md` に残す。

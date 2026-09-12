@@ -34,6 +34,25 @@ test("keyboard focus can reach the primary interactions", async ({ page }) => {
   await expect(page.getByRole("textbox", { name: "ガイドを検索" })).toBeFocused();
 });
 
+test("search dialog traps focus and restores the trigger on close", async ({ page }) => {
+  await page.goto("/#overview");
+  const trigger = page.getByRole("button", { name: "ガイドを検索" });
+  const textbox = page.getByRole("textbox", { name: "ガイドを検索" });
+
+  await trigger.focus();
+  await page.keyboard.press("Control+K");
+  await expect(textbox).toBeFocused();
+
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.locator(".search-result").last()).toBeFocused();
+
+  await page.keyboard.press("Tab");
+  await expect(textbox).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+});
+
 test("reduced motion keeps the guide usable", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/#data-flow");

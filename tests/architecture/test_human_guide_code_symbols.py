@@ -1,5 +1,5 @@
-from importlib import import_module
 from pathlib import Path
+from importlib import import_module
 
 
 ROOT = Path(__file__).resolve().parents[2]

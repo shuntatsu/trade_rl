@@ -221,8 +221,9 @@ def test_old_head_review_and_old_main_integration_evidence_are_stale() -> None:
     )
 
 
-def test_soft_conflicting_peer_integration_invalidates_current_review_evidence(
-) -> None:
+def test_soft_conflicting_peer_integration_invalidates_current_review_evidence() -> (
+    None
+):
     peer = _packet(
         "T500-peer",
         resource_keys=("file:tools/peer.py", "authority:shared-analysis"),

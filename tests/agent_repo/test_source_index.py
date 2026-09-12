@@ -101,6 +101,27 @@ def test_context_does_not_invent_public_or_network_semantics(tmp_path: Path) -> 
     assert "tests/data/test_config.py" not in context.test_candidates
 
 
+def test_context_does_not_claim_facade_when_nearest_package_has_no_static_exports(
+    tmp_path: Path,
+) -> None:
+    _tree(tmp_path)
+    _write(
+        tmp_path,
+        "trade_rl/evaluation/__init__.py",
+        "ParentSurface = object()\n__all__ = ['ParentSurface']\n",
+    )
+    _write(
+        tmp_path,
+        "trade_rl/evaluation/runs/__init__.py",
+        "from .config import CandidateRunConfig\n",
+    )
+
+    context = SourceIndex.build(tmp_path).context("trade_rl/evaluation/runs/config.py")
+
+    assert context.facade_module is None
+    assert context.public_exports == ()
+
+
 def test_context_does_not_claim_facade_when_nearest_all_is_mutated(
     tmp_path: Path,
 ) -> None:

@@ -79,7 +79,7 @@ def test_dependency_graph_rejects_missing_targets_and_cycles() -> None:
         DependencyGraph((first, second))
 
 
-def test_dependency_kinds_have_distinct_completion_rules() -> None:
+def test_dependency_kinds_apply_at_distinct_phase_gates() -> None:
     root = _packet("T0")
     hard = _packet(
         "TH",
@@ -107,19 +107,40 @@ def test_dependency_kinds_have_distinct_completion_rules() -> None:
         "TE": _healthy(TaskPhase.READY),
         "TI": _healthy(TaskPhase.READY),
     }
-    assert graph.dependencies_satisfied("TH", statuses, evidence_task_ids=frozenset())
-    assert not graph.dependencies_satisfied(
-        "TE", statuses, evidence_task_ids=frozenset()
-    )
-    assert graph.dependencies_satisfied(
-        "TE", statuses, evidence_task_ids=frozenset({"T0"})
-    )
-    assert not graph.dependencies_satisfied(
-        "TI", statuses, evidence_task_ids=frozenset({"T0"})
-    )
+    assert graph.execution_dependencies_satisfied("TH", statuses)
+    assert graph.execution_dependencies_satisfied("TE", statuses)
+    assert graph.execution_dependencies_satisfied("TI", statuses)
 
+    assert not graph.evidence_dependencies_satisfied("TE", evidence_task_ids=())
+    assert graph.evidence_dependencies_satisfied("TE", evidence_task_ids=("T0",))
+
+    assert not graph.integration_dependencies_satisfied("TI", statuses)
     statuses["T0"] = _healthy(TaskPhase.COMPLETE)
-    assert graph.dependencies_satisfied("TI", statuses, evidence_task_ids=frozenset())
+    assert graph.integration_dependencies_satisfied("TI", statuses)
+
+
+def test_evidence_and_integration_dependencies_allow_parallel_ready_execution() -> None:
+    root = _packet("T0")
+    evidence = _packet(
+        "TE",
+        dependencies=(TaskDependency("T0", DependencyKind.EVIDENCE),),
+    )
+    integration = _packet(
+        "TI",
+        dependencies=(TaskDependency("T0", DependencyKind.INTEGRATION),),
+    )
+    statuses = {
+        "T0": _healthy(TaskPhase.EXECUTING),
+        "TE": _healthy(TaskPhase.READY),
+        "TI": _healthy(TaskPhase.READY),
+    }
+
+    assert ready_tasks(
+        (root, evidence, integration),
+        statuses,
+        leased_task_ids=(),
+        evidence_task_ids=(),
+    ) == ("TE", "TI")
 
 
 def test_read_only_snapshot_work_does_not_conflict_on_shared_read_resources() -> None:

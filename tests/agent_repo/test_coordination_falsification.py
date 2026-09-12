@@ -28,6 +28,7 @@ from tools.agent_repo.coordination.model import (
 from tools.agent_repo.coordination.scheduler import ready_tasks
 from tools.agent_repo.coordination.state import (
     evidence_is_current,
+    evidence_is_current_after_peer_integration,
     parent_completion_allowed,
 )
 
@@ -217,6 +218,37 @@ def test_old_head_review_and_old_main_integration_evidence_are_stale() -> None:
         packet,
         head_sha=HEAD_B,
         current_main_sha=MAIN_A,
+    )
+
+
+def test_soft_conflicting_peer_integration_invalidates_current_review_evidence() -> None:
+    peer = _packet(
+        "T500-peer",
+        resource_keys=("file:tools/peer.py", "authority:shared-analysis"),
+    )
+    integrated = _packet(
+        "T500-integrated",
+        resource_keys=("file:tools/integrated.py", "authority:shared-analysis"),
+    )
+    independent = _packet(
+        "T500-independent",
+        resource_keys=("authority:unrelated",),
+    )
+    evidence = _evidence(peer)
+
+    assert classify_conflict(peer, integrated) is ConflictLevel.SOFT
+    assert evidence_is_current(evidence, peer, head_sha=HEAD_A)
+    assert not evidence_is_current_after_peer_integration(
+        evidence,
+        peer,
+        integrated,
+        head_sha=HEAD_A,
+    )
+    assert evidence_is_current_after_peer_integration(
+        evidence,
+        peer,
+        independent,
+        head_sha=HEAD_A,
     )
 
 

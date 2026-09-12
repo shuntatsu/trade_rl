@@ -179,14 +179,7 @@ class TaskPacket:
             "capabilities",
             tuple(Capability(value) for value in self.capabilities),
         )
-        object.__setattr__(
-            self,
-            "dependencies",
-            tuple(
-                value if isinstance(value, TaskDependency) else TaskDependency(**value)  # type: ignore[arg-type]
-                for value in self.dependencies
-            ),
-        )
+        object.__setattr__(self, "dependencies", tuple(self.dependencies))
 
         dependency_ids = [value.task_id for value in self.dependencies]
         if len(set(dependency_ids)) != len(dependency_ids):

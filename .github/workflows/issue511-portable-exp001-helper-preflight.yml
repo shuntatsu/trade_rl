@@ -39,7 +39,7 @@ jobs:
       - name: Install exact research environment
         run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
 
-      - name: Compile and lint prereg/execution/verifier helpers
+      - name: Compile/import sealed prereg helper and strictly lint new helpers
         shell: bash
         run: |
           set -euo pipefail
@@ -48,7 +48,6 @@ jobs:
             research/issue511_portable_exp001_execute.py \
             research/issue511_portable_exp001_postverify.py
           uv run ruff check \
-            research/issue511_portable_exp001.py \
             research/issue511_portable_exp001_execute.py \
             research/issue511_portable_exp001_postverify.py
           CURRENT_MAIN_SHA="$FROZEN_MAIN_SHA" \

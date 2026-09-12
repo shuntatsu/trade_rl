@@ -48,16 +48,12 @@ def classify_run(
     run_id = int(run["id"])
     if run_id == current_run_id:
         return "KEEP", "current cleanup run"
-
     if run.get("status") != "completed":
         return "KEEP", "run is not completed"
-
     if run_id in protected_run_ids:
         return "KEEP", "run id is referenced in repository/issue/PR text"
-
     if run_id in artifact_run_ids:
         return "KEEP", "run has an Actions artifact"
-
     if run.get("head_sha") in protected_shas:
         return "KEEP", "run belongs to current main or an open PR HEAD"
 
@@ -67,7 +63,6 @@ def classify_run(
     )
     if HIGH_VALUE_RE.search(haystack):
         return "KEEP", "research/evidence/high-value keyword"
-
     if run.get("path") == current_workflow_path:
         return "DELETE", "superseded cleanup workflow run"
 
@@ -83,7 +78,6 @@ def classify_run(
 
     if is_tmp and (is_disposable or conclusion in NUISANCE_CONCLUSIONS):
         return "DELETE", "old disposable tmp/helper run"
-
     if not branch_exists and is_disposable:
         return "DELETE", "old disposable workflow/branch with deleted branch"
 
@@ -94,10 +88,8 @@ def classify_run(
     )
     if not branch_exists and is_ci and conclusion in NUISANCE_CONCLUSIONS:
         return "DELETE", "old cancelled/skipped/stale CI on deleted branch"
-
     if branch_exists:
         return "KEEP", "branch still exists"
-
     return "REVIEW", "old completed run is not safely disposable under strict policy"
 
 
@@ -131,7 +123,9 @@ class GitHubApi:
                 return json.loads(body.decode("utf-8")), headers
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"GitHub API {method} {url} failed: {exc.code} {detail}") from exc
+            raise RuntimeError(
+                f"GitHub API {method} {url} failed: {exc.code} {detail}"
+            ) from exc
 
     def get(self, path: str) -> Any:
         data, _ = self._request("GET", path)
@@ -190,17 +184,25 @@ def _collect_text_refs(api: GitHubApi, repo_root: Path) -> set[int]:
     texts: list[str] = []
     issues = api.get_paginated(f"/repos/{api.repo}/issues?state=all")
     texts.extend(str(item.get("body") or "") for item in issues)
-
     issue_comments = api.get_paginated(f"/repos/{api.repo}/issues/comments")
     texts.extend(str(item.get("body") or "") for item in issue_comments)
-
     review_comments = api.get_paginated(f"/repos/{api.repo}/pulls/comments")
     texts.extend(str(item.get("body") or "") for item in review_comments)
-
     commit_comments = api.get_paginated(f"/repos/{api.repo}/comments")
     texts.extend(str(item.get("body") or "") for item in commit_comments)
-
     return _extract_run_ids(texts) | _repository_numeric_refs(repo_root)
+
+
+def dedupe_runs(runs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[int] = set()
+    out: list[dict[str, Any]] = []
+    for run in runs:
+        run_id = int(run["id"])
+        if run_id in seen:
+            continue
+        seen.add(run_id)
+        out.append(run)
+    return out
 
 
 def collect_context(api: GitHubApi, repo_root: Path) -> dict[str, Any]:
@@ -226,10 +228,29 @@ def collect_context(api: GitHubApi, repo_root: Path) -> dict[str, Any]:
         if artifact.get("workflow_run") and artifact["workflow_run"].get("id")
     }
 
+    run_meta = api.get(f"/repos/{api.repo}/actions/runs?per_page=1")
+    repo_total_runs = int(run_meta["total_count"])
+
+    candidate_runs: list[dict[str, Any]] = []
+    for status in ("cancelled", "skipped", "stale"):
+        candidate_runs.extend(
+            api.get_paginated(
+                f"/repos/{api.repo}/actions/runs?status={status}",
+                item_key="workflow_runs",
+            )
+        )
+
+    cleanup_branch = os.environ.get("CLEANUP_BRANCH", "")
+    if cleanup_branch:
+        candidate_runs.extend(
+            api.get_paginated(
+                f"/repos/{api.repo}/actions/runs?branch={urllib.parse.quote(cleanup_branch, safe='')}",
+                item_key="workflow_runs",
+            )
+        )
+    runs = dedupe_runs(candidate_runs)
+
     referenced_run_ids = _collect_text_refs(api, repo_root)
-    runs = api.get_paginated(
-        f"/repos/{api.repo}/actions/runs", item_key="workflow_runs"
-    )
     actual_run_ids = {int(run["id"]) for run in runs}
     referenced_run_ids &= actual_run_ids
 
@@ -240,6 +261,7 @@ def collect_context(api: GitHubApi, repo_root: Path) -> dict[str, Any]:
         "artifact_run_ids": artifact_run_ids,
         "protected_run_ids": referenced_run_ids,
         "runs": runs,
+        "repo_total_runs": repo_total_runs,
         "open_prs": [
             {"number": pr["number"], "head_sha": pr["head"]["sha"]}
             for pr in open_prs
@@ -253,7 +275,8 @@ def write_summary(report: dict[str, Any]) -> None:
         "# Actions history cleanup",
         "",
         f"- Mode: **{'DRY RUN' if report['dry_run'] else 'EXECUTE'}**",
-        f"- Total runs scanned: **{report['total_runs']}**",
+        f"- Repository total runs: **{report['total_runs']}**",
+        f"- Strict candidate pool scanned: **{report['scanned_candidate_pool']}**",
         f"- Safe delete candidates: **{report['candidate_count']}**",
         f"- Deleted: **{report['deleted_count']}**",
         f"- REVIEW (not deleted): **{report['review_count']}**",
@@ -343,7 +366,8 @@ def run_cleanup() -> int:
     )
     report = {
         "dry_run": dry_run,
-        "total_runs": len(context["runs"]),
+        "total_runs": context["repo_total_runs"],
+        "scanned_candidate_pool": len(context["runs"]),
         "candidate_count": len(candidates),
         "selected_count": len(selected),
         "deleted_count": len(deleted),

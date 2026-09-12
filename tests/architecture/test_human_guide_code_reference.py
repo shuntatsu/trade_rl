@@ -44,6 +44,12 @@ def _code_reference() -> dict[str, object]:
     }
 
 
+def _without_digest(reference: dict[str, object]) -> dict[str, object]:
+    result = dict(reference)
+    result.pop("source_sha256", None)
+    return result
+
+
 def test_validate_code_reference_rejects_missing_symbol_and_wrong_kind() -> None:
     reference = _code_reference()
     _assert_contract_error(
@@ -132,21 +138,16 @@ def test_refresh_code_updates_only_source_digest(tmp_path) -> None:
         ],
         "tests": ["tests/demo/test_demo.py"],
     }
+    topic = {"id": "demo", "code_references": [reference]}
     topic_path.write_text(
-        json.dumps(
-            {"id": "demo", "code_references": [reference]},
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
+        json.dumps(topic, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 
     before = json.loads(json.dumps(reference, ensure_ascii=False))
     contract.refresh_code_references(["demo"], root=tmp_path)
-    after = json.loads(topic_path.read_text(encoding="utf-8"))["code_references"][0]
+    payload = json.loads(topic_path.read_text(encoding="utf-8"))
+    after = payload["code_references"][0]
 
     assert after["source_sha256"] != "0" * 64
-    assert {key: value for key, value in after.items() if key != "source_sha256"} == {
-        key: value for key, value in before.items() if key != "source_sha256"
-    }
+    assert _without_digest(after) == _without_digest(before)

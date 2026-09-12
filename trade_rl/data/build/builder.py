@@ -21,6 +21,11 @@ from trade_rl.data.features.cross_asset import (
 )
 from trade_rl.data.features.economic import build_market_economic_semantics
 from trade_rl.data.features.multitimeframe import align_native_feature
+from trade_rl.data.features.numerics import (
+    portable_log,
+    portable_mean,
+    portable_std,
+)
 from trade_rl.data.identity import (
     MARKET_DATASET_IDENTITY_SCHEMA,
     content_and_arrays_digest,
@@ -72,7 +77,7 @@ def _calculate_one_bar_returns(
         out=ratios,
         where=available[1:],
     )
-    returns[1:] = np.where(available[1:], np.log(ratios), 0.0)
+    returns[1:] = np.where(available[1:], portable_log(ratios), 0.0)
     return returns, available
 
 
@@ -458,14 +463,18 @@ class MarketDatasetBuilder:
         global_feature_available = np.ones_like(global_features, dtype=np.bool_)
         global_feature_staleness = np.zeros_like(global_features, dtype=np.float32)
         global_feature_missing_reason = np.zeros_like(global_features, dtype=np.int16)
-        global_features[:, 0] = symbol_active.mean(axis=1)
+        global_features[:, 0] = np.count_nonzero(symbol_active, axis=1) / float(
+            n_symbols
+        )
         observable_tradable = tradable & information_available
-        global_features[:, 1] = observable_tradable.mean(axis=1)
+        global_features[:, 1] = np.count_nonzero(observable_tradable, axis=1) / float(
+            n_symbols
+        )
         for index in range(n_bars):
             sample = one_bar_returns[index, one_bar_available[index]]
             if sample.size:
-                global_features[index, 2] = float(np.mean(sample))
-                global_features[index, 3] = float(np.std(sample))
+                global_features[index, 2] = portable_mean(sample)
+                global_features[index, 3] = portable_std(sample)
             else:
                 global_feature_available[index, 2:4] = False
                 global_feature_staleness[index, 2:4] = 1.0

@@ -7,6 +7,14 @@ from dataclasses import dataclass
 import numpy as np
 
 from trade_rl.data.contracts import FeatureKind, FeatureSpec
+from trade_rl.data.features.numerics import (
+    portable_correlation,
+    portable_covariance,
+    portable_mean,
+    portable_std,
+    portable_sum,
+    portable_variance,
+)
 
 _EPSILON = 1e-12
 
@@ -53,7 +61,7 @@ def _normalized_ranks(values: np.ndarray) -> np.ndarray:
     for group in range(unique.size):
         members = np.flatnonzero(inverse == group)
         if members.size > 1:
-            ranks[members] = float(np.mean(ranks[members]))
+            ranks[members] = float(portable_mean(ranks[members]))
     return 2.0 * ranks / float(count - 1) - 1.0
 
 
@@ -112,7 +120,7 @@ def calculate_cross_asset_feature_events(
             current = event_mask[index]
             if not np.any(current):
                 continue
-            dispersion = float(np.std(returns[index, current]))
+            dispersion = float(portable_std(returns[index, current]))
             values[index, current] = dispersion
             valid[index, current] = True
             source_age_hours[index, current] = float(np.max(ages[index, current]))
@@ -141,20 +149,20 @@ def calculate_cross_asset_feature_events(
                 sample = np.asarray(pair_history, dtype=np.float64)
                 asset_sample = sample[:, 0]
                 btc_sample = sample[:, 1]
-                btc_variance = float(np.var(btc_sample))
+                btc_variance = float(portable_variance(btc_sample))
                 if spec.kind is FeatureKind.ROLLING_BETA_TO_BTC:
                     if btc_variance <= _EPSILON:
                         continue
                     value = (
-                        float(np.cov(asset_sample, btc_sample, ddof=0)[0, 1])
+                        float(portable_covariance(asset_sample, btc_sample))
                         / btc_variance
                     )
                 else:
-                    asset_std = float(np.std(asset_sample))
-                    btc_std = float(np.std(btc_sample))
+                    asset_std = float(portable_std(asset_sample))
+                    btc_std = float(portable_std(btc_sample))
                     if asset_std <= _EPSILON or btc_std <= _EPSILON:
                         continue
-                    value = float(np.corrcoef(asset_sample, btc_sample)[0, 1])
+                    value = float(portable_correlation(asset_sample, btc_sample))
                     value = float(np.clip(value, -1.0, 1.0))
                 values[index, symbol_index] = value
                 valid[index, symbol_index] = True
@@ -184,7 +192,7 @@ def calculate_cross_asset_feature_events(
         if indices.size == 0:
             continue
         momentum = np.asarray(
-            [sum(histories[int(symbol_index)]) for symbol_index in indices],
+            [portable_sum(histories[int(symbol_index)]) for symbol_index in indices],
             dtype=np.float64,
         )
         values[index, indices] = _normalized_ranks(momentum)

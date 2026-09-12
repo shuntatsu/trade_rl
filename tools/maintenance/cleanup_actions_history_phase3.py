@@ -16,7 +16,7 @@ from typing import Any, Iterable
 HIGH_VALUE_RE = re.compile(
     r"(?:research|experiment|evidence|baseline|pre[-_ ]?reg|prereg|canonical|"
     r"repro|benchmark|publication|artifact|audit|falsif|mutation|release|provenance|"
-    r"golden|verification|verify|\bRED\b|\bGREEN\b|primary[-_ ]?gate)",
+    r"golden|verification|verify|TDD|\bRED\b|\bGREEN\b|primary[-_ ]?gate)",
     re.IGNORECASE,
 )
 TEMPORARY_RE = re.compile(r"(?:^|[/_. -])(?:tmp|temp|temporary)(?:[/_. -]|$)", re.IGNORECASE)

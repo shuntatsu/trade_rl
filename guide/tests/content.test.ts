@@ -50,12 +50,13 @@ function codeReference() {
 }
 
 describe("guide content", () => {
-  it("loads the seven reviewed topics in manifest order", () => {
+  it("loads the eight reviewed topics in manifest order", () => {
     const topics = loadTopics();
     expect(topics.map((topic) => topic.id)).toEqual([
       "overview",
       "data-flow",
       "architecture",
+      "implementation-replay",
       "execution-economics",
       "ppo-observation-v2",
       "experiment-loop",

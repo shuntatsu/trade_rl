@@ -183,6 +183,23 @@ star importはliteral `__all__`、または明示的なpublic import re-export�
 - toolingのstatic analysisはruntime reachabilityの完全証明ではなく、source reviewとfinal full CIを置き換えない。
 - local `verify` は開発中の検査選択を支援するが、完了判定ではpermanent CIのfull gateへ収束する。
 
+### Agent Coordination Plane
+
+`tools/agent_repo/coordination/` は複数AgentのTask分離・ownership・dependency・semantic collision・review/verification freshnessを扱うrepository toolingである。既存Control PlaneがRepositoryのsource-derived factを読むのに対し、Coordination Planeはそのfactを使って「誰が何を同時に実行できるか」を管理する。どちらも`trade_rl` runtime/domain authorityではなく、**production wheelへ混入させない**。
+
+Coordinationの耐久契約は次である。
+
+- **Task Packet** はtask id/revision、execution mode、dependency、write scope、capability、Acceptance Criteria/Test Oracle、base SHA、**Resource Key**を持ち、semantic contractをcanonical SHA-256 digestへbindする。
+- stateは単一statusではなく `phase + condition`。phaseはplanned→ready→executing→review→verification→integration→completeを基本線とし、conditionはhealthy/blocked/stale/failed/conflictedを独立に表す。
+- `read_only` Taskはimmutable snapshotを共有できるがwritable leaseを持たない。`write` Taskはsingle active ownerとisolated writable stateを必要とする。
+- write ownershipは **lease epoch** をfencing tokenにし、reassignmentごとにnew epoch branch/worktreeを使う。expired leaseはbranch/PR/CI/artifact side effectをreconcileしてからresume/reassignする。
+- Resource Key namespaceは最低限 `file:` / `authority:` / `identity:` / `schema:` / `workflow:` / `artifact:` / `side-effect:` を区別し、file-disjointでも同一identity/schema/side effectを変更するTaskをhard conflictとして表せる。
+- review/verification evidenceはTask revision + Task Contract digest + base + exact PR HEADにbindする。HEAD movement後の古いreview/CIをvalidにしない。integration evidenceはcurrent `main`にもbindする。
+- durable coordination evidenceはIssue contract/status record、branch/commit、PR/review、CI/artifact、main commitに置き、ready-set/conflict graph/dashboardは再構築可能なderived stateとする。checked-in mutable global task ledgerは置かない。
+- `python -m tools.agent_repo task ...` はnetwork-freeなparse/digest/readiness/status/dashboard操作だけを持つ。GitHub claim/comment/mergeのwrite authorityはこのCLIへ埋め込まない。
+
+このlayerは複数Coordinator間のdistributed consensusを保証しない。v1のoperational invariantはactive Coordinatorが1つであることとし、Worker自身の完了主張やlabelだけをmerge authorityにしない。
+
 ## Repository integration boundary
 
 GitHub PR / CI / branch-protection・ruleset設定はRepository統合の安全性を管理するが、`trade_rl` runtime packageのauthorityではない。checked-in architecture testはPR/CI policy fileの契約を検証できるが、実際のbranch protection状態はGitHub側のread-backで別途確認する。

@@ -9,6 +9,23 @@ export type GuideSection = {
   body: string[];
 };
 
+export type CodeVariableReference = {
+  name: string;
+  label_ja: string;
+  description_ja: string;
+};
+
+export type CodeReference = {
+  id: string;
+  symbol: string;
+  kind: "function" | "class" | "method";
+  source_sha256: string;
+  label_ja: string;
+  description_ja: string;
+  variables: CodeVariableReference[];
+  tests: string[];
+};
+
 export type ArchitectureNode = {
   id: string;
   label: string;
@@ -91,6 +108,7 @@ export type GuideTopic = {
   summary: string;
   keywords: string[];
   source_sections: SourceSection[];
+  code_references: CodeReference[];
   sections: GuideSection[];
   visualization: GuideVisualization;
 };
@@ -124,6 +142,14 @@ function strings(value: unknown, label: string): string[] {
   return [...value];
 }
 
+function sha256(value: unknown, label: string): string {
+  const digest = string(value, label);
+  if (!/^[0-9a-f]{64}$/.test(digest)) {
+    throw new Error(`${label} must be SHA-256`);
+  }
+  return digest;
+}
+
 function uniqueIds(items: JsonRecord[], label: string): Set<string> {
   const ids = items.map((item, index) => string(item.id, `${label}[${index}].id`));
   if (new Set(ids).size !== ids.length) {
@@ -138,14 +164,71 @@ function parseSources(value: unknown): SourceSection[] {
   }
   return value.map((item, index) => {
     const source = record(item, `source_sections[${index}]`);
-    const sha256 = string(source.sha256, `source_sections[${index}].sha256`);
-    if (!/^[0-9a-f]{64}$/.test(sha256)) {
-      throw new Error(`source_sections[${index}].sha256 must be SHA-256`);
-    }
     return {
       path: string(source.path, `source_sections[${index}].path`),
       heading: string(source.heading, `source_sections[${index}].heading`),
-      sha256,
+      sha256: sha256(source.sha256, `source_sections[${index}].sha256`),
+    };
+  });
+}
+
+function parseCodeReferences(value: unknown): CodeReference[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("code_references must be an array");
+  }
+  const references = value.map((item, index) =>
+    record(item, `code_references[${index}]`),
+  );
+  uniqueIds(references, "code_references");
+  return references.map((reference, index) => {
+    const kind = string(reference.kind, `code_references[${index}].kind`);
+    if (kind !== "function" && kind !== "class" && kind !== "method") {
+      throw new Error(`code_references[${index}].kind is invalid`);
+    }
+    const rawVariables = reference.variables ?? [];
+    if (!Array.isArray(rawVariables)) {
+      throw new Error(`code_references[${index}].variables must be an array`);
+    }
+    const variables = rawVariables.map((item, variableIndex) => {
+      const variable = record(
+        item,
+        `code_references[${index}].variables[${variableIndex}]`,
+      );
+      return {
+        name: string(
+          variable.name,
+          `code_references[${index}].variables[${variableIndex}].name`,
+        ),
+        label_ja: string(
+          variable.label_ja,
+          `code_references[${index}].variables[${variableIndex}].label_ja`,
+        ),
+        description_ja: string(
+          variable.description_ja,
+          `code_references[${index}].variables[${variableIndex}].description_ja`,
+        ),
+      };
+    });
+    const variableNames = variables.map((variable) => variable.name);
+    if (new Set(variableNames).size !== variableNames.length) {
+      throw new Error(`code_references[${index}].variables contains duplicate names`);
+    }
+    return {
+      id: string(reference.id, `code_references[${index}].id`),
+      symbol: string(reference.symbol, `code_references[${index}].symbol`),
+      kind,
+      source_sha256: sha256(
+        reference.source_sha256,
+        `code_references[${index}].source_sha256`,
+      ),
+      label_ja: string(reference.label_ja, `code_references[${index}].label_ja`),
+      description_ja: string(
+        reference.description_ja,
+        `code_references[${index}].description_ja`,
+      ),
+      variables,
+      tests: strings(reference.tests ?? [], `code_references[${index}].tests`),
     };
   });
 }
@@ -286,6 +369,7 @@ export function parseTopic(value: unknown): GuideTopic {
     summary: string(raw.summary, "topic.summary"),
     keywords: strings(raw.keywords, "topic.keywords"),
     source_sections: parseSources(raw.source_sections),
+    code_references: parseCodeReferences(raw.code_references),
     sections: parseSections(raw.sections),
     visualization: parseVisualization(raw.visualization),
   };

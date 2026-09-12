@@ -137,6 +137,22 @@ describe("interactive guide workflow", () => {
     ).toBeInTheDocument();
   });
 
+  it("restores a code-map node and synchronizes its inspector", () => {
+    window.location.hash = "#code-map?step=risk";
+    render(<App />);
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "コード地図：どこが何を所有するか" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ハードリスク/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(
+      screen.getByRole("heading", { level: 3, name: "hard riskの所有者" }),
+    ).toBeInTheDocument();
+  });
+
   it("switches dark mode without changing content", async () => {
     const user = userEvent.setup();
     render(<App />);

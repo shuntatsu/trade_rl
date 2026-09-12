@@ -19,13 +19,6 @@ HIGH_VALUE_RE = re.compile(
     r"repro|benchmark|publication|artifact|audit|falsif|mutation|release|provenance)",
     re.IGNORECASE,
 )
-DISPOSABLE_RE = re.compile(
-    r"(?:helper|cleanup|temporary|(?:^|[/ _-])temp(?:[/ _-]|$)|merge[-_ ]?helper|"
-    r"branch[-_ ]?retire|debug|probe)",
-    re.IGNORECASE,
-)
-TMP_PREFIXES = ("tmp/", "temp/", "cleanup/", "ops/tmp-", "chore/tmp")
-NUISANCE_CONCLUSIONS = {"cancelled", "skipped", "stale", "neutral", "action_required"}
 RUN_ID_RE = re.compile(r"(?<!\d)(\d{10,12})(?!\d)")
 
 
@@ -73,21 +66,13 @@ def classify_run(
     branch = str(run.get("head_branch") or "")
     conclusion = str(run.get("conclusion") or "")
     branch_exists = bool(branch) and branch in existing_branches
-    is_tmp = any(branch.startswith(prefix) for prefix in TMP_PREFIXES)
-    is_disposable = bool(DISPOSABLE_RE.search(haystack))
-
-    if is_tmp and (is_disposable or conclusion in NUISANCE_CONCLUSIONS):
-        return "DELETE", "old disposable tmp/helper run"
-    if not branch_exists and is_disposable:
-        return "DELETE", "old disposable workflow/branch with deleted branch"
-
     is_ci = (
         run.get("name") == "CI"
         or str(run.get("path") or "").endswith("/.github/workflows/ci.yml")
         or str(run.get("path") or "") == ".github/workflows/ci.yml"
     )
-    if not branch_exists and is_ci and conclusion in NUISANCE_CONCLUSIONS:
-        return "DELETE", "old cancelled/skipped/stale CI on deleted branch"
+    if not branch_exists and is_ci and conclusion in {"cancelled", "stale"}:
+        return "DELETE", "old cancelled/stale CI on deleted branch"
     if branch_exists:
         return "KEEP", "branch still exists"
     return "REVIEW", "old completed run is not safely disposable under strict policy"
@@ -232,7 +217,7 @@ def collect_context(api: GitHubApi, repo_root: Path) -> dict[str, Any]:
     repo_total_runs = int(run_meta["total_count"])
 
     candidate_runs: list[dict[str, Any]] = []
-    for status in ("cancelled", "skipped", "stale"):
+    for status in ("cancelled", "stale"):
         candidate_runs.extend(
             api.get_paginated(
                 f"/repos/{api.repo}/actions/runs?status={status}",
@@ -446,10 +431,20 @@ def self_test() -> int:
                 head_branch="tmp/merge-helper",
                 conclusion="failure",
             ),
-            "DELETE",
+            "REVIEW",
         ),
         (item(), "DELETE"),
+        (item(conclusion="skipped"), "REVIEW"),
         (item(conclusion="failure"), "REVIEW"),
+        (
+            item(
+                name="U2 Primary Gate GREEN v3",
+                path=".github/workflows/u2-primary-gate.yml",
+                conclusion="skipped",
+                display_title="temporary gate execution",
+            ),
+            "REVIEW",
+        ),
         (item(head_branch="live/branch"), "KEEP"),
         (
             item(

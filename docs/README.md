@@ -12,9 +12,15 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなspecはない。
+現在Activeなspecは次の1件である。
 
-現在Activeなplanはない。
+- [`specs/2026-09-11-agent-repository-control-plane-v1-design.md`](specs/2026-09-11-agent-repository-control-plane-v1-design.md) — Agent Eval、source-derived inspector、Semantic Diff、risk-based verification、merge safetyを定義するAgent-safe Repository設計
+
+現在Activeなplanは次の3件である。
+
+- [`plans/2026-09-11-agent-repository-control-plane-core-implementation.md`](plans/2026-09-11-agent-repository-control-plane-core-implementation.md) — preflight/context/impact、Semantic Diff、risk-based verificationをTDDで実装する計画
+- [`plans/2026-09-11-agent-repository-eval-implementation.md`](plans/2026-09-11-agent-repository-eval-implementation.md) — fresh-Agent task/rubric/scorerと評価protocolの実装計画
+- [`plans/2026-09-11-agent-repository-merge-safety-implementation.md`](plans/2026-09-11-agent-repository-merge-safety-implementation.md) — PR Quality ContractとGitHub integration safetyの実装計画
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

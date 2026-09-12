@@ -83,44 +83,34 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit("PPO direct observation guard mismatch")
           text = text.replace(old, new)
-          old = 'PPOIntentStrategy(FakePolicy(0), feature_indices=(0,)).decide(observation())'
-          new = 'PPOIntentStrategy(\n            FakePolicy(0),\n            feature_indices=(0,),\n            global_feature_indices=(0, 1, 2, 3),\n        ).decide(observation())'
-          if text.count(old) != 1:
-              raise SystemExit("PPO short constructor guard mismatch")
-          text = text.replace(old, new)
-          old = 'PPOIntentStrategy(FakePolicy(1), feature_indices=(0,)).decide(observation())'
-          new = 'PPOIntentStrategy(\n            FakePolicy(1),\n            feature_indices=(0,),\n            global_feature_indices=(0, 1, 2, 3),\n        ).decide(observation())'
-          if text.count(old) != 1:
-              raise SystemExit("PPO flat constructor guard mismatch")
-          text = text.replace(old, new)
-          old = 'PPOIntentStrategy(FakePolicy(2), feature_indices=(0,)).decide(observation())'
-          new = 'PPOIntentStrategy(\n            FakePolicy(2),\n            feature_indices=(0,),\n            global_feature_indices=(0, 1, 2, 3),\n        ).decide(observation())'
-          if text.count(old) != 1:
-              raise SystemExit("PPO long constructor guard mismatch")
-          text = text.replace(old, new)
-          if text.count('assert first_observation.shape == (4,)') != 1:
-              raise SystemExit("PPO first shape guard mismatch")
-          text = text.replace(
-              'assert first_observation.shape == (4,)',
-              'assert first_observation.shape == (13,)',
-          )
-          if text.count('assert second_observation.shape == (4,)') != 1:
-              raise SystemExit("PPO second shape guard mismatch")
-          text = text.replace(
-              'assert second_observation.shape == (4,)',
-              'assert second_observation.shape == (13,)',
-          )
-          if text.count('assert observation.shape == (4,)') != 1:
-              raise SystemExit("PPO explicit-fit shape guard mismatch")
-          text = text.replace(
-              'assert observation.shape == (4,)',
-              'assert observation.shape == (13,)',
-          )
+          for action, label in ((0, "short"), (1, "flat"), (2, "long")):
+              old = (
+                  f"PPOIntentStrategy(FakePolicy({action}), feature_indices=(0,))"
+                  ".decide(observation())"
+              )
+              new = (
+                  "PPOIntentStrategy(\n"
+                  f"            FakePolicy({action}),\n"
+                  "            feature_indices=(0,),\n"
+                  "            global_feature_indices=(0, 1, 2, 3),\n"
+                  "        ).decide(observation())"
+              )
+              if text.count(old) != 1:
+                  raise SystemExit(f"PPO {label} constructor guard mismatch")
+              text = text.replace(old, new)
+          for old, new, label in (
+              ("assert first_observation.shape == (4,)", "assert first_observation.shape == (13,)", "first"),
+              ("assert second_observation.shape == (4,)", "assert second_observation.shape == (13,)", "second"),
+              ("assert observation.shape == (4,)", "assert observation.shape == (13,)", "explicit-fit"),
+          ):
+              if text.count(old) != 1:
+                  raise SystemExit(f"PPO {label} shape guard mismatch")
+              text = text.replace(old, new)
           path.write_text(text, encoding="utf-8")
           PY
           uv run ruff format trade_rl/evaluation/replay.py trade_rl/strategies/interface.py trade_rl/strategies/rl/ppo.py tests/strategies
           uv run ruff check trade_rl/evaluation/replay.py trade_rl/strategies/interface.py trade_rl/strategies/rl/ppo.py tests/strategies
-          uv run pytest -q tests/strategies tests/evaluation/test_replay.py
+          uv run pytest -q tests/strategies tests/evaluation/test_single_symbol_replay.py
           rm .github/workflows/tmp-rl-observation-v2-fixtures.yml
           git add -A
           git diff --cached --check

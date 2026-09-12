@@ -27,8 +27,7 @@ def _module_level_literal_rosters(path: Path) -> tuple[tuple[str, ...], ...]:
         if not isinstance(value, (ast.Tuple, ast.List)):
             continue
         if not value.elts or any(
-            not isinstance(element, ast.Constant)
-            or not isinstance(element.value, str)
+            not isinstance(element, ast.Constant) or not isinstance(element.value, str)
             for element in value.elts
         ):
             continue

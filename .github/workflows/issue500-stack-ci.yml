@@ -32,6 +32,9 @@ jobs:
       - name: Install
         run: uv sync --extra dev
 
+      - name: Coordination tests
+        run: uv run pytest -q tests/agent_repo/test_coordination_*.py
+
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
@@ -40,6 +43,3 @@ jobs:
 
       - name: Repository tooling types
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py
-
-      - name: Coordination tests
-        run: uv run pytest -q tests/agent_repo/test_coordination_*.py

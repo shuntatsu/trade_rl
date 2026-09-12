@@ -64,6 +64,18 @@ type RankedResult = GuideSearchResult & {
   itemIndex: number;
 };
 
+function publicResult(result: RankedResult): GuideSearchResult {
+  return {
+    topicId: result.topicId,
+    ...(result.step ? { step: result.step } : {}),
+    ...(result.symbol ? { symbol: result.symbol } : {}),
+    title: result.title,
+    subtitle: result.subtitle,
+    kind: result.kind,
+    score: result.score,
+  };
+}
+
 export function searchGuide(
   topics: readonly GuideTopic[],
   query: string,
@@ -158,5 +170,5 @@ export function searchGuide(
         left.topicIndex - right.topicIndex ||
         left.itemIndex - right.itemIndex,
     )
-    .map(({ topicIndex: _topicIndex, itemIndex: _itemIndex, ...result }) => result);
+    .map(publicResult);
 }

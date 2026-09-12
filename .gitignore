@@ -239,3 +239,10 @@ elites_memo.txt
 # Source package named "build"; override the generic packaging-output rule above.
 !trade_rl/data/build/
 !trade_rl/data/build/*.py
+
+# Interactive Human Guide generated outputs
+guide/node_modules/
+guide/dist/
+guide/coverage/
+guide/playwright-report/
+guide/test-results/

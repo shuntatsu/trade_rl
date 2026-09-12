@@ -1,0 +1,13 @@
+{
+  "schema_version": "interactive-guide-v1",
+  "home": "overview",
+  "topics": [
+    "overview",
+    "data-flow",
+    "architecture",
+    "execution-economics",
+    "ppo-observation-v2",
+    "experiment-loop",
+    "research-status"
+  ]
+}

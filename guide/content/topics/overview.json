@@ -1,0 +1,110 @@
+{
+  "id": "overview",
+  "title": "実データで動く、検証可能なトレーディングRLシステム",
+  "nav_label": "全体像",
+  "summary": "市場データから検証可能な研究Evidenceまで、Trade RLの責務と流れを一枚でつかみます。",
+  "keywords": [
+    "全体像",
+    "MarketDataset",
+    "strategy",
+    "execution",
+    "experiment",
+    "evidence"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "Core flow",
+      "sha256": "dfc66a5068c86696334b0796b354d4250d2cedad5e4b5e6dfcbe9312731efb53"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "結論",
+      "sha256": "50f4bd7b805049088ab772109710509e9d682dac5e4ab439a57373b5876826a0"
+    }
+  ],
+  "sections": [
+    {
+      "title": "何をするシステムか",
+      "body": [
+        "Trade RLは、point-in-timeの市場データを固定し、同じ実行・会計ルールの下で複数strategyを比較する研究基盤です。",
+        "重要なのは、モデルを複雑にすることより、入力・実行条件・Evidence・判断手順を追跡可能にすることです。"
+      ]
+    },
+    {
+      "title": "現在の位置",
+      "body": [
+        "real-cost assumptionとPPO Observation v2を持つCanonical real-data baselineは実行・独立検証済みです。",
+        "Controlled Experimentはまだ開始しておらず、profitability・winner・Production authorizationは未証明です。"
+      ]
+    }
+  ],
+  "visualization": {
+    "kind": "architecture",
+    "nodes": [
+      {
+        "id": "market",
+        "label": "市場データ",
+        "subtitle": "Point-in-time evidence",
+        "description": "価格・出来高・funding・venue metadataなどを、未来情報を混ぜずに扱います。",
+        "input": "Binance/Vision等のfrozen source",
+        "output": "causal raw evidence",
+        "not_owned": "strategy判断やP&L評価"
+      },
+      {
+        "id": "build",
+        "label": "データ構築",
+        "subtitle": "MarketDataset",
+        "description": "特徴量・availability・staleness・execution economicsを一つのimmutable Datasetへまとめます。",
+        "input": "frozen source + build config",
+        "output": "content-addressed Dataset artifact",
+        "not_owned": "strategy固有の意思決定"
+      },
+      {
+        "id": "strategy",
+        "label": "Strategy / PPO",
+        "subtitle": "Intent",
+        "description": "同じDatasetからSHORT / FLAT / LONGの論理intentを生成します。",
+        "input": "causal observation",
+        "output": "logical intent",
+        "not_owned": "fillや手数料の計上"
+      },
+      {
+        "id": "execution",
+        "label": "Execution",
+        "subtitle": "Replay & accounting",
+        "description": "hard risk後のtargetをMarketExecutor + BookStateで約定・会計し、実コストを記録します。",
+        "input": "intent + Dataset economics",
+        "output": "returns / diagnostics",
+        "not_owned": "研究上のwinner判断"
+      },
+      {
+        "id": "experiment",
+        "label": "検証・研究",
+        "subtitle": "Study / EvidenceSet",
+        "description": "multi-seed Evidenceを比較し、一つのControlled Factorだけを変えた実験として検証します。",
+        "input": "immutable Run evidence",
+        "output": "verification / comparison / decision",
+        "not_owned": "sealed final authorization"
+      }
+    ],
+    "edges": [
+      {
+        "from": "market",
+        "to": "build"
+      },
+      {
+        "from": "build",
+        "to": "strategy"
+      },
+      {
+        "from": "strategy",
+        "to": "execution"
+      },
+      {
+        "from": "execution",
+        "to": "experiment"
+      }
+    ]
+  }
+}

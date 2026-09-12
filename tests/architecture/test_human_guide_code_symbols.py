@@ -9,9 +9,7 @@ def _symbols(index: dict[str, object]) -> dict[str, dict[str, object]]:
     raw = index["symbols"]
     assert isinstance(raw, list)
     return {
-        str(entry["qualified_name"]): entry
-        for entry in raw
-        if isinstance(entry, dict)
+        str(entry["qualified_name"]): entry for entry in raw if isinstance(entry, dict)
     }
 
 
@@ -30,9 +28,7 @@ def test_index_resolves_replay_risk_execution_and_local_names() -> None:
     assert risk["kind"] == "method"
     assert risk["path"] == "trade_rl/risk/pretrade.py"
 
-    execution = symbols[
-        "trade_rl.simulation.execution.MarketExecutor.execute_interval"
-    ]
+    execution = symbols["trade_rl.simulation.execution.MarketExecutor.execute_interval"]
     assert execution["kind"] == "method"
     assert execution["path"] == "trade_rl/simulation/execution.py"
 
@@ -85,7 +81,9 @@ def test_index_rejects_non_commit_revision(tmp_path) -> None:
     code_symbols = _code_symbols()
     package = tmp_path / "trade_rl"
     package.mkdir()
-    (package / "demo.py").write_text("def demo() -> None:\n    pass\n", encoding="utf-8")
+    (package / "demo.py").write_text(
+        "def demo() -> None:\n    pass\n", encoding="utf-8"
+    )
 
     try:
         code_symbols.build_symbol_index(package, revision="main")

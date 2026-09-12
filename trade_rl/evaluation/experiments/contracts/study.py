@@ -52,6 +52,9 @@ class StudyPlan:
         "evaluation_stop_exclusive",
         "initial_capital",
         "execution_overlay",
+        "schema_version",
+        "ppo_observation_schema",
+        "ppo_global_feature_names",
     )
 
     STRATEGY_NAMES: ClassVar[tuple[str, ...]] = (

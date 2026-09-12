@@ -75,11 +75,14 @@ def parent_completion_allowed(
     """Require child completion plus explicit parent-level acceptance and invariants."""
 
     children_complete = all(
-        status.phase is TaskPhase.COMPLETE
-        and status.condition is TaskCondition.HEALTHY
+        status.phase is TaskPhase.COMPLETE and status.condition is TaskCondition.HEALTHY
         for status in child_statuses.values()
     )
-    return children_complete and parent_acceptance_satisfied and parent_invariants_satisfied
+    return (
+        children_complete
+        and parent_acceptance_satisfied
+        and parent_invariants_satisfied
+    )
 
 
 __all__ = [

@@ -11,9 +11,9 @@ const TOPICS = loadTopics();
 const TOPIC_IDS = TOPICS.map((topic) => topic.id);
 
 export function App() {
-  const [activeId, navigate] = useHashRoute(TOPIC_IDS, guideManifest.home);
+  const [route, navigate] = useHashRoute(TOPIC_IDS, guideManifest.home);
   const { theme, resolvedTheme, setTheme } = useTheme();
-  const topic = TOPICS.find((item) => item.id === activeId) ?? TOPICS[0];
+  const topic = TOPICS.find((item) => item.id === route.topicId) ?? TOPICS[0];
   if (!topic) return null;
 
   const currentIndex = TOPICS.findIndex((item) => item.id === topic.id);

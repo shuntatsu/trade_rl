@@ -121,6 +121,8 @@ factorごとに影響しないstrategyのraw returnsを完全一致で検証す�
 - deterministic strategyはseed複製を独立sampleとして数えない。
 - PPOはStudyで登録した同一seedをbaseline/candidateでpaired比較する。
 - seedごとの結果を保持し、複数seedから単一の架空p-valueを合成しない。
+- PPOのcross-symbol candidate metricsは各symbol内でfrozen seedを先に集約する。total return / turnover / total costはseed中央値、maximum drawdownはseed内worstを使い、その後にsymbol間のdescriptive summaryを計算する。これによりseed数をsymbol weightへ変換しない。
+- 新規factor-effect payloadは`controlled_evidence_comparison_v2`を使う。persisted `controlled_evidence_comparison_v1`はhistorical first-seed candidate-metric semanticsでread/inspection再計算し、immutable comparisonを暗黙migrationしない。
 - symbolは同calendar shockを共有し得るため、cross-symbol significance claimを作らない。
 - symbol別結果、正負count、median、worst/best、drawdown/cost/turnover等はdescriptive evidenceとして保持する。
 

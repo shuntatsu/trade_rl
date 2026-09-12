@@ -195,6 +195,40 @@ def _validate_dataset_range(
         )
 
 
+def _validate_execution_economics(
+    config: CanonicalM2BootstrapConfig,
+    dataset: MarketDataset,
+) -> None:
+    expected = config.execution_economics
+    if expected is None:
+        return
+    expected_fields: tuple[tuple[str, object], ...] = (
+        ("fee_rate", expected.fee_rate),
+        ("maker_fee_rate", expected.maker_fee_rate),
+        ("taker_fee_rate", expected.taker_fee_rate),
+        ("spread_rate", expected.spread_rate),
+        ("max_participation_rate", expected.max_participation_rate),
+        ("borrow_rate", expected.borrow_rate),
+    )
+    for name, expected_value in expected_fields:
+        observed = np.asarray(dataset.resolved_array(name))
+        if not np.all(observed == expected_value):
+            raise ValueError(f"published dataset execution economics differ for {name}")
+    active = np.asarray(dataset.resolved_array("symbol_active"), dtype=np.bool_)
+    borrow_available = np.asarray(dataset.resolved_array("borrow_available"))
+    expected_borrow_available = active & expected.borrow_available
+    if not np.array_equal(borrow_available, expected_borrow_available):
+        raise ValueError(
+            "published dataset execution economics differ for borrow_available"
+        )
+    identity = json.loads(dataset.identity_payload_json or "{}")
+    if identity.get("execution_economics") != expected.canonical_payload():
+        raise ValueError(
+            "published dataset execution economics identity differs from "
+            "bootstrap config"
+        )
+
+
 def _validate_fit_scope(
     dataset: MarketDataset,
     spec: ResolvedCandidateRunSpec,
@@ -247,6 +281,7 @@ def _validate_study_against_config(
         raise ValueError("Study bootstrap seed differs from bootstrap config")
 
     _validate_dataset_range(config, dataset)
+    _validate_execution_economics(config, dataset)
     resolved = resolve_candidate_run_spec(
         dataset,
         dataset_artifact_schema=artifact.schema_version,
@@ -509,6 +544,7 @@ def bootstrap_canonical_m2_study(
             transport=frozen.composite_transport,
             feature_timeframes=config.feature_timeframes,
             metadata_evidence=frozen.metadata_evidence,
+            execution_economics=config.execution_economics,
         )
         sources = frozenset(build.sources_used)
         if not sources or not sources.issubset(_ALLOWED_DATA_SOURCES):

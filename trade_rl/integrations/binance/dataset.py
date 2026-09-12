@@ -18,6 +18,7 @@ from trade_rl.data.contracts import (
     MarketBuildConfig,
     VolumeUnit,
 )
+from trade_rl.data.economics import ExecutionEconomicsConfig
 from trade_rl.data.market import MarketDataset
 from trade_rl.data.source import MarketDataSource, RawMarketSeries
 from trade_rl.integrations.binance.metadata import (
@@ -565,6 +566,7 @@ def build_binance_market_dataset(
     execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]
     | None = None,
     metadata_evidence: Mapping[str, object] | None = None,
+    execution_economics: ExecutionEconomicsConfig | None = None,
 ) -> BinanceDatasetBuildResult:
     """Build one deterministic linear-product dataset from public Binance data."""
 
@@ -712,6 +714,7 @@ def build_binance_market_dataset(
         source,
         tuple(item.to_contract() for item in metadata),
         identity_provenance=metadata_evidence,
+        execution_economics=execution_economics,
     )
     sources = set(source.sources_used)
     if metadata_source is not None:

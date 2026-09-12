@@ -28,11 +28,11 @@ class StrategyObservation:
     symbol: str
     features: np.ndarray
     feature_available: np.ndarray
-    feature_staleness: np.ndarray
     global_features: np.ndarray
     global_feature_available: np.ndarray
     current_intent: PositionIntent
     current_weight: float
+    feature_staleness: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -52,14 +52,18 @@ class StrategyObservation:
         feature_available = (
             np.asarray(self.feature_available, dtype=np.bool_).reshape(-1).copy()
         )
-        feature_staleness = (
-            np.asarray(
-                self.feature_staleness,
-                dtype=np.float32,
+        feature_staleness: np.ndarray | None
+        if self.feature_staleness is None:
+            feature_staleness = None
+        else:
+            feature_staleness = (
+                np.asarray(
+                    self.feature_staleness,
+                    dtype=np.float32,
+                )
+                .reshape(-1)
+                .copy()
             )
-            .reshape(-1)
-            .copy()
-        )
         global_features = _readonly_vector(
             self.global_features,
             field="global_features",
@@ -74,20 +78,21 @@ class StrategyObservation:
         )
         if feature_available.shape != features.shape:
             raise ValueError("feature_available must match features")
-        if feature_staleness.shape != features.shape:
-            raise ValueError("feature_staleness must match features")
-        if (
-            not np.isfinite(feature_staleness).all()
-            or np.any(feature_staleness < 0.0)
-            or np.any(feature_staleness > 1.0)
-        ):
-            raise ValueError("feature_staleness must be finite and within [0, 1]")
-        if np.any((~feature_available) & (feature_staleness < 1.0)):
-            raise ValueError("unavailable features must have maximum staleness")
+        if feature_staleness is not None:
+            if feature_staleness.shape != features.shape:
+                raise ValueError("feature_staleness must match features")
+            if (
+                not np.isfinite(feature_staleness).all()
+                or np.any(feature_staleness < 0.0)
+                or np.any(feature_staleness > 1.0)
+            ):
+                raise ValueError("feature_staleness must be finite and within [0, 1]")
+            if np.any((~feature_available) & (feature_staleness < 1.0)):
+                raise ValueError("unavailable features must have maximum staleness")
+            feature_staleness.setflags(write=False)
         if global_feature_available.shape != global_features.shape:
             raise ValueError("global_feature_available must match global_features")
         feature_available.setflags(write=False)
-        feature_staleness.setflags(write=False)
         global_feature_available.setflags(write=False)
 
         object.__setattr__(self, "timestamp", np.datetime64(self.timestamp, "ns"))

@@ -1,0 +1,140 @@
+name: Issue 511 portable Experiment 0001 preregistration verifier
+
+on:
+  push:
+    branches:
+      - tmp/issue511-portable-exp001
+    paths:
+      - .github/workflows/issue511-portable-exp001-prereg-verify.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+
+env:
+  CURRENT_MAIN_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  ISSUE_NUMBER: "511"
+  BASELINE_RUN_ID: "34700123151"
+  BASELINE_ARTIFACT_ID: "10301701698"
+  BASELINE_ARTIFACT_DIGEST: sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a
+  PREREG_RUN_ID: "34706927260"
+  PREREG_ARTIFACT: canonical-m2-portable-exp001-prereg-v1-34706927260
+  PREREG_ARTIFACT_ID: "10302710124"
+  PREREG_ARTIFACT_DIGEST: sha256:579ec0cb451c593e35ad2a7cf09abc24117670b42b5a5f4233715c662d758e91
+  PREREG_ROOT: /tmp/issue511-portable-exp001-prereg
+  VERIFY_ROOT: /tmp/issue511-portable-exp001-prereg-verification
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact verifier helper branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove production package equals verified main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$CURRENT_MAIN_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$CURRENT_MAIN_SHA:trade_rl")"
+
+      - name: Set up frozen uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Verify immutable artifact metadata and result-blind chronology
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREREG_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$artifact")" = "$PREREG_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$artifact")" = "$PREREG_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$PREREG_RUN_ID"
+          test "$(jq -r '.expired' <<<"$artifact")" = "false"
+          issue_created="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" --jq '.created_at')"
+          artifact_created="$(jq -r '.created_at' <<<"$artifact")"
+          test "$issue_created" \< "$artifact_created"
+
+      - name: Re-download immutable preregistration
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.PREREG_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PREREG_RUN_ID }}
+
+      - name: Independently validate preregistration content
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$VERIFY_ROOT"
+          uv run python research/issue511_portable_exp001.py verify-prereg \
+            --root "$PREREG_ROOT" \
+            --report-root "$VERIFY_ROOT"
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["PREREG_ROOT"])
+          index = json.loads((root / "portable-exp001-prereg-index.json").read_text(encoding="utf-8"))
+          expected = {
+              "issue_number": 511,
+              "current_main_sha": os.environ["CURRENT_MAIN_SHA"],
+              "source_baseline_run_id": int(os.environ["BASELINE_RUN_ID"]),
+              "source_baseline_artifact_id": int(os.environ["BASELINE_ARTIFACT_ID"]),
+              "source_baseline_artifact_digest": os.environ["BASELINE_ARTIFACT_DIGEST"],
+              "resolved_changed_paths": ["rule_entry_threshold"],
+              "baseline_rule_entry_threshold": 0.01,
+              "candidate_rule_entry_threshold": 0.02,
+              "rule_exit_threshold": 0.0025,
+              "formal_target_strategy": "mean_reversion",
+              "accept_positive_factor_effect_symbols_min": 4,
+              "accept_median_excess_total_return_strictly_positive": True,
+              "accept_candidate_positive_total_return_symbols": 5,
+              "accept_candidate_turnover_strictly_below_baseline": True,
+              "keep_baseline_positive_factor_effect_symbols_max": 2,
+              "keep_baseline_median_excess_total_return_non_positive": True,
+              "keep_baseline_candidate_positive_total_return_symbols_max": 3,
+              "known_preportable_outcome": "KEEP_BASELINE",
+              "candidate_executed": False,
+              "result_inspected_before_preregistration": False,
+              "ppo_cross_symbol_metrics_used_for_decision": False,
+          }
+          for key, value in expected.items():
+              if index.get(key) != value:
+                  raise RuntimeError(f"preregistration protocol drift: {key}")
+          experiment = root / "study" / "experiments" / "0001"
+          forbidden = [
+              experiment / "candidate",
+              experiment / "verification.json",
+              experiment / "comparison.json",
+              experiment / "decision.json",
+              experiment / "failure.json",
+          ]
+          if any(path.exists() for path in forbidden):
+              raise RuntimeError("preregistration contains post-definition evidence")
+          PY
+
+      - name: Upload independent preregistration verification
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-portable-exp001-prereg-verification-v1-${{ github.run_id }}
+          path: ${{ env.VERIFY_ROOT }}
+          retention-days: 90

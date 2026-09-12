@@ -384,6 +384,7 @@ def self_test() -> int:
             {**base, "head_branch": "ops/actions-history-cleanup-old", "name": "cleanup"},
             "DELETE",
         ),
+        ({**base, "name": "V3 Focused TDD"}, "KEEP"),
     ]
     for index, (run, expected) in enumerate(cases):
         kwargs = dict(common)
@@ -403,7 +404,7 @@ def self_test() -> int:
     assert not _is_explicit_temporary_helper(
         {"name": "CI", "path": ".github/workflows/ci.yml", "display_title": "x"}
     )
-    print("self-test: 17 phase-3 classification contracts passed")
+    print("self-test: 18 phase-3 classification contracts passed")
     return 0
 
 

@@ -79,11 +79,7 @@ def parent_completion_allowed(
         and status.condition is TaskCondition.HEALTHY
         for status in child_statuses.values()
     )
-    return (
-        children_complete
-        and parent_acceptance_satisfied
-        and parent_invariants_satisfied
-    )
+    return children_complete and parent_acceptance_satisfied and parent_invariants_satisfied
 
 
 __all__ = [

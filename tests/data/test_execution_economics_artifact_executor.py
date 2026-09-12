@@ -51,9 +51,7 @@ def _dataset():
     )
     config = MarketBuildConfig(
         base_timeframe="1h",
-        features=(
-            FeatureSpec(name="ret_1", kind=FeatureKind.LOG_RETURN, lookback=1),
-        ),
+        features=(FeatureSpec(name="ret_1", kind=FeatureKind.LOG_RETURN, lookback=1),),
     )
     contract = InstrumentContract(
         symbol="BTCUSDT",

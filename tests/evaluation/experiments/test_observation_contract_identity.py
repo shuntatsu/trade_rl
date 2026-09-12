@@ -88,5 +88,7 @@ def test_resolved_run_v2_rejects_tampered_global_observation_roster() -> None:
     payload = _v2_payload()
     payload["ppo_global_feature_names"] = ["market_return_mean"]
 
-    with pytest.raises(ArtifactIntegrityError, match="observation|resolved-run contract"):
+    with pytest.raises(
+        ArtifactIntegrityError, match="observation|resolved-run contract"
+    ):
         _resolved_from_payload(payload, field="current")

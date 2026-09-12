@@ -41,7 +41,10 @@ jobs:
         run: uv run ruff check trade_rl tests tools
 
       - name: Format
-        run: uv run ruff format --check trade_rl tests tools
+        shell: bash
+        run: |
+          uv run ruff format --diff tests/architecture/test_agent_coordination_boundary.py || true
+          uv run ruff format --check trade_rl tests tools
 
       - name: Repository tooling types
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py

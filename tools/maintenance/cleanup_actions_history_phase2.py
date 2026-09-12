@@ -9,7 +9,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -205,6 +205,37 @@ def _collect_text_refs(api: GitHubApi, repo_root: Path) -> set[int]:
     return _extract_run_ids(texts) | _repository_numeric_refs(repo_root)
 
 
+def _failure_query(api: GitHubApi, start: date, end: date) -> str:
+    created = urllib.parse.quote(f"{start.isoformat()}..{end.isoformat()}", safe=".")
+    return f"/repos/{api.repo}/actions/runs?status=failure&created={created}"
+
+
+def _collect_failure_range(api: GitHubApi, start: date, end: date) -> list[dict[str, Any]]:
+    if end < start:
+        return []
+    path = _failure_query(api, start, end)
+    meta = api.get(path + "&per_page=1")
+    count = int(meta.get("total_count") or 0)
+    if count == 0:
+        return []
+    if count <= 1000:
+        runs = api.get_paginated(path, item_key="workflow_runs")
+        if len(runs) != count:
+            raise RuntimeError(
+                f"Failure partition count mismatch for {start}..{end}: expected {count}, got {len(runs)}"
+            )
+        return runs
+    if start == end:
+        raise RuntimeError(
+            f"Single-day failure partition exceeds GitHub's 1000-run search cap: {start} count={count}"
+        )
+    span_days = (end - start).days
+    midpoint = start + timedelta(days=span_days // 2)
+    left = _collect_failure_range(api, start, midpoint)
+    right = _collect_failure_range(api, midpoint + timedelta(days=1), end)
+    return left + right
+
+
 def _latest_success_for_keys(
     api: GitHubApi, keys: set[tuple[str, int]]
 ) -> dict[tuple[str, int], dict[str, Any]]:
@@ -246,14 +277,14 @@ def collect_context(api: GitHubApi, repo_root: Path, now: datetime, recent_hours
         if artifact.get("workflow_run") and artifact["workflow_run"].get("id")
     }
 
-    failure_runs = api.get_paginated(
-        f"/repos/{api.repo}/actions/runs?status=failure", item_key="workflow_runs"
-    )
+    repo_created = date.fromisoformat(str(repo["created_at"])[:10])
+    cutoff = now - timedelta(hours=recent_hours)
+    failure_runs = _collect_failure_range(api, repo_created, cutoff.date())
+
     protected_run_ids = _collect_text_refs(api, repo_root)
     failure_ids = {int(run["id"]) for run in failure_runs}
     protected_run_ids &= failure_ids
 
-    cutoff = now - timedelta(hours=recent_hours)
     success_keys: set[tuple[str, int]] = set()
     for run in failure_runs:
         branch = str(run.get("head_branch") or "")
@@ -306,7 +337,7 @@ def write_summary(report: dict[str, Any]) -> None:
         "# Actions history cleanup phase 2",
         "",
         f"- Mode: **{'DRY RUN' if report['dry_run'] else 'EXECUTE'}**",
-        f"- Failed runs scanned: **{report['failure_runs_scanned']}**",
+        f"- Old failed runs scanned completely: **{report['failure_runs_scanned']}**",
         f"- Deleted-branch CI workflow keys checked for later success: **{report['success_key_count']}**",
         f"- Safe delete candidates: **{report['candidate_count']}**",
         f"- Deleted: **{report['deleted_count']}**",

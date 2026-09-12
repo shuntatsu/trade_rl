@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
+from trade_rl.data.build import ExecutionEconomicsProfile
 from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,
@@ -94,6 +95,12 @@ def instruments() -> tuple[InstrumentContract, ...]:
     )
 
 
+def _identity_source() -> InMemoryMarketDataSource:
+    return InMemoryMarketDataSource(
+        {"BTCUSDT": raw_series(72), "ETHUSDT": raw_series(72, scale=2.0)}
+    )
+
+
 def test_builder_is_prefix_invariant() -> None:
     builder = MarketDatasetBuilder(config())
     prefix_source = InMemoryMarketDataSource(
@@ -145,9 +152,7 @@ def test_builder_uses_point_in_time_universe() -> None:
 
 
 def test_dataset_identity_binds_order_config_and_contracts() -> None:
-    source = InMemoryMarketDataSource(
-        {"BTCUSDT": raw_series(72), "ETHUSDT": raw_series(72, scale=2.0)}
-    )
+    source = _identity_source()
     base = MarketDatasetBuilder(config()).build(source, instruments())
     reordered = MarketDatasetBuilder(config()).build(
         source, tuple(reversed(instruments()))
@@ -176,10 +181,75 @@ def test_dataset_identity_binds_order_config_and_contracts() -> None:
     assert len(identities) == 4
 
 
-def test_dataset_identity_binds_canonical_identity_provenance() -> None:
-    source = InMemoryMarketDataSource(
-        {"BTCUSDT": raw_series(72), "ETHUSDT": raw_series(72, scale=2.0)}
+def test_builder_preserves_pre481_identity_without_execution_profile() -> None:
+    dataset = MarketDatasetBuilder(config()).build(_identity_source(), instruments())
+
+    assert dataset.dataset_id == (
+        "fd107ed8cfb3b3d26e5744bd7774db571864d250ebc5c2e907f900653a09b0f0"
     )
+    assert dataset.feature_config_digest == (
+        "3729d59af7d2a35a6e58b12c605e8b5ef31a59e543b815e7c875e8bb4de4f3d4"
+    )
+    assert dataset.normalization_digest == (
+        "ee96986731da70b20a058c1a804aa51dbbf4ed9d730b237c52256a2067b29e81"
+    )
+    assert set(dataset.fee_rate.ravel()) == {0.0}
+    assert set(dataset.spread_rate.ravel()) == {0.0}
+    assert set(dataset.max_participation_rate.ravel()) == {1.0}
+
+
+def test_builder_binds_execution_economics_without_changing_feature_semantics() -> (
+    None
+):
+    source = _identity_source()
+    builder = MarketDatasetBuilder(config())
+    legacy = builder.build(source, instruments())
+    profile = ExecutionEconomicsProfile(
+        name="research_v1",
+        fee_rate=0.0005,
+        spread_rate=0.0002,
+        max_participation_rate=0.05,
+        borrow_available=True,
+        borrow_rate=0.01,
+    )
+
+    priced = builder.build(
+        source,
+        instruments(),
+        execution_economics=profile,
+    )
+    renamed = builder.build(
+        source,
+        instruments(),
+        execution_economics=ExecutionEconomicsProfile(
+            name="research_v1_alias",
+            fee_rate=0.0005,
+            spread_rate=0.0002,
+            max_participation_rate=0.05,
+            borrow_available=True,
+            borrow_rate=0.01,
+        ),
+    )
+
+    np.testing.assert_array_equal(priced.fee_rate, np.full((72, 2), 0.0005))
+    np.testing.assert_array_equal(priced.maker_fee_rate, np.zeros((72, 2)))
+    np.testing.assert_array_equal(priced.taker_fee_rate, np.zeros((72, 2)))
+    np.testing.assert_array_equal(priced.spread_rate, np.full((72, 2), 0.0002))
+    np.testing.assert_array_equal(
+        priced.max_participation_rate,
+        np.full((72, 2), 0.05),
+    )
+    np.testing.assert_array_equal(priced.borrow_available, np.ones((72, 2), dtype=bool))
+    np.testing.assert_array_equal(priced.borrow_rate, np.full((72, 2), 0.01))
+    assert priced.feature_config_digest == legacy.feature_config_digest
+    assert priced.normalization_digest == legacy.normalization_digest
+    np.testing.assert_array_equal(priced.features, legacy.features)
+    assert priced.dataset_id != legacy.dataset_id
+    assert renamed.dataset_id != priced.dataset_id
+
+
+def test_dataset_identity_binds_canonical_identity_provenance() -> None:
+    source = _identity_source()
     builder = MarketDatasetBuilder(config())
 
     rest = builder.build(

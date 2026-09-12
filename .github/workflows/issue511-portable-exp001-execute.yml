@@ -1,0 +1,150 @@
+name: Issue 511 portable Experiment 0001 execution
+
+on:
+  push:
+    branches:
+      - tmp/issue511-portable-exp001
+    paths:
+      - .github/workflows/issue511-portable-exp001-execute.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+
+env:
+  FROZEN_MAIN_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  ISSUE_NUMBER: "511"
+  PREREG_RUN_ID: "34706927260"
+  PREREG_ARTIFACT: canonical-m2-portable-exp001-prereg-v1-34706927260
+  PREREG_ARTIFACT_ID: "10302710124"
+  PREREG_ARTIFACT_DIGEST: sha256:579ec0cb451c593e35ad2a7cf09abc24117670b42b5a5f4233715c662d758e91
+  PREREG_VERIFY_RUN_ID: "34707135657"
+  PREREG_VERIFY_ARTIFACT: canonical-m2-portable-exp001-prereg-verification-v1-34707135657
+  PREREG_VERIFY_ARTIFACT_ID: "10301807306"
+  PREREG_VERIFY_ARTIFACT_DIGEST: sha256:dfa477673aaea96876ee9f945ffb4e84d6d304472e48804332bdd14b0120c852
+  RESULT_ROOT: /tmp/issue511-portable-exp001-result
+  PREFLIGHT_VERIFY_ROOT: /tmp/issue511-execution-preflight
+
+jobs:
+  execute:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    outputs:
+      artifact_name: ${{ steps.execute.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      candidate_fingerprint: ${{ steps.execute.outputs.candidate_fingerprint }}
+      verification_digest: ${{ steps.execute.outputs.verification_digest }}
+      comparison_digest: ${{ steps.execute.outputs.comparison_digest }}
+      decision_digest: ${{ steps.execute.outputs.decision_digest }}
+      decision: ${{ steps.execute.outputs.decision }}
+    steps:
+      - name: Checkout exact pre-frozen execution helper head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production subtree unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$FROZEN_MAIN_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_MAIN_SHA:trade_rl")"
+
+      - name: Set up frozen uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile and strictly lint execution/verifier helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile \
+            research/issue511_portable_exp001.py \
+            research/issue511_portable_exp001_execute.py \
+            research/issue511_portable_exp001_postverify.py
+          uv run ruff check \
+            research/issue511_portable_exp001_execute.py \
+            research/issue511_portable_exp001_postverify.py
+
+      - name: Verify exact preregistration and verifier artifact metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          verify_artifact() {
+            local id="$1" name="$2" digest="$3" run_id="$4"
+            local payload
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$payload")" = "$name"
+            test "$(jq -r '.digest' <<<"$payload")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$payload")" = "$run_id"
+            test "$(jq -r '.expired' <<<"$payload")" = "false"
+          }
+          verify_artifact "$PREREG_ARTIFACT_ID" "$PREREG_ARTIFACT" "$PREREG_ARTIFACT_DIGEST" "$PREREG_RUN_ID"
+          verify_artifact "$PREREG_VERIFY_ARTIFACT_ID" "$PREREG_VERIFY_ARTIFACT" "$PREREG_VERIFY_ARTIFACT_DIGEST" "$PREREG_VERIFY_RUN_ID"
+          issue="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER")"
+          test "$(jq -r '.state' <<<"$issue")" = "open"
+
+      - name: Download the exact verified preregistration
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PREREG_RUN_ID }}
+
+      - name: Re-run preregistration content gate immediately before execution
+        shell: bash
+        env:
+          CURRENT_MAIN_SHA: ${{ env.FROZEN_MAIN_SHA }}
+          BASELINE_RUN_ID: "34700123151"
+          BASELINE_ARTIFACT_ID: "10301701698"
+          BASELINE_ARTIFACT_DIGEST: sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a
+        run: |
+          set -euo pipefail
+          rm -rf "$PREFLIGHT_VERIFY_ROOT"
+          uv run python research/issue511_portable_exp001.py verify-prereg \
+            --root "$RESULT_ROOT" \
+            --report-root "$PREFLIGHT_VERIFY_ROOT"
+
+      - name: Execute, independently analyze, compare and decide Experiment 0001
+        id: execute
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python research/issue511_portable_exp001_execute.py --root "$RESULT_ROOT"
+
+      - name: Upload immutable Experiment 0001 result
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.execute.outputs.artifact_name }}
+          path: ${{ env.RESULT_ROOT }}
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+      - name: Upload fail-closed execution diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-portable-exp001-execution-failure-${{ github.run_id }}
+          path: |
+            ${{ env.RESULT_ROOT }}
+            ${{ env.PREFLIGHT_VERIFY_ROOT }}
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: ignore

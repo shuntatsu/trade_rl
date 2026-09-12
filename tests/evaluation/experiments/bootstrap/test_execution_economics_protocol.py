@@ -7,12 +7,22 @@ import numpy as np
 import pytest
 
 from tests.evaluation.experiments.bootstrap.test_config import _valid_payload, _write
+from tests.evaluation.experiments.bootstrap.test_workflow import (
+    _install_fakes,
+    _synthetic_dataset,
+)
 from tests.integrations.test_binance import FakeTransport
 from trade_rl.data.economics import ExecutionEconomicsConfig
 from trade_rl.evaluation.experiments.bootstrap.config import (
     load_canonical_m2_bootstrap_config,
 )
-from trade_rl.integrations.binance import build_binance_market_dataset
+from trade_rl.evaluation.experiments.bootstrap.workflow import (
+    bootstrap_canonical_m2_study,
+)
+from trade_rl.integrations.binance import (
+    BinanceDatasetBuildResult,
+    build_binance_market_dataset,
+)
 
 
 def _profile() -> ExecutionEconomicsConfig:
@@ -104,3 +114,34 @@ def test_binance_dataset_build_applies_explicit_execution_economics() -> None:
     np.testing.assert_allclose(costed.dataset.resolved_array("borrow_rate"), 0.0)
     identity = json.loads(costed.dataset.identity_payload_json or "{}")
     assert identity["execution_economics"] == _profile().canonical_payload()
+
+
+def test_v2_bootstrap_rejects_silent_zero_economics_dataset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fakes(monkeypatch)
+    from trade_rl.evaluation.experiments.bootstrap import workflow as workflow_module
+
+    def zero_economics_build(**kwargs: object) -> BinanceDatasetBuildResult:
+        assert kwargs["execution_economics"] == _profile()
+        dataset = _synthetic_dataset(kwargs["metadata_evidence"])
+        return BinanceDatasetBuildResult(
+            dataset=dataset,
+            metadata=(),
+            sources_used=("frozen:exchange-info", "vision"),
+            feature_timeframes=("1h",),
+        )
+
+    monkeypatch.setattr(
+        workflow_module,
+        "build_binance_market_dataset",
+        zero_economics_build,
+    )
+    config_path = tmp_path / "bootstrap-v2.json"
+    config_path.write_text(json.dumps(_v2_payload()), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="execution economics"):
+        bootstrap_canonical_m2_study(config_path, tmp_path / "canonical-m2-v2")
+
+    assert not (tmp_path / "canonical-m2-v2").exists()

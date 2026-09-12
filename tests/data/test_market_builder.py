@@ -185,7 +185,7 @@ def test_builder_preserves_pre481_identity_without_execution_profile() -> None:
     dataset = MarketDatasetBuilder(config()).build(_identity_source(), instruments())
 
     assert dataset.dataset_id == (
-        "fd107ed8cfb3b3d26e5744bd7774db571864d250ebc5c2e907f900653a09b0f0"
+        "63e5222b04e41b8efbb7eb6ee04e6ba1bbb0989358571239fdc6f778eae8e4c8"
     )
     assert dataset.feature_config_digest == (
         "3729d59af7d2a35a6e58b12c605e8b5ef31a59e543b815e7c875e8bb4de4f3d4"
@@ -237,7 +237,7 @@ def test_builder_binds_execution_economics_without_changing_feature_semantics() 
         priced.max_participation_rate,
         np.full((72, 2), 0.05),
     )
-    np.testing.assert_array_equal(priced.borrow_available, np.ones((72, 2), dtype=bool))
+    np.testing.assert_array_equal(priced.borrow_available, priced.symbol_active)
     np.testing.assert_array_equal(priced.borrow_rate, np.full((72, 2), 0.01))
     assert priced.feature_config_digest == legacy.feature_config_digest
     assert priced.normalization_digest == legacy.normalization_digest

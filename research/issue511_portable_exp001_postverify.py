@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 import hashlib
 import json
 import math
@@ -45,6 +46,12 @@ DETERMINISTIC = tuple(name for name in STRATEGIES if name != "ppo")
 UNAFFECTED = frozenset(
     {"cash", "constant_long", "constant_short", "ridge24", "lightgbm24", "ppo"}
 )
+
+
+def _mapping(value: object, *, field: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+        raise RuntimeError(f"{field} malformed")
+    return value
 
 
 def _sha(path: Path) -> str:
@@ -341,13 +348,18 @@ def verify(prereg_root: Path, result_root: Path, report_root: Path) -> None:
             f"expected={expected_decision.value} observed={result_experiment.decision.decision.value}"
         )
 
-    factor_effect = result_experiment.comparison.factor_effect
-    cross_symbol = factor_effect.get("cross_symbol")
-    if not isinstance(cross_symbol, dict):
-        raise RuntimeError("persisted comparison malformed")
-    persisted_mr = cross_symbol.get("mean_reversion")
-    if not isinstance(persisted_mr, dict):
-        raise RuntimeError("persisted mean-reversion summary malformed")
+    factor_effect = _mapping(
+        result_experiment.comparison.factor_effect,
+        field="persisted comparison factor_effect",
+    )
+    cross_symbol = _mapping(
+        factor_effect.get("cross_symbol"),
+        field="persisted comparison cross_symbol",
+    )
+    persisted_mr = _mapping(
+        cross_symbol.get("mean_reversion"),
+        field="persisted mean-reversion summary",
+    )
     if persisted_mr.get("positive_symbol_count") != positive_effects:
         raise RuntimeError("persisted positive symbol count differs from raw oracle")
     persisted_median = persisted_mr.get("median_excess_total_return")
@@ -387,13 +399,17 @@ def verify(prereg_root: Path, result_root: Path, report_root: Path) -> None:
     if cash_observations != 25:
         raise RuntimeError("cash observation count drift")
 
-    result_index_path = result_root / "portable-exp001-result-index.json"
+    result_index_path = result_root / "portable-exp001-recovered-result-index.json"
     if not result_index_path.is_file():
         raise RuntimeError("result index missing")
     result_index = json.loads(result_index_path.read_text(encoding="utf-8"))
     index_expected = {
-        "schema_version": "canonical_m2_portable_exp001_result_index_v1",
+        "schema_version": "canonical_m2_portable_exp001_recovered_result_index_v1",
         "issue_number": 511,
+        "original_execution_run_id": 34707652616,
+        "original_execution_helper_git_sha": "52e9c573fbee9ca24eac031f7dad5c6646ca76d8",
+        "source_failure_artifact_id": 10304040458,
+        "source_failure_artifact_digest": "sha256:0e67733694765a48f0ca47220cb4c5520bd2934043d5f1a4a60cf865f241735a",
         "study_digest": EXPECTED_STUDY_DIGEST,
         "baseline_evidence_fingerprint": EXPECTED_BASELINE_FINGERPRINT,
         "candidate_evidence_fingerprint": candidate.evidence.fingerprint,
@@ -407,6 +423,8 @@ def verify(prereg_root: Path, result_root: Path, report_root: Path) -> None:
         "comparison_digest": result_experiment.comparison.digest,
         "decision_digest": result_experiment.decision.digest,
         "decision": expected_decision.value,
+        "candidate_reexecuted_during_recovery": False,
+        "comparison_recomputed_during_recovery": False,
         "study_frozen": False,
         "profitability_claimed": False,
         "winner_claimed": False,
@@ -419,7 +437,7 @@ def verify(prereg_root: Path, result_root: Path, report_root: Path) -> None:
 
     report_root.mkdir(parents=True, exist_ok=True)
     report = {
-        "schema_version": "canonical_m2_portable_exp001_postverify_v1",
+        "schema_version": "canonical_m2_portable_exp001_recovery_postverify_v2",
         "study_digest": EXPECTED_STUDY_DIGEST,
         "definition_digest": EXPECTED_DEFINITION_DIGEST,
         "baseline_evidence_fingerprint": EXPECTED_BASELINE_FINGERPRINT,

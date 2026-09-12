@@ -12,9 +12,13 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなspecはない。
+現在Activeなspec:
 
-現在Activeなplanはない。
+- [`specs/2026-09-12-rl-observation-v2.md`](specs/2026-09-12-rl-observation-v2.md) — real-data M2前にfreezeするteacher-free PPO Observation v2契約
+
+現在Activeなplan:
+
+- [`plans/2026-09-12-rl-observation-v2.md`](plans/2026-09-12-rl-observation-v2.md) — Observation v2のTDD、artifact/Study identity互換、falsification、final verification計画
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

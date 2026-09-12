@@ -8,12 +8,17 @@ from types import MappingProxyType, SimpleNamespace
 import pytest
 
 MODULE = "research.issue511_portable_exp001_recovery"
+POSTVERIFY_MODULE = "research.issue511_portable_exp001_postverify"
 
 
 def _module():
     spec = find_spec(MODULE)
     assert spec is not None, "recovery helper is not implemented"
     return import_module(MODULE)
+
+
+def _postverify_module():
+    return import_module(POSTVERIFY_MODULE)
 
 
 def _comparison(*, positive: int = 4, median_excess: float = 0.25):
@@ -64,3 +69,10 @@ def test_recovery_helper_cannot_reexecute_candidate() -> None:
     assert "run_experiment(" not in source
     assert "execute_evidence_set(" not in source
     assert "compare_experiment(" not in source
+
+
+def test_postverify_mapping_helper_accepts_mappingproxy() -> None:
+    module = _postverify_module()
+    value = MappingProxyType({"cross_symbol": MappingProxyType({})})
+    resolved = module._mapping(value, field="factor_effect")
+    assert resolved["cross_symbol"] == MappingProxyType({})

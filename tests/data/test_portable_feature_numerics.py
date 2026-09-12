@@ -304,6 +304,7 @@ def test_identity_bound_dataset_code_has_no_dispatched_numpy_numerics() -> None:
         "mean",
         "std",
         "sum",
+        "sqrt",
         "var",
     }
     forbidden_method = {"dot", "mean", "std", "sum", "var"}

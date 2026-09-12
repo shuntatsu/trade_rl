@@ -13,13 +13,14 @@
     "evaluation",
     "dependency",
     "tooling",
-    "coordination"
+    "coordination",
+    "numerics"
   ],
   "source_sections": [
     {
       "path": "docs/architecture/package-boundaries.md",
       "heading": "Ownership",
-      "sha256": "0dd38ee9f1a21716f6b0863d0b6bd57dc10a94983f9db432879232d73cee6c7f"
+      "sha256": "5eef4b077997e6ae133d93345984878606eb37bc560c2ff51de25e184696903f"
     },
     {
       "path": "docs/architecture/package-boundaries.md",
@@ -31,7 +32,8 @@
     {
       "title": "一つの責務に一つのowner",
       "body": [
-        "private implementationを別packageから直接触らず、data・strategy・risk・simulation・evaluationの境界を維持します。"
+        "private implementationを別packageから直接触らず、data・strategy・risk・simulation・evaluationの境界を維持します。",
+        "canonical Dataset identityへ入るfeature numericsはdata/features/numerics.pyが所有し、model学習・simulation P&L・汎用evaluationの数値計算とは責務を分けます。"
       ]
     },
     {
@@ -54,7 +56,7 @@
         "id": "data",
         "label": "data",
         "subtitle": "Dataset authority",
-        "description": "MarketDataset、causal data、feature、artifact、build economicsを所有します。",
+        "description": "MarketDataset、causal data、portable feature numerics、artifact、build economicsを所有します。",
         "input": "source evidence",
         "output": "immutable Dataset",
         "not_owned": "strategy / replay"

@@ -7,6 +7,14 @@ import math
 import numpy as np
 
 from trade_rl.data.contracts import FeatureKind, FeatureSpec, NormalizationMode
+from trade_rl.data.features.numerics import (
+    portable_correlation,
+    portable_dot,
+    portable_log,
+    portable_mean,
+    portable_std,
+    portable_sum,
+)
 
 _EPSILON = 1e-12
 _MACD_FAST = 12
@@ -58,9 +66,11 @@ def _rolling_normalize(
         sample = values[start : index + 1][sample_mask]
         if sample.size < min_periods:
             continue
-        std = float(np.std(sample))
+        std = float(portable_std(sample))
         normalized[index] = (
-            0.0 if std <= _EPSILON else (values[index] - float(np.mean(sample))) / std
+            0.0
+            if std <= _EPSILON
+            else (values[index] - float(portable_mean(sample))) / std
         )
         normalized_valid[index] = True
         normalized_start[index] = int(
@@ -94,7 +104,7 @@ def _wilder_average(
     first = start + period - 1
     if first >= stop:
         return result
-    result[first] = float(np.mean(values[start : first + 1]))
+    result[first] = float(portable_mean(values[start : first + 1]))
     for index in range(first + 1, stop):
         result[index] = ((period - 1) * result[index - 1] + values[index]) / period
     return result
@@ -116,8 +126,8 @@ def _rsi(
         gains = np.maximum(changes, 0.0)
         losses = np.maximum(-changes, 0.0)
         first = start + period
-        avg_gain = float(np.mean(gains[start + 1 : first + 1]))
-        avg_loss = float(np.mean(losses[start + 1 : first + 1]))
+        avg_gain = float(portable_mean(gains[start + 1 : first + 1]))
+        avg_loss = float(portable_mean(losses[start + 1 : first + 1]))
         for index in range(first, stop):
             if index > first:
                 avg_gain = ((period - 1) * avg_gain + gains[index]) / period
@@ -230,7 +240,7 @@ def _adx(
         first = di_first + period - 1
         if first >= stop or not np.all(dx_valid[di_first : first + 1]):
             continue
-        adx = float(np.mean(dx[di_first : first + 1]))
+        adx = float(portable_mean(dx[di_first : first + 1]))
         values[first] = adx / 100.0
         valid[first] = True
         source_start[first] = start
@@ -360,11 +370,11 @@ def _funding_feature(
             if len(sample_indices) < min(4, lookback):
                 continue
             sample = funding_rate[sample_indices]
-            std = float(np.std(sample))
+            std = float(portable_std(sample))
             values[index] = (
                 0.0
                 if std <= _EPSILON
-                else (funding_rate[index] - float(np.mean(sample))) / std
+                else (funding_rate[index] - float(portable_mean(sample))) / std
             )
             source_start[index] = sample_indices[0]
         else:
@@ -525,19 +535,21 @@ def calculate_feature_events(
             }:
                 start = index - spec.lookback + 1
                 if _window_is_valid(usable, start, index + 1):
-                    log_range = np.log(high[start : index + 1] / low[start : index + 1])
+                    log_range = portable_log(
+                        high[start : index + 1] / low[start : index + 1]
+                    )
                     if kind is FeatureKind.PARKINSON_VOLATILITY:
-                        variance = float(np.mean(np.square(log_range))) / (
+                        variance = float(portable_mean(np.square(log_range))) / (
                             4.0 * math.log(2.0)
                         )
                     else:
-                        log_body = np.log(
+                        log_body = portable_log(
                             close[start : index + 1] / open_price[start : index + 1]
                         )
                         terms = 0.5 * np.square(log_range) - (
                             2.0 * math.log(2.0) - 1.0
                         ) * np.square(log_body)
-                        variance = max(float(np.mean(terms)), 0.0)
+                        variance = max(float(portable_mean(terms)), 0.0)
                     values[index] = math.sqrt(max(variance, 0.0))
                     valid[index] = True
                     source_start[index] = start
@@ -548,23 +560,23 @@ def calculate_feature_events(
             }:
                 start = index - spec.lookback
                 if _window_is_valid(usable, start, index + 1):
-                    returns = np.diff(np.log(close[start : index + 1]))
+                    returns = np.diff(portable_log(close[start : index + 1]))
                     if kind is FeatureKind.DOWNSIDE_VOLATILITY:
                         sample = returns[returns < 0.0]
                         values[index] = (
                             0.0
                             if sample.size == 0
-                            else float(np.sqrt(np.mean(np.square(sample))))
+                            else float(math.sqrt(portable_mean(np.square(sample))))
                         )
                     elif kind is FeatureKind.UPSIDE_VOLATILITY:
                         sample = returns[returns > 0.0]
                         values[index] = (
                             0.0
                             if sample.size == 0
-                            else float(np.sqrt(np.mean(np.square(sample))))
+                            else float(math.sqrt(portable_mean(np.square(sample))))
                         )
                     else:
-                        values[index] = float(np.std(np.abs(returns)))
+                        values[index] = float(portable_std(np.abs(returns)))
                     valid[index] = True
                     source_start[index] = start
             elif kind is FeatureKind.RANGE_EXPANSION:
@@ -572,7 +584,7 @@ def calculate_feature_events(
                 if _window_is_valid(usable, start, index + 1):
                     prior = (high[start:index] - low[start:index]) / close[start:index]
                     current = (high[index] - low[index]) / close[index]
-                    mean = float(np.mean(prior))
+                    mean = float(portable_mean(prior))
                     values[index] = 0.0 if mean <= _EPSILON else current / mean - 1.0
                     valid[index] = True
                     source_start[index] = start
@@ -582,22 +594,22 @@ def calculate_feature_events(
             }:
                 start = index - spec.lookback + 1
                 if _window_is_valid(usable, start, index + 1):
-                    sample = np.log(close[start : index + 1])
+                    sample = portable_log(close[start : index + 1])
                     x = np.arange(sample.size, dtype=np.float64)
-                    x_centered = x - float(np.mean(x))
-                    y_centered = sample - float(np.mean(sample))
-                    denominator = float(np.dot(x_centered, x_centered))
+                    x_centered = x - float(portable_mean(x))
+                    y_centered = sample - float(portable_mean(sample))
+                    denominator = float(portable_dot(x_centered, x_centered))
                     slope = (
                         0.0
                         if denominator <= _EPSILON
-                        else float(np.dot(x_centered, y_centered) / denominator)
+                        else float(portable_dot(x_centered, y_centered) / denominator)
                     )
                     if kind is FeatureKind.LINEAR_REGRESSION_SLOPE:
                         values[index] = slope
                     else:
-                        fitted = float(np.mean(sample)) + slope * x_centered
-                        total = float(np.dot(y_centered, y_centered))
-                        residual = float(np.sum(np.square(sample - fitted)))
+                        fitted = float(portable_mean(sample)) + slope * x_centered
+                        total = float(portable_dot(y_centered, y_centered))
+                        residual = float(portable_sum(np.square(sample - fitted)))
                         values[index] = (
                             0.0
                             if total <= _EPSILON
@@ -615,8 +627,8 @@ def calculate_feature_events(
                     ) / 3.0
                     flow = typical * volume[start : index + 1]
                     changes = np.diff(typical)
-                    positive = float(np.sum(flow[1:][changes > 0.0]))
-                    negative = float(np.sum(flow[1:][changes < 0.0]))
+                    positive = float(portable_sum(flow[1:][changes > 0.0]))
+                    negative = float(portable_sum(flow[1:][changes < 0.0]))
                     if negative <= _EPSILON:
                         mfi = 100.0 if positive > _EPSILON else 50.0
                     else:
@@ -637,12 +649,13 @@ def calculate_feature_events(
                         out=np.zeros_like(spread),
                         where=spread > _EPSILON,
                     )
-                    denominator = float(np.sum(volume[start : index + 1]))
+                    denominator = float(portable_sum(volume[start : index + 1]))
                     values[index] = (
                         0.0
                         if denominator <= _EPSILON
                         else float(
-                            np.sum(multiplier * volume[start : index + 1]) / denominator
+                            portable_sum(multiplier * volume[start : index + 1])
+                            / denominator
                         )
                     )
                     valid[index] = True
@@ -655,12 +668,13 @@ def calculate_feature_events(
                         + low[start : index + 1]
                         + close[start : index + 1]
                     ) / 3.0
-                    denominator = float(np.sum(volume[start : index + 1]))
+                    denominator = float(portable_sum(volume[start : index + 1]))
                     vwap = (
                         close[index]
                         if denominator <= _EPSILON
                         else float(
-                            np.sum(typical * volume[start : index + 1]) / denominator
+                            portable_sum(typical * volume[start : index + 1])
+                            / denominator
                         )
                     )
                     values[index] = (close[index] - vwap) / close[index]
@@ -669,18 +683,18 @@ def calculate_feature_events(
             elif kind is FeatureKind.PRICE_VOLUME_CORRELATION:
                 start = index - spec.lookback
                 if _window_is_valid(usable, start, index + 1):
-                    price_returns = np.diff(np.log(close[start : index + 1]))
+                    price_returns = np.diff(portable_log(close[start : index + 1]))
                     safe_volume = np.maximum(volume[start : index + 1], _EPSILON)
-                    volume_changes = np.diff(np.log(safe_volume))
+                    volume_changes = np.diff(portable_log(safe_volume))
                     if (
-                        np.std(price_returns) <= _EPSILON
-                        or np.std(volume_changes) <= _EPSILON
+                        portable_std(price_returns) <= _EPSILON
+                        or portable_std(volume_changes) <= _EPSILON
                     ):
                         values[index] = 0.0
                     else:
                         values[index] = float(
                             np.clip(
-                                np.corrcoef(price_returns, volume_changes)[0, 1],
+                                portable_correlation(price_returns, volume_changes),
                                 -1.0,
                                 1.0,
                             )
@@ -695,7 +709,7 @@ def calculate_feature_events(
                     start = index - 2 * spec.lookback
                     middle = index - spec.lookback
                 if _window_is_valid(usable, start, index + 1):
-                    denominator = float(np.sum(volume[start + 1 : index + 1]))
+                    denominator = float(portable_sum(volume[start + 1 : index + 1]))
                     if denominator <= _EPSILON:
                         values[index] = 0.0
                     elif kind is FeatureKind.OBV_CHANGE:
@@ -713,7 +727,7 @@ def calculate_feature_events(
             elif kind is FeatureKind.RELATIVE_VOLUME:
                 start = index - spec.lookback + 1
                 if _window_is_valid(usable, start, index + 1):
-                    mean = float(np.mean(volume[start : index + 1]))
+                    mean = float(portable_mean(volume[start : index + 1]))
                     relative = 0.0 if mean <= _EPSILON else volume[index] / mean - 1.0
                     values[index] = math.tanh(relative)
                     valid[index] = True
@@ -727,8 +741,8 @@ def calculate_feature_events(
             elif kind is FeatureKind.REALIZED_VOLATILITY:
                 start = index - spec.lookback
                 if _window_is_valid(usable, start, index + 1):
-                    returns = np.diff(np.log(close[start : index + 1]))
-                    values[index] = float(np.sqrt(np.mean(np.square(returns))))
+                    returns = np.diff(portable_log(close[start : index + 1]))
+                    values[index] = float(math.sqrt(portable_mean(np.square(returns))))
                     valid[index] = True
                     source_start[index] = start
             elif kind is FeatureKind.VOLUME_ZSCORE:
@@ -736,11 +750,11 @@ def calculate_feature_events(
                 mask = usable[start : index + 1]
                 sample = volume[start : index + 1][mask]
                 if sample.size >= spec.min_periods:
-                    std = float(np.std(sample))
+                    std = float(portable_std(sample))
                     values[index] = (
                         0.0
                         if std <= _EPSILON
-                        else (volume[index] - float(np.mean(sample))) / std
+                        else (volume[index] - float(portable_mean(sample))) / std
                     )
                     valid[index] = True
                     source_start[index] = start
@@ -751,8 +765,8 @@ def calculate_feature_events(
                 start = index - spec.lookback + 1
                 if _window_is_valid(usable, start, index + 1):
                     sample = close[start : index + 1]
-                    mean = float(np.mean(sample))
-                    std = float(np.std(sample))
+                    mean = float(portable_mean(sample))
+                    std = float(portable_std(sample))
                     if kind is FeatureKind.BOLLINGER_POSITION:
                         values[index] = (
                             0.0
@@ -800,7 +814,7 @@ def calculate_feature_events(
                     )
                     k_values.append(2.0 * ratio - 1.0)
                 if len(k_values) == _STOCHASTIC_SMOOTH:
-                    values[index] = float(np.mean(k_values))
+                    values[index] = float(portable_mean(k_values))
                     valid[index] = True
                     source_start[index] = base_start
             elif kind is FeatureKind.CCI:
@@ -811,8 +825,8 @@ def calculate_feature_events(
                         + low[start : index + 1]
                         + close[start : index + 1]
                     ) / 3.0
-                    mean = float(np.mean(typical))
-                    deviation = float(np.mean(np.abs(typical - mean)))
+                    mean = float(portable_mean(typical))
+                    deviation = float(portable_mean(np.abs(typical - mean)))
                     raw = (
                         0.0
                         if deviation <= _EPSILON
@@ -824,7 +838,7 @@ def calculate_feature_events(
             elif kind is FeatureKind.OBV_SLOPE:
                 start = index - spec.lookback
                 if _window_is_valid(usable, start, index + 1):
-                    denominator = float(np.sum(volume[start + 1 : index + 1]))
+                    denominator = float(portable_sum(volume[start + 1 : index + 1]))
                     values[index] = (
                         0.0
                         if denominator <= _EPSILON

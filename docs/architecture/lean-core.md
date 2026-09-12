@@ -41,6 +41,10 @@ metrics / comparison / robustness / immutable run artifact
 
 Dataset identityは内容にbindされ、canonical artifactはdeterministicでなければならない。publication先が既に存在する場合は上書きせずfailする。
 
+Canonical Datasetのidentity-bound feature numericsは `trade_rl.data.features.numerics` を単一authorityとし、scalar `math.log` と固定順序の `math.fsum` を基礎にmean / variance / standard deviation / dot / covariance / correlationを定義する。identityを一致させるためのrounding、quantization、tolerance-based hash canonicalizationは行わない。現行buildは `market_build_v3` と `portable_feature_numerics_v1` をbuild identityへ明示bindし、保存feature dtypeは従来どおり`float32`とする。
+
+このportable contractは、同一code・config・sealed sourceから構築した完全Datasetについて、現行のUbuntu x86_64 hosted runner上の複数AMD EPYC系と複数Intel Xeon系で `features`、`global_features`、normalization digest、Dataset IDのbit-exact一致を実証済みである。一方、任意のARM、任意libm、任意platformまでの普遍的なbit-identical保証は主張しない。historical `market_build_v2` artifactは書き換えず、current readerでそのidentityのまま読み取れる互換を維持する。
+
 ## Strategy contract
 
 Strategyが返すlogical intentは小さく保つ。

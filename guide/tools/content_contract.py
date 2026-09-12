@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import re
 from pathlib import Path, PurePosixPath
+from types import ModuleType
 from typing import Any
 
 
@@ -16,6 +18,7 @@ MANIFEST_PATH = GUIDE_CONTENT / "manifest.json"
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
 _HEX_64_RE = re.compile(r"^[0-9a-f]{64}$")
+_ALLOWED_CODE_KINDS = {"function", "class", "method"}
 _ALLOWED_VISUALIZATIONS = {
     "architecture",
     "data-flow",
@@ -28,6 +31,11 @@ _ALLOWED_VISUALIZATIONS = {
 
 class GuideContractError(ValueError):
     """Raised when the human guide no longer matches its source contract."""
+
+
+def _code_symbols_module() -> ModuleType:
+    module_name = "guide.tools.code_symbols" if __package__ else "code_symbols"
+    return importlib.import_module(module_name)
 
 
 def _normalize_newlines(text: str) -> str:
@@ -171,6 +179,140 @@ def _topic_source_sections(topic: dict[str, Any], *, topic_id: str) -> list[dict
     return sections
 
 
+def _topic_code_references(topic: dict[str, Any], *, topic_id: str) -> list[dict[str, Any]]:
+    raw_references = topic.get("code_references", [])
+    if not isinstance(raw_references, list):
+        raise GuideContractError(f"topic {topic_id} code_references must be a list")
+    references: list[dict[str, Any]] = []
+    ids: list[str] = []
+    for raw in raw_references:
+        if not isinstance(raw, dict):
+            raise GuideContractError(f"topic {topic_id} has malformed code reference")
+        reference_id = raw.get("id")
+        if not isinstance(reference_id, str) or not reference_id:
+            raise GuideContractError(f"topic {topic_id} has malformed code reference id")
+        ids.append(reference_id)
+        references.append(raw)
+    if len(set(ids)) != len(ids):
+        raise GuideContractError(f"topic {topic_id} code_references contains duplicate ids")
+    return references
+
+
+def _required_string(record: dict[str, Any], field: str, *, label: str) -> str:
+    value = record.get(field)
+    if not isinstance(value, str) or not value:
+        raise GuideContractError(f"{label} requires non-empty {field}")
+    return value
+
+
+def _code_reference_test_path(root: Path, path_text: str) -> Path:
+    path = PurePosixPath(path_text)
+    if (
+        path.is_absolute()
+        or ".." in path.parts
+        or not path.parts
+        or path.parts[0] != "tests"
+        or path.suffix != ".py"
+    ):
+        raise GuideContractError(f"invalid code reference test path: {path_text}")
+    resolved_root = root.resolve()
+    resolved = (root / Path(*path.parts)).resolve()
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError as exc:
+        raise GuideContractError(f"invalid code reference test path: {path_text}") from exc
+    if not resolved.is_file():
+        raise GuideContractError(f"invalid code reference test path: {path_text}")
+    return resolved
+
+
+def validate_code_reference(
+    root: Path,
+    reference: dict[str, object],
+    symbols: dict[str, dict[str, object]],
+    *,
+    check_digest: bool = True,
+) -> None:
+    raw = dict(reference)
+    reference_id = _required_string(raw, "id", label="code reference")
+    symbol_name = _required_string(raw, "symbol", label=f"code reference {reference_id}")
+    expected_kind = _required_string(raw, "kind", label=f"code reference {reference_id}")
+    if expected_kind not in _ALLOWED_CODE_KINDS:
+        raise GuideContractError(f"invalid code symbol kind: {expected_kind}")
+    _required_string(raw, "label_ja", label=f"code reference {reference_id}")
+    _required_string(raw, "description_ja", label=f"code reference {reference_id}")
+
+    symbol = symbols.get(symbol_name)
+    if symbol is None:
+        raise GuideContractError(f"missing code symbol: {symbol_name}")
+    actual_kind = symbol.get("kind")
+    if actual_kind != expected_kind:
+        raise GuideContractError(
+            f"code symbol kind mismatch: {symbol_name}: expected {expected_kind}, actual {actual_kind}"
+        )
+
+    expected_digest = raw.get("source_sha256")
+    if not isinstance(expected_digest, str) or not _HEX_64_RE.fullmatch(expected_digest):
+        raise GuideContractError(f"invalid code symbol fingerprint: {symbol_name}")
+    actual_digest = symbol.get("source_sha256")
+    if check_digest and actual_digest != expected_digest:
+        raise GuideContractError(
+            f"stale code symbol fingerprint: {symbol_name}: "
+            f"expected {expected_digest}, actual {actual_digest}"
+        )
+
+    local_names = symbol.get("local_names")
+    if not isinstance(local_names, list) or not all(
+        isinstance(name, str) for name in local_names
+    ):
+        raise GuideContractError(f"malformed code symbol local names: {symbol_name}")
+    allowed_names = set(local_names)
+    raw_variables = raw.get("variables", [])
+    if not isinstance(raw_variables, list):
+        raise GuideContractError(f"code reference {reference_id} variables must be a list")
+    variable_names: list[str] = []
+    for variable in raw_variables:
+        if not isinstance(variable, dict):
+            raise GuideContractError(f"code reference {reference_id} has malformed variable")
+        name = _required_string(variable, "name", label=f"code reference {reference_id} variable")
+        _required_string(variable, "label_ja", label=f"code reference {reference_id} variable")
+        _required_string(
+            variable,
+            "description_ja",
+            label=f"code reference {reference_id} variable",
+        )
+        variable_names.append(name)
+        if name not in allowed_names:
+            raise GuideContractError(f"unknown code variable: {symbol_name}.{name}")
+    if len(set(variable_names)) != len(variable_names):
+        raise GuideContractError(f"code reference {reference_id} has duplicate variables")
+
+    raw_tests = raw.get("tests", [])
+    if not isinstance(raw_tests, list) or not all(
+        isinstance(path, str) and path for path in raw_tests
+    ):
+        raise GuideContractError(f"code reference {reference_id} tests must be string paths")
+    for test_path in raw_tests:
+        _code_reference_test_path(root, test_path)
+
+
+def _symbol_map(root: Path) -> dict[str, dict[str, object]]:
+    code_symbols = _code_symbols_module()
+    index = code_symbols.build_symbol_index(root / "trade_rl", revision="0" * 40)
+    raw_symbols = index.get("symbols")
+    if not isinstance(raw_symbols, list):
+        raise GuideContractError("code symbol index has malformed symbols")
+    symbols: dict[str, dict[str, object]] = {}
+    for raw in raw_symbols:
+        if not isinstance(raw, dict):
+            raise GuideContractError("code symbol index has malformed entry")
+        name = raw.get("qualified_name")
+        if not isinstance(name, str) or not name:
+            raise GuideContractError("code symbol index has malformed qualified name")
+        symbols[name] = raw
+    return symbols
+
+
 def check_content(root: Path = ROOT) -> None:
     manifest_path = root / "guide" / "content" / "manifest.json"
     topics_dir = root / "guide" / "content" / "topics"
@@ -183,6 +325,7 @@ def check_content(root: Path = ROOT) -> None:
             f"manifest/topic mismatch: manifest={sorted(topic_ids)}, files={actual_ids}"
         )
 
+    symbols = _symbol_map(root)
     for topic_id in topic_ids:
         topic_path = topics_dir / f"{topic_id}.json"
         topic = _read_json(topic_path)
@@ -200,6 +343,8 @@ def check_content(root: Path = ROOT) -> None:
             root,
             _topic_source_sections(topic, topic_id=topic_id),
         )
+        for reference in _topic_code_references(topic, topic_id=topic_id):
+            validate_code_reference(root, reference, symbols)
 
 
 def refresh_sources(topic_ids: list[str], root: Path = ROOT) -> None:
@@ -234,11 +379,42 @@ def refresh_sources(topic_ids: list[str], root: Path = ROOT) -> None:
         )
 
 
+def refresh_code_references(topic_ids: list[str], root: Path = ROOT) -> None:
+    if not topic_ids:
+        raise GuideContractError("refresh-code requires at least one explicit topic id")
+
+    topics_dir = root / "guide" / "content" / "topics"
+    symbols = _symbol_map(root)
+    for topic_id in topic_ids:
+        topic_path = topics_dir / f"{topic_id}.json"
+        if not topic_path.is_file():
+            raise GuideContractError(f"missing topic for refresh-code: {topic_id}")
+        topic = _read_json(topic_path)
+        if topic.get("id") != topic_id:
+            raise GuideContractError(f"topic id mismatch: {topic_path}")
+        references = _topic_code_references(topic, topic_id=topic_id)
+        for reference in references:
+            validate_code_reference(
+                root,
+                reference,
+                symbols,
+                check_digest=False,
+            )
+            symbol_name = str(reference["symbol"])
+            reference["source_sha256"] = symbols[symbol_name]["source_sha256"]
+        topic["code_references"] = references
+        topic_path.write_text(
+            json.dumps(topic, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Validate Interactive Guide sources.")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--refresh", nargs="+", metavar="TOPIC_ID")
+    mode.add_argument("--refresh-code", nargs="+", metavar="TOPIC_ID")
     return parser
 
 
@@ -247,6 +423,8 @@ def main() -> int:
     try:
         if args.refresh is not None:
             refresh_sources(args.refresh)
+        elif args.refresh_code is not None:
+            refresh_code_references(args.refresh_code)
         else:
             check_content()
     except GuideContractError as exc:

@@ -14,7 +14,7 @@
 
 人間向けの説明UIは root [`guide/`](../guide/README.md) に置く。Interactive Guideはこの `docs/` の正本から派生した**非正本の説明層**であり、技術仕様・研究状態のauthorityにはしない。Guide topicは参照する正本Markdown sectionのfingerprintを保持し、正本変更時は内容レビューとsource checkを必要とする。公開版は <https://shuntatsu.github.io/trade_rl/> で提供する。
 
-現在Activeなspecは [`specs/2026-09-13-japanese-code-explorer-design.md`](specs/2026-09-13-japanese-code-explorer-design.md) であり、Interactive Guideを日本語中心のコード連動型実装エクスプローラへ再設計する。Active planはまだない。
+現在Activeなspecは [`specs/2026-09-13-japanese-code-explorer-design.md`](specs/2026-09-13-japanese-code-explorer-design.md)、Active planは [`plans/2026-09-13-japanese-code-explorer.md`](plans/2026-09-13-japanese-code-explorer.md) であり、Interactive Guideを日本語中心のコード連動型実装エクスプローラへ再設計・実装する。
 
 Interactive Human Guide Pages v1はGitHub Pages有効化、main deployment、実公開URLへのbrowser smokeまで完了し、恒久運用契約を `.github/workflows/deploy-guide.yml`、`guide/README.md`、`docs/AGENTS.md`、architecture/contract testsへ昇格済みである。Issue #494のportable Dataset numerics contractは `architecture/lean-core.md` と `architecture/package-boundaries.md` へ、portable canonical lineageのcurrent stateは `research/current-status.md` へ昇格済みである。Agent Repository Control Plane v1、Agent Coordination Plane v1、Interactive Human Guide v1の実装済み契約も `AGENTS.md`、`architecture/package-boundaries.md`、`guide/README.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
 
@@ -39,7 +39,7 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 
 - package、責務、依存方向、公開境界を変えた → `architecture/package-boundaries.md`
 - causal data、strategy/risk分離、execution/accounting、artifact invariantを変えた → `architecture/lean-core.md`
-- Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
+- Study/Experiment/EvidenceSet、Canonical M2 bootstrap preparation、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
 - 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
 - Guideが参照する正本sectionを変えた → 対応する `guide/content/topics/*.json` を人間が再確認し、`guide/tools/content_contract.py --check` を通す
 - Guide Pages deployment / public URLを変えた → `.github/workflows/deploy-guide.yml`、`guide/README.md`、Pages state read-backを確認する

@@ -90,6 +90,13 @@ jobs:
           PY
 
           rm .github/workflows/tmp-apply-strategy-roster-green.yml
+          uv run ruff check --fix \
+            trade_rl/evaluation/experiments/contracts/study.py \
+            trade_rl/evaluation/experiments/analysis.py \
+            trade_rl/evaluation/experiments/evidence.py \
+            trade_rl/evaluation/experiments/delta.py \
+            tests/architecture/test_experiment_strategy_roster_authority.py \
+            tests/evaluation/test_candidate_suite.py
           uv run ruff format \
             trade_rl/evaluation/experiments/contracts/study.py \
             trade_rl/evaluation/experiments/analysis.py \

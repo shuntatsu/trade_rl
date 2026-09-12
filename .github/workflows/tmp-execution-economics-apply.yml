@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: "${{ github.event.head_commit.message == 'chore: fix execution economics implementation workflow' }}"
+    if: "${{ github.event.head_commit.message == 'chore: preserve legacy economics build path' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -106,21 +106,49 @@ jobs:
               raise RuntimeError("builder signature marker mismatch")
           text = text.replace(old_signature, new_signature, 1)
           old_economics = (
+              "        economics = build_market_economic_semantics(\n"
+              "            timestamps=timestamps,\n"
+              "            instruments=instruments,\n"
+              "            row_present=row_present,\n"
+              "            raw_tradable=raw_tradable,\n"
+              "            source_information_available=information_available,\n"
+              "            available_at=available_at,\n"
+              "            close=close,\n"
               "            funding_event_count=funding_event_count,\n"
               "        )\n"
-              "        symbol_active = economics.symbol_active\n"
           )
           new_economics = (
-              "            funding_event_count=funding_event_count,\n"
-              "            fee_rate=(0.0 if execution_economics is None else execution_economics.fee_rate),\n"
-              "            maker_fee_rate=(0.0 if execution_economics is None else execution_economics.maker_fee_rate),\n"
-              "            taker_fee_rate=(0.0 if execution_economics is None else execution_economics.taker_fee_rate),\n"
-              "            spread_rate=(0.0 if execution_economics is None else execution_economics.spread_rate),\n"
-              "            max_participation_rate=(1.0 if execution_economics is None else execution_economics.max_participation_rate),\n"
-              "            borrow_available=(True if execution_economics is None else execution_economics.borrow_available),\n"
-              "            borrow_rate=(0.0 if execution_economics is None else execution_economics.borrow_rate),\n"
-              "        )\n"
-              "        symbol_active = economics.symbol_active\n"
+              "        if execution_economics is None:\n"
+              + old_economics.replace("        economics", "            economics")
+              .replace("            timestamps", "                timestamps")
+              .replace("            instruments", "                instruments")
+              .replace("            row_present", "                row_present")
+              .replace("            raw_tradable", "                raw_tradable")
+              .replace("            source_information_available", "                source_information_available")
+              .replace("            available_at", "                available_at")
+              .replace("            close", "                close")
+              .replace("            funding_event_count", "                funding_event_count")
+              .replace("        )\n", "            )\n")
+              + "        else:\n"
+              "            economics = build_market_economic_semantics(\n"
+              "                timestamps=timestamps,\n"
+              "                instruments=instruments,\n"
+              "                row_present=row_present,\n"
+              "                raw_tradable=raw_tradable,\n"
+              "                source_information_available=information_available,\n"
+              "                available_at=available_at,\n"
+              "                close=close,\n"
+              "                funding_event_count=funding_event_count,\n"
+              "                fee_rate=execution_economics.fee_rate,\n"
+              "                maker_fee_rate=execution_economics.maker_fee_rate,\n"
+              "                taker_fee_rate=execution_economics.taker_fee_rate,\n"
+              "                spread_rate=execution_economics.spread_rate,\n"
+              "                max_participation_rate=(\n"
+              "                    execution_economics.max_participation_rate\n"
+              "                ),\n"
+              "                borrow_available=execution_economics.borrow_available,\n"
+              "                borrow_rate=execution_economics.borrow_rate,\n"
+              "            )\n"
           )
           if text.count(old_economics) != 1:
               raise RuntimeError("builder economics marker mismatch")

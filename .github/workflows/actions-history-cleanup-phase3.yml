@@ -10,19 +10,21 @@ on:
       - tools/maintenance/cleanup_actions_history_phase3.py
 
 permissions:
-  actions: read
-  contents: read
+  actions: write
+  contents: write
   issues: read
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: actions-history-cleanup-phase3
   cancel-in-progress: true
 
 env:
-  DRY_RUN: "true"
-  MAX_DELETE: "3000"
+  DRY_RUN: "false"
+  MAX_DELETE: "20"
   RECENT_HOURS: "168"
+  CLEANUP_HEAD_BRANCH: ops/actions-history-cleanup-phase3-20260912
+  CLEANUP_BASE_BRANCH: ops/actions-history-cleanup-phase3-base-20260912
 
 jobs:
   cleanup:
@@ -37,7 +39,51 @@ jobs:
       - name: Verify phase-3 classification contracts
         run: python tools/maintenance/cleanup_actions_history_phase3.py --self-test
 
-      - name: Classify phase-3 workflow-run history
+      - name: Delete verified phase-3 workflow-run history
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python tools/maintenance/cleanup_actions_history_phase3.py
+
+      - name: Close temporary cleanup PR
+        if: ${{ success() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d '{"state":"closed"}' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" >/dev/null
+
+      - name: Remove temporary cleanup head branch
+        if: ${{ success() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -X DELETE \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/heads/${CLEANUP_HEAD_BRANCH}"
+
+      - name: Remove temporary cleanup base branch
+        if: ${{ success() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -X DELETE \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/heads/${CLEANUP_BASE_BRANCH}"

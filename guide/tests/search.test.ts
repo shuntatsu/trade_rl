@@ -70,8 +70,8 @@ describe("guide search", () => {
     );
   });
 
-  it("maps Japanese variable aliases and Python identifiers to the same symbol", () => {
-    const topics = [implementationTopic()];
+  it("maps real Japanese aliases and Python identifiers to the same replay symbol", () => {
+    const topics = loadTopics();
     const japanese = searchGuide(topics, "希望保有数量");
     const identifier = searchGuide(topics, "desired_quantity");
 

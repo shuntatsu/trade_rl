@@ -40,6 +40,30 @@ def raw_series(n_bars: int, *, scale: float = 1.0) -> RawMarketSeries:
     )
 
 
+def _stable_identity_series(
+    n_bars: int,
+    *,
+    scale: float = 1.0,
+) -> RawMarketSeries:
+    """Use binary-exact arithmetic for bit-level content-identity assertions."""
+
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+        n_bars
+    ) * np.timedelta64(1, "h")
+    close = scale * (100.0 + np.arange(n_bars, dtype=np.float64) * 0.25)
+    open_price = np.concatenate([close[:1], close[:-1]])
+    return RawMarketSeries(
+        timestamps=timestamps,
+        open=open_price,
+        high=np.maximum(open_price, close) + scale,
+        low=np.minimum(open_price, close) - scale,
+        close=close,
+        volume=100.0 + np.arange(n_bars, dtype=np.float64),
+        funding_rate=np.where(np.arange(n_bars) % 8 == 0, 0.0001, 0.0),
+        tradable=np.ones(n_bars, dtype=np.bool_),
+    )
+
+
 def config(*, normalization_window: int = 24) -> MarketBuildConfig:
     return MarketBuildConfig(
         base_timeframe="1h",
@@ -97,7 +121,10 @@ def instruments() -> tuple[InstrumentContract, ...]:
 
 def _identity_source() -> InMemoryMarketDataSource:
     return InMemoryMarketDataSource(
-        {"BTCUSDT": raw_series(72), "ETHUSDT": raw_series(72, scale=2.0)}
+        {
+            "BTCUSDT": _stable_identity_series(72),
+            "ETHUSDT": _stable_identity_series(72, scale=2.0),
+        }
     )
 
 
@@ -185,13 +212,13 @@ def test_builder_preserves_pre481_identity_without_execution_profile() -> None:
     dataset = MarketDatasetBuilder(config()).build(_identity_source(), instruments())
 
     assert dataset.dataset_id == (
-        "63e5222b04e41b8efbb7eb6ee04e6ba1bbb0989358571239fdc6f778eae8e4c8"
+        "668129565e4e3b8ede5f4fa472b32008d6d7be5e6f7068a9a9945883208041a0"
     )
     assert dataset.feature_config_digest == (
         "3729d59af7d2a35a6e58b12c605e8b5ef31a59e543b815e7c875e8bb4de4f3d4"
     )
     assert dataset.normalization_digest == (
-        "ee96986731da70b20a058c1a804aa51dbbf4ed9d730b237c52256a2067b29e81"
+        "1a49c7408926d85dc457f379f026197c21a1dba095f40693ffb0c71b9c25a8b0"
     )
     assert set(dataset.fee_rate.ravel()) == {0.0}
     assert set(dataset.spread_rate.ravel()) == {0.0}

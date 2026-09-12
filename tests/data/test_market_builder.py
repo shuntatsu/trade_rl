@@ -198,9 +198,7 @@ def test_builder_preserves_pre481_identity_without_execution_profile() -> None:
     assert set(dataset.max_participation_rate.ravel()) == {1.0}
 
 
-def test_builder_binds_execution_economics_without_changing_feature_semantics() -> (
-    None
-):
+def test_builder_binds_execution_economics_without_changing_feature_semantics() -> None:
     source = _identity_source()
     builder = MarketDatasetBuilder(config())
     legacy = builder.build(source, instruments())

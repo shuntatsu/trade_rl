@@ -108,9 +108,15 @@ def test_dependency_kinds_have_distinct_completion_rules() -> None:
         "TI": _healthy(TaskPhase.READY),
     }
     assert graph.dependencies_satisfied("TH", statuses, evidence_task_ids=frozenset())
-    assert not graph.dependencies_satisfied("TE", statuses, evidence_task_ids=frozenset())
-    assert graph.dependencies_satisfied("TE", statuses, evidence_task_ids=frozenset({"T0"}))
-    assert not graph.dependencies_satisfied("TI", statuses, evidence_task_ids=frozenset({"T0"}))
+    assert not graph.dependencies_satisfied(
+        "TE", statuses, evidence_task_ids=frozenset()
+    )
+    assert graph.dependencies_satisfied(
+        "TE", statuses, evidence_task_ids=frozenset({"T0"})
+    )
+    assert not graph.dependencies_satisfied(
+        "TI", statuses, evidence_task_ids=frozenset({"T0"})
+    )
 
     statuses["T0"] = _healthy(TaskPhase.COMPLETE)
     assert graph.dependencies_satisfied("TI", statuses, evidence_task_ids=frozenset())

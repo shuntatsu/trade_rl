@@ -121,31 +121,35 @@ def _as_datetime(value: object, *, field: str) -> datetime:
 
 def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
     raw = _as_dict(payload, field=field)
-    _expect_keys(
-        raw,
-        {
-            "schema_version",
-            "signal_name",
-            "signal_index",
-            "feature_names",
-            "feature_indices",
-            "fit_symbol_names",
-            "fit_symbol_indices",
-            "fit_cutoff",
-            "rule_entry_threshold",
-            "rule_exit_threshold",
-            "forecast_entry_threshold",
-            "forecast_exit_threshold",
-            "ppo_total_timesteps",
-            "ppo_seed",
-            "evaluation_start",
-            "evaluation_stop_exclusive",
-            "gross_budget",
-            "initial_capital",
-            "execution_overlay",
-        },
-        label=field,
+    schema_version = _as_string(
+        raw.get("schema_version"), field=f"{field}.schema_version"
     )
+    expected = {
+        "schema_version",
+        "signal_name",
+        "signal_index",
+        "feature_names",
+        "feature_indices",
+        "fit_symbol_names",
+        "fit_symbol_indices",
+        "fit_cutoff",
+        "rule_entry_threshold",
+        "rule_exit_threshold",
+        "forecast_entry_threshold",
+        "forecast_exit_threshold",
+        "ppo_total_timesteps",
+        "ppo_seed",
+        "evaluation_start",
+        "evaluation_stop_exclusive",
+        "gross_budget",
+        "initial_capital",
+        "execution_overlay",
+    }
+    if schema_version == "resolved_run_config_v2":
+        expected.update({"ppo_observation_schema", "ppo_global_feature_names"})
+    elif schema_version != "resolved_run_config_v1":
+        raise ArtifactIntegrityError("unsupported resolved-run config schema")
+    _expect_keys(raw, expected, label=field)
     try:
         return ResolvedRunConfig(
             signal_name=_as_string(raw["signal_name"], field=f"{field}.signal_name"),
@@ -195,9 +199,23 @@ def _resolved_from_payload(payload: object, *, field: str) -> ResolvedRunConfig:
             execution_overlay=_as_string(
                 raw["execution_overlay"], field=f"{field}.execution_overlay"
             ),
-            schema_version=_as_string(
-                raw["schema_version"], field=f"{field}.schema_version"
+            ppo_observation_schema=(
+                None
+                if schema_version == "resolved_run_config_v1"
+                else _as_string(
+                    raw["ppo_observation_schema"],
+                    field=f"{field}.ppo_observation_schema",
+                )
             ),
+            ppo_global_feature_names=(
+                ()
+                if schema_version == "resolved_run_config_v1"
+                else _as_string_tuple(
+                    raw["ppo_global_feature_names"],
+                    field=f"{field}.ppo_global_feature_names",
+                )
+            ),
+            schema_version=schema_version,
         )
     except ContractViolationError as error:
         raise ArtifactIntegrityError(

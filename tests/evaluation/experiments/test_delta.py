@@ -20,6 +20,10 @@ from trade_rl.evaluation.experiments.delta import (
 )
 from trade_rl.evaluation.experiments.evidence import EvidenceSet, LoadedEvidenceSet
 from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
+from trade_rl.strategies.rl.ppo import (
+    PPO_GLOBAL_FEATURE_NAMES,
+    PPO_OBSERVATION_SCHEMA,
+)
 
 STRATEGIES = (
     "cash",
@@ -120,11 +124,14 @@ def _resolved(**overrides: object) -> ResolvedRunConfig:
         "forecast_exit_threshold": 0.002,
         "ppo_total_timesteps": 256,
         "ppo_seed": 2,
+        "ppo_observation_schema": PPO_OBSERVATION_SCHEMA,
+        "ppo_global_feature_names": PPO_GLOBAL_FEATURE_NAMES,
         "evaluation_start": "2026-02-01T00:00:00.000000000",
         "evaluation_stop_exclusive": "2026-03-01T00:00:00.000000000",
         "gross_budget": 0.5,
         "initial_capital": 100_000.0,
         "execution_overlay": "zero_overlay_dataset_fields_authoritative",
+        "schema_version": "resolved_run_config_v2",
     }
     values.update(overrides)
     return ResolvedRunConfig(**values)  # type: ignore[arg-type]

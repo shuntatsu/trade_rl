@@ -23,8 +23,12 @@ from trade_rl.artifacts.verified_file import file_digest_and_size, read_verified
 from trade_rl.evaluation.metrics import PerformanceMetrics
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA
+from trade_rl.strategies.rl.ppo import ppo_observation_contract_payload
 
-_RESULT_SCHEMA = "lean_candidate_result_v1"
+_RESULT_SCHEMA_V1 = "lean_candidate_result_v1"
+_RESULT_SCHEMA_V2 = "lean_candidate_result_v2"
+_RESULT_SCHEMA = _RESULT_SCHEMA_V2
+_SUPPORTED_RESULT_SCHEMAS = frozenset({_RESULT_SCHEMA_V1, _RESULT_SCHEMA_V2})
 _ARTIFACT_IDENTITY_SCHEMA = "candidate_run_artifact_identity_v1"
 _REQUIRED_FILES = frozenset({"summary.json", "returns.npz", "provenance.json"})
 
@@ -133,6 +137,7 @@ def _result_payload(
 
     summary: dict[str, object] = {
         "schema_version": _RESULT_SCHEMA,
+        "ppo_observation": ppo_observation_contract_payload(),
         "dataset_id": spec.dataset_id,
         "dataset_artifact": {
             "schema_version": spec.dataset_artifact_schema,
@@ -363,8 +368,14 @@ def _load_with_evidence(
     provenance_bytes, provenance_hash, provenance_size = provenance_evidence
 
     summary = _read_json_object(summary_bytes, label="summary")
-    if summary.get("schema_version") != _RESULT_SCHEMA:
+    result_schema = summary.get("schema_version")
+    if result_schema not in _SUPPORTED_RESULT_SCHEMAS:
         raise ValueError("unsupported candidate result schema")
+    if (
+        result_schema == _RESULT_SCHEMA_V2
+        and summary.get("ppo_observation") != ppo_observation_contract_payload()
+    ):
+        raise ValueError("candidate PPO observation contract mismatch")
     dataset_id = summary.get("dataset_id")
     if isinstance(dataset_id, str):
         require_sha256(dataset_id, field="candidate dataset_id")
@@ -411,7 +422,7 @@ def inspect_candidate_run_artifact(root: str | Path) -> CandidateRunArtifactIden
     }
     return CandidateRunArtifactIdentity(
         schema_version=_ARTIFACT_IDENTITY_SCHEMA,
-        result_schema_version=_RESULT_SCHEMA,
+        result_schema_version=cast(str, loaded.summary["schema_version"]),
         artifact_digest=content_digest(semantic_payload),
         summary_file_sha256=summary_hash,
         summary_file_size=summary_size,

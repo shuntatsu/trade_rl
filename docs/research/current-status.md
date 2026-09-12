@@ -1,6 +1,6 @@
 # Current research status
 
-更新基準: 2026-09-10 (JST)
+更新基準: 2026-09-12 (JST)
 
 ## 結論
 
@@ -64,7 +64,9 @@ Eligible row数の多い銘柄がtrainingを支配しないよう、各fit symbo
 
 ### PPO
 
-PPO観測はselected feature、feature availability、current intent、current weightを中心とし、symbol IDを含めない。Training episodeはfit symbolをround-robinし、各episodeは一つのactive symbolだけを扱う。
+初回real-data M2のPPO Observation v2は、selected local feature values、availability / finite mask、normalized local staleness、current intent、current weightだけをこの順序で使う。symbol IDは含めない。Training episodeはfit symbolをround-robinし、各episodeは一つのactive symbolだけを扱う。
+
+現行datasetのglobal regimeは全dataset symbolから集計されるため、fit-symbol subset外の情報がtrainingへ混入しないよう初回M2のpolicy inputから除外した。Observation v2は空のglobal rosterをidentityへ明示bindする。global contextは、fit-scope-safeなreference universeを事前固定できる場合にだけ別Controlled Factorとして検証する。
 
 ## Causality and evaluation rules
 
@@ -99,6 +101,9 @@ PPO観測はselected feature、feature availability、current intent、current w
 - symbol-balanced supervised fit
 - fit-symbol scopeの明示
 - symbol-ID-free PPO
+- fit-scope-safe PPO Observation v2（local values + availability/finite mask + normalized staleness + portfolio state、global policy rosterは空）
+- `lean_candidate_result_v2`によるObservation contractのRun evidence bindingとhistorical v1 reader互換
+- `resolved_run_config_v2`によるStudy identity binding、historical v1 read互換、v1 Studyへのv2 mutation拒否
 - 全symbol独立comparison
 - shared candidate config resolution
 - in-memory candidate execution seam

@@ -1,0 +1,90 @@
+name: Temporary apply execution economics builder GREEN
+
+on:
+  push:
+    branches:
+      - fix/canonical-m2-execution-economics
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/canonical-m2-execution-economics
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Patch and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=6385bf9c54cd59dafb76cb2403a5a5a2274743e6
+          test "$(git merge-base HEAD "$base")" = "$base"
+          test "$(git diff --name-only "$base"..HEAD)" = ".github/workflows/tmp-green-execution-economics-builder.yml"
+          python - <<'PY'
+          from pathlib import Path
+
+          config = Path('trade_rl/data/build/config.py')
+          text = config.read_text(encoding='utf-8')
+          old = '''from trade_rl.data.contracts import (\n    FeatureAlignment,\n'''
+          new = '''from trade_rl.data.build.economics import ExecutionEconomicsProfile\nfrom trade_rl.data.contracts import (\n    FeatureAlignment,\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          old = '''class MarketDatasetBuildRequest:\n    source_root: Path\n    config: MarketBuildConfig\n    instruments: tuple[InstrumentContract, ...]\n'''
+          new = '''class MarketDatasetBuildRequest:\n    source_root: Path\n    config: MarketBuildConfig\n    instruments: tuple[InstrumentContract, ...]\n    execution_economics: ExecutionEconomicsProfile | None = None\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          old = '''            "cross_asset_reference_symbol",\n            "features",\n'''
+          new = '''            "cross_asset_reference_symbol",\n            "execution_economics",\n            "features",\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          old = '''    source_root = Path(\n        _string(root.get("source_root"), field="source_root")\n    ).expanduser()\n'''
+          new = '''    raw_execution_economics = root.get("execution_economics")\n    execution_economics = (\n        None\n        if raw_execution_economics is None\n        else ExecutionEconomicsProfile.from_payload(\n            raw_execution_economics,\n            field="execution_economics",\n        )\n    )\n    source_root = Path(\n        _string(root.get("source_root"), field="source_root")\n    ).expanduser()\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          old = '''        ),\n        instruments=instruments,\n    )\n'''
+          new = '''        ),\n        instruments=instruments,\n        execution_economics=execution_economics,\n    )\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          config.write_text(text, encoding='utf-8')
+
+          builder = Path('trade_rl/data/build/builder.py')
+          text = builder.read_text(encoding='utf-8')
+          old = '''from trade_rl.data.contracts import (\n'''
+          new = '''from trade_rl.data.build.economics import ExecutionEconomicsProfile\nfrom trade_rl.data.contracts import (\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          old = '''        *,\n        identity_provenance: Mapping[str, object] | None = None,\n    ) -> MarketDataset:\n'''
+          new = '''        *,\n        identity_provenance: Mapping[str, object] | None = None,\n        execution_economics: ExecutionEconomicsProfile | None = None,\n    ) -> MarketDataset:\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          old = '''            funding_event_count=funding_event_count,\n        )\n'''
+          new = '''            funding_event_count=funding_event_count,\n            fee_rate=(0.0 if execution_economics is None else execution_economics.fee_rate),\n            maker_fee_rate=(\n                0.0\n                if execution_economics is None\n                else execution_economics.maker_fee_rate\n            ),\n            taker_fee_rate=(\n                0.0\n                if execution_economics is None\n                else execution_economics.taker_fee_rate\n            ),\n            spread_rate=(\n                0.0 if execution_economics is None else execution_economics.spread_rate\n            ),\n            max_participation_rate=(\n                1.0\n                if execution_economics is None\n                else execution_economics.max_participation_rate\n            ),\n            borrow_available=(\n                True\n                if execution_economics is None\n                else execution_economics.borrow_available\n            ),\n            borrow_rate=(\n                0.0 if execution_economics is None else execution_economics.borrow_rate\n            ),\n        )\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          old = '''        if identity_provenance is not None:\n            metadata["metadata_evidence"] = identity_provenance\n'''
+          new = '''        if identity_provenance is not None:\n            metadata["metadata_evidence"] = identity_provenance\n        if execution_economics is not None:\n            metadata["execution_economics"] = execution_economics.to_payload()\n'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          builder.write_text(text, encoding='utf-8')
+          PY
+          uv sync --extra dev
+          uv run ruff format trade_rl/data/build/config.py trade_rl/data/build/builder.py
+          uv run ruff check trade_rl/data/build tests/data/test_execution_economics_profile.py tests/data/test_market_build_config_session.py tests/data/test_market_builder.py
+          uv run mypy trade_rl/data/build
+          uv run pytest -q tests/data/test_execution_economics_profile.py tests/data/test_market_build_config_session.py tests/data/test_market_builder.py
+          rm .github/workflows/tmp-green-execution-economics-builder.yml
+          git add -A
+          git diff --cached --check
+          test "$(git diff --cached --name-only | sort)" = "$(printf '%s\n' trade_rl/data/build/builder.py trade_rl/data/build/config.py | sort)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+shuntatsu@users.noreply.github.com"
+          git commit -m "feat: bind execution economics into market builds"
+          git push origin HEAD:fix/canonical-m2-execution-economics

@@ -1,0 +1,139 @@
+name: Temporary apply strategy roster GREEN
+
+on:
+  push:
+    branches:
+      - refactor/experiment-strategy-roster-authority
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: refactor/experiment-strategy-roster-authority
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Guard parent and apply minimal production changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path('.')
+
+          study = root / 'trade_rl/evaluation/experiments/contracts/study.py'
+          text = study.read_text()
+          old = '''    FIXED_RESOLVED_FIELDS: ClassVar[tuple[str, ...]] = (\n        "fit_cutoff",\n        "evaluation_start",\n        "evaluation_stop_exclusive",\n        "initial_capital",\n        "execution_overlay",\n    )\n\n'''
+          new = old + '''    STRATEGY_NAMES: ClassVar[tuple[str, ...]] = (\n        *CONTROL_STRATEGY_NAMES,\n        *CANDIDATE_STRATEGY_NAMES,\n    )\n    PPO_SEED_INVARIANT_STRATEGY_NAMES: ClassVar[tuple[str, ...]] = (\n        CONTROL_STRATEGY_NAMES\n        + tuple(name for name in CANDIDATE_STRATEGY_NAMES if name != "ppo")\n    )\n\n'''
+          assert text.count(old) == 1
+          study.write_text(text.replace(old, new), encoding='utf-8')
+
+          analysis = root / 'trade_rl/evaluation/experiments/analysis.py'
+          text = analysis.read_text()
+          import_anchor = 'from trade_rl.artifacts.hashing import content_digest\n'
+          assert text.count(import_anchor) == 1
+          text = text.replace(
+              import_anchor,
+              import_anchor + 'from trade_rl.evaluation.experiments.contracts import StudyPlan\n',
+          )
+          block = '''_STRATEGIES = (\n    "cash",\n    "constant_long",\n    "constant_short",\n    "trend",\n    "mean_reversion",\n    "ridge24",\n    "lightgbm24",\n    "ppo",\n)\n_DETERMINISTIC_STRATEGIES = _STRATEGIES[:-1]\n\n'''
+          assert text.count(block) == 1
+          text = text.replace(block, '')
+          assert text.count('_DETERMINISTIC_STRATEGIES') >= 1
+          text = text.replace(
+              '_DETERMINISTIC_STRATEGIES',
+              'StudyPlan.PPO_SEED_INVARIANT_STRATEGY_NAMES',
+          )
+          assert text.count('_STRATEGIES') >= 1
+          text = text.replace('_STRATEGIES', 'StudyPlan.STRATEGY_NAMES')
+          analysis.write_text(text, encoding='utf-8')
+
+          evidence = root / 'trade_rl/evaluation/experiments/evidence.py'
+          text = evidence.read_text()
+          block = '''_DETERMINISTIC_STRATEGIES = (\n    "cash",\n    "constant_long",\n    "constant_short",\n    "trend",\n    "mean_reversion",\n    "ridge24",\n    "lightgbm24",\n)\n_EXPECTED_STRATEGIES = frozenset((*_DETERMINISTIC_STRATEGIES, "ppo"))\n\n'''
+          assert text.count(block) == 1
+          text = text.replace(block, '')
+          assert text.count('_EXPECTED_STRATEGIES') == 1
+          text = text.replace(
+              '_EXPECTED_STRATEGIES',
+              'frozenset(StudyPlan.STRATEGY_NAMES)',
+          )
+          assert text.count('_DETERMINISTIC_STRATEGIES') == 1
+          text = text.replace(
+              '_DETERMINISTIC_STRATEGIES',
+              'StudyPlan.PPO_SEED_INVARIANT_STRATEGY_NAMES',
+          )
+          evidence.write_text(text, encoding='utf-8')
+
+          delta = root / 'trade_rl/evaluation/experiments/delta.py'
+          text = delta.read_text()
+          block = '''_STRATEGIES = (\n    "cash",\n    "constant_long",\n    "constant_short",\n    "trend",\n    "mean_reversion",\n    "ridge24",\n    "lightgbm24",\n    "ppo",\n)\n\n\n'''
+          assert text.count(block) == 1
+          text = text.replace(block, '')
+          assert text.count('_STRATEGIES') == 1
+          text = text.replace('_STRATEGIES', 'StudyPlan.STRATEGY_NAMES')
+          delta.write_text(text, encoding='utf-8')
+          PY
+
+          rm .github/workflows/tmp-apply-strategy-roster-green.yml
+          uv run ruff format \
+            trade_rl/evaluation/experiments/contracts/study.py \
+            trade_rl/evaluation/experiments/analysis.py \
+            trade_rl/evaluation/experiments/evidence.py \
+            trade_rl/evaluation/experiments/delta.py \
+            tests/architecture/test_experiment_strategy_roster_authority.py \
+            tests/evaluation/test_candidate_suite.py
+
+      - name: Focused GREEN verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pytest -q \
+            tests/architecture/test_experiment_strategy_roster_authority.py \
+            tests/architecture/test_current_docs_layout.py \
+            tests/evaluation/test_candidate_suite.py \
+            tests/evaluation/experiments/test_contracts.py \
+            tests/evaluation/experiments/test_analysis.py \
+            tests/evaluation/experiments/test_evidence.py \
+            tests/evaluation/experiments/test_delta.py
+          uv run ruff check trade_rl tests
+          uv run ruff format --check trade_rl tests
+          uv run mypy \
+            trade_rl/evaluation/experiments/contracts/study.py \
+            trade_rl/evaluation/experiments/analysis.py \
+            trade_rl/evaluation/experiments/evidence.py \
+            trade_rl/evaluation/experiments/delta.py
+          git diff --check
+          test ! -e .github/workflows/tmp-apply-strategy-roster-green.yml
+          test ! -e .github/workflows/tmp-strategy-roster-red.yml
+          ! grep -R "from trade_rl.evaluation.experiments" -n trade_rl/evaluation/runs
+
+      - name: Commit durable GREEN tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            trade_rl/evaluation/experiments/contracts/study.py \
+            trade_rl/evaluation/experiments/analysis.py \
+            trade_rl/evaluation/experiments/evidence.py \
+            trade_rl/evaluation/experiments/delta.py \
+            .github/workflows/tmp-apply-strategy-roster-green.yml
+          git diff --cached --check
+          git commit -m "refactor: centralize experiment strategy roster authority"
+          git push origin HEAD:refactor/experiment-strategy-roster-authority

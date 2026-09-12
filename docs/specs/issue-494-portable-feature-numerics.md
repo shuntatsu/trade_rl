@@ -41,7 +41,11 @@ The maintained primitives are:
 
 Iteration order is C-order / sequence order. Summation uses `math.fsum`. Logarithms use Python `math.log` scalar evaluation in deterministic element order. Variance/covariance/correlation are defined from these primitives rather than delegated to NumPy/BLAS reductions.
 
-The helpers operate on finite one-dimensional samples at feature-call sites. Existing feature guards remain responsible for empty samples and economic/domain edge conditions. The portable layer must not round, quantize, or alter the stored dtype contract merely to make hashes match.
+`portable_log_scalar` and `portable_log` accept only finite, strictly-positive inputs and fail closed otherwise. This matches the existing Dataset source contract: OHLC prices are already required to be finite and strictly positive, while zero volume is converted to the existing positive epsilon before any logarithm.
+
+`portable_sum` permits an empty sample and returns `0.0`, matching the feature call sites that use an empty masked sum as zero flow. Mean/variance/std/covariance/correlation require non-empty compatible samples; correlation additionally requires non-zero variance. Call-site guards remain responsible for selecting economically valid samples.
+
+The portable layer must not round, quantize, or alter the stored dtype contract merely to make hashes match.
 
 ### Scope
 
@@ -100,10 +104,11 @@ Observe all of the following:
 1. Unit vectors reproduce fixed expected portable sum/mean/variance/std/dot/covariance/correlation results.
 2. Regression windows extracted from the real Issue #494 mismatch produce fixed expected float32 outputs independent of NumPy dispatch.
 3. Build config canonical payload explicitly records `market_build_v3` and `portable_feature_numerics_v1`; unsupported explicit schema values fail closed.
-4. Existing causality/feature tests remain Green after expected-value updates required by intentional semantics change.
-5. A same-run economics-only pair remains exact for features and normalization while Dataset identity differs only through economics/content.
-6. Independent hosted runners on different observed CPU families rebuild the same sealed source and produce byte-identical `features`, `global_features`, `normalization_digest`, and Dataset ID.
-7. New canonical Study lineage is generated and independently verified without modifying Study 004.
+4. A static architecture guard rejects direct `np.log`, `np.mean`, `np.std`, `np.sum`, `np.dot`, `np.var`, `np.cov`, or `np.corrcoef` use in the three identity-bound implementation files.
+5. Existing causality/feature tests remain Green after expected-value updates required by intentional semantics change.
+6. A same-run economics-only pair remains exact for features and normalization while Dataset identity differs through economics/content.
+7. Independent hosted runners on different observed CPU families rebuild the same sealed source and produce byte-identical `features`, `global_features`, `normalization_digest`, and Dataset ID.
+8. New canonical Study lineage is generated and independently verified without modifying Study 004.
 
 ## Non-goals
 

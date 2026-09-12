@@ -22,6 +22,16 @@ describe("guide hash routing", () => {
     ).toEqual({ topicId: "implementation-replay", step: "risk-constrain" });
   });
 
+  it("prefers step when step and symbol are both present", () => {
+    expect(
+      normalizeHashRoute(
+        "#implementation-replay?step=risk-constrain&symbol=trade_rl.risk.pretrade.PreTradeRisk.constrain",
+        ids,
+        "overview",
+      ),
+    ).toEqual({ topicId: "implementation-replay", step: "risk-constrain" });
+  });
+
   it("keeps legacy topic-only hashes compatible", () => {
     expect(normalizeHashRoute("#data-flow", ids, "overview")).toEqual({
       topicId: "data-flow",

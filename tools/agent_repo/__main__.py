@@ -162,7 +162,7 @@ def _dispatch_task(args: argparse.Namespace, repository: Path) -> object:
         payload = _mapping(decoded, field_name="task ready input")
         _exact_fields(
             payload,
-            {"packets", "statuses", "leased_task_ids", "evidence_task_ids"},
+            {"packets", "statuses", "leased_task_ids"},
             field_name="task ready input",
         )
         packets = packet_sequence(payload["packets"])
@@ -174,9 +174,6 @@ def _dispatch_task(args: argparse.Namespace, repository: Path) -> object:
                     statuses,
                     leased_task_ids=string_set(
                         payload["leased_task_ids"], field_name="leased_task_ids"
-                    ),
-                    evidence_task_ids=string_set(
-                        payload["evidence_task_ids"], field_name="evidence_task_ids"
                     ),
                 )
             )

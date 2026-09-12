@@ -139,7 +139,6 @@ def test_evidence_and_integration_dependencies_allow_parallel_ready_execution() 
         (root, evidence, integration),
         statuses,
         leased_task_ids=(),
-        evidence_task_ids=(),
     ) == ("TE", "TI")
 
 
@@ -237,7 +236,6 @@ def test_scheduler_returns_dependency_satisfied_nonconflicting_ready_set() -> No
         packets,
         statuses,
         leased_task_ids=frozenset(),
-        evidence_task_ids=frozenset(),
     )
 
     assert "T1" in result
@@ -264,5 +262,4 @@ def test_scheduler_excludes_leased_blocked_and_active_hard_conflicts() -> None:
         packets,
         statuses,
         leased_task_ids=frozenset({"ACTIVE", "LEASED"}),
-        evidence_task_ids=frozenset(),
     ) == ("READY",)

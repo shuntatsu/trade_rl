@@ -239,7 +239,6 @@ def test_file_disjoint_tasks_sharing_identity_are_serialized() -> None:
         (left, right),
         statuses,
         leased_task_ids=(),
-        evidence_task_ids=(),
     ) == (left.task_id,)
 
 

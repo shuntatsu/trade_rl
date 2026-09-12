@@ -76,7 +76,6 @@ def test_task_cli_digest_ready_status_and_dashboard_are_network_free(
                 for task_id in ("T1", "T2", "T3")
             },
             "leased_task_ids": [],
-            "evidence_task_ids": [],
         },
     )
 

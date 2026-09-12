@@ -60,28 +60,56 @@ class DependencyGraph:
         for task_id in sorted(self._packets):
             visit(task_id)
 
-    def dependencies_satisfied(
+    def execution_dependencies_satisfied(
         self,
         task_id: str,
         statuses: Mapping[str, TaskStatus],
+    ) -> bool:
+        """Return whether hard dependencies permit task execution."""
+
+        packet = self._packets[task_id]
+        for dependency in packet.dependencies:
+            if dependency.kind is not DependencyKind.HARD:
+                continue
+            status = statuses.get(dependency.task_id)
+            if status is None or status.condition is not TaskCondition.HEALTHY:
+                return False
+            if _PHASE_ORDER[status.phase] < _PHASE_ORDER[dependency.requires_phase]:
+                return False
+        return True
+
+    def evidence_dependencies_satisfied(
+        self,
+        task_id: str,
         *,
         evidence_task_ids: Collection[str],
     ) -> bool:
-        packet = self._packets[task_id]
+        """Return whether evidence dependencies permit verification/completion."""
+
         evidence_ids = set(evidence_task_ids)
+        return all(
+            dependency.task_id in evidence_ids
+            for dependency in self._packets[task_id].dependencies
+            if dependency.kind is DependencyKind.EVIDENCE
+        )
+
+    def integration_dependencies_satisfied(
+        self,
+        task_id: str,
+        statuses: Mapping[str, TaskStatus],
+    ) -> bool:
+        """Return whether integration dependencies permit integration."""
+
+        packet = self._packets[task_id]
         for dependency in packet.dependencies:
+            if dependency.kind is not DependencyKind.INTEGRATION:
+                continue
             status = statuses.get(dependency.task_id)
-            if dependency.kind is DependencyKind.EVIDENCE:
-                if dependency.task_id not in evidence_ids:
-                    return False
-                continue
-            if status is None or status.condition is not TaskCondition.HEALTHY:
-                return False
-            if dependency.kind is DependencyKind.INTEGRATION:
-                if status.phase is not TaskPhase.COMPLETE:
-                    return False
-                continue
-            if _PHASE_ORDER[status.phase] < _PHASE_ORDER[dependency.requires_phase]:
+            if (
+                status is None
+                or status.condition is not TaskCondition.HEALTHY
+                or status.phase is not TaskPhase.COMPLETE
+            ):
                 return False
         return True
 

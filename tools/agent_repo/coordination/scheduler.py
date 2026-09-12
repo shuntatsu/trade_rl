@@ -26,9 +26,8 @@ def ready_tasks(
     statuses: Mapping[str, TaskStatus],
     *,
     leased_task_ids: Collection[str],
-    evidence_task_ids: Collection[str],
 ) -> tuple[str, ...]:
-    """Return a deterministic concurrently dispatchable set of task ids."""
+    """Return a deterministic concurrently execution-ready set of task ids."""
 
     graph = DependencyGraph(packets)
     packet_by_id = {packet.task_id: packet for packet in packets}
@@ -58,11 +57,7 @@ def ready_tasks(
             continue
         if packet.task_id in leased:
             continue
-        if not graph.dependencies_satisfied(
-            packet.task_id,
-            statuses,
-            evidence_task_ids=evidence_task_ids,
-        ):
+        if not graph.execution_dependencies_satisfied(packet.task_id, statuses):
             continue
         if any(
             classify_conflict(packet, running) is ConflictLevel.HARD

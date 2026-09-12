@@ -1,5 +1,7 @@
 # Portable Feature Numerics Implementation Plan
 
+Status: Active
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove CPU-dispatched floating-point drift from identity-bound `MarketDataset` feature construction and prove byte-identical canonical Dataset identity across independent hosted CPU families.

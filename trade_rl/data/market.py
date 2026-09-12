@@ -5,12 +5,11 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from enum import Enum
 
 import numpy as np
 
 from trade_rl._validation import require_sha256, require_unique_non_empty
-from trade_rl.data.contracts import VolumeUnit
+from trade_rl.data.contracts import MarketCalendarKind, VolumeUnit
 from trade_rl.data.identity import (
     canonical_identity_json,
     compute_market_dataset_id,
@@ -20,13 +19,6 @@ from trade_rl.data.identity import (
 _HOURS_PER_YEAR = 365.0 * 24.0
 _NS_PER_HOUR = 3_600_000_000_000
 _ZERO_DIGEST = "0" * 64
-
-
-class MarketCalendarKind(str, Enum):
-    """Timestamp contract used by one market dataset."""
-
-    CONTINUOUS = "continuous_24_7"
-    SESSION = "session_calendar"
 
 
 def _readonly_array(

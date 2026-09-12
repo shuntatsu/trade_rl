@@ -41,22 +41,20 @@ _TOP_LEVEL_KEYS = frozenset(
         "bootstrap_seed",
     }
 )
-_BASELINE_KEYS = frozenset(
-    {
-        "signal_name",
-        "feature_names",
-        "fit_symbol_names",
-        "fit_cutoff",
-        "evaluation_start",
-        "evaluation_stop_exclusive",
-        "rule_entry_threshold",
-        "rule_exit_threshold",
-        "forecast_entry_threshold",
-        "forecast_exit_threshold",
-        "ppo_total_timesteps",
-        "gross_budget",
-        "initial_capital",
-    }
+_BASELINE_FIELDS = (
+    "signal_name",
+    "feature_names",
+    "fit_symbol_names",
+    "fit_cutoff",
+    "evaluation_start",
+    "evaluation_stop_exclusive",
+    "rule_entry_threshold",
+    "rule_exit_threshold",
+    "forecast_entry_threshold",
+    "forecast_exit_threshold",
+    "ppo_total_timesteps",
+    "gross_budget",
+    "initial_capital",
 )
 
 
@@ -180,23 +178,8 @@ def _require_native_alignment(
 
 
 def _baseline_payload(config: CandidateRunConfig) -> dict[str, object]:
-    return {
-        "signal_name": config.signal_name,
-        "feature_names": list(config.feature_names),
-        "fit_symbol_names": list(config.fit_symbol_names),
-        "fit_cutoff": str(np.datetime64(config.fit_cutoff, "ns")),
-        "evaluation_start": str(np.datetime64(config.evaluation_start, "ns")),
-        "evaluation_stop_exclusive": str(
-            np.datetime64(config.evaluation_stop_exclusive, "ns")
-        ),
-        "rule_entry_threshold": config.rule_entry_threshold,
-        "rule_exit_threshold": config.rule_exit_threshold,
-        "forecast_entry_threshold": config.forecast_entry_threshold,
-        "forecast_exit_threshold": config.forecast_exit_threshold,
-        "ppo_total_timesteps": config.ppo_total_timesteps,
-        "gross_budget": config.gross_budget,
-        "initial_capital": config.initial_capital,
-    }
+    candidate_payload = config.to_json_payload()
+    return {field: candidate_payload[field] for field in _BASELINE_FIELDS}
 
 
 def _validate_time_contract(
@@ -398,7 +381,7 @@ def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
 
     ppo_seeds = _seed_policy(raw.get("ppo_seeds"))
     baseline_raw = _require_mapping(raw.get("baseline"), field="baseline")
-    _expect_exact_keys(baseline_raw, _BASELINE_KEYS, field="baseline")
+    _expect_exact_keys(baseline_raw, frozenset(_BASELINE_FIELDS), field="baseline")
     candidate_payload = dict(baseline_raw)
     candidate_payload["ppo_seed"] = ppo_seeds[0]
     baseline = parse_candidate_run_config(candidate_payload)

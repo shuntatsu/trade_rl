@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 
 test("published Guide serves the critical human journey", async ({ page }) => {
-  const response = await page.goto("/#overview");
+  const response = await page.goto("./#overview");
   expect(response?.ok()).toBeTruthy();
   await expect(
     page.getByRole("heading", {
@@ -30,7 +30,7 @@ test("published Guide serves the critical human journey", async ({ page }) => {
 
 test("published Guide has no 320px horizontal overflow", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "public-mobile-320", "mobile project only");
-  await page.goto("/#ppo-observation-v2");
+  await page.goto("./#ppo-observation-v2");
   const sizes = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,

@@ -1,5 +1,6 @@
 import type { GuideVisualization } from "../content/schema";
 import { ArchitectureFlow } from "./ArchitectureFlow";
+import { CodeMap } from "./CodeMap";
 import { EconomicsAuthorityPath } from "./EconomicsAuthorityPath";
 import { ExperimentLoop } from "./ExperimentLoop";
 import { FlowStepper } from "./FlowStepper";
@@ -7,16 +8,20 @@ import { ObservationVector } from "./ObservationVector";
 import { ResearchStatusBoard } from "./ResearchStatusBoard";
 import { SequenceDiagram } from "./SequenceDiagram";
 
-const ignoreStepSelection = () => undefined;
+const ignoreSelection = () => undefined;
 
 export function VisualizationRenderer({
   visualization,
   selectedStep,
   onSelectStep,
+  selectedNode,
+  onSelectNode,
 }: {
   visualization: GuideVisualization;
   selectedStep?: string;
   onSelectStep?: (stepId: string) => void;
+  selectedNode?: string;
+  onSelectNode?: (nodeId: string) => void;
 }) {
   switch (visualization.kind) {
     case "architecture":
@@ -36,7 +41,15 @@ export function VisualizationRenderer({
         <SequenceDiagram
           visualization={visualization}
           selectedStep={selectedStep}
-          onSelectStep={onSelectStep ?? ignoreStepSelection}
+          onSelectStep={onSelectStep ?? ignoreSelection}
+        />
+      );
+    case "code-map":
+      return (
+        <CodeMap
+          visualization={visualization}
+          selectedNode={selectedNode}
+          onSelectNode={onSelectNode ?? ignoreSelection}
         />
       );
   }

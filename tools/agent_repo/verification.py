@@ -7,7 +7,7 @@ from pathlib import Path
 
 from tools.agent_repo.git_state import read_git_state
 from tools.agent_repo.path_safety import checked_repo_directory, checked_repo_file
-from tools.agent_repo.semantic_diff import semantic_diff
+from tools.agent_repo.semantic_diff import SemanticSignal, semantic_diff
 from tools.agent_repo.source_index import SourceIndex
 
 
@@ -80,12 +80,12 @@ def _pytest_command(paths: set[str]) -> str | None:
     return "uv run pytest -q " + " ".join(sorted(paths))
 
 
-def _named_project_surfaces(signals: tuple[object, ...], kind: str) -> str:
+def _named_project_surfaces(signals: tuple[SemanticSignal, ...], kind: str) -> str:
     values = sorted(
         {
             f"{signal.name} ({signal.change})"
             for signal in signals
-            if getattr(signal, "kind", None) == kind
+            if signal.kind == kind
         }
     )
     return ", ".join(values)

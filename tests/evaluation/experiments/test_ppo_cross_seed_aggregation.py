@@ -1,13 +1,33 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
+from pathlib import Path
 from statistics import median
 
 import pytest
 
 from tests.evaluation.experiments.test_analysis import _run
+from tests.evaluation.experiments.test_evidence import _config
+from tests.evaluation.experiments.test_workflow import _with_baseline
+from trade_rl.evaluation.experiments import (
+    ControlledFactor,
+    ControlledVerificationStatus,
+    ExperimentComparison,
+    define_experiment,
+    inspect_study,
+    run_experiment,
+    verify_experiment,
+)
 from trade_rl.evaluation.experiments.analysis import compare_evidence_sets
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
+from trade_rl.evaluation.experiments.inspection import (
+    _experiment_dir,
+    _experiment_state,
+    _find_evidence,
+    _reconstruct,
+)
+from trade_rl.evaluation.experiments.store import StudyStore
 from trade_rl.evaluation.runs.artifact import LoadedCandidateRun
 
 LEGACY_SCHEMA = "controlled_evidence_comparison_v1"
@@ -235,3 +255,59 @@ def test_unknown_factor_effect_schema_is_rejected() -> None:
             bootstrap_seed=13,
             schema_version="controlled_evidence_comparison_v999",
         )
+
+
+def test_inspection_replays_persisted_v1_factor_effect_with_legacy_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, dataset_root, snapshot = _with_baseline(tmp_path, monkeypatch)
+    assert snapshot.baseline is not None
+    definition = define_experiment(
+        root,
+        dataset_root=dataset_root,
+        hypothesis="More PPO training changes only PPO evidence.",
+        factor=ControlledFactor.PPO_TRAINING_BUDGET,
+        candidate_config=replace(_config(), ppo_total_timesteps=64),
+        baseline_evidence_digest=snapshot.baseline.fingerprint,
+    )
+    run_experiment(root, 1, dataset_root=dataset_root)
+    verification = verify_experiment(root, 1)
+    assert verification.status is ControlledVerificationStatus.CONTROLLED
+
+    store = StudyStore(root)
+    state = _reconstruct(store)
+    experiment = _experiment_state(state, 1)
+    assert experiment.candidate is not None
+    assert experiment.candidate_analysis is not None
+    assert experiment.verification is not None
+    baseline, baseline_analysis = _find_evidence(
+        state, definition.baseline_evidence_digest
+    )
+    factor_effect = compare_evidence_sets(
+        baseline.runs,
+        experiment.candidate.runs,
+        n_bootstrap=state.plan.n_bootstrap,
+        bootstrap_seed=state.plan.bootstrap_seed,
+        schema_version=LEGACY_SCHEMA,
+    )
+    factor_digest = factor_effect.get("analysis_digest")
+    assert isinstance(factor_digest, str)
+    comparison = ExperimentComparison(
+        study_digest=state.plan.digest,
+        experiment_digest=definition.digest,
+        baseline_evidence_digest=baseline.evidence.fingerprint,
+        candidate_evidence_digest=experiment.candidate.evidence.fingerprint,
+        verification_digest=experiment.verification.digest,
+        baseline_analysis_digest=baseline_analysis.analysis_digest,
+        candidate_analysis_digest=experiment.candidate_analysis.analysis_digest,
+        factor_effect_digest=factor_digest,
+        factor_effect=factor_effect,
+    )
+    store.publish_json_once(
+        _experiment_dir(1) / "comparison.json",
+        comparison.to_payload(),
+    )
+
+    rebuilt = inspect_study(root)
+    assert rebuilt.experiment_sequences == (1,)

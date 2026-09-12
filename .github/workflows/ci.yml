@@ -124,3 +124,22 @@ jobs:
       - name: Guide source, lint, type, unit and build checks
         working-directory: guide
         run: npm run check
+
+      - name: Install Chromium
+        working-directory: guide
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser UX and accessibility
+        working-directory: guide
+        run: npm run e2e
+
+      - name: Upload Guide browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: human-guide-browser-${{ github.run_id }}
+          path: |
+            guide/test-results/
+            guide/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14

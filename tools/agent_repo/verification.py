@@ -80,6 +80,17 @@ def _pytest_command(paths: set[str]) -> str | None:
     return "uv run pytest -q " + " ".join(sorted(paths))
 
 
+def _named_project_surfaces(signals: tuple[object, ...], kind: str) -> str:
+    values = sorted(
+        {
+            f"{signal.name} ({signal.change})"
+            for signal in signals
+            if getattr(signal, "kind", None) == kind
+        }
+    )
+    return ", ".join(values)
+
+
 def plan_verification(
     repository: Path,
     *,
@@ -181,18 +192,20 @@ def plan_verification(
             )
         )
     if "PROJECT_EXTRA" in signal_kinds:
+        names = _named_project_surfaces(signals, "PROJECT_EXTRA")
         steps.append(
             VerificationStep(
                 "extended",
-                "manual: install and smoke affected optional capability extras",
+                f"manual: verify affected optional capability extras: {names}",
                 "optional dependency surface changed; verify only affected capability environments",
             )
         )
     if "PROJECT_SCRIPT" in signal_kinds:
+        names = _named_project_surfaces(signals, "PROJECT_SCRIPT")
         steps.append(
             VerificationStep(
                 "extended",
-                "manual: build/install and smoke affected project scripts",
+                f"manual: verify affected installed project scripts: {names}",
                 "installed command surface changed; verify only affected project script entry points",
             )
         )

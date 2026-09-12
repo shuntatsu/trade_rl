@@ -26,12 +26,14 @@ from trade_rl.evaluation.replay import run_single_symbol_replay
 from trade_rl.strategies.interface import StrategyObservation
 from trade_rl.strategies.position_intent import PositionIntent
 
-_GOLDEN_DATASET_ID = "4410d7d30853230b467c34717e2488120e9cbc4bb311c2d3a8ea0f486bc539a5"
+# Exact dataset identity hashes float64 payload bits. Keep this fixture to binary-exact
+# arithmetic only; transcendental functions such as np.exp may vary by runner CPU/libm.
+_GOLDEN_DATASET_ID = "cd4e06f9cad6a897d94a55c3e3587129e61c5d513fcec69897292db2dfcb31f7"
 _GOLDEN_FEATURE_CONFIG_DIGEST = (
     "3bea1eacf43bd1010466c602e64bed52414884d5625842b495730b3d7647e0a9"
 )
 _GOLDEN_NORMALIZATION_DIGEST = (
-    "4f712886ea3495c2ef089bfa1eee8294f757eb9070174d78de907864288163b1"
+    "5242593e1a1b7fa58f6392b126534ac9404ec3d21cf2462133595a4839587be5"
 )
 
 
@@ -84,13 +86,13 @@ def _raw_series(n_bars: int = 40) -> RawMarketSeries:
     timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
         n_bars
     ) * np.timedelta64(1, "h")
-    close = np.exp(np.arange(n_bars, dtype=np.float64) * 0.002)
+    close = 100.0 + np.arange(n_bars, dtype=np.float64) * 0.25
     open_price = np.concatenate([close[:1], close[:-1]])
     return RawMarketSeries(
         timestamps=timestamps,
         open=open_price,
-        high=np.maximum(open_price, close) * 1.001,
-        low=np.minimum(open_price, close) * 0.999,
+        high=np.maximum(open_price, close) + 1.0,
+        low=np.minimum(open_price, close) - 1.0,
         close=close,
         volume=100.0 + np.arange(n_bars, dtype=np.float64),
         funding_rate=np.where(np.arange(n_bars) % 8 == 0, 0.0001, 0.0),

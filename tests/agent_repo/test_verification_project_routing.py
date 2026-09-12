@@ -79,9 +79,7 @@ def test_unrelated_project_metadata_change_does_not_route_optional_environment_s
     _write(
         tmp_path,
         "pyproject.toml",
-        "[project]\n"
-        "name='example'\n"
-        "description='metadata only'\n",
+        "[project]\nname='example'\ndescription='metadata only'\n",
     )
 
     extended = _extended(plan_verification(tmp_path, base_ref="main"))

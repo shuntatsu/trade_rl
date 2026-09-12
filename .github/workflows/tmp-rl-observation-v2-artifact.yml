@@ -1,0 +1,81 @@
+name: Temporary RL Observation v2 candidate evidence patch
+
+on:
+  push:
+    branches:
+      - feat/rl-observation-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feat/rl-observation-v2
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Apply candidate evidence versioning
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(f"guard mismatch: {path}: {old!r}: count={text.count(old)}")
+              file.write_text(text.replace(old, new), encoding="utf-8")
+
+          path = "trade_rl/evaluation/runs/artifact.py"
+          replace_once(
+              path,
+              "from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA\n\n_RESULT_SCHEMA = \"lean_candidate_result_v1\"\n",
+              "from trade_rl.evaluation.runs.provenance import PROVENANCE_SCHEMA\nfrom trade_rl.strategies.rl.ppo import ppo_observation_contract_payload\n\n_RESULT_SCHEMA_V1 = \"lean_candidate_result_v1\"\n_RESULT_SCHEMA_V2 = \"lean_candidate_result_v2\"\n_RESULT_SCHEMA = _RESULT_SCHEMA_V2\n_SUPPORTED_RESULT_SCHEMAS = frozenset({_RESULT_SCHEMA_V1, _RESULT_SCHEMA_V2})\n",
+          )
+          replace_once(
+              path,
+              '''    summary: dict[str, object] = {\n        "schema_version": _RESULT_SCHEMA,\n        "dataset_id": spec.dataset_id,\n''',
+              '''    summary: dict[str, object] = {\n        "schema_version": _RESULT_SCHEMA,\n        "ppo_observation": ppo_observation_contract_payload(),\n        "dataset_id": spec.dataset_id,\n''',
+          )
+          replace_once(
+              path,
+              '''    summary = _read_json_object(summary_bytes, label="summary")\n    if summary.get("schema_version") != _RESULT_SCHEMA:\n        raise ValueError("unsupported candidate result schema")\n    dataset_id = summary.get("dataset_id")\n''',
+              '''    summary = _read_json_object(summary_bytes, label="summary")\n    result_schema = summary.get("schema_version")\n    if result_schema not in _SUPPORTED_RESULT_SCHEMAS:\n        raise ValueError("unsupported candidate result schema")\n    if (\n        result_schema == _RESULT_SCHEMA_V2\n        and summary.get("ppo_observation") != ppo_observation_contract_payload()\n    ):\n        raise ValueError("candidate PPO observation contract mismatch")\n    dataset_id = summary.get("dataset_id")\n''',
+          )
+          replace_once(
+              path,
+              '''        result_schema_version=_RESULT_SCHEMA,\n        artifact_digest=content_digest(semantic_payload),\n''',
+              '''        result_schema_version=cast(str, loaded.summary["schema_version"]),\n        artifact_digest=content_digest(semantic_payload),\n''',
+          )
+
+          test_path = "tests/evaluation/test_candidate_run_artifact.py"
+          replace_once(
+              test_path,
+              "from trade_rl.strategies.position_intent import PositionIntent\n",
+              "from trade_rl.strategies.position_intent import PositionIntent\nfrom trade_rl.strategies.rl.ppo import ppo_observation_contract_payload\n",
+          )
+          replace_once(
+              test_path,
+              '''    assert summary["schema_version"] == "lean_candidate_result_v1"\n    assert summary["dataset_id"] == dataset.dataset_id\n''',
+              '''    assert summary["schema_version"] == "lean_candidate_result_v2"\n    assert summary["ppo_observation"] == ppo_observation_contract_payload()\n    assert summary["dataset_id"] == dataset.dataset_id\n''',
+          )
+          PY
+          uv run ruff format trade_rl/evaluation/runs/artifact.py tests/evaluation/test_candidate_run_artifact.py tests/evaluation/test_candidate_run_observation_contract.py
+          uv run ruff check trade_rl/evaluation/runs/artifact.py tests/evaluation/test_candidate_run_artifact.py tests/evaluation/test_candidate_run_observation_contract.py
+          uv run pytest -q tests/evaluation/test_candidate_run_observation_contract.py tests/evaluation/test_candidate_run_artifact.py tests/evaluation/test_candidate_run_artifact_identity.py
+          rm .github/workflows/tmp-rl-observation-v2-artifact.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: bind Observation v2 into candidate evidence"
+          git push origin HEAD:feat/rl-observation-v2

@@ -1,8 +1,6 @@
 # Portable feature numerics for canonical MarketDataset
 
-## Status
-
-Active normative design for Issue #494. This spec applies only to canonical `MarketDataset` construction and its content identity.
+Status: Active
 
 ## Objective
 

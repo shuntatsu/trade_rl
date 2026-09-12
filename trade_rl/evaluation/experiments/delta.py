@@ -20,17 +20,6 @@ from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
 from trade_rl.evaluation.runs import LoadedCandidateRun
 
-_STRATEGIES = (
-    "cash",
-    "constant_long",
-    "constant_short",
-    "trend",
-    "mean_reversion",
-    "ridge24",
-    "lightgbm24",
-    "ppo",
-)
-
 
 @dataclass(frozen=True, slots=True)
 class FactorRule:
@@ -381,7 +370,7 @@ def _evidence_violations(
             label=label,
         )
         matrices[seed] = matrix
-        if roster != _STRATEGIES:
+        if roster != StudyPlan.STRATEGY_NAMES:
             violations.append(
                 f"{label} strategy roster differs from frozen Study roster"
             )

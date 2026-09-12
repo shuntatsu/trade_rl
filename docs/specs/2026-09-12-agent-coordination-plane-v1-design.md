@@ -8,13 +8,15 @@ Related: #500, #475
 
 Trade RL で複数のAI Agentが同時に作業するとき、単なるparallel executionではなく、**task decomposition / ownership / dependency / collision / review / verification / integration / recoveryを一貫したprotocolで管理する**。
 
-v1は次を機械的に保証するためのcoordination layerである。
+v1は次を機械的に保つためのcoordination layerである。
 
 - 同一Taskを複数Workerが重複実装しない。
 - 独立Taskだけを安全に並列化する。
-- fileが異なっても同じsemantic authority / identityを変更するTaskを競合として扱う。
+- fileが異なっても同じsemantic authority / identity / side effectを変更するTaskを競合として扱う。
 - Task contract、PR HEAD、current mainの変化で古いevidenceを再利用しない。
 - Agent/session消失後もGitHub上のdurable evidenceから復元できる。
+- read-only investigation/reviewは不要なbranchを作らず軽量に並列化する。
+- write Taskはlease epochごとにwritable worktree/branchを隔離する。
 - Worker自身の「完了」ではなくindependent review / verification / integration evidenceで完了を決める。
 - child Task完了数だけでparent Issueをcloseせず、parent Acceptance Criteriaを最後に再評価する。
 
@@ -28,7 +30,7 @@ PR #475 の Agent Repository Control Plane は、Repositoryをsource-derivedに�
 ┌────────────────────────────────────────────┐
 │            Coordination Plane              │
 │ Task DAG / lease / scheduling / conflict   │
-│ heartbeat / handoff / dashboard            │
+│ capability / heartbeat / handoff / status  │
 └─────────────────────┬──────────────────────┘
                       │ consumes facts
 ┌─────────────────────▼──────────────────────┐
@@ -45,7 +47,7 @@ PR #475 の Agent Repository Control Plane は、Repositoryをsource-derivedに�
 ```
 
 Repository Control Planeは「Repository上の事実」を読む。
-Coordination Planeは「誰が、何を、いつ実行できるか」を決める。
+Coordination Planeは「誰が、何を、どの権限で、いつ実行できるか」を決める。
 Integration Planeは「現在のmainへ統合してよいか」を判断する。
 
 Coordination Planeはdomain / research / artifact authorityにはならない。
@@ -104,9 +106,9 @@ main commit
 
 Conflict graph、ready-set、priority等はdurable evidenceから再計算するderived stateとする。
 
-### 5.3 Labels are projections
+### 5.3 Labels and dashboards are projections
 
-GitHub labelsやdashboard表示はoperator UX用projectionであり、state authorityではない。IssueのTask contract、Coordinator status record、Git/PR/CI evidenceを正本として再構成する。
+GitHub labelsやdashboard表示はoperator UX用projectionであり、state authorityではない。Issue Task contract、Coordinator status record、Git/PR/CI evidenceから再構成する。
 
 ### 5.4 Fail closed
 
@@ -137,12 +139,16 @@ title: Implement lease and ownership state machine
 objective:
   Prevent duplicate task ownership and make abandoned work recoverable.
 
+execution_mode: write
+
 non_goals:
   - no distributed lock server
   - no automatic merge
 
 dependencies:
-  hard: [T500-01]
+  hard:
+    - task_id: T500-01
+      requires_phase: complete
   evidence: []
   integration: []
 
@@ -156,6 +162,12 @@ write_scope:
 resource_keys:
   - authority:agent-coordination-task-state
   - workflow:agent-task-claim
+  - side-effect:github-task-status
+
+capabilities:
+  - repository_read
+  - lease_branch_write
+  - draft_pr_write
 
 acceptance_criteria:
   - duplicate claim is rejected
@@ -175,16 +187,37 @@ deliverable:
 
 これはlogical schemaであり、checked-in YAML task ledgerを要求しない。Issue body等から同一contractを再構築してよい。
 
-## 8. Task contract identity
+## 8. Execution mode
 
-`task_revision`だけではmanual editのrevision-bump漏れを検知できない。そのためTask Packetには**canonical contract digest**を導入する。
+Taskは`read_only`または`write`を明示する。
 
-Canonical payloadはpresentation-only fieldsを除外し、UTF-8 JSON / sorted keys / stable separators等の実装で一意にserializationし、SHA-256でdigestする。
+### read_only
 
-Conceptual identity:
+調査、review、evidence verification等。
+
+- immutable checkout/snapshotを共有してよい。
+- writable worktree/branchを原則要求しない。
+- source mutationを行わない。
+- GitHub review/comment等、Task Packetで明示したside effectだけ許可する。
+
+### write
+
+source/docs/config/Git refs等を変更するTask。
+
+- active lease必須。
+- lease epoch固有のwritable worktree/branch必須。
+- write scope / Resource Key / capability contract必須。
+
+これにより「parallel investigationは軽く、implementationは強く隔離」を両立する。
+
+## 9. Task contract identity
+
+`task_revision`だけではmanual editのrevision-bump漏れを検知できない。そのため**canonical Task Contract digest**を導入する。
+
+Canonical payloadはruntime statusやpresentation-only fieldを除外し、UTF-8 JSON / sorted keys / stable separatorsで一意にserializeしてSHA-256を取る。
 
 ```text
-task_contract_digest = sha256(canonical_task_packet_without_runtime_status)
+task_contract_digest = sha256(canonical_task_packet)
 ```
 
 Lease、review、verification、integration evidenceは最低限次へbindする。
@@ -194,26 +227,27 @@ task_id
 task_revision
 task_contract_digest
 base_sha
-head_sha
+head_sha when applicable
 ```
 
-Issue本文が変更され、revisionが同じでもdigestが変わった場合、Coordinatorは`stale`としてfail closedする。semantic変更ならrevisionを増やし、presentation-only変更ならcanonical payloadを変えない。
+Issue本文が変更されrevisionが同じでもdigestが変われば`stale`としてfail closedする。semantic変更ならrevisionを増やし、presentation-only変更ならcanonical payloadを変えない。
 
-## 9. Task revision
+## 10. Task revision
 
 `task_revision`はsemantic contract変更時に単調増加するintegerとする。
 
 Revisionを上げる例:
 
 - objective / non-goal変更;
-- acceptance criteria / test oracle変更;
-- write scope変更;
-- resource key変更;
-- dependency変更。
+- execution mode変更;
+- dependency変更;
+- write scope / capability変更;
+- Resource Key変更;
+- Acceptance Criteria / Test Oracle変更。
 
 Workerがrevision 2で作業中にrevision 3へ変われば、旧lease/review/verificationはstaleとなる。
 
-## 10. Phase + Condition state model
+## 11. Phase + Condition state model
 
 Task状態は単一enumではなく2軸で表す。
 
@@ -254,15 +288,15 @@ integration / stale
 planned
   ↓ dependencies satisfied
 ready
-  ↓ lease granted
+  ↓ dispatch / lease grant when write
 executing
-  ↓ reviewable HEAD submitted
+  ↓ reviewable result submitted
 review
   ↓ independent review PASS
 verification
   ↓ acceptance + quality evidence PASS
 integration
-  ↓ merge + post-merge oracle
+  ↓ merge + post-merge oracle when applicable
 complete
 ```
 
@@ -275,15 +309,15 @@ integration  → verification  re-evidence only
 integration  → executing     semantic merge conflict
 ```
 
+Read-only Taskでmergeが存在しない場合、verificationからcompleteへ進める。ただしTask Packetが要求するdurable evidenceを満たすこと。
+
 `complete`はterminal。後発問題は原則new Task/Issueとして扱う。
 
-## 11. Lease and fencing protocol
+## 12. Lease and fencing protocol
 
-### 11.1 Purpose
+Leaseは`write` Taskのduplicate work防止とabandoned work回収のためのownership fenceである。
 
-Leaseはduplicate work防止とabandoned work回収のためのownership fenceである。
-
-### 11.2 Lease record
+### Lease record
 
 ```yaml
 owner: agent-A
@@ -299,45 +333,41 @@ expires_at: <timestamp>
 
 Lease recordを更新するのはCoordinatorだけ。
 
-### 11.3 Epoch is a fencing token
+### Epoch fencing
 
-新しいownership grantごとに`epoch`を増加する。
+新しいownership grantごとに`epoch`を増加する。旧epoch resultをcurrent ownershipとしてacceptしない。
 
-旧epochから返ってきたresultはcurrent ownershipとしてacceptしない。
-
-### 11.4 Branch per lease epoch
+### Branch per epoch
 
 **Reassignment後に同じwritable branchを再利用しない。**
-
-各lease epochは固有branch/worktreeを持つ。
 
 ```text
 agent/T500-03/e0003-agent-a
 agent/T500-03/e0004-agent-b
 ```
 
-これにより、復帰した旧Workerがold branchへpushしてもnew Ownerのbranchを直接汚さない。旧成果物を再利用する場合は、新epoch branchへexplicit cherry-pick/mergeし、改めてreviewする。
+旧Workerがold branchへlate pushしてもnew Owner branchを直接汚さない。旧成果物を再利用する場合はnew epoch branchへexplicit importし、改めてreviewする。
 
-通常のsame-owner resumeでownership/epochが変わらない場合のみ同一lease branchを継続できる。
+Same-owner resumeでownership/epochが変わらない場合のみ同一lease branchを継続できる。
 
-### 11.5 Expiry is not reassignment
+### Expiry is not reassignment
 
 Lease expiry後は必ずreconciliationする。
 
 ```text
-old lease branch HEAD
+old epoch branch HEAD
 open PR
 CI runs
-review comments
+reviews/comments
 artifacts
 unmerged commits
 ```
 
-をinventoryし、`resume / salvage / supersede / reassign`を決めた後にnew epochをgrantする。
+をinventoryし、`resume / salvage / supersede / reassign`を決めてからnew epochをgrantする。
 
-## 12. Heartbeat
+## 13. Heartbeat
 
-Heartbeatは単なるlivenessではなく、leaseが同じrevision/digest/base/branchに対して有効か確認するeventである。
+Heartbeatは単なるlivenessではなく、leaseが同じrevision/digest/base/branchに対して意味を持つか確認するeventである。
 
 Coordinatorは次をprogress evidenceとして利用できる。
 
@@ -349,9 +379,37 @@ Coordinatorは次をprogress evidenceとして利用できる。
 
 固定intervalはrepository contractにしないが、expiry/reconciliation semanticsはdeterministic test対象とする。
 
-## 13. Work isolation
+## 14. Capability model
 
-Default invariant:
+Roleごとにleast privilegeをTask Packet上で明示する。
+
+Conceptual capabilities:
+
+```text
+repository_read
+lease_branch_write
+draft_pr_write
+issue_comment_write
+review_write
+ci_read
+artifact_read
+integration_write
+merge_write
+```
+
+Default:
+
+- Worker(write): repository_read + lease_branch_write + draft_pr_write。
+- Worker(read_only): repository_read。必要な外部side effectだけ追加。
+- Reviewer: repository_read + review_write。production branch writeなし。
+- Verifier: repository_read + ci_read + artifact_read。原則source writeなし。
+- Integrator: repository_read + integration_write。merge_writeは明示authorization時のみ。
+
+Runtime/toolingが物理的permission isolationを提供できない場合でも、protocol contractとして違反を検出・報告する。v1は利用可能でない権限制御を実装済みと主張しない。
+
+## 15. Work isolation
+
+Write Task default invariant:
 
 ```text
 1 active Task lease
@@ -364,27 +422,27 @@ Default invariant:
 
 Worker同士はwritable worktreeを共有しない。
 
-Read-only cache共有は変更stateを持たず結果へ影響しない場合のみ許可する。
+Read-only Taskは同一immutable commit snapshotを共有可能。ただしgenerated mutable cacheが結果を変える場合は分離する。
 
-## 14. Dependency graph
+## 16. Dependency graph
 
 依存関係は3種類。
 
 ### Hard dependency
 
-上流が指定条件を満たすまで下流実行不可。
+上流Taskが指定`requires_phase`を満たすまで下流実行不可。
 
 ### Evidence dependency
 
-実装はparallel可能だが上流evidenceなしではverification/complete不可。
+実装はparallel可能だが指定上流evidenceなしではverification/complete不可。
 
 ### Integration dependency
 
-実装/reviewは独立だがmerge順序を持つ。
+実装/reviewは独立だがintegration順序を持つ。
 
-DAG cycleはfail closedする。
+DAG cycleはfail closedする。依存先Task revisionが変わり、edgeの前提が崩れた場合もdependent Taskを再評価する。
 
-## 15. Resource Keys
+## 17. Resource Keys
 
 File overlapだけでsemantic collisionを判定しない。
 
@@ -397,6 +455,7 @@ identity:<content-addressed-identity>
 schema:<schema-or-contract>
 workflow:<workflow-or-integration-path>
 artifact:<artifact-family>
+side-effect:<external-or-repository-resource>
 ```
 
 例:
@@ -407,11 +466,12 @@ identity:market-dataset
 schema:candidate-run-v2
 workflow:canonical-m2-bootstrap
 artifact:evidence-set
+side-effect:github-issue-500-status
 ```
 
-可能な限り#475のcontext/impactからderiveし、sourceから判定できないsemantic concernだけTask contractで明示する。
+可能な限り#475のcontext/impactからderiveし、sourceから判定できないsemantic/side-effect concernだけTask contractで明示する。
 
-## 16. Conflict graph
+## 18. Conflict graph
 
 Task pairは`hard / soft / none`へ分類する。
 
@@ -420,12 +480,12 @@ Task pairは`hard / soft / none`へ分類する。
 同時executing禁止。
 
 - same writable file region;
-- same schema authorityを別方針で変更;
-- same content identity algorithmを同時変更。
+- same schema/identity authorityを別方針で変更;
+- same mutable external side-effect resourceを同時更新。
 
 ### Soft
 
-parallel implementation可。ただし片方のintegration後、他方のreview/verificationをstaleにする。
+parallel implementation可。ただし片方のintegration後、他方のrelevant review/verificationをstaleにする。
 
 - same package/public facadeの別surface;
 - shared verification workflow変更;
@@ -440,25 +500,25 @@ Ready set:
 ```text
 ready = dependency-satisfied
       ∩ non-hard-conflicting
-      ∩ unleased
-      ∩ current task contract
+      ∩ unleased when write
+      ∩ current contract digest
 ```
 
-## 17. Scheduler
+## 19. Scheduler
 
 Coordinator refresh cycle:
 
 ```text
-1. refresh current main / active task contracts / leases / PRs / evidence
-2. recompute task contract digests
-3. invalidate stale contract/head/main evidence
-4. reconcile expired leases
+1. refresh current main / task contracts / status / PRs / evidence
+2. recompute Task Contract digests
+3. invalidate stale contract/head/main/conflict evidence
+4. reconcile expired write leases
 5. resolve dependency states
-6. derive/update resource keys
+6. derive/update Resource Keys
 7. build conflict graph
 8. compute ready-set
-9. rank ready tasks deterministically
-10. grant leases / dispatch role work
+9. rank ready Tasks deterministically
+10. dispatch role work / grant write leases
 11. publish status/dashboard projection
 ```
 
@@ -472,23 +532,19 @@ v1 priority:
 
 複雑なAI priority scoreはv1に入れない。
 
-## 18. Roles
+## 20. Roles
 
 ### Coordinator
 
-Task decomposition、revision/digest、DAG、conflict graph、phase/condition、lease、stale invalidation、scheduling、status projectionを所有する。
-
-原則production implementationをしない。
+Task decomposition、revision/digest、DAG、conflict graph、phase/condition、lease、stale invalidation、scheduling、status projectionを所有する。原則production implementationを行わない。
 
 ### Worker
 
-Task Packet、isolated worktree、TDD、focused implementation、checkpoint、self-review、Draft PR/evidence packageを担当する。
-
-Worker自身はTaskをcompleteにできない。
+Task Packet、TDD、focused implementation/investigation、checkpoint、self-review、reviewable resultを担当する。Write Taskではepoch worktree/branchを使う。WorkerはTaskをcompleteにできない。
 
 ### Reviewer
 
-Workerとは独立したcontextで、Task Packet / current source / exact PR diff / tests / evidenceからadversarial reviewする。Worker reasoningをauthorityとして引き継がない。
+Workerとは独立したcontextで、Task Packet / current source / exact diff/result / tests/evidenceからadversarial reviewする。Worker reasoningをauthorityとして引き継がない。
 
 Verdict:
 
@@ -500,34 +556,36 @@ BLOCKING_FINDING
 
 ### Verifier
 
-Acceptance Criteria、Invariants、Failure Modes、Test Oracle、quality gate、falsification、unverified itemsをexact HEADに対して確認する。
+Acceptance Criteria、Invariants、Failure Modes、Test Oracle、quality gate、falsification、unverified itemsをexact snapshotに対して確認する。
 
 ### Integrator
 
 current main、tested-head containment、competing work、exact-head review/CI、expected-head merge、post-merge oracleを担当する。
 
-Small deploymentではCoordinator/Integrator併任可。material changeではWorker/Reviewerを分離する。
+Small deploymentではCoordinator/Integrator併任可。material write TaskではWorker/Reviewerを分離する。
 
-## 19. Worker submission gate
+## 21. Worker submission gate
 
-`executing → review`前に最低限:
+Write Taskの`executing → review`前に最低限:
 
 - current task revision/digest確認;
-- write scope確認;
+- write scope/capability確認;
 - reproducing RED観測;
 - minimal GREEN観測;
 - refactor後GREEN;
 - final diff self-review;
 - debug/tmp/generated residueなし;
-- lease branchへcommit/push;
+- epoch branchへcommit/push;
 - immutable review targetあり;
 - known limitations / unverified items明記。
 
+Read-only TaskではRED/GREENやbranch要件のうち非該当項目を除外し、Task固有Test Oracle/evidenceを満たす。
+
 自然言語「できた」はtransition oracleではない。
 
-## 20. Checkpoint and handoff
+## 22. Checkpoint and handoff
 
-Meaningful boundaryでrecoverable checkpointをpushする。
+Meaningful boundaryでrecoverable checkpointをdurable化する。
 
 ```text
 RED reproduced
@@ -535,7 +593,7 @@ root cause evidence captured
 minimal GREEN
 refactor complete
 long external CI before wait
-reviewable HEAD
+reviewable HEAD/result
 ```
 
 Worker交代時のhandoff minimum:
@@ -560,7 +618,7 @@ evidence:
 
 Private conversation historyなしで再開できることをoracleとする。
 
-## 21. Evidence binding and invalidation
+## 23. Evidence binding and invalidation
 
 Evidence logical minimum:
 
@@ -575,17 +633,19 @@ identifier: <stable id>
 result: pass | fail
 ```
 
+Read-only evidenceでHEADが不要な場合も、評価したimmutable source snapshot SHAを`head_sha`相当としてbindする。
+
 Invalidation rules:
 
 - task revision/digest change → lease/review/verification/integration stale;
-- PR/branch HEAD change → review/verification/integration stale;
+- source/PR HEAD change → review/verification/integration stale;
 - current main change → integration stale;
-- hard/soft conflict integration → affected downstream evidence stale according to conflict edge;
+- hard/soft conflict integration → affected Task evidence stale according to edge;
 - malformed/missing binding → invalid, not unknown-pass。
 
 v1は安全側に倒し、HEADが変わればreview/verificationを取り直す。
 
-## 22. Current-main and Integration
+## 24. Current-main and Integration
 
 Integration invariant:
 
@@ -612,7 +672,7 @@ Required oracle:
 ```text
 current main resolved
 no unresolved hard conflict
-current task contract digest
+current Task Contract digest
 PR head contains current main
 review exact HEAD PASS
 verification exact HEAD PASS
@@ -624,7 +684,7 @@ post-merge main HEAD observed
 post-merge required oracle Green
 ```
 
-## 23. Parent completion
+## 25. Parent completion
 
 Parent Issue completion:
 
@@ -639,7 +699,7 @@ all children complete
 ≠ automatically parent complete
 ```
 
-## 24. GitHub projection
+## 26. GitHub projection
 
 推奨durable mapping:
 
@@ -652,7 +712,7 @@ all children complete
 | implementation | epoch-specific branch / PR |
 | review | PR review |
 | verification | CI / immutable artifact |
-| completion | Issue closed/completed after post-merge oracle |
+| completion | Issue closed/completed after required oracle |
 
 Coordinator-owned status commentはTaskごとに原則1つをupdate-in-placeする。
 
@@ -676,7 +736,7 @@ Worker/Reviewerはこのrecordを直接編集しない。
 
 Human-facing dashboardはこのevidenceから生成するderived viewとする。
 
-## 25. Recovery and fencing scenarios
+## 27. Recovery and fencing scenarios
 
 ### Worker lost before push
 
@@ -688,7 +748,7 @@ Remote branch/PR/CIをreconcileし、same epoch resumeまたはnew epoch salvage
 
 ### Stale Worker returns after reassignment
 
-旧Workerは旧epoch branchへしか成果物を出さない。旧epoch resultをcurrent stateとしてacceptしない。必要ならnew epoch branchへexplicitly importして再reviewする。
+旧Workerは旧epoch branchへしか成果物を出さない。旧epoch resultをcurrent stateとしてacceptしない。必要ならnew epoch branchへexplicit importして再reviewする。
 
 ### Coordinator restart
 
@@ -698,41 +758,46 @@ Issue/status/branch/PR/CI evidenceからstateを再構築する。Coordinator me
 
 v1では自動解決しない。複数Coordinatorを同時activeにしないことをoperational invariantとし、takeover前に旧session停止を要求する。
 
-## 26. Security / trust boundary
+## 28. Security / trust boundary
 
 - Worker summaryよりGit SHA/diff/test outputを優先する。
-- Reviewer proseよりreview target HEADを確認する。
+- Reviewer proseよりreview target SHAを確認する。
 - CI textよりrun/head bindingを確認する。
 - labelだけでmerge可否を決めない。
 - malformed status/contractはfail closedする。
-- write scope違反はTask contract violation。
+- write scope/capability違反はTask contract violation。
 - secrets/token値をTask Packet/statusへ保存しない。
+- Reviewer/Verifierへ不要なwrite capabilityを与えない。
 
-## 27. Failure modes and mitigations
+## 29. Failure modes and mitigations
 
 | Failure | Mitigation |
 |---|---|
 | Duplicate claim | single Coordinator + one active lease + epoch |
 | Stale Worker after reassign | branch-per-epoch fencing + old epoch rejection |
-| Issue edited without revision bump | canonical task contract digest |
-| Worker uses stale task spec | revision/digest heartbeat and transition checks |
+| Issue edited without revision bump | canonical Task Contract digest |
+| Worker uses stale Task spec | revision/digest transition checks |
+| Read-only task creates unnecessary mutable state | execution mode contract |
 | File-disjoint semantic collision | Resource Keys + conflict graph |
-| Review becomes stale after commit | exact HEAD evidence binding |
-| Green PR becomes stale after main advance | integration invalidation + current-main containment |
+| External side-effect race | `side-effect:` Resource Key |
+| Review stale after commit | exact snapshot evidence binding |
+| Green PR stale after main advance | integration invalidation + current-main containment |
 | Global ledger merge conflict | no checked-in mutable ledger |
-| Agent death loses work | meaningful pushed checkpoints |
+| Agent death loses work | meaningful durable checkpoints |
 | Child completion masks parent failure | parent final acceptance re-evaluation |
-| Coordinator restart loses state | durable GitHub reconstruction |
-| Coordinator split-brain | explicit v1 single-active-Coordinator invariant |
+| Coordinator restart loses state | GitHub evidence reconstruction |
+| Coordinator split-brain | explicit single-active-Coordinator invariant |
+| Role overreach | least-capability contract + violation detection |
 
-## 28. Test strategy
+## 30. Test strategy
 
 ### Unit
 
 - Task Packet canonicalization/digest;
+- execution mode/capability validation;
 - phase/condition transitions;
 - task revision invalidation;
-- dependency DAG and cycle rejection;
+- typed dependency DAG and cycle rejection;
 - Resource Key normalization;
 - hard/soft/none conflict classification;
 - lease epoch/fencing;
@@ -741,19 +806,21 @@ v1では自動解決しない。複数Coordinatorを同時activeにしないこ�
 
 ### Property / model-based
 
-- at most one active lease per Task;
+- at most one active write lease per Task;
 - epoch monotonicity;
 - epoch branch uniqueness;
-- hard-conflicting Tasks never both executing;
+- hard-conflicting write Tasks never both executing;
 - stale evidence never satisfies completion;
-- complete implies required integration/post-merge evidence;
-- digest change with unchanged revision never remains healthy。
+- complete implies required verification/integration evidence;
+- digest change with unchanged revision never remains healthy;
+- read-only Task never requires or mutates lease branch state。
 
 ### Integration
 
 Temporary Git repo/worktreeで:
 
-- isolated worktrees;
+- isolated write worktrees;
+- shared immutable read-only snapshots;
 - epoch branches;
 - old-worker late push isolation;
 - HEAD movement;
@@ -768,7 +835,8 @@ Temporary Git repo/worktreeで:
 - exact PR head;
 - review/CI head binding;
 - stale-main detection;
-- malformed status fail-closed。
+- malformed status fail-closed;
+- side-effect Resource Key collision。
 
 ### Falsification
 
@@ -777,15 +845,17 @@ Temporary Git repo/worktreeで:
 - duplicate lease;
 - stale epoch result;
 - Issue contract mutation without revision bump;
+- read-only Task attempting source write;
 - cyclic dependency;
 - semantic conflict without file overlap;
+- same external side effect without file overlap;
 - approved-old-HEAD + new commit;
 - Green-old-main + advanced main;
 - all children complete + parent AC failure
 
 を作り、systemが拒否することを確認する。
 
-## 29. Implementation boundary
+## 31. Implementation boundary
 
 #475がcanonicalになった場合、同じrepository-tooling ownerへ追加する。
 
@@ -806,7 +876,7 @@ tools/agent_repo/
 ```
 
 - `model.py`: immutable domain-neutral coordination types
-- `contract.py`: Task Packet canonicalization/digest
+- `contract.py`: Task Packet canonicalization/digest/capabilities
 - `state.py`: phase/condition and invalidation
 - `dependencies.py`: typed DAG
 - `conflicts.py`: Resource Keys/conflict graph
@@ -815,11 +885,11 @@ tools/agent_repo/
 - `github_state.py`: GitHub durable projection boundary
 - `dashboard.py`: human derived view
 
-Exact filenamesは実装時の#475 structureに合わせて調整可能だが責務分離は維持し、巨大なsingle fileへ集約しない。
+Exact filenamesは実装時の#475 structureに合わせて調整可能だが責務分離は維持し、巨大single fileへ集約しない。
 
 `trade_rl/**`からこのtoolingへ依存しない。
 
-## 30. CLI direction
+## 32. CLI direction
 
 #475のentrypointを継続できる場合、別binaryではなくnamespaceを追加する。
 
@@ -833,46 +903,49 @@ python -m tools.agent_repo task dashboard [<parent>]
 
 Write commandsを直接CLIへ公開するかCoordinator API専用にするかは、implementation時点のGitHub permission surfaceを確認して決める。Read-only model/state contractsはwrite capabilityに依存させない。
 
-## 31. Dogfood
+## 33. Dogfood
 
 Coordination Plane自身のcontract testsがGreenになる前に本番coordination authorityとして使わない。
 
-最初のdogfoodは実際のcurrent stateを確認して、semantic scopeが独立した2+ Taskを選ぶ。候補例は#494と#476だが、開始時に完了/仕様変更済みなら別Taskを選ぶ。
+最初のdogfoodは開始時点のcurrent stateを確認し、semantic scopeが独立した2+ Taskを選ぶ。候補例は#494と#476だが、完了/仕様変更済みなら別Taskを選ぶ。
 
 評価:
 
 - duplicate work zero;
-- scope violation zero;
+- scope/capability violation zero;
 - stale evidence reuse zero;
 - successful recovery/handoff;
-- no hidden semantic collision;
+- no hidden semantic/side-effect collision;
 - integration後のsoft-conflicting remaining Taskが正しくstale化。
 
-## 32. Acceptance Criteria
+## 34. Acceptance Criteria
 
-1. Independent Taskを2つ以上shared writable worktreeなしでconcurrent leaseできる。
-2. 同一Taskへactive leaseを二重grantできない。
-3. Lease expiry後、side-effect reconciliationなしにreassignできない。
-4. New lease epochはunique writable branchを持ち、old Worker late pushがnew owner branchを直接汚さない。
-5. Task revisionまたはcanonical contract digest変更で旧lease/review/verificationがstaleになる。
-6. File overlapなしのsemantic Resource Key collisionをhard/soft conflictとして表現できる。
-7. Hard-conflicting Tasksを同時executingにしない。
-8. PR HEAD変更後、旧review/CI evidenceをvalid扱いしない。
-9. Main advancement後、integration evidenceをstaleにしcurrent-main-inclusive exact HEADを再検証する。
-10. Agent/session loss後、durable checkpointからprivate chatなしでhandoffできる。
-11. WorkerはTaskをcompleteにできずreview/verification/integrationを通る。
-12. All child completeだけでparent closeせずparent ACを再評価する。
-13. Coordinator restart後、durable evidenceからstateを再構築できる。
-14. Repository Control PlaneとCoordination Planeのauthorityを分離する。
-15. `trade_rl/**` runtime/public API/artifact semanticsをcoordination都合で変更しない。
-16. Existing final quality gatesを弱めない。
-17. Multi-Coordinator consensusを実装したと誤って主張せず、v1 single-active-Coordinator invariantを明記する。
+1. Independent read-only/write Taskを2つ以上、安全にconcurrent dispatchできる。
+2. Read-only Taskに不要なwritable branch/worktreeを要求しない。
+3. 同一write Taskへactive leaseを二重grantできない。
+4. Lease expiry後、side-effect reconciliationなしにreassignできない。
+5. New lease epochはunique writable branchを持ち、old Worker late pushがnew owner branchを直接汚さない。
+6. Task revisionまたはcanonical contract digest変更で旧lease/review/verificationがstaleになる。
+7. File overlapなしのsemantic/side-effect Resource Key collisionをhard/soft conflictとして表現できる。
+8. Hard-conflicting write Tasksを同時executingにしない。
+9. PR/source snapshot変更後、旧review/CI evidenceをvalid扱いしない。
+10. Main advancement後、integration evidenceをstaleにしcurrent-main-inclusive exact HEADを再検証する。
+11. Agent/session loss後、durable checkpointからprivate chatなしでhandoffできる。
+12. WorkerはTaskをcompleteにできずreview/verification/integration protocolを通る。
+13. All child completeだけでparent closeせずparent ACを再評価する。
+14. Coordinator restart後、durable evidenceからstateを再構築できる。
+15. Repository Control PlaneとCoordination Planeのauthorityを分離する。
+16. Role capability violationを検出・報告できる。
+17. `trade_rl/**` runtime/public API/artifact semanticsをcoordination都合で変更しない。
+18. Existing final quality gatesを弱めない。
+19. Multi-Coordinator consensusを実装したと誤って主張せず、v1 single-active-Coordinator invariantを明記する。
 
-## 33. Quality Gate
+## 35. Quality Gate
 
 Implementation completeには最低限:
 
 - Task contract digest tests Green;
+- execution-mode/capability tests Green;
 - state/revision/lease/fencing/property tests Green;
 - dependency/conflict/scheduler tests Green;
 - temp-Git/worktree integration Green;
@@ -894,7 +967,7 @@ Implementation completeには最低限:
 
 Tests Greenだけではcompletionとしない。
 
-## 34. Implementation sequencing
+## 36. Implementation sequencing
 
 ### Phase 0 — dependency normalization
 
@@ -902,7 +975,7 @@ Tests Greenだけではcompletionとしない。
 
 ### Phase 1 — pure model
 
-Task Packet canonical digest、phase/condition、revision/evidence invalidation、DAG、Resource Keysをnetwork-freeで実装する。
+Task Packet canonical digest、execution mode/capability、phase/condition、revision/evidence invalidation、DAG、Resource Keysをnetwork-freeで実装する。
 
 ### Phase 2 — lease/fencing/scheduler
 
@@ -922,13 +995,13 @@ active/blocked/stale/owner/dependencyを一目で確認できるderived viewを�
 
 ### Phase 6 — adversarial verification
 
-race、stale worker、contract mutation、main movement、parent acceptanceを壊す。
+race、stale worker、contract mutation、capability violation、side-effect collision、main movement、parent acceptanceを壊す。
 
 ### Phase 7 — dogfood
 
 独立Taskを2+ Workerで並列運用して実環境検証する。
 
-## 35. Completion lifecycle
+## 37. Completion lifecycle
 
 このspecはimplementation中だけ`docs/specs/`へ保持する。
 

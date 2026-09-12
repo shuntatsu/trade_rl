@@ -20,10 +20,6 @@ HIGH_VALUE_RE = re.compile(
     re.IGNORECASE,
 )
 RUN_ID_RE = re.compile(r"(?<!\d)(\d{10,12})(?!\d)")
-TEMP_WORKFLOW_RE = re.compile(
-    r"(?:^|/)(?:tmp[-_]|temporary[-_]|scratch[-_]|one[-_]?shot[-_]|oneoff[-_])",
-    re.IGNORECASE,
-)
 CLEANUP_BRANCH_PREFIX = "ops/actions-history-cleanup"
 
 
@@ -32,27 +28,22 @@ def _parse_time(value: str) -> datetime:
 
 
 def _is_ci(run: dict[str, Any]) -> bool:
-    path = str(run.get("path") or "")
-    return run.get("name") == "CI" or path == ".github/workflows/ci.yml"
+    return run.get("name") == "CI" or str(run.get("path") or "") == ".github/workflows/ci.yml"
 
 
-def _run_key(run: dict[str, Any]) -> tuple[str, str]:
-    return (str(run.get("head_branch") or ""), str(run.get("path") or ""))
+def _success_key(run: dict[str, Any]) -> tuple[str, int]:
+    return (str(run.get("head_branch") or ""), int(run.get("workflow_id") or 0))
 
 
-def _latest_by_key(runs: Iterable[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
-    latest: dict[tuple[str, str], dict[str, Any]] = {}
-    for run in runs:
-        key = _run_key(run)
-        previous = latest.get(key)
-        if previous is None or _parse_time(str(run["created_at"])) > _parse_time(
-            str(previous["created_at"])
-        ):
-            latest[key] = run
-    return latest
+def _has_high_value_keyword(run: dict[str, Any]) -> bool:
+    haystack = " ".join(
+        str(run.get(key) or "")
+        for key in ("name", "path", "head_branch", "display_title")
+    )
+    return HIGH_VALUE_RE.search(haystack) is not None
 
 
-def classify_run(
+def classify_failure(
     run: dict[str, Any],
     *,
     now: datetime,
@@ -60,30 +51,29 @@ def classify_run(
     protected_run_ids: set[int],
     artifact_run_ids: set[int],
     existing_branches: set[str],
-    latest_by_key: dict[tuple[str, str], dict[str, Any]],
+    latest_success: dict[tuple[str, int], dict[str, Any]],
     current_run_id: int,
     recent_hours: int,
 ) -> tuple[str, str]:
     run_id = int(run["id"])
     if run_id == current_run_id:
         return "KEEP", "current cleanup run"
-    if run.get("status") != "completed":
-        return "KEEP", "run is not completed"
+    if run.get("status") != "completed" or run.get("conclusion") != "failure":
+        return "KEEP", "not a completed failure"
     if run_id in protected_run_ids:
         return "KEEP", "run id is referenced in repository/issue/PR text"
     if run_id in artifact_run_ids:
         return "KEEP", "run has an Actions artifact"
     if str(run.get("head_sha") or "") in protected_shas:
         return "KEEP", "run belongs to current main or an open PR HEAD"
-
-    haystack = " ".join(
-        str(run.get(key) or "")
-        for key in ("name", "path", "head_branch", "display_title")
-    )
-    if HIGH_VALUE_RE.search(haystack):
+    if _has_high_value_keyword(run):
         return "KEEP", "research/evidence/high-value keyword"
 
     branch = str(run.get("head_branch") or "")
+    if branch.startswith(CLEANUP_BRANCH_PREFIX):
+        return "DELETE", "obsolete cleanup-helper failure"
+    if not _is_ci(run):
+        return "REVIEW", "failed non-CI workflow is not deleted in phase 2"
     if branch and branch in existing_branches:
         return "KEEP", "branch still exists"
 
@@ -91,28 +81,31 @@ def classify_run(
     if created_at >= now - timedelta(hours=recent_hours):
         return "KEEP", f"created within last {recent_hours} hours"
 
-    if branch.startswith(CLEANUP_BRANCH_PREFIX):
-        return "DELETE", "obsolete cleanup-helper run on deleted branch"
+    success = latest_success.get(_success_key(run))
+    if success is None:
+        return "REVIEW", "deleted branch has no successful run for the same workflow"
+    if _parse_time(str(success["created_at"])) <= created_at:
+        return "REVIEW", "same-workflow success is not later than the failure"
+    return "DELETE", "superseded failed CI on deleted branch with later same-workflow success"
 
-    conclusion = str(run.get("conclusion") or "")
-    path = str(run.get("path") or "")
 
-    if conclusion == "failure" and _is_ci(run):
-        latest = latest_by_key.get(_run_key(run))
-        if (
-            latest is not None
-            and int(latest["id"]) != run_id
-            and latest.get("status") == "completed"
-            and latest.get("conclusion") == "success"
-            and _parse_time(str(latest["created_at"])) > created_at
-        ):
-            return "DELETE", "superseded failed CI on deleted branch with later success"
-        return "REVIEW", "failed CI lacks a later successful terminal run on the same branch/workflow"
-
-    if conclusion in {"cancelled", "stale", "skipped"} and TEMP_WORKFLOW_RE.search(path):
-        return "DELETE", "old disposable temporary-workflow run on deleted branch"
-
-    return "REVIEW", "old run is not provably disposable under phase-2 policy"
+def classify_cleanup_run(
+    run: dict[str, Any],
+    *,
+    protected_run_ids: set[int],
+    artifact_run_ids: set[int],
+    current_run_id: int,
+) -> tuple[str, str]:
+    run_id = int(run["id"])
+    if run_id == current_run_id:
+        return "KEEP", "current cleanup run"
+    if run.get("status") != "completed":
+        return "KEEP", "cleanup run is not completed"
+    if run_id in protected_run_ids:
+        return "KEEP", "cleanup run id is explicitly referenced"
+    if run_id in artifact_run_ids:
+        return "KEEP", "cleanup run has an artifact"
+    return "DELETE", "superseded temporary cleanup-helper run"
 
 
 class GitHubApi:
@@ -212,7 +205,25 @@ def _collect_text_refs(api: GitHubApi, repo_root: Path) -> set[int]:
     return _extract_run_ids(texts) | _repository_numeric_refs(repo_root)
 
 
-def collect_context(api: GitHubApi, repo_root: Path) -> dict[str, Any]:
+def _latest_success_for_keys(
+    api: GitHubApi, keys: set[tuple[str, int]]
+) -> dict[tuple[str, int], dict[str, Any]]:
+    out: dict[tuple[str, int], dict[str, Any]] = {}
+    for branch, workflow_id in sorted(keys):
+        if not branch or workflow_id <= 0:
+            continue
+        encoded_branch = urllib.parse.quote(branch, safe="")
+        data = api.get(
+            f"/repos/{api.repo}/actions/workflows/{workflow_id}/runs"
+            f"?branch={encoded_branch}&status=success&per_page=1"
+        )
+        runs = data.get("workflow_runs") or []
+        if runs:
+            out[(branch, workflow_id)] = runs[0]
+    return out
+
+
+def collect_context(api: GitHubApi, repo_root: Path, now: datetime, recent_hours: int) -> dict[str, Any]:
     repo = api.get(f"/repos/{api.repo}")
     default_branch = str(repo["default_branch"])
     default_branch_data = api.get(
@@ -235,21 +246,54 @@ def collect_context(api: GitHubApi, repo_root: Path) -> dict[str, Any]:
         if artifact.get("workflow_run") and artifact["workflow_run"].get("id")
     }
 
-    all_runs = api.get_paginated(
-        f"/repos/{api.repo}/actions/runs", item_key="workflow_runs"
+    failure_runs = api.get_paginated(
+        f"/repos/{api.repo}/actions/runs?status=failure", item_key="workflow_runs"
     )
-    referenced_run_ids = _collect_text_refs(api, repo_root)
-    actual_run_ids = {int(run["id"]) for run in all_runs}
-    referenced_run_ids &= actual_run_ids
+    protected_run_ids = _collect_text_refs(api, repo_root)
+    failure_ids = {int(run["id"]) for run in failure_runs}
+    protected_run_ids &= failure_ids
+
+    cutoff = now - timedelta(hours=recent_hours)
+    success_keys: set[tuple[str, int]] = set()
+    for run in failure_runs:
+        branch = str(run.get("head_branch") or "")
+        if (
+            run.get("status") == "completed"
+            and run.get("conclusion") == "failure"
+            and _is_ci(run)
+            and branch
+            and branch not in existing_branches
+            and not branch.startswith(CLEANUP_BRANCH_PREFIX)
+            and str(run.get("head_sha") or "") not in protected_shas
+            and int(run["id"]) not in protected_run_ids
+            and int(run["id"]) not in artifact_run_ids
+            and not _has_high_value_keyword(run)
+            and _parse_time(str(run["created_at"])) < cutoff
+        ):
+            success_keys.add(_success_key(run))
+
+    latest_success = _latest_success_for_keys(api, success_keys)
+
+    cleanup_runs: list[dict[str, Any]] = []
+    cleanup_branches = {
+        os.environ.get("LEGACY_CLEANUP_BRANCH", ""),
+        os.environ.get("CLEANUP_HEAD_BRANCH", ""),
+    }
+    for branch in sorted(b for b in cleanup_branches if b):
+        data = api.get(
+            f"/repos/{api.repo}/actions/runs?branch={urllib.parse.quote(branch, safe='')}&per_page=100"
+        )
+        cleanup_runs.extend(data.get("workflow_runs") or [])
 
     return {
-        "default_branch": default_branch,
         "protected_shas": protected_shas,
         "existing_branches": existing_branches,
         "artifact_run_ids": artifact_run_ids,
-        "protected_run_ids": referenced_run_ids,
-        "all_runs": all_runs,
-        "latest_by_key": _latest_by_key(all_runs),
+        "protected_run_ids": protected_run_ids,
+        "failure_runs": failure_runs,
+        "latest_success": latest_success,
+        "success_key_count": len(success_keys),
+        "cleanup_runs": cleanup_runs,
         "open_prs": [
             {"number": int(pr["number"]), "head_sha": str(pr["head"]["sha"])}
             for pr in open_prs
@@ -262,13 +306,14 @@ def write_summary(report: dict[str, Any]) -> None:
         "# Actions history cleanup phase 2",
         "",
         f"- Mode: **{'DRY RUN' if report['dry_run'] else 'EXECUTE'}**",
-        f"- Repository total runs scanned: **{report['total_runs']}**",
+        f"- Failed runs scanned: **{report['failure_runs_scanned']}**",
+        f"- Deleted-branch CI workflow keys checked for later success: **{report['success_key_count']}**",
         f"- Safe delete candidates: **{report['candidate_count']}**",
         f"- Deleted: **{report['deleted_count']}**",
         f"- REVIEW (not deleted): **{report['review_count']}**",
         f"- KEEP: **{report['keep_count']}**",
-        f"- Protected explicit references: **{report['protected_reference_count']}**",
-        f"- Runs with artifacts protected: **{report['artifact_run_count']}**",
+        f"- Protected explicit failure-run references: **{report['protected_reference_count']}**",
+        f"- Artifact-bearing runs protected: **{report['artifact_run_count']}**",
         f"- Open PRs protected: **{len(report['open_prs'])}**",
         "",
         "## Delete reason counts",
@@ -304,29 +349,38 @@ def run_cleanup() -> int:
     max_delete = int(os.environ.get("MAX_DELETE", "1500"))
     recent_hours = int(os.environ.get("RECENT_HOURS", "168"))
     api = GitHubApi(repo, token)
-    context = collect_context(api, Path.cwd())
     now = datetime.now(timezone.utc)
+    context = collect_context(api, Path.cwd(), now, recent_hours)
 
     classified: list[tuple[dict[str, Any], str, str]] = []
-    for run in context["all_runs"]:
-        decision, reason = classify_run(
+    for run in context["failure_runs"]:
+        decision, reason = classify_failure(
             run,
             now=now,
             protected_shas=context["protected_shas"],
             protected_run_ids=context["protected_run_ids"],
             artifact_run_ids=context["artifact_run_ids"],
             existing_branches=context["existing_branches"],
-            latest_by_key=context["latest_by_key"],
+            latest_success=context["latest_success"],
             current_run_id=current_run_id,
             recent_hours=recent_hours,
         )
         classified.append((run, decision, reason))
 
-    candidates = [
-        (run, reason)
-        for run, decision, reason in classified
-        if decision == "DELETE"
-    ]
+    seen = {int(run["id"]) for run, _, _ in classified}
+    for run in context["cleanup_runs"]:
+        if int(run["id"]) in seen:
+            continue
+        decision, reason = classify_cleanup_run(
+            run,
+            protected_run_ids=context["protected_run_ids"],
+            artifact_run_ids=context["artifact_run_ids"],
+            current_run_id=current_run_id,
+        )
+        classified.append((run, decision, reason))
+        seen.add(int(run["id"]))
+
+    candidates = [(run, reason) for run, decision, reason in classified if decision == "DELETE"]
     candidates.sort(key=lambda pair: pair[0]["created_at"])
     selected = candidates[:max_delete]
     deleted: list[int] = []
@@ -346,7 +400,8 @@ def run_cleanup() -> int:
     reasons = Counter(reason for _, decision, reason in classified if decision == "DELETE")
     report = {
         "dry_run": dry_run,
-        "total_runs": len(context["all_runs"]),
+        "failure_runs_scanned": len(context["failure_runs"]),
+        "success_key_count": context["success_key_count"],
         "candidate_count": len(candidates),
         "selected_count": len(selected),
         "deleted_count": len(deleted),
@@ -382,12 +437,13 @@ def self_test() -> int:
         run_id: int,
         *,
         branch: str = "old/branch",
-        path: str = ".github/workflows/ci.yml",
         name: str = "CI",
-        conclusion: str = "failure",
+        path: str = ".github/workflows/ci.yml",
+        title: str = "fix: routine change",
         created_at: str = old,
         sha: str = "oldsha",
-        title: str = "change",
+        workflow_id: int = 123,
+        conclusion: str = "failure",
     ) -> dict[str, Any]:
         return {
             "id": run_id,
@@ -399,80 +455,56 @@ def self_test() -> int:
             "name": name,
             "display_title": title,
             "created_at": created_at,
+            "workflow_id": workflow_id,
         }
 
-    later_success = run(
+    success = run(
         90000000002,
-        conclusion="success",
         created_at="2026-08-21T00:00:00Z",
+        conclusion="success",
     )
-    latest = _latest_by_key([run(90000000001), later_success])
-
     common = dict(
         now=now,
         protected_shas=set(),
         protected_run_ids=set(),
         artifact_run_ids=set(),
         existing_branches=set(),
-        latest_by_key=latest,
+        latest_success={_success_key(success): success},
         current_run_id=99999999999,
         recent_hours=168,
     )
 
     cases: list[tuple[str, dict[str, Any], dict[str, Any], str]] = [
         ("superseded failed CI", run(90000000001), {}, "DELETE"),
-        ("failure without later success", run(90000000003), {"latest_by_key": {}}, "REVIEW"),
-        ("recent failure", run(90000000004, created_at=recent), {"latest_by_key": {}}, "KEEP"),
+        ("no later success", run(90000000003, workflow_id=999), {}, "REVIEW"),
+        ("recent failure", run(90000000004, created_at=recent), {}, "KEEP"),
         ("artifact failure", run(90000000005), {"artifact_run_ids": {90000000005}}, "KEEP"),
         ("referenced failure", run(90000000006), {"protected_run_ids": {90000000006}}, "KEEP"),
         ("protected SHA", run(90000000007, sha="protected"), {"protected_shas": {"protected"}}, "KEEP"),
         ("existing branch", run(90000000008), {"existing_branches": {"old/branch"}}, "KEEP"),
-        (
-            "old tmp skipped",
-            run(90000000009, path=".github/workflows/tmp-helper.yml", name="Helper", conclusion="skipped"),
-            {"latest_by_key": {}},
-            "DELETE",
-        ),
-        (
-            "named skipped non-temp",
-            run(90000000010, path=".github/workflows/u2-primary.yml", name="U2 Primary Gate", conclusion="skipped"),
-            {"latest_by_key": {}},
-            "KEEP",
-        ),
-        (
-            "high-value tmp skipped",
-            run(90000000011, path=".github/workflows/tmp-helper.yml", name="Canonical Evidence Helper", conclusion="skipped"),
-            {"latest_by_key": {}},
-            "KEEP",
-        ),
-        (
-            "old cleanup helper",
-            run(90000000012, branch="ops/actions-history-cleanup-old", conclusion="failure"),
-            {"latest_by_key": {}},
-            "DELETE",
-        ),
-        (
-            "research failure",
-            run(90000000013, name="Research experiment CI"),
-            {"latest_by_key": {}},
-            "KEEP",
-        ),
-        (
-            "old tmp cancelled",
-            run(90000000014, path=".github/workflows/temporary-helper.yml", name="Helper", conclusion="cancelled"),
-            {"latest_by_key": {}},
-            "DELETE",
-        ),
+        ("non-CI failure", run(90000000009, name="Helper", path=".github/workflows/tmp.yml"), {}, "REVIEW"),
+        ("research failure", run(90000000010, title="research: experiment red"), {}, "KEEP"),
+        ("cleanup failure", run(90000000011, branch="ops/actions-history-cleanup-old", workflow_id=999), {}, "DELETE"),
     ]
 
     for label, item, overrides, expected in cases:
         kwargs = dict(common)
         kwargs.update(overrides)
-        actual, reason = classify_run(item, **kwargs)
+        actual, reason = classify_failure(item, **kwargs)
         if actual != expected:
             raise AssertionError(f"{label}: expected {expected}, got {actual}: {reason}")
 
-    print(f"self-test: {len(cases)} phase-2 classification contracts passed")
+    cleanup = run(90000000012, branch="ops/actions-history-cleanup-old", conclusion="success")
+    actual, _ = classify_cleanup_run(
+        cleanup,
+        protected_run_ids=set(),
+        artifact_run_ids=set(),
+        current_run_id=99999999999,
+    )
+    if actual != "DELETE":
+        raise AssertionError(f"cleanup supersession: expected DELETE, got {actual}")
+
+    print(f"self-test: {len(cases) + 1} selective phase-2 contracts passed")
     return 0
 
 

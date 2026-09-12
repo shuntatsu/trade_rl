@@ -4,6 +4,7 @@ import ast
 from dataclasses import fields
 from pathlib import Path
 
+from tests.architecture.imports import ImportCollector, within_module
 from trade_rl.evaluation.experiments.contracts import (
     CANDIDATE_STRATEGY_NAMES,
     CONTROL_STRATEGY_NAMES,
@@ -12,7 +13,9 @@ from trade_rl.evaluation.experiments.contracts import (
 from trade_rl.evaluation.experiments.delta import FACTOR_RULES
 
 ROOT = Path(__file__).resolve().parents[2]
-EXPERIMENTS = ROOT / "trade_rl" / "evaluation" / "experiments"
+PACKAGE = ROOT / "trade_rl"
+EXPERIMENTS = PACKAGE / "evaluation" / "experiments"
+RUNS = PACKAGE / "evaluation" / "runs"
 EXPECTED_STUDY_STRATEGIES = (
     "cash",
     "constant_long",
@@ -38,7 +41,8 @@ def _module_level_literal_rosters(path: Path) -> tuple[tuple[str, ...], ...]:
         if not isinstance(value, (ast.Tuple, ast.List)):
             continue
         if not value.elts or any(
-            not isinstance(element, ast.Constant) or not isinstance(element.value, str)
+            not isinstance(element, ast.Constant)
+            or not isinstance(element.value, str)
             for element in value.elts
         ):
             continue
@@ -75,3 +79,15 @@ def test_factor_rules_reference_only_study_strategies() -> None:
     allowed = frozenset(EXPECTED_STUDY_STRATEGIES)
     for rule in FACTOR_RULES.values():
         assert rule.unaffected_strategies <= allowed
+
+
+def test_run_core_does_not_depend_on_controlled_experiments() -> None:
+    collector = ImportCollector(PACKAGE)
+    forbidden = "trade_rl.evaluation.experiments"
+    offenders = {
+        path.relative_to(ROOT).as_posix(): sorted(
+            name for name in collector.collect_direct(path) if within_module(name, forbidden)
+        )
+        for path in sorted(RUNS.rglob("*.py"))
+    }
+    assert {path: imports for path, imports in offenders.items() if imports} == {}

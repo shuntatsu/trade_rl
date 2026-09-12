@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from tools.agent_repo.coordination.model import (
     EvidenceKind,
     EvidenceRecord,
+    TaskCondition,
     TaskPacket,
     TaskPhase,
+    TaskStatus,
 )
 
 _ALLOWED_TRANSITIONS: dict[TaskPhase, frozenset[TaskPhase]] = {
@@ -62,4 +66,28 @@ def evidence_is_current(
     return True
 
 
-__all__ = ["evidence_is_current", "validate_transition"]
+def parent_completion_allowed(
+    child_statuses: Mapping[str, TaskStatus],
+    *,
+    parent_acceptance_satisfied: bool,
+    parent_invariants_satisfied: bool,
+) -> bool:
+    """Require child completion plus explicit parent-level acceptance and invariants."""
+
+    children_complete = all(
+        status.phase is TaskPhase.COMPLETE
+        and status.condition is TaskCondition.HEALTHY
+        for status in child_statuses.values()
+    )
+    return (
+        children_complete
+        and parent_acceptance_satisfied
+        and parent_invariants_satisfied
+    )
+
+
+__all__ = [
+    "evidence_is_current",
+    "parent_completion_allowed",
+    "validate_transition",
+]

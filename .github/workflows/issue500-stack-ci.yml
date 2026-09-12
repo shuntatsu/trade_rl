@@ -41,7 +41,7 @@ jobs:
       - name: Format diff
         shell: bash
         run: |
-          uv run ruff format --diff tests/agent_repo/test_coordination_scheduler.py || true
+          uv run ruff format --diff tests/agent_repo/test_coordination_leases.py || true
           uv run ruff format --check trade_rl tests tools
 
       - name: Repository tooling types

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
+from trade_rl.data.build import ExecutionEconomicsProfile
 from trade_rl.data.build.builder import MarketDatasetBuilder
 from trade_rl.data.contracts import (
     FeatureKind,
@@ -32,6 +33,30 @@ def raw_series(n_bars: int, *, scale: float = 1.0) -> RawMarketSeries:
         open=open_price,
         high=np.maximum(open_price, close) * 1.001,
         low=np.minimum(open_price, close) * 0.999,
+        close=close,
+        volume=100.0 + np.arange(n_bars, dtype=np.float64),
+        funding_rate=np.where(np.arange(n_bars) % 8 == 0, 0.0001, 0.0),
+        tradable=np.ones(n_bars, dtype=np.bool_),
+    )
+
+
+def _stable_identity_series(
+    n_bars: int,
+    *,
+    scale: float = 1.0,
+) -> RawMarketSeries:
+    """Use binary-exact arithmetic for bit-level content-identity assertions."""
+
+    timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(
+        n_bars
+    ) * np.timedelta64(1, "h")
+    close = scale * (100.0 + np.arange(n_bars, dtype=np.float64) * 0.25)
+    open_price = np.concatenate([close[:1], close[:-1]])
+    return RawMarketSeries(
+        timestamps=timestamps,
+        open=open_price,
+        high=np.maximum(open_price, close) + scale,
+        low=np.minimum(open_price, close) - scale,
         close=close,
         volume=100.0 + np.arange(n_bars, dtype=np.float64),
         funding_rate=np.where(np.arange(n_bars) % 8 == 0, 0.0001, 0.0),
@@ -94,6 +119,15 @@ def instruments() -> tuple[InstrumentContract, ...]:
     )
 
 
+def _identity_source() -> InMemoryMarketDataSource:
+    return InMemoryMarketDataSource(
+        {
+            "BTCUSDT": _stable_identity_series(72),
+            "ETHUSDT": _stable_identity_series(72, scale=2.0),
+        }
+    )
+
+
 def test_builder_is_prefix_invariant() -> None:
     builder = MarketDatasetBuilder(config())
     prefix_source = InMemoryMarketDataSource(
@@ -145,9 +179,7 @@ def test_builder_uses_point_in_time_universe() -> None:
 
 
 def test_dataset_identity_binds_order_config_and_contracts() -> None:
-    source = InMemoryMarketDataSource(
-        {"BTCUSDT": raw_series(72), "ETHUSDT": raw_series(72, scale=2.0)}
-    )
+    source = _identity_source()
     base = MarketDatasetBuilder(config()).build(source, instruments())
     reordered = MarketDatasetBuilder(config()).build(
         source, tuple(reversed(instruments()))
@@ -176,10 +208,73 @@ def test_dataset_identity_binds_order_config_and_contracts() -> None:
     assert len(identities) == 4
 
 
-def test_dataset_identity_binds_canonical_identity_provenance() -> None:
-    source = InMemoryMarketDataSource(
-        {"BTCUSDT": raw_series(72), "ETHUSDT": raw_series(72, scale=2.0)}
+def test_builder_preserves_pre481_identity_without_execution_profile() -> None:
+    dataset = MarketDatasetBuilder(config()).build(_identity_source(), instruments())
+
+    assert dataset.dataset_id == (
+        "668129565e4e3b8ede5f4fa472b32008d6d7be5e6f7068a9a9945883208041a0"
     )
+    assert dataset.feature_config_digest == (
+        "3729d59af7d2a35a6e58b12c605e8b5ef31a59e543b815e7c875e8bb4de4f3d4"
+    )
+    assert dataset.normalization_digest == (
+        "1a49c7408926d85dc457f379f026197c21a1dba095f40693ffb0c71b9c25a8b0"
+    )
+    assert set(dataset.fee_rate.ravel()) == {0.0}
+    assert set(dataset.spread_rate.ravel()) == {0.0}
+    assert set(dataset.max_participation_rate.ravel()) == {1.0}
+
+
+def test_builder_binds_execution_economics_without_changing_feature_semantics() -> None:
+    source = _identity_source()
+    builder = MarketDatasetBuilder(config())
+    legacy = builder.build(source, instruments())
+    profile = ExecutionEconomicsProfile(
+        name="research_v1",
+        fee_rate=0.0005,
+        spread_rate=0.0002,
+        max_participation_rate=0.05,
+        borrow_available=True,
+        borrow_rate=0.01,
+    )
+
+    priced = builder.build(
+        source,
+        instruments(),
+        execution_economics=profile,
+    )
+    renamed = builder.build(
+        source,
+        instruments(),
+        execution_economics=ExecutionEconomicsProfile(
+            name="research_v1_alias",
+            fee_rate=0.0005,
+            spread_rate=0.0002,
+            max_participation_rate=0.05,
+            borrow_available=True,
+            borrow_rate=0.01,
+        ),
+    )
+
+    np.testing.assert_array_equal(priced.fee_rate, np.full((72, 2), 0.0005))
+    np.testing.assert_array_equal(priced.maker_fee_rate, np.zeros((72, 2)))
+    np.testing.assert_array_equal(priced.taker_fee_rate, np.zeros((72, 2)))
+    np.testing.assert_array_equal(priced.spread_rate, np.full((72, 2), 0.0002))
+    np.testing.assert_array_equal(
+        priced.max_participation_rate,
+        np.full((72, 2), 0.05),
+    )
+    np.testing.assert_array_equal(priced.borrow_available, priced.symbol_active)
+    np.testing.assert_array_equal(priced.borrow_rate, np.full((72, 2), 0.01))
+    assert priced.feature_config_digest == legacy.feature_config_digest
+    assert priced.normalization_digest == legacy.normalization_digest
+    np.testing.assert_array_equal(priced.features, legacy.features)
+    assert priced.dataset_id != legacy.dataset_id
+    assert renamed.dataset_id != priced.dataset_id
+
+
+def test_dataset_identity_binds_canonical_identity_provenance() -> None:
+    source = _identity_source()
     builder = MarketDatasetBuilder(config())
 
     rest = builder.build(

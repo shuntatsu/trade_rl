@@ -53,6 +53,39 @@ def test_optional_extra_change_routes_optional_capability_smoke(tmp_path: Path) 
     assert all("project script" not in step.command for step in extended)
 
 
+def test_optional_extra_change_names_only_affected_extra(tmp_path: Path) -> None:
+    _baseline(tmp_path)
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        "[project]\n"
+        "name='example'\n\n"
+        "[project.optional-dependencies]\n"
+        "forecast-gbm=['lightgbm==4.6.0']\n"
+        "train-sb3=['stable-baselines3==2.3.2']\n",
+    )
+    _git(tmp_path, "add", "pyproject.toml")
+    _git(tmp_path, "commit", "-m", "add optional extras")
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        "[project]\n"
+        "name='example'\n\n"
+        "[project.optional-dependencies]\n"
+        "forecast-gbm=['lightgbm==4.7.0']\n"
+        "train-sb3=['stable-baselines3==2.3.2']\n",
+    )
+
+    extended = _extended(plan_verification(tmp_path, base_ref="main"))
+    project_steps = [
+        step for step in extended if "optional capability extras" in step.command
+    ]
+
+    assert len(project_steps) == 1
+    assert "forecast-gbm" in project_steps[0].command
+    assert "train-sb3" not in project_steps[0].command
+
+
 def test_project_script_change_routes_script_smoke_without_optional_extra(
     tmp_path: Path,
 ) -> None:
@@ -70,6 +103,37 @@ def test_project_script_change_routes_script_smoke_without_optional_extra(
 
     assert any("project script" in step.command for step in extended)
     assert all("optional capability extras" not in step.command for step in extended)
+
+
+def test_project_script_change_names_only_affected_script(tmp_path: Path) -> None:
+    _baseline(tmp_path)
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        "[project]\n"
+        "name='example'\n\n"
+        "[project.scripts]\n"
+        "trade-rl-check='trade_rl.cli:old'\n"
+        "trade-rl-other='trade_rl.other:main'\n",
+    )
+    _git(tmp_path, "add", "pyproject.toml")
+    _git(tmp_path, "commit", "-m", "add project scripts")
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        "[project]\n"
+        "name='example'\n\n"
+        "[project.scripts]\n"
+        "trade-rl-check='trade_rl.cli:main'\n"
+        "trade-rl-other='trade_rl.other:main'\n",
+    )
+
+    extended = _extended(plan_verification(tmp_path, base_ref="main"))
+    project_steps = [step for step in extended if "project script" in step.command]
+
+    assert len(project_steps) == 1
+    assert "trade-rl-check" in project_steps[0].command
+    assert "trade-rl-other" not in project_steps[0].command
 
 
 def test_unrelated_project_metadata_change_does_not_route_optional_environment_smoke(

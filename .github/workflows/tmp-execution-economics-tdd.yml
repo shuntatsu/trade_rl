@@ -20,8 +20,17 @@ jobs:
           enable-cache: true
       - run: uv sync --extra dev
       - name: Format check
-        run: uv run ruff format --check tests/data/test_execution_economics_build.py
+        run: >-
+          uv run ruff format --check
+          tests/data/test_execution_economics_build.py
+          tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
       - name: Ruff
-        run: uv run ruff check tests/data/test_execution_economics_build.py
+        run: >-
+          uv run ruff check
+          tests/data/test_execution_economics_build.py
+          tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
       - name: Targeted pytest
-        run: uv run pytest -q tests/data/test_execution_economics_build.py
+        run: >-
+          uv run pytest -q
+          tests/data/test_execution_economics_build.py
+          tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py

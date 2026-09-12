@@ -24,12 +24,7 @@ from trade_rl.strategies.position_intent import (
 )
 
 PPO_OBSERVATION_SCHEMA = "ppo_observation_v2"
-PPO_GLOBAL_FEATURE_NAMES = (
-    "active_fraction",
-    "tradable_fraction",
-    "market_return_mean",
-    "market_return_dispersion",
-)
+PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()
 
 
 class _PredictPolicy(Protocol):
@@ -52,8 +47,6 @@ def ppo_observation_contract_payload() -> dict[str, object]:
             "local_values",
             "local_available",
             "local_staleness",
-            "global_values",
-            "global_available",
             "current_intent",
             "current_weight",
         ],
@@ -72,27 +65,13 @@ def _validated_indices(feature_indices: tuple[int, ...]) -> tuple[int, ...]:
     return indices
 
 
-def _global_feature_indices(dataset: MarketDataset) -> tuple[int, ...]:
-    indices: list[int] = []
-    for name in PPO_GLOBAL_FEATURE_NAMES:
-        try:
-            indices.append(dataset.global_feature_names.index(name))
-        except ValueError as error:
-            raise ValueError(f"missing PPO global feature: {name}") from error
-    return tuple(indices)
-
-
 def _encode_observation(
     observation: StrategyObservation,
     feature_indices: tuple[int, ...],
-    global_feature_indices: tuple[int, ...],
 ) -> np.ndarray:
     indices = _validated_indices(feature_indices)
-    global_indices = _validated_indices(global_feature_indices)
     if max(indices) >= observation.features.size:
         raise ValueError("feature index is outside observation features")
-    if max(global_indices) >= observation.global_features.size:
-        raise ValueError("global feature index is outside observation global features")
 
     selected = np.asarray(observation.features[list(indices)], dtype=np.float64)
     available = np.asarray(
@@ -109,18 +88,6 @@ def _encode_observation(
     usable = available & finite
     values = np.where(usable, selected, 0.0)
 
-    selected_global = np.asarray(
-        observation.global_features[list(global_indices)],
-        dtype=np.float64,
-    )
-    global_available = np.asarray(
-        observation.global_feature_available[list(global_indices)],
-        dtype=np.bool_,
-    )
-    global_finite = np.isfinite(selected_global)
-    global_usable = global_available & global_finite
-    global_values = np.where(global_usable, selected_global, 0.0)
-
     state = np.asarray(
         [float(observation.current_intent), observation.current_weight],
         dtype=np.float64,
@@ -130,8 +97,6 @@ def _encode_observation(
             values,
             usable.astype(np.float64),
             staleness,
-            global_values,
-            global_usable.astype(np.float64),
             state,
         ),
     ).astype(np.float32)
@@ -201,17 +166,14 @@ class PPOIntentStrategy:
         policy: _PredictPolicy,
         *,
         feature_indices: tuple[int, ...],
-        global_feature_indices: tuple[int, ...],
     ) -> None:
         self.policy = policy
         self.feature_indices = _validated_indices(feature_indices)
-        self.global_feature_indices = _validated_indices(global_feature_indices)
 
     def decide(self, observation: StrategyObservation) -> PositionIntent:
         encoded = _encode_observation(
             observation,
             self.feature_indices,
-            self.global_feature_indices,
         )
         action, _ = self.policy.predict(encoded, deterministic=True)
         return _intent_from_action(action)
@@ -253,7 +215,6 @@ class PPOTradingEnv(gym.Env):
 
         self.dataset = dataset
         self.feature_indices = validated_feature_indices(dataset, feature_indices)
-        self.global_feature_indices = _global_feature_indices(dataset)
         self.symbol_indices = validated_symbol_indices(dataset, symbol_indices)
         self.start_index = start_index
         self.stop_index = stop_index
@@ -261,9 +222,7 @@ class PPOTradingEnv(gym.Env):
         self.initial_capital = initial_capital
         self.execution_cost = execution_cost or ExecutionCostConfig.zero()
 
-        observation_size = (
-            3 * len(self.feature_indices) + 2 * len(self.global_feature_indices) + 2
-        )
+        observation_size = 3 * len(self.feature_indices) + 2
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -316,7 +275,6 @@ class PPOTradingEnv(gym.Env):
         return _encode_observation(
             self._strategy_observation(),
             self.feature_indices,
-            self.global_feature_indices,
         ).copy()
 
     def reset(
@@ -442,7 +400,6 @@ def fit_ppo_strategy(
         raise ValueError("seed must be a non-negative integer")
 
     indices = validated_feature_indices(dataset, feature_indices)
-    global_indices = _global_feature_indices(dataset)
     env = PPOTradingEnv(
         dataset,
         feature_indices=indices,
@@ -474,7 +431,6 @@ def fit_ppo_strategy(
     return PPOIntentStrategy(
         cast(_PredictPolicy, model),
         feature_indices=indices,
-        global_feature_indices=global_indices,
     )
 
 

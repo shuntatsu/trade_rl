@@ -162,10 +162,16 @@ class ResolvedRunConfig:
                 self.ppo_observation_schema,
                 field="ppo_observation_schema",
             )
-            ppo_global_feature_names = contract_unique_texts(
-                self.ppo_global_feature_names,
-                field="ppo_global_feature_names",
+            if not isinstance(self.ppo_global_feature_names, tuple):
+                raise ContractViolationError("ppo_global_feature_names must be a tuple")
+            ppo_global_feature_names = tuple(
+                contract_text(value, field="ppo_global_feature_names")
+                for value in self.ppo_global_feature_names
             )
+            if len(set(ppo_global_feature_names)) != len(ppo_global_feature_names):
+                raise ContractViolationError(
+                    "ppo_global_feature_names must contain unique values"
+                )
             if ppo_observation_schema != PPO_OBSERVATION_SCHEMA:
                 raise ContractViolationError("unsupported PPO observation schema")
             if ppo_global_feature_names != PPO_GLOBAL_FEATURE_NAMES:

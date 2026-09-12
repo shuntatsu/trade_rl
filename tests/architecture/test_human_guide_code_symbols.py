@@ -1,12 +1,8 @@
-from pathlib import Path
-from importlib import import_module
-
-
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = __import__("pathlib").Path(__file__).resolve().parents[2]
 
 
 def _code_symbols():
-    return import_module("guide.tools.code_symbols")
+    return __import__("guide.tools.code_symbols", fromlist=["*"])
 
 
 def _symbols(index: dict[str, object]) -> dict[str, dict[str, object]]:
@@ -41,7 +37,7 @@ def test_index_resolves_replay_risk_execution_and_local_names() -> None:
     assert execution["path"] == "trade_rl/simulation/execution.py"
 
 
-def test_index_parses_module_without_executing_it(tmp_path: Path) -> None:
+def test_index_parses_module_without_executing_it(tmp_path) -> None:
     code_symbols = _code_symbols()
     package = tmp_path / "trade_rl"
     package.mkdir()
@@ -60,7 +56,7 @@ def test_index_parses_module_without_executing_it(tmp_path: Path) -> None:
     assert symbols["trade_rl.danger.safe"]["local_names"] == ["result", "value"]
 
 
-def test_nested_scope_names_do_not_leak_into_parent_function(tmp_path: Path) -> None:
+def test_nested_scope_names_do_not_leak_into_parent_function(tmp_path) -> None:
     code_symbols = _code_symbols()
     package = tmp_path / "trade_rl"
     package.mkdir()
@@ -85,7 +81,7 @@ def test_nested_scope_names_do_not_leak_into_parent_function(tmp_path: Path) -> 
     assert "class_only" not in outer["local_names"]
 
 
-def test_index_rejects_non_commit_revision(tmp_path: Path) -> None:
+def test_index_rejects_non_commit_revision(tmp_path) -> None:
     code_symbols = _code_symbols()
     package = tmp_path / "trade_rl"
     package.mkdir()

@@ -114,9 +114,7 @@ def portable_covariance(
 ) -> float:
     """Return population covariance using fixed-order portable reductions."""
 
-    left_array, right_array = _paired_samples(
-        left, right, field="portable covariance"
-    )
+    left_array, right_array = _paired_samples(left, right, field="portable covariance")
     left_mean = portable_mean(left_array)
     right_mean = portable_mean(right_array)
     return math.fsum(
@@ -130,9 +128,7 @@ def portable_correlation(
 ) -> float:
     """Return population correlation for two non-degenerate finite sequences."""
 
-    left_array, right_array = _paired_samples(
-        left, right, field="portable correlation"
-    )
+    left_array, right_array = _paired_samples(left, right, field="portable correlation")
     left_variance = portable_variance(left_array)
     right_variance = portable_variance(right_array)
     denominator = math.sqrt(left_variance * right_variance)

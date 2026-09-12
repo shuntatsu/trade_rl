@@ -40,13 +40,22 @@ export function SearchPalette({
 
   return (
     <>
-      <button type="button" className="search-trigger" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className="search-trigger"
+        aria-label="ガイドを検索"
+        onClick={() => setOpen(true)}
+      >
         <Search size={17} aria-hidden="true" />
         <span>ガイドを検索</span>
         <kbd>⌘K</kbd>
       </button>
       {open ? (
-        <div className="search-backdrop" role="presentation" onMouseDown={() => setOpen(false)}>
+        <div
+          className="search-backdrop"
+          role="presentation"
+          onMouseDown={() => setOpen(false)}
+        >
           <section
             className="search-palette"
             role="dialog"
@@ -63,7 +72,12 @@ export function SearchPalette({
                 placeholder="例: Observation、実行コスト、Study"
                 aria-label="ガイドを検索"
               />
-              <button type="button" className="icon-button" onClick={() => setOpen(false)} aria-label="検索を閉じる">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setOpen(false)}
+                aria-label="検索を閉じる"
+              >
                 <X size={18} />
               </button>
             </div>

@@ -1,25 +1,26 @@
 # Current research status
 
-更新基準: 2026-09-10 (JST)
+更新基準: 2026-09-12 (JST)
 
 ## 結論
 
-Trade RLの現在地は、**lean core、5候補+3 controlsの共通比較基盤、provenance-bound candidate Run Core、Controlled Experiment Loop v1、およびCanonical M2 bootstrap toolingまで実装済みだが、canonical実データを使ったreal-data M2 Studyはまだ実行していない**段階である。
+Canonical M2は、**real-cost-assumption Datasetとfit-scope-safe PPO Observation v2を同時に固定したStudy 004のbaselineまで実行・独立検証済み**である。
 
-したがって現在は次を主張しない。
+現在確定している研究上の事実は次のとおり。
 
-- profitabilityは未証明。
-- winnerは未選定。
-- Production/live order routingは未認可。
-- PPOやforecastがruleを上回るという結論はない。
+- Study 004 baseline EvidenceSetはimmutable Artifactとしてpublish済みで、別runnerによるpost-Artifact再構築・raw evidence再計算も成功した。
+- zero runtime overlayのままDataset-authoritativeなfee/spread/participation semanticsが実際のReplayへ入り、tradeが発生した175/175 observationsで`total_cost > 0`を観測した。
+- superseded Study 001は変更されておらず、zero-trading-cost diagnostic evidenceとして保持する。
+- Study 004は**baseline-only**であり、Controlled Experimentはまだ開始していない。
+- profitability、winner、PPO/forecastの優位性、Production/live trading authorizationは**未確定**である。
 
-次の研究上の本質的作業は、新しいmodel familyを増やすことではなく、**一つのcanonical実データbootstrapを実際に作成し、そのdataset/StudyPlanにbindされたdevelopment StudyをControlled Experiment Loopで開始すること**である。
+Repository統合状態は研究Artifactとは別に扱う。Study 004はPR #484と#491を結合したfrozen integration commitで実行したが、`main`へのmergeはまだ行っていない。
 
 ## 研究目的
 
-一つの銘柄ID非依存strategy/model/policyを学習・凍結し、各銘柄へ独立に適用する。その結果がpoint-in-time data、同一execution/accounting、hard risk、実コストの下でcontrolsを超え、unused dataでも再現するかを検証する。
+一つのsymbol-ID-independent strategy/model/policyを学習・凍結し、各symbolへ独立に適用する。その結果がpoint-in-time data、共通execution/accounting、hard risk、明示的なexecution-cost assumptionsの下で単純候補/controlsを超え、unused futureでも再現するかを検証する。
 
-Aggregate P&Lだけで成功を判定せず、各symbolの結果を保持する。
+Aggregate P&Lだけで成功判定せず、各symbolの結果とraw interval returnsを保持する。
 
 ## 初期比較: 5 candidates + 3 controls
 
@@ -34,263 +35,129 @@ Aggregate P&Lだけで成功を判定せず、各symbolの結果を保持する�
 | `constant_long` | control | 常時LONG |
 | `constant_short` | control | 常時SHORT |
 
-初回比較へTransformer、SAC、TD3、TQC、複数horizon ensemble、大規模hyperparameter gridを追加しない。
+初回M2へTransformer、SAC、TD3、TQC、複数horizon ensemble、大規模hyperparameter gridを追加しない。差が弱ければ単純側を残し、全候補が弱ければ`no winner`を正しい結論とする。
 
-判断原則:
+## Universal fit / information boundary
 
-- ruleが同等以上ならruleを優先する。
-- forecastが明確に優位でPPOが上乗せしないならforecastを優先する。
-- PPOはunused dataでも単純候補へ安定して上乗せする場合だけ残す。
-- 差が不明ならより単純な候補を残す。
-- 全候補が弱ければ **no winner** を正しい結論とする。
-- controlsはbenchmarkであり、Study winnerとは呼ばない。controlが最良ならno winnerである。
+共通契約:
 
-## Universal fit contract
+- `fit_symbol_names`で事前登録したsymbolだけをfitへ使う。
+- fit scope外のsymbolをtraining row/episodeへ混ぜない。
+- 同じfit cutoffとfrozen strategy/model/policyを使う。
+- 評価は各symbolを独立portfolioとしてReplayする。
+- symbol ID、symbol-specific embedding、symbol-specific coefficientを初期contractへ入れない。
+- future由来のnormalization/imputation/feature selectionを禁止する。
 
-Universal model/policyにsymbol ID、symbol-specific embedding、symbol-specific coefficientを初期状態では入れない。
+PPO Observation v2は、selected local feature values → availability/finite mask → normalized local feature staleness → current intent → current weightの順で構成する。初回M2ではfull-universe aggregateによるfit-scope leakageを避けるためdataset-global policy channelを持たず、空のglobal rosterをsemantic identityへbindする。
 
-共通条件:
+## Execution economics contract
 
-- 同じfeature schemaを使う。
-- `fit_symbol_names` で事前登録した銘柄だけをfitへ使う。
-- fit scope外の銘柄をtraining row/episodeへ混ぜない。
-- 同じfit cutoffを使う。
-- 同じfrozen strategy/model/policyを評価対象の各銘柄へ適用する。
-- 評価は各銘柄を独立portfolioとしてReplayする。
+Execution economicsはfeature configurationではなく**Dataset environment semantics**である。
 
-### Ridge / LightGBM
+- build-level authorityは`trade_rl.data.build.ExecutionEconomicsProfile`。
+- `MarketBuildConfig`はfeature/build authorityのまま維持する。
+- profile省略時はlegacy behavior/content identityを維持する。
+- 明示profileは既存`build_market_economic_semantics()`経路を通り、immutable Dataset economic arrays/content identityへbindされる。
+- canonical bootstrap v1 reader互換を維持し、v2は明示profile必須でzero economicsへのsilent fallbackを禁止する。
+- runtime側は`zero_overlay_dataset_fields_authoritative`を維持し、Dataset semanticsへ第二のcost overlayを重ねない。
 
-Eligible row数の多い銘柄がtrainingを支配しないよう、各fit symbolの総sample weightを等しくする。Ridgeはweighted statistics/normal equationを使い、LightGBMは同じweightを`sample_weight`へ渡す。
-
-### PPO
-
-PPO観測はselected feature、feature availability、current intent、current weightを中心とし、symbol IDを含めない。Training episodeはfit symbolをround-robinし、各episodeは一つのactive symbolだけを扱う。
-
-## Causality and evaluation rules
-
-- `feature_available_time <= decision_time` を守る。
-- supervised labelは `label_end_time < fit_cutoff` で完結する。
-- future由来のscaler/normalization/imputation/feature selectionを禁止する。
-- development/final期間をfitやthreshold調整へ戻さない。
-- 同calendar shockを受ける複数銘柄を完全独立標本とみなさない。
-- 同じfrozen strategyを各symbolへ独立Replayし、`UniversalStrategyComparison.by_symbol`を主要結果として扱う。
-
-各symbol × strategyでは少なくともtotal return、Sharpe、Sortino、maximum drawdown、turnover、total execution cost、funding P&L、borrow cost、trade/rebalance/termination diagnostics、raw interval returnsを保持する。
+Study 004で使用した`canonical_m2_research_assumption_v1`は再現可能な**research assumption**であり、historical/account-specific Binance fee truthではない。現在もstatic spread、zero spot-style borrow cost、Dataset-authoritative market-impact/slippage不在というrealism limitationがある。
 
 ## M1 / M2 / M3
 
 ### M1 — Lean core: complete
 
-実装済み:
+causal/point-in-time Dataset、deterministic filesystem artifact、canonical execution/accounting、hard risk、independent-symbol replay、5 candidates + 3 controls、Candidate Run provenance/artifact、Controlled Experiment state machineは実装済み。
 
-- causal/point-in-time `MarketDataset`
-- deterministic filesystem dataset artifact
-- canonical `MarketExecutor + BookState` accounting
-- hard-risk projection
-- quantity-preserving independent symbol replay
-- DB/UI/teacher pipelineなしで成立するcore CI
+### M2 — Canonical baseline verified; controlled experiments not started
 
-### M2 — Common comparison + canonical preparation tooling complete, real-data development comparison not run
+Study 004は、execution economics repair (#484) と PPO Observation v2 (#491) を結合したfrozen codeで実行した。
 
-実装済み:
+Frozen implementation:
 
-- 5 candidates + 3 controls
-- universal Ridge / LightGBM / teacher-free PPO fit
-- symbol-balanced supervised fit
-- fit-symbol scopeの明示
-- symbol-ID-free PPO
-- 全symbol独立comparison
-- shared candidate config resolution
-- in-memory candidate execution seam
-- implementation/runtime/research-context provenance生成
-- immutable 3-file candidate-run artifact
-- semantic candidate-artifact identityとraw file integrity evidence
-- append-only Study/Experiment state machineとprocess-safe mutation lock
-- Study-owned multi-seed EvidenceSetとdeterministic seed invariance
-- one-factor resolved delta verificationとunaffected-strategy raw-return invariance
-- paired/bootstrap/seed analysis、ACCEPT-only lineage、FAILED/INVALID terminal、WINNER/NO_WINNER freeze
-- strict `CanonicalM2BootstrapConfig` とsingle `ppo_seeds` authority
-- exact Binance exchange-info / Vision plan / raw archive rosterのfreeze
-- source同期後のcache-only network cut
-- canonical dataset artifact + immutable StudyPlanのwhole-root atomic publication
-- bootstrap manifestによるsource / dataset / Study / provenance identity binding
-- `inspect_canonical_m2_bootstrap` によるnetwork-free再検証
+- integration SHA: `135cbdaad1a40cd064b8b08492d591d385a2c89e`
+- integration tree: `afe75e0d45fd401e5e6819c7b78a1d099666cc53`
+- #484 parent: `558919861f1fa86956664405b8946ab923b2d863`
+- #491 parent: `b3c20f01966c8f4e944255ee7df5cd4258684a0f`
 
-未完了:
+Real-cost Dataset/bootstrap:
 
-1. canonical実データ用の具体的なbootstrap configを確定する。
-2. `bootstrap_canonical_m2_study` またはCLIでimmutable bootstrapを実際に作成する。
-3. 生成された`study/`に対してbaselineを実行し、Controlled Experimentを開始する。
-4. 5 candidates + 3 controlsの全symbol結果を完全報告する。
-5. winnerをfreezeするか、no-winnerと判断する。
+- source run: `34679031604`
+- Artifact ID: `10293251579`
+- Dataset ID: `13334380e5e52fae6b69688a4270de736958c384a7991234ea5635887b06adc0`
+- Dataset artifact digest: `c1fb38f2805f452c423a648b7daf14ea1e910aae63c8bb5e24429323b14f02c2`
+- raw-source roster digest: `0293e7575533bb3bd8876f5b130495491b2496144bff2ac9a5d0ba78553fe6d0`
+- Vision-resolution digest: `ba0a247f5b32d82493e6ad67d106ccb60b1dedafb7948870179afbc904d15fcf`
 
-**real-data M2 Studyはまだ実行していない。** Bootstrap toolingの実装完了は研究結果ではなく、profitabilityやwinnerの証拠ではない。
+Study 004:
 
-### M3 — Finalize and delete: not started
+- Study digest: `9138a5a99ad517440e3a95a1651387a0a66d2f5341d1cb0a695f921675ce6a78`
+- schema: `resolved_run_config_v2`
+- PPO schema: `ppo_observation_v2`
+- PPO global roster: `[]`
+- execution overlay: `zero_overlay_dataset_fields_authoritative`
+- PPO seeds: `0,1,2,3,4`
 
-M2で候補をfreezeした後だけ進む。
+Baseline Artifact:
 
-1. 未使用future / zero-shot評価を一度だけ開く。
-2. pre-registered stressを実行する。
-3. 支持されなかったstrategy familyと専用test/extra/dead adapterを削除する。
-4. README/config/CI/testsを採用構成へさらに縮約する。
-5. Production認可は研究結果とは別に扱う。
+- run: `34687675504`
+- Artifact ID: `10296984864`
+- Artifact digest: `sha256:377cf2ed5fc987d1bfd41bef108778e468843053d2c2be46e80a1436eceebf58`
+- EvidenceSet fingerprint: `926d31bb7265319e1c52d543caef4c8a5f10bd7b4a31f0638a277c3d6a7e7a27`
+- aggregate realized `total_cost`: `3878704.5834642216`
+- trading observations: `175`
+- positive-cost trading observations: `175`
+- cash observations: `25`, all zero-trade / zero-cost / zero-return
+- Experiment count: `0`
+- frozen: `false`
 
-## Canonical M2 bootstrap
+Independent post-Artifact verifier:
 
-Canonical M2 bootstrapはresearch runそのものではなく、real development Studyの入力を固定するpreparation stepである。
+- run: `34691921737`
+- Artifact ID: `10297845358`
+- Artifact digest: `sha256:5e8acbb712944b95860cbbcb1b1e876bccc59807202c6496cb9d3e0eacd9648b`
+- raw runsからDataset/Study/EvidenceSet、raw-return compounding、execution diagnostics、cost、seed invariance、within-EvidenceSet analysisを独立再計算して一致を確認した。
+- baseline indexはoracleとして使用していない。
 
-入力JSONは少なくとも次を事前登録する。
+このbaselineはreal-cost-assumption環境が実際に有効であることを示すが、候補の優位性やprofitabilityを示すものではない。
 
-- Binance USD-M market
-- ordered symbol roster
-- base timeframe / feature timeframes
-- exact data start / exclusive stop
-- baseline signal/features/fit symbols/fit cutoff/development window
-- rule / forecast thresholds
-- PPO training budget
-- ordered `ppo_seeds`
-- gross budget / initial capital
-- allowed controlled factors / experiment budget
-- bootstrap count / seed
+### M3 — Final unused-data / stress: not started
 
-baseline JSONに`ppo_seed`は持たず、`ppo_seeds[0]`だけがbaseline seed authorityである。
+Developmentでcandidate/feature/threshold/seed policy/cost/riskをfreezeした後にだけ進む。未使用futureを一度だけ開き、事前固定したfee/spread/impact/latency/capacity/capital/funding等のstressを適用する。結果を見て合格thresholdを変更しない。
 
-実行入口:
+## Superseded Study 001
 
-```bash
-uv run --extra forecast-gbm --extra train-sb3 \
-  python -m trade_rl.evaluation.experiments.bootstrap.cli \
-  --config <canonical-bootstrap-config.json> \
-  --output <new-bootstrap-dir>
-```
+旧Canonical M2 Study 001は削除・再解釈しない。zero-trading-cost diagnostic Studyとして保持する。
 
-このCLIは `bootstrap_canonical_m2_study` を呼ぶ薄いfilesystem adapterである。`--output`は存在していてはならない。
+- branch SHA: `aebc35cb6422726d19d8d8cf545729c25bb9ae0e`
+- tree: `edb2c00f70a0235108406063ff4e53cac7353923`
+- Dataset ID: `8a41ad3c26289836d756de76ce541280dbcaaf80f26e2d8ecab055d6d0e749ab`
+- Study digest: `580a745c5013e742fa3339728204a8c0bd6e1e7552d39ffac0de7f855bb933f3`
+- baseline fingerprint: `641653fac2e40a53f66f430beb21ec5a95036b1f3a5feeb1f78f5ed31c708432`
 
-成功したbootstrapは概ね次を持つ。
+Study 004 verifierは旧branch SHA/treeと旧Artifact metadataも再確認しており、旧evidenceは変更されていない。
 
-```text
-<new-bootstrap-dir>/
-  bootstrap.json
-  bootstrap-manifest.json
-  source/
-    exchange-info/{exchange-info.raw.json,manifest.json}
-    vision-plan.json
-    vision-cache/**
-  dataset/{manifest.json,arrays.npz}
-  study/{plan.json,.mutation.lock}
-```
+## Development後の判断原則
 
-source同期後のdataset buildはcache-onlyで、missing cacheをnetwork fallbackで補わない。whole rootはstaging内で完成・検証してから最後にrenameする。成功直後のStudyはPlanだけで、baselineはまだ実行されていない。
-
-Inspection:
-
-```python
-from trade_rl.evaluation.experiments import inspect_canonical_m2_bootstrap
-
-result = inspect_canonical_m2_bootstrap("<new-bootstrap-dir>")
-```
-
-Inspectionは保存されたconfig、source roster、dataset artifact、StudyPlan、bootstrap manifestをnetwork-freeで相互検証する。
-
-## Development Run Core
-
-必要な入力は次の3つである。
-
-1. canonical filesystem dataset artifact
-2. JSON run config
-3. 存在していない新しいoutput directory
-
-現行runnerが受理するconfig keyは次である。
-
-```json
-{
-  "signal_name": "<rule signal feature name>",
-  "feature_names": ["<feature A>", "<feature B>"],
-  "fit_symbol_names": ["BTCUSDT", "ETHUSDT"],
-  "fit_cutoff": "2026-01-01T00:00:00",
-  "evaluation_start": "2026-01-01T00:00:00",
-  "evaluation_stop_exclusive": "2026-02-01T00:00:00",
-  "rule_entry_threshold": 0.10,
-  "rule_exit_threshold": 0.02,
-  "forecast_entry_threshold": 0.01,
-  "forecast_exit_threshold": 0.002,
-  "ppo_total_timesteps": 100000,
-  "ppo_seed": 0,
-  "gross_budget": 0.5,
-  "initial_capital": 100000.0
-}
-```
-
-`evaluation_start` と `evaluation_stop_exclusive` はdataset timestampへexact matchする必要がある。Evaluation startはfit cutoffより前にできない。
-
-Standalone実行:
-
-```bash
-uv run --extra forecast-gbm --extra train-sb3 \
-  python -m trade_rl.evaluation.runs.candidate \
-  --dataset <dataset-artifact-dir> \
-  --config <run-config.json> \
-  --output <new-result-dir>
-```
-
-Controlled StudyでRunを事前登録contextへbindする場合は、higher-level workflowから同じRun CoreへSHA-256 `research_context_digest`を渡す。CLIにも `--research-context-digest <sha256>` がある。Standalone Runでは省略できる。
-
-既存output directoryへの上書きは拒否する。実行前後でimplementation/runtime provenance digestが変化した場合もpublishしない。
-
-出力:
-
-```text
-<new-result-dir>/
-  summary.json
-  returns.npz
-  provenance.json
-```
-
-- `summary.json`: dataset artifact identity、resolved run config/scope、各symbol × strategy metrics/diagnostics。
-- `returns.npz`: paired comparison/block-bootstrap等に使うraw interval-return series。`allow_pickle=False`で検証可能なnumeric 1D arraysだけを正当なevidenceとする。
-- `provenance.json`: exact Python source-byte manifest、runtime/dependency roster、optional research-context digest。
-
-3ファイルを一つのimmutable Run evidenceとして扱う。Semantic artifact identityはNPZ ZIP compressionの違いでは変えず、検証済みarray content、summary、provenanceへbindする。raw file SHA-256/sizeはtamper検出用evidenceとして別に保持できる。
-
-## Development後の判断順序
-
-結果を見たら、architecture/model sizeを増やす前に次を確認する。
+Controlled Experimentの結果を見たら、model sizeを増やす前に次を確認する。
 
 1. controlsより本当に上か。
-2. 全symbolでreturn符号、drawdown、costが許容可能か。
-3. 特定一銘柄だけが利益を作っていないか。
+2. 各symbolでreturn符号、drawdown、costが許容可能か。
+3. 特定symbolだけがaggregate edgeを作っていないか。
 4. turnover/costでgross edgeが消えていないか。
-5. ruleとforecastの差は十分か。
-6. PPOが単純候補へ本当に上乗せしているか。
-7. raw returnsが特定time block/regimeだけに依存していないか。
-8. 差が弱ければ単純側を残す。
-9. 全て弱ければno-winnerとする。
+5. rule/forecast/PPO間の差が実質的か。
+6. raw returnsが特定time block/regimeだけへ依存していないか。
+7. 差が弱ければ単純側を残す。
+8. 全て弱ければ`no winner`とする。
 
-No-winnerの後に最初に疑う順序は、model sizeではなく **information source → feature causality/quality → horizon → regime hypothesis → period → model complexity** とする。
-
-## Final unused-data / stress protocol
-
-Developmentで繰り返し見た期間をfinal testと呼ばない。Candidate、feature、threshold、seed policy、cost/riskをfreezeした後、未使用futureを一度だけ開く。
-
-採用候補には事前固定したstressを適用する。
-
-- fee adverse
-- spread adverse
-- impact adverse
-- +1 decision latency
-- capacity reduction
-- initial capital sensitivity
-- funding / borrow coverage check
-
-Stress結果を見てから合格thresholdを変更しない。
-
-Controlled Experiment Loop自体からsealed unused-futureを開かない。Development StudyをWINNER/NO_WINNERへfreezeした後、別subsystemでのみfinal authorizationを扱う。
+Known issue #476では、controlled comparisonのPPO cross-symbol candidate metricsにfirst-seed-only aggregationが混在する点を追跡している。これはStudy 004 baselineのcost/evidence validityを無効化しないが、将来PPOのcontrolled factor effectを解釈する際は、#476を解消するか、明示的なmulti-seed独立集計をoracleとして用いる。
 
 ## 現在の次アクション
 
-現時点の次アクションは、Run Coreやbootstrap toolingをさらに拡張することではない。
+1. #481/#484のdurable-doc cleanupとfinal exact-head gateを完了する。
+2. #489/#491を含むrepository統合状態を整理する。明示的な許可なしに`main`へmergeしない。
+3. Study 004で最初のControlled Factorを**結果を見る前に**preregisterし、baseline Artifactをimmutable inputとして使う。
+4. Experimentごとにfactor isolation、raw-return再計算、全strategy side effect、multi-seed contractを検証する。
+5. Development StudyをWINNER/NO_WINNERへfreezeするまでsealed futureを開かない。
 
-> 実データ用のstrict Canonical M2 bootstrap configを確定し、一つのimmutable bootstrapを作成して、そのStudyでbaselineと最初のControlled Experimentを開始する。
-
-旧teacher-selection runのrejectは旧mandatory teacher経路を再採用する根拠でも、現候補のprofitabilityを示す証拠でもない。現在の候補は現在のlean contract上で改めて評価する。
+Study 004 baselineの成立は「研究環境が修復された」ことの証拠であり、「儲かるstrategyが見つかった」ことの証拠ではない。

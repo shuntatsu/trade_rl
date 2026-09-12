@@ -114,6 +114,28 @@ export type SequenceVisualization = {
   messages: SequenceMessage[];
 };
 
+export type CodeMapRelation = "data-flow" | "calls";
+
+export type CodeMapNode = {
+  id: string;
+  label_ja: string;
+  description_ja: string;
+  code_ref?: string;
+};
+
+export type CodeMapEdge = {
+  from: string;
+  to: string;
+  relation: CodeMapRelation;
+  label_ja: string;
+};
+
+export type CodeMapVisualization = {
+  kind: "code-map";
+  nodes: CodeMapNode[];
+  edges: CodeMapEdge[];
+};
+
 export type GuideVisualization =
   | ArchitectureVisualization
   | DataFlowVisualization
@@ -121,7 +143,8 @@ export type GuideVisualization =
   | ObservationVisualization
   | ExperimentLoopVisualization
   | ResearchStatusVisualization
-  | SequenceVisualization;
+  | SequenceVisualization
+  | CodeMapVisualization;
 
 export type GuideTopic = {
   id: string;
@@ -142,6 +165,11 @@ export type GuideManifest = {
 };
 
 type JsonRecord = Record<string, unknown>;
+
+type DirectedReference = {
+  from: string;
+  to: string;
+};
 
 function record(value: unknown, label: string): JsonRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -178,6 +206,28 @@ function uniqueIds(items: JsonRecord[], label: string): Set<string> {
     throw new Error(`${label} contains duplicate ids`);
   }
   return new Set(ids);
+}
+
+function assertAcyclic(nodeIds: readonly string[], edges: readonly DirectedReference[]) {
+  const indegree = new Map(nodeIds.map((id) => [id, 0]));
+  const outgoing = new Map(nodeIds.map((id) => [id, [] as string[]]));
+  for (const edge of edges) {
+    outgoing.get(edge.from)?.push(edge.to);
+    indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
+  }
+  const ready = nodeIds.filter((id) => indegree.get(id) === 0);
+  let visited = 0;
+  while (ready.length) {
+    const id = ready.shift();
+    if (!id) continue;
+    visited += 1;
+    for (const target of outgoing.get(id) ?? []) {
+      const next = (indegree.get(target) ?? 0) - 1;
+      indegree.set(target, next);
+      if (next === 0) ready.push(target);
+    }
+  }
+  if (visited !== nodeIds.length) throw new Error("directed graph contains a cycle");
 }
 
 function parseSources(value: unknown): SourceSection[] {
@@ -367,6 +417,52 @@ function parseSequence(
   return { kind: "sequence", actors, messages };
 }
 
+function parseCodeMap(
+  raw: JsonRecord,
+  codeReferenceIds: ReadonlySet<string>,
+): CodeMapVisualization {
+  if (!Array.isArray(raw.nodes) || raw.nodes.length === 0 || !Array.isArray(raw.edges)) {
+    throw new Error("code-map visualization requires nodes and edges");
+  }
+  const nodeRecords = raw.nodes.map((item, index) => record(item, `nodes[${index}]`));
+  const nodeIds = uniqueIds(nodeRecords, "nodes");
+  const nodes = nodeRecords.map((node, index) => {
+    const codeRef =
+      node.code_ref === undefined
+        ? undefined
+        : string(node.code_ref, `nodes[${index}].code_ref`);
+    if (codeRef && !codeReferenceIds.has(codeRef)) {
+      throw new Error(`unknown code reference in code-map node: ${codeRef}`);
+    }
+    return {
+      id: string(node.id, `nodes[${index}].id`),
+      label_ja: string(node.label_ja, `nodes[${index}].label_ja`),
+      description_ja: string(node.description_ja, `nodes[${index}].description_ja`),
+      ...(codeRef ? { code_ref: codeRef } : {}),
+    };
+  });
+  const edges = raw.edges.map((item, index) => {
+    const edge = record(item, `edges[${index}]`);
+    const from = string(edge.from, `edges[${index}].from`);
+    const to = string(edge.to, `edges[${index}].to`);
+    if (!nodeIds.has(from) || !nodeIds.has(to)) {
+      throw new Error(`edge reference is unknown: ${from} -> ${to}`);
+    }
+    const relation = string(edge.relation, `edges[${index}].relation`);
+    if (relation !== "data-flow" && relation !== "calls") {
+      throw new Error(`unknown code-map relation: ${relation}`);
+    }
+    return {
+      from,
+      to,
+      relation,
+      label_ja: string(edge.label_ja, `edges[${index}].label_ja`),
+    };
+  });
+  assertAcyclic([...nodeIds], edges);
+  return { kind: "code-map", nodes, edges };
+}
+
 function parseVisualization(
   value: unknown,
   codeReferenceIds: ReadonlySet<string>,
@@ -440,6 +536,7 @@ function parseVisualization(
     return { kind, groups };
   }
   if (kind === "sequence") return parseSequence(raw, codeReferenceIds);
+  if (kind === "code-map") return parseCodeMap(raw, codeReferenceIds);
   throw new Error(`unknown visualization kind: ${kind}`);
 }
 

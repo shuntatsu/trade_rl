@@ -70,7 +70,7 @@ from trade_rl.evaluation.runs import (
     resolve_candidate_run_spec,
 )
 
-_FACTOR_EFFECT_SCHEMA = "controlled_evidence_comparison_v1"
+_FACTOR_EFFECT_SCHEMA = "controlled_evidence_comparison_v2"
 
 
 def _validate_fixed_fields(plan: StudyPlan, config: ResolvedRunConfig) -> None:

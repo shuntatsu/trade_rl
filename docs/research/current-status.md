@@ -312,7 +312,7 @@ Controlled StudyでRunを事前登録contextへbindする場合は、higher-leve
 
 No-winnerの後に最初に疑う順序は、model sizeではなく **information source → feature causality/quality → horizon → regime hypothesis → period → model complexity** とする。
 
-PPOについては、controlled comparisonのcross-symbol candidate metricsでmulti-seed factor effectとfirst-seed-only candidate summaryが混在する既知のaggregation asymmetryがある。Baseline evidenceのcost/identity validityとは別問題だが、PPOをControlled Factorとして解釈する前に、明示的なcross-seed aggregation contractを確立するか、独立したmulti-seed oracleで補う。
+PPO controlled comparisonのcross-symbol candidate metricsは、各symbol内でfrozen seedを先に集約してからsymbol間summaryへ進む明示契約へ更新した。total return / turnover / total costはseed中央値、maximum drawdownはseed内worstを使い、factor effectは従来どおりseedごとのpaired excessの中央値をsymbol代表値とする。新規factor-effectは`controlled_evidence_comparison_v2`、persisted v1はhistorical first-seed semanticsでinspection互換を維持する。
 
 ## Final unused-data / stress protocol
 

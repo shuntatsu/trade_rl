@@ -408,9 +408,7 @@ def compare_evidence_sets(
 
     cross_symbol: dict[str, object] = {}
     for strategy, (excesses, metrics) in cross_inputs.items():
-        cross_symbol[strategy] = _candidate_metrics_summary(
-            metrics, excesses=excesses
-        )
+        cross_symbol[strategy] = _candidate_metrics_summary(metrics, excesses=excesses)
 
     return _with_digest(
         {

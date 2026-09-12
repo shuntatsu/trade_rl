@@ -297,6 +297,9 @@ def test_comparison_and_decision_ordering_are_one_shot(
 
     comparison = compare_experiment(root, 1)
     assert comparison.verification_digest == verification.digest
+    factor_effect = comparison.to_payload()["factor_effect"]
+    assert isinstance(factor_effect, dict)
+    assert factor_effect["schema_version"] == "controlled_evidence_comparison_v2"
     decision = decide_experiment(
         root,
         1,

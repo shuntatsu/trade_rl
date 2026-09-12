@@ -15,6 +15,7 @@ The Git-tree portion is implemented and contract-tested:
 - `.github/pull_request_template.md` provides the concise PR quality contract.
 - `AGENTS.md` and `docs/AGENTS.md` require dedicated branch/PR integration rather than normal direct work on `main`.
 - Integration invariant: **tested PR head contains current `main`**.
+- **Require the PR branch to be up to date with current `main` before merge.**
 - Exact-head CI is required; old Green is invalid after the PR head changes.
 - If `main` advances, old PR-head Green is also stale integration evidence until a new PR head containing that `main` commit is tested.
 - force-push, history rewrite, and `main` deletion are outside normal Agent authority.

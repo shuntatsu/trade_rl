@@ -22,7 +22,6 @@ from trade_rl.evaluation.experiments.codec import (
     _baseline_context_digest,
     _candidate_config_from_resolved,
     _candidate_config_payload,
-    _resolved_contract,
     _semantic_payload_without_seed,
     _semantic_without_seed,
 )
@@ -72,19 +71,12 @@ from trade_rl.evaluation.runs import (
 )
 
 _FACTOR_EFFECT_SCHEMA = "controlled_evidence_comparison_v1"
-_STUDY_FIXED_FIELDS = (
-    "fit_cutoff",
-    "evaluation_start",
-    "evaluation_stop_exclusive",
-    "initial_capital",
-    "execution_overlay",
-)
 
 
 def _validate_fixed_fields(plan: StudyPlan, config: ResolvedRunConfig) -> None:
     baseline = _semantic_without_seed(plan.baseline_config)
     candidate = _semantic_without_seed(config)
-    for field in _STUDY_FIXED_FIELDS:
+    for field in plan.FIXED_RESOLVED_FIELDS:
         if content_digest({"value": baseline[field]}) != content_digest(
             {"value": candidate[field]}
         ):
@@ -204,7 +196,7 @@ def create_study(
             dataset_artifact_digest=artifact.artifact_digest,
             config=baseline_config,
         )
-        resolved = _resolved_contract(spec)
+        resolved = ResolvedRunConfig.from_candidate_spec(spec)
         provenance = build_candidate_run_provenance()
         plan = StudyPlan(
             research_question=research_question,
@@ -301,7 +293,7 @@ def define_experiment(
             dataset_artifact_digest=artifact.artifact_digest,
             config=candidate_config,
         )
-        resolved = _resolved_contract(spec)
+        resolved = ResolvedRunConfig.from_candidate_spec(spec)
         _validate_fixed_fields(state.plan, resolved)
         definition = ExperimentDefinition(
             study_digest=state.plan.digest,

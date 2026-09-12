@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import cast
+from typing import ClassVar, cast
 
 from trade_rl.artifacts.hashing import content_digest
 from trade_rl.evaluation.experiments.contracts._common import (
@@ -45,6 +45,23 @@ class StudyOutcome(StrEnum):
 @dataclass(frozen=True, slots=True)
 class StudyPlan:
     """Frozen development Study contract and adaptive-iteration budget."""
+
+    FIXED_RESOLVED_FIELDS: ClassVar[tuple[str, ...]] = (
+        "fit_cutoff",
+        "evaluation_start",
+        "evaluation_stop_exclusive",
+        "initial_capital",
+        "execution_overlay",
+    )
+
+    STRATEGY_NAMES: ClassVar[tuple[str, ...]] = (
+        *CONTROL_STRATEGY_NAMES,
+        *CANDIDATE_STRATEGY_NAMES,
+    )
+    PPO_SEED_INVARIANT_STRATEGY_NAMES: ClassVar[tuple[str, ...]] = (
+        CONTROL_STRATEGY_NAMES
+        + tuple(name for name in CANDIDATE_STRATEGY_NAMES if name != "ppo")
+    )
 
     research_question: str
     dataset_id: str

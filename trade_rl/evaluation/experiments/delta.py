@@ -20,26 +20,6 @@ from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.experiments.evidence import LoadedEvidenceSet
 from trade_rl.evaluation.runs import LoadedCandidateRun
 
-_STUDY_FIXED_CONFIG_PATHS = (
-    "fit_cutoff",
-    "evaluation_start",
-    "evaluation_stop_exclusive",
-    "initial_capital",
-    "execution_overlay",
-)
-
-
-_STRATEGIES = (
-    "cash",
-    "constant_long",
-    "constant_short",
-    "trend",
-    "mean_reversion",
-    "ridge24",
-    "lightgbm24",
-    "ppo",
-)
-
 
 @dataclass(frozen=True, slots=True)
 class FactorRule:
@@ -276,7 +256,7 @@ def _fixed_config_violations(
 ) -> list[str]:
     plan_semantic = _without_seed(plan.baseline_config.to_payload())
     violations: list[str] = []
-    for field in _STUDY_FIXED_CONFIG_PATHS:
+    for field in plan.FIXED_RESOLVED_FIELDS:
         if field not in evidence.semantic_config or (
             _canonical_value(evidence.semantic_config[field])
             != _canonical_value(plan_semantic[field])
@@ -390,7 +370,7 @@ def _evidence_violations(
             label=label,
         )
         matrices[seed] = matrix
-        if roster != _STRATEGIES:
+        if roster != StudyPlan.STRATEGY_NAMES:
             violations.append(
                 f"{label} strategy roster differs from frozen Study roster"
             )

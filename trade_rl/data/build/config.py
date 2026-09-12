@@ -200,6 +200,7 @@ def load_market_build_request(path: str | Path) -> MarketDatasetBuildRequest:
             "base_timeframe",
             "calendar_kind",
             "session_periods_per_year",
+            "cross_asset_reference_symbol",
             "features",
             "instruments",
         },

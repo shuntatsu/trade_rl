@@ -350,7 +350,7 @@ def self_test() -> int:
     )
 
     cases: list[tuple[dict[str, Any], str]] = [
-        (dict(base), "DELETE"),
+        (dict(base), "REVIEW"),
         ({**base, "conclusion": "failure"}, "KEEP"),
         ({**base, "conclusion": "success"}, "KEEP"),
         ({**base, "status": "in_progress"}, "KEEP"),

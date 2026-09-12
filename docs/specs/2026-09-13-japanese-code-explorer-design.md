@@ -8,7 +8,7 @@ Interactive Human Guideを、抽象概念を眺める説明UIから、**Trade RL
 
 画面上の説明・見出し・図ラベル・状態名は日本語を主表示とし、実際のPython識別子・型名・ファイルパスは照合用の補助情報として併記する。Python sourceの関数名・変数名・公開API自体は日本語へ改名しない。
 
-実装理解の主経路は、概念説明ではなく、実コードの呼出し・状態遷移・データ変換を辿る対話型の図とする。最初のコード連動経路は `trade_rl.evaluation.replay.run_single_symbol_replay`、次にPPO学習・推論経路を扱う。
+実装理解の主経路は、実コードの呼出し・状態遷移・データ変換を辿る対話型の図とする。最初のコード連動経路は `trade_rl.evaluation.replay.run_single_symbol_replay`、次にPPO学習・推論経路を扱う。
 
 ## Objective
 
@@ -45,7 +45,7 @@ Interactive Human Guideを、抽象概念を眺める説明UIから、**Trade RL
 
 ## Information architecture
 
-最上位ナビゲーションは「概念カテゴリ」ではなく「理解したいこと」に寄せる。
+最上位ナビゲーションは「理解したいこと」に寄せる。
 
 1. **まず全体をつかむ** — 市場データ → データセット → 戦略 → リスク → 約定・会計 → 評価
 2. **1本のバーを追う** — single-symbol replayのruntime sequence
@@ -60,21 +60,18 @@ Interactive Human Guideを、抽象概念を眺める説明UIから、**Trade RL
 
 ## Language policy
 
-### 日本語を主表示するもの
+日本語を主表示するもの:
 
-- ナビゲーション
-- topic title / summary
-- section heading / body
+- ナビゲーション、topic title/summary、section heading/body
 - diagram actor/node/message label
 - input/output/state/errorの説明
 - search resultの主見出し
 - accessibility label
 
-### 照合用に残すもの
+照合用に残すもの:
 
 - Pythonの関数名・クラス名・変数名
-- module/file path
-- package名
+- module/file path、package名
 - `PPO`, `SHA-256`, `JSON`, `NPZ` 等の固有名
 - protocol/schema/version literal
 
@@ -95,8 +92,6 @@ PreTradeRisk.constrain()
 ### Build-time symbol index
 
 `guide/tools/code_symbols.py` が `trade_rl/` をPython ASTで静的解析し、production moduleをimport/executeせずに `guide/.generated/code-symbols.json` を生成する。生成物はtracked sourceへcommitしない。
-
-各symbolは最低限次を持つ。
 
 ```ts
 type CodeSymbol = {
@@ -121,6 +116,7 @@ type CodeSymbol = {
 type CodeReference = {
   id: string;
   symbol: string;
+  kind: "function" | "class" | "method";
   source_sha256: string;
   label_ja: string;
   description_ja: string;
@@ -136,25 +132,24 @@ type CodeReference = {
 source-checkは次をfail-closedに検証する。
 
 - `symbol` が完全修飾名で一意に存在する
-- symbol kindが期待contractと一致する
+- `kind` がcurrent AST symbol kindと一致する
 - `source_sha256` がcurrent sourceと一致する
 - `variables[].name` が対象symbolの `local_names` に存在する
 - test pathがrepository root外へescapeせず、実在する
 
-コード変更でsource digestが変わった場合は、説明を読み直したtopicだけ明示的にrefreshする。digest更新だけで内容レビューを省略しない。
+コード変更でsource digestが変わった場合は説明を読み直し、対象topicだけ次の明示操作で更新する。
+
+```bash
+python3 guide/tools/content_contract.py --refresh-code <topic-id>
+```
+
+`--refresh-code` はsymbol/kind/variable/test-path検証に成功したCodeReferenceの `source_sha256` だけを更新する。説明本文・日本語alias・relationshipは自動生成しない。digest更新だけで内容レビューを省略しない。
 
 ## Source revision / source links
 
 Pages上のsource linkはfloating `main` ではなく、**そのPages buildが説明しているexact repository revision**へ固定する。
 
-生成index metadataは `source_revision` を持つ。CI/deploymentではcheckoutしたexact SHAを渡し、source URLは次の情報から決定的に構築する。
-
-- repository URL
-- `source_revision`
-- `CodeSymbol.path`
-- `start_line` / `end_line`
-
-これにより、後からmainが進んでも表示中の説明とsource line rangeがずれない。
+生成index metadataは `source_revision` を持つ。CI/deploymentではcheckoutしたexact SHAを渡し、source URLはrepository URL、`source_revision`、`CodeSymbol.path`、line rangeから決定的に構築する。
 
 ## Primary sequence: single-symbol replay
 
@@ -189,8 +184,6 @@ message選択時のinspectorは、日本語での役割、実symbol、exact-revi
 
 PPOはObservation説明だけで終わらず、trainingとfrozen replayの境界を見せる。
 
-主sequence:
-
 1. Dataset / feature index validation
 2. `PPOTradingEnv` 構築
 3. Observation v2構築
@@ -203,21 +196,11 @@ PPOはObservation説明だけで終わらず、trainingとfrozen replayの境界
 10. fitted/frozen strategy
 11. independent per-symbol replay
 
-Observation v2は次の5segmentを日本語主表示にし、source field名を併記する。
-
-- 選択したローカル特徴量
-- 利用可能/有限マスク
-- 正規化staleness
-- 現在の売買意図
-- 現在のウェイト
-
-symbol IDとdataset-global featureを含めないことも明示する。
+Observation v2は、選択local feature、availability/finite mask、normalized staleness、current intent、current weightの5segmentを日本語主表示にする。symbol IDとdataset-global featureを含めないことも明示する。
 
 ## Architecture / code map semantics
 
-「コード地図」の矢印が何を意味するかを曖昧にしない。
-
-v1のtop-level mapは**静的import graphではなく、review済みの責務間主処理フロー**を表す。edgeにはrelationを明示し、配列順から意味を推測しない。
+「コード地図」の矢印が何を意味するかを曖昧にしない。v1のtop-level mapは**静的import graphではなく、review済みの責務間主処理フロー**を表す。
 
 ```ts
 type CodeMapEdge = {
@@ -233,11 +216,9 @@ type CodeMapEdge = {
 
 自動AST解析でcall graphを生成しない。package/file/symbolのdrill-downはCodeReferenceへ接続し、実在性とsource freshnessを別contractで保証する。
 
-Graph familyはdirectional DAGを基本とし、deterministic layered layoutを使う。既存規模では新しいlayout libraryを追加せず、純粋関数でrank/orderを決定する。実際にbranching/edge routing要件を満たせないことをテストで確認した場合だけ外部layout dependencyを再検討する。
+Graph familyはdirectional DAGを基本とし、deterministic layered layoutを使う。既存規模では新しいlayout libraryを追加せず、純粋関数でrank/orderを決定する。branching/edge routing要件を満たせないことをテストで確認した場合だけ外部layout dependencyを再検討する。
 
 ## Sequence model
-
-sequenceはactor/messageを明示modelとして持つ。
 
 ```ts
 type SequenceActor = {
@@ -260,7 +241,7 @@ unknown actor/code reference、duplicate idはparse時にfailする。message配
 
 ## Interaction design
 
-### Desktop
+Desktop:
 
 - 中央: sequence / code map
 - 右: 選択中symbolのinspector
@@ -269,7 +250,7 @@ unknown actor/code reference、duplicate idはparse時にfailする。message配
 - 選択pathだけを強調し、未選択edgeは静かに表示
 - resetで全体表示へ戻る
 
-### Mobile portrait
+Mobile portrait:
 
 - diagram全体を読めない大きさへ縮小しない
 - sequenceは1 stepずつ「前へ / 次へ」で移動できる
@@ -291,19 +272,9 @@ hash routeはtopicとselectionを保持する。
 
 ## Search
 
-検索はtopicだけでなくCodeReferenceとvariable aliasを返す。
+検索はtopicだけでなくCodeReferenceとvariable aliasを返す。検索対象はtopic title/summary/body/keyword、日本語alias、qualified symbol、variable name、file pathとする。
 
-検索対象:
-
-- topic title/summary/body/keyword
-- 日本語alias
-- qualified symbol
-- variable name
-- file path
-
-`希望保有数量` と `desired_quantity`、`リスク制約` と `PreTradeRisk.constrain` が同じ実装項目へ到達する。
-
-結果型はtopic navigationだけに限定せず、`topic_id + selection` を持つ。主見出しは日本語、副表示はidentifier/pathとする。
+`希望保有数量` と `desired_quantity`、`リスク制約` と `PreTradeRisk.constrain` が同じ実装項目へ到達する。結果型は `topic_id + selection` を持ち、主見出しは日本語、副表示はidentifier/pathとする。
 
 ## Relationship to authoritative sources
 
@@ -315,9 +286,9 @@ Markdown section fingerprintとPython symbol source digestは別oracleとして�
 
 ## Current-main integration boundary
 
-再レビュー時点でPR #513は `main` へmerge済みで、`docs/research/current-status.md` とGuideの研究状態は「Portable Controlled Experiment 0001 started; result not interpreted」を反映している。
+再レビュー時点でPR #513は `main` へmerge済みで、研究状態は「Portable Controlled Experiment 0001 started; result not interpreted」を反映している。
 
-`guide/japanese-code-explorer` はそのmerge commit `de2eefcdfb1999823344fae65f8701224f582fe8` をnon-force mergeで取り込み済みである。今回のredesignはこの研究状態を保持し、profitability / winner / final-test / live authorizationを新たに主張しない。
+`guide/japanese-code-explorer` はmerge commit `de2eefcdfb1999823344fae65f8701224f582fe8` をnon-force mergeで取り込み済みである。今回のredesignはこの研究状態を保持し、profitability / winner / final-test / live authorizationを新たに主張しない。
 
 integration前にmainがさらに進んだ場合も、tested PR HEADがfinal current mainを含むまでnon-force同期して再検証する。
 
@@ -333,33 +304,22 @@ build/test failure:
 - sequence messageが未知actorを参照する
 - required Japanese labelが空
 - Markdown source fingerprint stale
-- generated source revisionがCI/deploymentのcheckout SHAと一致しない
+- generated source revisionがdeployment checkout SHAと一致しない
 
 runtimeではunknown URL selectionとsearch no-resultを例外にせず、安全なdefaultまたは明示的な空結果へ戻す。
 
-## Accessibility
+## Accessibility / visual design
 
-既存のaxe `serious` / `critical` 0件contractを維持する。
-
-追加要件:
-
-- diagram node/messageはbutton相当のkeyboard操作を持つ
-- selectionを色だけで表さない
-- sequence順序はDOM上でも意味のある順序にする
-- diagramと同じ情報へ到達できるテキストoutlineを提供する
-- inspector更新は必要な範囲で`aria-live`へ通知する
-- 320px幅でpage-level horizontal overflowを発生させない
-- local horizontal scrollを使っても主要操作はstep-throughで代替できる
-
-## Visual design
-
-- 主役はdiagram
-- inspectorは一つ
-- explanationはdiagram selectionと同期
-- 日本語本文の行長を抑える
-- identifier/pathはmonospaceで分離する
-- accent colorはselection/focusに限定する
-- information cardを細分化しすぎない
+- 既存のaxe `serious` / `critical` 0件contractを維持する。
+- diagram node/messageはbutton相当のkeyboard操作を持つ。
+- selectionを色だけで表さない。
+- sequence順序はDOM上でも意味のある順序にする。
+- diagramと同じ情報へ到達できるテキストoutlineを提供する。
+- inspector更新は必要な範囲で`aria-live`へ通知する。
+- 320px幅でpage-level horizontal overflowを発生させない。
+- local horizontal scrollを使っても主要操作はstep-throughで代替できる。
+- 主役はdiagram、inspectorは一つとし、cardを細分化しすぎない。
+- identifier/pathはmonospaceで分離し、accentはselection/focusに限定する。
 
 ## Expected file responsibilities
 
@@ -392,7 +352,7 @@ runtimeではunknown URL selectionとsearch no-resultを例外にせず、安全
 8. package →主要symbolへdrill-downできる。
 9. `希望保有数量` と `desired_quantity` が同じ実装項目を検索できる。
 10. 表示copyは日本語を主とし、英語識別子は照合用の副表示になる。
-11. missing/stale CodeReferenceを入れるとsource-check/buildがfailする。
+11. missing/stale/wrong-kind CodeReferenceを入れるとsource-check/buildがfailする。
 12. source linkはPages buildのexact revisionへ固定される。
 13. Markdown source fingerprint contractを維持する。
 14. desktop keyboardだけで主要diagram selectionとsource detailへ到達できる。
@@ -416,46 +376,25 @@ runtimeではunknown URL selectionとsearch no-resultを例外にせず、安全
 
 ## Failure Modes / Risks
 
-### 説明と実装の再乖離
-
-Markdown fingerprint + exact symbol source digest + variable existenceを別々に検証する。
-
-### 図が高密度化する
-
-sequenceは1 runtime questionに限定し、code mapはoverview-plus-detailを使う。全関数を一枚へ載せない。
-
-### 日本語化でsource検索性が落ちる
-
-日本語alias直下に実identifierを併記し、検索indexへ両方を入れる。
-
-### layoutがrevisionごとに揺れる
-
-deterministic layered layout、stable source order/rank、fixed actor orderを使う。
-
-### AST parserがPython semanticsを誤推測する
-
-symbol location/signature/source digest/local-name抽出だけを責務とする。call graphを自動推測しない。
-
-### line linkがmain更新で壊れる
-
-source revisionをexact build SHAへ固定する。
-
-### accessibility regression
-
-keyboard component tests、axe desktop/mobile/light/dark、320px E2EをTest Oracleへ含める。
+- 説明と実装の再乖離: Markdown fingerprint + exact symbol source digest + variable existenceで検出する。
+- 図の高密度化: sequenceは1 runtime questionに限定し、code mapはoverview-plus-detailを使う。
+- 日本語化による検索性低下: 日本語alias直下に実identifierを併記し、検索indexへ両方を入れる。
+- layout drift: deterministic layered layout、stable source order/rank、fixed actor orderを使う。
+- AST誤推測: symbol location/signature/source digest/local-name抽出だけを責務とし、call graphを自動推測しない。
+- line link drift: source revisionをexact build SHAへ固定する。
+- accessibility regression: keyboard component tests、axe desktop/mobile/light/dark、320px E2Eで検出する。
 
 ## Test Oracle
 
-### Python contract
+Python contract:
 
-- AST indexが `run_single_symbol_replay`、`PreTradeRisk.constrain`、`MarketExecutor.execute_interval`、PPO主要symbolを正しいfileへ解決する
-- `desired_quantity` 等の主要local nameを同一scopeから抽出する
-- nested scopeのlocalを混ぜない
-- production sourceをimportせずindex生成する
-- missing/stale symbol、unknown variable、path escapeをfailする
-- generated artifactがtracked sourceへ残らない
+- AST indexが `run_single_symbol_replay`、`PreTradeRisk.constrain`、`MarketExecutor.execute_interval`、PPO主要symbolを正しいfileへ解決する。
+- `desired_quantity` 等の主要local nameを同一scopeから抽出し、nested scopeのlocalを混ぜない。
+- production sourceをimportせずindex生成する。
+- missing/stale/wrong-kind symbol、unknown variable、path escapeをfailする。
+- explicit `--refresh-code` が検証済みdigestだけを更新する。
 
-### TypeScript unit/component
+TypeScript unit/component:
 
 - sequence actor/message reference validation
 - code-map edge validation
@@ -465,7 +404,7 @@ keyboard component tests、axe desktop/mobile/light/dark、320px E2EをTest Orac
 - selected messageとinspector同期
 - code source URLがexact revisionを含む
 
-### E2E / visual
+E2E / visual:
 
 - home → replay sequence → risk message → source detail
 - search `希望保有数量` / `desired_quantity`
@@ -476,7 +415,7 @@ keyboard component tests、axe desktop/mobile/light/dark、320px E2EをTest Orac
 - deterministic desktop/mobile screenshots
 - public hash/search/theme/source navigation
 
-### Repository regression
+Repository regression:
 
 - `python3 guide/tools/content_contract.py --check`
 - `npm --prefix guide run check`
@@ -487,8 +426,8 @@ keyboard component tests、axe desktop/mobile/light/dark、320px E2EをTest Orac
 ## Completion criteria
 
 - Acceptance Criteria 1–19を確認する。
-- architecture edge bugを再現するRED testを追加しGREEN化する。
-- code symbol/variable/source-digest bindingのRED→GREENを確認する。
+- architecture edge bugをRED→GREENで修正する。
+- code symbol/variable/source-digest bindingをRED→GREENで実装する。
 - replay/PPO sequenceをcurrent sourceと独立に照合する。
 - final diffにruntime semantic change、debug code、generated catalog、temporary workaroundがない。
 - final current mainをPR HEADが包含する。

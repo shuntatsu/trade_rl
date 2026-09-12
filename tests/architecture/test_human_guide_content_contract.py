@@ -1,10 +1,10 @@
-import json
 from pathlib import Path
 
 import guide.tools.content_contract as contract
 
 
 ROOT = Path(__file__).resolve().parents[2]
+json = __import__("json")
 
 
 def _assert_contract_error(callable_object, message: str) -> None:

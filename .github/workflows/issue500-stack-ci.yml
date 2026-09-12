@@ -33,16 +33,15 @@ jobs:
         run: uv sync --extra dev
 
       - name: Coordination tests
-        run: uv run pytest -q tests/agent_repo/test_coordination_*.py
+        run: |
+          uv run pytest -q tests/agent_repo/test_coordination_*.py
+          uv run pytest -q tests/architecture/test_agent_coordination_boundary.py
 
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
       - name: Format
-        shell: bash
-        run: |
-          uv run ruff format --diff tools/agent_repo/coordination/serde.py || true
-          uv run ruff format --check trade_rl tests tools
+        run: uv run ruff format --check trade_rl tests tools
 
       - name: Repository tooling types
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py

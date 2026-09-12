@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'chore: apply execution economics implementation'
+    if: "${{ github.event.head_commit.message == 'chore: fix execution economics implementation workflow' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -29,19 +29,7 @@ jobs:
           uv run python - <<'PY'
           from pathlib import Path
 
-          def replace_once(path: Path, old: str, new: str) -> None:
-              text = path.read_text(encoding="utf-8")
-              count = text.count(old)
-              if count != 1:
-                  raise RuntimeError(f"{path}: expected one replacement, found {count}")
-              path.write_text(text.replace(old, new, 1), encoding="utf-8")
-
           config = Path("trade_rl/data/build/config.py")
-          replace_once(
-              config,
-              "from trade_rl.data.contracts import (\n",
-              "from trade_rl.data.contracts import (\n",
-          )
           text = config.read_text(encoding="utf-8")
           marker = ")\n\n\n@dataclass(frozen=True, slots=True)\nclass MarketDatasetBuildRequest:"
           replacement = (

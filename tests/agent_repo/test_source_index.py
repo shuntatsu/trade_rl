@@ -145,12 +145,19 @@ def test_context_does_not_claim_facade_when_nearest_all_is_mutated(
     assert context.public_exports == ()
 
 
-def test_context_reports_optional_capability_extra_from_dynamic_import(
+def test_context_reports_optional_capability_extras_for_real_import_shapes(
     tmp_path: Path,
 ) -> None:
-    _write(tmp_path, "trade_rl/__init__.py", "")
-    _write(tmp_path, "trade_rl/strategies/__init__.py", "")
-    _write(tmp_path, "trade_rl/strategies/forecasts/__init__.py", "")
+    for path in (
+        "trade_rl/__init__.py",
+        "trade_rl/strategies/__init__.py",
+        "trade_rl/strategies/forecasts/__init__.py",
+        "trade_rl/strategies/rl/__init__.py",
+        "trade_rl/evaluation/__init__.py",
+        "trade_rl/evaluation/robustness/__init__.py",
+        "trade_rl/evaluation/robustness/perfect_information/__init__.py",
+    ):
+        _write(tmp_path, path, "")
     _write(
         tmp_path,
         "trade_rl/strategies/forecasts/lightgbm.py",
@@ -160,19 +167,41 @@ def test_context_reports_optional_capability_extra_from_dynamic_import(
     )
     _write(
         tmp_path,
+        "trade_rl/strategies/rl/ppo.py",
+        "import importlib\n\n"
+        "def load_backend():\n"
+        "    return importlib.import_module('stable_baselines3')\n",
+    )
+    _write(
+        tmp_path,
+        "trade_rl/evaluation/robustness/perfect_information/solver.py",
+        "from importlib import import_module as load_module\n\n"
+        "def load_backend():\n"
+        "    return load_module('scipy.optimize')\n",
+    )
+    _write(
+        tmp_path,
         "pyproject.toml",
         "[project]\n"
         "name = 'example'\n\n"
         "[project.optional-dependencies]\n"
-        "forecast-gbm = ['lightgbm==4.7.0']\n"
-        "dev = ['lightgbm==4.7.0', 'pytest>=8']\n",
+        "forecast-gbm = ['lightgbm[scikit-learn]==4.7.0']\n"
+        "train-sb3 = ['stable-baselines3==2.4.1', 'torch==2.4.1']\n"
+        "oracle = ['scipy==1.17.1']\n"
+        "dev = ['lightgbm==4.7.0', 'stable-baselines3==2.4.1', 'scipy==1.17.1']\n",
     )
 
-    context = SourceIndex.build(tmp_path).context(
+    index = SourceIndex.build(tmp_path)
+
+    assert index.context(
         "trade_rl/strategies/forecasts/lightgbm.py"
+    ).project_references == ("project.optional-dependencies.forecast-gbm",)
+    assert index.context("trade_rl/strategies/rl/ppo.py").project_references == (
+        "project.optional-dependencies.train-sb3",
     )
-
-    assert context.project_references == ("project.optional-dependencies.forecast-gbm",)
+    assert index.context(
+        "trade_rl/evaluation/robustness/perfect_information/solver.py"
+    ).project_references == ("project.optional-dependencies.oracle",)
 
 
 def test_impact_is_deterministic_by_path(tmp_path: Path) -> None:

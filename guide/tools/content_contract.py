@@ -19,6 +19,7 @@ _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
 _HEX_64_RE = re.compile(r"^[0-9a-f]{64}$")
 _ALLOWED_CODE_KINDS = {"function", "class", "method"}
+_ALLOWED_CODE_MAP_RELATIONS = {"data-flow", "calls"}
 _ALLOWED_VISUALIZATIONS = {
     "architecture",
     "data-flow",
@@ -27,6 +28,7 @@ _ALLOWED_VISUALIZATIONS = {
     "experiment-loop",
     "research-status",
     "sequence",
+    "code-map",
 }
 
 
@@ -310,6 +312,109 @@ def validate_sequence_visualization(
             )
 
 
+def validate_code_map_visualization(
+    topic: dict[str, object],
+    *,
+    topic_id: str,
+) -> None:
+    visualization = topic.get("visualization")
+    if not isinstance(visualization, dict) or visualization.get("kind") != "code-map":
+        raise GuideContractError(f"topic {topic_id} has no code-map visualization")
+
+    raw_nodes = visualization.get("nodes")
+    raw_edges = visualization.get("edges")
+    if not isinstance(raw_nodes, list) or not raw_nodes:
+        raise GuideContractError(f"topic {topic_id} code-map nodes must be non-empty")
+    if not isinstance(raw_edges, list):
+        raise GuideContractError(f"topic {topic_id} code-map edges must be a list")
+
+    code_reference_ids = {
+        reference["id"]
+        for reference in _topic_code_references(topic, topic_id=topic_id)
+    }
+    node_ids: list[str] = []
+    for index, node in enumerate(raw_nodes):
+        if not isinstance(node, dict):
+            raise GuideContractError(f"topic {topic_id} has malformed code-map node")
+        node_id = _required_string(
+            node,
+            "id",
+            label=f"topic {topic_id} code-map node {index}",
+        )
+        _required_string(
+            node,
+            "label_ja",
+            label=f"topic {topic_id} code-map node {node_id}",
+        )
+        _required_string(
+            node,
+            "description_ja",
+            label=f"topic {topic_id} code-map node {node_id}",
+        )
+        node_ids.append(node_id)
+        code_ref = node.get("code_ref")
+        if code_ref is not None:
+            if not isinstance(code_ref, str) or not code_ref:
+                raise GuideContractError(
+                    f"topic {topic_id} code-map node {node_id} has malformed code reference"
+                )
+            if code_ref not in code_reference_ids:
+                raise GuideContractError(
+                    f"unknown code reference in topic {topic_id} code-map node: {code_ref}"
+                )
+    if len(set(node_ids)) != len(node_ids):
+        raise GuideContractError(f"topic {topic_id} code-map has duplicate node ids")
+    node_id_set = set(node_ids)
+
+    indegree = {node_id: 0 for node_id in node_ids}
+    outgoing = {node_id: [] for node_id in node_ids}
+    for index, edge in enumerate(raw_edges):
+        if not isinstance(edge, dict):
+            raise GuideContractError(f"topic {topic_id} has malformed code-map edge")
+        source = _required_string(
+            edge,
+            "from",
+            label=f"topic {topic_id} code-map edge {index}",
+        )
+        target = _required_string(
+            edge,
+            "to",
+            label=f"topic {topic_id} code-map edge {index}",
+        )
+        relation = _required_string(
+            edge,
+            "relation",
+            label=f"topic {topic_id} code-map edge {index}",
+        )
+        _required_string(
+            edge,
+            "label_ja",
+            label=f"topic {topic_id} code-map edge {index}",
+        )
+        if source not in node_id_set or target not in node_id_set:
+            raise GuideContractError(
+                f"unknown node reference in topic {topic_id} code-map: {source} -> {target}"
+            )
+        if relation not in _ALLOWED_CODE_MAP_RELATIONS:
+            raise GuideContractError(
+                f"unknown code-map relation in topic {topic_id}: {relation}"
+            )
+        outgoing[source].append(target)
+        indegree[target] += 1
+
+    ready = [node_id for node_id in node_ids if indegree[node_id] == 0]
+    visited = 0
+    while ready:
+        node_id = ready.pop(0)
+        visited += 1
+        for target in outgoing[node_id]:
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                ready.append(target)
+    if visited != len(node_ids):
+        raise GuideContractError(f"topic {topic_id} code-map contains a cycle")
+
+
 def _code_reference_test_path(root: Path, path_text: str) -> Path:
     path = PurePosixPath(path_text)
     if (
@@ -446,6 +551,8 @@ def check_content(root: Path = ROOT) -> None:
             )
         if kind == "sequence":
             validate_sequence_visualization(topic, topic_id=topic_id)
+        elif kind == "code-map":
+            validate_code_map_visualization(topic, topic_id=topic_id)
         validate_source_sections(
             root,
             _topic_source_sections(topic, topic_id=topic_id),

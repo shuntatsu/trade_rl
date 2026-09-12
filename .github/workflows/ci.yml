@@ -99,3 +99,47 @@ jobs:
           expected="$(uv run python -c 'from importlib.metadata import version; print(version("trade-rl"))')"
           module="$(uv run python -c 'import trade_rl; print(trade_rl.__version__)')"
           test "$module" = "$expected"
+
+  guide:
+    name: Human Guide
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: guide/package-lock.json
+
+      - name: Install Guide dependencies
+        working-directory: guide
+        run: npm ci
+
+      - name: Guide source, lint, type, unit and build checks
+        working-directory: guide
+        run: npm run check
+
+      - name: Install Chromium
+        working-directory: guide
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser UX and accessibility
+        working-directory: guide
+        run: npm run e2e
+
+      - name: Upload Guide browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: human-guide-browser-${{ github.run_id }}
+          path: |
+            guide/test-results/
+            guide/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14

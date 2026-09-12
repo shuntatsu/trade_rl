@@ -17,6 +17,20 @@
 
 文書だけを根拠にsourceを推測しない。現行source、public API、`tests/architecture/`、関連contract testsとdocsを突き合わせる。
 
+## Interactive Guide update contract
+
+Root `guide/` は人間向けの**非正本**説明層であり、技術仕様・研究状態のauthorityにはしない。説明本文と可視化modelは `guide/content/topics/*.json` に置き、正本Markdown sectionとの対応は各topicのsource fingerprintでfail-closedに検証する。
+
+Guideがbindしている `docs/architecture/*` または `docs/research/current-status.md` のsectionを変更した場合、対応topicの説明が新しい正本と一致することを人間が確認してから、対象topicだけを明示的にrefreshする。refreshを単なるCI通過手段として実行しない。
+
+```bash
+python3 guide/tools/content_contract.py --refresh <topic-id>
+python3 guide/tools/content_contract.py --check
+npm --prefix guide run check
+```
+
+正本sectionが変わっていない通常のGuide UI変更ではfingerprintを更新しない。Guide側の説明と正本が食い違う場合は、正本をGuideへ合わせず、現行source・contract test・正本docsから契約を再確認してGuideを修正する。
+
 ## Local repository tooling
 
 Repository-localなsource-derived inspectionには次を使ってよい。
@@ -98,6 +112,7 @@ Branch protection / rulesetはGit treeとは別のGitHub設定である。保護
 | Study/Experiment/EvidenceSet、controlled factor、lineage、freeze | `architecture/controlled-experiment-loop.md`, experiment contract/workflow tests |
 | 候補strategy/control、fit scope、evaluation scope | `research/current-status.md`, candidate/strategy tests |
 | M1/M2/M3状態、development/final/stress手順 | `research/current-status.md` |
+| Guideがbindする正本section | 対応する `guide/content/topics/*.json`, `guide/tools/content_contract.py --check` |
 | docsの入口・保持ルール | `docs/README.md`, `docs/AGENTS.md`, root `AGENTS.md` |
 | license/provenance/third party | `LICENSE`, `LICENSES/`, package metadata。通常cleanupとは分離する |
 

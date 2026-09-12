@@ -1,0 +1,84 @@
+{
+  "id": "ppo-observation-v2",
+  "title": "PPO Observation v2",
+  "nav_label": "PPO観測 v2",
+  "summary": "PPOが何を見て、何を見ないのかを観測ベクトルとして分解します。",
+  "keywords": [
+    "PPO",
+    "Observation v2",
+    "staleness",
+    "availability",
+    "intent",
+    "weight",
+    "fit scope"
+  ],
+  "source_sections": [
+    {
+      "path": "docs/architecture/lean-core.md",
+      "heading": "PPO Observation v2",
+      "sha256": "5acdcd50de7d4ac6289d6e18e1c64fa3f1747034da3ada039156e67ecfb7e622"
+    },
+    {
+      "path": "docs/research/current-status.md",
+      "heading": "PPO",
+      "sha256": "8cd92570261cfdbbb9893fc888feadd9c47443e9dd71d2938843e5481435acea"
+    }
+  ],
+  "sections": [
+    {
+      "title": "順序もsemantic contract",
+      "body": [
+        "Observationは local values → availability/finite mask → normalized staleness → current intent → current weight の順です。"
+      ]
+    },
+    {
+      "title": "fit-scope leakageを避ける",
+      "body": [
+        "symbol IDとfull-universe global aggregatesは初回M2のpolicy inputへ入れません。global rosterは明示的な空集合です。"
+      ]
+    }
+  ],
+  "visualization": {
+    "kind": "observation",
+    "segments": [
+      {
+        "id": "values",
+        "label": "Local values",
+        "description": "選択したcausal feature値。unavailable/non-finite値は0へmaskします。",
+        "weight": 5
+      },
+      {
+        "id": "available",
+        "label": "Availability",
+        "description": "各selected featureが利用可能かを明示するmaskです。",
+        "weight": 5
+      },
+      {
+        "id": "staleness",
+        "label": "Staleness",
+        "description": "selected featureと同じ順序の[0,1]正規化stalenessです。",
+        "weight": 5
+      },
+      {
+        "id": "intent",
+        "label": "Current intent",
+        "description": "現在のSHORT / FLAT / LONG状態を一度だけ含めます。",
+        "weight": 2
+      },
+      {
+        "id": "weight",
+        "label": "Current weight",
+        "description": "現在のportfolio weightを一度だけ含めます。",
+        "weight": 2
+      }
+    ],
+    "excluded": [
+      "symbol name / symbol ID",
+      "dataset-global active_fraction",
+      "dataset-global tradable_fraction",
+      "dataset-global market return aggregates",
+      "execution economics",
+      "future rows"
+    ]
+  }
+}

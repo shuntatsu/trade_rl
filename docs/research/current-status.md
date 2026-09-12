@@ -116,8 +116,8 @@ Execution economicsはfeature configurationではなくDataset environment seman
 - fit-symbol scopeの明示
 - symbol-ID-free PPO
 - fit-scope-safe PPO Observation v2（local values + availability/finite mask + normalized staleness + portfolio state、global policy rosterは空）
-- Observation contractのRun evidence bindingとhistorical reader互換
-- resolved Study identityへのObservation contract bindingと旧Studyへの新semantic mutation拒否
+- `lean_candidate_result_v2`によるObservation contractのRun evidence bindingとhistorical v1 reader互換
+- `resolved_run_config_v2`によるStudy identity binding、historical v1 read互換、v1 Studyへのv2 mutation拒否
 - 全symbol独立comparison
 - shared candidate config resolution
 - in-memory candidate execution seam

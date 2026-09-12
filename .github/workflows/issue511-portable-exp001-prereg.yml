@@ -1,0 +1,181 @@
+name: Issue 511 portable Experiment 0001 preregistration
+
+on:
+  push:
+    branches:
+      - tmp/issue511-portable-exp001
+    paths:
+      - .github/workflows/issue511-portable-exp001-prereg.yml
+      - research/issue511_portable_exp001.py
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+
+env:
+  CURRENT_MAIN_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  ISSUE_NUMBER: "511"
+  BASELINE_RUN_ID: "34700123151"
+  BASELINE_ARTIFACT: canonical-m2-portable-baseline-v1-34700123151
+  BASELINE_ARTIFACT_ID: "10301701698"
+  BASELINE_ARTIFACT_DIGEST: sha256:f814fe4e205f8714c4344238911aae16e89ce0279908265feb1fdc85069b2a0a
+  BASELINE_ROOT: /tmp/issue511-portable-baseline
+  VERIFY_ROOT: /tmp/issue511-prereg-verify
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      artifact_name: ${{ steps.prereg.outputs.artifact_name }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      definition_digest: ${{ steps.prereg.outputs.definition_digest }}
+      candidate_requested_digest: ${{ steps.prereg.outputs.candidate_requested_digest }}
+      baseline_turnover: ${{ steps.prereg.outputs.baseline_turnover }}
+    steps:
+      - name: Checkout preregistration helper branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove production package equals frozen current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$CURRENT_MAIN_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$CURRENT_MAIN_SHA:trade_rl")"
+
+      - name: Set up frozen uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Verify frozen baseline artifact and pre-result issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$BASELINE_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$artifact")" = "$BASELINE_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$artifact")" = "$BASELINE_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$BASELINE_RUN_ID"
+          test "$(jq -r '.expired' <<<"$artifact")" = "false"
+          issue="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER")"
+          test "$(jq -r '.state' <<<"$issue")" = "open"
+          test "$(jq -r '.title' <<<"$issue")" = "research: Portable Canonical M2 Experiment 0001 RULE_THRESHOLDS replication"
+
+      - name: Download immutable portable baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_ARTIFACT }}
+          path: ${{ env.BASELINE_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.BASELINE_RUN_ID }}
+
+      - name: Create result-blind Experiment definition
+        id: prereg
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python research/issue511_portable_exp001.py preregister \
+            --root "$BASELINE_ROOT" \
+            --issue-number "$ISSUE_NUMBER"
+          test -f "$BASELINE_ROOT/study/experiments/0001/definition.json"
+          test ! -e "$BASELINE_ROOT/study/experiments/0001/candidate"
+          test ! -e "$BASELINE_ROOT/study/experiments/0001/verification.json"
+          test ! -e "$BASELINE_ROOT/study/experiments/0001/comparison.json"
+          test ! -e "$BASELINE_ROOT/study/experiments/0001/decision.json"
+          test ! -e "$BASELINE_ROOT/study/experiments/0001/failure.json"
+
+      - name: Upload immutable preregistration artifact
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.prereg.outputs.artifact_name }}
+          path: ${{ env.BASELINE_ROOT }}
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  verify:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact preregistration helper
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove production package equals frozen current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$CURRENT_MAIN_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$CURRENT_MAIN_SHA:trade_rl")"
+
+      - name: Set up frozen uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Verify preregistration artifact metadata and chronology
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREREG_ARTIFACT_ID: ${{ needs.publish.outputs.artifact_id }}
+          PREREG_ARTIFACT_DIGEST: ${{ needs.publish.outputs.artifact_digest }}
+          PREREG_ARTIFACT_NAME: ${{ needs.publish.outputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREREG_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$artifact")" = "$PREREG_ARTIFACT_NAME"
+          test "$(jq -r '.digest' <<<"$artifact")" = "$PREREG_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.expired' <<<"$artifact")" = "false"
+          issue_created="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" --jq '.created_at')"
+          artifact_created="$(jq -r '.created_at' <<<"$artifact")"
+          test "$issue_created" \< "$artifact_created"
+
+      - name: Re-download immutable preregistration artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.publish.outputs.artifact_name }}
+          path: ${{ env.BASELINE_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+
+      - name: Independently verify result-blind preregistration
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$VERIFY_ROOT"
+          uv run python research/issue511_portable_exp001.py verify-prereg \
+            --root "$BASELINE_ROOT" \
+            --report-root "$VERIFY_ROOT"
+
+      - name: Upload independent preregistration verification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-m2-portable-exp001-prereg-verification-v1-${{ github.run_id }}
+          path: ${{ env.VERIFY_ROOT }}
+          retention-days: 90

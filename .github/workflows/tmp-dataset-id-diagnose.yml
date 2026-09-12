@@ -1,0 +1,109 @@
+name: Temporary dataset identity diagnostics
+
+on:
+  push:
+    branches:
+      - fix/m2-execution-economics-protocol
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Compare import modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mode in minimal workflow test_workflow protocol; do
+            echo "=== MODE=${mode} ==="
+            MODE="$mode" uv run python - <<'PY'
+          import hashlib
+          import os
+          from datetime import datetime, timezone
+
+          mode = os.environ["MODE"]
+          if mode == "workflow":
+              import trade_rl.evaluation.experiments.bootstrap.workflow  # noqa: F401
+          elif mode == "test_workflow":
+              import tests.evaluation.experiments.bootstrap.test_workflow  # noqa: F401
+          elif mode == "protocol":
+              import tests.evaluation.experiments.bootstrap.test_execution_economics_protocol  # noqa: F401
+
+          import numpy as np
+          from trade_rl.data.build.builder import MarketDatasetBuilder
+          from trade_rl.data.contracts import (
+              FeatureKind,
+              FeatureSpec,
+              InstrumentContract,
+              MarketBuildConfig,
+              NormalizationMode,
+              VolumeUnit,
+          )
+          from trade_rl.data.identity import DATASET_ID_ARRAY_FIELDS
+          from trade_rl.data.source import InMemoryMarketDataSource, RawMarketSeries
+
+          def build():
+              n = 40
+              timestamps = np.datetime64("2026-01-01T00:00:00", "ns") + np.arange(n) * np.timedelta64(1, "h")
+              close = np.exp(np.arange(n, dtype=np.float64) * 0.002)
+              open_price = np.concatenate([close[:1], close[:-1]])
+              raw = RawMarketSeries(
+                  timestamps=timestamps,
+                  open=open_price,
+                  high=np.maximum(open_price, close) * 1.001,
+                  low=np.minimum(open_price, close) * 0.999,
+                  close=close,
+                  volume=100.0 + np.arange(n, dtype=np.float64),
+                  funding_rate=np.where(np.arange(n) % 8 == 0, 0.0001, 0.0),
+                  tradable=np.ones(n, dtype=np.bool_),
+              )
+              config = MarketBuildConfig(
+                  base_timeframe="1h",
+                  features=(
+                      FeatureSpec(
+                          name="ret_1",
+                          kind=FeatureKind.LOG_RETURN,
+                          lookback=1,
+                          normalization=NormalizationMode.NONE,
+                      ),
+                      FeatureSpec(
+                          name="vol_12",
+                          kind=FeatureKind.REALIZED_VOLATILITY,
+                          lookback=12,
+                      ),
+                  ),
+              )
+              contract = InstrumentContract(
+                  symbol="BTCUSDT",
+                  listed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                  volume_unit=VolumeUnit.BASE_ASSET,
+                  tick_size=0.1,
+                  lot_size=0.001,
+                  minimum_notional=5.0,
+              )
+              return MarketDatasetBuilder(config).build(
+                  InMemoryMarketDataSource({"BTCUSDT": raw}),
+                  (contract,),
+              )
+
+          for iteration in range(3):
+              dataset = build()
+              print(f"ITER={iteration} DATASET_ID={dataset.dataset_id}")
+              print(f"FEATURE_DIGEST={dataset.feature_config_digest}")
+              print(f"NORMALIZATION_DIGEST={dataset.normalization_digest}")
+              print(f"IDENTITY_PAYLOAD={dataset.identity_payload_json}")
+              for name in DATASET_ID_ARRAY_FIELDS:
+                  value = np.ascontiguousarray(dataset.resolved_array(name))
+                  digest = hashlib.sha256(value.tobytes(order="C")).hexdigest()
+                  print(f"ARRAY {name} dtype={value.dtype.str} shape={value.shape} sha={digest}")
+          PY
+          done

@@ -326,11 +326,20 @@ def _reconstruct(store: StudyStore) -> _StudyState:
                 or baseline_analysis_for_comparison is None
             ):
                 raise ArtifactIntegrityError("comparison baseline evidence is missing")
+            comparison_payload = comparison.to_payload()
+            persisted_factor_effect = comparison_payload.get("factor_effect")
+            if not isinstance(persisted_factor_effect, dict):
+                raise ArtifactIntegrityError("comparison factor_effect is malformed")
+            factor_effect_schema = _as_string(
+                persisted_factor_effect.get("schema_version"),
+                field="factor-effect schema_version",
+            )
             factor_effect = compare_evidence_sets(
                 baseline_for_comparison.runs,
                 candidate.runs,
                 n_bootstrap=plan.n_bootstrap,
                 bootstrap_seed=plan.bootstrap_seed,
+                schema_version=factor_effect_schema,
             )
             factor_digest = _as_string(
                 factor_effect.get("analysis_digest"),

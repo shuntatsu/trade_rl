@@ -112,6 +112,7 @@ jobs:
           PY
       - name: Format and static checks
         run: |
+          uv run ruff check --fix trade_rl/data/features/core.py trade_rl/data/features/cross_asset.py trade_rl/data/build/builder.py
           uv run ruff format trade_rl/data/features/core.py trade_rl/data/features/cross_asset.py trade_rl/data/build/builder.py
           uv run ruff check trade_rl/data/features/core.py trade_rl/data/features/cross_asset.py trade_rl/data/build/builder.py tests/data/test_portable_feature_numerics.py
           uv run mypy trade_rl/data/features/core.py trade_rl/data/features/cross_asset.py trade_rl/data/build/builder.py trade_rl/data/features/numerics.py trade_rl/data/contracts.py

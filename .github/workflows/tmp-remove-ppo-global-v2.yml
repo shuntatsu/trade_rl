@@ -1,0 +1,164 @@
+name: Temporary fit-scope-safe PPO Observation v2
+
+on:
+  push:
+    branches:
+      - feat/rl-observation-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feat/rl-observation-v2
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Remove cross-scope global aggregates from PPO v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'guard mismatch: {path}: count={count}: {old!r}')
+              file.write_text(text.replace(old, new), encoding='utf-8')
+
+          path = 'trade_rl/strategies/rl/ppo.py'
+          replace_once(
+              path,
+              '''PPO_GLOBAL_FEATURE_NAMES = (\n    "active_fraction",\n    "tradable_fraction",\n    "market_return_mean",\n    "market_return_dispersion",\n)\n''',
+              '''PPO_GLOBAL_FEATURE_NAMES: tuple[str, ...] = ()\n''',
+          )
+          replace_once(
+              path,
+              '''            "local_staleness",\n            "global_values",\n            "global_available",\n            "current_intent",\n''',
+              '''            "local_staleness",\n            "current_intent",\n''',
+          )
+          replace_once(
+              path,
+              '''\ndef _global_feature_indices(dataset: MarketDataset) -> tuple[int, ...]:\n    indices: list[int] = []\n    for name in PPO_GLOBAL_FEATURE_NAMES:\n        try:\n            indices.append(dataset.global_feature_names.index(name))\n        except ValueError as error:\n            raise ValueError(f"missing PPO global feature: {name}") from error\n    return tuple(indices)\n\n\n''',
+              '''\n''',
+          )
+          replace_once(
+              path,
+              '''def _encode_observation(\n    observation: StrategyObservation,\n    feature_indices: tuple[int, ...],\n    global_feature_indices: tuple[int, ...],\n) -> np.ndarray:\n    indices = _validated_indices(feature_indices)\n    global_indices = _validated_indices(global_feature_indices)\n    if max(indices) >= observation.features.size:\n        raise ValueError("feature index is outside observation features")\n    if max(global_indices) >= observation.global_features.size:\n        raise ValueError("global feature index is outside observation global features")\n''',
+              '''def _encode_observation(\n    observation: StrategyObservation,\n    feature_indices: tuple[int, ...],\n) -> np.ndarray:\n    indices = _validated_indices(feature_indices)\n    if max(indices) >= observation.features.size:\n        raise ValueError("feature index is outside observation features")\n''',
+          )
+          replace_once(
+              path,
+              '''\n    selected_global = np.asarray(\n        observation.global_features[list(global_indices)],\n        dtype=np.float64,\n    )\n    global_available = np.asarray(\n        observation.global_feature_available[list(global_indices)],\n        dtype=np.bool_,\n    )\n    global_finite = np.isfinite(selected_global)\n    global_usable = global_available & global_finite\n    global_values = np.where(global_usable, selected_global, 0.0)\n\n''',
+              '''\n''',
+          )
+          replace_once(
+              path,
+              '''        (\n            values,\n            usable.astype(np.float64),\n            staleness,\n            global_values,\n            global_usable.astype(np.float64),\n            state,\n        ),\n''',
+              '''        (\n            values,\n            usable.astype(np.float64),\n            staleness,\n            state,\n        ),\n''',
+          )
+          replace_once(
+              path,
+              '''        *,\n        feature_indices: tuple[int, ...],\n        global_feature_indices: tuple[int, ...],\n    ) -> None:\n        self.policy = policy\n        self.feature_indices = _validated_indices(feature_indices)\n        self.global_feature_indices = _validated_indices(global_feature_indices)\n''',
+              '''        *,\n        feature_indices: tuple[int, ...],\n    ) -> None:\n        self.policy = policy\n        self.feature_indices = _validated_indices(feature_indices)\n''',
+          )
+          replace_once(
+              path,
+              '''        encoded = _encode_observation(\n            observation,\n            self.feature_indices,\n            self.global_feature_indices,\n        )\n''',
+              '''        encoded = _encode_observation(\n            observation,\n            self.feature_indices,\n        )\n''',
+          )
+          replace_once(
+              path,
+              '''        self.feature_indices = validated_feature_indices(dataset, feature_indices)\n        self.global_feature_indices = _global_feature_indices(dataset)\n        self.symbol_indices = validated_symbol_indices(dataset, symbol_indices)\n''',
+              '''        self.feature_indices = validated_feature_indices(dataset, feature_indices)\n        self.symbol_indices = validated_symbol_indices(dataset, symbol_indices)\n''',
+          )
+          replace_once(
+              path,
+              '''        observation_size = (\n            3 * len(self.feature_indices) + 2 * len(self.global_feature_indices) + 2\n        )\n''',
+              '''        observation_size = 3 * len(self.feature_indices) + 2\n''',
+          )
+          replace_once(
+              path,
+              '''        return _encode_observation(\n            self._strategy_observation(),\n            self.feature_indices,\n            self.global_feature_indices,\n        ).copy()\n''',
+              '''        return _encode_observation(\n            self._strategy_observation(),\n            self.feature_indices,\n        ).copy()\n''',
+          )
+          replace_once(
+              path,
+              '''    indices = validated_feature_indices(dataset, feature_indices)\n    global_indices = _global_feature_indices(dataset)\n    env = PPOTradingEnv(\n''',
+              '''    indices = validated_feature_indices(dataset, feature_indices)\n    env = PPOTradingEnv(\n''',
+          )
+          replace_once(
+              path,
+              '''    return PPOIntentStrategy(\n        cast(_PredictPolicy, model),\n        feature_indices=indices,\n        global_feature_indices=global_indices,\n    )\n''',
+              '''    return PPOIntentStrategy(\n        cast(_PredictPolicy, model),\n        feature_indices=indices,\n    )\n''',
+          )
+
+          path = 'trade_rl/evaluation/experiments/contracts/run.py'
+          replace_once(
+              path,
+              '''            ppo_global_feature_names = contract_unique_texts(\n                self.ppo_global_feature_names,\n                field="ppo_global_feature_names",\n            )\n            if ppo_observation_schema != PPO_OBSERVATION_SCHEMA:\n''',
+              '''            if not isinstance(self.ppo_global_feature_names, tuple):\n                raise ContractViolationError(\n                    "ppo_global_feature_names must be a tuple"\n                )\n            ppo_global_feature_names = tuple(\n                contract_text(value, field="ppo_global_feature_names")\n                for value in self.ppo_global_feature_names\n            )\n            if len(set(ppo_global_feature_names)) != len(ppo_global_feature_names):\n                raise ContractViolationError(\n                    "ppo_global_feature_names must contain unique values"\n                )\n            if ppo_observation_schema != PPO_OBSERVATION_SCHEMA:\n''',
+          )
+
+          path = 'tests/strategies/test_ppo_intent.py'
+          replace_once(
+              path,
+              '''from trade_rl.strategies.rl.ppo import (\n    PPO_GLOBAL_FEATURE_NAMES,\n    PPOIntentStrategy,\n    PPOTradingEnv,\n    fit_ppo_strategy,\n)\n''',
+              '''from trade_rl.strategies.rl.ppo import (\n    PPOIntentStrategy,\n    PPOTradingEnv,\n    fit_ppo_strategy,\n)\n''',
+          )
+          file = Path(path)
+          text = file.read_text(encoding='utf-8')
+          if text.count('global_features=np.zeros((4, 4), dtype=np.float32)') != 2:
+              raise SystemExit('global shape guard mismatch')
+          text = text.replace(
+              'global_features=np.zeros((4, 4), dtype=np.float32)',
+              'global_features=np.zeros((4, 1), dtype=np.float32)',
+          )
+          if text.count('global_feature_names=PPO_GLOBAL_FEATURE_NAMES,') != 2:
+              raise SystemExit('global names guard mismatch')
+          text = text.replace(
+              'global_feature_names=PPO_GLOBAL_FEATURE_NAMES,',
+              'global_feature_names=("regime",),',
+          )
+          text = text.replace(
+              'global_features=np.zeros(4, dtype=np.float64),',
+              'global_features=np.zeros(1, dtype=np.float64),',
+          ).replace(
+              'global_feature_available=np.ones(4, dtype=np.bool_),',
+              'global_feature_available=np.ones(1, dtype=np.bool_),',
+          )
+          global_arg = '            global_feature_indices=(0, 1, 2, 3),\n'
+          if text.count(global_arg) != 3:
+              raise SystemExit(f'constructor global arg guard mismatch: {text.count(global_arg)}')
+          text = text.replace(global_arg, '')
+          if text.count('shape == (13,)') != 3:
+              raise SystemExit('shape guard mismatch')
+          text = text.replace('shape == (13,)', 'shape == (5,)')
+          file.write_text(text, encoding='utf-8')
+          PY
+          uv run ruff format trade_rl/strategies/rl/ppo.py trade_rl/evaluation/experiments/contracts/run.py tests/strategies/test_ppo_intent.py
+          uv run ruff check trade_rl/strategies/rl/ppo.py trade_rl/evaluation/experiments/contracts/run.py tests/strategies/test_ppo_intent.py tests/strategies/test_ppo_observation_v2.py
+          uv run mypy trade_rl
+          uv run pytest -q \
+            tests/strategies/test_ppo_observation_v2.py \
+            tests/strategies/test_ppo_intent.py \
+            tests/evaluation/test_candidate_run_observation_contract.py \
+            tests/evaluation/experiments/test_observation_contract_identity.py \
+            tests/architecture/test_experiment_semantic_authorities.py
+          rm .github/workflows/tmp-remove-ppo-global-v2.yml
+          git add -A
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: keep PPO Observation v2 within fit scope'
+          git push origin HEAD:feat/rl-observation-v2

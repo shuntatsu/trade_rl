@@ -12,7 +12,7 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなspec / planはない。Agent Repository Control Plane v1の実装済み契約は `AGENTS.md`、`architecture/package-boundaries.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
+現在Activeなspec / planはない。Agent Repository Control Plane v1とAgent Coordination Plane v1の実装済み契約は `AGENTS.md`、`architecture/package-boundaries.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 
@@ -35,7 +35,7 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 - causal data、strategy/risk分離、execution/accounting、artifact invariantを変えた → `architecture/lean-core.md`
 - Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
 - 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
-- docsのrouting/保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME
+- docsの入口・保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME
 
 コードとdocsが食い違った場合は、現行source・architecture test・public contractを確認して真の契約を確定し、docsだけを放置しない。
 

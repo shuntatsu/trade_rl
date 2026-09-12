@@ -14,7 +14,7 @@
 
 人間向けの説明UIは root [`guide/`](../guide/README.md) に置く。Interactive Guideはこの `docs/` の正本から派生した**非正本の説明層**であり、技術仕様・研究状態のauthorityにはしない。Guide topicは参照する正本Markdown sectionのfingerprintを保持し、正本変更時は内容レビューとsource checkを必要とする。
 
-現在Activeなspec / planはない。Agent Repository Control Plane v1、Agent Coordination Plane v1、Interactive Human Guide v1の実装済み契約は `AGENTS.md`、`architecture/package-boundaries.md`、`guide/README.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
+現在Activeなspecは [`specs/2026-09-13-interactive-guide-pages-v1.md`](specs/2026-09-13-interactive-guide-pages-v1.md) の1件で、Interactive Human GuideをGitHub Pagesへ安全に公開する設計を定義する。Activeなimplementation planはまだない。Agent Repository Control Plane v1、Agent Coordination Plane v1、Interactive Human Guide v1の実装済み契約は `AGENTS.md`、`architecture/package-boundaries.md`、`guide/README.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

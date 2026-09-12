@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum, StrEnum
+from typing import ClassVar
 
 import numpy as np
 
@@ -329,6 +330,14 @@ class FeatureSpec:
 @dataclass(frozen=True, slots=True)
 class MarketBuildConfig:
     """Complete deterministic configuration for one market dataset build."""
+
+    JSON_FIELDS: ClassVar[tuple[str, ...]] = (
+        "base_timeframe",
+        "features",
+        "calendar_kind",
+        "session_periods_per_year",
+        "cross_asset_reference_symbol",
+    )
 
     base_timeframe: str
     features: tuple[FeatureSpec, ...]

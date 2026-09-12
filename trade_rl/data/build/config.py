@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
 from trade_rl.data.contracts import (
     FeatureAlignment,
@@ -21,6 +22,12 @@ from trade_rl.data.contracts import (
 
 @dataclass(frozen=True, slots=True)
 class MarketDatasetBuildRequest:
+    JSON_FIELDS: ClassVar[tuple[str, ...]] = (
+        "source_root",
+        *MarketBuildConfig.JSON_FIELDS,
+        "instruments",
+    )
+
     source_root: Path
     config: MarketBuildConfig
     instruments: tuple[InstrumentContract, ...]
@@ -195,15 +202,7 @@ def load_market_build_request(path: str | Path) -> MarketDatasetBuildRequest:
     root = _mapping(payload, field="market build config")
     _reject_unknown(
         root,
-        allowed={
-            "source_root",
-            "base_timeframe",
-            "calendar_kind",
-            "session_periods_per_year",
-            "cross_asset_reference_symbol",
-            "features",
-            "instruments",
-        },
+        allowed=set(MarketDatasetBuildRequest.JSON_FIELDS),
         field="market build config",
     )
     features = tuple(

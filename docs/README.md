@@ -12,7 +12,9 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなspecはない。
+現在Activeなspec:
+
+- [`specs/2026-09-12-agent-coordination-plane-v1-design.md`](specs/2026-09-12-agent-coordination-plane-v1-design.md) — #500。複数AgentのTask DAG、lease、semantic conflict、independent review、exact-HEAD evidence、handoff、integrationを定義する設計。実装完了後はdurable contractへ移して削除する。
 
 現在Activeなplanはない。
 

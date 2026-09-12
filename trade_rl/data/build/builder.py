@@ -13,6 +13,7 @@ from trade_rl.data.contracts import (
     MarketBuildConfig,
     MarketCalendarKind,
 )
+from trade_rl.data.economics import ExecutionEconomicsConfig
 from trade_rl.data.features.core import calculate_feature_events
 from trade_rl.data.features.cross_asset import (
     CROSS_ASSET_FEATURE_KINDS,
@@ -258,6 +259,7 @@ class MarketDatasetBuilder:
         instruments: tuple[InstrumentContract, ...],
         *,
         identity_provenance: Mapping[str, object] | None = None,
+        execution_economics: ExecutionEconomicsConfig | None = None,
     ) -> MarketDataset:
         if not instruments:
             raise ValueError("instruments must not be empty")
@@ -305,16 +307,35 @@ class MarketDatasetBuilder:
             information_available[:, symbol_index] = aligned["information_available"]
             available_at[:, symbol_index] = aligned["available_at"]
 
-        economics = build_market_economic_semantics(
-            timestamps=timestamps,
-            instruments=instruments,
-            row_present=row_present,
-            raw_tradable=raw_tradable,
-            source_information_available=information_available,
-            available_at=available_at,
-            close=close,
-            funding_event_count=funding_event_count,
-        )
+        if execution_economics is None:
+            economics = build_market_economic_semantics(
+                timestamps=timestamps,
+                instruments=instruments,
+                row_present=row_present,
+                raw_tradable=raw_tradable,
+                source_information_available=information_available,
+                available_at=available_at,
+                close=close,
+                funding_event_count=funding_event_count,
+            )
+        else:
+            economics = build_market_economic_semantics(
+                timestamps=timestamps,
+                instruments=instruments,
+                row_present=row_present,
+                raw_tradable=raw_tradable,
+                source_information_available=information_available,
+                available_at=available_at,
+                close=close,
+                funding_event_count=funding_event_count,
+                fee_rate=execution_economics.fee_rate,
+                maker_fee_rate=execution_economics.maker_fee_rate,
+                taker_fee_rate=execution_economics.taker_fee_rate,
+                spread_rate=execution_economics.spread_rate,
+                max_participation_rate=(execution_economics.max_participation_rate),
+                borrow_available=execution_economics.borrow_available,
+                borrow_rate=execution_economics.borrow_rate,
+            )
         symbol_active = economics.symbol_active
         information_available = economics.information_available
         available_at = economics.available_at
@@ -480,6 +501,8 @@ class MarketDatasetBuilder:
             "feature_names": feature_names,
             "global_feature_names": self.config.global_feature_names,
         }
+        if execution_economics is not None:
+            metadata["execution_economics"] = execution_economics.canonical_payload()
         if identity_provenance is not None:
             metadata["metadata_evidence"] = identity_provenance
         periods_per_year = (

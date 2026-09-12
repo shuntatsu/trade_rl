@@ -17,6 +17,10 @@ from trade_rl.data.contracts import (
     NormalizationMode,
     VolumeUnit,
 )
+from trade_rl.data.economics import (
+    ExecutionEconomicsConfig,
+    parse_execution_economics,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +28,7 @@ class MarketDatasetBuildRequest:
     source_root: Path
     config: MarketBuildConfig
     instruments: tuple[InstrumentContract, ...]
+    execution_economics: ExecutionEconomicsConfig | None = None
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:
@@ -203,6 +208,7 @@ def load_market_build_request(path: str | Path) -> MarketDatasetBuildRequest:
             "cross_asset_reference_symbol",
             "features",
             "instruments",
+            "execution_economics",
         },
         field="market build config",
     )
@@ -248,4 +254,9 @@ def load_market_build_request(path: str | Path) -> MarketDatasetBuildRequest:
             ),
         ),
         instruments=instruments,
+        execution_economics=(
+            None
+            if root.get("execution_economics") is None
+            else parse_execution_economics(root["execution_economics"])
+        ),
     )

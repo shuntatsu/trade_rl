@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from trade_rl.data.build import ExecutionEconomicsProfile
 from trade_rl.data.build.config import load_market_build_request
 
 
@@ -64,6 +65,39 @@ def test_market_build_request_accepts_cross_asset_reference_symbol(
     request = load_market_build_request(path)
 
     assert request.config.cross_asset_reference_symbol == "BTCUSDT"
+
+
+def test_market_build_request_accepts_execution_economics(tmp_path: Path) -> None:
+    path = tmp_path / "build.json"
+    profile = ExecutionEconomicsProfile(
+        name="research_v1",
+        fee_rate=0.0005,
+        spread_rate=0.0002,
+        max_participation_rate=0.05,
+    )
+    path.write_text(
+        json.dumps(
+            {
+                "source_root": ".",
+                "base_timeframe": "1h",
+                "execution_economics": profile.to_payload(),
+                "features": [{"name": "ret", "kind": "log_return"}],
+                "instruments": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "listed_at": "2020-01-01T00:00:00Z",
+                        "volume_unit": "base_asset",
+                        "contract_multiplier": 1.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    request = load_market_build_request(path)
+
+    assert request.execution_economics == profile
 
 
 def test_market_build_request_still_rejects_unknown_root_field(tmp_path: Path) -> None:

@@ -39,6 +39,30 @@ uv run python -m tools.agent_repo eval-list
 
 これらはnetwork-free local toolingであり、GitHub上のopen PR/branch overlapは別途確認する。出力は一時情報であり、生成JSON/Markdown reportをcurrent treeへcommitしない。
 
+## Agent Coordination Plane
+
+複数Agentが同時に作業する場合、Repository Control Planeのsource-derived inspectionとは別に、`tools/agent_repo/coordination/` の **Agent Coordination Plane** を使ってTask契約・依存・競合・ownership・evidence freshnessを扱う。Coordination Planeはdomain/research/artifact authorityではなく、Repository上の作業を安全に分離・統合するrepository toolingである。
+
+Network-free operator surfaceは次を提供する。
+
+```bash
+uv run python -m tools.agent_repo task digest task.json
+uv run python -m tools.agent_repo task ready snapshot.json
+uv run python -m tools.agent_repo task status-render status.json
+uv run python -m tools.agent_repo task status-parse status-comment.txt
+uv run python -m tools.agent_repo task dashboard dashboard.json
+```
+
+- Task contractは `task_revision` とcanonical **Task Contract digest** の両方へbindする。revision bump漏れでもdigestが変われば古いlease/review/verification evidenceをstaleとして扱う。
+- Task状態は単一statusではなく `phase + condition` で表す。`review / stale` や `executing / blocked` を区別する。
+- `execution_mode=read_only` はimmutable snapshotを共有してよく、writable lease/branchを持たない。`write` Taskはactive ownerを1つに限定し、isolated writable worktree/branchを使う。
+- write ownershipはCoordinator-issued **lease epoch** をfencing tokenとして扱う。reassignment時はepochを増加し、new epoch専用branch/worktreeを作る。expired leaseはbranch/PR/CI/artifact side effectをreconcileするまで即reassignしない。
+- file overlapだけでなく `authority:` / `identity:` / `schema:` / `workflow:` / `artifact:` / `side-effect:` Resource Keyでsemantic collisionを判定する。hard conflictは同時実行しない。
+- CoordinatorがTask phase/condition/leaseのsingle writerであり、Worker/Reviewer/Verifier/Integratorの自然言語報告だけでstateを確定しない。status commentはCoordinator-owned durable projectionとして扱う。
+- Review/verificationはTask revision/digest/base/**exact HEAD**へbindする。HEADが変わった後のapproval/Greenを再利用しない。`main`が進んだ場合はintegration evidenceをstaleにし、tested PR head contains current `main` を満たす新HEADで再検証する。
+- Workerは自分でTaskを`complete`にしない。review → verification → integration → post-merge oracleを通し、child Taskが全部completeでもparent Acceptance Criteriaとcross-task invariantを最後に再評価する。
+- `task ...` CLIはlocal JSON/textを解析・表示するだけでGitHubへclaim/comment/mergeを書き込まない。authorized GitHub writeはCoordinator/Integrator側の明示的な外部actionとして扱う。
+
 ## Agent Eval protocol
 
 Agent向けRepository構造の改善を評価する場合、baselineとcomparisonで同一suite/rubricを使い、**評価対象変更以外のRepository差分を混ぜない**。

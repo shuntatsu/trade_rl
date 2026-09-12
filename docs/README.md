@@ -38,6 +38,7 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 - Study/Experiment/EvidenceSet、Canonical M2 bootstrap、controlled factor、lineage、freeze契約を変えた → `architecture/controlled-experiment-loop.md`
 - 候補、fit/evaluation scope、評価期間、bootstrap実行状態、判定手順、研究状態を変えた → `research/current-status.md`
 - Guideが参照する正本sectionを変えた → 対応する `guide/content/topics/*.json` を人間が再確認し、`guide/tools/content_contract.py --check` を通す
+- Guide Pages deployment / public URLを変えた → `.github/workflows/deploy-guide.yml`、`guide/README.md`、Pages state read-backを確認する
 - docsの入口・保持ルールを変えた → `AGENTS.md` と必要に応じてこのREADME
 
 コードとdocsが食い違った場合は、現行source・architecture test・public contractを確認して真の契約を確定し、docsだけを放置しない。

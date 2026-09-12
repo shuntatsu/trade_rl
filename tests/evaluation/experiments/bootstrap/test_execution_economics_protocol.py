@@ -6,6 +6,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tests.evaluation.experiments.bootstrap.test_binance import (
+    _config as _bootstrap_fixture_config,
+)
 from tests.evaluation.experiments.bootstrap.test_config import _valid_payload, _write
 from tests.evaluation.experiments.bootstrap.test_workflow import (
     _install_fakes,
@@ -23,6 +26,9 @@ from trade_rl.integrations.binance import (
     BinanceDatasetBuildResult,
     build_binance_market_dataset,
 )
+
+# Captured from exact pre-change parent 1fec1a2dbc2ee5af18528d812278c98b6a12090f.
+_V1_CONFIG_DIGEST = "0e27cd7608b12261051db0f37ca72a90584ba32a786be93d44de1f6ca820bc0c"
 
 
 def _profile() -> ExecutionEconomicsConfig:
@@ -44,26 +50,45 @@ def _v2_payload() -> dict[str, object]:
     return payload
 
 
-def test_v1_bootstrap_contract_remains_byte_semantically_compatible(
+def _fixture_v2_payload() -> dict[str, object]:
+    payload = _bootstrap_fixture_config().to_payload()
+    payload["schema_version"] = "canonical_m2_bootstrap_config_v2"
+    payload["execution_economics"] = _profile().canonical_payload()
+    return payload
+
+
+def test_v1_bootstrap_contract_remains_semantically_compatible(
     tmp_path: Path,
 ) -> None:
-    original = _valid_payload()
-    config = load_canonical_m2_bootstrap_config(_write(tmp_path, original))
+    config = load_canonical_m2_bootstrap_config(_write(tmp_path, _valid_payload()))
+    normalized = config.to_payload()
+    baseline = normalized["baseline"]
+    assert isinstance(baseline, dict)
 
     assert config.execution_economics is None
-    assert config.to_payload() == original
-    assert "execution_economics" not in config.to_payload()
+    assert config.digest == _V1_CONFIG_DIGEST
+    assert "execution_economics" not in normalized
+    assert baseline["fit_cutoff"] == "2024-07-01T00:00:00.000000000"
+    assert baseline["evaluation_start"] == "2024-07-01T00:00:00.000000000"
+    assert baseline["evaluation_stop_exclusive"] == "2025-01-01T00:00:00.000000000"
 
 
 def test_v2_requires_and_roundtrips_explicit_execution_economics(
     tmp_path: Path,
 ) -> None:
-    payload = _v2_payload()
-    config = load_canonical_m2_bootstrap_config(_write(tmp_path, payload))
+    config = load_canonical_m2_bootstrap_config(_write(tmp_path, _v2_payload()))
+    normalized = config.to_payload()
 
     assert config.schema_version == "canonical_m2_bootstrap_config_v2"
     assert config.execution_economics == _profile()
-    assert config.to_payload() == payload
+    assert normalized["execution_economics"] == _profile().canonical_payload()
+    assert config.digest != _V1_CONFIG_DIGEST
+
+    roundtrip_path = tmp_path / "roundtrip.json"
+    roundtrip_path.write_text(json.dumps(normalized), encoding="utf-8")
+    reloaded = load_canonical_m2_bootstrap_config(roundtrip_path)
+    assert reloaded.to_payload() == normalized
+    assert reloaded.digest == config.digest
 
 
 @pytest.mark.parametrize("mode", ["missing", "invalid_nested", "v1_mixed"])
@@ -139,7 +164,7 @@ def test_v2_bootstrap_rejects_silent_zero_economics_dataset(
         zero_economics_build,
     )
     config_path = tmp_path / "bootstrap-v2.json"
-    config_path.write_text(json.dumps(_v2_payload()), encoding="utf-8")
+    config_path.write_text(json.dumps(_fixture_v2_payload()), encoding="utf-8")
 
     with pytest.raises(ValueError, match="execution economics"):
         bootstrap_canonical_m2_study(config_path, tmp_path / "canonical-m2-v2")

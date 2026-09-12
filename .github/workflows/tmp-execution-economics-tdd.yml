@@ -29,8 +29,7 @@ jobs:
           uv run ruff check
           tests/data/test_execution_economics_build.py
           tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
-      - name: Targeted pytest
-        run: >-
-          uv run pytest -q
-          tests/data/test_execution_economics_build.py
-          tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
+      - name: Generic execution economics tests in isolation
+        run: uv run pytest -q tests/data/test_execution_economics_build.py
+      - name: Canonical protocol RED tests
+        run: uv run pytest -q tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py

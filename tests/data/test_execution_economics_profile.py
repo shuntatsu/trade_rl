@@ -39,9 +39,7 @@ def test_execution_economics_profile_round_trips_exact_payload() -> None:
         "borrow_available": True,
         "borrow_rate": 0.0,
     }
-    assert (
-        profile_type.from_payload(payload, field="execution_economics") == profile
-    )
+    assert profile_type.from_payload(payload, field="execution_economics") == profile
 
 
 def test_execution_economics_profile_rejects_unknown_payload_field() -> None:

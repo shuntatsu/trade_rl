@@ -389,6 +389,7 @@ class SourceIndex:
                 module = self._module_by_path.get(init)
                 if exports and module is not None:
                     return module, exports
+                return None, ()
             if directory == self.package:
                 break
             directory = directory.parent

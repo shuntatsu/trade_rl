@@ -140,10 +140,9 @@ def test_eval_cli_lists_shows_and_scores_without_persisting_output(
     ]
     assert shown.returncode == 0, shown.stderr
     task = json.loads(shown.stdout)
+    assert set(task) == {"task_id", "prompt"}
     assert task["task_id"] == "run-config-extension"
-    assert task["semantic_goal"]
-    assert task["critical_failures"]
-    assert task["review_questions"]
+    assert task["prompt"]
     assert scored.returncode == 0, scored.stderr
     score = json.loads(scored.stdout)
     assert score["total"] == 16

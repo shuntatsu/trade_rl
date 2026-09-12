@@ -11,6 +11,7 @@ from trade_rl.evaluation.comparison.strategies import compare_strategies_by_symb
 from trade_rl.evaluation.runs.execute import CandidateRunResult
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
+from trade_rl.strategies.rl.ppo import ppo_observation_contract_payload
 
 
 def market() -> MarketDataset:
@@ -137,7 +138,8 @@ def test_run_candidate_artifact_writes_summary_and_raw_returns(
     assert artifact.returns_path == output / "returns.npz"
     assert artifact.provenance_path == output / "provenance.json"
     summary = json.loads(artifact.summary_path.read_text(encoding="utf-8"))
-    assert summary["schema_version"] == "lean_candidate_result_v1"
+    assert summary["schema_version"] == "lean_candidate_result_v2"
+    assert summary["ppo_observation"] == ppo_observation_contract_payload()
     assert summary["dataset_id"] == dataset.dataset_id
     assert summary["dataset_artifact"] == {
         "schema_version": "market_dataset_artifact_v3",

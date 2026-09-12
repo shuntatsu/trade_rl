@@ -11,6 +11,10 @@ from trade_rl.evaluation.runs import (
     LeanCandidateConfig,
     ResolvedCandidateRunSpec,
 )
+from trade_rl.strategies.rl.ppo import (
+    PPO_GLOBAL_FEATURE_NAMES,
+    PPO_OBSERVATION_SCHEMA,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENTS = ROOT / "trade_rl" / "evaluation" / "experiments"
@@ -71,7 +75,7 @@ def test_resolved_run_config_owns_candidate_spec_conversion() -> None:
     resolved = ResolvedRunConfig.from_candidate_spec(_spec())
 
     assert resolved.to_payload() == {
-        "schema_version": "resolved_run_config_v1",
+        "schema_version": "resolved_run_config_v2",
         "signal_name": "signal",
         "signal_index": 0,
         "feature_names": ["signal", "volatility"],
@@ -85,6 +89,8 @@ def test_resolved_run_config_owns_candidate_spec_conversion() -> None:
         "forecast_exit_threshold": 0.05,
         "ppo_total_timesteps": 8,
         "ppo_seed": 2,
+        "ppo_observation_schema": PPO_OBSERVATION_SCHEMA,
+        "ppo_global_feature_names": list(PPO_GLOBAL_FEATURE_NAMES),
         "evaluation_start": "2026-02-01T00:00:00.000000000",
         "evaluation_stop_exclusive": "2026-03-01T00:00:00.000000000",
         "gross_budget": 0.5,
@@ -105,6 +111,9 @@ def test_study_plan_owns_fixed_resolved_field_roster() -> None:
         "evaluation_stop_exclusive",
         "initial_capital",
         "execution_overlay",
+        "schema_version",
+        "ppo_observation_schema",
+        "ppo_global_feature_names",
     )
 
     for name in ("evidence.py", "workflow.py", "delta.py"):

@@ -5,6 +5,8 @@
   "summary": "fee・spread・participation・borrowがどこで決まり、二重課金をどう防ぐかを可視化します。",
   "keywords": [
     "execution economics",
+    "実行コスト",
+    "手数料",
     "fee",
     "spread",
     "participation",

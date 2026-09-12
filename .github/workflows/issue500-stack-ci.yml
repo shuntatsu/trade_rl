@@ -1,0 +1,45 @@
+name: Issue 500 stacked coordination CI
+
+on:
+  push:
+    branches:
+      - feat/agent-coordination-plane-v1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue500-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coordination:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Ruff
+        run: uv run ruff check trade_rl tests tools
+
+      - name: Format
+        run: uv run ruff format --check trade_rl tests tools
+
+      - name: Repository tooling types
+        run: uv run mypy tools/agent_repo tests/architecture/distribution.py
+
+      - name: Coordination tests
+        run: uv run pytest -q tests/agent_repo/test_coordination_model.py

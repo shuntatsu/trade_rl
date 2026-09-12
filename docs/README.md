@@ -12,7 +12,15 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなspec / planはない。Agent Repository Control Plane v1の実装済み契約は `AGENTS.md`、`architecture/package-boundaries.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
+現在Activeなspec:
+
+- [`specs/2026-09-12-agent-coordination-plane-v1-design.md`](specs/2026-09-12-agent-coordination-plane-v1-design.md) — #500。複数AgentのTask DAG、execution mode、lease fencing、semantic conflict、independent review、exact-snapshot evidence、handoff、integrationを定義する設計。
+
+現在Activeなplan:
+
+- [`plans/2026-09-12-agent-coordination-plane-v1-implementation.md`](plans/2026-09-12-agent-coordination-plane-v1-implementation.md) — #500。Task contract/state/evidence、dependency/conflict scheduler、lease/recovery、GitHub projection、operator CLI、adversarial verificationをTDDで実装するcurrent plan。
+
+Agent Repository Control Plane v1の実装済み契約は `AGENTS.md`、`architecture/package-boundaries.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

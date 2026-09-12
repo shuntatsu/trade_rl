@@ -95,7 +95,7 @@ def classify_run(
     if branch.startswith(CLEANUP_BRANCH_PREFIX):
         return "DELETE", "obsolete cleanup-helper run"
     if conclusion in {"cancelled", "stale"} and _is_ci(run):
-        return "DELETE", "old cancelled/stale CI on deleted branch"
+        return "REVIEW", "old cancelled/stale CI lacks independent successor proof"
     if _is_explicit_temporary_helper(run):
         return "DELETE", "old cancelled/stale/skipped explicit temporary helper on deleted branch"
     return "REVIEW", "old nuisance-conclusion run is not explicitly disposable"

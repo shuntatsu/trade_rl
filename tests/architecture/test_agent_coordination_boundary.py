@@ -42,3 +42,20 @@ def test_package_boundaries_define_coordination_as_repository_tooling() -> None:
         "production wheel",
     ):
         assert required in boundaries
+
+
+def test_completed_coordination_ephemeral_docs_are_removed() -> None:
+    completed = (
+        ROOT / "docs" / "specs" / "2026-09-12-agent-coordination-plane-v1-design.md",
+        ROOT
+        / "docs"
+        / "plans"
+        / "2026-09-12-agent-coordination-plane-v1-implementation.md",
+    )
+    for path in completed:
+        assert not path.exists(), path.relative_to(ROOT)
+
+    index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    assert "現在Activeなspec / planはない" in index
+    for path in completed:
+        assert path.name not in index

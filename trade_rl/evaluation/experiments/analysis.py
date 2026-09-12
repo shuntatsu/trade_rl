@@ -21,7 +21,11 @@ from trade_rl.evaluation.runs import LoadedCandidateRun
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 
 _ANALYSIS_SCHEMA = "controlled_evidence_analysis_v1"
-_COMPARISON_SCHEMA = "controlled_evidence_comparison_v1"
+_LEGACY_COMPARISON_SCHEMA = "controlled_evidence_comparison_v1"
+_COMPARISON_SCHEMA = "controlled_evidence_comparison_v2"
+_SUPPORTED_COMPARISON_SCHEMAS = frozenset(
+    {_LEGACY_COMPARISON_SCHEMA, _COMPARISON_SCHEMA}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +34,14 @@ class _Cell:
     strategy: str
     returns: ReturnSeries
     metrics: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class _CandidateMetrics:
+    total_return: float
+    max_drawdown: float
+    turnover_total: float
+    total_cost: float
 
 
 def _paired_payload(
@@ -265,19 +277,30 @@ def analyze_evidence_set(
     )
 
 
+def _candidate_metrics(cell: _Cell) -> _CandidateMetrics:
+    return _CandidateMetrics(
+        total_return=_require_metric_number(cell.metrics, "total_return"),
+        max_drawdown=_require_metric_number(cell.metrics, "max_drawdown"),
+        turnover_total=_require_metric_number(cell.metrics, "turnover_total"),
+        total_cost=_require_metric_number(cell.metrics, "total_cost"),
+    )
+
+
+def _aggregate_ppo_candidate_metrics(cells: list[_Cell]) -> _CandidateMetrics:
+    metrics = [_candidate_metrics(cell) for cell in cells]
+    return _CandidateMetrics(
+        total_return=float(median(item.total_return for item in metrics)),
+        max_drawdown=max(item.max_drawdown for item in metrics),
+        turnover_total=float(median(item.turnover_total for item in metrics)),
+        total_cost=float(median(item.total_cost for item in metrics)),
+    )
+
+
 def _candidate_metrics_summary(
-    cells: list[_Cell],
+    metrics: list[_CandidateMetrics],
     *,
     excesses: list[float],
 ) -> dict[str, object]:
-    candidate_returns = [
-        _require_metric_number(cell.metrics, "total_return") for cell in cells
-    ]
-    drawdowns = [_require_metric_number(cell.metrics, "max_drawdown") for cell in cells]
-    turnovers = [
-        _require_metric_number(cell.metrics, "turnover_total") for cell in cells
-    ]
-    costs = [_require_metric_number(cell.metrics, "total_cost") for cell in cells]
     return {
         "symbol_count": len(excesses),
         "positive_symbol_count": sum(value > 0.0 for value in excesses),
@@ -286,10 +309,16 @@ def _candidate_metrics_summary(
         "median_excess_total_return": float(median(excesses)),
         "worst_excess_total_return": min(excesses),
         "best_excess_total_return": max(excesses),
-        "median_candidate_total_return": float(median(candidate_returns)),
-        "worst_candidate_max_drawdown": max(drawdowns),
-        "median_candidate_turnover": float(median(turnovers)),
-        "median_candidate_total_cost": float(median(costs)),
+        "median_candidate_total_return": float(
+            median(item.total_return for item in metrics)
+        ),
+        "worst_candidate_max_drawdown": max(item.max_drawdown for item in metrics),
+        "median_candidate_turnover": float(
+            median(item.turnover_total for item in metrics)
+        ),
+        "median_candidate_total_cost": float(
+            median(item.total_cost for item in metrics)
+        ),
     }
 
 
@@ -299,8 +328,12 @@ def compare_evidence_sets(
     *,
     n_bootstrap: int,
     bootstrap_seed: int,
+    schema_version: str = _COMPARISON_SCHEMA,
 ) -> dict[str, object]:
     """Compare baseline/candidate EvidenceSets with matched PPO seeds."""
+
+    if schema_version not in _SUPPORTED_COMPARISON_SCHEMAS:
+        raise ArtifactIntegrityError("unsupported factor-effect comparison schema")
 
     baseline_seeds, baseline_symbols, baseline = _validate_runs(baseline_runs)
     candidate_seeds, candidate_symbols, candidate = _validate_runs(candidate_runs)
@@ -311,7 +344,7 @@ def compare_evidence_sets(
 
     first_seed = baseline_seeds[0]
     by_symbol: dict[str, object] = {}
-    cross_inputs: dict[str, tuple[list[float], list[_Cell]]] = {
+    cross_inputs: dict[str, tuple[list[float], list[_CandidateMetrics]]] = {
         strategy: ([], []) for strategy in StudyPlan.STRATEGY_NAMES
     }
     for symbol in baseline_symbols:
@@ -347,7 +380,12 @@ def compare_evidence_sets(
                     "seed_aggregate": aggregate,
                 }
                 cross_inputs[strategy][0].append(float(median(excesses)))
-                cross_inputs[strategy][1].append(candidate_cells[0])
+                candidate_metrics = (
+                    _candidate_metrics(candidate_cells[0])
+                    if schema_version == _LEGACY_COMPARISON_SCHEMA
+                    else _aggregate_ppo_candidate_metrics(candidate_cells)
+                )
+                cross_inputs[strategy][1].append(candidate_metrics)
             else:
                 baseline_cell = baseline[first_seed][(symbol, strategy)]
                 candidate_cell = candidate[first_seed][(symbol, strategy)]
@@ -365,16 +403,18 @@ def compare_evidence_sets(
                 cross_inputs[strategy][0].append(
                     _require_metric_number(paired, "excess_total_return")
                 )
-                cross_inputs[strategy][1].append(candidate_cell)
+                cross_inputs[strategy][1].append(_candidate_metrics(candidate_cell))
         by_symbol[symbol] = {"strategies": strategy_payloads}
 
     cross_symbol: dict[str, object] = {}
-    for strategy, (excesses, cells) in cross_inputs.items():
-        cross_symbol[strategy] = _candidate_metrics_summary(cells, excesses=excesses)
+    for strategy, (excesses, metrics) in cross_inputs.items():
+        cross_symbol[strategy] = _candidate_metrics_summary(
+            metrics, excesses=excesses
+        )
 
     return _with_digest(
         {
-            "schema_version": _COMPARISON_SCHEMA,
+            "schema_version": schema_version,
             "seeds": list(baseline_seeds),
             "by_symbol": by_symbol,
             "cross_symbol": cross_symbol,

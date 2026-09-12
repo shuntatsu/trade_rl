@@ -12,7 +12,9 @@ def test_agent_coordination_stays_outside_production_runtime_and_wheel() -> None
 
     forbidden = "tools.agent_repo"
     for path in sorted((ROOT / "trade_rl").rglob("*.py")):
-        assert forbidden not in path.read_text(encoding="utf-8"), path.relative_to(ROOT)
+        assert forbidden not in path.read_text(encoding="utf-8"), path.relative_to(
+            ROOT
+        )
 
 
 def test_agent_docs_define_coordination_operator_and_evidence_contract() -> None:

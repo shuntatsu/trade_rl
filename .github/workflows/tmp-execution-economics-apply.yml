@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: "${{ github.event.head_commit.message == 'chore: fix canonical execution economics patch' }}"
+    if: "${{ github.event.head_commit.message == 'chore: apply canonical execution economics v2' }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -28,7 +28,6 @@ jobs:
           set -euo pipefail
           uv run python - <<'PY'
           from pathlib import Path
-          from textwrap import dedent
 
           def replace_once(path: Path, old: str, new: str) -> None:
               text = path.read_text(encoding="utf-8")
@@ -47,254 +46,219 @@ jobs:
               "    parse_execution_economics,\n"
               ")\n",
           )
-          text = config.read_text(encoding="utf-8")
-          old_constants = dedent('''\
-              _SCHEMA_VERSION = "canonical_m2_bootstrap_config_v1"
-              _TOP_LEVEL_KEYS = frozenset(
-                  {
-                      "schema_version",
-                      "research_question",
-                      "market",
-                      "symbols",
-                      "base_timeframe",
-                      "feature_timeframes",
-                      "data_start",
-                      "data_stop_exclusive",
-                      "baseline",
-                      "ppo_seeds",
-                      "allowed_factors",
-                      "max_experiments",
-                      "n_bootstrap",
-                      "bootstrap_seed",
-                  }
-              )
-          ''')
-          new_constants = dedent('''\
-              _SCHEMA_VERSION_V1 = "canonical_m2_bootstrap_config_v1"
-              _SCHEMA_VERSION_V2 = "canonical_m2_bootstrap_config_v2"
-              _TOP_LEVEL_KEYS_V1 = frozenset(
-                  {
-                      "schema_version",
-                      "research_question",
-                      "market",
-                      "symbols",
-                      "base_timeframe",
-                      "feature_timeframes",
-                      "data_start",
-                      "data_stop_exclusive",
-                      "baseline",
-                      "ppo_seeds",
-                      "allowed_factors",
-                      "max_experiments",
-                      "n_bootstrap",
-                      "bootstrap_seed",
-                  }
-              )
-              _TOP_LEVEL_KEYS_V2 = _TOP_LEVEL_KEYS_V1 | {"execution_economics"}
-          ''')
-          if text.count(old_constants) != 1:
-              raise RuntimeError("bootstrap constants marker mismatch")
-          text = text.replace(old_constants, new_constants, 1)
-          old_fields = (
-              "    bootstrap_seed: int\n"
-              "    schema_version: str = _SCHEMA_VERSION\n\n"
-              "    def __post_init__(self) -> None:\n"
-              "        if self.schema_version != _SCHEMA_VERSION:\n"
-              "            raise ValueError(\"schema_version does not match canonical M2 contract\")\n"
+          replace_once(
+              config,
+              '_SCHEMA_VERSION = "canonical_m2_bootstrap_config_v1"\n',
+              '_SCHEMA_VERSION = "canonical_m2_bootstrap_config_v1"\n'
+              '_SCHEMA_VERSION_V2 = "canonical_m2_bootstrap_config_v2"\n',
           )
-          new_fields = (
+          replace_once(
+              config,
+              ")\n_BASELINE_FIELDS = (\n",
+              ')\n_TOP_LEVEL_KEYS_V2 = _TOP_LEVEL_KEYS | {"execution_economics"}\n'
+              "_BASELINE_FIELDS = (\n",
+          )
+          replace_once(
+              config,
+              "    bootstrap_seed: int\n"
+              "    schema_version: str = _SCHEMA_VERSION\n",
               "    bootstrap_seed: int\n"
               "    execution_economics: ExecutionEconomicsConfig | None = None\n"
-              "    schema_version: str = _SCHEMA_VERSION_V1\n\n"
-              "    def __post_init__(self) -> None:\n"
-              "        if self.schema_version not in {_SCHEMA_VERSION_V1, _SCHEMA_VERSION_V2}:\n"
+              "    schema_version: str = _SCHEMA_VERSION\n",
+          )
+          replace_once(
+              config,
+              "        if self.schema_version != _SCHEMA_VERSION:\n"
+              "            raise ValueError(\"schema_version does not match canonical M2 contract\")\n",
+              "        if self.schema_version not in {_SCHEMA_VERSION, _SCHEMA_VERSION_V2}:\n"
               "            raise ValueError(\"schema_version does not match canonical M2 contract\")\n"
-              "        if self.schema_version == _SCHEMA_VERSION_V1 and self.execution_economics is not None:\n"
+              "        if (\n"
+              "            self.schema_version == _SCHEMA_VERSION\n"
+              "            and self.execution_economics is not None\n"
+              "        ):\n"
               "            raise ValueError(\"execution_economics is not valid for bootstrap config v1\")\n"
-              "        if self.schema_version == _SCHEMA_VERSION_V2 and self.execution_economics is None:\n"
+              "        if (\n"
+              "            self.schema_version == _SCHEMA_VERSION_V2\n"
+              "            and self.execution_economics is None\n"
+              "        ):\n"
               "            raise ValueError(\"execution_economics is required for bootstrap config v2\")\n"
               "        if self.execution_economics is not None and not isinstance(\n"
               "            self.execution_economics, ExecutionEconomicsConfig\n"
               "        ):\n"
-              "            raise ValueError(\"execution_economics must be an ExecutionEconomicsConfig\")\n"
+              "            raise ValueError(\"execution_economics must be an ExecutionEconomicsConfig\")\n",
           )
-          if text.count(old_fields) != 1:
-              raise RuntimeError("bootstrap dataclass marker mismatch")
-          text = text.replace(old_fields, new_fields, 1)
-
-          method_start = text.index("    def to_payload(self) -> dict[str, object]:\n")
-          method_end = text.index("\n    @property\n    def digest", method_start)
-          new_method = dedent('''\
-                  def to_payload(self) -> dict[str, object]:
-                      payload: dict[str, object] = {
-                          "schema_version": self.schema_version,
-                          "research_question": self.research_question,
-                          "market": self.market.value,
-                          "symbols": list(self.symbols),
-                          "base_timeframe": self.base_timeframe,
-                          "feature_timeframes": list(self.feature_timeframes),
-                          "data_start": self.data_start.astimezone(UTC).isoformat(),
-                          "data_stop_exclusive": self.data_stop_exclusive.astimezone(UTC).isoformat(),
-                          "baseline": _baseline_payload(self.baseline),
-                          "ppo_seeds": list(self.ppo_seeds),
-                          "allowed_factors": [factor.value for factor in self.allowed_factors],
-                          "max_experiments": self.max_experiments,
-                          "n_bootstrap": self.n_bootstrap,
-                          "bootstrap_seed": self.bootstrap_seed,
-                      }
-                      if self.execution_economics is not None:
-                          payload["execution_economics"] = (
-                              self.execution_economics.canonical_payload()
-                          )
-                      return payload
-          ''')
-          text = text[:method_start] + new_method + text[method_end:]
-
-          old_parse_head = dedent('''\
-              def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
-                  _expect_exact_keys(raw, _TOP_LEVEL_KEYS, field="bootstrap config")
-                  if raw.get("schema_version") != _SCHEMA_VERSION:
-                      raise ValueError("schema_version does not match canonical M2 contract")
-
-                  market_text = _require_text(raw.get("market"), field="market")
-          ''')
-          new_parse_head = dedent('''\
-              def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:
-                  schema_version = raw.get("schema_version")
-                  if schema_version == _SCHEMA_VERSION_V1:
-                      _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V1, field="bootstrap config")
-                      execution_economics = None
-                  elif schema_version == _SCHEMA_VERSION_V2:
-                      _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V2, field="bootstrap config")
-                      execution_economics = parse_execution_economics(
-                          raw["execution_economics"]
-                      )
-                  else:
-                      raise ValueError("schema_version does not match canonical M2 contract")
-
-                  market_text = _require_text(raw.get("market"), field="market")
-          ''')
-          if text.count(old_parse_head) != 1:
-              raise RuntimeError("bootstrap parse head marker mismatch")
-          text = text.replace(old_parse_head, new_parse_head, 1)
-          old_return_tail = (
-              "        bootstrap_seed=_int_value(raw.get(\"bootstrap_seed\"), field=\"bootstrap_seed\"),\n"
+          old_method = (
+              "    def to_payload(self) -> dict[str, object]:\n"
+              "        return {\n"
+              '            "schema_version": self.schema_version,\n'
+              '            "research_question": self.research_question,\n'
+              '            "market": self.market.value,\n'
+              '            "symbols": list(self.symbols),\n'
+              '            "base_timeframe": self.base_timeframe,\n'
+              '            "feature_timeframes": list(self.feature_timeframes),\n'
+              '            "data_start": self.data_start.astimezone(UTC).isoformat(),\n'
+              '            "data_stop_exclusive": self.data_stop_exclusive.astimezone(UTC).isoformat(),\n'
+              '            "baseline": _baseline_payload(self.baseline),\n'
+              '            "ppo_seeds": list(self.ppo_seeds),\n'
+              '            "allowed_factors": [factor.value for factor in self.allowed_factors],\n'
+              '            "max_experiments": self.max_experiments,\n'
+              '            "n_bootstrap": self.n_bootstrap,\n'
+              '            "bootstrap_seed": self.bootstrap_seed,\n'
+              "        }\n"
+          )
+          new_method = (
+              "    def to_payload(self) -> dict[str, object]:\n"
+              "        payload: dict[str, object] = {\n"
+              '            "schema_version": self.schema_version,\n'
+              '            "research_question": self.research_question,\n'
+              '            "market": self.market.value,\n'
+              '            "symbols": list(self.symbols),\n'
+              '            "base_timeframe": self.base_timeframe,\n'
+              '            "feature_timeframes": list(self.feature_timeframes),\n'
+              '            "data_start": self.data_start.astimezone(UTC).isoformat(),\n'
+              '            "data_stop_exclusive": self.data_stop_exclusive.astimezone(UTC).isoformat(),\n'
+              '            "baseline": _baseline_payload(self.baseline),\n'
+              '            "ppo_seeds": list(self.ppo_seeds),\n'
+              '            "allowed_factors": [factor.value for factor in self.allowed_factors],\n'
+              '            "max_experiments": self.max_experiments,\n'
+              '            "n_bootstrap": self.n_bootstrap,\n'
+              '            "bootstrap_seed": self.bootstrap_seed,\n'
+              "        }\n"
+              "        if self.execution_economics is not None:\n"
+              '            payload["execution_economics"] = (\n'
+              "                self.execution_economics.canonical_payload()\n"
+              "            )\n"
+              "        return payload\n"
+          )
+          replace_once(config, old_method, new_method)
+          replace_once(
+              config,
+              "def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:\n"
+              "    _expect_exact_keys(raw, _TOP_LEVEL_KEYS, field=\"bootstrap config\")\n"
+              "    if raw.get(\"schema_version\") != _SCHEMA_VERSION:\n"
+              "        raise ValueError(\"schema_version does not match canonical M2 contract\")\n\n",
+              "def _parse_config(raw: Mapping[str, object]) -> CanonicalM2BootstrapConfig:\n"
+              "    schema_version = _require_text(\n"
+              "        raw.get(\"schema_version\"), field=\"schema_version\"\n"
               "    )\n"
+              "    if schema_version == _SCHEMA_VERSION:\n"
+              "        _expect_exact_keys(raw, _TOP_LEVEL_KEYS, field=\"bootstrap config\")\n"
+              "        execution_economics = None\n"
+              "    elif schema_version == _SCHEMA_VERSION_V2:\n"
+              "        _expect_exact_keys(raw, _TOP_LEVEL_KEYS_V2, field=\"bootstrap config\")\n"
+              "        execution_economics = parse_execution_economics(\n"
+              "            raw[\"execution_economics\"]\n"
+              "        )\n"
+              "    else:\n"
+              "        raise ValueError(\"schema_version does not match canonical M2 contract\")\n\n",
           )
-          new_return_tail = (
+          replace_once(
+              config,
+              "        bootstrap_seed=_int_value(raw.get(\"bootstrap_seed\"), field=\"bootstrap_seed\"),\n"
+              "    )\n",
               "        bootstrap_seed=_int_value(raw.get(\"bootstrap_seed\"), field=\"bootstrap_seed\"),\n"
               "        execution_economics=execution_economics,\n"
               "        schema_version=schema_version,\n"
-              "    )\n"
+              "    )\n",
           )
-          if text.count(old_return_tail) != 1:
-              raise RuntimeError("bootstrap parse return marker mismatch")
-          config.write_text(text.replace(old_return_tail, new_return_tail, 1), encoding="utf-8")
 
           binance = Path("trade_rl/integrations/binance/dataset.py")
-          text = binance.read_text(encoding="utf-8")
-          import_marker = "from trade_rl.data.market import MarketDataset\n"
-          if text.count(import_marker) != 1:
-              raise RuntimeError("Binance economics import marker mismatch")
-          text = text.replace(
-              import_marker,
-              "from trade_rl.data.economics import ExecutionEconomicsConfig\n" + import_marker,
-              1,
+          replace_once(
+              binance,
+              "from trade_rl.data.market import MarketDataset\n",
+              "from trade_rl.data.economics import ExecutionEconomicsConfig\n"
+              "from trade_rl.data.market import MarketDataset\n",
           )
-          old_signature_tail = (
-              "    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]\n"
-              "    | None = None,\n"
+          replace_once(
+              binance,
               "    metadata_evidence: Mapping[str, object] | None = None,\n"
-              ") -> BinanceDatasetBuildResult:\n"
-          )
-          new_signature_tail = (
-              "    execution_rule_histories: Mapping[str, Sequence[InstrumentExecutionRule]]\n"
-              "    | None = None,\n"
+              ") -> BinanceDatasetBuildResult:\n",
               "    metadata_evidence: Mapping[str, object] | None = None,\n"
               "    execution_economics: ExecutionEconomicsConfig | None = None,\n"
-              ") -> BinanceDatasetBuildResult:\n"
+              ") -> BinanceDatasetBuildResult:\n",
           )
-          if text.count(old_signature_tail) != 1:
-              raise RuntimeError("Binance signature marker mismatch")
-          text = text.replace(old_signature_tail, new_signature_tail, 1)
-          old_build_tail = "        identity_provenance=metadata_evidence,\n    )\n"
-          new_build_tail = (
+          replace_once(
+              binance,
+              "        identity_provenance=metadata_evidence,\n"
+              "    )\n",
               "        identity_provenance=metadata_evidence,\n"
               "        execution_economics=execution_economics,\n"
-              "    )\n"
+              "    )\n",
           )
-          if text.count(old_build_tail) != 1:
-              raise RuntimeError("Binance builder call marker mismatch")
-          binance.write_text(text.replace(old_build_tail, new_build_tail, 1), encoding="utf-8")
 
           workflow = Path("trade_rl/evaluation/experiments/bootstrap/workflow.py")
           text = workflow.read_text(encoding="utf-8")
-          insert_marker = "\ndef _validate_fit_scope(\n"
-          helper = dedent('''\
-              def _validate_execution_economics(
-                  config: CanonicalM2BootstrapConfig,
-                  dataset: MarketDataset,
-              ) -> None:
-                  expected = config.execution_economics
-                  if expected is None:
-                      return
-                  expected_fields: tuple[tuple[str, object], ...] = (
-                      ("fee_rate", expected.fee_rate),
-                      ("maker_fee_rate", expected.maker_fee_rate),
-                      ("taker_fee_rate", expected.taker_fee_rate),
-                      ("spread_rate", expected.spread_rate),
-                      ("max_participation_rate", expected.max_participation_rate),
-                      ("borrow_available", expected.borrow_available),
-                      ("borrow_rate", expected.borrow_rate),
-                  )
-                  for name, expected_value in expected_fields:
-                      observed = np.asarray(dataset.resolved_array(name))
-                      if not np.all(observed == expected_value):
-                          raise ValueError(
-                              f"published dataset execution economics differ for {name}"
-                          )
-                  identity = json.loads(dataset.identity_payload_json or "{}")
-                  if identity.get("execution_economics") != expected.canonical_payload():
-                      raise ValueError(
-                          "published dataset execution economics identity differs from "
-                          "bootstrap config"
-                      )
-
-          ''')
-          if text.count(insert_marker) != 1:
-              raise RuntimeError("workflow helper insertion marker mismatch")
-          text = text.replace(insert_marker, "\n" + helper + "def _validate_fit_scope(\n", 1)
-          old_validation = "    _validate_dataset_range(config, dataset)\n    resolved = resolve_candidate_run_spec(\n"
-          new_validation = (
-              "    _validate_dataset_range(config, dataset)\n"
-              "    _validate_execution_economics(config, dataset)\n"
-              "    resolved = resolve_candidate_run_spec(\n"
-          )
-          if text.count(old_validation) != 1:
-              raise RuntimeError("workflow validation marker mismatch")
-          text = text.replace(old_validation, new_validation, 1)
-          old_build_call = (
-              "            feature_timeframes=config.feature_timeframes,\n"
-              "            metadata_evidence=frozen.metadata_evidence,\n"
+          marker = "\n\ndef _validate_fit_scope(\n"
+          helper = (
+              "\n\ndef _validate_execution_economics(\n"
+              "    config: CanonicalM2BootstrapConfig,\n"
+              "    dataset: MarketDataset,\n"
+              ") -> None:\n"
+              "    expected = config.execution_economics\n"
+              "    if expected is None:\n"
+              "        return\n"
+              "    expected_fields: tuple[tuple[str, object], ...] = (\n"
+              '        ("fee_rate", expected.fee_rate),\n'
+              '        ("maker_fee_rate", expected.maker_fee_rate),\n'
+              '        ("taker_fee_rate", expected.taker_fee_rate),\n'
+              '        ("spread_rate", expected.spread_rate),\n'
+              '        ("max_participation_rate", expected.max_participation_rate),\n'
+              '        ("borrow_rate", expected.borrow_rate),\n'
+              "    )\n"
+              "    for name, expected_value in expected_fields:\n"
+              "        observed = np.asarray(dataset.resolved_array(name))\n"
+              "        if not np.all(observed == expected_value):\n"
+              "            raise ValueError(\n"
+              '                f"published dataset execution economics differ for {name}"\n'
+              "            )\n"
+              '    active = np.asarray(dataset.resolved_array("symbol_active"), dtype=np.bool_)\n'
+              '    borrow_available = np.asarray(dataset.resolved_array("borrow_available"))\n'
+              "    expected_borrow_available = active & expected.borrow_available\n"
+              "    if not np.array_equal(borrow_available, expected_borrow_available):\n"
+              "        raise ValueError(\n"
+              '            "published dataset execution economics differ for borrow_available"\n'
+              "        )\n"
+              '    identity = json.loads(dataset.identity_payload_json or "{}")\n'
+              '    if identity.get("execution_economics") != expected.canonical_payload():\n'
+              "        raise ValueError(\n"
+              '            "published dataset execution economics identity differs from "\n'
+              '            "bootstrap config"\n'
               "        )\n"
           )
-          new_build_call = (
+          if text.count(marker) != 1:
+              raise RuntimeError("workflow helper insertion marker mismatch")
+          workflow.write_text(text.replace(marker, helper + "\n\ndef _validate_fit_scope(\n", 1), encoding="utf-8")
+          replace_once(
+              workflow,
+              "    _validate_dataset_range(config, dataset)\n"
+              "    resolved = resolve_candidate_run_spec(\n",
+              "    _validate_dataset_range(config, dataset)\n"
+              "    _validate_execution_economics(config, dataset)\n"
+              "    resolved = resolve_candidate_run_spec(\n",
+          )
+          replace_once(
+              workflow,
+              "            feature_timeframes=config.feature_timeframes,\n"
+              "            metadata_evidence=frozen.metadata_evidence,\n"
+              "        )\n",
               "            feature_timeframes=config.feature_timeframes,\n"
               "            metadata_evidence=frozen.metadata_evidence,\n"
               "            execution_economics=config.execution_economics,\n"
-              "        )\n"
+              "        )\n",
           )
-          if text.count(old_build_call) != 1:
-              raise RuntimeError("workflow build call marker mismatch")
-          workflow.write_text(text.replace(old_build_call, new_build_call, 1), encoding="utf-8")
           PY
+      - name: Compile patched sources
+        run: >-
+          uv run python -m py_compile
+          trade_rl/evaluation/experiments/bootstrap/config.py
+          trade_rl/evaluation/experiments/bootstrap/workflow.py
+          trade_rl/integrations/binance/dataset.py
       - name: Format implementation
         run: >-
           uv run ruff format
           trade_rl/evaluation/experiments/bootstrap/config.py
           trade_rl/evaluation/experiments/bootstrap/workflow.py
           trade_rl/integrations/binance/dataset.py
-          tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
       - name: Ruff targeted
         run: >-
           uv run ruff check
@@ -323,8 +287,7 @@ jobs:
           git add \
             trade_rl/evaluation/experiments/bootstrap/config.py \
             trade_rl/evaluation/experiments/bootstrap/workflow.py \
-            trade_rl/integrations/binance/dataset.py \
-            tests/evaluation/experiments/bootstrap/test_execution_economics_protocol.py
+            trade_rl/integrations/binance/dataset.py
           git diff --cached --check
           git commit -m "feat: bind execution economics to canonical M2 bootstrap"
           git push origin HEAD:fix/m2-execution-economics-protocol

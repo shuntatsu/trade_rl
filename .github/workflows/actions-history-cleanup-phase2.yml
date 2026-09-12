@@ -1,0 +1,45 @@
+name: Actions history cleanup phase 2
+
+on:
+  pull_request:
+    branches:
+      - ops/actions-history-cleanup-phase2-base-20260912
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/actions-history-cleanup-phase2.yml
+      - tools/maintenance/cleanup_actions_history_phase2.py
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: actions-history-cleanup-phase2
+  cancel-in-progress: true
+
+env:
+  DRY_RUN: "true"
+  MAX_DELETE: "1500"
+  RECENT_HOURS: "168"
+  CLEANUP_HEAD_BRANCH: ops/actions-history-cleanup-phase2-20260912
+  CLEANUP_BASE_BRANCH: ops/actions-history-cleanup-phase2-base-20260912
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact cleanup PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Verify phase-2 classification contracts
+        run: python tools/maintenance/cleanup_actions_history_phase2.py --self-test
+
+      - name: Classify phase-2 workflow-run history
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/maintenance/cleanup_actions_history_phase2.py

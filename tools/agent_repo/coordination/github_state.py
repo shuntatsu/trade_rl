@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass
-from typing import Any
 
 from tools.agent_repo.coordination.leases import LeaseRecord, lease_branch_name
 from tools.agent_repo.coordination.model import (

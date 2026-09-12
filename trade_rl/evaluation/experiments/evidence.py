@@ -36,16 +36,6 @@ from trade_rl.evaluation.runs import (
 )
 
 _EVIDENCE_SCHEMA = "controlled_evidence_set_v1"
-_DETERMINISTIC_STRATEGIES = (
-    "cash",
-    "constant_long",
-    "constant_short",
-    "trend",
-    "mean_reversion",
-    "ridge24",
-    "lightgbm24",
-)
-_EXPECTED_STRATEGIES = frozenset((*_DETERMINISTIC_STRATEGIES, "ppo"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,7 +223,7 @@ def _run_return_map(
             if values is None:
                 raise ArtifactIntegrityError("EvidenceSet return key is missing")
             result[(expected_symbol, name)] = values
-        if names != _EXPECTED_STRATEGIES:
+        if names != frozenset(StudyPlan.STRATEGY_NAMES):
             raise ArtifactIntegrityError("EvidenceSet strategy roster mismatch")
     return result
 
@@ -267,7 +257,7 @@ def _verify_seed_invariance(
         if seed == first_seed:
             continue
         for symbol in symbols:
-            for strategy in _DETERMINISTIC_STRATEGIES:
+            for strategy in StudyPlan.PPO_SEED_INVARIANT_STRATEGY_NAMES:
                 if not np.array_equal(
                     first_map[(symbol, strategy)],
                     current_map[(symbol, strategy)],

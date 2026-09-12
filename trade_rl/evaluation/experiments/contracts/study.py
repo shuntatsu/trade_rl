@@ -54,6 +54,15 @@ class StudyPlan:
         "execution_overlay",
     )
 
+    STRATEGY_NAMES: ClassVar[tuple[str, ...]] = (
+        *CONTROL_STRATEGY_NAMES,
+        *CANDIDATE_STRATEGY_NAMES,
+    )
+    PPO_SEED_INVARIANT_STRATEGY_NAMES: ClassVar[tuple[str, ...]] = (
+        CONTROL_STRATEGY_NAMES
+        + tuple(name for name in CANDIDATE_STRATEGY_NAMES if name != "ppo")
+    )
+
     research_question: str
     dataset_id: str
     dataset_artifact_schema: str

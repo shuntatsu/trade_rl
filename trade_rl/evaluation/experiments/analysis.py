@@ -15,23 +15,13 @@ from trade_rl.evaluation.comparison.seed_robustness import (
     SeedEvaluation,
     summarize_seed_robustness,
 )
+from trade_rl.evaluation.experiments.contracts import StudyPlan
 from trade_rl.evaluation.experiments.errors import ArtifactIntegrityError
 from trade_rl.evaluation.runs import LoadedCandidateRun
 from trade_rl.evaluation.series import ReturnKind, ReturnSeries
 
 _ANALYSIS_SCHEMA = "controlled_evidence_analysis_v1"
 _COMPARISON_SCHEMA = "controlled_evidence_comparison_v1"
-_STRATEGIES = (
-    "cash",
-    "constant_long",
-    "constant_short",
-    "trend",
-    "mean_reversion",
-    "ridge24",
-    "lightgbm24",
-    "ppo",
-)
-_DETERMINISTIC_STRATEGIES = _STRATEGIES[:-1]
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +122,9 @@ def _run_matrix(
         if symbol_entry.get("symbol_index") not in (None, symbol_index):
             raise ArtifactIntegrityError("candidate symbol index mismatch")
         strategies = symbol_entry.get("strategies")
-        if not isinstance(strategies, list) or len(strategies) != len(_STRATEGIES):
+        if not isinstance(strategies, list) or len(strategies) != len(
+            StudyPlan.STRATEGY_NAMES
+        ):
             raise ArtifactIntegrityError(
                 "candidate symbol × strategy matrix is incomplete"
             )
@@ -168,7 +160,7 @@ def _run_matrix(
                 returns=_return_series(values, metrics),
                 metrics=metrics,
             )
-        if tuple(names) != _STRATEGIES:
+        if tuple(names) != StudyPlan.STRATEGY_NAMES:
             raise ArtifactIntegrityError("candidate strategy roster/order mismatch")
 
     if set(run.returns) != used_return_keys:
@@ -220,7 +212,7 @@ def analyze_evidence_set(
     for symbol in symbols:
         cash = first[(symbol, "cash")].returns
         paired_vs_cash: dict[str, object] = {}
-        for strategy in _DETERMINISTIC_STRATEGIES:
+        for strategy in StudyPlan.PPO_SEED_INVARIANT_STRATEGY_NAMES:
             if strategy == "cash":
                 continue
             paired_vs_cash[strategy] = _paired_payload(
@@ -320,11 +312,11 @@ def compare_evidence_sets(
     first_seed = baseline_seeds[0]
     by_symbol: dict[str, object] = {}
     cross_inputs: dict[str, tuple[list[float], list[_Cell]]] = {
-        strategy: ([], []) for strategy in _STRATEGIES
+        strategy: ([], []) for strategy in StudyPlan.STRATEGY_NAMES
     }
     for symbol in baseline_symbols:
         strategy_payloads: dict[str, object] = {}
-        for strategy in _STRATEGIES:
+        for strategy in StudyPlan.STRATEGY_NAMES:
             if strategy == "ppo":
                 by_seed: dict[str, object] = {}
                 excesses: list[float] = []

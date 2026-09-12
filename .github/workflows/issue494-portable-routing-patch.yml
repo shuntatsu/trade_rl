@@ -1,0 +1,140 @@
+name: Issue 494 portable Dataset routing patch
+
+on:
+  push:
+    branches:
+      - fix/portable-feature-numerics
+    paths:
+      - .github/workflows/issue494-portable-routing-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/portable-feature-numerics
+          fetch-depth: 1
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Install dev environment
+        run: uv sync --extra dev
+      - name: Route identity-bound Dataset numerics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          core = Path("trade_rl/data/features/core.py")
+          text = core.read_text(encoding="utf-8")
+          anchor = "from trade_rl.data.contracts import FeatureKind, FeatureSpec, NormalizationMode\n"
+          addition = anchor + "from trade_rl.data.features.numerics import (\n    portable_correlation,\n    portable_dot,\n    portable_log,\n    portable_mean,\n    portable_std,\n    portable_sum,\n)\n"
+          if text.count(anchor) != 1:
+              raise RuntimeError("core import anchor changed")
+          text = text.replace(anchor, addition, 1)
+          for old, new in (
+              ("np.mean(", "portable_mean("),
+              ("np.std(", "portable_std("),
+              ("np.sum(", "portable_sum("),
+              ("np.dot(", "portable_dot("),
+              ("np.log(", "portable_log("),
+              ("np.sqrt(", "math.sqrt("),
+          ):
+              text = text.replace(old, new)
+          old_corr = "np.corrcoef(price_returns, volume_changes)[0, 1]"
+          if text.count(old_corr) != 1:
+              raise RuntimeError("core correlation target changed")
+          text = text.replace(
+              old_corr,
+              "portable_correlation(price_returns, volume_changes)",
+              1,
+          )
+          core.write_text(text, encoding="utf-8")
+
+          cross = Path("trade_rl/data/features/cross_asset.py")
+          text = cross.read_text(encoding="utf-8")
+          anchor = "from trade_rl.data.contracts import FeatureKind, FeatureSpec\n"
+          addition = anchor + "from trade_rl.data.features.numerics import (\n    portable_correlation,\n    portable_covariance,\n    portable_mean,\n    portable_std,\n    portable_sum,\n    portable_variance,\n)\n"
+          if text.count(anchor) != 1:
+              raise RuntimeError("cross-asset import anchor changed")
+          text = text.replace(anchor, addition, 1)
+          text = text.replace("np.mean(", "portable_mean(")
+          text = text.replace("np.std(", "portable_std(")
+          text = text.replace("np.var(", "portable_variance(")
+          old_cov = "np.cov(asset_sample, btc_sample, ddof=0)[0, 1]"
+          if text.count(old_cov) != 1:
+              raise RuntimeError("cross-asset covariance target changed")
+          text = text.replace(old_cov, "portable_covariance(asset_sample, btc_sample)", 1)
+          old_corr = "np.corrcoef(asset_sample, btc_sample)[0, 1]"
+          if text.count(old_corr) != 1:
+              raise RuntimeError("cross-asset correlation target changed")
+          text = text.replace(old_corr, "portable_correlation(asset_sample, btc_sample)", 1)
+          old_sum = "sum(histories[int(symbol_index)])"
+          if text.count(old_sum) != 1:
+              raise RuntimeError("cross-asset momentum sum target changed")
+          text = text.replace(old_sum, "portable_sum(histories[int(symbol_index)])", 1)
+          cross.write_text(text, encoding="utf-8")
+
+          builder = Path("trade_rl/data/build/builder.py")
+          text = builder.read_text(encoding="utf-8")
+          anchor = "from trade_rl.data.features.core import calculate_feature_events\n"
+          addition = anchor + "from trade_rl.data.features.numerics import (\n    portable_log,\n    portable_mean,\n    portable_std,\n)\n"
+          if text.count(anchor) != 1:
+              raise RuntimeError("builder import anchor changed")
+          text = text.replace(anchor, addition, 1)
+          replacements = (
+              ("np.log(ratios)", "portable_log(ratios)"),
+              (
+                  "global_features[:, 0] = symbol_active.mean(axis=1)",
+                  "global_features[:, 0] = np.count_nonzero(symbol_active, axis=1) / float(n_symbols)",
+              ),
+              (
+                  "global_features[:, 1] = observable_tradable.mean(axis=1)",
+                  "global_features[:, 1] = np.count_nonzero(observable_tradable, axis=1) / float(n_symbols)",
+              ),
+              ("float(np.mean(sample))", "portable_mean(sample)"),
+              ("float(np.std(sample))", "portable_std(sample)"),
+          )
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"builder target count {count}: {old!r}")
+              text = text.replace(old, new, 1)
+          builder.write_text(text, encoding="utf-8")
+          PY
+      - name: Format and static checks
+        run: |
+          uv run ruff format trade_rl/data/features/core.py trade_rl/data/features/cross_asset.py trade_rl/data/build/builder.py
+          uv run ruff check trade_rl/data/features/core.py trade_rl/data/features/cross_asset.py trade_rl/data/build/builder.py tests/data/test_portable_feature_numerics.py
+          uv run mypy trade_rl/data/features/core.py trade_rl/data/features/cross_asset.py trade_rl/data/build/builder.py trade_rl/data/features/numerics.py trade_rl/data/contracts.py
+      - name: Targeted GREEN
+        run: |
+          uv run pytest -q \
+            tests/data/test_portable_feature_numerics.py \
+            tests/data/test_extended_indicator_features_v2.py \
+            tests/data/test_extended_prefix_causality.py \
+            tests/data/test_multitimeframe_builder.py \
+            tests/data/test_cross_asset_features.py \
+            tests/data/test_one_bar_returns.py \
+            tests/data/test_complete_96_feature_dataset.py
+      - name: Commit only verified routing changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "Shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add \
+            trade_rl/data/features/core.py \
+            trade_rl/data/features/cross_asset.py \
+            trade_rl/data/build/builder.py
+          git commit -m "fix: make Dataset feature numerics CPU-portable"
+          git push origin HEAD:fix/portable-feature-numerics

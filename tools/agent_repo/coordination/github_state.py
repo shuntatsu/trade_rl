@@ -32,7 +32,9 @@ def _require_sha(value: str, *, field_name: str) -> None:
 
 def _require_digest(value: str) -> None:
     if not _FULL_DIGEST_RE.fullmatch(value):
-        raise ValueError("task_contract_digest must be a lowercase 64-hex SHA-256 digest")
+        raise ValueError(
+            "task_contract_digest must be a lowercase 64-hex SHA-256 digest"
+        )
 
 
 def _optional_text(value: str | None, *, field_name: str) -> None:
@@ -73,7 +75,9 @@ class TaskStatusRecord:
         lease_values = (self.owner, self.lease_epoch, self.lease_branch)
         present = tuple(value is not None for value in lease_values)
         if any(present) and not all(present):
-            raise ValueError("lease fields owner/lease_epoch/lease_branch must be all present")
+            raise ValueError(
+                "lease fields owner/lease_epoch/lease_branch must be all present"
+            )
         if all(present):
             assert self.owner is not None
             assert self.lease_epoch is not None

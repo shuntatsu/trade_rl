@@ -122,9 +122,7 @@ def _mean(values: np.ndarray) -> float:
 
 
 def _dot(left: np.ndarray, right: np.ndarray) -> float:
-    return math.fsum(
-        float(a) * float(b) for a, b in zip(left, right, strict=True)
-    )
+    return math.fsum(float(a) * float(b) for a, b in zip(left, right, strict=True))
 
 
 def _trend_r2_oracle(close: np.ndarray) -> float:
@@ -208,18 +206,17 @@ def test_portable_reductions_have_fixed_sequence_contract() -> None:
     assert portable_sum(values) == 4.0
     assert portable_mean(values) == 1.0
     assert portable_dot(values, np.ones(4, dtype=np.float64)) == 4.0
-    assert portable_variance(np.asarray([1.0, 2.0, 3.0])) == pytest.approx(
-        2.0 / 3.0
-    )
+    assert portable_variance(np.asarray([1.0, 2.0, 3.0])) == pytest.approx(2.0 / 3.0)
     assert portable_std(np.asarray([1.0, 2.0, 3.0])) == pytest.approx(
         math.sqrt(2.0 / 3.0)
     )
     assert portable_covariance(
         np.asarray([1.0, 2.0, 3.0]), np.asarray([2.0, 4.0, 6.0])
     ) == pytest.approx(4.0 / 3.0)
-    assert portable_correlation(
-        np.asarray([1.0, 2.0, 3.0]), np.asarray([2.0, 4.0, 6.0])
-    ) == 1.0
+    assert (
+        portable_correlation(np.asarray([1.0, 2.0, 3.0]), np.asarray([2.0, 4.0, 6.0]))
+        == 1.0
+    )
 
 
 def test_portable_log_is_positive_finite_and_ordered() -> None:

@@ -1,9 +1,10 @@
 name: Actions history cleanup
 
 on:
-  push:
+  pull_request:
     branches:
-      - ops/actions-history-cleanup-20260912
+      - main
+    types: [opened, synchronize, reopened]
     paths:
       - .github/workflows/actions-history-cleanup.yml
       - tools/maintenance/cleanup_actions_history.py
@@ -12,7 +13,7 @@ permissions:
   actions: write
   contents: write
   issues: read
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: actions-history-cleanup
@@ -28,10 +29,10 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact cleanup branch
+      - name: Checkout exact cleanup PR head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
       - name: Verify cleanup classification contracts
@@ -41,6 +42,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python tools/maintenance/cleanup_actions_history.py
+
+      - name: Close temporary cleanup PR after execute
+        if: ${{ success() && env.DRY_RUN == 'false' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d '{"state":"closed"}' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" >/dev/null
 
       - name: Remove temporary cleanup branch after execute
         if: ${{ success() && env.DRY_RUN == 'false' }}

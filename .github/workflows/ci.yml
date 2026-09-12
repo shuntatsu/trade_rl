@@ -121,12 +121,13 @@ jobs:
         working-directory: guide
         run: npm ci
 
-      - name: Diagnose PPO fingerprints
+      - name: Diagnose implementation fingerprints
         working-directory: guide
         run: |
-          python3 tools/content_contract.py --refresh-code implementation-ppo
-          python3 tools/content_contract.py --refresh implementation-ppo
+          python3 tools/content_contract.py --refresh-code implementation-ppo code-map
+          python3 tools/content_contract.py --refresh implementation-ppo code-map
           cat content/topics/implementation-ppo.json
+          cat content/topics/code-map.json
           exit 1
 
       - name: Install Chromium

@@ -12,15 +12,16 @@ import { useTheme } from "./useTheme";
 const TOPICS = loadTopics();
 const TOPIC_IDS = TOPICS.map((topic) => topic.id);
 
-type SequenceSelection = {
+type InspectorSelection = {
   selectedStep?: string;
+  selectedNode?: string;
   referenceId?: string;
 };
 
 function resolveSequenceSelection(
   topic: GuideTopic,
   route: GuideRoute,
-): SequenceSelection {
+): InspectorSelection {
   if (topic.visualization.kind !== "sequence") return {};
 
   const messages = topic.visualization.messages;
@@ -41,6 +42,29 @@ function resolveSequenceSelection(
   };
 }
 
+function resolveCodeMapSelection(
+  topic: GuideTopic,
+  route: GuideRoute,
+): InspectorSelection {
+  if (topic.visualization.kind !== "code-map") return {};
+
+  const nodes = topic.visualization.nodes;
+  if (!nodes.length) return {};
+  const stepNode = route.step ? nodes.find((node) => node.id === route.step) : undefined;
+  const symbolReference = route.symbol
+    ? topic.code_references.find((reference) => reference.symbol === route.symbol)
+    : undefined;
+  const symbolNode = symbolReference
+    ? nodes.find((node) => node.code_ref === symbolReference.id)
+    : undefined;
+  const defaultNode = nodes.find((node) => node.code_ref) ?? nodes[0];
+  const selectedNode = stepNode ?? symbolNode ?? defaultNode;
+  return {
+    selectedNode: selectedNode?.id,
+    referenceId: symbolReference?.id ?? selectedNode?.code_ref,
+  };
+}
+
 export function App() {
   const [route, navigate] = useHashRoute(TOPIC_IDS, guideManifest.home);
   const { theme, resolvedTheme, setTheme } = useTheme();
@@ -50,7 +74,10 @@ export function App() {
   const currentIndex = TOPICS.findIndex((item) => item.id === topic.id);
   const nextTopic = TOPICS[(currentIndex + 1) % TOPICS.length];
   const sequenceSelection = resolveSequenceSelection(topic, route);
+  const codeMapSelection = resolveCodeMapSelection(topic, route);
   const isSequence = topic.visualization.kind === "sequence";
+  const isCodeMap = topic.visualization.kind === "code-map";
+  const hasInspector = isSequence || isCodeMap;
 
   return (
     <AppShell
@@ -77,8 +104,8 @@ export function App() {
             <h2 id="visual-stage-title">図を触って理解する</h2>
           </div>
           <span className="section-heading__hint">
-            {isSequence
-              ? "処理を選ぶと対応する実装詳細を確認できます"
+            {hasInspector
+              ? "項目を選ぶと対応する実装詳細を確認できます"
               : "クリック / タップで詳細を切替"}
           </span>
         </div>
@@ -90,6 +117,15 @@ export function App() {
               onSelectStep={(stepId) => navigate({ topicId: topic.id, step: stepId })}
             />
             <CodeInspector referenceId={sequenceSelection.referenceId} topic={topic} />
+          </div>
+        ) : isCodeMap ? (
+          <div className="implementation-stage">
+            <VisualizationRenderer
+              visualization={topic.visualization}
+              selectedNode={codeMapSelection.selectedNode}
+              onSelectNode={(nodeId) => navigate({ topicId: topic.id, step: nodeId })}
+            />
+            <CodeInspector referenceId={codeMapSelection.referenceId} topic={topic} />
           </div>
         ) : (
           <VisualizationRenderer visualization={topic.visualization} />

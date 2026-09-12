@@ -1,0 +1,49 @@
+name: Temporary PPO staleness compatibility guard
+
+on:
+  push:
+    branches:
+      - feat/rl-observation-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feat/rl-observation-v2
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Require explicit staleness only at PPO boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("trade_rl/strategies/rl/ppo.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    staleness = np.asarray(\n        observation.feature_staleness[list(indices)],\n        dtype=np.float64,\n    )\n'''
+          new = '''    if observation.feature_staleness is None:\n        raise ValueError("PPO Observation v2 requires feature staleness")\n    staleness = np.asarray(\n        observation.feature_staleness[list(indices)],\n        dtype=np.float64,\n    )\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f"PPO staleness guard mismatch: {text.count(old)}")
+          path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+          uv run ruff format trade_rl/strategies/interface.py trade_rl/strategies/rl/ppo.py tests/strategies/test_ppo_observation_v2.py
+          uv run ruff check trade_rl/strategies/interface.py trade_rl/strategies/rl/ppo.py tests/strategies/test_ppo_observation_v2.py
+          uv run mypy trade_rl/strategies/interface.py trade_rl/strategies/rl/ppo.py
+          uv run pytest -q tests/strategies/test_ppo_observation_v2.py tests/strategies/test_ppo_intent.py
+          rm .github/workflows/tmp-ppo-staleness-compat.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: preserve generic strategy observation compatibility"
+          git push origin HEAD:feat/rl-observation-v2

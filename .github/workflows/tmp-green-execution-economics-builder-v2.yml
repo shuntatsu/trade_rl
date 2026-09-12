@@ -180,3 +180,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "feat: bind execution economics into market builds"
           git push origin HEAD:fix/canonical-m2-execution-economics
+
+# Retried only after removing the stale predecessor helper.

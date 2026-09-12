@@ -1,0 +1,87 @@
+name: Temporary integrate M2 v2 contracts
+
+on:
+  push:
+    branches: [integration/m2-canonical-v2-contracts]
+    paths: [.github/workflows/tmp-integrate-m2-v2-contracts.yml]
+
+permissions:
+  contents: write
+
+env:
+  MAIN_SHA: 4780882f0caf2312fbb33108573ad53b4690e776
+  ECON_SHA: 558919861f1fa86956664405b8946ab923b2d863
+  PPO_SHA: b3c20f01966c8f4e944255ee7df5cd4258684a0f
+  BRANCH: integration/m2-canonical-v2-contracts
+
+jobs:
+  integrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Merge exact heads, verify, commit, and retire helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper=.github/workflows/tmp-integrate-m2-v2-contracts.yml
+          test "$(git rev-parse HEAD^)" = "$ECON_SHA"
+          test "$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')" = "$GITHUB_SHA"
+          git fetch --no-tags origin "$MAIN_SHA" "$ECON_SHA" "$PPO_SHA"
+          python - <<'PY'
+          import os, subprocess
+          def changed(a, b):
+              out = subprocess.check_output(['git','diff','--name-only',a,b], text=True)
+              return {line for line in out.splitlines() if line}
+          main=os.environ['MAIN_SHA']; econ=os.environ['ECON_SHA']; ppo=os.environ['PPO_SHA']
+          e=changed(main,econ); p=changed(main,ppo)
+          overlap=e & p
+          if overlap:
+              raise RuntimeError(f'PR #484/#491 changed-file overlap: {sorted(overlap)}')
+          print(f'economics_changed_files={len(e)}')
+          print(f'observation_changed_files={len(p)}')
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git merge --no-ff --no-commit "$PPO_SHA"
+          test -z "$(git diff --name-only --diff-filter=U)"
+          uv sync --extra dev --extra forecast-gbm --extra train-sb3
+          uv run ruff check trade_rl tests
+          uv run ruff format --check trade_rl tests
+          uv run mypy trade_rl
+          uv run mypy tests/architecture/imports.py tests/architecture/distribution.py
+          uv run pytest -q tests
+          uv build
+          git commit -m "integration: combine execution economics and PPO observation v2"
+          merge_sha="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^2)" = "$PPO_SHA"
+          git rm "$helper"
+          git commit -m "chore: retire M2 v2 integration helper"
+          python - <<'PY'
+          import os, subprocess
+          def changed(a,b):
+              out=subprocess.check_output(['git','diff','--name-only',a,b],text=True)
+              return {x for x in out.splitlines() if x}
+          main=os.environ['MAIN_SHA']; econ=os.environ['ECON_SHA']; ppo=os.environ['PPO_SHA']
+          expected=changed(main,econ)|changed(main,ppo)
+          actual=changed(main,'HEAD')
+          if actual != expected:
+              raise RuntimeError(f'integration diff mismatch extra={sorted(actual-expected)} missing={sorted(expected-actual)}')
+          for source, paths in ((econ, changed(main,econ)), (ppo, changed(main,ppo))):
+              if not paths:
+                  continue
+              proc=subprocess.run(['git','diff','--exit-code',source,'HEAD','--',*sorted(paths)])
+              if proc.returncode:
+                  raise RuntimeError(f'integration content drift versus {source}')
+          print(f'integration_changed_files={len(actual)}')
+          PY
+          test "$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')" = "$GITHUB_SHA"
+          git push origin "HEAD:refs/heads/$BRANCH"

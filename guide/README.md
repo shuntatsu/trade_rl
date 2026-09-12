@@ -27,7 +27,7 @@ npm run e2e
 
 `npm run check` はsource-doc freshness、ESLint、TypeScript、Vitest、production buildを順に検証します。`npm run e2e` はChromiumでdesktop/mobileの主要操作・accessibility・visual evidenceを確認します。Light/Darkの両テーマでaxeの`serious`/`critical` violationを0件に保つことを必須とします。
 
-GitHub Actionsでは既存Python gateの`Lean Core`と独立した`Human Guide` jobで同じ検査を実行します。Playwright reportやscreenshotはCI artifactとして短期保持し、`guide/dist/`、`guide/test-results/`、`guide/playwright-report/`などの生成物はcurrent treeへcommitしません。
+GitHub Actionsでは既存Python gateの`Lean Core`と独立した`Human Guide` jobで同じ検査を実行します。Playwright reportやscreenshotはCI artifactとして短期保持します。`guide/node_modules/`、`guide/dist/`、`guide/coverage/`、`guide/playwright-report/`、`guide/test-results/`はroot `.gitignore` で除外し、current treeへcommitしません。
 
 ## 内容を更新する
 

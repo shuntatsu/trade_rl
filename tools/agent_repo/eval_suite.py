@@ -17,9 +17,6 @@ DEFAULT_SUITE = Path(__file__).with_name("evals") / "v1.json"
 class EvalTask:
     task_id: str
     prompt: str
-    semantic_goal: str
-    critical_failures: tuple[str, ...]
-    review_questions: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,25 +85,10 @@ def _strings(
 
 def _task(value: object) -> EvalTask:
     raw = _object(value, field="task")
-    _exact_keys(
-        raw,
-        frozenset(
-            {
-                "task_id",
-                "prompt",
-                "semantic_goal",
-                "critical_failures",
-                "review_questions",
-            }
-        ),
-        field="task",
-    )
+    _exact_keys(raw, frozenset({"task_id", "prompt"}), field="task")
     return EvalTask(
         task_id=_string(raw["task_id"], field="task_id"),
         prompt=_string(raw["prompt"], field="prompt"),
-        semantic_goal=_string(raw["semantic_goal"], field="semantic_goal"),
-        critical_failures=_strings(raw["critical_failures"], field="critical_failures"),
-        review_questions=_strings(raw["review_questions"], field="review_questions"),
     )
 
 

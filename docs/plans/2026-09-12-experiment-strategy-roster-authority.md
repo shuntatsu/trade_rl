@@ -1,5 +1,7 @@
 # Experiment Strategy Roster Authority Implementation Plan
 
+Status: Active
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `StudyPlan` the one Controlled Experiment semantic authority for the maintained eight-strategy roster and PPO-seed-invariant subset, while keeping Run Core as the independent execution authority.

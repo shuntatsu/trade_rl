@@ -16,7 +16,9 @@
 
 - [`specs/2026-09-12-experiment-strategy-roster-authority.md`](specs/2026-09-12-experiment-strategy-roster-authority.md) — Controlled Experimentのstrategy roster / PPO-seed invariance authorityをStudy contractへ集約する設計
 
-現在Activeなplanはない。
+現在Activeなplan:
+
+- [`plans/2026-09-12-experiment-strategy-roster-authority.md`](plans/2026-09-12-experiment-strategy-roster-authority.md) — 上記設計をTDDで実装し、docs圧縮とstacked-PR再検証まで行う計画
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

@@ -6,6 +6,7 @@
     "data-flow",
     "architecture",
     "implementation-replay",
+    "implementation-ppo",
     "execution-economics",
     "ppo-observation-v2",
     "experiment-loop",

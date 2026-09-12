@@ -99,6 +99,8 @@ def _encode_observation(
         observation.feature_available[list(indices)],
         dtype=np.bool_,
     )
+    if observation.feature_staleness is None:
+        raise ValueError("PPO Observation v2 requires feature staleness")
     staleness = np.asarray(
         observation.feature_staleness[list(indices)],
         dtype=np.float64,

@@ -61,6 +61,22 @@ Strategyの責任:
 
 同じLONG→LONGまたはSHORT→SHORTなら、価格変動でweightがdriftしただけを理由に毎decisionでtarget weightへ戻さない。標準は**quantity-preserving hold**であり、intentが変わった場合かhard riskがde-riskを要求する場合にquantityを変える。
 
+### PPO Observation v2
+
+初回canonical real-data M2で使うteacher-free PPOのpolicy observationは、fit-scope leakageを避けるため最小のcausal contractへ固定する。tensor順序は次である。
+
+1. selected local feature values
+2. selected local availability / finite mask
+3. selected normalized local feature staleness
+4. current intent
+5. current weight
+
+unavailableまたはnon-finiteなlocal valueは0へmaskする。stalenessはselected featureと同じ順序で`[0, 1]`の正規化値を渡し、unavailable featureは最大stalenessでなければならない。PPO v2はstalenessが欠けたobservationをfail-closedにする。一方、`StrategyObservation`はPPO専用型ではないため、既存のrule/forecast/control caller向けconstructor互換を維持し、generic contractではstaleness省略を許す。canonical replayとPPO environmentは実datasetのstalenessを明示的に渡す。
+
+初回M2のpolicy tensorにはsymbol IDを入れず、dataset-global featureも入れない。現行`MarketDatasetBuilder`の`active_fraction`、`tradable_fraction`、`market_return_mean`、`market_return_dispersion`はdataset全symbol universeから集計されるため、fit symbol subsetだけでPPOを学習するStudyで使うとfit-scope外symbolがtraining observationへ間接混入し得る。このためObservation v2のglobal rosterは明示的な空集合である。global regimeを将来試す場合は、fit-scope外evaluation symbolを含まないreference universeを事前固定した別Controlled Factorとして扱う。
+
+Observation contractは暗黙のimplementation detailにしない。新規Candidate Runと新規Studyのresolved configはObservation schema、staleness利用、空のglobal rosterをsemantic identityへbindする。execution economics、reward、action、risk、PPO network architectureはObservation v2のpolicy inputへ追加しない。
+
 ## StrategyとRiskの責任分離
 
 Risk / executionが担当するもの:

@@ -82,6 +82,10 @@ Canonical M2 bootstrapは、real-data development Studyを開始できる状態�
 
 Study作成時にRun Coreの共通resolverでbaseline configを事前解決する。独自のfeature/symbol/timestamp resolverをexperiments層に作らない。
 
+現在の新規Studyでは`ResolvedRunConfig.from_candidate_spec()`が`resolved_run_config_v2`を生成し、PPO Observation schemaとglobal policy rosterをbaseline semantic configへbindする。初回M2のglobal rosterは意図的に空である。`schema_version`、`ppo_observation_schema`、`ppo_global_feature_names`はStudy-fixed resolved fieldであり、Controlled Factorとして変更できない。同一Studyの途中でObservation contractを変えない。
+
+historical `resolved_run_config_v1` / Study artifactはread/inspection互換のため維持するが、current v2 Runをv1 Studyへ継ぎ足すことは許さない。EvidenceSet生成は実行前のfixed-field照合でv1/v2混在をfail-closedにする。旧Studyを新Observationへ暗黙migrationせず、新しいObservation contractで研究を続ける場合は新Studyを作る。
+
 ## Study-owned EvidenceSet
 
 Controlled Studyは外部で生成済みの好都合なRunを後付け登録しない。`execute_evidence_set` がStudy seedごとに1 Runを生成し、Run Coreのconfig resolution、execution、provenance、artifact publication/load/inspectionを通す。

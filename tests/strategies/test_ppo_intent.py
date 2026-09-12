@@ -120,8 +120,9 @@ def observation() -> StrategyObservation:
         symbol="BTCUSDT",
         features=np.asarray([0.5]),
         feature_available=np.asarray([True]),
-        global_features=np.asarray([0.0]),
-        global_feature_available=np.asarray([True]),
+        feature_staleness=np.asarray([0.0], dtype=np.float32),
+        global_features=np.zeros(1, dtype=np.float64),
+        global_feature_available=np.ones(1, dtype=np.bool_),
         current_intent=PositionIntent.FLAT,
         current_weight=0.0,
     )
@@ -129,15 +130,24 @@ def observation() -> StrategyObservation:
 
 def test_policy_action_mapping_is_short_flat_long() -> None:
     assert (
-        PPOIntentStrategy(FakePolicy(0), feature_indices=(0,)).decide(observation())
+        PPOIntentStrategy(
+            FakePolicy(0),
+            feature_indices=(0,),
+        ).decide(observation())
         is PositionIntent.SHORT
     )
     assert (
-        PPOIntentStrategy(FakePolicy(1), feature_indices=(0,)).decide(observation())
+        PPOIntentStrategy(
+            FakePolicy(1),
+            feature_indices=(0,),
+        ).decide(observation())
         is PositionIntent.FLAT
     )
     assert (
-        PPOIntentStrategy(FakePolicy(2), feature_indices=(0,)).decide(observation())
+        PPOIntentStrategy(
+            FakePolicy(2),
+            feature_indices=(0,),
+        ).decide(observation())
         is PositionIntent.LONG
     )
 
@@ -190,11 +200,11 @@ def test_pooled_env_cycles_symbols_without_symbol_identity_in_observation() -> N
 
     first_observation, _ = env.reset(seed=3)
     assert env.active_symbol_index == 0
-    assert first_observation.shape == (4,)
+    assert first_observation.shape == (5,)
 
     second_observation, _ = env.reset()
     assert env.active_symbol_index == 1
-    assert second_observation.shape == (4,)
+    assert second_observation.shape == (5,)
     _, _, _, _, _ = env.step(2)
     assert env.book.quantities[0] == 0.0
     assert env.book.quantities[1] > 0.0
@@ -217,7 +227,7 @@ def test_pooled_env_cycles_only_explicit_fit_symbols() -> None:
 
     observation, info = env.reset(seed=3)
     assert env.active_symbol_index == 1
-    assert observation.shape == (4,)
+    assert observation.shape == (5,)
     assert info["symbol"] == "ETHUSDT"
     env.reset()
     assert env.active_symbol_index == 1

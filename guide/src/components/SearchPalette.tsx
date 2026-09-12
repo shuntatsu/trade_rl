@@ -1,8 +1,22 @@
 import { Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEventHandler,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { searchTopics } from "../content/search";
 import type { GuideTopic } from "../content/schema";
+
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
 
 export function SearchPalette({
   topics,
@@ -13,8 +27,14 @@ export function SearchPalette({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const results = useMemo(() => searchTopics(topics, query).slice(0, 7), [query, topics]);
+
+  const closeAndRestoreFocus = useCallback(() => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -22,15 +42,39 @@ export function SearchPalette({
         event.preventDefault();
         setOpen(true);
       }
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape" && open) {
+        event.preventDefault();
+        closeAndRestoreFocus();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [closeAndRestoreFocus, open]);
 
   useEffect(() => {
     if (open) window.setTimeout(() => inputRef.current?.focus(), 0);
   }, [open]);
+
+  const trapDialogFocus: KeyboardEventHandler<HTMLElement> = (event) => {
+    if (event.key !== "Tab") return;
+
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    );
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+      return;
+    }
+    if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   const choose = (id: string) => {
     onNavigate(id);
@@ -41,6 +85,7 @@ export function SearchPalette({
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         className="search-trigger"
         aria-label="ガイドを検索"
@@ -54,13 +99,14 @@ export function SearchPalette({
         <div
           className="search-backdrop"
           role="presentation"
-          onMouseDown={() => setOpen(false)}
+          onMouseDown={closeAndRestoreFocus}
         >
           <section
             className="search-palette"
             role="dialog"
             aria-modal="true"
             aria-label="Guide search"
+            onKeyDown={trapDialogFocus}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="search-palette__input">
@@ -75,7 +121,7 @@ export function SearchPalette({
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setOpen(false)}
+                onClick={closeAndRestoreFocus}
                 aria-label="検索を閉じる"
               >
                 <X size={18} />

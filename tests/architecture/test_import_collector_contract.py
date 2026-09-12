@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.architecture import test_lean_dependency_boundaries as boundaries
-from tests.architecture.imports import ImportCollector
+from tools.agent_repo.source_index import ImportCollector
 
 SEALED = "trade_rl.evaluation.robustness.walk_forward.sealed_test"
 CLIENT = "trade_rl/evaluation/experiments/client.py"

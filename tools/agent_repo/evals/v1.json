@@ -1,0 +1,44 @@
+{
+  "schema_version": "agent_repo_eval_suite_v1",
+  "rubric_version": "agent_repo_rubric_v1",
+  "rubric": {
+    "dimensions": [
+      "authority_discovery",
+      "authority_reuse",
+      "boundary_compliance",
+      "scope_discipline",
+      "test_discovery",
+      "verification_selection",
+      "compatibility_awareness",
+      "context_efficiency"
+    ],
+    "max_score_per_dimension": 2,
+    "critical_dimensions": [
+      "authority_reuse",
+      "boundary_compliance",
+      "scope_discipline"
+    ]
+  },
+  "tasks": [
+    {
+      "task_id": "run-config-extension",
+      "prompt": "Add one new Candidate Run configuration field that affects resolved run semantics. Preserve existing public and persisted contracts unless a change is required, and determine the necessary verification."
+    },
+    {
+      "task_id": "sha256-validation-reuse",
+      "prompt": "Add validation for a new SHA-256 digest field used by a maintained contract. Keep lexical acceptance consistent with the repository's existing digest semantics."
+    },
+    {
+      "task_id": "dataset-scope-change",
+      "prompt": "Change how a strategy selects dataset-bound feature or symbol scope, and apply the behavior consistently where multiple strategy families share that semantic concept."
+    },
+    {
+      "task_id": "run-artifact-compatible-extension",
+      "prompt": "Design a small extension to persisted Candidate Run evidence while preserving inspectability of maintained historical evidence and keeping runtime import compatibility separate from artifact-schema compatibility."
+    },
+    {
+      "task_id": "binance-fallback-fix",
+      "prompt": "Fix a Binance source fallback problem where an official endpoint can be unavailable in one environment. Preserve fail-closed behavior for malformed or integrity-invalid data."
+    }
+  ]
+}

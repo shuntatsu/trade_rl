@@ -12,9 +12,7 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-現在Activeなspecはない。
-
-現在Activeなplanはない。
+現在Activeなspec / planはない。Agent Repository Control Plane v1の実装済み契約は `AGENTS.md`、`architecture/package-boundaries.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 
@@ -25,9 +23,9 @@ Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` は
 - `architecture/`: 現行コードが満たすべき構造・責務・不変条件
 - `research/`: 現在の研究仮説、比較条件、証拠プロトコル、研究状態
 - `specs/`: 未実装またはreview中の独立normative designだけ
-- `plans/`: 実装中の独立implementation planだけ
+- `plans/`: 実装中または外部verification待ちで、独立したcurrent workが残るplanだけ
 
-将来、未実装で独立してnormativeな設計がある間だけ `specs/` を作ってよい。実装中の独立した作業計画が必要な間だけ `plans/` を作ってよい。実装が終わり、耐久的な内容が `architecture/` または `research/` に反映されたら、完了済みspec/planはcurrent treeから削除する。
+将来、未実装で独立してnormativeな設計がある間だけ `specs/` を作ってよい。実装中または外部verification待ちの独立作業が必要な間だけ `plans/` を作ってよい。実装・verificationが終わり、耐久的な内容が `architecture/`、`research/`、`AGENTS.md` 等のcurrent authorityへ反映されたら、完了済みspec/planはcurrent treeから削除する。
 
 `docs/history` と `docs/archive` は作らない。Git historyが履歴の正本である。
 

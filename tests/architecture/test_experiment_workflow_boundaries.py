@@ -5,7 +5,7 @@ import importlib
 from pathlib import Path
 
 import trade_rl.evaluation.experiments as experiments
-from tests.architecture.imports import ImportCollector, within_module
+from tools.agent_repo.source_index import ImportCollector, within_module
 from trade_rl.evaluation.experiments import workflow as workflow_module
 
 ROOT = Path(__file__).resolve().parents[2]

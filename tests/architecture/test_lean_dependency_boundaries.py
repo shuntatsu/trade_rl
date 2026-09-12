@@ -4,7 +4,7 @@ import ast
 import sys
 from pathlib import Path
 
-from tests.architecture.imports import ImportCollector, within_module
+from tools.agent_repo.source_index import ImportCollector, within_module
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "trade_rl"

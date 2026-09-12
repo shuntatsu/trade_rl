@@ -38,8 +38,11 @@ jobs:
       - name: Ruff
         run: uv run ruff check trade_rl tests tools
 
-      - name: Format
-        run: uv run ruff format --check trade_rl tests tools
+      - name: Format diff
+        shell: bash
+        run: |
+          uv run ruff format --diff tests/agent_repo/test_coordination_scheduler.py || true
+          uv run ruff format --check trade_rl tests tools
 
       - name: Repository tooling types
         run: uv run mypy tools/agent_repo tests/architecture/distribution.py

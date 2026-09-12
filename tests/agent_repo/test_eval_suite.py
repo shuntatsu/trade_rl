@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from tools.agent_repo.eval_suite import (
+    DEFAULT_SUITE,
     EvalSuite,
     load_eval_suite,
     score_eval,
@@ -40,9 +41,6 @@ def _payload() -> dict[str, object]:
             {
                 "task_id": "example",
                 "prompt": "Change one maintained semantic contract safely.",
-                "semantic_goal": "Reuse the existing authority and verify the change.",
-                "critical_failures": ["creates a parallel authority"],
-                "review_questions": ["Did the agent reuse the existing authority?"],
             }
         ],
     }
@@ -70,7 +68,9 @@ def test_load_eval_suite_accepts_exact_contract(tmp_path: Path) -> None:
         lambda value: value.__setitem__("unknown", True),
         lambda value: value["tasks"].append(dict(value["tasks"][0])),
         lambda value: value["tasks"][0].__setitem__("prompt", ""),
-        lambda value: value["tasks"][0].__setitem__("semantic_goal", ""),
+        lambda value: value["tasks"][0].__setitem__(
+            "semantic_goal", "evaluator-only answer key"
+        ),
         lambda value: value["rubric"]["critical_dimensions"].append("unknown"),
         lambda value: value["rubric"].__setitem__("max_score_per_dimension", 0),
         lambda value: value.__setitem__("tasks", []),
@@ -85,6 +85,13 @@ def test_load_eval_suite_rejects_invalid_contract(
 
     with pytest.raises(ValueError):
         load_eval_suite(_write(tmp_path / "suite.json", payload))
+
+
+def test_checked_in_suite_does_not_expose_task_specific_evaluator_answer_key() -> None:
+    raw = json.loads(DEFAULT_SUITE.read_text(encoding="utf-8"))
+
+    assert raw["tasks"]
+    assert all(set(task) == {"task_id", "prompt"} for task in raw["tasks"])
 
 
 def test_score_eval_requires_exact_dimensions_and_evidence(tmp_path: Path) -> None:

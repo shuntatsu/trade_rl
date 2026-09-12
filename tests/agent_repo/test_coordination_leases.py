@@ -182,7 +182,9 @@ def test_lease_freshness_binds_revision_digest_base_and_expiry() -> None:
     lease = grant_lease(packet, "agent-a", epoch=1, now=NOW, ttl=TTL)
 
     assert lease_is_current(lease, packet, now=NOW + timedelta(minutes=1))
-    assert not lease_is_current(lease, _packet(revision=2), now=NOW + timedelta(minutes=1))
+    assert not lease_is_current(
+        lease, _packet(revision=2), now=NOW + timedelta(minutes=1)
+    )
     assert not lease_is_current(
         lease,
         _packet(objective="changed"),

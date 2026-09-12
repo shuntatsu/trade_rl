@@ -1,0 +1,9 @@
+{
+  "artifact_digest": "5c7ff5aa27c682a3320e14130b07a95d2adac8b63b855db1b78c4d6103736ed0",
+  "dataset_id": "e79ca62deb65ec3bea476869e5a642665e68ca92865c688e452415c8186db96e",
+  "feature_config_digest": "e0f167d7d258b0493f9d8181b84f5b0823081cf60e62d642f75c6dfc20187539",
+  "historical_git_sha": "045dc84fb40ada3b5d782028448b938d9a65dfea",
+  "market_build_schema": "market_build_v2",
+  "normalization_digest": "330a9134ccb9b35ecd4769ff524e738ee8a1816b43b5696a6048f23adcb87aa7",
+  "schema_version": "issue494_historical_market_build_v2_fixture_v1"
+}

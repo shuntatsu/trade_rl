@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -125,3 +126,35 @@ def test_deprecated_direct_dataset_writer_is_removed() -> None:
     import trade_rl.data as data
 
     assert not hasattr(data, "write_market_dataset_artifact")
+
+
+def test_loader_reads_frozen_market_build_v2_artifact(tmp_path: Path) -> None:
+    fixtures = Path(__file__).parent / "fixtures"
+    fixture = fixtures / "market_build_v2_artifact"
+    root = tmp_path / "historical-v2"
+    shutil.copytree(fixture, root)
+
+    provenance = json.loads(
+        (fixtures / "market_build_v2_artifact_provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert provenance == {
+        "artifact_digest": "5c7ff5aa27c682a3320e14130b07a95d2adac8b63b855db1b78c4d6103736ed0",
+        "dataset_id": "e79ca62deb65ec3bea476869e5a642665e68ca92865c688e452415c8186db96e",
+        "feature_config_digest": "e0f167d7d258b0493f9d8181b84f5b0823081cf60e62d642f75c6dfc20187539",
+        "historical_git_sha": "045dc84fb40ada3b5d782028448b938d9a65dfea",
+        "market_build_schema": "market_build_v2",
+        "normalization_digest": "330a9134ccb9b35ecd4769ff524e738ee8a1816b43b5696a6048f23adcb87aa7",
+        "schema_version": "issue494_historical_market_build_v2_fixture_v1",
+    }
+
+    dataset = load_market_dataset_artifact(root)
+    assert dataset.dataset_id == provenance["dataset_id"]
+    assert dataset.feature_config_digest == provenance["feature_config_digest"]
+    assert dataset.normalization_digest == provenance["normalization_digest"]
+    identity = json.loads(dataset.identity_payload_json or "{}")
+    config = identity.get("config")
+    assert isinstance(config, dict)
+    assert config.get("schema_version") == "market_build_v2"
+    assert "feature_numerics_schema" not in config

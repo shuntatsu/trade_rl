@@ -180,12 +180,20 @@ def plan_verification(
                 "filesystem mutation surface changed; verify cleanup, retry, and no-partial-publication behavior",
             )
         )
-    if "pyproject.toml" in changed_paths:
+    if "PROJECT_EXTRA" in signal_kinds:
         steps.append(
             VerificationStep(
                 "extended",
                 "manual: install and smoke affected optional capability extras",
-                "project dependency/configuration changed; verify only affected optional capability environments",
+                "optional dependency surface changed; verify only affected capability environments",
+            )
+        )
+    if "PROJECT_SCRIPT" in signal_kinds:
+        steps.append(
+            VerificationStep(
+                "extended",
+                "manual: build/install and smoke affected project scripts",
+                "installed command surface changed; verify only affected project script entry points",
             )
         )
 

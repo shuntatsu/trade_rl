@@ -1,0 +1,82 @@
+name: Temporary current Study v2 fixtures
+
+on:
+  push:
+    branches:
+      - feat/rl-observation-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: feat/rl-observation-v2
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: '3.12'
+      - name: Align current Study fixtures with Observation v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --extra dev
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'guard mismatch: {path}: count={count}: {old!r}')
+              file.write_text(text.replace(old, new), encoding='utf-8')
+
+          path = 'tests/evaluation/experiments/test_delta.py'
+          replace_once(
+              path,
+              '''from trade_rl.evaluation.runs.artifact import LoadedCandidateRun\n''',
+              '''from trade_rl.evaluation.runs.artifact import LoadedCandidateRun\nfrom trade_rl.strategies.rl.ppo import (\n    PPO_GLOBAL_FEATURE_NAMES,\n    PPO_OBSERVATION_SCHEMA,\n)\n''',
+          )
+          replace_once(
+              path,
+              '''        "ppo_seed": 2,\n        "evaluation_start": "2026-02-01T00:00:00.000000000",\n''',
+              '''        "ppo_seed": 2,\n        "ppo_observation_schema": PPO_OBSERVATION_SCHEMA,\n        "ppo_global_feature_names": PPO_GLOBAL_FEATURE_NAMES,\n        "evaluation_start": "2026-02-01T00:00:00.000000000",\n''',
+          )
+          replace_once(
+              path,
+              '''        "execution_overlay": "zero_overlay_dataset_fields_authoritative",\n    }\n''',
+              '''        "execution_overlay": "zero_overlay_dataset_fields_authoritative",\n        "schema_version": "resolved_run_config_v2",\n    }\n''',
+          )
+
+          path = 'tests/evaluation/experiments/test_evidence.py'
+          file = Path(path)
+          text = file.read_text(encoding='utf-8')
+          start = text.index('def _resolved_contract(spec) -> ResolvedRunConfig:\n')
+          end = text.index('\n\ndef _plan(dataset, artifact) -> StudyPlan:\n', start)
+          replacement = '''def _resolved_contract(spec) -> ResolvedRunConfig:\n    return ResolvedRunConfig.from_candidate_spec(spec)\n'''
+          text = text[:start] + replacement + text[end:]
+          file.write_text(text, encoding='utf-8')
+          PY
+          uv run ruff format tests/evaluation/experiments/test_delta.py tests/evaluation/experiments/test_evidence.py
+          uv run ruff check tests/evaluation/experiments/test_delta.py tests/evaluation/experiments/test_evidence.py
+          uv run pytest -q \
+            tests/architecture/test_experiment_semantic_authorities.py \
+            tests/evaluation/experiments/test_observation_contract_identity.py \
+            tests/evaluation/experiments/test_delta.py \
+            tests/evaluation/experiments/test_delta_lineage.py \
+            tests/evaluation/experiments/test_evidence.py \
+            tests/evaluation/experiments/test_evidence_identity.py \
+            tests/evaluation/experiments/test_evidence_publication.py \
+            tests/evaluation/experiments/test_evidence_tamper.py
+          rm .github/workflows/tmp-current-study-v2-fixtures.yml
+          git add -A
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'test: model current Studies with Observation v2'
+          git push origin HEAD:feat/rl-observation-v2

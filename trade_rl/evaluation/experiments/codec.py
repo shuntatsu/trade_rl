@@ -32,10 +32,7 @@ from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     ContractViolationError,
 )
-from trade_rl.evaluation.runs import (
-    CandidateRunConfig,
-    ResolvedCandidateRunSpec,
-)
+from trade_rl.evaluation.runs import CandidateRunConfig
 
 _ANALYSIS_BINDING_SCHEMA = "controlled_evidence_analysis_binding_v1"
 _WITHIN_ANALYSIS_SCHEMA = "controlled_evidence_analysis_v1"
@@ -597,33 +594,6 @@ def _freeze_from_payload(payload: dict[str, object]) -> StudyFreeze:
         raise ArtifactIntegrityError(
             "freeze.json violates StudyFreeze contract"
         ) from error
-
-
-def _resolved_contract(spec: ResolvedCandidateRunSpec) -> ResolvedRunConfig:
-    config = spec.config
-    lean = spec.lean_config
-    return ResolvedRunConfig(
-        signal_name=config.signal_name,
-        signal_index=lean.signal_index,
-        feature_names=config.feature_names,
-        feature_indices=lean.feature_indices,
-        fit_symbol_names=config.fit_symbol_names,
-        fit_symbol_indices=lean.fit_symbol_indices,
-        fit_cutoff=str(np.datetime64(lean.fit_cutoff, "ns")),
-        rule_entry_threshold=lean.rule_entry_threshold,
-        rule_exit_threshold=lean.rule_exit_threshold,
-        forecast_entry_threshold=lean.forecast_entry_threshold,
-        forecast_exit_threshold=lean.forecast_exit_threshold,
-        ppo_total_timesteps=lean.ppo_total_timesteps,
-        ppo_seed=lean.ppo_seed,
-        evaluation_start=str(np.datetime64(config.evaluation_start, "ns")),
-        evaluation_stop_exclusive=str(
-            np.datetime64(config.evaluation_stop_exclusive, "ns")
-        ),
-        gross_budget=config.gross_budget,
-        initial_capital=config.initial_capital,
-        execution_overlay="zero_overlay_dataset_fields_authoritative",
-    )
 
 
 def _semantic_without_seed(config: ResolvedRunConfig) -> dict[str, object]:

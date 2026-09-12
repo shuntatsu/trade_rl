@@ -2,7 +2,7 @@
   "id": "research-status",
   "title": "研究の現在地",
   "nav_label": "研究の現在地",
-  "summary": "何が検証済みで、何が未開始・未証明・制約として残っているかを分離して表示します。",
+  "summary": "何が検証済みで、何が実行中・未解釈・未証明・制約として残っているかを分離して表示します。",
   "keywords": [
     "M2",
     "baseline",
@@ -17,12 +17,12 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "76cb099e8a17340df850104021c7397c52bcfd55af257555b2f8c508d142c07a"
+      "sha256": "5be69c7321de526c3bb40c75a07119632ef49e20a18b63cb49f601f1abe8ff98"
     },
     {
       "path": "docs/research/current-status.md",
-      "heading": "M2 — Canonical real-data baseline verified; controlled comparison not started",
-      "sha256": "9cd5515915777fc791ac74c1cfaa790bcc56447789fa83fa5d1bc764671aea8c"
+      "heading": "M2 — Canonical real-data baseline verified; Controlled Experiment 0001 in progress",
+      "sha256": "29f56ab3acf4f4c08e3c1eed966221316a12c1f917e2cf1be954f8461c73a4fd"
     }
   ],
   "sections": [
@@ -51,17 +51,18 @@
           "結果前のplan-only portable preregistrationをbaselineより先に封印",
           "5 symbols × 8 strategies × 5 seedsのportable baseline evidence",
           "tradeあり175 observationsで175 / 175 positive total_cost",
-          "別runnerでDataset / StudyPlanを再構築しraw Candidate Runsから独立再計算"
+          "別runnerでDataset / StudyPlanを再構築しraw Candidate Runsから独立再計算",
+          "portable Experiment 0001の結果前preregistrationとfresh verifierを完了し、bound runを開始"
         ]
       },
       {
         "id": "pending",
         "label": "次に実行",
         "items": [
-          "portable lineageの最初のControlled Factorを結果を見る前に事前登録",
-          "portable baseline Artifactをimmutable inputとして最初のControlled Experimentを実行",
-          "factor isolationとmulti-seed analysisを独立検証",
-          "development結果からwinnerまたはno-winnerを判断"
+          "事前登録済みのbound 5-seed candidate runだけを完了させる",
+          "result Artifactをexact runへbindしてimmutable evidenceとして固定",
+          "pre-result-frozen verifierでfactor isolation・raw-return equality・metric invariance・cost semanticsを独立再検証",
+          "検証Green後だけformal decisionを解釈し、次のExperimentまたはwinner / no-winner判断へ進む"
         ]
       },
       {
@@ -81,7 +82,7 @@
           "portable numerics保証はcanonical Dataset constructionとrepositoryのsupported Python/runner環境が対象",
           "fee/spreadは再現可能なresearch assumptionsでありaccount-specific venue truthではない",
           "Dataset-authoritative market-impact/slippage modelは未導入",
-          "PPO controlled factorを解釈する前にcross-seed aggregation contractを明示する必要がある"
+          "PPO cross-seed aggregationはcurrent mainで修正済みだが、進行中Experiment 0001はfreeze済み旧implementationを維持しPPO aggregate metricをdecision oracleに使わない"
         ]
       }
     ]

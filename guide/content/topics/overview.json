@@ -21,7 +21,7 @@
     {
       "path": "docs/research/current-status.md",
       "heading": "結論",
-      "sha256": "76cb099e8a17340df850104021c7397c52bcfd55af257555b2f8c508d142c07a"
+      "sha256": "5be69c7321de526c3bb40c75a07119632ef49e20a18b63cb49f601f1abe8ff98"
     }
   ],
   "sections": [
@@ -36,7 +36,7 @@
       "title": "現在の位置",
       "body": [
         "market_build_v3 / portable_feature_numerics_v1、real-cost assumption、PPO Observation v2を持つportable Canonical real-data baselineは、結果前preregistrationからpost-Artifact独立検証まで完了しています。",
-        "Controlled Experimentはportable lineage上ではまだ開始しておらず、profitability・winner・Production authorizationは未証明です。"
+        "Portable Controlled Experiment 0001は結果前preregistrationとfresh verificationを終えてbound 5-seed runを実行中ですが、結果は未解釈です。profitability・winner・Production authorizationは未証明です。"
       ]
     }
   ],

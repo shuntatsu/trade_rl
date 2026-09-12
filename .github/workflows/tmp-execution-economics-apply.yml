@@ -1,0 +1,182 @@
+name: Temporary execution economics implementation
+
+on:
+  push:
+    branches:
+      - fix/m2-execution-economics-protocol
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'chore: apply execution economics implementation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 2
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Apply bounded implementation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected one replacement, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          config = Path("trade_rl/data/build/config.py")
+          replace_once(
+              config,
+              "from trade_rl.data.contracts import (\n",
+              "from trade_rl.data.contracts import (\n",
+          )
+          text = config.read_text(encoding="utf-8")
+          marker = ")\n\n\n@dataclass(frozen=True, slots=True)\nclass MarketDatasetBuildRequest:"
+          replacement = (
+              ")\nfrom trade_rl.data.economics import (\n"
+              "    ExecutionEconomicsConfig,\n"
+              "    parse_execution_economics,\n"
+              ")\n\n\n@dataclass(frozen=True, slots=True)\nclass MarketDatasetBuildRequest:"
+          )
+          if text.count(marker) != 1:
+              raise RuntimeError("config import/dataclass marker mismatch")
+          text = text.replace(marker, replacement, 1)
+          old_request = (
+              "class MarketDatasetBuildRequest:\n"
+              "    source_root: Path\n"
+              "    config: MarketBuildConfig\n"
+              "    instruments: tuple[InstrumentContract, ...]\n"
+          )
+          new_request = old_request + "    execution_economics: ExecutionEconomicsConfig | None = None\n"
+          if text.count(old_request) != 1:
+              raise RuntimeError("build request marker mismatch")
+          text = text.replace(old_request, new_request, 1)
+          old_allowed = (
+              '            "cross_asset_reference_symbol",\n'
+              '            "features",\n'
+              '            "instruments",\n'
+          )
+          new_allowed = (
+              '            "cross_asset_reference_symbol",\n'
+              '            "features",\n'
+              '            "instruments",\n'
+              '            "execution_economics",\n'
+          )
+          if text.count(old_allowed) != 1:
+              raise RuntimeError("root allowed marker mismatch")
+          text = text.replace(old_allowed, new_allowed, 1)
+          old_return = "        instruments=instruments,\n    )\n"
+          new_return = (
+              "        instruments=instruments,\n"
+              "        execution_economics=(\n"
+              "            None\n"
+              "            if root.get(\"execution_economics\") is None\n"
+              "            else parse_execution_economics(root[\"execution_economics\"])\n"
+              "        ),\n"
+              "    )\n"
+          )
+          if text.count(old_return) != 1:
+              raise RuntimeError("build request return marker mismatch")
+          config.write_text(text.replace(old_return, new_return, 1), encoding="utf-8")
+
+          builder = Path("trade_rl/data/build/builder.py")
+          text = builder.read_text(encoding="utf-8")
+          import_marker = "from trade_rl.data.features.core import calculate_feature_events\n"
+          import_replacement = (
+              "from trade_rl.data.economics import ExecutionEconomicsConfig\n"
+              + import_marker
+          )
+          if text.count(import_marker) != 1:
+              raise RuntimeError("builder import marker mismatch")
+          text = text.replace(import_marker, import_replacement, 1)
+          old_signature = (
+              "        instruments: tuple[InstrumentContract, ...],\n"
+              "        *,\n"
+              "        identity_provenance: Mapping[str, object] | None = None,\n"
+              "    ) -> MarketDataset:\n"
+          )
+          new_signature = (
+              "        instruments: tuple[InstrumentContract, ...],\n"
+              "        *,\n"
+              "        identity_provenance: Mapping[str, object] | None = None,\n"
+              "        execution_economics: ExecutionEconomicsConfig | None = None,\n"
+              "    ) -> MarketDataset:\n"
+          )
+          if text.count(old_signature) != 1:
+              raise RuntimeError("builder signature marker mismatch")
+          text = text.replace(old_signature, new_signature, 1)
+          old_economics = (
+              "            funding_event_count=funding_event_count,\n"
+              "        )\n"
+              "        symbol_active = economics.symbol_active\n"
+          )
+          new_economics = (
+              "            funding_event_count=funding_event_count,\n"
+              "            fee_rate=(0.0 if execution_economics is None else execution_economics.fee_rate),\n"
+              "            maker_fee_rate=(0.0 if execution_economics is None else execution_economics.maker_fee_rate),\n"
+              "            taker_fee_rate=(0.0 if execution_economics is None else execution_economics.taker_fee_rate),\n"
+              "            spread_rate=(0.0 if execution_economics is None else execution_economics.spread_rate),\n"
+              "            max_participation_rate=(1.0 if execution_economics is None else execution_economics.max_participation_rate),\n"
+              "            borrow_available=(True if execution_economics is None else execution_economics.borrow_available),\n"
+              "            borrow_rate=(0.0 if execution_economics is None else execution_economics.borrow_rate),\n"
+              "        )\n"
+              "        symbol_active = economics.symbol_active\n"
+          )
+          if text.count(old_economics) != 1:
+              raise RuntimeError("builder economics marker mismatch")
+          text = text.replace(old_economics, new_economics, 1)
+          old_metadata_tail = (
+              '            "global_feature_names": self.config.global_feature_names,\n'
+              "        }\n"
+              "        if identity_provenance is not None:\n"
+          )
+          new_metadata_tail = (
+              '            "global_feature_names": self.config.global_feature_names,\n'
+              "        }\n"
+              "        if execution_economics is not None:\n"
+              "            metadata[\"execution_economics\"] = (\n"
+              "                execution_economics.canonical_payload()\n"
+              "            )\n"
+              "        if identity_provenance is not None:\n"
+          )
+          if text.count(old_metadata_tail) != 1:
+              raise RuntimeError("builder metadata marker mismatch")
+          builder.write_text(
+              text.replace(old_metadata_tail, new_metadata_tail, 1),
+              encoding="utf-8",
+          )
+          PY
+      - name: Format implementation
+        run: uv run ruff format trade_rl/data/economics.py trade_rl/data/build/config.py trade_rl/data/build/builder.py tests/data/test_execution_economics_build.py
+      - name: Ruff targeted
+        run: uv run ruff check trade_rl/data/economics.py trade_rl/data/build/config.py trade_rl/data/build/builder.py tests/data/test_execution_economics_build.py
+      - name: Targeted and adjacent tests
+        run: >-
+          uv run pytest -q
+          tests/data/test_execution_economics_build.py
+          tests/data/test_market_build_config_session.py
+          tests/data/test_market_builder.py
+          tests/data/test_economic_semantics.py
+          tests/data/test_market_artifact.py
+      - name: Commit implementation if verified
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add trade_rl/data/economics.py trade_rl/data/build/config.py trade_rl/data/build/builder.py tests/data/test_execution_economics_build.py
+          git diff --cached --check
+          git commit -m "feat: add explicit execution economics build contract"
+          git push origin HEAD:fix/m2-execution-economics-protocol

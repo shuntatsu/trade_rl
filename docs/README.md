@@ -12,11 +12,11 @@
 - [`architecture/controlled-experiment-loop.md`](architecture/controlled-experiment-loop.md) — development Study、Canonical M2 bootstrap preparation、EvidenceSet、controlled factor、lineage、FAILED/INVALID、freezeの恒久契約
 - [`research/current-status.md`](research/current-status.md) — 現在の研究目的、比較候補、M1/M2/M3の状態、canonical bootstrap、development/final評価手順と未検証事項
 
-人間向けの説明UIは root [`guide/`](../guide/README.md) に置く。Interactive Guideはこの `docs/` の正本から派生した**非正本の説明層**であり、技術仕様・研究状態のauthorityにはしない。Guide topicは参照する正本Markdown sectionのfingerprintを保持し、正本変更時は内容レビューとsource checkを必要とする。
+人間向けの説明UIは root [`guide/`](../guide/README.md) に置く。Interactive Guideはこの `docs/` の正本から派生した**非正本の説明層**であり、技術仕様・研究状態のauthorityにはしない。Guide topicは参照する正本Markdown sectionのfingerprintを保持し、正本変更時は内容レビューとsource checkを必要とする。公開版は <https://shuntatsu.github.io/trade_rl/> で提供する。
 
-現在Activeなspecは [`specs/2026-09-13-interactive-guide-pages-v1.md`](specs/2026-09-13-interactive-guide-pages-v1.md)、Activeなimplementation planは [`plans/2026-09-13-interactive-guide-pages-v1.md`](plans/2026-09-13-interactive-guide-pages-v1.md) で、Interactive Human GuideをGitHub Pagesへ安全に公開し、外部Pages設定とpost-deploy oracleまで完遂する作業を定義する。Issue #494のportable Dataset numerics contractは `architecture/lean-core.md` と `architecture/package-boundaries.md` へ、portable canonical lineageのcurrent stateは `research/current-status.md` へ昇格済みである。Agent Repository Control Plane v1、Agent Coordination Plane v1、Interactive Human Guide v1の実装済み契約も `AGENTS.md`、`architecture/package-boundaries.md`、`guide/README.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
+現在Activeなspec / planはない。Interactive Human Guide Pages v1はGitHub Pages有効化、main deployment、実公開URLへのbrowser smokeまで完了し、恒久運用契約を `.github/workflows/deploy-guide.yml`、`guide/README.md`、`docs/AGENTS.md`、architecture/contract testsへ昇格済みである。Issue #494のportable Dataset numerics contractは `architecture/lean-core.md` と `architecture/package-boundaries.md` へ、portable canonical lineageのcurrent stateは `research/current-status.md` へ昇格済みである。Agent Repository Control Plane v1、Agent Coordination Plane v1、Interactive Human Guide v1の実装済み契約も `AGENTS.md`、`architecture/package-boundaries.md`、`guide/README.md`、Repository tooling source、architecture/contract testsへ昇格済みであり、完了済みspec/planはcurrent treeから除去する。外部GitHub設定や独立Agent実験のようなGit tree外の未完了作業はGitHub Issueで追跡し、完了済みimplementation planをcurrent docsへ残さない。
 
-GitHub PagesのSource設定と公開siteの到達性はGit tree外の状態である。workflow実装やCI Greenだけでは公開済みと判定せず、Pages state read-back・deployment・public smokeが揃うまでこのPages作業をActiveとして扱う。
+GitHub PagesのSource設定と公開siteの到達性はGit tree外の状態である。公開済み状態はworkflow実装やCI Greenだけでなく、Pages state read-back、deployment、public smokeで検証する。
 
 Rootの `README.md` はRepository概要と実行入口、rootの `AGENTS.md` はAgentの最短routingを担当する。詳細な現行契約はこの `docs/` 以下を正本とする。
 

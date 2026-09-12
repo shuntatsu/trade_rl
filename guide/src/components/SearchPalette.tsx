@@ -8,7 +8,8 @@ import {
   useState,
 } from "react";
 
-import { searchTopics } from "../content/search";
+import type { GuideNavigateTarget } from "../app/useHashRoute";
+import { searchGuide, type GuideSearchResult } from "../content/search";
 import type { GuideTopic } from "../content/schema";
 
 const FOCUSABLE_SELECTOR = [
@@ -23,13 +24,13 @@ export function SearchPalette({
   onNavigate,
 }: {
   topics: GuideTopic[];
-  onNavigate: (id: string) => void;
+  onNavigate: (target: GuideNavigateTarget) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const results = useMemo(() => searchTopics(topics, query).slice(0, 7), [query, topics]);
+  const results = useMemo(() => searchGuide(topics, query).slice(0, 12), [query, topics]);
 
   const closeAndRestoreFocus = useCallback(() => {
     setOpen(false);
@@ -76,8 +77,12 @@ export function SearchPalette({
     }
   };
 
-  const choose = (id: string) => {
-    onNavigate(id);
+  const choose = (result: GuideSearchResult) => {
+    onNavigate({
+      topicId: result.topicId,
+      ...(result.step ? { step: result.step } : {}),
+      ...(result.symbol ? { symbol: result.symbol } : {}),
+    });
     setOpen(false);
     setQuery("");
   };
@@ -105,7 +110,7 @@ export function SearchPalette({
             className="search-palette"
             role="dialog"
             aria-modal="true"
-            aria-label="Guide search"
+            aria-label="ガイド検索"
             onKeyDown={trapDialogFocus}
             onMouseDown={(event) => event.stopPropagation()}
           >
@@ -115,7 +120,7 @@ export function SearchPalette({
                 ref={inputRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="例: Observation、実行コスト、Study"
+                placeholder="例: 希望保有数量、desired_quantity、実行コスト"
                 aria-label="ガイドを検索"
               />
               <button
@@ -129,15 +134,15 @@ export function SearchPalette({
             </div>
             <div className="search-palette__results" aria-live="polite">
               {results.length ? (
-                results.map((topic) => (
+                results.map((result) => (
                   <button
                     type="button"
-                    key={topic.id}
+                    key={`${result.kind}:${result.topicId}:${result.symbol ?? ""}:${result.title}`}
                     className="search-result"
-                    onClick={() => choose(topic.id)}
+                    onClick={() => choose(result)}
                   >
-                    <strong>{topic.title}</strong>
-                    <span>{topic.summary}</span>
+                    <strong>{result.title}</strong>
+                    <span>{result.subtitle}</span>
                   </button>
                 ))
               ) : (

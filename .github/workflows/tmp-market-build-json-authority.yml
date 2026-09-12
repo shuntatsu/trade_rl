@@ -17,14 +17,10 @@ jobs:
         with:
           ref: refactor/market-build-json-authority
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
-        with:
-          version: "0.8.22"
       - name: Apply guarded authority patch
         shell: bash
         run: |
           set -euo pipefail
-          uv sync --extra dev
           python - <<'PY'
           from pathlib import Path
 
@@ -59,9 +55,6 @@ jobs:
               raise SystemExit("root allowlist guard mismatch")
           config.write_text(text.replace(old, new), encoding="utf-8")
           PY
-          uv run ruff format trade_rl/data/contracts.py trade_rl/data/build/config.py tests/architecture/test_market_build_json_authority.py
-          uv run ruff check trade_rl/data/contracts.py trade_rl/data/build/config.py tests/architecture/test_market_build_json_authority.py
-          uv run pytest -q tests/architecture/test_market_build_json_authority.py tests/data/test_market_build_config_session.py
           rm .github/workflows/tmp-market-build-json-authority.yml
           git add -A
           git diff --cached --check

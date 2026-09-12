@@ -8,7 +8,6 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -134,6 +133,20 @@ def _class_signature(node: ast.ClassDef) -> str:
     return f"class {node.name}{suffix}"
 
 
+def _decorator_name(decorator: ast.expr) -> str | None:
+    if isinstance(decorator, ast.Name):
+        return decorator.id
+    if isinstance(decorator, ast.Attribute):
+        return decorator.attr
+    if isinstance(decorator, ast.Call):
+        return _decorator_name(decorator.func)
+    return None
+
+
+def _is_overload(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    return any(_decorator_name(decorator) == "overload" for decorator in node.decorator_list)
+
+
 def _symbol_entry(
     *,
     qualified_name: str,
@@ -184,6 +197,8 @@ def _class_symbols(
     ]
     for child in node.body:
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if _is_overload(child):
+                continue
             symbols.append(
                 _symbol_entry(
                     qualified_name=".".join((qualified_class, child.name)),
@@ -226,6 +241,8 @@ def build_symbol_index(source_root: Path, *, revision: str) -> dict[str, object]
         file_symbols: list[dict[str, object]] = []
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if _is_overload(node):
+                    continue
                 file_symbols.append(
                     _symbol_entry(
                         qualified_name=f"{module_name}.{node.name}",

@@ -7,6 +7,7 @@ import numpy as np
 import trade_rl.evaluation.runs.candidate_suite as candidate_suite
 from trade_rl.data.market import MarketDataset
 from trade_rl.evaluation.comparison.strategies import UniversalStrategyComparison
+from trade_rl.evaluation.experiments.contracts import StudyPlan
 from trade_rl.strategies.controls import ConstantIntentStrategy
 from trade_rl.strategies.position_intent import PositionIntent
 
@@ -116,16 +117,7 @@ def test_suite_fits_one_universal_candidate_set_and_compares_every_symbol(
     assert calls["lightgbm_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["ppo_kwargs"]["fit_symbol_indices"] == (0,)
     assert calls["comparison_dataset"] is dataset
-    assert calls["names"] == (
-        "cash",
-        "constant_long",
-        "constant_short",
-        "trend",
-        "mean_reversion",
-        "ridge24",
-        "lightgbm24",
-        "ppo",
-    )
+    assert calls["names"] == StudyPlan.STRATEGY_NAMES
     assert calls["kwargs"] == {
         "start_index": 54,
         "stop_index": 59,

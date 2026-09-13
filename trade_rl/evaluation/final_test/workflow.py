@@ -56,7 +56,7 @@ def _authorization_from_study(
         )
     if freeze.selected_evidence_digest is None or freeze.selected_strategy is None:
         raise ArtifactIntegrityError("WINNER Study freeze lacks selected evidence")
-    return FinalEvaluationAuthorization(
+    authorization = FinalEvaluationAuthorization(
         study_digest=snapshot.plan.digest,
         study_freeze_digest=freeze.digest,
         winner_evidence_digest=freeze.selected_evidence_digest,
@@ -69,6 +69,11 @@ def _authorization_from_study(
         authorized_by=authorized_by,
         authorized_at=authorized_at,
     )
+    if authorization.authorized_at < freeze.frozen_at:
+        raise ContractViolationError(
+            "final evaluation authorization time must not precede Study freeze"
+        )
+    return authorization
 
 
 def _artifact_payload(
@@ -197,6 +202,8 @@ def _validate_study_binding(
         != snapshot.plan.baseline_config.evaluation_stop_exclusive
     ):
         raise ArtifactIntegrityError("authorization Study development window mismatch")
+    if authorization.authorized_at < freeze.frozen_at:
+        raise ArtifactIntegrityError("authorization predates bound Study freeze")
 
 
 def inspect_final_evaluation_authorization(

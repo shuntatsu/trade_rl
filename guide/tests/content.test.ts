@@ -50,17 +50,17 @@ function codeReference() {
 }
 
 describe("guide content", () => {
-  it("loads the eight reviewed topics in manifest order", () => {
+  it("loads the eight reviewed topics in document navigation order", () => {
     const topics = loadTopics();
     expect(topics.map((topic) => topic.id)).toEqual([
       "overview",
+      "data-flow",
       "implementation-replay",
       "implementation-ppo",
-      "code-map",
-      "data-flow",
       "execution-economics",
       "experiment-loop",
       "research-status",
+      "code-map",
     ]);
     expect(topics.every((topic) => topic.source_sections.length > 0)).toBe(true);
     expect(

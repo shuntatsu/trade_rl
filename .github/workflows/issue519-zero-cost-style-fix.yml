@@ -1,0 +1,34 @@
+name: Issue 519 zero-cost diagnostic style fix
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-execute
+    paths:
+      - .github/workflows/issue519-zero-cost-style-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: tmp/issue519-exp0002-execute
+          fetch-depth: 1
+      - name: Remove exact unused import and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(grep -c '^from trade_rl.evaluation.replay import run_single_symbol_replay$' research/issue519_zero_cost_diagnostic.py)" = "1"
+          sed -i '/^from trade_rl\.evaluation\.replay import run_single_symbol_replay$/d' research/issue519_zero_cost_diagnostic.py
+          git diff --check
+          git diff --exit-code -- research/issue519_zero_cost_diagnostic.py >/dev/null && exit 1 || true
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add research/issue519_zero_cost_diagnostic.py
+          git commit -m 'style: remove unused diagnostic import'
+          git push origin HEAD:tmp/issue519-exp0002-execute

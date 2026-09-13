@@ -1,0 +1,87 @@
+name: Issue 519 patch prereg verifier
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-prereg
+    paths:
+      - .github/workflows/issue519-patch-prereg-verifier.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: tmp/issue519-exp0002-prereg
+          fetch-depth: 1
+
+      - name: Patch verifier to bind complete prereg index
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue519_portable_exp002.py)" = "bdba6014b28ae931195c99684e650bb828aeafaf"
+          test "$(git hash-object research/test_issue519_portable_exp002_integration.py)" = "f11b0664a10e5be4b2bec82f7ea01a7d78d7c482"
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("research/issue519_portable_exp002.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''        "rule_entry_threshold": 0.01,
+                  "rule_exit_threshold": 0.0025,
+                  "candidate_executed": False,
+          '''
+          new = '''        "rule_entry_threshold": 0.01,
+                  "rule_exit_threshold": 0.0025,
+                  "frozen_baseline_mean_reversion_median_turnover": (
+                      EXPECTED_BASELINE_MEDIAN_TURNOVER
+                  ),
+                  "formal_target_strategy": "mean_reversion",
+                  "accept_positive_factor_effect_symbols_min": 4,
+                  "accept_median_excess_total_return_strictly_positive": True,
+                  "accept_candidate_positive_total_return_symbols": 5,
+                  "accept_candidate_turnover_strictly_below_baseline": True,
+                  "keep_baseline_positive_factor_effect_symbols_max": 2,
+                  "keep_baseline_median_excess_total_return_non_positive": True,
+                  "keep_baseline_candidate_positive_total_return_symbols_max": 3,
+                  "trend_side_effect_must_be_disclosed": True,
+                  "candidate_executed": False,
+          '''
+          if old not in text:
+              raise SystemExit("formal-rule anchor missing")
+          text = text.replace(old, new, 1)
+          old = '''    for key, expected in expected_pairs.items():
+                  if index.get(key) != expected:
+                      raise RuntimeError(f"Experiment 0002 preregistration index drift: {key}")
+              for key, expected in diagnostics.items():
+          '''
+          new = '''    expected_keys = set(expected_pairs) | set(diagnostics)
+              if set(index) != expected_keys:
+                  raise RuntimeError("Experiment 0002 preregistration index drift: key set")
+              for key, expected in expected_pairs.items():
+                  if index.get(key) != expected:
+                      raise RuntimeError(f"Experiment 0002 preregistration index drift: {key}")
+              for key, expected in diagnostics.items():
+          '''
+          if old not in text:
+              raise SystemExit("index-verification anchor missing")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
+      - name: Verify syntax and diff
+        run: |
+          python -m py_compile research/issue519_portable_exp002.py
+          git diff --check
+
+      - name: Commit strict verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add research/issue519_portable_exp002.py
+          git commit -m "fix: bind complete Experiment 0002 prereg index"
+          git push origin HEAD:tmp/issue519-exp0002-prereg

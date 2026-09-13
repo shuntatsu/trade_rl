@@ -1,44 +1,22 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  parseDocumentGuideManifest,
+  parseDocumentTopic,
+} from "../src/content/documentSchema";
 import { loadTopics } from "../src/content/loadTopics";
-import { parseTopic } from "../src/content/schema";
 
-function minimalTopic() {
+function sourceSection() {
   return {
-    id: "demo",
-    title: "デモ",
-    nav_label: "デモ",
-    summary: "デモ",
-    keywords: [],
-    source_sections: [
-      {
-        path: "docs/architecture/lean-core.md",
-        heading: "Core flow",
-        sha256: "0".repeat(64),
-      },
-    ],
-    sections: [],
-    visualization: {
-      kind: "architecture",
-      nodes: [
-        {
-          id: "a",
-          label: "A",
-          subtitle: "A",
-          description: "A",
-          input: "A",
-          output: "A",
-          not_owned: "A",
-        },
-      ],
-      edges: [],
-    },
+    path: "docs/architecture/lean-core.md",
+    heading: "Core flow",
+    sha256: "0".repeat(64),
   };
 }
 
-function codeReference() {
+function codeReference(id = "run") {
   return {
-    id: "run",
+    id,
     symbol: "trade_rl.demo.run",
     kind: "function",
     source_sha256: "a".repeat(64),
@@ -49,10 +27,23 @@ function codeReference() {
   };
 }
 
-describe("guide content", () => {
-  it("loads the eight reviewed topics in document navigation order", () => {
-    const topics = loadTopics();
-    expect(topics.map((topic) => topic.id)).toEqual([
+function topicMetadata(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "demo",
+    title: "デモ",
+    nav_label: "デモ",
+    summary: "デモ",
+    role: "detail",
+    keywords: [],
+    source_sections: [sourceSection()],
+    code_references: [],
+    ...overrides,
+  };
+}
+
+describe("Markdown-first Guide content", () => {
+  it("loads all reviewed pages in grouped navigation order", () => {
+    expect(loadTopics().map((topic) => topic.id)).toEqual([
       "overview",
       "data-flow",
       "implementation-replay",
@@ -62,123 +53,74 @@ describe("guide content", () => {
       "research-status",
       "code-map",
     ]);
-    expect(topics.every((topic) => topic.source_sections.length > 0)).toBe(true);
-    expect(
-      topics.every((topic) =>
-        topic.source_sections.every((source) => /^[0-9a-f]{64}$/.test(source.sha256)),
+  });
+
+  it("parses non-empty Markdown with an explicit role", () => {
+    const topic = parseDocumentTopic(topicMetadata(), "## 説明\n\n本文\n");
+    expect(topic.role).toBe("detail");
+    expect(topic.headings.map((heading) => heading.text)).toEqual(["説明"]);
+  });
+
+  it("rejects unsupported document roles", () => {
+    expect(() =>
+      parseDocumentTopic(topicMetadata({ role: "interactive" }), "## 説明\n"),
+    ).toThrow(/unsupported Guide page role/i);
+  });
+
+  it("forbids implementation references on overview and status pages", () => {
+    for (const role of ["overview", "status"] as const) {
+      expect(() =>
+        parseDocumentTopic(
+          topicMetadata({ role, code_references: [codeReference()] }),
+          "## 説明\n",
+        ),
+      ).toThrow(/must not expose code_references/i);
+    }
+  });
+
+  it("requires implementation references on reference pages", () => {
+    expect(() =>
+      parseDocumentTopic(topicMetadata({ role: "reference" }), "## 説明\n"),
+    ).toThrow(/requires code_references/i);
+  });
+
+  it("rejects duplicate code-reference ids", () => {
+    expect(() =>
+      parseDocumentTopic(
+        topicMetadata({
+          code_references: [codeReference("same"), codeReference("same")],
+        }),
+        "## 説明\n",
       ),
-    ).toBe(true);
+    ).toThrow(/code reference ids must be unique/i);
   });
 
-  it("rejects an unknown visualization kind", () => {
-    expect(() =>
-      parseTopic({
-        ...minimalTopic(),
-        id: "bad",
-        visualization: { kind: "mystery" },
-      }),
-    ).toThrow(/visualization kind/i);
+  it("rejects empty Markdown pages", () => {
+    expect(() => parseDocumentTopic(topicMetadata(), "   \n")).toThrow(
+      /Markdown page must be non-empty/i,
+    );
   });
 
-  it("rejects broken architecture edge references", () => {
+  it("rejects invalid manifest grouping and reading order", () => {
     expect(() =>
-      parseTopic({
-        ...minimalTopic(),
-        id: "broken",
-        visualization: {
-          kind: "architecture",
-          nodes: [
-            {
-              id: "a",
-              label: "A",
-              subtitle: "A",
-              description: "A",
-              input: "A",
-              output: "A",
-              not_owned: "A",
-            },
-          ],
-          edges: [{ from: "a", to: "missing" }],
-        },
+      parseDocumentGuideManifest({
+        schema_version: "document-guide-v2",
+        home: "overview",
+        groups: [
+          { id: "overview", label: "概要", topics: ["overview"] },
+          { id: "reference", label: "参照", topics: ["overview"] },
+        ],
+        reading_order: ["overview"],
       }),
-    ).toThrow(/edge reference/i);
-  });
-
-  it("rejects duplicate code reference ids", () => {
-    const reference = { ...codeReference(), id: "same" };
+    ).toThrow(/grouped topics must be unique/i);
 
     expect(() =>
-      parseTopic({
-        ...minimalTopic(),
-        code_references: [reference, reference],
+      parseDocumentGuideManifest({
+        schema_version: "document-guide-v2",
+        home: "overview",
+        groups: [{ id: "overview", label: "概要", topics: ["overview"] }],
+        reading_order: ["missing"],
       }),
-    ).toThrow(/code_references.*duplicate/i);
-  });
-
-  it("rejects empty Japanese code reference labels", () => {
-    expect(() =>
-      parseTopic({
-        ...minimalTopic(),
-        code_references: [{ ...codeReference(), label_ja: "" }],
-      }),
-    ).toThrow(/label_ja/i);
-  });
-
-  it("rejects sequence messages with unknown actors", () => {
-    expect(() =>
-      parseTopic({
-        ...minimalTopic(),
-        code_references: [codeReference()],
-        visualization: {
-          kind: "sequence",
-          actors: [{ id: "replay", label_ja: "リプレイ統括", code_ref: "run" }],
-          messages: [
-            {
-              id: "decide",
-              from: "replay",
-              to: "missing",
-              label_ja: "戦略判断を取得",
-            },
-          ],
-        },
-      }),
-    ).toThrow(/actor reference/i);
-  });
-
-  it("rejects sequence references to unknown code references", () => {
-    expect(() =>
-      parseTopic({
-        ...minimalTopic(),
-        code_references: [codeReference()],
-        visualization: {
-          kind: "sequence",
-          actors: [{ id: "replay", label_ja: "リプレイ統括", code_ref: "missing" }],
-          messages: [],
-        },
-      }),
-    ).toThrow(/code reference/i);
-  });
-
-  it("rejects duplicate sequence message ids", () => {
-    const message = {
-      id: "same",
-      from: "replay",
-      to: "strategy",
-      label_ja: "戦略判断を取得",
-    };
-    expect(() =>
-      parseTopic({
-        ...minimalTopic(),
-        code_references: [codeReference()],
-        visualization: {
-          kind: "sequence",
-          actors: [
-            { id: "replay", label_ja: "リプレイ統括", code_ref: "run" },
-            { id: "strategy", label_ja: "戦略" },
-          ],
-          messages: [message, message],
-        },
-      }),
-    ).toThrow(/messages.*duplicate/i);
+    ).toThrow(/unknown topic/i);
   });
 });

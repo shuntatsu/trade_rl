@@ -74,7 +74,11 @@ def test_human_guide_has_permanent_repository_routing_contract() -> None:
 
 
 def test_completed_human_guide_design_artifacts_are_removed() -> None:
-    assert not (ROOT / "docs/specs/2026-09-12-interactive-human-guide-v1.md").exists()
-    assert not (ROOT / "docs/plans/2026-09-12-interactive-human-guide-v1.md").exists()
-    assert not (ROOT / "docs/specs/2026-09-13-japanese-code-explorer-design.md").exists()
-    assert not (ROOT / "docs/plans/2026-09-13-japanese-code-explorer.md").exists()
+    completed = (
+        ROOT / "docs/specs/2026-09-12-interactive-human-guide-v1.md",
+        ROOT / "docs/plans/2026-09-12-interactive-human-guide-v1.md",
+        ROOT / "docs/specs/2026-09-13-japanese-code-explorer-design.md",
+        ROOT / "docs/plans/2026-09-13-japanese-code-explorer.md",
+    )
+    for path in completed:
+        assert not path.exists()

@@ -216,9 +216,7 @@ def _nonnegative_int(value: str, *, field: str, source: str) -> int:
     if result < 0:
         raise BinanceTransportError(f"aggTrades {field} must be non-negative: {source}")
     if result > _INT64_MAX:
-        raise BinanceTransportError(
-            f"aggTrades {field} exceeds int64 range: {source}"
-        )
+        raise BinanceTransportError(f"aggTrades {field} exceeds int64 range: {source}")
     return result
 
 

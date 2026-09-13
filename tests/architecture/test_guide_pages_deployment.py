@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy-guide.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def _workflow() -> str:
@@ -50,3 +51,10 @@ def test_pages_artifact_and_public_smoke_are_guide_only() -> None:
     assert "npm run e2e:public" in text
     assert (ROOT / "guide" / "playwright.public.config.ts").is_file()
     assert (ROOT / "guide" / "e2e" / "public-smoke.spec.ts").is_file()
+
+
+def test_guide_builds_are_bound_to_the_exact_verified_revision() -> None:
+    deploy = _workflow()
+    ci = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "GUIDE_SOURCE_REV: ${{ github.event.workflow_run.head_sha }}" in deploy
+    assert "GUIDE_SOURCE_REV: ${{ github.event.pull_request.head.sha || github.sha }}" in ci

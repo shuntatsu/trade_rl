@@ -51,6 +51,16 @@ jobs:
       - name: Install research environment
         run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
 
+      - name: Compile and lint Experiment 0002 prereg set
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile research/issue519_portable_exp002.py
+          uv run ruff check \
+            research/issue519_portable_exp002.py \
+            research/test_issue519_portable_exp002.py \
+            research/test_issue519_portable_exp002_integration.py
+
       - name: Run pure Experiment 0002 prereg tests
         run: uv run pytest -q research/test_issue519_portable_exp002.py
 

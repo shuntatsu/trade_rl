@@ -11,6 +11,8 @@ INTEGRATIONS = ROOT / "trade_rl" / "integrations"
 BINANCE = INTEGRATIONS / "binance"
 
 EXPECTED_BINANCE_PUBLIC_API = {
+    "BOOK_DEPTH_PERCENTAGE_BANDS",
+    "BinanceBookDepthSeries",
     "BinanceDatasetBuildResult",
     "BinanceExchangeInfoSnapshot",
     "BinanceInstrumentMetadata",
@@ -29,12 +31,16 @@ EXPECTED_BINANCE_PUBLIC_API = {
     "build_binance_market_dataset",
     "inspect_binance_vision_cache",
     "inspect_binance_vision_urls",
+    "parse_vision_book_depth_archive",
     "plan_binance_vision_cache",
+    "plan_vision_book_depth_urls",
     "plan_vision_kline_urls",
     "require_complete_binance_vision_cache",
     "sync_binance_vision_cache",
     "sync_binance_vision_urls",
+    "validate_book_depth_reference_alignment",
     "validate_cached_vision_payload",
+    "vision_book_depth_url",
     "vision_cache_path",
     "vision_funding_url",
     "vision_kline_url",
@@ -65,6 +71,7 @@ def test_binance_adapter_is_a_responsibility_package() -> None:
         "__init__.py",
         "types.py",
         "vision.py",
+        "book_depth.py",
         "cache.py",
         "metadata.py",
         "transport.py",
@@ -107,6 +114,18 @@ def test_binance_vision_has_no_upward_adapter_dependency() -> None:
         "trade_rl.integrations.binance.cache",
         "trade_rl.integrations.binance.metadata",
         "trade_rl.integrations.binance.transport",
+        "trade_rl.integrations.binance.dataset",
+    )
+    assert not any(name.startswith(forbidden) for name in imports)
+
+
+def test_binance_book_depth_is_provider_evidence_not_dataset_assembly() -> None:
+    imports = _imports(BINANCE / "book_depth.py")
+    forbidden = (
+        "trade_rl.data.market",
+        "trade_rl.data.build",
+        "trade_rl.evaluation",
+        "trade_rl.simulation",
         "trade_rl.integrations.binance.dataset",
     )
     assert not any(name.startswith(forbidden) for name in imports)

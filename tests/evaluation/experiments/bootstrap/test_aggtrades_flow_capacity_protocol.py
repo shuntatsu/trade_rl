@@ -29,6 +29,18 @@ def test_canonical_protocol_is_frozen_before_numeric_flow() -> None:
     assert protocol.provider_parser_blob_sha == (
         "15cfe8f63716451fdb8c08ae84fba66ca754c55e"
     )
+    assert protocol.source_validation_run_id == 34758933034
+    assert protocol.source_validation_artifact_id == 10318765553
+    assert protocol.source_validation_artifact_digest == (
+        "3abd6592169ace3f308059fd524199d6fcf76c38862d0caec5e58192f6c7f7a3"
+    )
+    assert protocol.source_validation_manifest_sha256 == (
+        "9ebffe78c29dbe336e5ed1323b686f41fae56ef83c50104fae3b8e965eb01f0a"
+    )
+    assert protocol.causal_capacity_head_sha == (
+        "db8193c81dd0ca334a15ffc1895d75884238f8a9"
+    )
+    assert protocol.processing_bar_volume_capacity is False
     assert protocol.market == "usds-m"
     assert protocol.symbols == (
         "BTCUSDT",
@@ -49,8 +61,18 @@ def test_canonical_protocol_is_frozen_before_numeric_flow() -> None:
     assert protocol.min_valid_days_per_year == 10
     assert protocol.min_valid_hours_per_symbol == 480
     assert protocol.checksum_required is True
+    assert protocol.checksum_suffix == ".CHECKSUM"
     assert protocol.buyer_taker_when_buyer_is_maker is False
     assert protocol.seller_taker_when_buyer_is_maker is True
+    assert protocol.archive_url_template == (
+        "https://data.binance.vision/data/futures/um/daily/aggTrades/"
+        "{symbol}/{symbol}-aggTrades-{date}.zip"
+    )
+    assert protocol.trade_notional_formula == "price_times_quantity"
+    assert protocol.hour_alignment == "utc_hour"
+    assert protocol.burst_bin_alignment == "utc_epoch_floor_5000ms"
+    assert protocol.fraction_formula == "min_peak_buy_sell_5s_over_hour_total"
+    assert protocol.order_statistic_rule == "ceil_qn_minus_one"
     assert len(protocol.digest) == 64
 
     planned_days = protocol.planned_days
@@ -64,8 +86,10 @@ def test_canonical_protocol_is_frozen_before_numeric_flow() -> None:
 
     planned_urls = protocol.planned_urls
     assert len(planned_urls) == 120
+    assert len(set(planned_urls)) == 120
     assert planned_urls[0].endswith("/BTCUSDT/BTCUSDT-aggTrades-2021-01-01.zip")
     assert planned_urls[-1].endswith("/ADAUSDT/ADAUSDT-aggTrades-2022-12-01.zip")
+    assert all("2023-" not in url for url in planned_urls)
 
 
 def test_protocol_rejects_semantic_drift_and_post_evaluation_data() -> None:
@@ -80,6 +104,12 @@ def test_protocol_rejects_semantic_drift_and_post_evaluation_data() -> None:
     mutations = (
         {"provider_head_sha": "0" * 40},
         {"provider_parser_blob_sha": "0" * 40},
+        {"source_validation_run_id": 1},
+        {"source_validation_artifact_id": 1},
+        {"source_validation_artifact_digest": "0" * 64},
+        {"source_validation_manifest_sha256": "0" * 64},
+        {"causal_capacity_head_sha": "0" * 40},
+        {"processing_bar_volume_capacity": True},
         {"market": "spot"},
         {"symbols": ("BTCUSDT",)},
         {"sample_month_days": (1, 15)},
@@ -91,8 +121,15 @@ def test_protocol_rejects_semantic_drift_and_post_evaluation_data() -> None:
         {"min_valid_days_per_year": 9},
         {"min_valid_hours_per_symbol": 479},
         {"checksum_required": False},
+        {"checksum_suffix": ".sha256"},
         {"buyer_taker_when_buyer_is_maker": True},
         {"seller_taker_when_buyer_is_maker": False},
+        {"archive_url_template": "https://example.invalid/{symbol}/{date}.zip"},
+        {"trade_notional_formula": "quantity_only"},
+        {"hour_alignment": "rolling_hour"},
+        {"burst_bin_alignment": "data_dependent"},
+        {"fraction_formula": "peak_buy_only"},
+        {"order_statistic_rule": "linear_interpolation"},
     )
     for mutation in mutations:
         with pytest.raises(ValueError, match="preregistered"):

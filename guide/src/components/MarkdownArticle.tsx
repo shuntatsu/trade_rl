@@ -54,9 +54,21 @@ export function MarkdownArticle({ topic }: { topic: DocumentGuideTopic }) {
             const safe = safeUrl(href ?? "");
             return safe ? <a href={safe}>{children}</a> : <span>{children}</span>;
           },
-          pre: ({ children }) => <pre className="markdown-article__code-block">{children}</pre>,
+          pre: ({ children }) => (
+            <pre
+              className="markdown-article__code-block"
+              tabIndex={0}
+              aria-label="横スクロール可能なコードブロック"
+            >
+              {children}
+            </pre>
+          ),
           table: ({ children }) => (
-            <div className="markdown-article__table-scroll">
+            <div
+              className="markdown-article__table-scroll"
+              tabIndex={0}
+              aria-label="横スクロール可能な表"
+            >
               <table>{children}</table>
             </div>
           ),

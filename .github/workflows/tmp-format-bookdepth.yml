@@ -1,0 +1,37 @@
+name: Temporary bookDepth formatter
+
+on:
+  push:
+    branches:
+      - feat/binance-bookdepth-evidence
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/binance-bookdepth-evidence
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+      - name: Format only the new module
+        run: uv run ruff format trade_rl/integrations/binance/book_depth.py
+      - name: Commit only formatting
+        run: |
+          if git diff --quiet -- trade_rl/integrations/binance/book_depth.py; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trade_rl/integrations/binance/book_depth.py
+          git commit -m "style: format Binance bookDepth evidence module"
+          git push origin HEAD:feat/binance-bookdepth-evidence

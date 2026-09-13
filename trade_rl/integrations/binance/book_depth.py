@@ -42,7 +42,9 @@ class BinanceBookDepthSeries:
     percentage_bands: tuple[int, ...] = BOOK_DEPTH_PERCENTAGE_BANDS
 
     def __post_init__(self) -> None:
-        timestamps = np.asarray(self.timestamps, dtype="datetime64[ns]").reshape(-1).copy()
+        timestamps = (
+            np.asarray(self.timestamps, dtype="datetime64[ns]").reshape(-1).copy()
+        )
         available_at = (
             np.asarray(self.available_at, dtype="datetime64[ns]").reshape(-1).copy()
         )
@@ -54,10 +56,15 @@ class BinanceBookDepthSeries:
             raise ValueError("source_uri must be non-empty")
         if not _SHA256_RE.fullmatch(self.raw_payload_sha256):
             raise ValueError("raw_payload_sha256 must be a lowercase SHA-256 digest")
-        if isinstance(self.raw_payload_size_bytes, bool) or self.raw_payload_size_bytes <= 0:
+        if (
+            isinstance(self.raw_payload_size_bytes, bool)
+            or self.raw_payload_size_bytes <= 0
+        ):
             raise ValueError("raw_payload_size_bytes must be positive")
         if tuple(self.percentage_bands) != BOOK_DEPTH_PERCENTAGE_BANDS:
-            raise ValueError("percentage_bands must match the maintained bookDepth schema")
+            raise ValueError(
+                "percentage_bands must match the maintained bookDepth schema"
+            )
 
         expected_shape = (timestamps.size, len(BOOK_DEPTH_PERCENTAGE_BANDS))
         if timestamps.size <= 0:
@@ -100,7 +107,9 @@ def vision_book_depth_url(
 
     resolved = _market(market)
     if resolved is not BinanceMarket.USDS_M:
-        raise ValueError("bookDepth evidence is currently supported only for Binance USD-M")
+        raise ValueError(
+            "bookDepth evidence is currently supported only for Binance USD-M"
+        )
     if not symbol:
         raise ValueError("symbol must be non-empty")
     date = _aware_utc(day, field="day").strftime("%Y-%m-%d")
@@ -153,7 +162,9 @@ def _band(value: str, *, source: str) -> int:
             f"invalid bookDepth percentage band {value!r}: {source}"
         ) from error
     if band not in BOOK_DEPTH_PERCENTAGE_BANDS:
-        raise BinanceTransportError(f"unsupported bookDepth percentage band {band}: {source}")
+        raise BinanceTransportError(
+            f"unsupported bookDepth percentage band {band}: {source}"
+        )
     return band
 
 
@@ -274,7 +285,9 @@ def parse_vision_book_depth_archive(
             f"Binance Vision bookDepth header is unsupported: {actual}: {source}"
         )
     if len(rows) == 1:
-        raise BinanceTransportError(f"bookDepth archive contains no data rows: {source}")
+        raise BinanceTransportError(
+            f"bookDepth archive contains no data rows: {source}"
+        )
 
     snapshots: list[tuple[np.datetime64, np.ndarray, np.ndarray, np.ndarray]] = []
     current_timestamp: np.datetime64 | None = None
@@ -314,7 +327,9 @@ def parse_vision_book_depth_archive(
         current_rows[band] = (depth, notional)
 
     if current_timestamp is None:
-        raise BinanceTransportError(f"bookDepth archive contains no snapshots: {source}")
+        raise BinanceTransportError(
+            f"bookDepth archive contains no snapshots: {source}"
+        )
     snapshots.append(
         _finalize_snapshot(
             current_rows,
@@ -323,7 +338,9 @@ def parse_vision_book_depth_archive(
         )
     )
 
-    timestamps = np.asarray([snapshot[0] for snapshot in snapshots], dtype="datetime64[ns]")
+    timestamps = np.asarray(
+        [snapshot[0] for snapshot in snapshots], dtype="datetime64[ns]"
+    )
     depth = np.stack([snapshot[1] for snapshot in snapshots])
     notional = np.stack([snapshot[2] for snapshot in snapshots])
     implied = np.stack([snapshot[3] for snapshot in snapshots])
@@ -355,7 +372,9 @@ def validate_book_depth_reference_alignment(
         raise ValueError("max_relative_deviation_rate must be finite and in (0, 1)")
     references = np.asarray(reference_prices, dtype=np.float64).reshape(-1)
     if references.shape != series.timestamps.shape:
-        raise ValueError("reference_prices must contain one value per bookDepth snapshot")
+        raise ValueError(
+            "reference_prices must contain one value per bookDepth snapshot"
+        )
     if not np.all(np.isfinite(references)) or np.any(references <= 0.0):
         raise ValueError("reference_prices must be finite and positive")
 

@@ -1,0 +1,48 @@
+name: Temporary bookDepth boundary docs
+
+on:
+  push:
+    branches:
+      - feat/binance-bookdepth-evidence
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/binance-bookdepth-evidence
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Promote provider evidence boundary
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/architecture/package-boundaries.md")
+          text = path.read_text(encoding="utf-8")
+          tree_old = "│       ├── vision.py\n│       ├── metadata.py"
+          tree_new = "│       ├── vision.py\n│       ├── book_depth.py\n│       ├── metadata.py"
+          if tree_old not in text:
+              raise SystemExit("package tree marker missing")
+          text = text.replace(tree_old, tree_new, 1)
+
+          marker = "## Ownership\n"
+          if marker not in text:
+              raise SystemExit("Ownership marker missing")
+          section = """## Provider evidence boundary\n\n`integrations/binance/book_depth.py` は、Binance Vision USD-M daily `bookDepth` archiveのprovider-specific historical evidenceだけを所有する。`timestamp,percentage,depth,notional` を厳密にdecodeし、maintained percentage bands、snapshot completeness、累積depth/notional、implied average price、timestamp orderingをfail-closedに検証する。top-of-book quote、bid/ask spread、market impact、slippage、`MarketDataset`、`ExecutionEconomicsProfile`、execution/accounting、P&Lのauthorityにはしない。\n\nraw archive bytesと既存Vision cache sidecarのURL / SHA-256 / size / `acquired_at` が取得証拠のauthorityであり、`BinanceBookDepthSeries` はその再現可能なderivativeである。rowの`timestamp`と現行`available_at`はarchive内に記録されたmarket-observation timestampを表し、archive自体がその時刻にpublicだったことを意味しない。providerが保証していない固定sampling cadenceやpublication lagは捏造しない。実archiveでもsnapshot間隔は一定ではないため、30秒固定などの補間前提を置かない。\n\n別sourceの価格を使ってbookDepth品質を検査する場合は、reference valueの`available_at`が対象liquidity snapshotの`available_at`以下であることを必須にする。未来available referenceによる品質判定を許さない。historical archiveの異常値はraw evidenceを修復・丸めして隠さず、構造検証と明示的なcausal reference-alignment検証を分けてfail closedに扱う。\n\nこのevidenceをbar-level participation、spread、impact、slippageへ変換する規則は別の研究変更である。導入する場合は結果を見る前にpreregisterし、execution-economics identityを変えた新しいDataset / Studyを構築する。既存canonical Studyやfrozen Experiment evidenceを書き換えない。\n\n"""
+          text = text.replace(marker, section + marker, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Commit durable docs and remove temporary workflow
+        run: |
+          git rm .github/workflows/tmp-doc-bookdepth.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/architecture/package-boundaries.md
+          git commit -m "docs: define Binance bookDepth evidence boundary"
+          git push origin HEAD:feat/binance-bookdepth-evidence

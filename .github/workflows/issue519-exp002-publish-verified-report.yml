@@ -1,0 +1,206 @@
+name: Issue 519 publish verified Experiment 0002 report
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-execute
+    paths:
+      - .github/workflows/issue519-exp002-publish-verified-report.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+env:
+  ISSUE_NUMBER: "519"
+  FORMAL_RUN_ID: "34750227256"
+  FORMAL_HEAD: 43c54f822dfd156f7fc5e4cf40f9fce9d8cc8b91
+  RESULT_ARTIFACT: canonical-m2-portable-exp002-recovered-result-v1-34750227256
+  RESULT_ARTIFACT_ID: "10315084502"
+  RESULT_ARTIFACT_DIGEST: sha256:9a85ec7fa40cabfb662556ef89780b140609e9b2e471006981c829800a043d1d
+  PREVERIFY_ARTIFACT: canonical-m2-portable-exp002-recovery-preverify-v1-34750227256
+  PREVERIFY_ARTIFACT_ID: "10315074770"
+  PREVERIFY_ARTIFACT_DIGEST: sha256:7f0b54b166e9e716a88a91fd9e80c47ae225caf043ae343a1f1a302e17704a48
+  FRESH_ARTIFACT: canonical-m2-portable-exp002-recovery-fresh-postverify-v1-34750227256
+  FRESH_ARTIFACT_ID: "10316125529"
+  FRESH_ARTIFACT_DIGEST: sha256:b2fcf6c924b4fbc3bd4ed5699ac372c8d518c7513f8c6232c52748a281c7a381
+  SOURCE_FAILURE_ARTIFACT_ID: "10313103451"
+  SOURCE_FAILURE_ARTIFACT_DIGEST: sha256:e8b2f4e2b69d196fa4af327942e4eb5ef1473ba5f2c29bfe2e3d175ef4b34e51
+  REPORT_ROOT: /tmp/issue519-exp002-verified-report
+
+jobs:
+  publish-report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout reporting head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify formal run and immutable artifact metadata through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FORMAL_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$FORMAL_HEAD"
+
+          for spec in \
+            "$RESULT_ARTIFACT_ID|$RESULT_ARTIFACT|$RESULT_ARTIFACT_DIGEST" \
+            "$PREVERIFY_ARTIFACT_ID|$PREVERIFY_ARTIFACT|$PREVERIFY_ARTIFACT_DIGEST" \
+            "$FRESH_ARTIFACT_ID|$FRESH_ARTIFACT|$FRESH_ARTIFACT_DIGEST"; do
+            IFS='|' read -r id name digest <<<"$spec"
+            artifact="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id")"
+            test "$(jq -r '.name' <<<"$artifact")" = "$name"
+            test "$(jq -r '.digest' <<<"$artifact")" = "$digest"
+            test "$(jq -r '.workflow_run.id' <<<"$artifact")" = "$FORMAL_RUN_ID"
+            test "$(jq -r '.expired' <<<"$artifact")" = "false"
+          done
+
+      - name: Download fresh interpretation authorization evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FRESH_ARTIFACT }}
+          path: ${{ env.REPORT_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FORMAL_RUN_ID }}
+
+      - name: Verify fresh binding and report hashes before interpretation
+        shell: bash
+        run: |
+          set -euo pipefail
+          binding="$REPORT_ROOT/fresh-binding.json"
+          primary="$REPORT_ROOT/primary/postverify.json"
+          supplemental="$REPORT_ROOT/supplemental/metric-seed-invariance-verification.json"
+          test -f "$binding"
+          test -f "$primary"
+          test -f "$supplemental"
+
+          primary_sha="$(sha256sum "$primary" | awk '{print $1}')"
+          supplemental_sha="$(sha256sum "$supplemental" | awk '{print $1}')"
+          jq -e \
+            --arg run "$FORMAL_RUN_ID" \
+            --arg head "$FORMAL_HEAD" \
+            --arg result_id "$RESULT_ARTIFACT_ID" \
+            --arg result_digest "$RESULT_ARTIFACT_DIGEST" \
+            --arg preverify_id "$PREVERIFY_ARTIFACT_ID" \
+            --arg preverify_digest "$PREVERIFY_ARTIFACT_DIGEST" \
+            --arg failure_id "$SOURCE_FAILURE_ARTIFACT_ID" \
+            --arg failure_digest "$SOURCE_FAILURE_ARTIFACT_DIGEST" \
+            --arg primary_sha "$primary_sha" \
+            --arg supplemental_sha "$supplemental_sha" '
+              .schema_version == "canonical_m2_portable_exp002_recovery_fresh_postverify_v1" and
+              .formal_recovery_run_id == $run and
+              .formal_recovery_head == $head and
+              .result_artifact_id == $result_id and
+              .result_artifact_digest == $result_digest and
+              .preverify_artifact_id == $preverify_id and
+              .preverify_artifact_digest == $preverify_digest and
+              .source_failure_artifact_id == $failure_id and
+              .source_failure_artifact_digest == $failure_digest and
+              .primary_report_sha256 == $primary_sha and
+              .supplemental_report_sha256 == $supplemental_sha and
+              .both_verifiers_passed == true and
+              .candidate_execution_count == 1 and
+              .candidate_reexecuted == false and
+              .comparison_recomputed == false and
+              .result_redownloaded_from_immutable_artifact == true and
+              .fresh_runner_reverified_published_artifact == true and
+              .interpretation_authorized == true
+            ' "$binding" >/dev/null
+
+          jq -e '
+            .verification_passed == true and
+            .candidate_reexecuted == false and
+            .interpretation_authorized == false and
+            (.independent_raw_evidence.formal_decision | type == "string")
+          ' "$primary" >/dev/null
+          jq -e '.verified == true and .total_checks == 1120' "$supplemental" >/dev/null
+
+      - name: Build verified human-readable report
+        shell: bash
+        run: |
+          set -euo pipefail
+          primary="$REPORT_ROOT/primary/postverify.json"
+          raw="$REPORT_ROOT/raw.json"
+          jq '.independent_raw_evidence' "$primary" > "$raw"
+
+          decision="$(jq -r '.formal_decision' "$raw")"
+          positive_effects="$(jq -r '.mean_reversion_formal_inputs.positive_factor_effect_symbol_count' "$raw")"
+          median_excess="$(jq -r '.mean_reversion_formal_inputs.median_excess_total_return' "$raw")"
+          positive_returns="$(jq -r '.mean_reversion_formal_inputs.candidate_positive_total_return_symbol_count' "$raw")"
+          candidate_turnover="$(jq -r '.mean_reversion_formal_inputs.candidate_median_turnover' "$raw")"
+          baseline_turnover="$(jq -r '.mean_reversion_formal_inputs.frozen_baseline_median_turnover' "$raw")"
+          unaffected_checks="$(jq -r '.unaffected_raw_return_equality_checks' "$raw")"
+          ppo_checks="$(jq -r '.ppo_exact_zero_effect_checks' "$raw")"
+          trading="$(jq -r '.candidate_cost_semantics.trading_observations' "$raw")"
+          positive_cost="$(jq -r '.candidate_cost_semantics.positive_cost_observations' "$raw")"
+          cash="$(jq -r '.candidate_cost_semantics.cash_observations' "$raw")"
+          candidate_fp="$(jq -r '.candidate_evidence_fingerprint' "$raw")"
+
+          table="$REPORT_ROOT/mean-reversion-table.md"
+          {
+            echo '| Symbol | Baseline total return | Candidate total return | Excess | Baseline turnover | Candidate turnover |'
+            echo '|---|---:|---:|---:|---:|---:|'
+            jq -r '
+              .deterministic_effects.mean_reversion.by_symbol
+              | to_entries[]
+              | "| \(.key) | \(.value.baseline_total_return) | \(.value.candidate_total_return) | \(.value.excess_total_return) | \(.value.baseline_turnover) | \(.value.candidate_turnover) |"
+            ' "$raw"
+          } > "$table"
+
+          comment="$REPORT_ROOT/comment.md"
+          cat > "$comment" <<EOF
+          ## Portable Experiment 0002 — formal verified result
+
+          Formal recovery run: \`$FORMAL_RUN_ID\` at head \`$FORMAL_HEAD\`.
+
+          The originally authorized candidate was executed exactly once in run \`34739994457\`. Formal recovery reused immutable failure Artifact \`$SOURCE_FAILURE_ARTIFACT_ID\` (\`$SOURCE_FAILURE_ARTIFACT_DIGEST\`) and did **not** re-execute the candidate or recompute the persisted comparison. Both pre-upload verifiers passed; the published result was then re-downloaded on a fresh runner and both verifiers passed again before interpretation was authorized.
+
+          **Formal decision: \`$decision\`**
+
+          Frozen decision inputs:
+          - positive mean-reversion factor-effect symbols: **$positive_effects / 5**
+          - median excess total return: **$median_excess**
+          - candidate positive-total-return symbols: **$positive_returns / 5**
+          - candidate median turnover: **$candidate_turnover**
+          - frozen baseline median turnover: **$baseline_turnover**
+
+          Mean-reversion by-symbol evidence:
+
+          $(cat "$table")
+
+          Falsification / accounting gates:
+          - unaffected raw-return equality checks: **$unaffected_checks**
+          - PPO exact-zero-effect checks under RULE_SIGNAL: **$ppo_checks**
+          - deterministic metric seed-invariance checks: **1120 / 1120**
+          - trading observations with positive realized cost: **$positive_cost / $trading**
+          - cash observations with zero-trade / zero-cost / zero-return semantics: **$cash**
+          - candidate EvidenceSet fingerprint: \`$candidate_fp\`
+
+          Immutable evidence:
+          - recovered result Artifact ID \`$RESULT_ARTIFACT_ID\`, digest \`$RESULT_ARTIFACT_DIGEST\`
+          - pre-upload verifier Artifact ID \`$PREVERIFY_ARTIFACT_ID\`, digest \`$PREVERIFY_ARTIFACT_DIGEST\`
+          - fresh-runner verifier Artifact ID \`$FRESH_ARTIFACT_ID\`, digest \`$FRESH_ARTIFACT_DIGEST\`
+
+          This remains a **development** Experiment under generic research-assumption execution economics. It does not by itself establish unused-data profitability, account-specific execution profitability, a final winner, or production/live authorization.
+          EOF
+
+          cat "$comment"
+
+      - name: Publish verified report to Issue 519
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          jq -n --rawfile body "$REPORT_ROOT/comment.md" '{body: $body}' > "$REPORT_ROOT/comment.json"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" --input "$REPORT_ROOT/comment.json" >/dev/null

@@ -1,0 +1,35 @@
+name: Temporary Final-Test Docs Patch
+
+on:
+  push:
+    branches:
+      - feature/final-test-authorization
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feature/final-test-authorization
+          persist-credentials: true
+      - name: Patch current docs
+        run: python3 .github/tmp_patch_final_test_docs.py
+      - name: Verify Guide source bindings
+        working-directory: guide
+        run: python3 tools/content_contract.py --check
+      - name: Commit durable docs only
+        run: |
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md docs/AGENTS.md docs/architecture/package-boundaries.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'docs: route final-test authorization contract'
+            git push origin HEAD:feature/final-test-authorization
+          fi

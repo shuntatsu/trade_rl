@@ -11,6 +11,8 @@
     "fee",
     "spread",
     "participation",
+    "capacity",
+    "causal capacity",
     "borrow",
     "zero overlay",
     "cost"
@@ -24,7 +26,7 @@
     {
       "path": "docs/architecture/lean-core.md",
       "heading": "Execution / accounting authority",
-      "sha256": "5bd44d6f6a878e0ff8b01c61d442772244e3e1f8995366aae6a07522919f2305"
+      "sha256": "9abafd628351ec036c561f172551cc45e40341d94b4bfacb8e5a0c2a13c99e85"
     }
   ],
   "code_references": []

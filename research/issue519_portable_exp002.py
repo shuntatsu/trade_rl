@@ -589,6 +589,18 @@ def verify_prereg(root: Path, report_root: Path) -> dict[str, object]:
         "candidate_signal_index": CANDIDATE_SIGNAL_INDEX,
         "rule_entry_threshold": 0.01,
         "rule_exit_threshold": 0.0025,
+        "frozen_baseline_mean_reversion_median_turnover": (
+            EXPECTED_BASELINE_MEDIAN_TURNOVER
+        ),
+        "formal_target_strategy": "mean_reversion",
+        "accept_positive_factor_effect_symbols_min": 4,
+        "accept_median_excess_total_return_strictly_positive": True,
+        "accept_candidate_positive_total_return_symbols": 5,
+        "accept_candidate_turnover_strictly_below_baseline": True,
+        "keep_baseline_positive_factor_effect_symbols_max": 2,
+        "keep_baseline_median_excess_total_return_non_positive": True,
+        "keep_baseline_candidate_positive_total_return_symbols_max": 3,
+        "trend_side_effect_must_be_disclosed": True,
         "candidate_executed": False,
         "result_inspected_before_preregistration": False,
         "profitability_claimed": False,
@@ -596,6 +608,9 @@ def verify_prereg(root: Path, report_root: Path) -> dict[str, object]:
         "final_test_authorized": False,
         "production_authorized": False,
     }
+    expected_keys = set(expected_pairs) | set(diagnostics)
+    if set(index) != expected_keys:
+        raise RuntimeError("Experiment 0002 preregistration index drift: key set")
     for key, expected in expected_pairs.items():
         if index.get(key) != expected:
             raise RuntimeError(f"Experiment 0002 preregistration index drift: {key}")

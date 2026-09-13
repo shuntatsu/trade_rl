@@ -1,138 +1,48 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { parseTopic, type CodeMapVisualization } from "../src/content/schema";
-import { CodeMap } from "../src/visualizations/CodeMap";
+import { ImplementationReferenceAppendix } from "../src/components/ImplementationReferenceAppendix";
+import { MarkdownArticle } from "../src/components/MarkdownArticle";
+import { loadTopics } from "../src/content/loadTopics";
 
-function topicWithVisualization(visualization: unknown) {
-  return {
-    id: "code-map",
-    title: "コード地図",
-    nav_label: "コード地図",
-    summary: "責務フロー",
-    keywords: [],
-    source_sections: [
-      {
-        path: "docs/architecture/package-boundaries.md",
-        heading: "Ownership",
-        sha256: "0".repeat(64),
-      },
-    ],
-    code_references: [],
-    sections: [],
-    visualization,
-  };
+function codeMapTopic() {
+  const topic = loadTopics().find((item) => item.id === "code-map");
+  if (!topic) throw new Error("missing code-map topic");
+  return topic;
 }
 
-describe("Guide code map contract", () => {
-  it("rejects unknown nodes and unknown relations", () => {
-    expect(() =>
-      parseTopic(
-        topicWithVisualization({
-          kind: "code-map",
-          nodes: [{ id: "data", label_ja: "データ", description_ja: "データ責務" }],
-          edges: [
-            {
-              from: "data",
-              to: "missing",
-              relation: "data-flow",
-              label_ja: "渡す",
-            },
-          ],
-        }),
-      ),
-    ).toThrow(/edge reference/i);
+describe("Guide code map reference", () => {
+  it("renders ownership and non-ownership as a static table", () => {
+    render(<MarkdownArticle topic={codeMapTopic()} />);
 
-    expect(() =>
-      parseTopic(
-        topicWithVisualization({
-          kind: "code-map",
-          nodes: [
-            { id: "data", label_ja: "データ", description_ja: "データ責務" },
-            { id: "risk", label_ja: "リスク", description_ja: "リスク責務" },
-          ],
-          edges: [
-            {
-              from: "data",
-              to: "risk",
-              relation: "imports",
-              label_ja: "渡す",
-            },
-          ],
-        }),
-      ),
-    ).toThrow(/relation/i);
+    expect(screen.getByRole("heading", { name: "Ownership" })).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(table).toHaveTextContent("責務");
+    expect(table).toHaveTextContent("owns");
+    expect(table).toHaveTextContent("does not own");
+    expect(table).toHaveTextContent("hard risk");
   });
 
-  it("rejects cyclic responsibility flows", () => {
-    expect(() =>
-      parseTopic(
-        topicWithVisualization({
-          kind: "code-map",
-          nodes: [
-            { id: "data", label_ja: "データ", description_ja: "データ責務" },
-            { id: "risk", label_ja: "リスク", description_ja: "リスク責務" },
-          ],
-          edges: [
-            {
-              from: "data",
-              to: "risk",
-              relation: "data-flow",
-              label_ja: "渡す",
-            },
-            {
-              from: "risk",
-              to: "data",
-              relation: "calls",
-              label_ja: "呼ぶ",
-            },
-          ],
-        }),
-      ),
-    ).toThrow(/cycle/i);
+  it("keeps code-map outside the normal reading order", async () => {
+    const manifest = (await import("../content/manifest.json")).default;
+    expect(manifest.reading_order).not.toContain("code-map");
+    expect(manifest.groups.at(-1)?.id).toBe("reference");
+    expect(manifest.groups.at(-1)?.topics).toContain("code-map");
   });
-});
 
-describe("Guide code map renderer", () => {
-  it("renders only declared directed edges and selects nodes", async () => {
+  it("offers implementation details only as collapsed disclosures", async () => {
     const user = userEvent.setup();
-    const onSelectNode = vi.fn();
-    const visualization: CodeMapVisualization = {
-      kind: "code-map",
-      nodes: [
-        { id: "data", label_ja: "データ", description_ja: "内部契約" },
-        {
-          id: "integrations",
-          label_ja: "外部接続",
-          description_ja: "市場source adapter",
-        },
-      ],
-      edges: [
-        {
-          from: "integrations",
-          to: "data",
-          relation: "data-flow",
-          label_ja: "市場sourceを内部契約へ変換",
-        },
-      ],
-    };
+    render(<ImplementationReferenceAppendix topic={codeMapTopic()} />);
 
-    const { container } = render(
-      <CodeMap
-        visualization={visualization}
-        selectedNode="data"
-        onSelectNode={onSelectNode}
-      />,
-    );
+    const summary = screen.getByText("実装詳細: hard riskの所有者");
+    const details = summary.closest("details");
+    expect(details).not.toHaveAttribute("open");
 
-    expect(container.querySelector('[data-edge="integrations->data"]')).not.toBeNull();
-    expect(container.querySelector('[data-edge="data->integrations"]')).toBeNull();
-    expect(screen.getByText("市場sourceを内部契約へ変換")).toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole("button", { name: "外部接続の実装詳細" }),
-    );
-    expect(onSelectNode).toHaveBeenCalledWith("integrations");
+    await user.click(summary);
+    expect(details).toHaveAttribute("open");
+    expect(
+      screen.getByText("trade_rl.risk.pretrade.PreTradeRisk.constrain"),
+    ).toBeVisible();
   });
 });

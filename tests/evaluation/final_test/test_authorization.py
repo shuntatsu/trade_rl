@@ -39,6 +39,8 @@ def _study_file_digests(root: Path) -> dict[str, str]:
 def _winner_study(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    rationale: str = "Accepted development evidence supports final-test authorization.",
 ) -> tuple[Path, str]:
     root, _, _, candidate, _ = _decided_first_experiment(
         tmp_path,
@@ -50,7 +52,7 @@ def _winner_study(
         outcome=StudyOutcome.WINNER,
         selected_evidence_digest=candidate.fingerprint,
         selected_strategy="ppo",
-        rationale="Accepted development evidence supports final-test authorization.",
+        rationale=rationale,
         frozen_by="researcher",
         frozen_at=datetime(2026, 9, 13, 11, 30, tzinfo=UTC),
     )
@@ -188,7 +190,11 @@ def test_inspection_rejects_different_bound_study(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     first_root, _ = _winner_study(tmp_path / "first", monkeypatch)
-    second_root, _ = _winner_study(tmp_path / "second", monkeypatch)
+    second_root, _ = _winner_study(
+        tmp_path / "second",
+        monkeypatch,
+        rationale="Semantically distinct freeze for substitution testing.",
+    )
     output = tmp_path / "authorization"
     authorize_final_evaluation(
         output,

@@ -16,7 +16,7 @@ def _module():
 
 
 def _write_tree(root: Path) -> None:
-    (root / "nested").mkdir(parents=True)
+    (root / "nested").mkdir(parents=True, exist_ok=True)
     (root / "a.txt").write_bytes(b"alpha\n")
     (root / "nested/b.bin").write_bytes(b"\x00\x01\x02")
     (root / ".mutation.lock").write_text("ephemeral", encoding="utf-8")

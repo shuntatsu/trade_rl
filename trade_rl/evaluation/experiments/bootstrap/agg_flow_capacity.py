@@ -24,6 +24,16 @@ _CANONICAL_STUDY_DIGEST = (
 )
 _PROVIDER_HEAD_SHA = "dd51da97845f4d8fe69c34b1c4e4859358911daf"
 _PROVIDER_PARSER_BLOB_SHA = "15cfe8f63716451fdb8c08ae84fba66ca754c55e"
+_SOURCE_VALIDATION_RUN_ID = 34758933034
+_SOURCE_VALIDATION_ARTIFACT_ID = 10318765553
+_SOURCE_VALIDATION_ARTIFACT_DIGEST = (
+    "3abd6592169ace3f308059fd524199d6fcf76c38862d0caec5e58192f6c7f7a3"
+)
+_SOURCE_VALIDATION_MANIFEST_SHA256 = (
+    "9ebffe78c29dbe336e5ed1323b686f41fae56ef83c50104fae3b8e965eb01f0a"
+)
+_CAUSAL_CAPACITY_HEAD_SHA = "db8193c81dd0ca334a15ffc1895d75884238f8a9"
+_PROCESSING_BAR_VOLUME_CAPACITY = False
 _MARKET = "usds-m"
 _SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT")
 _CALIBRATION_START = datetime(2021, 1, 1, tzinfo=UTC)
@@ -38,6 +48,7 @@ _MIN_VALID_DAYS_PER_SYMBOL = 20
 _MIN_VALID_DAYS_PER_YEAR = 10
 _MIN_VALID_HOURS_PER_SYMBOL = 480
 _CHECKSUM_REQUIRED = True
+_CHECKSUM_SUFFIX = ".CHECKSUM"
 _BUYER_TAKER_WHEN_BUYER_IS_MAKER = False
 _SELLER_TAKER_WHEN_BUYER_IS_MAKER = True
 _ARCHIVE_URL_TEMPLATE = (
@@ -60,6 +71,12 @@ _PAYLOAD_FIELDS = frozenset(
         "canonical_study_digest",
         "provider_head_sha",
         "provider_parser_blob_sha",
+        "source_validation_run_id",
+        "source_validation_artifact_id",
+        "source_validation_artifact_digest",
+        "source_validation_manifest_sha256",
+        "causal_capacity_head_sha",
+        "processing_bar_volume_capacity",
         "market",
         "symbols",
         "calibration_start",
@@ -74,6 +91,7 @@ _PAYLOAD_FIELDS = frozenset(
         "min_valid_days_per_year",
         "min_valid_hours_per_symbol",
         "checksum_required",
+        "checksum_suffix",
         "buyer_taker_when_buyer_is_maker",
         "seller_taker_when_buyer_is_maker",
         "archive_url_template",
@@ -177,6 +195,12 @@ class AggTradesFlowCapacityProtocol:
     canonical_study_digest: str
     provider_head_sha: str
     provider_parser_blob_sha: str
+    source_validation_run_id: int
+    source_validation_artifact_id: int
+    source_validation_artifact_digest: str
+    source_validation_manifest_sha256: str
+    causal_capacity_head_sha: str
+    processing_bar_volume_capacity: bool
     market: str
     symbols: tuple[str, ...]
     calibration_start: datetime
@@ -191,6 +215,7 @@ class AggTradesFlowCapacityProtocol:
     min_valid_days_per_year: int
     min_valid_hours_per_symbol: int
     checksum_required: bool
+    checksum_suffix: str
     buyer_taker_when_buyer_is_maker: bool
     seller_taker_when_buyer_is_maker: bool
     archive_url_template: str
@@ -215,6 +240,30 @@ class AggTradesFlowCapacityProtocol:
         provider_blob = _git_sha(
             self.provider_parser_blob_sha,
             field="provider_parser_blob_sha",
+        )
+        source_validation_run_id = _int(
+            self.source_validation_run_id,
+            field="source_validation_run_id",
+        )
+        source_validation_artifact_id = _int(
+            self.source_validation_artifact_id,
+            field="source_validation_artifact_id",
+        )
+        source_validation_artifact_digest = _sha256(
+            self.source_validation_artifact_digest,
+            field="source_validation_artifact_digest",
+        )
+        source_validation_manifest_sha256 = _sha256(
+            self.source_validation_manifest_sha256,
+            field="source_validation_manifest_sha256",
+        )
+        causal_capacity_head = _git_sha(
+            self.causal_capacity_head_sha,
+            field="causal_capacity_head_sha",
+        )
+        processing_bar_volume_capacity = _bool(
+            self.processing_bar_volume_capacity,
+            field="processing_bar_volume_capacity",
         )
         market = _text(self.market, field="market")
         symbols = tuple(self.symbols)
@@ -251,6 +300,7 @@ class AggTradesFlowCapacityProtocol:
             field="min_valid_hours_per_symbol",
         )
         checksum_required = _bool(self.checksum_required, field="checksum_required")
+        checksum_suffix = _text(self.checksum_suffix, field="checksum_suffix")
         buyer_taker = _bool(
             self.buyer_taker_when_buyer_is_maker,
             field="buyer_taker_when_buyer_is_maker",
@@ -278,6 +328,12 @@ class AggTradesFlowCapacityProtocol:
             raise ValueError(
                 "calibration_stop_exclusive cannot exceed evaluation_start"
             )
+        for identity_field, identity_value in (
+            ("source_validation_run_id", source_validation_run_id),
+            ("source_validation_artifact_id", source_validation_artifact_id),
+        ):
+            if identity_value <= 0:
+                raise ValueError(f"{identity_field} must be positive")
         if any(day < 1 or day > 28 for day in sample_days):
             raise ValueError("sample_month_days must be within 1..28")
         if burst_ms <= 0:
@@ -303,6 +359,12 @@ class AggTradesFlowCapacityProtocol:
             study_digest,
             provider_head,
             provider_blob,
+            source_validation_run_id,
+            source_validation_artifact_id,
+            source_validation_artifact_digest,
+            source_validation_manifest_sha256,
+            causal_capacity_head,
+            processing_bar_volume_capacity,
             market,
             symbols,
             calibration_start,
@@ -317,6 +379,7 @@ class AggTradesFlowCapacityProtocol:
             min_days_year,
             min_hours,
             checksum_required,
+            checksum_suffix,
             buyer_taker,
             seller_taker,
             url_template,
@@ -333,6 +396,12 @@ class AggTradesFlowCapacityProtocol:
             _CANONICAL_STUDY_DIGEST,
             _PROVIDER_HEAD_SHA,
             _PROVIDER_PARSER_BLOB_SHA,
+            _SOURCE_VALIDATION_RUN_ID,
+            _SOURCE_VALIDATION_ARTIFACT_ID,
+            _SOURCE_VALIDATION_ARTIFACT_DIGEST,
+            _SOURCE_VALIDATION_MANIFEST_SHA256,
+            _CAUSAL_CAPACITY_HEAD_SHA,
+            _PROCESSING_BAR_VOLUME_CAPACITY,
             _MARKET,
             _SYMBOLS,
             _CALIBRATION_START,
@@ -347,6 +416,7 @@ class AggTradesFlowCapacityProtocol:
             _MIN_VALID_DAYS_PER_YEAR,
             _MIN_VALID_HOURS_PER_SYMBOL,
             _CHECKSUM_REQUIRED,
+            _CHECKSUM_SUFFIX,
             _BUYER_TAKER_WHEN_BUYER_IS_MAKER,
             _SELLER_TAKER_WHEN_BUYER_IS_MAKER,
             _ARCHIVE_URL_TEMPLATE,
@@ -371,6 +441,26 @@ class AggTradesFlowCapacityProtocol:
         object.__setattr__(self, "canonical_study_digest", study_digest)
         object.__setattr__(self, "provider_head_sha", provider_head)
         object.__setattr__(self, "provider_parser_blob_sha", provider_blob)
+        object.__setattr__(self, "source_validation_run_id", source_validation_run_id)
+        object.__setattr__(
+            self, "source_validation_artifact_id", source_validation_artifact_id
+        )
+        object.__setattr__(
+            self,
+            "source_validation_artifact_digest",
+            source_validation_artifact_digest,
+        )
+        object.__setattr__(
+            self,
+            "source_validation_manifest_sha256",
+            source_validation_manifest_sha256,
+        )
+        object.__setattr__(self, "causal_capacity_head_sha", causal_capacity_head)
+        object.__setattr__(
+            self,
+            "processing_bar_volume_capacity",
+            processing_bar_volume_capacity,
+        )
         object.__setattr__(self, "market", market)
         object.__setattr__(self, "symbols", symbols)
         object.__setattr__(self, "calibration_start", calibration_start)
@@ -385,6 +475,7 @@ class AggTradesFlowCapacityProtocol:
         object.__setattr__(self, "min_valid_days_per_year", min_days_year)
         object.__setattr__(self, "min_valid_hours_per_symbol", min_hours)
         object.__setattr__(self, "checksum_required", checksum_required)
+        object.__setattr__(self, "checksum_suffix", checksum_suffix)
         object.__setattr__(
             self,
             "buyer_taker_when_buyer_is_maker",
@@ -446,6 +537,16 @@ class AggTradesFlowCapacityProtocol:
             "canonical_study_digest": self.canonical_study_digest,
             "provider_head_sha": self.provider_head_sha,
             "provider_parser_blob_sha": self.provider_parser_blob_sha,
+            "source_validation_run_id": self.source_validation_run_id,
+            "source_validation_artifact_id": self.source_validation_artifact_id,
+            "source_validation_artifact_digest": (
+                self.source_validation_artifact_digest
+            ),
+            "source_validation_manifest_sha256": (
+                self.source_validation_manifest_sha256
+            ),
+            "causal_capacity_head_sha": self.causal_capacity_head_sha,
+            "processing_bar_volume_capacity": (self.processing_bar_volume_capacity),
             "market": self.market,
             "symbols": list(self.symbols),
             "calibration_start": _iso_utc(self.calibration_start),
@@ -460,6 +561,7 @@ class AggTradesFlowCapacityProtocol:
             "min_valid_days_per_year": self.min_valid_days_per_year,
             "min_valid_hours_per_symbol": self.min_valid_hours_per_symbol,
             "checksum_required": self.checksum_required,
+            "checksum_suffix": self.checksum_suffix,
             "buyer_taker_when_buyer_is_maker": (self.buyer_taker_when_buyer_is_maker),
             "seller_taker_when_buyer_is_maker": (self.seller_taker_when_buyer_is_maker),
             "archive_url_template": self.archive_url_template,
@@ -484,6 +586,12 @@ def canonical_m2_aggtrades_flow_capacity_protocol() -> AggTradesFlowCapacityProt
         canonical_study_digest=_CANONICAL_STUDY_DIGEST,
         provider_head_sha=_PROVIDER_HEAD_SHA,
         provider_parser_blob_sha=_PROVIDER_PARSER_BLOB_SHA,
+        source_validation_run_id=_SOURCE_VALIDATION_RUN_ID,
+        source_validation_artifact_id=_SOURCE_VALIDATION_ARTIFACT_ID,
+        source_validation_artifact_digest=_SOURCE_VALIDATION_ARTIFACT_DIGEST,
+        source_validation_manifest_sha256=_SOURCE_VALIDATION_MANIFEST_SHA256,
+        causal_capacity_head_sha=_CAUSAL_CAPACITY_HEAD_SHA,
+        processing_bar_volume_capacity=_PROCESSING_BAR_VOLUME_CAPACITY,
         market=_MARKET,
         symbols=_SYMBOLS,
         calibration_start=_CALIBRATION_START,
@@ -498,6 +606,7 @@ def canonical_m2_aggtrades_flow_capacity_protocol() -> AggTradesFlowCapacityProt
         min_valid_days_per_year=_MIN_VALID_DAYS_PER_YEAR,
         min_valid_hours_per_symbol=_MIN_VALID_HOURS_PER_SYMBOL,
         checksum_required=_CHECKSUM_REQUIRED,
+        checksum_suffix=_CHECKSUM_SUFFIX,
         buyer_taker_when_buyer_is_maker=_BUYER_TAKER_WHEN_BUYER_IS_MAKER,
         seller_taker_when_buyer_is_maker=_SELLER_TAKER_WHEN_BUYER_IS_MAKER,
         archive_url_template=_ARCHIVE_URL_TEMPLATE,
@@ -560,6 +669,30 @@ def load_aggtrades_flow_capacity_protocol(
             payload["provider_parser_blob_sha"],
             field="provider_parser_blob_sha",
         ),
+        source_validation_run_id=_int(
+            payload["source_validation_run_id"],
+            field="source_validation_run_id",
+        ),
+        source_validation_artifact_id=_int(
+            payload["source_validation_artifact_id"],
+            field="source_validation_artifact_id",
+        ),
+        source_validation_artifact_digest=_sha256(
+            payload["source_validation_artifact_digest"],
+            field="source_validation_artifact_digest",
+        ),
+        source_validation_manifest_sha256=_sha256(
+            payload["source_validation_manifest_sha256"],
+            field="source_validation_manifest_sha256",
+        ),
+        causal_capacity_head_sha=_git_sha(
+            payload["causal_capacity_head_sha"],
+            field="causal_capacity_head_sha",
+        ),
+        processing_bar_volume_capacity=_bool(
+            payload["processing_bar_volume_capacity"],
+            field="processing_bar_volume_capacity",
+        ),
         market=_text(payload["market"], field="market"),
         symbols=_string_tuple(payload["symbols"], field="symbols"),
         calibration_start=_parse_datetime(
@@ -606,6 +739,10 @@ def load_aggtrades_flow_capacity_protocol(
         checksum_required=_bool(
             payload["checksum_required"],
             field="checksum_required",
+        ),
+        checksum_suffix=_text(
+            payload["checksum_suffix"],
+            field="checksum_suffix",
         ),
         buyer_taker_when_buyer_is_maker=_bool(
             payload["buyer_taker_when_buyer_is_maker"],

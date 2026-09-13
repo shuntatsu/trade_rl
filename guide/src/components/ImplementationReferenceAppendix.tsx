@@ -1,5 +1,37 @@
-import type { DocumentGuideTopic } from "../content/documentSchema";
+import { useEffect, useRef } from "react";
+
+import type {
+  CodeReference,
+  DocumentGuideTopic,
+} from "../content/documentSchema";
 import { CodeInspector } from "./CodeInspector";
+
+function ImplementationReference({
+  reference,
+  topic,
+  initiallyOpen,
+}: {
+  reference: CodeReference;
+  topic: DocumentGuideTopic;
+  initiallyOpen: boolean;
+}) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    if (detailsRef.current) detailsRef.current.open = initiallyOpen;
+  }, [initiallyOpen]);
+
+  return (
+    <details
+      ref={detailsRef}
+      className="implementation-reference"
+      data-symbol={reference.symbol}
+    >
+      <summary>実装詳細: {reference.label_ja}</summary>
+      <CodeInspector referenceId={reference.id} topic={topic} />
+    </details>
+  );
+}
 
 export function ImplementationReferenceAppendix({
   topic,
@@ -23,15 +55,12 @@ export function ImplementationReferenceAppendix({
       </div>
       <div className="implementation-appendix__items">
         {topic.code_references.map((reference) => (
-          <details
-            className="implementation-reference"
-            key={reference.id}
-            defaultOpen={reference.symbol === openSymbol}
-            data-symbol={reference.symbol}
-          >
-            <summary>実装詳細: {reference.label_ja}</summary>
-            <CodeInspector referenceId={reference.id} topic={topic} />
-          </details>
+          <ImplementationReference
+            key={`${reference.id}:${openSymbol ?? ""}`}
+            reference={reference}
+            topic={topic}
+            initiallyOpen={reference.symbol === openSymbol}
+          />
         ))}
       </div>
     </section>

@@ -441,7 +441,7 @@ function parseCodeMap(
       ...(codeRef ? { code_ref: codeRef } : {}),
     };
   });
-  const edges = raw.edges.map((item, index) => {
+  const edges = raw.edges.map((item, index): CodeMapEdge => {
     const edge = record(item, `edges[${index}]`);
     const from = string(edge.from, `edges[${index}].from`);
     const to = string(edge.to, `edges[${index}].to`);

@@ -28,13 +28,41 @@ def _payload() -> bytes:
     return buffer.getvalue()
 
 
+def _series():
+    return parse_vision_book_depth_archive(_payload(), source="fixture")
+
+
 def test_reference_alignment_rejects_future_available_reference() -> None:
-    series = parse_vision_book_depth_archive(_payload(), source="fixture")
+    series = _series()
 
     with pytest.raises(BinanceTransportError, match="future|availability|available"):
         validate_book_depth_reference_alignment(
             series,
             np.array([100.0]),
             reference_available_at=series.timestamps + np.timedelta64(1, "s"),
+            max_relative_deviation_rate=0.10,
+        )
+
+
+def test_reference_alignment_rejects_missing_availability_entry() -> None:
+    series = _series()
+
+    with pytest.raises(ValueError, match="reference_available_at"):
+        validate_book_depth_reference_alignment(
+            series,
+            np.array([100.0]),
+            reference_available_at=np.array([], dtype="datetime64[ns]"),
+            max_relative_deviation_rate=0.10,
+        )
+
+
+def test_reference_alignment_rejects_nat_availability() -> None:
+    series = _series()
+
+    with pytest.raises(ValueError, match="NaT"):
+        validate_book_depth_reference_alignment(
+            series,
+            np.array([100.0]),
+            reference_available_at=np.array(["NaT"], dtype="datetime64[ns]"),
             max_relative_deviation_rate=0.10,
         )

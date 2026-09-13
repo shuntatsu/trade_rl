@@ -25,9 +25,7 @@ def test_canonical_protocol_is_frozen_before_numeric_flow() -> None:
     assert protocol.canonical_study_digest == (
         "3d8404061a4082a8e9b3c786d9f5fc9a4347631dff39c201e3cba70470dfeb79"
     )
-    assert protocol.provider_head_sha == (
-        "dd51da97845f4d8fe69c34b1c4e4859358911daf"
-    )
+    assert protocol.provider_head_sha == "dd51da97845f4d8fe69c34b1c4e4859358911daf"
     assert protocol.provider_parser_blob_sha == (
         "15cfe8f63716451fdb8c08ae84fba66ca754c55e"
     )
@@ -40,9 +38,7 @@ def test_canonical_protocol_is_frozen_before_numeric_flow() -> None:
         "ADAUSDT",
     )
     assert protocol.calibration_start == datetime(2021, 1, 1, tzinfo=UTC)
-    assert protocol.calibration_stop_exclusive == datetime(
-        2023, 1, 1, tzinfo=UTC
-    )
+    assert protocol.calibration_stop_exclusive == datetime(2023, 1, 1, tzinfo=UTC)
     assert protocol.evaluation_start == datetime(2023, 1, 1, tzinfo=UTC)
     assert protocol.sample_month_days == (1,)
     assert protocol.burst_window_milliseconds == 5_000
@@ -68,12 +64,8 @@ def test_canonical_protocol_is_frozen_before_numeric_flow() -> None:
 
     planned_urls = protocol.planned_urls
     assert len(planned_urls) == 120
-    assert planned_urls[0].endswith(
-        "/BTCUSDT/BTCUSDT-aggTrades-2021-01-01.zip"
-    )
-    assert planned_urls[-1].endswith(
-        "/ADAUSDT/ADAUSDT-aggTrades-2022-12-01.zip"
-    )
+    assert planned_urls[0].endswith("/BTCUSDT/BTCUSDT-aggTrades-2021-01-01.zip")
+    assert planned_urls[-1].endswith("/ADAUSDT/ADAUSDT-aggTrades-2022-12-01.zip")
 
 
 def test_protocol_rejects_semantic_drift_and_post_evaluation_data() -> None:

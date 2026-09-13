@@ -4,7 +4,7 @@ import hashlib
 import io
 import zipfile
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -135,6 +135,19 @@ def test_book_depth_parser_returns_immutable_deterministic_evidence() -> None:
         series.depth[0, 0] = 1.0
     with pytest.raises(FrozenInstanceError):
         series.source_uri = "changed"  # type: ignore[misc]
+
+
+def test_book_depth_series_rejects_nat_time_evidence() -> None:
+    series = parse_vision_book_depth_archive(
+        _payload(_snapshot("2025-05-19 11:07:31")),
+        source="fixture",
+    )
+    nat = np.array(["NaT"], dtype="datetime64[ns]")
+
+    with pytest.raises(ValueError, match="timestamps.*NaT"):
+        replace(series, timestamps=nat)
+    with pytest.raises(ValueError, match="available_at.*NaT"):
+        replace(series, available_at=nat)
 
 
 def test_book_depth_parser_requires_exact_header() -> None:

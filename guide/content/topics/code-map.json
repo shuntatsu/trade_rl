@@ -57,7 +57,7 @@
       "kind": "class",
       "source_sha256": "cf9486f51189329f920089b76b23582d2ec08d00491e56af072ea33813b886ca",
       "label_ja": "hard riskの所有者",
-      "description_ja": "strategyが提案したtargetをgross exposure、short可否、participation等のhard limit内へ制約します。",
+      "description_ja": "strategyが提案したtargetへturnover、単一ウェイト上限、gross上限、drawdown縮小、emergency flatten、reduce-only等の事前リスク制約を適用します。",
       "variables": [],
       "tests": [
         "tests/risk/test_pretrade.py"
@@ -131,7 +131,7 @@
       {
         "id": "risk",
         "label_ja": "ハードリスク",
-        "description_ja": "戦略提案を実行可能なhard limit内へ射影します。",
+        "description_ja": "戦略提案をturnover・exposure・drawdown等の事前リスク制約内へ射影します。",
         "code_ref": "pretrade-risk"
       },
       {

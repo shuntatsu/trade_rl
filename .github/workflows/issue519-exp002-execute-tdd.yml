@@ -12,6 +12,8 @@ on:
       - research/test_issue519_metric_invariance_verifier.py
       - research/issue519_portable_exp002_postverify.py
       - research/test_issue519_portable_exp002_postverify.py
+      - research/issue519_portable_exp002_recovery.py
+      - research/test_issue519_portable_exp002_recovery.py
 
 permissions:
   contents: read
@@ -48,7 +50,7 @@ jobs:
       - name: Install research environment
         run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
 
-      - name: Compile and lint execution/verifier set
+      - name: Compile and lint execution/verifier/recovery set
         shell: bash
         run: |
           set -euo pipefail
@@ -57,19 +59,23 @@ jobs:
             research/issue519_portable_exp002_metricverify.py \
             research/test_issue519_metric_invariance_verifier.py \
             research/issue519_portable_exp002_postverify.py \
-            research/test_issue519_portable_exp002_postverify.py; do
+            research/test_issue519_portable_exp002_postverify.py \
+            research/issue519_portable_exp002_recovery.py \
+            research/test_issue519_portable_exp002_recovery.py; do
             if test -f "$optional"; then files+=("$optional"); fi
           done
           uv run python -m py_compile "${files[@]}"
           uv run ruff check "${files[@]}"
 
-      - name: Run Experiment 0002 execution/verifier tests
+      - name: Run Experiment 0002 execution/verifier/recovery tests
         shell: bash
         run: |
           set -euo pipefail
           tests=(research/test_issue519_portable_exp002_execute.py)
-          if test -f research/test_issue519_metric_invariance_verifier.py; then tests+=(research/test_issue519_metric_invariance_verifier.py); fi
-          if test -f research/test_issue519_portable_exp002_postverify.py; then tests+=(research/test_issue519_portable_exp002_postverify.py); fi
+          for optional in \
+            research/test_issue519_metric_invariance_verifier.py \
+            research/test_issue519_portable_exp002_postverify.py \
+            research/test_issue519_portable_exp002_recovery.py; do
+            if test -f "$optional"; then tests+=("$optional"); fi
+          done
           uv run pytest -q "${tests[@]}"
-
-# Explicit retrigger after deterministic Ruff source normalization.

@@ -53,6 +53,15 @@ Dataset側で既に持っているコストをruntime側でももう一度控除
 
 partial fillなら、要求数量ではなくrealized fill quantityだけをpositionへ反映します。
 
+## participation capacityの時間境界
+
+現行executorはnext-openであり、decision row `t` の注文は最初にrow `t+1` のopenで約定可能になります。participation capacityには2つの明示的なmodeがあります。
+
+- `processing_bar_volume_capacity=True` は既存互換modeです。約定を処理するbar全体の最終volumeをcapacity poolに使います。同じbarのopen時点では最終volumeはまだ確定していないため、point-in-timeで観測済みのliquidityとはみなしません。既存canonical runの意味を変えないためdefaultとして残します。
+- `processing_bar_volume_capacity=False` はcausal stress modeです。直前に完全終了したbarのvolumeだけをcapacity authorityにし、base-volumeならその前barcloseでmarket notionalへ換算します。現在barの最終volumeをfill capacityへ使いません。
+
+`False` は「次barの流動性を正しく予測できる」という主張ではありません。同一barの未来volumeへ依存しない条件でedgeが残るかを見るための、より保守的なstressです。modeはexecution-policy identityへ含まれるため、既存runを後から別modeとして読み替えません。
+
 ## 研究仮定と実市場truthを混同しない
 
 現行のfee・spread等は、比較可能な研究のために固定した**再現可能な仮定**です。過去の特定accountにおけるBinance実績feeや、観測不能なqueue position、hidden liquidityまで再現したとは主張しません。
@@ -62,6 +71,7 @@ partial fillなら、要求数量ではなくrealized fill quantityだけをposi
 | fee | Datasetが正本 |
 | spread | Datasetが正本 |
 | participation上限 | Datasetが正本 |
+| capacity volume source | execution-policyでlegacy / causal stressを区別 |
 | borrow | Datasetが正本 |
 | runtime追加overlay | Canonical M2ではzero |
 | Dataset-authoritative market impact model | 未導入 |

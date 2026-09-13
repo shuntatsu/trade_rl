@@ -8,6 +8,10 @@ on:
       - .github/workflows/issue519-exp002-execute-tdd.yml
       - research/issue519_portable_exp002_execute.py
       - research/test_issue519_portable_exp002_execute.py
+      - research/issue519_portable_exp002_metricverify.py
+      - research/test_issue519_metric_invariance_verifier.py
+      - research/issue519_portable_exp002_postverify.py
+      - research/test_issue519_portable_exp002_postverify.py
 
 permissions:
   contents: read
@@ -44,5 +48,26 @@ jobs:
       - name: Install research environment
         run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
 
-      - name: Run Experiment 0002 execution tests
-        run: uv run pytest -q research/test_issue519_portable_exp002_execute.py
+      - name: Compile and lint execution/verifier set
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(research/issue519_portable_exp002_execute.py research/test_issue519_portable_exp002_execute.py)
+          for optional in \
+            research/issue519_portable_exp002_metricverify.py \
+            research/test_issue519_metric_invariance_verifier.py \
+            research/issue519_portable_exp002_postverify.py \
+            research/test_issue519_portable_exp002_postverify.py; do
+            if test -f "$optional"; then files+=("$optional"); fi
+          done
+          uv run python -m py_compile "${files[@]}"
+          uv run ruff check "${files[@]}"
+
+      - name: Run Experiment 0002 execution/verifier tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(research/test_issue519_portable_exp002_execute.py)
+          if test -f research/test_issue519_metric_invariance_verifier.py; then tests+=(research/test_issue519_metric_invariance_verifier.py); fi
+          if test -f research/test_issue519_portable_exp002_postverify.py; then tests+=(research/test_issue519_portable_exp002_postverify.py); fi
+          uv run pytest -q "${tests[@]}"

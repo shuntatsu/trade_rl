@@ -70,7 +70,9 @@ def _resolve(*, execution_overlay: str = LEGACY_DATASET_EXECUTION_OVERLAY):
     )
 
 
-def test_execution_overlay_is_identity_bound_without_changing_raw_candidate_config() -> None:
+def test_execution_overlay_is_identity_bound_without_changing_raw_candidate_config() -> (
+    None
+):
     _, legacy = _resolve()
     _, causal = _resolve(
         execution_overlay=CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY
@@ -122,9 +124,7 @@ def test_execution_overlay_controls_runtime_capacity_mode(monkeypatch) -> None:
 
 
 def test_candidate_summary_records_actual_execution_overlay() -> None:
-    _, spec = _resolve(
-        execution_overlay=CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY
-    )
+    _, spec = _resolve(execution_overlay=CAUSAL_PREVIOUS_BAR_CAPACITY_EXECUTION_OVERLAY)
     result = CandidateRunResult(
         spec=spec,
         symbols=("BTCUSDT",),

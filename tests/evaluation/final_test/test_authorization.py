@@ -30,7 +30,9 @@ _FINAL_STOP = "2026-01-02T20:00:00.000000000"
 def _study_file_digests(root: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
-        result[str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        result[str(path.relative_to(root))] = hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
     return result
 
 
@@ -78,7 +80,10 @@ def test_winner_study_can_issue_one_sealed_authorization_without_mutating_study(
     assert authorization.final_evaluation_start == _FINAL_START
     assert authorization.final_evaluation_stop_exclusive == _FINAL_STOP
     assert set(path.name for path in output.iterdir()) == {"authorization.json"}
-    assert inspect_final_evaluation_authorization(output, study_root=study_root) == authorization
+    assert (
+        inspect_final_evaluation_authorization(output, study_root=study_root)
+        == authorization
+    )
     assert _study_file_digests(study_root) == before
 
     with pytest.raises(InvalidExperimentStateError, match="already exists"):

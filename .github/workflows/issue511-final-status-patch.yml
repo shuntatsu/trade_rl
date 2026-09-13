@@ -1,0 +1,150 @@
+name: Issue 511 final status patch
+
+on:
+  push:
+    branches:
+      - docs/issue511-final-status
+    paths:
+      - .github/workflows/issue511-final-status-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: docs/issue511-final-status
+          fetch-depth: 1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dev environment
+        run: uv sync --extra dev
+
+      - name: Promote verified Experiment 0001 status
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          status_path = Path("docs/research/current-status.md")
+          text = status_path.read_text(encoding="utf-8")
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one match, got {count}: {old[:80]!r}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              "一方、**Portable Controlled Experiment 0001は開始済みで、結果は未解釈**である。Issue #511では結果前preregistrationとfresh verificationを完了し、事前登録した唯一のbound 5-seed candidate runを実行中である。結果Artifactと独立post-result verificationが確定するまでstrategy効果を解釈しない。したがって現在は次を主張しない。",
+              "一方、**Portable Controlled Experiment 0001は独立再検証まで完了し、formal decisionはKEEP_BASELINE**である。事前登録した唯一のcandidateはmean-reversionで5 / 5 symbolsをbaseline比改善し、median turnoverも低下したが、candidate total returnが正だったのは1 / 5 symbolsだけだった。結果前に固定したformal ruleではこの条件がKEEP_BASELINEに該当する。したがって現在も次を主張しない。",
+          )
+          replace_once(
+              "次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。事前登録済みのbound candidate runを完了させ、immutable result Artifactをpre-result-frozen verifierで再取得・独立再計算し、その検証がGreenになった後だけformal decisionを解釈することである。別candidate runへの乗り換えや結果後の判定基準変更はしない。",
+              "次の研究上の本質的作業は、新しいmodel familyやbootstrap toolingを増やすことではない。Experiment 0001のKEEP_BASELINEをcurrent development authorityとして維持し、次に検証するControlled Factorを結果を見る前にpreregisterしたうえで、同じfactor-isolation・raw-return・cost/cash・fresh post-Artifact verification契約でdevelopment Experimentを積み上げることである。",
+          )
+          replace_once(
+              "### M2 — Canonical real-data baseline verified; Controlled Experiment 0001 in progress",
+              "### M2 — Canonical real-data baseline and Controlled Experiment 0001 verified",
+          )
+          replace_once(
+              "- Portable Controlled Experiment 0001 (#511) は結果前preregistration run `34706927260` / Artifact ID `10302710124` を封印し、fresh verifier run `34707135657` でcandidate不在・definition binding・frozen baseline turnoverを独立再検証した。唯一のbound candidate run `34707652616` は5-seed実行中で、result Artifactとformal decisionはまだ解釈していない。",
+              "- Portable Controlled Experiment 0001 (#511) は結果前preregistrationを封印・fresh verificationした唯一のcandidate EvidenceSetを再実行せずに完遂し、fresh runnerで公開result Artifactを再取得して独立再検証した。formal decisionは`KEEP_BASELINE`。mean-reversionのfactor effectは5 / 5 symbolsで正、median excess total returnは`+0.16996869069426646`、candidate positive-total-return symbolsは1 / 5、candidate median turnoverは`467.48617120292243`（baseline `858.3114067468092`）だった。unaffected raw-return equality 150 checks、deterministic metric seed invariance 1120 checks、tradeあり175 / 175 positive-cost、cash 25 zero-trade / zero-cost / zero-returnもGreenである。",
+          )
+          replace_once(
+              "- pre-portable Study 004 Experiment 0001 (#498) はfail-closedし、result Artifactも結果解釈も存在しないhistorical lineとして保持する。portable lineageではIssue #511のExperiment 0001を結果前preregistrationとfresh verification後に開始し、現在はbound 5-seed candidate runを実行中である。結果は未解釈である。",
+              "- pre-portable Study 004 Experiment 0001 (#498) はfail-closedし、result Artifactも結果解釈も存在しないhistorical lineとして保持する。portable lineageのExperiment 0001は結果前preregistrationからfresh result re-verificationまで完了し、`KEEP_BASELINE`をdevelopment decisionとして固定した。",
+          )
+          replace_once(
+              "未完了:\n\n1. 事前登録済みのbound candidate run `34707652616` だけを完了させ、別runへ乗り換えない。\n2. 完成したresult Artifactをimmutable evidenceとしてexact runへbindする。\n3. pre-result-frozen verifierでfactor isolation、unaffected-strategy raw-return invariance、deterministic metric seed invariance、cost/cash semanticsを独立再検証する。\n4. verifierがGreenになった後だけformal decisionと全strategy side effectを解釈・報告する。\n5. 以後のdevelopment Experimentを事前登録して継続し、最終的にwinnerをfreezeするかno-winnerと判断する。",
+              "未完了:\n\n1. Experiment 0001の`KEEP_BASELINE`を維持し、次のControlled Factorを結果を見る前にpreregisterする。\n2. 次のExperimentでもone-factor delta、unaffected-strategy raw-return invariance、deterministic metric seed invariance、cost/cash semantics、fresh post-Artifact verificationを必須にする。\n3. development Experimentを事前登録して継続し、最終的にwinnerをfreezeするかno-winnerと判断する。\n4. winner候補が成立した場合だけsealed unused-future / final-testへ進み、Production/live tradingとは引き続き分離する。",
+          )
+
+          for stale in (
+              "Portable Controlled Experiment 0001は開始済みで、結果は未解釈",
+              "唯一のbound candidate run `34707652616` は5-seed実行中",
+              "現在はbound 5-seed candidate runを実行中である。結果は未解釈である。",
+          ):
+              if stale in text:
+                  raise SystemExit(f"stale Experiment 0001 status remains: {stale}")
+          status_path.write_text(text, encoding="utf-8")
+
+          overview_path = Path("guide/content/topics/overview.json")
+          overview = json.loads(overview_path.read_text(encoding="utf-8"))
+          current = next(section for section in overview["sections"] if section["title"] == "現在の位置")
+          current["body"] = [
+              "market_build_v3 / portable_feature_numerics_v1、real-cost assumption、PPO Observation v2を持つportable Canonical real-data baselineは、結果前preregistrationからpost-Artifact独立検証まで完了しています。",
+              "Portable Controlled Experiment 0001もfresh runnerで公開result Artifactを独立再検証し、formal decisionはKEEP_BASELINEです。mean-reversionは5 / 5銘柄でbaseline比改善しましたが、candidate total returnが正だったのは1 / 5銘柄でした。profitability・winner・Production authorizationは未証明です。",
+          ]
+          overview_path.write_text(json.dumps(overview, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+          research_path = Path("guide/content/topics/research-status.json")
+          research = json.loads(research_path.read_text(encoding="utf-8"))
+          for source in research["source_sections"]:
+              if source["heading"] == "M2 — Canonical real-data baseline verified; Controlled Experiment 0001 in progress":
+                  source["heading"] = "M2 — Canonical real-data baseline and Controlled Experiment 0001 verified"
+          first = next(section for section in research["sections"] if section["title"] == "Portable baseline成立とstrategy勝利は別")
+          first["body"] = [
+              "現在のEvidenceは、CPU-portableなDataset identity、real-cost条件、結果前preregistration、再現可能なbaseline pathに加え、最初のPortable Controlled Experimentをfresh result re-verificationまで完了したことを示します。",
+              "Experiment 0001はmean-reversionを5 / 5銘柄でbaseline比改善しturnoverも低下させましたが、candidate total returnが正だったのは1 / 5銘柄のため、事前登録ruleどおりKEEP_BASELINEです。strategyのprofitabilityやwinnerはまだ示していません。",
+          ]
+          groups = {group["id"]: group for group in research["visualization"]["groups"]}
+          groups["verified"]["items"] = [
+              "market_build_v3 / portable_feature_numerics_v1を固定",
+              "full priced Dataset identityをheterogeneous AMD / Intel runnerでbyte-identicalに再現",
+              "結果前のplan-only portable preregistrationをbaselineより先に封印",
+              "5 symbols × 8 strategies × 5 seedsのportable baseline evidence",
+              "tradeあり175 observationsで175 / 175 positive total_cost",
+              "別runnerでDataset / StudyPlanを再構築しraw Candidate Runsから独立再計算",
+              "Portable Controlled Experiment 0001をfresh result re-verificationまで完了し、formal decisionをKEEP_BASELINEに固定",
+              "Experiment 0001でunaffected raw-return equality 150 checksとdeterministic metric seed invariance 1120 checksを検証",
+          ]
+          groups["pending"]["items"] = [
+              "KEEP_BASELINEをcurrent development authorityとして維持する",
+              "次のControlled Factorを結果を見る前にpreregisterする",
+              "次のExperimentでもfactor isolation・raw-return equality・metric invariance・cost semanticsを独立再検証する",
+              "development evidenceを積み上げ、winner / no-winner判断が成立した後だけsealed final-testへ進む",
+          ]
+          groups["limitations"]["items"] = [
+              "portable numerics保証はcanonical Dataset constructionとrepositoryのsupported Python/runner環境が対象",
+              "fee/spreadは再現可能なresearch assumptionsでありaccount-specific venue truthではない",
+              "Dataset-authoritative market-impact/slippage modelは未導入",
+              "Experiment 0001はfreeze済み旧implementationで完了し、後発のPPO cross-seed aggregation修正を遡及適用していない。ただしPPO aggregate metricはformal decisionのoracleに使っていない",
+          ]
+          research_path.write_text(json.dumps(research, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+
+          uv run python guide/tools/content_contract.py --refresh overview research-status
+          uv run python guide/tools/content_contract.py --check
+          uv run pytest -q \
+            tests/architecture/test_current_docs_layout.py \
+            tests/architecture/test_human_guide.py
+
+      - name: Commit verified status promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "shuntatsu"
+          git config user.email "148511409+shuntatsu@users.noreply.github.com"
+          git add \
+            docs/research/current-status.md \
+            guide/content/topics/overview.json \
+            guide/content/topics/research-status.json
+          git diff --cached --check
+          git commit -m "docs: record verified Experiment 0001 KEEP_BASELINE outcome"
+          git push origin HEAD:docs/issue511-final-status

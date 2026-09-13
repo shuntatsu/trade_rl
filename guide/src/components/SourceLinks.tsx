@@ -1,6 +1,6 @@
 import { ExternalLink } from "lucide-react";
 
-import type { SourceSection } from "../content/schema";
+import type { SourceSection } from "../content/documentSchema";
 
 const REPOSITORY = "https://github.com/shuntatsu/trade_rl/blob/main/";
 

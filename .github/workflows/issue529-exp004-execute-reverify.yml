@@ -1,0 +1,501 @@
+name: Issue 529 Experiment 0004 execute and reverify
+
+on:
+  push:
+    branches:
+      - tmp/issue529-exp0004-execute
+    paths:
+      - .github/workflows/issue529-exp004-execute-reverify.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+
+env:
+  ISSUE_NUMBER: "529"
+  FROZEN_PRODUCTION_SHA: 5605bfee8df4e38b6c9a26621a132a1e5453b9ff
+  PREREG_HELPER_BLOB: 9a33ba82a712174b6f44907009fd1fbe2228b68c
+  EXECUTION_HELPER_BLOB: 0af470fae949309324872110434533461752f6db
+  POSTVERIFY_BLOB: 3aa785200300fdf9ec56d2f5ca9bd3f4c3e43f1f
+  METRICVERIFY_BLOB: a07cac7aece39a337a2a5422ae1964064a9585fb
+  EXECUTION_TEST_BLOB: 096ede1f7bd44fc6522e1d98222521258be4aad5
+  POSTVERIFY_TEST_BLOB: cc93aa15f7197e99c0f57a1cb43dbc3869bdd3f8
+  METRICVERIFY_TEST_BLOB: d4f2b4b471b6d1a267083ade4267fe3d0dbad667
+  CANONICAL_DIGEST_HELPER_BLOB: 21bf255df52ad9437a523c10904077b152804958
+  CANONICAL_DIGEST_TEST_BLOB: 7c0afde81794165847a68c4af6615701591ba01a
+
+  PREREG_RUN_ID: "34764133446"
+  PREREG_HEAD: 0c06e141fc63547e6b2c591016023f089b3d0e42
+  PREREG_ARTIFACT: canonical-m2-portable-exp004-prereg-v1-34764133446
+  PREREG_ARTIFACT_ID: "10320825023"
+  PREREG_ARTIFACT_DIGEST: sha256:c98adca4c554da52a6df44969dd251f6f1181ca2c67c38a524be9d8a31c48274
+  PREREG_PREVERIFY_ARTIFACT_ID: "10320445597"
+  PREREG_PREVERIFY_ARTIFACT_DIGEST: sha256:fc100095090f271a38e3a7b06756c9c4335e8804fb63714fa9a96933a890a396
+
+  AUTH_RUN_ID: "34765343517"
+  AUTH_HEAD: ac9f6edc6f702550ddff12aa2c37b3370f825585
+  AUTH_ARTIFACT: canonical-m2-portable-exp004-prereg-corrected-fresh-verification-v1-34765343517
+  AUTH_ARTIFACT_ID: "10320251268"
+  AUTH_ARTIFACT_DIGEST: sha256:146ae0ca3d1f236f239eef2fb720b7d68551f9d8461e61c063ff19c4b45a1e36
+
+  PREREG_ROOT: /tmp/issue529-exp004-prereg-reference
+  RESULT_ROOT: /tmp/issue529-exp004-result
+  AUTH_ROOT: /tmp/issue529-exp004-auth
+  PREVERIFY_ROOT: /tmp/issue529-exp004-preverify
+  FRESH_RESULT_ROOT: /tmp/issue529-exp004-fresh-result
+  FRESH_PREREG_ROOT: /tmp/issue529-exp004-fresh-prereg
+  FRESH_PREVERIFY_ROOT: /tmp/issue529-exp004-fresh-preverify
+  FRESH_VERIFY_ROOT: /tmp/issue529-exp004-fresh-verify
+
+  RESULT_ARTIFACT: canonical-m2-portable-exp004-result-v1-${{ github.run_id }}
+  PREVERIFY_ARTIFACT: canonical-m2-portable-exp004-preverify-v1-${{ github.run_id }}
+  FRESH_VERIFY_ARTIFACT: canonical-m2-portable-exp004-fresh-postverify-v1-${{ github.run_id }}
+  FAILURE_ARTIFACT: canonical-m2-portable-exp004-execution-failure-v1-${{ github.run_id }}
+
+jobs:
+  execute-and-preverify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    outputs:
+      result_artifact_id: ${{ steps.upload_result.outputs.artifact-id }}
+      result_artifact_digest_hex: ${{ steps.upload_result.outputs.artifact-digest }}
+      preverify_artifact_id: ${{ steps.upload_preverify.outputs.artifact-id }}
+      preverify_artifact_digest_hex: ${{ steps.upload_preverify.outputs.artifact-digest }}
+    steps:
+      - name: Checkout exact execution head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production and all helper bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue529_portable_exp004.py)" = "$PREREG_HELPER_BLOB"
+          test "$(git hash-object research/issue529_portable_exp004_execute.py)" = "$EXECUTION_HELPER_BLOB"
+          test "$(git hash-object research/issue529_portable_exp004_postverify.py)" = "$POSTVERIFY_BLOB"
+          test "$(git hash-object research/issue529_portable_exp004_metricverify.py)" = "$METRICVERIFY_BLOB"
+          test "$(git hash-object research/test_issue529_portable_exp004_execute.py)" = "$EXECUTION_TEST_BLOB"
+          test "$(git hash-object research/test_issue529_portable_exp004_postverify.py)" = "$POSTVERIFY_TEST_BLOB"
+          test "$(git hash-object research/test_issue529_metric_invariance_verifier.py)" = "$METRICVERIFY_TEST_BLOB"
+          test "$(git hash-object research/issue522_exp003_fresh_reverify_recovery.py)" = "$CANONICAL_DIGEST_HELPER_BLOB"
+          test "$(git hash-object research/test_issue522_exp003_fresh_reverify_recovery.py)" = "$CANONICAL_DIGEST_TEST_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Enforce one-shot formal execution workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+          test "$(jq -r '.run_number' <<<"$run")" = "1"
+          test "$(jq -r '.run_attempt' <<<"$run")" = "1"
+          test "$(jq -r '.event' <<<"$run")" = "push"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$GITHUB_SHA"
+
+      - name: Verify preregistration authorization and authorities through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          prereg="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREREG_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$prereg")" = "$PREREG_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$prereg")" = "$PREREG_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$prereg")" = "$PREREG_RUN_ID"
+          test "$(jq -r '.expired' <<<"$prereg")" = "false"
+          prereg_preverify="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREREG_PREVERIFY_ARTIFACT_ID")"
+          test "$(jq -r '.digest' <<<"$prereg_preverify")" = "$PREREG_PREVERIFY_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$prereg_preverify")" = "$PREREG_RUN_ID"
+          auth_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$AUTH_RUN_ID")"
+          test "$(jq -r '.status' <<<"$auth_run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$auth_run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$auth_run")" = "$AUTH_HEAD"
+          auth="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$AUTH_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$auth")" = "$AUTH_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$auth")" = "$AUTH_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$auth")" = "$AUTH_RUN_ID"
+          test "$(jq -r '.expired' <<<"$auth")" = "false"
+          issue="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER")"
+          test "$(jq -r '.state' <<<"$issue")" = "open"
+
+      - name: Download sealed preregistration reference
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.PREREG_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PREREG_RUN_ID }}
+
+      - name: Copy sealed preregistration as the only execution input
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RESULT_ROOT"
+          mkdir -p "$RESULT_ROOT"
+          cp -a "$PREREG_ROOT/." "$RESULT_ROOT/"
+
+      - name: Download corrected fresh execution authorization
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.AUTH_ARTIFACT }}
+          path: ${{ env.AUTH_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.AUTH_RUN_ID }}
+
+      - name: Verify execution authorization content
+        shell: bash
+        run: |
+          set -euo pipefail
+          definition_digest="$(jq -r '.definition_digest' "$PREREG_ROOT/portable-exp004-prereg-index.json")"
+          requested_digest="$(jq -r '.requested_candidate_config_digest' "$PREREG_ROOT/portable-exp004-prereg-index.json")"
+          jq -e \
+            --arg auth_run "$AUTH_RUN_ID" \
+            --arg auth_head "$AUTH_HEAD" \
+            --arg prereg_run "$PREREG_RUN_ID" \
+            --arg prereg_head "$PREREG_HEAD" \
+            --arg prereg_id "$PREREG_ARTIFACT_ID" \
+            --arg prereg_digest "$PREREG_ARTIFACT_DIGEST" \
+            --arg preverify_id "$PREREG_PREVERIFY_ARTIFACT_ID" \
+            --arg preverify_digest "$PREREG_PREVERIFY_ARTIFACT_DIGEST" \
+            --arg definition_digest "$definition_digest" \
+            --arg requested_digest "$requested_digest" '
+              .schema_version == "canonical_m2_portable_exp004_prereg_execution_authorization_v2" and
+              .recovery_run_id == $auth_run and
+              .recovery_head == $auth_head and
+              .preregistration_run_id == $prereg_run and
+              .preregistration_head == $prereg_head and
+              .preregistration_artifact_id == $prereg_id and
+              .preregistration_artifact_digest == $prereg_digest and
+              .preupload_verification_artifact_id == $preverify_id and
+              .preupload_verification_artifact_digest == $preverify_digest and
+              .definition_digest == $definition_digest and
+              .requested_candidate_config_digest == $requested_digest and
+              .original_fresh_failure_was_digest_prefix_mismatch_only == true and
+              .formal_target_strategy == "lightgbm24" and
+              .candidate_executed == false and
+              .result_inspected == false and
+              .fresh_runner_reverified_preregistration == true and
+              .execution_authorized == true and
+              .profitability_claimed == false and
+              .winner_claimed == false and
+              .final_test_authorized == false and
+              .production_authorized == false
+            ' "$AUTH_ROOT/execution-authorization.json" >/dev/null
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile lint and test execution verifier set
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile research/issue529_portable_exp004.py research/issue529_portable_exp004_execute.py research/issue529_portable_exp004_postverify.py research/issue529_portable_exp004_metricverify.py research/issue522_exp003_fresh_reverify_recovery.py
+          uv run ruff check research/issue529_portable_exp004.py research/test_issue529_portable_exp004.py research/issue529_portable_exp004_execute.py research/test_issue529_portable_exp004_execute.py research/issue529_portable_exp004_postverify.py research/test_issue529_portable_exp004_postverify.py research/issue529_portable_exp004_metricverify.py research/test_issue529_metric_invariance_verifier.py research/issue522_exp003_fresh_reverify_recovery.py research/test_issue522_exp003_fresh_reverify_recovery.py
+          uv run pytest -q research/test_issue529_portable_exp004.py research/test_issue529_portable_exp004_execute.py research/test_issue529_portable_exp004_postverify.py research/test_issue529_metric_invariance_verifier.py research/test_issue522_exp003_fresh_reverify_recovery.py
+
+      - name: Reverify sealed input is result-blind
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue529-exp004-execution-prereg-check
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue529_portable_exp004 verify-prereg --root "$RESULT_ROOT" --report-root /tmp/issue529-exp004-execution-prereg-check > "$sealed_stdout" 2>&1
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          test ! -e "$RESULT_ROOT/study/experiments/0004/candidate"
+          test ! -e "$RESULT_ROOT/study/experiments/0004/verification.json"
+          test ! -e "$RESULT_ROOT/study/experiments/0004/comparison.json"
+          test ! -e "$RESULT_ROOT/study/experiments/0004/decision.json"
+          test ! -e "$RESULT_ROOT/study/experiments/0004/failure.json"
+          test ! -e "$RESULT_ROOT/portable-exp004-result-index.json"
+
+      - name: Execute authorized Experiment 0004 candidate exactly once
+        id: execute
+        shell: bash
+        env:
+          PREREG_RUN_ID: ${{ env.PREREG_RUN_ID }}
+          PREREG_ARTIFACT_ID: ${{ env.PREREG_ARTIFACT_ID }}
+          PREREG_ARTIFACT_DIGEST: ${{ env.PREREG_ARTIFACT_DIGEST }}
+          PREREG_VERIFY_ARTIFACT_ID: ${{ env.AUTH_ARTIFACT_ID }}
+          PREREG_VERIFY_ARTIFACT_DIGEST: ${{ env.AUTH_ARTIFACT_DIGEST }}
+        run: |
+          set -euo pipefail
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue529_portable_exp004_execute --root "$RESULT_ROOT" > "$sealed_stdout" 2>&1
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          jq -e '.candidate_execution_count == 1 and .candidate_rerun == false and .verification_status == "CONTROLLED" and .changed_paths == [["feature_indices"], ["feature_names"]] and .formal_target_strategy == "lightgbm24" and .interpretation_authorized == false and .profitability_claimed == false and .winner_claimed == false and .final_test_authorized == false and .production_authorized == false' "$RESULT_ROOT/portable-exp004-result-index.json" >/dev/null
+
+      - name: Upload fail-closed artifact if candidate execution/finalization fails
+        if: ${{ failure() && steps.execute.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FAILURE_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+      - name: Run independent primary verifier before upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PREVERIFY_ROOT/primary"
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue529_portable_exp004_postverify --prereg-root "$PREREG_ROOT" --result-root "$RESULT_ROOT" --report-root "$PREVERIFY_ROOT/primary" > "$sealed_stdout" 2>&1
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          jq -e '.verification_passed == true and .immutable_preregistration_prefix_verified == true and .prior_exp001_exp002_exp003_evidence_unchanged == true and .controlled_delta_verified == true and .unaffected_raw_return_equality_verified == true and .deterministic_seed_invariance_verified == true and .all_deterministic_total_returns_recomputed_from_raw == true and .ppo_effects_fully_disclosed_by_seed == true and .candidate_cost_semantics_verified == true and .independent_decision_replayed == true and .candidate_execution_count == 1 and .candidate_rerun == false and .candidate_reexecuted == false and .result_interpretation_sealed == true and .interpretation_authorized == false' "$PREVERIFY_ROOT/primary/postverify.json" >/dev/null
+
+      - name: Run independent metric verifier before upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PREVERIFY_ROOT/metric"
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue529_portable_exp004_metricverify --result-root "$RESULT_ROOT" --report-root "$PREVERIFY_ROOT/metric" > "$sealed_stdout" 2>&1
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          jq -e '.verified == true and .baseline_checks == 560 and .candidate_checks == 560 and .total_checks == 1120' "$PREVERIFY_ROOT/metric/metric-seed-invariance-verification.json" >/dev/null
+
+      - name: Seal root-independent pre-upload verifier binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_tree="$(uv run python -c 'from pathlib import Path; from research.issue522_exp003_fresh_reverify_recovery import canonical_tree_digest; print(canonical_tree_digest(Path("/tmp/issue529-exp004-result/study/experiments/0004/candidate")))')"
+          verification_sha="$(sha256sum "$RESULT_ROOT/study/experiments/0004/verification.json" | awk '{print $1}')"
+          comparison_sha="$(sha256sum "$RESULT_ROOT/study/experiments/0004/comparison.json" | awk '{print $1}')"
+          decision_sha="$(sha256sum "$RESULT_ROOT/study/experiments/0004/decision.json" | awk '{print $1}')"
+          result_index_sha="$(sha256sum "$RESULT_ROOT/portable-exp004-result-index.json" | awk '{print $1}')"
+          primary_sha="$(sha256sum "$PREVERIFY_ROOT/primary/postverify.json" | awk '{print $1}')"
+          metric_sha="$(sha256sum "$PREVERIFY_ROOT/metric/metric-seed-invariance-verification.json" | awk '{print $1}')"
+          jq -n --arg run "$GITHUB_RUN_ID" --arg head "$GITHUB_SHA" --arg candidate_tree "$candidate_tree" --arg verification_sha "$verification_sha" --arg comparison_sha "$comparison_sha" --arg decision_sha "$decision_sha" --arg result_index_sha "$result_index_sha" --arg primary_sha "$primary_sha" --arg metric_sha "$metric_sha" '{schema_version:"canonical_m2_portable_exp004_preupload_verification_v1",execution_run_id:$run,execution_head:$head,candidate_tree_digest_algorithm:"sha256_relative_path_plus_file_sha256_v1",candidate_tree_sha256:$candidate_tree,verification_file_sha256:$verification_sha,comparison_file_sha256:$comparison_sha,decision_file_sha256:$decision_sha,result_index_sha256:$result_index_sha,primary_report_sha256:$primary_sha,metric_report_sha256:$metric_sha,both_verifiers_passed:true,candidate_execution_count:1,candidate_rerun:false,candidate_reexecuted:false,interpretation_authorized:false}' > "$PREVERIFY_ROOT/preupload-binding.json"
+
+      - name: Upload immutable Experiment 0004 result after both verifier gates
+        id: upload_result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.RESULT_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+      - name: Upload pre-upload Experiment 0004 verification evidence
+        id: upload_preverify
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.PREVERIFY_ARTIFACT }}
+          path: ${{ env.PREVERIFY_ROOT }}
+          include-hidden-files: true
+          retention-days: 90
+
+      - name: Upload fail-closed artifact if a post-execution verifier fails
+        if: ${{ failure() && steps.execute.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FAILURE_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+
+  fresh-reverify:
+    needs: execute-and-preverify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact execution head on fresh runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove frozen production and verifier bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/issue529_portable_exp004_postverify.py)" = "$POSTVERIFY_BLOB"
+          test "$(git hash-object research/issue529_portable_exp004_metricverify.py)" = "$METRICVERIFY_BLOB"
+          test "$(git hash-object research/issue522_exp003_fresh_reverify_recovery.py)" = "$CANONICAL_DIGEST_HELPER_BLOB"
+          git fetch --no-tags --depth=1 origin "$FROZEN_PRODUCTION_SHA"
+          test "$(git rev-parse HEAD:trade_rl)" = "$(git rev-parse "$FROZEN_PRODUCTION_SHA:trade_rl")"
+
+      - name: Verify published result and pre-upload metadata through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT_ID: ${{ needs.execute-and-preverify.outputs.result_artifact_id }}
+          RESULT_DIGEST_HEX: ${{ needs.execute-and-preverify.outputs.result_artifact_digest_hex }}
+          PREVERIFY_ID: ${{ needs.execute-and-preverify.outputs.preverify_artifact_id }}
+          PREVERIFY_DIGEST_HEX: ${{ needs.execute-and-preverify.outputs.preverify_artifact_digest_hex }}
+        run: |
+          set -euo pipefail
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RESULT_ID")"
+          test "$(jq -r '.name' <<<"$result")" = "$RESULT_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$result")" = "sha256:$RESULT_DIGEST_HEX"
+          test "$(jq -r '.workflow_run.id' <<<"$result")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.expired' <<<"$result")" = "false"
+          preverify="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$PREVERIFY_ID")"
+          test "$(jq -r '.name' <<<"$preverify")" = "$PREVERIFY_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$preverify")" = "sha256:$PREVERIFY_DIGEST_HEX"
+          test "$(jq -r '.workflow_run.id' <<<"$preverify")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.expired' <<<"$preverify")" = "false"
+
+      - name: Download published result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.RESULT_ARTIFACT }}
+          path: ${{ env.FRESH_RESULT_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+
+      - name: Re-download exact preregistration
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREREG_ARTIFACT }}
+          path: ${{ env.FRESH_PREREG_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.PREREG_RUN_ID }}
+
+      - name: Re-download pre-upload verifier evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.PREVERIFY_ARTIFACT }}
+          path: ${{ env.FRESH_PREVERIFY_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+
+      - name: Set up frozen Python toolchain
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: "0.10.0"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install exact research environment
+        run: uv sync --extra dev --extra forecast-gbm --extra train-sb3
+
+      - name: Compile lint and test fresh verifier set
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m py_compile research/issue529_portable_exp004_postverify.py research/issue529_portable_exp004_metricverify.py research/issue522_exp003_fresh_reverify_recovery.py
+          uv run ruff check research/issue529_portable_exp004_postverify.py research/test_issue529_portable_exp004_postverify.py research/issue529_portable_exp004_metricverify.py research/test_issue529_metric_invariance_verifier.py research/issue522_exp003_fresh_reverify_recovery.py research/test_issue522_exp003_fresh_reverify_recovery.py
+          uv run pytest -q research/test_issue529_portable_exp004_postverify.py research/test_issue529_metric_invariance_verifier.py research/test_issue522_exp003_fresh_reverify_recovery.py
+
+      - name: Reverify root-independent pre-upload binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          binding="$FRESH_PREVERIFY_ROOT/preupload-binding.json"
+          candidate_tree="$(uv run python -c 'from pathlib import Path; from research.issue522_exp003_fresh_reverify_recovery import canonical_tree_digest; print(canonical_tree_digest(Path("/tmp/issue529-exp004-fresh-result/study/experiments/0004/candidate")))')"
+          verification_sha="$(sha256sum "$FRESH_RESULT_ROOT/study/experiments/0004/verification.json" | awk '{print $1}')"
+          comparison_sha="$(sha256sum "$FRESH_RESULT_ROOT/study/experiments/0004/comparison.json" | awk '{print $1}')"
+          decision_sha="$(sha256sum "$FRESH_RESULT_ROOT/study/experiments/0004/decision.json" | awk '{print $1}')"
+          result_index_sha="$(sha256sum "$FRESH_RESULT_ROOT/portable-exp004-result-index.json" | awk '{print $1}')"
+          primary_sha="$(sha256sum "$FRESH_PREVERIFY_ROOT/primary/postverify.json" | awk '{print $1}')"
+          metric_sha="$(sha256sum "$FRESH_PREVERIFY_ROOT/metric/metric-seed-invariance-verification.json" | awk '{print $1}')"
+          jq -e --arg candidate_tree "$candidate_tree" --arg verification_sha "$verification_sha" --arg comparison_sha "$comparison_sha" --arg decision_sha "$decision_sha" --arg result_index_sha "$result_index_sha" --arg primary_sha "$primary_sha" --arg metric_sha "$metric_sha" '.candidate_tree_digest_algorithm == "sha256_relative_path_plus_file_sha256_v1" and .candidate_tree_sha256 == $candidate_tree and .verification_file_sha256 == $verification_sha and .comparison_file_sha256 == $comparison_sha and .decision_file_sha256 == $decision_sha and .result_index_sha256 == $result_index_sha and .primary_report_sha256 == $primary_sha and .metric_report_sha256 == $metric_sha and .both_verifiers_passed == true and .candidate_execution_count == 1 and .candidate_rerun == false and .candidate_reexecuted == false and .interpretation_authorized == false' "$binding" >/dev/null
+
+      - name: Fresh independent primary post-verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$FRESH_VERIFY_ROOT/primary"
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue529_portable_exp004_postverify --prereg-root "$FRESH_PREREG_ROOT" --result-root "$FRESH_RESULT_ROOT" --report-root "$FRESH_VERIFY_ROOT/primary" > "$sealed_stdout" 2>&1
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          jq -e '.verification_passed == true and .candidate_reexecuted == false and .interpretation_authorized == false' "$FRESH_VERIFY_ROOT/primary/postverify.json" >/dev/null
+
+      - name: Fresh independent metric verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$FRESH_VERIFY_ROOT/metric"
+          sealed_stdout="$(mktemp)"
+          trap 'rm -f "$sealed_stdout"' EXIT
+          uv run python -m research.issue529_portable_exp004_metricverify --result-root "$FRESH_RESULT_ROOT" --report-root "$FRESH_VERIFY_ROOT/metric" > "$sealed_stdout" 2>&1
+          rm -f "$sealed_stdout"
+          trap - EXIT
+          jq -e '.verified == true and .total_checks == 1120' "$FRESH_VERIFY_ROOT/metric/metric-seed-invariance-verification.json" >/dev/null
+
+      - name: Seal fresh verification and authorize interpretation
+        shell: bash
+        env:
+          RESULT_ID: ${{ needs.execute-and-preverify.outputs.result_artifact_id }}
+          RESULT_DIGEST_HEX: ${{ needs.execute-and-preverify.outputs.result_artifact_digest_hex }}
+          PREVERIFY_ID: ${{ needs.execute-and-preverify.outputs.preverify_artifact_id }}
+          PREVERIFY_DIGEST_HEX: ${{ needs.execute-and-preverify.outputs.preverify_artifact_digest_hex }}
+        run: |
+          set -euo pipefail
+          candidate_tree="$(uv run python -c 'from pathlib import Path; from research.issue522_exp003_fresh_reverify_recovery import canonical_tree_digest; print(canonical_tree_digest(Path("/tmp/issue529-exp004-fresh-result/study/experiments/0004/candidate")))')"
+          primary_sha="$(sha256sum "$FRESH_VERIFY_ROOT/primary/postverify.json" | awk '{print $1}')"
+          metric_sha="$(sha256sum "$FRESH_VERIFY_ROOT/metric/metric-seed-invariance-verification.json" | awk '{print $1}')"
+          jq -n --arg run "$GITHUB_RUN_ID" --arg head "$GITHUB_SHA" --arg result_id "$RESULT_ID" --arg result_digest "sha256:$RESULT_DIGEST_HEX" --arg preverify_id "$PREVERIFY_ID" --arg preverify_digest "sha256:$PREVERIFY_DIGEST_HEX" --arg prereg_id "$PREREG_ARTIFACT_ID" --arg prereg_digest "$PREREG_ARTIFACT_DIGEST" --arg auth_id "$AUTH_ARTIFACT_ID" --arg auth_digest "$AUTH_ARTIFACT_DIGEST" --arg candidate_tree "$candidate_tree" --arg primary_sha "$primary_sha" --arg metric_sha "$metric_sha" '{schema_version:"canonical_m2_portable_exp004_fresh_postverify_v1",execution_run_id:$run,execution_head:$head,result_artifact_id:$result_id,result_artifact_digest:$result_digest,preverify_artifact_id:$preverify_id,preverify_artifact_digest:$preverify_digest,preregistration_artifact_id:$prereg_id,preregistration_artifact_digest:$prereg_digest,execution_authorization_artifact_id:$auth_id,execution_authorization_artifact_digest:$auth_digest,candidate_tree_digest_algorithm:"sha256_relative_path_plus_file_sha256_v1",candidate_tree_sha256:$candidate_tree,primary_report_sha256:$primary_sha,metric_report_sha256:$metric_sha,both_verifiers_passed:true,candidate_execution_count:1,candidate_rerun:false,candidate_reexecuted:false,fresh_runner_reverified_published_artifact:true,interpretation_authorized:true,profitability_claimed:false,winner_claimed:false,final_test_authorized:false,production_authorized:false}' > "$FRESH_VERIFY_ROOT/fresh-postverify-index.json"
+          jq '{schema_version:"canonical_m2_portable_exp004_interpretation_summary_v1",decision,formal_target_strategy,lightgbm24_formal_inputs:.independent_raw_evidence.lightgbm24_formal_inputs,lightgbm24_by_symbol:.independent_raw_evidence.deterministic_effects.lightgbm24.by_symbol,ridge24_side_effect:.independent_raw_evidence.deterministic_effects.ridge24,ppo_effects_by_seed:.independent_raw_evidence.ppo_effects_by_seed,stop_rule,candidate_execution_count,candidate_rerun,profitability_claimed,winner_claimed,final_test_authorized,production_authorized}' "$FRESH_RESULT_ROOT/portable-exp004-result-index.json" > "$FRESH_VERIFY_ROOT/interpretation-summary.json"
+
+      - name: Upload immutable fresh verification evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ env.FRESH_VERIFY_ARTIFACT }}
+          path: ${{ env.FRESH_VERIFY_ROOT }}
+          include-hidden-files: true
+          retention-days: 90
+
+  audit-fresh-verification:
+    needs:
+      - execute-and-preverify
+      - fresh-reverify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Verify fresh verification artifact through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100")"
+          test "$(jq -r --arg name "$FRESH_VERIFY_ARTIFACT" '[.artifacts[] | select(.name==$name)] | length' <<<"$artifacts")" = "1"
+          test "$(jq -r --arg name "$FRESH_VERIFY_ARTIFACT" '.artifacts[] | select(.name==$name) | .expired' <<<"$artifacts")" = "false"
+
+      - name: Re-download fresh verification artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FRESH_VERIFY_ARTIFACT }}
+          path: /tmp/issue529-exp004-fresh-audit
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ github.run_id }}
+
+      - name: Audit final interpretation authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.both_verifiers_passed == true and .candidate_execution_count == 1 and .candidate_rerun == false and .candidate_reexecuted == false and .fresh_runner_reverified_published_artifact == true and .interpretation_authorized == true and .profitability_claimed == false and .winner_claimed == false and .final_test_authorized == false and .production_authorized == false' /tmp/issue529-exp004-fresh-audit/fresh-postverify-index.json >/dev/null

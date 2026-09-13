@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 import numpy as np
 
 from research.issue519_portable_exp002_execute import (
@@ -7,6 +11,18 @@ from research.issue519_portable_exp002_execute import (
     _formal_decision,
 )
 from trade_rl.evaluation.experiments import ExperimentDecisionKind
+
+
+def test_direct_script_invocation_can_import_research_dependencies() -> None:
+    root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [sys.executable, "research/issue519_portable_exp002_execute.py", "--help"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_compound_reconstructs_ordered_total_return() -> None:

@@ -1,0 +1,172 @@
+name: Issue 519 Experiment 0002 verified interpretation
+
+on:
+  push:
+    branches:
+      - tmp/issue519-exp0002-execute
+    paths:
+      - .github/workflows/issue519-exp002-interpret-result.yml
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FORMAL_RUN_ID: "34750227256"
+  FORMAL_HEAD: 43c54f822dfd156f7fc5e4cf40f9fce9d8cc8b91
+  RESULT_ARTIFACT: canonical-m2-portable-exp002-recovered-result-v1-34750227256
+  RESULT_ARTIFACT_ID: "10315084502"
+  RESULT_ARTIFACT_DIGEST: sha256:9a85ec7fa40cabfb662556ef89780b140609e9b2e471006981c829800a043d1d
+  FRESH_VERIFY_ARTIFACT: canonical-m2-portable-exp002-recovery-fresh-postverify-v1-34750227256
+  FRESH_VERIFY_ARTIFACT_ID: "10316125529"
+  FRESH_VERIFY_ARTIFACT_DIGEST: sha256:b2fcf6c924b4fbc3bd4ed5699ac372c8d518c7513f8c6232c52748a281c7a381
+  EXPECTED_CANDIDATE_FINGERPRINT: f5ec53197a2f487ba11cc01a78edd4c93df8a2f172095e5903ee079ce5e9d0d0
+  RESULT_ROOT: /tmp/issue519-exp002-interpret-result
+  VERIFY_ROOT: /tmp/issue519-exp002-interpret-verify
+  SUMMARY_ROOT: /tmp/issue519-exp002-interpret-summary
+
+jobs:
+  interpret:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact interpretation head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify formal run and artifact bindings through API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$FORMAL_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "success"
+          test "$(jq -r '.head_sha' <<<"$run")" = "$FORMAL_HEAD"
+
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$RESULT_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$result")" = "$RESULT_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$result")" = "$RESULT_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$result")" = "$FORMAL_RUN_ID"
+          test "$(jq -r '.expired' <<<"$result")" = "false"
+
+          verify="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$FRESH_VERIFY_ARTIFACT_ID")"
+          test "$(jq -r '.name' <<<"$verify")" = "$FRESH_VERIFY_ARTIFACT"
+          test "$(jq -r '.digest' <<<"$verify")" = "$FRESH_VERIFY_ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$verify")" = "$FORMAL_RUN_ID"
+          test "$(jq -r '.expired' <<<"$verify")" = "false"
+
+      - name: Download immutable recovered result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.RESULT_ARTIFACT }}
+          path: ${{ env.RESULT_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FORMAL_RUN_ID }}
+
+      - name: Download fresh interpretation authorization
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ env.FRESH_VERIFY_ARTIFACT }}
+          path: ${{ env.VERIFY_ROOT }}
+          github-token: ${{ github.token }}
+          repository: shuntatsu/trade_rl
+          run-id: ${{ env.FORMAL_RUN_ID }}
+
+      - name: Verify authorization and emit result summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$VERIFY_ROOT/fresh-binding.json"
+          test -f "$VERIFY_ROOT/primary/postverify.json"
+          test -f "$VERIFY_ROOT/supplemental/metric-seed-invariance-verification.json"
+          test -f "$RESULT_ROOT/portable-exp002-result-index.json"
+
+          jq -e \
+            --arg result_id "$RESULT_ARTIFACT_ID" \
+            --arg result_digest "$RESULT_ARTIFACT_DIGEST" '
+              .result_artifact_id == $result_id and
+              .result_artifact_digest == $result_digest and
+              .both_verifiers_passed == true and
+              .candidate_execution_count == 1 and
+              .candidate_reexecuted == false and
+              .comparison_recomputed == false and
+              .result_redownloaded_from_immutable_artifact == true and
+              .fresh_runner_reverified_published_artifact == true and
+              .interpretation_authorized == true
+            ' "$VERIFY_ROOT/fresh-binding.json" >/dev/null
+
+          jq -e \
+            --arg fp "$EXPECTED_CANDIDATE_FINGERPRINT" '
+              .verification_passed == true and
+              .candidate_evidence_fingerprint == $fp and
+              .candidate_reexecuted == false and
+              .interpretation_authorized == false
+            ' "$VERIFY_ROOT/primary/postverify.json" >/dev/null
+
+          jq -e '
+              .verified == true and
+              .baseline_checks == 560 and
+              .candidate_checks == 560 and
+              .total_checks == 1120
+            ' "$VERIFY_ROOT/supplemental/metric-seed-invariance-verification.json" >/dev/null
+
+          jq -e \
+            --arg fp "$EXPECTED_CANDIDATE_FINGERPRINT" '
+              .candidate_evidence_fingerprint == $fp and
+              .candidate_execution_count == 1 and
+              .candidate_rerun == false and
+              .candidate_reexecuted_during_recovery == false and
+              .comparison_recomputed_during_recovery == false and
+              .interpretation_authorized == false and
+              .decision == .independent_raw_evidence.formal_decision
+            ' "$RESULT_ROOT/portable-exp002-result-index.json" >/dev/null
+
+          test "$(jq -c '.independent_raw_evidence' "$VERIFY_ROOT/primary/postverify.json")" = \
+               "$(jq -c '.independent_raw_evidence' "$RESULT_ROOT/portable-exp002-result-index.json")"
+
+          mkdir -p "$SUMMARY_ROOT"
+          jq -n \
+            --slurpfile result "$RESULT_ROOT/portable-exp002-result-index.json" \
+            --slurpfile binding "$VERIFY_ROOT/fresh-binding.json" \
+            --slurpfile post "$VERIFY_ROOT/primary/postverify.json" \
+            --slurpfile metric "$VERIFY_ROOT/supplemental/metric-seed-invariance-verification.json" '
+              {
+                schema_version: "canonical_m2_portable_exp002_verified_interpretation_v1",
+                interpretation_authorized: $binding[0].interpretation_authorized,
+                decision: $result[0].decision,
+                candidate_evidence_fingerprint: $result[0].candidate_evidence_fingerprint,
+                mean_reversion_formal_inputs: $result[0].independent_raw_evidence.mean_reversion_formal_inputs,
+                mean_reversion_effect: $result[0].independent_raw_evidence.deterministic_effects.mean_reversion,
+                trend_effect: $result[0].independent_raw_evidence.deterministic_effects.trend,
+                candidate_cost_semantics: $result[0].independent_raw_evidence.candidate_cost_semantics,
+                unaffected_raw_return_equality_checks: $result[0].independent_raw_evidence.unaffected_raw_return_equality_checks,
+                ppo_exact_zero_effect_checks: $result[0].independent_raw_evidence.ppo_exact_zero_effect_checks,
+                primary_verification_passed: $post[0].verification_passed,
+                metric_seed_invariance: {
+                  verified: $metric[0].verified,
+                  baseline_checks: $metric[0].baseline_checks,
+                  candidate_checks: $metric[0].candidate_checks,
+                  total_checks: $metric[0].total_checks
+                },
+                candidate_execution_count: $binding[0].candidate_execution_count,
+                candidate_reexecuted: $binding[0].candidate_reexecuted,
+                comparison_recomputed: $binding[0].comparison_recomputed,
+                result_artifact_id: $binding[0].result_artifact_id,
+                result_artifact_digest: $binding[0].result_artifact_digest
+              }
+            ' > "$SUMMARY_ROOT/verified-interpretation.json"
+
+          cat "$SUMMARY_ROOT/verified-interpretation.json"
+
+      - name: Upload verified interpretation summary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: canonical-m2-portable-exp002-verified-interpretation-v1-${{ github.run_id }}
+          path: ${{ env.SUMMARY_ROOT }}
+          retention-days: 90

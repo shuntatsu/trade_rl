@@ -53,3 +53,5 @@ jobs:
           uv run python -m py_compile "${files[@]}"
           uv run ruff check "${files[@]}"
           uv run pytest -q research/test_issue529_portable_exp003.py
+
+# Explicit retrigger after Ruff-only import normalization.

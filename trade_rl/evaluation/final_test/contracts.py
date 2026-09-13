@@ -37,7 +37,9 @@ def _canonical_ns_timestamp(value: object, *, field: str) -> str:
     try:
         instant = np.datetime64(text, "ns")
     except (TypeError, ValueError) as error:
-        raise ContractViolationError(f"{field} must be a valid nanosecond timestamp") from error
+        raise ContractViolationError(
+            f"{field} must be a valid nanosecond timestamp"
+        ) from error
     if np.isnat(instant):
         raise ContractViolationError(f"{field} must not be NaT")
     canonical = np.datetime_as_string(instant, unit="ns")
@@ -49,7 +51,11 @@ def _canonical_ns_timestamp(value: object, *, field: str) -> str:
 
 
 def _aware_datetime(value: object, *, field: str) -> datetime:
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() is None
+    ):
         raise ContractViolationError(f"{field} must be timezone-aware")
     return value
 
@@ -121,7 +127,9 @@ class FinalEvaluationAuthorization:
             self.final_evaluation_stop_exclusive,
             field="final_evaluation_stop_exclusive",
         )
-        if np.datetime64(final_start, "ns") < np.datetime64(development_stop, "ns"):
+        if np.datetime64(final_start, "ns") < np.datetime64(
+            development_stop, "ns"
+        ):
             raise ContractViolationError(
                 "final evaluation start must not precede development evaluation stop"
             )
@@ -133,7 +141,9 @@ class FinalEvaluationAuthorization:
         authorized_at = _aware_datetime(self.authorized_at, field="authorized_at")
         schema_version = _text(self.schema_version, field="schema_version")
         if schema_version != FINAL_EVALUATION_AUTHORIZATION_SCHEMA:
-            raise ContractViolationError("unsupported final evaluation authorization schema")
+            raise ContractViolationError(
+                "unsupported final evaluation authorization schema"
+            )
 
         object.__setattr__(self, "study_digest", study_digest)
         object.__setattr__(self, "study_freeze_digest", study_freeze_digest)
@@ -157,7 +167,9 @@ class FinalEvaluationAuthorization:
             "study_freeze_digest": self.study_freeze_digest,
             "winner_evidence_digest": self.winner_evidence_digest,
             "winner_strategy": self.winner_strategy,
-            "development_evaluation_stop_exclusive": self.development_evaluation_stop_exclusive,
+            "development_evaluation_stop_exclusive": (
+                self.development_evaluation_stop_exclusive
+            ),
             "final_evaluation_start": self.final_evaluation_start,
             "final_evaluation_stop_exclusive": self.final_evaluation_stop_exclusive,
             "authorized_by": self.authorized_by,
@@ -172,7 +184,10 @@ class FinalEvaluationAuthorization:
             study_digest=payload["study_digest"],
             study_freeze_digest=payload["study_freeze_digest"],
             winner_evidence_digest=payload["winner_evidence_digest"],
-            winner_strategy=_text(payload["winner_strategy"], field="winner_strategy"),
+            winner_strategy=_text(
+                payload["winner_strategy"],
+                field="winner_strategy",
+            ),
             development_evaluation_stop_exclusive=_text(
                 payload["development_evaluation_stop_exclusive"],
                 field="development_evaluation_stop_exclusive",
@@ -190,7 +205,10 @@ class FinalEvaluationAuthorization:
                 payload["authorized_at"],
                 field="authorized_at",
             ),
-            schema_version=_text(payload["schema_version"], field="schema_version"),
+            schema_version=_text(
+                payload["schema_version"],
+                field="schema_version",
+            ),
         )
 
     @property

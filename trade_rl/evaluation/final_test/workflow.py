@@ -11,14 +11,13 @@ from pathlib import Path
 from typing import cast
 
 from trade_rl.artifacts.canonical import canonical_json_bytes
-from trade_rl.evaluation.experiments import (
+from trade_rl.evaluation.experiments.contracts import StudyOutcome
+from trade_rl.evaluation.experiments.errors import (
     ArtifactIntegrityError,
     ContractViolationError,
     InvalidExperimentStateError,
-    StudyOutcome,
-    StudySnapshot,
-    inspect_study,
 )
+from trade_rl.evaluation.experiments.inspection import StudySnapshot, inspect_study
 from trade_rl.evaluation.final_test.contracts import FinalEvaluationAuthorization
 
 _ARTIFACT_SCHEMA = "final_evaluation_authorization_artifact_v1"
